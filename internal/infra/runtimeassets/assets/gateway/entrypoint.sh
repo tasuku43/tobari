@@ -5,6 +5,11 @@ confdir=/var/lib/mitmproxy/.mitmproxy
 public_dir=/run/tobari/ca-public
 mkdir -p "$confdir" "$public_dir"
 
+if [ "$(id -u)" -eq 0 ] || [ "$(id -g)" -eq 0 ]; then
+  echo "gateway must run as a non-root user" >&2
+  exit 1
+fi
+
 case ${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30} in
   *[!0-9]*|'') echo "TOBARI_UPSTREAM_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1 ;;
   0) echo "TOBARI_UPSTREAM_TIMEOUT_SECONDS must be greater than zero" >&2; exit 1 ;;

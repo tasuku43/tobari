@@ -41,8 +41,11 @@ services:
       context: gateway
       args:
         MITMPROXY_IMAGE: ${TOBARI_MITMPROXY_IMAGE}
+        TOBARI_UID: ${TOBARI_UID}
+        TOBARI_GID: ${TOBARI_GID}
     image: tobari-gateway:${TOBARI_ASSET_VERSION}
     container_name: tobari-gateway
+    user: "${TOBARI_UID}:${TOBARI_GID}"
     depends_on:
       opa:
         condition: service_healthy
@@ -74,7 +77,11 @@ services:
       io.tobari.owner: default
       io.tobari.component: gateway
     healthcheck:
-      test: [CMD, python, -c, "import socket;s=socket.create_connection(('127.0.0.1',8080),1);s.close()"]
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket,urllib.request;s=socket.create_connection(('127.0.0.1',8080),1);s.close();urllib.request.urlopen('http://tobari-opa:8181/health',timeout=1).read()"
       interval: 2s
       timeout: 2s
       retries: 30

@@ -316,12 +316,16 @@ class TobariGateway:
                 "credential_profile": profile_name,
                 "started": started,
             }
-        except PolicyUnavailable:
-            reason = "policy unavailable"
+        except PolicyUnavailable as error:
+            reason = str(error)
             _deny(flow, 503, "policy_unavailable")
             upstream_status = 503
-        except (CredentialError, RuntimeError, UnicodeError):
-            reason = "credential unavailable"
+        except CredentialError as error:
+            reason = str(error)
+            _deny(flow, 503, "credential_unavailable")
+            upstream_status = 503
+        except (RuntimeError, UnicodeError):
+            reason = "credential processing failed"
             _deny(flow, 503, "credential_unavailable")
             upstream_status = 503
         except Exception:

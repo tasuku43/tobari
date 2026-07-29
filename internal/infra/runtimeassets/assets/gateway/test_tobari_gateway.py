@@ -116,15 +116,17 @@ class GatewayTests(unittest.TestCase):
     def test_opa_outage_returns_503_without_forwarding(self):
         flow = self.flow()
         addon = gateway.TobariGateway()
+        output = io.StringIO()
         with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
             with mock.patch.object(
                 gateway,
                 "query_opa",
-                side_effect=gateway.PolicyUnavailable("down"),
+                side_effect=gateway.PolicyUnavailable("OPA request failed"),
             ):
-                with redirect_stdout(io.StringIO()):
+                with redirect_stdout(output):
                     addon.request(flow)
         self.assertEqual(flow.response.status_code, 503)
+        self.assertEqual(json.loads(output.getvalue())["reason"], "OPA request failed")
 
     def test_unexpected_gateway_error_fails_closed(self):
         flow = self.flow()

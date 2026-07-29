@@ -69,6 +69,7 @@ finish() {
     for container in tobari-gateway tobari-opa "$mock_name"; do
       if docker inspect "$container" >/dev/null 2>&1; then
         echo "integration diagnostics: $container" >&2
+        docker inspect --format '{{json .State}}' "$container" >&2 || true
         docker logs --tail 200 "$container" >&2 || true
       fi
     done
@@ -135,6 +136,11 @@ wait_listening "$mock_name" 8080
 
 plain_response=$(run_tobari exec -- curl -fsS http://mock-upstream:8080/allowed)
 assert_contains "$plain_response" '"authorization_present":false' "allowed HTTP response"
+
+gateway_uid=$(docker exec tobari-gateway sh -c "awk '/^Uid:/{print \$2}' /proc/1/status")
+gateway_gid=$(docker exec tobari-gateway sh -c "awk '/^Gid:/{print \$2}' /proc/1/status")
+[[ $gateway_uid == "$(id -u)" ]] || fail "Gateway runs as uid $gateway_uid instead of the host uid"
+[[ $gateway_gid == "$(id -g)" ]] || fail "Gateway runs as gid $gateway_gid instead of the host gid"
 
 expected_digest=$(printf 'Bearer %s' "$secret_value" | shasum -a 256 | awk '{print $1}')
 credential_response=$(run_tobari exec -- curl -fsS \

@@ -50,6 +50,11 @@ SSH agent mounts, host home mounts, and added Linux capabilities. Realm uses a
 non-root work user mapped to the invoking UID/GID where Docker supports it.
 Only the selected root and the named home volume are mounted writable.
 
+Gateway image directories are assigned to the invoking host UID/GID at build
+time, and the service starts directly as that non-root identity. It opens no
+root entrypoint and receives no added capability. This preserves owner-only host
+credential permissions across native Linux and Docker Desktop.
+
 All resources carry `io.tobari.owner=default`. Destructive lifecycle code
 selects exact stored names and confirms the ownership label before removal.
 `down` preserves the persistent home unless `--purge` is explicit.
