@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bootstrap Derived CLI"
+  short_description: "Initialize a CLI from this foundry template"
+  default_prompt: "Use $bootstrap-derived-cli to initialize this repository from the foundry template."

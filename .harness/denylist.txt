@@ -1,0 +1,3 @@
+# Add one case-insensitive term per line before publishing.
+# Typical entries include a former organization name, private hostname,
+# internal documentation URL, employee email domain, or ticket prefix.

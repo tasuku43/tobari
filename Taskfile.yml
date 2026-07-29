@@ -1,0 +1,60 @@
+version: '3'
+
+tasks:
+  build:
+    desc: Build the CLI binary.
+    cmds:
+      - mkdir -p bin
+      # Local builds intentionally retain the compiled dev version. Only the
+      # validated release packaging path may inject version and revision data.
+      - go build -buildvcs=false -trimpath -o bin/agentic-cli-foundry ./cmd/agentic-cli-foundry
+
+  test:
+    desc: Run the Go test suite.
+    cmds:
+      - go test ./...
+
+  test:race:
+    desc: Run the Go test suite with the race detector.
+    cmds:
+      - go test -race ./...
+
+  contracts:check:
+    desc: Validate the command catalog, capability ledger, and external schema fixtures.
+    cmds:
+      - go run ./tools/contractlint
+
+  check:fast:
+    desc: Run the quick local and agent completion gate.
+    cmds:
+      - ./scripts/check.sh fast
+
+  check:
+    desc: Run the required implementation-quality gate.
+    cmds:
+      - ./scripts/check.sh full
+
+  security:
+    desc: Run dependency, vulnerability, static security, and secret checks.
+    cmds:
+      - ./scripts/check.sh security
+
+  release:check:
+    desc: Validate release scripts, workflow, artifacts, and Formula contracts.
+    cmds:
+      - ./scripts/check.sh release
+
+  public:check:
+    desc: Validate that the repository is safe to publish.
+    cmds:
+      - ./scripts/check.sh public
+
+  bootstrap:preview:
+    desc: Preview exact template substitutions without changing files.
+    cmds:
+      - go run ./tools/bootstrap --dry-run
+
+  bootstrap:
+    desc: Apply validated template substitutions and switch to identity-ready state.
+    cmds:
+      - go run ./tools/bootstrap

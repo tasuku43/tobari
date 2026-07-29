@@ -1,0 +1,22 @@
+[
+  {
+    "id": "cli.discovery",
+    "status": "public",
+    "reason": ""
+  },
+  {
+    "id": "cli.version",
+    "status": "public",
+    "reason": ""
+  },
+  {
+    "id": "sample.inspect",
+    "status": "public",
+    "reason": ""
+  },
+  {
+    "id": "system.diagnostics",
+    "status": "public",
+    "reason": ""
+  }
+]

@@ -1,0 +1,58 @@
+name: Feature request
+description: Propose a user outcome and its enforceable contracts.
+title: "feature: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the outcome in public, task-oriented language. Do not include
+        private APIs, internal URLs, proprietary identifiers, or customer data.
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User outcome
+      description: What should a user or agent be able to accomplish?
+    validations:
+      required: true
+
+  - type: textarea
+    id: thesis
+    attributes:
+      label: Thesis alignment
+      description: Which thesis supports this capability? Should a thesis be refined?
+    validations:
+      required: true
+
+  - type: textarea
+    id: discovery-action
+    attributes:
+      label: Discovery, action, and opaque ID flow
+      description: Identify producers, output IDs, consumers, and any ambiguity boundary.
+
+  - type: textarea
+    id: effects
+    attributes:
+      label: Effects and external boundaries
+      description: List reads, creates, writes, destinations, approval, and audit needs.
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output and compatibility contract
+      description: Describe stdout, stderr, exit status, schema, and compatibility impact.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Explain the smallest viable approach and why alternatives are weaker.
+
+  - type: checkboxes
+    id: public-safe
+    attributes:
+      label: Public safety confirmation
+      options:
+        - label: This request contains no secret, internal information, or private data.
+          required: true

@@ -1,0 +1,35 @@
+{
+  "schema_version": 2,
+  "profile": "template",
+  "project": {
+    "name": "Agentic CLI Foundry",
+    "binary_name": "agentic-cli-foundry",
+    "go_module": "github.com/tasuku43/agentic-cli-foundry",
+    "github_owner": "tasuku43",
+    "github_repository": "agentic-cli-foundry",
+    "description": "A Go foundation for building agent-discoverable CLIs with coding agents.",
+    "formula_class": "AgenticCliFoundry",
+    "license_spdx": "MIT",
+    "security_contact": "security@agentic-cli-foundry.example"
+  },
+  "public_guard": {
+    "documentation_locale": "en",
+    "denylist_file": ".harness/denylist.txt",
+    "required_paths": [
+      "README.md",
+      "LICENSE",
+      "SECURITY.md",
+      "CONTRIBUTING.md",
+      "CODE_OF_CONDUCT.md",
+      "SUPPORT.md",
+      "AGENTS.md",
+      ".github/PULL_REQUEST_TEMPLATE.md",
+      ".github/ISSUE_TEMPLATE/bug.yml",
+      ".github/ISSUE_TEMPLATE/feature.yml",
+      ".github/ISSUE_TEMPLATE/config.yml",
+      ".github/workflows/ci.yml",
+      ".github/workflows/security.yml",
+      ".github/workflows/release.yml"
+    ]
+  }
+}

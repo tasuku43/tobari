@@ -1,0 +1,208 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Validate tag and source
+    runs-on: ubuntu-latest
+    outputs:
+      revision: ${{ steps.release.outputs.revision }}
+      stable: ${{ steps.release.outputs.stable }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Validate release tag
+        id: release
+        shell: bash
+        run: |
+          go run ./tools/releaseversion "${GITHUB_REF_NAME}" >>"${GITHUB_OUTPUT}"
+          revision=$(git rev-list -n 1 "${GITHUB_REF_NAME}")
+          echo "revision=${revision}" >>"${GITHUB_OUTPUT}"
+
+      - name: Run all required release preflight gates
+        run: |
+          ./scripts/check.sh full
+          ./scripts/check.sh security
+          ./scripts/check.sh release
+          ./scripts/check.sh public
+
+  build:
+    name: Build ${{ matrix.goos }} ${{ matrix.goarch }}
+    needs: preflight
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.revision }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build and verify archive
+        run: |
+          ./scripts/package-release.sh \
+            "${GITHUB_REF_NAME}" \
+            "${{ needs.preflight.outputs.revision }}" \
+            "${{ matrix.goos }}" \
+            "${{ matrix.goarch }}" \
+            dist
+
+      - name: Upload archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        shell: bash
+        run: |
+          mapfile -t archives < <(find dist -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) | sort)
+          test "${#archives[@]}" -eq 5
+          (cd dist && sha256sum -- *.tar.gz *.zip | sort -k2 > checksums.txt)
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          args=(--verify-tag --title "${GITHUB_REF_NAME}" --generate-notes)
+          if [[ "${{ needs.preflight.outputs.stable }}" != true ]]; then
+            args+=(--prerelease)
+          fi
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "release ${GITHUB_REF_NAME} already exists; refusing to replace immutable release assets" >&2
+            exit 1
+          fi
+          gh release create "${GITHUB_REF_NAME}" dist/* "${args[@]}"
+
+      - name: Upload checksums for Formula job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-checksums
+          path: dist/checksums.txt
+          if-no-files-found: error
+
+  formula:
+    name: Propose checksum-pinned Homebrew Formula
+    if: needs.preflight.outputs.stable == 'true'
+    needs: [preflight, build, publish]
+    runs-on: macos-15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout exact release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.revision }}
+          persist-credentials: false
+
+      - name: Download checksums
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-checksums
+          path: dist
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Render and audit Formula
+        id: formula
+        run: |
+          formula_dir=$(mktemp -d "${RUNNER_TEMP}/formula.XXXXXXXX")
+          binary=$(go run ./tools/projectmeta --field binary_name)
+          formula="${formula_dir}/${binary}.rb"
+          ./scripts/render-formula.sh \
+            "${GITHUB_REF_NAME}" \
+            "https://github.com/${GITHUB_REPOSITORY}" \
+            dist/checksums.txt \
+            "${formula}"
+          ruby -c "${formula}"
+          ./scripts/audit-formula.sh "${formula}"
+          echo "binary=${binary}" >>"${GITHUB_OUTPUT}"
+          echo "path=${formula}" >>"${GITHUB_OUTPUT}"
+
+      - name: Checkout Formula pull-request base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Stage audited Formula on main
+        env:
+          FORMULA_BINARY: ${{ steps.formula.outputs.binary }}
+          FORMULA_SOURCE: ${{ steps.formula.outputs.path }}
+        run: |
+          source_formula="${FORMULA_SOURCE}"
+          target_formula="Formula/${FORMULA_BINARY}.rb"
+          test -f "${source_formula}"
+          test -d Formula
+          cp "${source_formula}" "${target_formula}"
+          cmp -s "${source_formula}" "${target_formula}"
+
+      - name: Create Formula update pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          add-paths: Formula/*.rb
+          base: main
+          branch: chore/homebrew-formula-${{ github.ref_name }}
+          delete-branch: true
+          commit-message: "chore: update Homebrew Formula for ${{ github.ref_name }}"
+          title: "Update Homebrew Formula for ${{ github.ref_name }}"
+          body: |
+            Pins the public macOS arm64 and amd64 release archives by SHA-256.
+            The Formula was rendered and audited from the exact tagged source revision.

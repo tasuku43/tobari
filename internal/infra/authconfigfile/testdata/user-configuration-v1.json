@@ -1,0 +1,1 @@
+{"schema_version":1,"method":"oauth2","parameters":[{"name":"public_client_id","value":"example-public-client"},{"name":"redirect_uri","value":"http://127.0.0.1/callback"}]}

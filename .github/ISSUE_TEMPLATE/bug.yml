@@ -1,0 +1,74 @@
+name: Bug report
+description: Report a reproducible problem without sharing private data.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, tokens, private hostnames, internal URLs,
+        customer data, or proprietary logs. Follow SECURITY.md for a suspected
+        vulnerability instead of opening a public issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output from `agentic-cli-foundry version`, or the commit SHA.
+      placeholder: agentic-cli-foundry 1.2.3 (0123456789abcdef...)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Use synthetic inputs and the smallest deterministic sequence.
+      placeholder: |
+        1. Run ...
+        2. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include only sanitized output. Remove secrets and private identifiers.
+    validations:
+      required: true
+
+  - type: textarea
+    id: thesis-impact
+    attributes:
+      label: Thesis or contract impact
+      description: Note any violated thesis, output contract, effect boundary, or ID flow.
+
+  - type: checkboxes
+    id: public-safe
+    attributes:
+      label: Public safety confirmation
+      options:
+        - label: I removed secrets, internal information, and personal or customer data.
+          required: true
+        - label: This is not a privately reportable security vulnerability.
+          required: true

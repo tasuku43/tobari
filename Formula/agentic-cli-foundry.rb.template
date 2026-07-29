@@ -1,0 +1,24 @@
+class @@FORMULA_CLASS@@ < Formula
+  desc "@@DESCRIPTION@@"
+  homepage "@@REPOSITORY_URL@@"
+  version "@@VERSION@@"
+  license "@@LICENSE_SPDX@@"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "@@MACOS_ARM64_URL@@"
+      sha256 "@@MACOS_ARM64_SHA256@@"
+    else
+      url "@@MACOS_AMD64_URL@@"
+      sha256 "@@MACOS_AMD64_SHA256@@"
+    end
+  end
+
+  def install
+    bin.install "@@BINARY_NAME@@"
+  end
+
+  test do
+    assert_match "@@BINARY_NAME@@ #{version}", shell_output("#{bin}/@@BINARY_NAME@@ version")
+  end
+end

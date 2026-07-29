@@ -1,0 +1,27 @@
+# Build and release output
+/bin/
+/dist/
+/agentic-cli-foundry
+/agentic-cli-foundry.exe
+
+# Test output
+/coverage.out
+*.test
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
