@@ -61,7 +61,25 @@ cleanup() {
     run_tobari down --purge >/dev/null 2>&1 || true
   fi
 }
-trap cleanup EXIT
+
+finish() {
+  local status=$?
+  trap - EXIT
+  if ((status != 0)); then
+    for container in tobari-gateway tobari-opa "$mock_name"; do
+      if docker inspect "$container" >/dev/null 2>&1; then
+        echo "integration diagnostics: $container" >&2
+        docker logs --tail 200 "$container" >&2 || true
+      fi
+    done
+  fi
+  cleanup
+  if [[ -n ${test_root:-} ]]; then
+    rm -rf "$test_root"
+  fi
+  exit "$status"
+}
+trap finish EXIT
 
 command -v docker >/dev/null || fail "docker is required"
 docker version >/dev/null 2>&1 || fail "Docker Engine is unavailable"
@@ -72,7 +90,6 @@ for name in tobari-realm tobari-gateway tobari-opa "$mock_name"; do
 done
 
 test_root=$(mktemp -d "$PWD/.tobari-integration.XXXXXX")
-trap 'cleanup; rm -rf "$test_root"' EXIT
 mkdir -p "$test_root/user" "$test_root/config/tobari/credentials" "$test_root/state" "$test_root/workspace"
 
 config_directory=$test_root/config/tobari

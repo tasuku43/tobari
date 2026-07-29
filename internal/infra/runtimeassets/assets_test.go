@@ -45,6 +45,7 @@ func TestComposeSpecKeepsRealmOutsideControlAndEgress(t *testing.T) {
 		"HTTP_PROXY: http://tobari-gateway:8080",
 		"HTTPS_PROXY: http://tobari-gateway:8080",
 		"user: \"${TOBARI_UID}:${TOBARI_GID}\"",
+		"http://127.0.0.1:8181/health",
 		"cap_drop: [ALL]",
 		"no-new-privileges:true",
 		"${TOBARI_ROOT}:/workspace:rw",

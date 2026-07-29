@@ -26,7 +26,12 @@ services:
       io.tobari.owner: default
       io.tobari.component: opa
     healthcheck:
-      test: [CMD, /opa, eval, "1"]
+      test:
+        - CMD
+        - /opa
+        - eval
+        - --fail
+        - 'http.send({"method":"get","url":"http://127.0.0.1:8181/health"}).status_code == 200'
       interval: 2s
       timeout: 2s
       retries: 30
