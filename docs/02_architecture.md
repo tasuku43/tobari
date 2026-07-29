@@ -61,7 +61,7 @@ runtime/
   realm/entrypoint.sh
   gateway/Dockerfile
   gateway/addon/tobari_gateway.py
-  gateway/config.example.yaml
+  gateway/config.example.json
   opa/policy/tobari.rego
   opa/policy/tobari_test.rego
 ```
@@ -69,8 +69,8 @@ runtime/
 `up` materializes exact embedded bytes under the Tobari state directory, writes
 generated non-secret runtime configuration, and invokes Docker through the
 runtime port. No template is downloaded during startup. The Gateway CA and key
-persist in a named volume or owner-only state directory; only the public CA
-certificate is copied into the Realm image.
+persist in a named volume; a separate volume exposes only the public
+certificate to Realm, whose entrypoint builds an ephemeral CA bundle.
 
 ## Lifecycle model
 
@@ -86,7 +86,9 @@ io.tobari.version=<asset revision>
 
 `up` validates configuration, tests policy, reconciles exact resources, starts
 OPA and Gateway before Realm, and waits for health. A conflicting root is an
-input failure. `down` verifies the ownership label on each exact resource
+input failure. On an existing Realm, `up` restarts only OPA after successful
+policy tests and waits for health so host policy edits take effect without
+terminating Realm work. `down` verifies the ownership label on each exact resource
 before removing it. Persistent home is preserved unless `--purge` is supplied.
 
 ## Command catalog
@@ -114,6 +116,11 @@ client flow
 
 The same buffered bytes inspected by policy are forwarded. JSON is structured
 only when complete and within the limit. The addon never retries.
+
+Denied audit records are also the policy-development feedback interface:
+`tobari logs --component gateway` exposes bounded host, method, path, decision,
+and reason metadata; `status` exposes the trusted host policy directory. No
+automatic rule generation or permission expansion occurs.
 
 ## Docker abstraction
 

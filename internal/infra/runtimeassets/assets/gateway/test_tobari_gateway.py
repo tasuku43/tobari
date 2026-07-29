@@ -99,6 +99,10 @@ class GatewayTests(unittest.TestCase):
         self.assertNotIn('{"example":true}', rendered)
         audit = json.loads(rendered)
         self.assertEqual(audit["decision"], "deny")
+        self.assertEqual(audit["host"], "api.example.com")
+        self.assertEqual(audit["method"], "POST")
+        self.assertEqual(audit["path"], "/v1/resources")
+        self.assertEqual(audit["reason"], "denied")
 
     def test_opa_outage_returns_503_without_forwarding(self):
         flow = self.flow()
@@ -112,6 +116,19 @@ class GatewayTests(unittest.TestCase):
                 with redirect_stdout(io.StringIO()):
                     addon.request(flow)
         self.assertEqual(flow.response.status_code, 503)
+
+    def test_unexpected_gateway_error_fails_closed(self):
+        flow = self.flow()
+        addon = gateway.TobariGateway()
+        with mock.patch.object(
+            gateway,
+            "load_credential_config",
+            side_effect=ValueError("private unexpected failure"),
+        ):
+            with redirect_stdout(io.StringIO()):
+                addon.request(flow)
+        self.assertEqual(flow.response.status_code, 502)
+        self.assertEqual(json.loads(flow.response.content), {"error": "gateway_error"})
 
 
 if __name__ == "__main__":

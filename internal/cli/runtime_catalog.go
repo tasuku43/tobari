@@ -33,6 +33,7 @@ func runtimeCommandSpecs() []CommandSpec {
 					declaredCommandError(fault.KindRejected, "policy_test_failed", false, "doctor", "Correct the OPA policy before startup."),
 					declaredCommandError(fault.KindInternal, "status_failed", false, "status", "Reconcile the confirmed startup through status."),
 					declaredCommandError(fault.KindContract, "invalid_status_contract", false, "status", "Repair the runtime status contract."),
+					declaredCommandError(fault.KindUnavailable, "realm_start_failed", false, "status", "Reconcile partial Docker state."),
 					declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 				),
 				Mutation: &MutationContract{
@@ -195,6 +196,7 @@ func runtimeCommandSpecs() []CommandSpec {
 				FixedTarget:   fixedRealmTarget(),
 				Errors: mutationCommandErrors("down",
 					declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect the local state file."),
+					declaredCommandError(fault.KindUnavailable, "realm_stop_failed", false, "status", "Reconcile remaining Docker state."),
 					declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 				),
 				Mutation: &MutationContract{

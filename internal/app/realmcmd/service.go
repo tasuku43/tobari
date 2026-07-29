@@ -70,7 +70,20 @@ func (s *Service) Up(ctx context.Context, intent operation.Intent, root string) 
 	if err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
 		created, actionErr := s.runtime.Up(actionContext, resolved)
 		state = created
-		return actionErr
+		if actionErr == nil {
+			return nil
+		}
+		if _, structured := fault.PublicCopy(actionErr); structured {
+			return actionErr
+		}
+		return fault.Wrap(
+			fault.KindUnavailable,
+			"realm_start_failed",
+			"Realm startup did not complete; inspect status before retrying",
+			false,
+			actionErr,
+			fault.NextAction{Command: "status", Reason: "Reconcile partial Docker state before another startup."},
+		)
 	}); err != nil {
 		return realm.Status{}, err
 	}
@@ -181,7 +194,21 @@ func (s *Service) Down(ctx context.Context, intent operation.Intent, purge bool)
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
 	if err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		return s.runtime.Down(actionContext, state, purge)
+		actionErr := s.runtime.Down(actionContext, state, purge)
+		if actionErr == nil {
+			return nil
+		}
+		if _, structured := fault.PublicCopy(actionErr); structured {
+			return actionErr
+		}
+		return fault.Wrap(
+			fault.KindUnavailable,
+			"realm_stop_failed",
+			"Realm cleanup did not complete; inspect status before retrying",
+			false,
+			actionErr,
+			fault.NextAction{Command: "status", Reason: "Reconcile remaining Docker state before another cleanup."},
+		)
 	}); err != nil {
 		return realm.Status{}, err
 	}

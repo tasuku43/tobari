@@ -90,7 +90,7 @@ func TestPagedOutputRequiresExactOpaqueCursorBinding(t *testing.T) {
 }
 
 func TestDefaultSampleOutputRemainsCompleteAndUnpaged(t *testing.T) {
-	sampleList, found := DefaultCatalog().Lookup("sample list")
+	sampleList, found := defaultCatalog(true).Lookup("sample list")
 	if !found {
 		t.Fatal("default catalog lacks sample list")
 	}

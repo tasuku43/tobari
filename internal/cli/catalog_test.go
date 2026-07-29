@@ -156,20 +156,29 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 			t.Errorf("%s role: %v", command.Path, err)
 		}
 	}
-	for _, required := range []string{"doctor", "help", "version"} {
+	for _, required := range []string{"doctor", "help", "version", "up", "status", "shell", "exec", "logs", "down"} {
 		if !seen[required] {
 			t.Errorf("catalog is missing %q", required)
+		}
+	}
+	for path := range seen {
+		if strings.HasPrefix(path, "sample ") {
+			t.Fatalf("public catalog exposes template command %q", path)
 		}
 	}
 }
 
 func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 	wantCoverage := map[string]CollectionCoverage{
-		"doctor":      CollectionCoverageExhaustive,
-		"help":        CollectionCoverageExhaustive,
-		"sample list": CollectionCoverageExhaustive,
-		"sample read": CollectionCoverageNotApplicable,
-		"version":     CollectionCoverageNotApplicable,
+		"doctor":  CollectionCoverageExhaustive,
+		"help":    CollectionCoverageExhaustive,
+		"version": CollectionCoverageNotApplicable,
+		"up":      CollectionCoverageNotApplicable,
+		"status":  CollectionCoverageExhaustive,
+		"shell":   CollectionCoverageNotApplicable,
+		"exec":    CollectionCoverageNotApplicable,
+		"logs":    CollectionCoverageBoundedWindow,
+		"down":    CollectionCoverageNotApplicable,
 	}
 	for path, coverage := range wantCoverage {
 		command, found := DefaultCatalog().Lookup(path)

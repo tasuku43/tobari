@@ -65,14 +65,14 @@ func newSampleCLI(repository *cliSampleRepository) (*CLI, *bytes.Buffer, *bytes.
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	command := newCLIWithSamples(
-		strings.NewReader(""), stdout, stderr, DefaultCatalog(), passingInspector("unused"), repository,
+		strings.NewReader(""), stdout, stderr, defaultCatalog(true), passingInspector("unused"), repository,
 	)
 	return command, stdout, stderr
 }
 
 func TestE2ESampleListThenReadPassesIDsUnchanged(t *testing.T) {
 	var listOut, listErr bytes.Buffer
-	listCLI := New(strings.NewReader(""), &listOut, &listErr)
+	listCLI := newTemplateSampleCLI(strings.NewReader(""), &listOut, &listErr)
 	if code := runCLI(listCLI, []string{"sample", "list"}); code != ExitOK {
 		t.Fatalf("sample list code = %d, stderr = %q", code, listErr.String())
 	}
@@ -87,7 +87,7 @@ func TestE2ESampleListThenReadPassesIDsUnchanged(t *testing.T) {
 	for _, row := range rows {
 		id := strings.SplitN(row, "\t", 2)[0]
 		var readOut, readErr bytes.Buffer
-		readCLI := New(strings.NewReader(""), &readOut, &readErr)
+		readCLI := newTemplateSampleCLI(strings.NewReader(""), &readOut, &readErr)
 		if code := runCLI(readCLI, []string{"sample", "read", "--id", id}); code != ExitOK {
 			t.Fatalf("sample read --id %s code = %d, stderr = %q", id, code, readErr.String())
 		}

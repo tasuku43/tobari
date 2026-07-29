@@ -18,11 +18,12 @@ hash is over the exact bytes forwarded upstream.
 ## Body bounds
 
 The default inspection maximum is 1 MiB and the supported configurable range is
-1 KiB through 8 MiB. Gateway buffers at most the configured maximum plus one
-byte to classify truncation. A body above the maximum is never decoded into a
-JSON value. Non-JSON bodies expose metadata only. Gateway forwards the same
-captured bytes and rejects a request it cannot capture consistently; policy is
-never evaluated over one body while another is sent.
+1 KiB through 8 MiB. mitmproxy buffers the complete request in the MVP;
+Gateway's structured inspection is limited to the configured size. A body above
+the maximum is never decoded into a JSON value and is marked truncated.
+Non-JSON bodies expose metadata only. Gateway forwards the same captured bytes;
+policy is never evaluated over one body while another is sent. A total
+request-body memory limit is a known MVP gap.
 
 ## Decision
 

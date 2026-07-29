@@ -14,7 +14,7 @@ import (
 
 func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"help"}); code != ExitOK {
 		t.Fatalf("Run(help) code = %d, stderr = %q", code, stderr.String())
 	}
@@ -33,7 +33,7 @@ func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 
 func TestCommandHelpUsesCatalogMetadataAndDerivedReferences(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"sample", "read", "--help"}); code != ExitOK {
 		t.Fatalf("Run(sample read --help) code = %d, stderr = %q", code, stderr.String())
 	}
@@ -141,7 +141,7 @@ func TestAgentAndHumanHelpPublishFixedTarget(t *testing.T) {
 
 func TestRootAgentHelpIsACompactProjectionOfTheCatalog(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"help", "--format", "agent"}); code != ExitOK {
 		t.Fatalf("Run(agent help) code = %d, stderr = %q", code, stderr.String())
 	}
@@ -173,11 +173,11 @@ func TestRootAgentHelpIsACompactProjectionOfTheCatalog(t *testing.T) {
 }
 
 func TestScopedAgentHelpIsACompleteProjectionOfEveryCatalogCommand(t *testing.T) {
-	command := New(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	command := newTemplateSampleCLI(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 	for _, spec := range command.catalog.Commands() {
 		t.Run(strings.ReplaceAll(spec.Path, " ", "_"), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			selected := New(strings.NewReader(""), &stdout, &stderr)
+			selected := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 			args := append([]string{"help"}, strings.Fields(spec.Path)...)
 			args = append(args, "--format=agent")
 			if code := runCLI(selected, args); code != ExitOK {
@@ -343,7 +343,7 @@ func TestAgentHelpRootAndScopedShapeSnapshots(t *testing.T) {
 }
 
 func TestRootAgentHelpSizeGrowthContainsOnlyIndexFields(t *testing.T) {
-	command := New(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	command := newTemplateSampleCLI(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 	base := utilitySpec("base")
 	makeCommands := func(count int) []CommandSpec {
 		commands := make([]CommandSpec, 0, count)
@@ -401,7 +401,7 @@ func TestRootAgentHelpSizeGrowthContainsOnlyIndexFields(t *testing.T) {
 }
 
 func TestCatalogSelectReturnsDeepCopiesForScopedProjection(t *testing.T) {
-	catalog := DefaultCatalog()
+	catalog := defaultCatalog(true)
 	before := catalog.Commands()
 
 	namespace, exact := catalog.Select("sample")
@@ -432,7 +432,7 @@ func TestCatalogSelectReturnsDeepCopiesForScopedProjection(t *testing.T) {
 func runAgentHelpForTest(t *testing.T, args []string) map[string]json.RawMessage {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, args); code != ExitOK {
 		t.Fatalf("Run(%v) code = %d, stderr = %q", args, code, stderr.String())
 	}
@@ -467,7 +467,7 @@ func containsOutputFormat(formats []OutputFormat, wanted OutputFormat) bool {
 
 func TestAgentHelpCanSelectNamespaceWithoutLoadingWholeCatalog(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"help", "sample", "--format=agent"}); code != ExitOK {
 		t.Fatalf("Run(namespace agent help) code = %d, stderr = %q", code, stderr.String())
 	}
@@ -491,7 +491,7 @@ func TestAgentHelpCanSelectNamespaceWithoutLoadingWholeCatalog(t *testing.T) {
 
 func TestTextHelpCanSelectNamespace(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"help", "sample"}); code != ExitOK {
 		t.Fatalf("Run(namespace help) code = %d, stderr = %q", code, stderr.String())
 	}
@@ -505,7 +505,7 @@ func TestTrailingHelpAliasSupportsNamespaceAndExactCommand(t *testing.T) {
 	for _, args := range [][]string{{"sample", "--help"}, {"sample", "read", "--help"}, {"sample", "-h"}} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			command := New(strings.NewReader(""), &stdout, &stderr)
+			command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 			if code := runCLI(command, args); code != ExitOK {
 				t.Fatalf("Run(%v) code = %d, stderr = %q", args, code, stderr.String())
 			}
@@ -521,7 +521,7 @@ func TestTrailingHelpAliasSupportsNamespaceAndExactCommand(t *testing.T) {
 
 func TestAgentHelpPreservesTopLevelCompatibilityFields(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"help", "sample", "list", "--format=agent"}); code != ExitOK {
 		t.Fatalf("Run(selected agent help) code = %d, stderr = %q", code, stderr.String())
 	}
@@ -543,7 +543,7 @@ func TestAgentHelpPreservesTopLevelCompatibilityFields(t *testing.T) {
 
 func TestAgentHelpCanSelectOneCatalogCommandWithItsWorkflow(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"help", "sample", "read", "--format=agent"}); code != ExitOK {
 		t.Fatalf("Run(selected agent help) code = %d, stderr = %q", code, stderr.String())
 	}
@@ -564,7 +564,7 @@ func TestAgentHelpCanSelectOneCatalogCommandWithItsWorkflow(t *testing.T) {
 
 func TestAgentHelpPublishesDiscoverToActReferenceFlow(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"help", "sample", "--format", "agent"}); code != ExitOK {
 		t.Fatalf("Run(agent help) code = %d, stderr = %q", code, stderr.String())
 	}
@@ -600,7 +600,7 @@ func TestAgentHelpPublishesDiscoverToActReferenceFlow(t *testing.T) {
 
 func TestSelectedProducerDerivesExactNextArgvFromGroupedWorkflow(t *testing.T) {
 	var listOut, listErr bytes.Buffer
-	listCLI := New(strings.NewReader(""), &listOut, &listErr)
+	listCLI := newTemplateSampleCLI(strings.NewReader(""), &listOut, &listErr)
 	if code := runCLI(listCLI, []string{"sample", "list", "--format", "json"}); code != ExitOK {
 		t.Fatalf("sample list code = %d, stderr = %q", code, listErr.String())
 	}
@@ -614,7 +614,7 @@ func TestSelectedProducerDerivesExactNextArgvFromGroupedWorkflow(t *testing.T) {
 	}
 
 	var helpOut, helpErr bytes.Buffer
-	helpCLI := New(strings.NewReader(""), &helpOut, &helpErr)
+	helpCLI := newTemplateSampleCLI(strings.NewReader(""), &helpOut, &helpErr)
 	if code := runCLI(helpCLI, []string{"help", "sample", "list", "--format=agent"}); code != ExitOK {
 		t.Fatalf("selected producer help code = %d, stderr = %q", code, helpErr.String())
 	}
@@ -633,7 +633,7 @@ func TestSelectedProducerDerivesExactNextArgvFromGroupedWorkflow(t *testing.T) {
 	}
 	nextArgv := append(strings.Fields(consumer.Path), consumer.Input, listed.Items[0].ID)
 	var readOut, readErr bytes.Buffer
-	readCLI := New(strings.NewReader(""), &readOut, &readErr)
+	readCLI := newTemplateSampleCLI(strings.NewReader(""), &readOut, &readErr)
 	if code := runCLI(readCLI, nextArgv); code != ExitOK {
 		t.Fatalf("derived next argv %v code = %d, stderr = %q", nextArgv, code, readErr.String())
 	}
@@ -644,7 +644,7 @@ func TestSelectedProducerDerivesExactNextArgvFromGroupedWorkflow(t *testing.T) {
 
 func TestAgentRoundTripContractCoversDiscoveryActionAndRecovery(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"help", "sample", "--format=agent"}); code != ExitOK {
 		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
 	}
@@ -869,7 +869,7 @@ func TestHelpRejectsUnknownSelectorsAndFormats(t *testing.T) {
 		{"help", "--unknown"},
 	} {
 		var stdout, stderr bytes.Buffer
-		command := New(strings.NewReader(""), &stdout, &stderr)
+		command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
 		if code := runCLI(command, args); code != ExitUsage {
 			t.Errorf("Run(%v) code = %d, want %d", args, code, ExitUsage)
 		}

@@ -78,10 +78,12 @@ contains a profile type, exact allowed hosts, and a container secret path; it
 never contains the secret value.
 
 Gateway removes Realm-provided `Authorization`, `Proxy-Authorization`,
-`Cookie`, `Set-Cookie`, `X-API-Key`, and configured secret headers. A managed
-header is added only after an allow decision names a configured profile whose
-host binding exactly matches the normalized host. The value is never returned
-to Realm, OPA, CLI output, errors, or audit logs.
+`X-API-Key`, and configured managed-secret headers. Cookie and Set-Cookie
+values may remain part of the authorized application flow but are excluded
+from OPA input and Tobari audit logs. A managed header is added only after an
+allow decision names a configured profile whose host binding exactly matches
+the normalized host. The value is never returned to Realm, OPA, CLI output,
+errors, or audit logs.
 
 OAuth, refresh tokens, provider SDKs, OS keychains, request signing, and
 process-level identity are not used. There is no application-layer
@@ -109,7 +111,9 @@ each resulting request is independently authorized.
 Audit JSON includes timestamp, request ID, realm, host, method, path, decision,
 reason, selected credential profile name, upstream status, and duration. A
 profile name is non-secret metadata; secret values and raw bodies are excluded.
-CLI `logs` reads only component logs and does not add unredacted diagnostics.
+CLI `logs` reads only a bounded component-log window and does not add
+unredacted diagnostics. Policy authors use deny records on the trusted host;
+Tobari never converts observed traffic into an allow rule automatically.
 
 ## Enforcement
 
@@ -123,6 +127,7 @@ CLI `logs` reads only component logs and does not add unredacted diagnostics.
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Root path is the only host write scope | Mount-spec and path-containment tests |
 | Unknown effects fail closed | Domain and catalog validation |
+| Denials support safe policy learning | Structured audit assertions and integration log scan |
 
 ## Supply chain and publication
 

@@ -170,8 +170,11 @@ def query_opa(url: str, policy_input: dict[str, Any], timeout: float) -> Decisio
 
 
 def load_credential_config(path: str) -> dict[str, Any]:
-    with open(path, "rb") as handle:
-        raw = handle.read(MAX_CREDENTIAL_CONFIG_BYTES + 1)
+    try:
+        with open(path, "rb") as handle:
+            raw = handle.read(MAX_CREDENTIAL_CONFIG_BYTES + 1)
+    except OSError as error:
+        raise CredentialError("credential configuration could not be read") from error
     if len(raw) > MAX_CREDENTIAL_CONFIG_BYTES:
         raise CredentialError("credential configuration is too large")
     try:
@@ -314,6 +317,10 @@ class TobariGateway:
             reason = "credential unavailable"
             _deny(flow, 503, "credential_unavailable")
             upstream_status = 503
+        except Exception:
+            reason = "gateway error"
+            _deny(flow, 502, "gateway_error")
+            upstream_status = 502
         finally:
             if decision_name != "allow":
                 _audit(

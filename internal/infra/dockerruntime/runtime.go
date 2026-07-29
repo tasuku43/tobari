@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -157,6 +158,7 @@ func (r *Runtime) Up(ctx context.Context, root string) (realm.State, error) {
 	if err := ctx.Err(); err != nil {
 		return realm.State{}, err
 	}
+	reloadPolicy := false
 	if existing, exists, err := r.LoadState(ctx); err != nil {
 		return realm.State{}, err
 	} else if exists && existing.Root != root {
@@ -166,6 +168,8 @@ func (r *Runtime) Up(ctx context.Context, root string) (realm.State, error) {
 			"a Tobari realm is already configured for another root",
 			false,
 		)
+	} else {
+		reloadPolicy = exists
 	}
 	state, err := r.prepareState(root)
 	if err != nil {
@@ -200,9 +204,53 @@ func (r *Runtime) Up(ctx context.Context, root string) (realm.State, error) {
 		&output,
 		&output,
 	); err != nil {
+		if stateErr := r.recordRecentError(state, "Realm startup did not complete; inspect component logs."); stateErr != nil {
+			return realm.State{}, fmt.Errorf("docker compose up failed and recent error could not be persisted: %w", stateErr)
+		}
 		return realm.State{}, fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
+	if reloadPolicy {
+		if err := r.restartOPA(ctx); err != nil {
+			if stateErr := r.recordRecentError(state, "OPA policy reload did not complete; inspect OPA logs."); stateErr != nil {
+				return realm.State{}, fmt.Errorf("OPA reload failed and recent error could not be persisted: %w", stateErr)
+			}
+			return realm.State{}, err
+		}
+	}
 	return state, nil
+}
+
+func (r *Runtime) recordRecentError(state realm.State, message string) error {
+	state.RecentError = message
+	return r.writeState(state)
+}
+
+func (r *Runtime) restartOPA(ctx context.Context) error {
+	output, err := r.runner.Output(ctx, []string{"restart", "tobari-opa"}, os.Environ())
+	if err != nil {
+		return fmt.Errorf("restart OPA after policy reconciliation: %w: %s", err, boundedDiagnostic(output))
+	}
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		health, inspectErr := r.runner.Output(
+			ctx,
+			[]string{"inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", "tobari-opa"},
+			os.Environ(),
+		)
+		if inspectErr == nil && strings.TrimSpace(string(health)) == "healthy" {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return fmt.Errorf("OPA did not become healthy after policy reconciliation")
+		case <-ticker.C:
+		}
+	}
 }
 
 func (r *Runtime) prepareState(root string) (realm.State, error) {
@@ -374,7 +422,7 @@ func (r *Runtime) Inspect(ctx context.Context, state realm.State) (realm.Status,
 	return realm.Status{
 		Configured: true, Running: running, Root: state.Root,
 		Proxy: state.ProxyEndpoint, Policy: state.PolicyDirectory,
-		Components: components, RecentError: "",
+		Components: components, RecentError: state.RecentError,
 	}, nil
 }
 
@@ -491,6 +539,9 @@ func (r *Runtime) Down(ctx context.Context, state realm.State, purge bool) error
 		&output,
 		&output,
 	); err != nil {
+		if stateErr := r.recordRecentError(state, "Realm cleanup did not complete; inspect component logs."); stateErr != nil {
+			return fmt.Errorf("docker compose down failed and recent error could not be persisted: %w", stateErr)
+		}
 		return fmt.Errorf("docker compose down: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
 	if purge {

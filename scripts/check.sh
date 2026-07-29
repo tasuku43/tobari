@@ -14,7 +14,7 @@ export GOWORK=off
 profile=${1:-}
 
 usage() {
-  echo "usage: $0 <fast|full|security|release|public>" >&2
+  echo "usage: $0 <fast|full|security|release|public|policy|gateway|integration|runtime>" >&2
   exit 2
 }
 
@@ -26,6 +26,9 @@ preflight_commands() {
   if [[ $selected_profile == release ]]; then
     required_commands+=(shellcheck tar unzip ruby)
   fi
+  case "$selected_profile" in
+    policy|gateway|integration|runtime) required_commands+=(docker) ;;
+  esac
   for command_name in "${required_commands[@]}"; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
       missing_commands+=("$command_name")
@@ -151,6 +154,48 @@ run_public() {
   go run ./tools/contractlint
 }
 
+load_runtime_versions() {
+  # shellcheck source=../internal/infra/runtimeassets/assets/versions.env
+  source internal/infra/runtimeassets/assets/versions.env
+  [[ -n ${OPA_IMAGE:-} && -n ${MITMPROXY_IMAGE:-} ]] || {
+    echo "runtime image references are incomplete" >&2
+    return 1
+  }
+}
+
+run_policy() {
+  load_runtime_versions
+  docker version >/dev/null
+  docker run --rm \
+    -v "$PWD/internal/infra/runtimeassets/assets/opa/policy:/policy:ro" \
+    "$OPA_IMAGE" fmt --fail /policy/tobari.rego /policy/tobari_test.rego >/dev/null
+  docker run --rm \
+    -v "$PWD/internal/infra/runtimeassets/assets/opa/policy:/policy:ro" \
+    "$OPA_IMAGE" test /policy -v
+}
+
+run_gateway() {
+  load_runtime_versions
+  docker version >/dev/null
+  docker run --rm \
+    -e PYTHONPATH=/work/addon \
+    -v "$PWD/internal/infra/runtimeassets/assets/gateway:/work:ro" \
+    -w /work \
+    "$MITMPROXY_IMAGE" \
+    python -m unittest -v test_tobari_gateway.py
+}
+
+run_integration() {
+  docker version >/dev/null
+  ./scripts/test-integration.sh
+}
+
+run_runtime() {
+  run_policy
+  run_gateway
+  run_integration
+}
+
 run_full() {
   run_fast
   go vet ./...
@@ -160,7 +205,7 @@ run_full() {
 }
 
 case "$profile" in
-  fast|full|security|release|public) ;;
+  fast|full|security|release|public|policy|gateway|integration|runtime) ;;
   *) usage ;;
 esac
 
@@ -172,4 +217,8 @@ case "$profile" in
   security) run_security ;;
   release) run_release ;;
   public) run_public ;;
+  policy) run_policy ;;
+  gateway) run_gateway ;;
+  integration) run_integration ;;
+  runtime) run_runtime ;;
 esac

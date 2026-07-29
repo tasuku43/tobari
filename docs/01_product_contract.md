@@ -13,6 +13,12 @@ bounded source tree without receiving host credentials or unrestricted network
 egress. Tobari owns the lifecycle from environment validation through startup,
 interactive or non-interactive execution, inspection, logs, and cleanup.
 
+The primary operating loop is progressive policy learning: a Realm workload is
+denied by default, Gateway records the rejected host/method/path and reason
+without secrets, the user refines and tests policy on the trusted host, and the
+same workload is retried. Denial evidence is a product output, not incidental
+debug noise.
+
 ## Public vocabulary
 
 - **Realm:** the single long-lived, untrusted execution container.
@@ -33,7 +39,7 @@ The public commands are:
 | `status [--format text|json]` | utility | read | Inspect state, containers, health, root, proxy, policy, and recent errors |
 | `shell` | act, fixed target | read | Open an interactive shell in the running Realm |
 | `exec [--cwd PATH] -- COMMAND...` | act, fixed target | read | Execute one command in Realm and preserve its exit code |
-| `logs [--component gateway|opa|realm|all] [--follow]` | utility | read | Read redacted component logs |
+| `logs [--component gateway|opa|realm|all] [--tail N]` | utility | read | Read a bounded redacted log window, including policy-denial evidence |
 | `down [--purge]` | act, fixed target | write | Remove owned containers and transient networks; optionally remove persistent home |
 
 `shell` and `exec` intentionally classify the CLI operation as read because the
@@ -71,16 +77,16 @@ failures are stderr.
 
 Commands use complete delivery. Status covers the one local realm at one
 observation point and is exhaustive for that scope. Logs are a bounded recent
-window unless `--follow` is requested; follow is a deliberately streaming human
-utility and not a machine-complete collection.
+window of 1 through 10,000 lines per selected component.
 
 ## Configuration contract
 
-Configuration is resolved from `${XDG_CONFIG_HOME:-$HOME/.config}/tobari`:
+Configuration is resolved from the operating-system user configuration
+directory (`~/Library/Application Support/tobari` on macOS and
+`${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on Linux):
 
-- `config.yaml`: non-secret runtime and policy settings;
 - `policy/`: Rego mounted read-only into OPA;
-- `credentials.yaml`: profile type, exact hosts, and Gateway mount path;
+- `credentials.json`: schema-v1 profile type, exact hosts, and Gateway mount path;
 - `credentials/`: secret files, required to be regular owner-readable files
   with no group/other permissions.
 
@@ -94,7 +100,9 @@ documented in scoped help; they do not carry managed tokens.
 `up` creates labeled networks, a persistent volume, images, configuration
 material, and three containers. `down` removes only exact label-owned
 containers and transient networks; `--purge` also removes the exact persistent
-home volume. No command removes the mounted root or files inside it.
+home and Gateway CA volumes. A subsequent `up` tests current Rego and restarts
+only OPA to reload policy without stopping Realm processes. No command removes
+the mounted root or files inside it.
 
 ## Compatibility
 

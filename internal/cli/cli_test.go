@@ -36,6 +36,12 @@ func newTestCLI(inspector *cliInspector) (*CLI, *bytes.Buffer, *bytes.Buffer) {
 	return command, stdout, stderr
 }
 
+func newTemplateSampleCLI(in io.Reader, out, errOut io.Writer) *CLI {
+	command := New(in, out, errOut)
+	command.catalog = defaultCatalog(true)
+	return command
+}
+
 func passingInspector(detail string) *cliInspector {
 	return &cliInspector{report: doctor.Report{Checks: []doctor.Check{
 		{Name: "runtime", Status: doctor.CheckStatusPass, Detail: detail},

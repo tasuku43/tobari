@@ -29,6 +29,11 @@
         "host": "api.github.com",
         "method": "POST",
         "path_prefix": "/repos/"
+      },
+      {
+        "host": "mock-upstream",
+        "method": "POST",
+        "path_prefix": "/denied"
       }
     ]
   }

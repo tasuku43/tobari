@@ -25,11 +25,6 @@
     "reason": ""
   },
   {
-    "id": "sample.inspect",
-    "status": "public",
-    "reason": ""
-  },
-  {
     "id": "system.diagnostics",
     "status": "public",
     "reason": ""

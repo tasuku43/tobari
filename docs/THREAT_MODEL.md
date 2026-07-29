@@ -51,8 +51,10 @@ no management port there.
 ### Forged authorization
 
 Realm supplies `Authorization`, cookies, API keys, or another configured secret
-header. Gateway strips these before OPA and before upstream forwarding. Only an
-OPA-selected, host-bound profile can add a managed value.
+header. Gateway excludes all values from OPA and audit output. It strips
+authorization, API keys, and configured managed-secret headers before upstream
+forwarding; application cookies may be forwarded only after the request is
+allowed. Only an OPA-selected, host-bound profile can add a managed value.
 
 ### Policy outage or ambiguity
 
@@ -61,10 +63,10 @@ decision. Gateway denies and does not contact upstream.
 
 ### Request/body mismatch
 
-An attacker streams or changes content while policy evaluates it. Gateway
-buffers the bounded request body once and forwards those same bytes. Oversized
-bodies are marked truncated and not decoded; policy decides with that explicit
-metadata.
+An attacker streams or changes content while policy evaluates it. mitmproxy
+buffers the request body once and Gateway forwards those same bytes. Policy
+inspection is bounded; bodies above the inspection limit are marked truncated
+and not decoded. The MVP does not claim a total request-body memory limit.
 
 ### Host path escape
 

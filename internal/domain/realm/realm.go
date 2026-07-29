@@ -29,6 +29,7 @@ type State struct {
 	CredentialDir    string `json:"credential_directory"`
 	AssetVersion     string `json:"asset_version"`
 	ProxyEndpoint    string `json:"proxy_endpoint"`
+	RecentError      string `json:"recent_error"`
 }
 
 // Validate rejects incomplete or relative state before Docker operations.
@@ -50,6 +51,11 @@ func (s State) Validate() error {
 	}
 	if s.ProxyEndpoint != "http://tobari-gateway:8080" {
 		return fmt.Errorf("proxy endpoint is invalid")
+	}
+	if len(s.RecentError) > 1024 || strings.IndexFunc(s.RecentError, func(r rune) bool {
+		return r < ' ' || r == '\u007f' || r == '\u2028' || r == '\u2029'
+	}) >= 0 {
+		return fmt.Errorf("recent error is unsafe")
 	}
 	return nil
 }

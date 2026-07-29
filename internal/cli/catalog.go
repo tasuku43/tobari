@@ -421,8 +421,9 @@ func int64Pointer(value int64) *int64 {
 	return &value
 }
 
-// DefaultCatalog returns the public CLI contract.
-func DefaultCatalog() Catalog {
+// defaultCatalog retains the template's synthetic sample commands only for
+// framework contract tests. They are not part of Tobari's public product.
+func defaultCatalog(includeSamples bool) Catalog {
 	catalog := NewCatalog(
 		CommandSpec{
 			Path:    "doctor",
@@ -647,7 +648,21 @@ func DefaultCatalog() Catalog {
 			handler: runVersion,
 		},
 	)
-	return NewCatalog(append(catalog.commands, runtimeCommandSpecs()...)...)
+	commands := catalog.commands
+	if !includeSamples {
+		commands = make([]CommandSpec, 0, len(catalog.commands))
+		for _, command := range catalog.commands {
+			if !strings.HasPrefix(command.Path, "sample ") {
+				commands = append(commands, command)
+			}
+		}
+	}
+	return NewCatalog(append(commands, runtimeCommandSpecs()...)...)
+}
+
+// DefaultCatalog returns the public Tobari CLI contract.
+func DefaultCatalog() Catalog {
+	return defaultCatalog(false)
 }
 
 // Validate rejects incomplete command declarations before any handler runs.

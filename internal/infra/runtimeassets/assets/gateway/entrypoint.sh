@@ -43,6 +43,8 @@ exec mitmdump \
   --set "confdir=$confdir" \
   --set block_global=false \
   --set connection_strategy=lazy \
+  --set flow_detail=0 \
+  --set termlog_verbosity=warn \
   --set "connect_timeout=${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}" \
   --set "read_timeout=${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}" \
   --scripts /opt/tobari/tobari_gateway.py

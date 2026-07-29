@@ -24,6 +24,26 @@ tasks:
     cmds:
       - go run ./tools/contractlint
 
+  policy:test:
+    desc: Format-check and test the embedded OPA policy in the pinned OPA image.
+    cmds:
+      - ./scripts/check.sh policy
+
+  gateway:test:
+    desc: Test the mitmproxy Gateway addon in the pinned Gateway image.
+    cmds:
+      - ./scripts/check.sh gateway
+
+  integration:test:
+    desc: Run the real three-container network, TLS, policy, credential, and lifecycle tests.
+    cmds:
+      - ./scripts/check.sh integration
+
+  runtime:test:
+    desc: Run all container runtime tests.
+    cmds:
+      - ./scripts/check.sh runtime
+
   check:fast:
     desc: Run the quick local and agent completion gate.
     cmds:

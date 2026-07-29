@@ -31,3 +31,16 @@ func TestStatusKeepsEmptyConfiguredScope(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestStateRejectsUnsafeRecentError(t *testing.T) {
+	t.Parallel()
+	state := State{
+		SchemaVersion: 1, Root: "/tmp/root", RuntimeDirectory: "/tmp/runtime",
+		PolicyDirectory: "/tmp/policy", CredentialConfig: "/tmp/credentials.json",
+		CredentialDir: "/tmp/credentials", AssetVersion: "abc",
+		ProxyEndpoint: "http://tobari-gateway:8080", RecentError: "line\nbreak",
+	}
+	if err := state.Validate(); err == nil {
+		t.Fatal("unsafe recent error was accepted")
+	}
+}
