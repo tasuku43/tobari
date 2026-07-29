@@ -6,7 +6,7 @@ generic HTTP request crossing Gateway.
 ## OPA input
 
 Gateway posts one JSON document to
-`http://tobari-opa:8181/v1/data/tobari/http/decision` with schema version `v1`.
+`http://opa:8181/v1/data/tobari/http/decision` with schema version `v1`.
 The request carries normalized scheme, host, port, method, path, path segments,
 multi-valued query, redacted headers, bounded body metadata, realm, optional
 session, and optional requested credential profile.

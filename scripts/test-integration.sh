@@ -156,6 +156,18 @@ if docker logs "$mock_name" 2>&1 | grep -F '"/denied"' >/dev/null; then
   fail "denied request reached mock upstream"
 fi
 
+gateway_logs=$(run_tobari logs --component gateway --tail 500)
+assert_contains "$gateway_logs" '"decision":"deny"' "Gateway denial audit"
+assert_contains "$gateway_logs" '"host":"mock-upstream"' "Gateway denial audit"
+assert_contains "$gateway_logs" '"method":"POST"' "Gateway denial audit"
+assert_contains "$gateway_logs" '"path":"/denied"' "Gateway denial audit"
+if [[ $gateway_logs == *"$secret_value"* ]]; then
+  fail "Gateway logs contain the credential secret"
+fi
+if [[ $gateway_logs == *'Bearer '* ]]; then
+  fail "Gateway logs contain a bearer value"
+fi
+
 other_host_status=$(run_tobari exec -- curl -sS -o /dev/null -w '%{http_code}' \
   -H 'X-Tobari-Credential-Profile: integration' https://example.com/)
 [[ $other_host_status == 403 ]] || fail "cross-host credential request returned $other_host_status instead of 403"
@@ -171,7 +183,7 @@ if run_tobari exec -- env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pr
   fail "Realm reached the Internet without Gateway"
 fi
 if run_tobari exec -- curl --noproxy '*' --max-time 3 -fsS \
-  http://tobari-opa:8181/health >/dev/null 2>&1; then
+  http://opa:8181/health >/dev/null 2>&1; then
   fail "Realm reached the OPA control API"
 fi
 
@@ -219,18 +231,6 @@ wait "$second_pid"
 run_tobari up --root "$test_root/workspace" >/dev/null
 owned_containers=$(docker ps -a --filter label=io.tobari.owner=default --format '{{.Names}}' | wc -l | tr -d ' ')
 [[ $owned_containers == 3 ]] || fail "idempotent up left $owned_containers owned containers"
-
-gateway_logs=$(run_tobari logs --component gateway --tail 500)
-assert_contains "$gateway_logs" '"decision":"deny"' "Gateway denial audit"
-assert_contains "$gateway_logs" '"host":"mock-upstream"' "Gateway denial audit"
-assert_contains "$gateway_logs" '"method":"POST"' "Gateway denial audit"
-assert_contains "$gateway_logs" '"path":"/denied"' "Gateway denial audit"
-if [[ $gateway_logs == *"$secret_value"* ]]; then
-  fail "Gateway logs contain the credential secret"
-fi
-if [[ $gateway_logs == *'Bearer '* ]]; then
-  fail "Gateway logs contain a bearer value"
-fi
 
 docker rm -f "$mock_name" >/dev/null
 run_tobari down --purge >/dev/null

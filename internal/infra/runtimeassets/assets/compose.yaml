@@ -20,8 +20,7 @@ services:
     volumes:
       - ${TOBARI_POLICY_DIR}:/policy:ro
     networks:
-      control:
-        aliases: [tobari-opa]
+      control: {}
     labels:
       io.tobari.owner: default
       io.tobari.component: opa
@@ -57,7 +56,7 @@ services:
       - /tmp:size=64m,mode=1777
     environment:
       HOME: /var/lib/mitmproxy
-      TOBARI_OPA_URL: http://tobari-opa:8181/v1/data/tobari/http/decision
+      TOBARI_OPA_URL: http://opa:8181/v1/data/tobari/http/decision
       TOBARI_REALM: default
       TOBARI_INSPECTION_BYTES: ${TOBARI_INSPECTION_BYTES:-1048576}
       TOBARI_OPA_TIMEOUT_SECONDS: ${TOBARI_OPA_TIMEOUT_SECONDS:-2}
@@ -69,8 +68,7 @@ services:
       - ${TOBARI_CREDENTIAL_CONFIG}:/run/tobari/config/credentials.json:ro
       - ${TOBARI_CREDENTIAL_DIR}:/run/tobari/credentials:ro
     networks:
-      realm:
-        aliases: [tobari-gateway]
+      realm: {}
       control: {}
       egress: {}
     labels:
@@ -81,7 +79,7 @@ services:
         - CMD
         - python
         - -c
-        - "import socket,urllib.request;s=socket.create_connection(('127.0.0.1',8080),1);s.close();urllib.request.urlopen('http://tobari-opa:8181/health',timeout=1).read()"
+        - "import socket,urllib.request;s=socket.create_connection(('127.0.0.1',8080),1);s.close();urllib.request.urlopen('http://opa:8181/health',timeout=1).read()"
       interval: 2s
       timeout: 2s
       retries: 30
@@ -107,10 +105,10 @@ services:
       - /run:size=16m,mode=1777
     environment:
       HOME: /var/lib/tobari
-      HTTP_PROXY: http://tobari-gateway:8080
-      HTTPS_PROXY: http://tobari-gateway:8080
-      http_proxy: http://tobari-gateway:8080
-      https_proxy: http://tobari-gateway:8080
+      HTTP_PROXY: http://gateway:8080
+      HTTPS_PROXY: http://gateway:8080
+      http_proxy: http://gateway:8080
+      https_proxy: http://gateway:8080
       NO_PROXY: ""
       no_proxy: ""
       SSL_CERT_FILE: /tmp/tobari-ca-bundle.pem
@@ -122,8 +120,7 @@ services:
       - public-ca:/run/tobari/ca-public:ro
     working_dir: /workspace
     networks:
-      realm:
-        aliases: [tobari-realm]
+      realm: {}
     labels:
       io.tobari.owner: default
       io.tobari.component: realm

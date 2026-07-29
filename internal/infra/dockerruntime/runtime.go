@@ -294,7 +294,7 @@ func (r *Runtime) prepareState(root string) (realm.State, error) {
 		SchemaVersion: 1, Root: root, RuntimeDirectory: runtimeDirectory,
 		PolicyDirectory: policyDirectory, CredentialConfig: credentialConfig,
 		CredentialDir: credentialDirectory, AssetVersion: version,
-		ProxyEndpoint: "http://tobari-gateway:8080",
+		ProxyEndpoint: "http://gateway:8080",
 	}
 	if err := state.Validate(); err != nil {
 		return realm.State{}, err

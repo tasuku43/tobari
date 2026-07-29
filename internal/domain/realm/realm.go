@@ -49,7 +49,7 @@ func (s State) Validate() error {
 	if s.AssetVersion == "" || strings.ContainsAny(s.AssetVersion, " \t\r\n") {
 		return fmt.Errorf("asset version is invalid")
 	}
-	if s.ProxyEndpoint != "http://tobari-gateway:8080" {
+	if s.ProxyEndpoint != "http://gateway:8080" {
 		return fmt.Errorf("proxy endpoint is invalid")
 	}
 	if len(s.RecentError) > 1024 || strings.IndexFunc(s.RecentError, func(r rune) bool {

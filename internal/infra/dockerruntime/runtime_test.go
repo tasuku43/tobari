@@ -49,7 +49,7 @@ func runtimeState(root string) realm.State {
 		CredentialConfig: filepath.Join(root, "credentials.json"),
 		CredentialDir:    filepath.Join(root, "credentials"),
 		AssetVersion:     "asset",
-		ProxyEndpoint:    "http://tobari-gateway:8080",
+		ProxyEndpoint:    "http://gateway:8080",
 	}
 }
 

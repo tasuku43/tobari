@@ -259,7 +259,7 @@ class TobariGateway:
     def __init__(self) -> None:
         self.opa_url = os.getenv(
             "TOBARI_OPA_URL",
-            "http://tobari-opa:8181/v1/data/tobari/http/decision",
+            "http://opa:8181/v1/data/tobari/http/decision",
         )
         self.realm = os.getenv("TOBARI_REALM", "default")
         self.inspection_bytes = _positive_int(

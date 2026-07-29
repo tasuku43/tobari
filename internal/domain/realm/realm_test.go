@@ -24,7 +24,7 @@ func TestStatusKeepsEmptyConfiguredScope(t *testing.T) {
 	t.Parallel()
 	status := Status{
 		Task: TaskStatus, Configured: true, Root: "/tmp/root",
-		Proxy: "http://tobari-gateway:8080", Policy: "/tmp/policy",
+		Proxy: "http://gateway:8080", Policy: "/tmp/policy",
 		Components: []ComponentStatus{},
 	}
 	if err := status.Validate(); err != nil {
@@ -38,7 +38,7 @@ func TestStateRejectsUnsafeRecentError(t *testing.T) {
 		SchemaVersion: 1, Root: "/tmp/root", RuntimeDirectory: "/tmp/runtime",
 		PolicyDirectory: "/tmp/policy", CredentialConfig: "/tmp/credentials.json",
 		CredentialDir: "/tmp/credentials", AssetVersion: "abc",
-		ProxyEndpoint: "http://tobari-gateway:8080", RecentError: "line\nbreak",
+		ProxyEndpoint: "http://gateway:8080", RecentError: "line\nbreak",
 	}
 	if err := state.Validate(); err == nil {
 		t.Fatal("unsafe recent error was accepted")

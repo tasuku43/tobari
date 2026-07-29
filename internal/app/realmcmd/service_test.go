@@ -60,7 +60,7 @@ func testState() realm.State {
 		SchemaVersion: 1, Root: "/tmp/root", RuntimeDirectory: "/tmp/runtime",
 		PolicyDirectory: "/tmp/policy", CredentialConfig: "/tmp/credentials.json",
 		CredentialDir: "/tmp/credentials", AssetVersion: "abc",
-		ProxyEndpoint: "http://tobari-gateway:8080",
+		ProxyEndpoint: "http://gateway:8080",
 	}
 }
 

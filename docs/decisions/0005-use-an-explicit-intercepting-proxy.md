@@ -27,7 +27,7 @@ platform-specific routing and elevated network capabilities.
 
 ## Decision
 
-Realm clients use `http://tobari-gateway:8080` for both proxy variables. HTTPS
+Realm clients use `http://gateway:8080` for both proxy variables. HTTPS
 uses CONNECT, client-to-Gateway TLS under the Tobari CA, and a separate
 Gateway-to-upstream TLS session. Realm has no direct route, so ignoring the
 proxy fails rather than bypassing policy.
