@@ -268,6 +268,9 @@ func (r *Runtime) prepareState(root string) (realm.State, error) {
 	if err := os.MkdirAll(policyDirectory, 0o700); err != nil {
 		return realm.State{}, fmt.Errorf("create policy directory: %w", err)
 	}
+	if err := os.Chmod(policyDirectory, 0o700); err != nil { // #nosec G302 -- this is a private directory; owner traversal requires 0700 rather than a regular file's 0600.
+		return realm.State{}, fmt.Errorf("set policy directory permissions: %w", err)
+	}
 	if err := os.MkdirAll(credentialDirectory, 0o700); err != nil {
 		return realm.State{}, fmt.Errorf("create credential directory: %w", err)
 	}
@@ -308,7 +311,13 @@ func initializeFile(target, asset string, mode os.FileMode) error {
 }
 
 func initializeBytes(target string, data []byte, mode os.FileMode) error {
-	if _, err := os.Lstat(target); err == nil {
+	if info, err := os.Lstat(target); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("configuration path %s must be a regular file", filepath.Base(target))
+		}
+		if err := os.Chmod(target, mode); err != nil {
+			return fmt.Errorf("set configuration file permissions: %w", err)
+		}
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect configuration file: %w", err)
@@ -580,10 +589,16 @@ func (r *Runtime) testPolicy(ctx context.Context, state realm.State) error {
 	if err != nil {
 		return err
 	}
+	uid, gid := currentIDs()
 	mount := "type=bind,src=" + state.PolicyDirectory + ",dst=/policy,readonly"
 	output, err := r.runner.Output(
 		ctx,
-		[]string{"run", "--rm", "--mount", mount, versions["OPA_IMAGE"], "test", "/policy"},
+		[]string{
+			"run", "--rm",
+			"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
+			"--mount", mount,
+			versions["OPA_IMAGE"], "test", "/policy",
+		},
 		os.Environ(),
 	)
 	if err != nil {

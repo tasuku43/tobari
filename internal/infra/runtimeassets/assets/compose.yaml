@@ -4,6 +4,7 @@ services:
   opa:
     image: ${TOBARI_OPA_IMAGE}
     container_name: tobari-opa
+    user: "${TOBARI_UID}:${TOBARI_GID}"
     command:
       - run
       - --server

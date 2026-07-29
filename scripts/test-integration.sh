@@ -31,6 +31,21 @@ wait_healthy() {
   fail "$container did not become healthy"
 }
 
+wait_listening() {
+  local container=$1
+  local port=$2
+  local _
+  for _ in $(seq 1 60); do
+    if docker exec "$container" python3 -c \
+      "import socket; socket.create_connection(('127.0.0.1', $port), 1).close()" \
+      >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  fail "$container did not listen on port $port"
+}
+
 run_tobari() {
   env \
     HOME="$test_root/user" \
@@ -99,6 +114,7 @@ docker run -d \
   --entrypoint python3 \
   -v "$PWD/test/integration/mock_upstream.py:/mock_upstream.py:ro" \
   "$realm_image" -u /mock_upstream.py >/dev/null
+wait_listening "$mock_name" 8080
 
 plain_response=$(run_tobari exec -- curl -fsS http://mock-upstream:8080/allowed)
 assert_contains "$plain_response" '"authorization_present":false' "allowed HTTP response"

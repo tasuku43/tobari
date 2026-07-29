@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -178,6 +179,29 @@ func TestComposeEnvironmentUsesPinnedEmbeddedImages(t *testing.T) {
 	}
 }
 
+func TestPolicyValidationRunsAsPolicyOwner(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.testPolicy(context.Background(), runtimeState(root)); err != nil {
+		t.Fatal(err)
+	}
+	uid, gid := currentIDs()
+	wantUser := strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
+	if len(runner.outputs) != 1 {
+		t.Fatalf("policy validation calls = %v, want one call", runner.outputs)
+	}
+	userIndex := slices.Index(runner.outputs[0].args, "--user")
+	if userIndex < 0 || userIndex+1 >= len(runner.outputs[0].args) ||
+		runner.outputs[0].args[userIndex+1] != wantUser {
+		t.Fatalf("policy validation argv = %v, want --user %s", runner.outputs, wantUser)
+	}
+}
+
 func TestCredentialConfigValidationRejectsPathEscape(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -205,5 +229,32 @@ func TestCredentialConfigValidationRejectsPathEscape(t *testing.T) {
 	_, status := runtime.checkCredentialConfig()
 	if status != doctor.CheckStatusFail {
 		t.Fatalf("credential config status = %q, want fail", status)
+	}
+}
+
+func TestPrepareStateKeepsPolicyAndCredentialsPrivate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := runtime.prepareState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]os.FileMode{
+		state.PolicyDirectory:                               0o700,
+		filepath.Join(state.PolicyDirectory, "tobari.rego"): 0o600,
+		state.CredentialDir:                                 0o700,
+		state.CredentialConfig:                              0o600,
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("%s mode = %o, want %o", path, got, want)
+		}
 	}
 }
