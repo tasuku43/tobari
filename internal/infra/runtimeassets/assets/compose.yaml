@@ -1,0 +1,161 @@
+name: tobari
+
+services:
+  opa:
+    image: ${TOBARI_OPA_IMAGE}
+    container_name: tobari-opa
+    user: "${TOBARI_UID}:${TOBARI_GID}"
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --log-format=json
+      - /policy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    volumes:
+      - ${TOBARI_POLICY_DIR}:/policy:ro
+    networks:
+      control: {}
+    labels:
+      io.tobari.owner: default
+      io.tobari.component: opa
+    healthcheck:
+      test:
+        - CMD
+        - /opa
+        - eval
+        - --fail
+        - 'http.send({"method":"get","url":"http://127.0.0.1:8181/health"}).status_code == 200'
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  gateway:
+    build:
+      context: gateway
+      args:
+        MITMPROXY_IMAGE: ${TOBARI_MITMPROXY_IMAGE}
+        TOBARI_UID: ${TOBARI_UID}
+        TOBARI_GID: ${TOBARI_GID}
+    image: tobari-gateway:${TOBARI_ASSET_VERSION}
+    container_name: tobari-gateway
+    user: "${TOBARI_UID}:${TOBARI_GID}"
+    depends_on:
+      opa:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      HOME: /var/lib/mitmproxy
+      TOBARI_OPA_URL: http://opa:8181/v1/data/tobari/http/decision
+      TOBARI_REALM: default
+      TOBARI_INSPECTION_BYTES: ${TOBARI_INSPECTION_BYTES:-1048576}
+      TOBARI_OPA_TIMEOUT_SECONDS: ${TOBARI_OPA_TIMEOUT_SECONDS:-2}
+      TOBARI_UPSTREAM_TIMEOUT_SECONDS: ${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}
+      TOBARI_CREDENTIAL_CONFIG: /run/tobari/config/credentials.json
+    volumes:
+      - gateway-ca:/var/lib/mitmproxy/.mitmproxy
+      - public-ca:/run/tobari/ca-public
+      - ${TOBARI_CREDENTIAL_CONFIG}:/run/tobari/config/credentials.json:ro
+      - ${TOBARI_CREDENTIAL_DIR}:/run/tobari/credentials:ro
+    networks:
+      realm: {}
+      control: {}
+      egress: {}
+    labels:
+      io.tobari.owner: default
+      io.tobari.component: gateway
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket,urllib.request;s=socket.create_connection(('127.0.0.1',8080),1);s.close();urllib.request.urlopen('http://opa:8181/health',timeout=1).read()"
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  realm:
+    build:
+      context: realm
+      args:
+        DEBIAN_IMAGE: ${TOBARI_DEBIAN_IMAGE}
+        TOBARI_UID: ${TOBARI_UID}
+        TOBARI_GID: ${TOBARI_GID}
+    image: tobari-realm:${TOBARI_ASSET_VERSION}
+    container_name: tobari-realm
+    depends_on:
+      gateway:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /run:size=16m,mode=1777
+    environment:
+      HOME: /var/lib/tobari
+      HTTP_PROXY: http://gateway:8080
+      HTTPS_PROXY: http://gateway:8080
+      http_proxy: http://gateway:8080
+      https_proxy: http://gateway:8080
+      NO_PROXY: ""
+      no_proxy: ""
+      SSL_CERT_FILE: /tmp/tobari-ca-bundle.pem
+      REQUESTS_CA_BUNDLE: /tmp/tobari-ca-bundle.pem
+      GIT_SSL_CAINFO: /tmp/tobari-ca-bundle.pem
+    volumes:
+      - ${TOBARI_ROOT}:/workspace:rw
+      - realm-home:/var/lib/tobari
+      - public-ca:/run/tobari/ca-public:ro
+    working_dir: /workspace
+    networks:
+      realm: {}
+    labels:
+      io.tobari.owner: default
+      io.tobari.component: realm
+    healthcheck:
+      test: [CMD, test, -f, /tmp/tobari-ready]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+networks:
+  realm:
+    name: tobari-realm-net
+    internal: true
+    labels:
+      io.tobari.owner: default
+  control:
+    name: tobari-control
+    internal: true
+    labels:
+      io.tobari.owner: default
+  egress:
+    name: tobari-egress
+    labels:
+      io.tobari.owner: default
+
+volumes:
+  realm-home:
+    name: tobari-realm-home
+    labels:
+      io.tobari.owner: default
+  gateway-ca:
+    name: tobari-gateway-ca
+    labels:
+      io.tobari.owner: default
+  public-ca:
+    name: tobari-public-ca
+    labels:
+      io.tobari.owner: default

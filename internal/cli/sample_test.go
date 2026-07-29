@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/page"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/sample"
+	"github.com/tasuku43/tobari/internal/domain/page"
+	"github.com/tasuku43/tobari/internal/domain/sample"
 )
 
 type cliSampleRepository struct {
@@ -65,14 +65,14 @@ func newSampleCLI(repository *cliSampleRepository) (*CLI, *bytes.Buffer, *bytes.
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	command := newCLIWithSamples(
-		strings.NewReader(""), stdout, stderr, DefaultCatalog(), passingInspector("unused"), repository,
+		strings.NewReader(""), stdout, stderr, defaultCatalog(true), passingInspector("unused"), repository,
 	)
 	return command, stdout, stderr
 }
 
 func TestE2ESampleListThenReadPassesIDsUnchanged(t *testing.T) {
 	var listOut, listErr bytes.Buffer
-	listCLI := New(strings.NewReader(""), &listOut, &listErr)
+	listCLI := newTemplateSampleCLI(strings.NewReader(""), &listOut, &listErr)
 	if code := runCLI(listCLI, []string{"sample", "list"}); code != ExitOK {
 		t.Fatalf("sample list code = %d, stderr = %q", code, listErr.String())
 	}
@@ -87,7 +87,7 @@ func TestE2ESampleListThenReadPassesIDsUnchanged(t *testing.T) {
 	for _, row := range rows {
 		id := strings.SplitN(row, "\t", 2)[0]
 		var readOut, readErr bytes.Buffer
-		readCLI := New(strings.NewReader(""), &readOut, &readErr)
+		readCLI := newTemplateSampleCLI(strings.NewReader(""), &readOut, &readErr)
 		if code := runCLI(readCLI, []string{"sample", "read", "--id", id}); code != ExitOK {
 			t.Fatalf("sample read --id %s code = %d, stderr = %q", id, code, readErr.String())
 		}
@@ -155,7 +155,7 @@ func TestSampleListRejectsArgumentsBeforeRepository(t *testing.T) {
 	if code := runCLI(command, []string{"sample", "list", "extra"}); code != ExitUsage {
 		t.Fatalf("sample list code = %d, want %d", code, ExitUsage)
 	}
-	if repository.lists != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage: agentic-cli-foundry sample list") {
+	if repository.lists != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage: tobari sample list") {
 		t.Fatalf("lists = %d, stdout = %q, stderr = %q", repository.lists, stdout.String(), stderr.String())
 	}
 }

@@ -529,7 +529,7 @@ func TestLoadPackagesScansWholeModuleIncludingTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		module + "/cmd/agentic-cli-foundry":   false,
+		module + "/cmd/tobari":                false,
 		module + "/internal/domain/operation": false,
 		module + "/tools/archlint":            false,
 	}

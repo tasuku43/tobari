@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/doctor"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/doctor"
+	"github.com/tasuku43/tobari/internal/domain/operation"
 )
 
 type fakeInspector struct {

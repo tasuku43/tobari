@@ -1,6 +1,6 @@
 # Documentation Map
 
-This directory contains the durable reasoning for Agentic CLI Foundry. Read the numbered documents in order when starting a derived project or making a change that crosses product, architecture, security, harness, publication, or release boundaries.
+This directory contains the durable reasoning for Tobari. Read the numbered documents in order when starting a derived project or making a change that crosses product, architecture, security, harness, publication, or release boundaries.
 
 In a newly derived repository, Codex starts with [`$bootstrap-derived-cli`](../.agents/skills/bootstrap-derived-cli/SKILL.md). After identity and initial project reasoning are concrete, recurring capability work uses [`$add-capability`](../.agents/skills/add-capability/SKILL.md).
 

@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/authn"
+	"github.com/tasuku43/tobari/internal/domain/authn"
 )
 
 var (

@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 )
 
 // Stable process exit codes let agents classify failures without prose.

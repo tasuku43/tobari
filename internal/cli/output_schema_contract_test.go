@@ -24,7 +24,7 @@ func TestJSONOutputMatchesCatalogContract(t *testing.T) {
 	newDefault := func() (*CLI, *bytes.Buffer, *bytes.Buffer) {
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
-		return New(strings.NewReader(""), stdout, stderr), stdout, stderr
+		return newTemplateSampleCLI(strings.NewReader(""), stdout, stderr), stdout, stderr
 	}
 	probes := []probe{
 		{

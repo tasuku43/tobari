@@ -1,6 +1,6 @@
 # Support
 
-Agentic CLI Foundry is maintained on a best-effort basis. This file explains where to ask for help and what information maintainers need. A derived project must replace this generic policy with support promises appropriate to its users and release maturity.
+Tobari is maintained on a best-effort basis. This file explains where to ask for help and what information maintainers need. A derived project must replace this generic policy with support promises appropriate to its users and release maturity.
 
 ## Where to ask
 

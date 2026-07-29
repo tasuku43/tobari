@@ -44,6 +44,7 @@ jobs:
           ./scripts/check.sh security
           ./scripts/check.sh release
           ./scripts/check.sh public
+          ./scripts/check.sh runtime
 
   build:
     name: Build ${{ matrix.goos }} ${{ matrix.goarch }}

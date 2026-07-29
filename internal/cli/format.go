@@ -9,12 +9,15 @@ import (
 type successFormat string
 
 const (
+	successFormatText successFormat = "text"
 	successFormatTSV  successFormat = "tsv"
 	successFormatJSON successFormat = "json"
 )
 
 func parseSuccessFormat(value string) (successFormat, error) {
 	switch successFormat(value) {
+	case successFormatText:
+		return successFormatText, nil
 	case successFormatTSV:
 		return successFormatTSV, nil
 	case successFormatJSON:

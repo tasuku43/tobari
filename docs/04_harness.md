@@ -13,6 +13,10 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `security` | `task security` | Security and dependency changes | Repository guard, module integrity, pinned static and vulnerability analysis |
 | `release` | `task release:check` | Packaging and release changes | Artifact, metadata, checksum, Formula, and workflow contracts |
 | `public` | `task public:check` | Bootstrap completion and public publication | Ready-profile identity, forbidden-data, required-file, license, capability/schema contracts, and public-boundary checks |
+| `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
+| `gateway` | `task gateway:test` | Enforcement-point feedback | Pinned mitmproxy addon unit tests |
+| `integration` | `task integration:test` | Real runtime boundary | Docker topology, TLS, fail-closed, credential, audit, exec, lifecycle, and cleanup scenarios |
+| `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, and integration profiles |
 
 Direct invocation is supported for automation:
 
@@ -22,15 +26,26 @@ Direct invocation is supported for automation:
 ./scripts/check.sh security
 ./scripts/check.sh release
 ./scripts/check.sh public
+./scripts/check.sh policy
+./scripts/check.sh gateway
+./scripts/check.sh integration
+./scripts/check.sh runtime
 ```
 
 Every profile starts with a local-toolchain preflight after the gate sanitizes its Go environment. The preflight requires the exact Go version declared by `go.mod` under `GOTOOLCHAIN=local` and verifies the selected binary, its reported version, `GOVERSION`, `GOROOT`, `GOTOOLDIR`, and the compiler in that tool directory as one installation. A mismatch fails once with those values and remediation guidance before formatting, tests, downloads, or release builds begin.
 
-All profiles require Git, Go, and `gofmt`. The `release` profile additionally requires ShellCheck 0.9.0 or newer, Ruby, `tar`, `unzip`, and either `sha256sum` or `shasum`. Pinned Go security and action-lint tools must already exist in the module cache or be downloadable over the network. The release preflight reports missing system tools together before the long gate begins; network availability is documented rather than actively probed because a network probe would be nondeterministic and provider-specific.
+All profiles require Git, Go, and `gofmt`. Container profiles additionally
+require a reachable Docker Engine. The `release` profile additionally requires
+ShellCheck 0.9.0 or newer, Ruby, `tar`, `unzip`, and either `sha256sum` or
+`shasum`. Pinned Go security and action-lint tools must already exist in the
+module cache or be downloadable over the network. The release preflight reports
+missing system tools together before the long gate begins; network availability
+is documented rather than actively probed because a network probe would be
+nondeterministic and provider-specific.
 
 The canonical gate and release packager force module mode and neutralize ambient Go workspace, toolchain, experiment, FIPS, and flag settings before invoking Go. This prevents a local or CI `GOFLAGS` value from silently selecting no tests and keeps agent, developer, and workflow evidence on the same checked command set. A release fixture launches the public profile with hostile values and proves that its first Go-backed check observes only the sanitized contract.
 
-CI is the completion authority. Pull-request CI runs `full` and the
+CI is the completion authority. Pull-request CI runs `full`, `runtime`, and the
 security/public boundary profiles in parallel. The repository installs no
 automatic Codex Stop hook: a per-turn gate adds latency and does not prove
 completion. Optional local automation must delegate to one named profile and

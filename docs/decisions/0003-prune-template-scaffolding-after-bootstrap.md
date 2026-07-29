@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-07-20
-- Deciders: Agentic CLI Foundry maintainers
+- Deciders: Tobari maintainers
 - Scope: Bootstrap, repository shape, and derived-project maintenance
 - Supersedes: None
 - Superseded by: None

@@ -125,7 +125,7 @@ done
 
 for required in \
   './scripts/check.sh full' './scripts/check.sh security' './scripts/check.sh release' \
-  './scripts/check.sh public' './scripts/package-release.sh' 'checksums.txt' \
+  './scripts/check.sh public' './scripts/check.sh runtime' './scripts/package-release.sh' 'checksums.txt' \
   'gh release create' 'Formula/' 'scripts/render-formula.sh'; do
   grep -qF "$required" .github/workflows/release.yml || {
     echo "release workflow is missing: $required" >&2
@@ -204,7 +204,7 @@ if go run ./tools/releaseversion v1.2.3+different-build >/dev/null 2>&1; then
   echo "releaseversion accepted build metadata excluded by immutable-release policy" >&2
   exit 1
 fi
-if scripts/render-formula.sh v1.2.3-rc.1 https://github.com/tasuku43/agentic-cli-foundry /dev/null >/dev/null 2>&1; then
+if scripts/render-formula.sh v1.2.3-rc.1 https://github.com/tasuku43/tobari /dev/null >/dev/null 2>&1; then
   echo "render-formula accepted a prerelease tag" >&2
   exit 1
 fi
@@ -472,7 +472,7 @@ while read -r digest asset extra; do
 done <"$checksums"
 
 formula=$release_root/${binary}.rb
-repository_url=https://github.com/tasuku43/agentic-cli-foundry
+repository_url=https://github.com/tasuku43/tobari
 scripts/render-formula.sh "$release_tag" "$repository_url" "$checksums" "$formula" >/dev/null
 test -s "$formula"
 arm64_asset=${binary}_${release_tag}_darwin_arm64.tar.gz

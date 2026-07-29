@@ -1,135 +1,375 @@
-# Agentic CLI Foundry
+# Tobari
 
-Agentic CLI Foundry is a runnable, public-ready foundation for building task-oriented Go command-line tools with coding agents. It starts as a small `agentic-cli-foundry` binary and gives a derived project an explicit product thesis, a four-layer architecture, a machine-readable agent contract, typed side-effect and external-API boundaries, one verification gate, and a documented path to a public release.
+Tobari is a local execution boundary for AI coding agents. It gives shells,
+Codex, Claude Code, Python, and arbitrary binaries broad freedom inside one
+long-lived Docker Realm while authorizing every supported outbound HTTP and
+HTTPS request with OPA.
 
-The default repository is intentionally real and buildable:
+Tobari does not guess intent from command strings. It controls the network
+effect at the point where an HTTP request crosses the isolation boundary.
 
-- Go module: `github.com/tasuku43/agentic-cli-foundry`
-- Binary: `agentic-cli-foundry`
-- Display name: `Agentic CLI Foundry`
+## The policy-learning loop
 
-The bootstrap tool replaces those exact defaults with validated project values. The defaults are not placeholder syntax, so the template can be built and tested before it is customized.
+Tobari starts deny-by-default. The normal experience is:
 
-## What this template optimizes for
-
-- A project-specific thesis that lets contributors and agents resolve ambiguous design choices.
-- User tasks as the public vocabulary, instead of leaking transport or vendor APIs into the CLI.
-- Explicit utility, discover, and act roles with opaque IDs passed unchanged between tasks.
-- Pure domain rules, application use cases, infrastructure adapters, and a thin CLI composition root.
-- Explicit `read`, `create`, and `write` effects with typed intent, target, and impact information.
-- Structured command prerequisites, inputs, outputs, delivery, collection coverage, failures, and recovery actions for agents.
-- Policy-neutral foundations for OAuth/PAT, pagination, timeout, retry/idempotency, and mutations that derived projects make concrete.
-- A single command catalog as the source of truth for routing and help.
-- Executable architectural, security, release, and public-repository claims.
-- A clean public boundary: no inherited organization names, private URLs, credentials, or internal history.
-
-The template fixes reusable vocabulary and enforcement points, not provider or user-experience policy. For authentication, it fixes secret-free requirements and sessions, a fail-closed application gate, an ephemeral infrastructure-issued binding passed unchanged through task ports, and exact credential-record revalidation before I/O. A derived project still chooses OAuth versus PAT, its OAuth flow and reviewed library, credential input and storage, account and refresh behavior, API budgets, and mutation approval policy. [Authentication](docs/07_authentication.md) and [External API Contracts](docs/08_external_api_contracts.md) define that boundary in detail.
-
-## Start a derived project
-
-Create a new repository from this template, then work from the new repository. Do not copy this repository's `.git` directory into an unrelated project.
-
-For Codex, invoke [`$bootstrap-derived-cli`](.agents/skills/bootstrap-derived-cli/SKILL.md) first. It gathers the project identity, uses the same transactional tool described below, verifies imports and gates, and hands off to project-specific thesis work. The manual equivalent is:
-
-1. Edit [`.harness/project.json`](.harness/project.json) with the new project
-   identity and an explicit `public_guard.documentation_locale`. Existing
-   schema-1 derived repositories must choose the locale in their thesis or
-   product contract before moving the configuration to schema 2; no default is
-   applied.
-2. Preview the exact replacements:
+1. Work freely inside Realm.
+2. An undeclared external request receives `403`.
+3. On the trusted host, inspect the secret-free denial:
 
    ```sh
-   go run ./tools/bootstrap --dry-run
+   tobari logs --component gateway --tail 100
    ```
 
-3. Apply the validated bootstrap:
+4. Read the `host`, `method`, `path`, and `reason` fields from the JSON audit
+   record.
+5. Locate the editable policy:
 
    ```sh
-   go run ./tools/bootstrap
+   tobari status
    ```
 
-4. Replace the generic project reasoning with concrete decisions, in this order:
-
-   - [theses](docs/00_theses.md)
-   - [product contract](docs/01_product_contract.md)
-   - [security model](docs/03_security_model.md)
-   - [authentication decision](docs/07_authentication.md)
-   - [external API contracts](docs/08_external_api_contracts.md)
-   - [release model](docs/06_release.md)
-
-5. Run the canonical gates:
+6. Add the smallest intended rule and reconcile it:
 
    ```sh
-   task check
-   task public:check
+   tobari up --root /absolute/path/to/root
    ```
 
-The bootstrap changes repository identity; it does not invent the product. A derived project is not ready merely because all names were replaced. Its north star, supported tasks, trust boundaries, and release promises must be made specific before implementation expands.
+`up` runs every Rego test before changing the running decision point. On an
+existing Realm it then reloads policy by restarting only OPA and waiting for
+health; active Realm processes remain running. Tobari never turns observed
+traffic into permission automatically.
 
-The stored bootstrap profile value `ready` means **identity-ready only**. A derived repository may deliberately retain the same GitHub owner or license as the template, but must replace its repository, Go module, binary, display name, Formula class, description, and security contact. Bootstrap status uses “identity ready” to avoid implying product completion.
-
-## Run the default CLI
-
-```sh
-go run ./cmd/agentic-cli-foundry --help
-go run ./cmd/agentic-cli-foundry help --format agent
-go run ./cmd/agentic-cli-foundry help sample --format agent
-go run ./cmd/agentic-cli-foundry doctor
-go run ./cmd/agentic-cli-foundry sample list --format json
-go run ./cmd/agentic-cli-foundry sample read --id <sample-id> --format json
-go run ./cmd/agentic-cli-foundry --error-format json sample read --id <sample-id>
-```
-
-The default `doctor` task is a minimal utility slice through the domain, application, infrastructure, and CLI layers. The synthetic `sample list` and `sample read --id` pair demonstrates discover-to-act composition: copy the lowercase `id` emitted by `sample list` unchanged into `sample read`. Keep these examples as references while adding the first real capability, then remove or rename them only when the replacement has equivalent architectural and catalog tests.
-
-`doctor`, `sample list`, and `sample read` default to stable TSV and also support versioned JSON. The list result contains only `id` and `name`; read adds `content`. Success data is written to stdout only after complete delivery has been bounded and rendered; collection coverage is declared separately so a bounded window cannot look exhaustive. Failures go to stderr as stable text or schema-versioned JSON and distinguish invalid input, authentication, permission, missing or ambiguous targets, rate limits, temporary failures, policy rejection, cancellation, unsupported work, contract violations, and internal faults with dedicated exit statuses. Schema-6 root agent help is a compact outcome/capability index whose machine-readable `scope_request` points to exact-command or namespace help. Only that scoped response returns the complete typed input, I/O, output, error, role, prerequisite, authentication, mutation, and grouped reference-workflow contracts. The catalog-owned parser validates argv before dispatch, and hierarchical human help is generated from the same input declarations.
-
-## Repository map
+## Architecture
 
 ```text
-cmd/agentic-cli-foundry/                 thin executable entry point
-internal/domain/             pure types, faults, effects, API envelopes
-internal/app/                task use cases, auth/pagination/execution gates
-internal/infra/              concrete adapters for external systems
-internal/cli/                catalog, routing, rendering, composition root
-
-docs/                        durable product and engineering reasoning
-docs/decisions/              accepted and superseded architecture decisions
-docs/work/                   bounded work packets for active changes
-tools/                       repository-aware linters and bootstrap tooling
-scripts/                     canonical checks and release helpers
-.harness/project.json        project identity and machine-readable policy
-.agents/skills/              first-run bootstrap and capability workflows
+trusted host
+  tobari CLI ── Docker CLI ── Docker Engine
+       │
+       └── selected root (read-write)
+                         │
+                         ▼
+  internal realm network
+    untrusted tobari-realm ── HTTP proxy :8080 ── trusted tobari-gateway
+                                                        │
+  internal control network                              ├── tobari-opa :8181
+                                                        │
+  egress network                                        └── external HTTPS
 ```
 
-Read [the documentation map](docs/README.md) for the intended order and ownership of each document. Contributors and coding agents must also read [AGENTS.md](AGENTS.md).
+The Realm joins only `tobari-realm-net`, an internal Docker network. Gateway
+joins realm, control, and egress networks. OPA joins only the internal control
+network. Therefore a program that ignores the proxy has no external route, and
+Realm cannot reach OPA.
 
-For community participation and help, see the [Code of Conduct](CODE_OF_CONDUCT.md), [Contributing Guide](CONTRIBUTING.md), [Support Policy](SUPPORT.md), and [Security Policy](SECURITY.md).
+For HTTPS, `HTTPS_PROXY` still points to an `http://` proxy endpoint. The client
+sends `CONNECT host:443`, then establishes TLS with Gateway using the
+installation CA trusted inside Realm. Gateway decrypts and normalizes the HTTP
+request, asks OPA, and—only after allow—creates a separate verified TLS
+connection to the upstream. Certificate-pinned applications that refuse the
+Tobari CA are not supported by the MVP.
 
-## Verification profiles
+## Requirements
 
-All entry points delegate to `./scripts/check.sh`:
+- macOS or Linux on a Docker-supported architecture
+- Docker Engine 24 or newer
+- Docker Compose v2
+- Go version declared in [`go.mod`](go.mod) for source builds
+- [Task](https://taskfile.dev/) for the documented development commands
+- outbound image-registry access on first startup
 
-| Command | Purpose |
+Docker Desktop-specific APIs are not used. Colima, Lima-based Docker contexts,
+and standard Linux Docker Engine are supported by the same Docker CLI adapter.
+
+Container bases are pinned by immutable digest in
+[`versions.env`](internal/infra/runtimeassets/assets/versions.env). The Gateway
+currently uses mitmproxy 12.1.2 because the tested official 12.2.3 arm64 image
+terminates with `SIGILL`; update the pin only after the arm64 runtime test
+passes.
+
+## Install from source
+
+```sh
+git clone https://github.com/tasuku43/tobari.git
+cd tobari
+task build
+install -m 0755 bin/tobari ~/.local/bin/tobari
+```
+
+Alternatively, from a checkout:
+
+```sh
+go install ./cmd/tobari
+```
+
+Ensure the destination is on `PATH`.
+
+## Colima
+
+Start a VM with enough capacity and confirm its context:
+
+```sh
+colima start --cpu 4 --memory 8 --disk 60
+docker context show
+docker version
+docker compose version
+tobari doctor --root ~/ghq
+```
+
+Colima normally shares the macOS user directory. If the selected root is not
+below a shared directory, configure the mount in Colima before `up`.
+
+## Linux Docker Engine
+
+Confirm that the invoking user can access the intended Engine without passing a
+Docker socket into Realm:
+
+```sh
+docker version
+docker compose version
+tobari doctor --root "$HOME/ghq"
+```
+
+Rootless Docker is compatible in principle, subject to its ordinary bind-mount
+and UID/GID mapping behavior.
+
+## Quick Start
+
+```sh
+tobari doctor --root ~/ghq
+tobari up --root ~/ghq
+tobari status
+tobari shell
+```
+
+Run one exact argv at a host directory below the configured root:
+
+```sh
+tobari exec --cwd ~/ghq/github.com/example/repository -- claude
+tobari exec --cwd ~/ghq/github.com/example/repository -- codex
+tobari exec -- curl https://example.com/
+```
+
+Agent CLIs are not bundled. Install them inside Realm or place their binaries
+below the selected root; the named Realm home persists across ordinary
+`down`/`up` cycles.
+
+Tobari preserves the invoked process exit status:
+
+```sh
+tobari exec -- sh -c 'exit 37'
+echo $? # 37
+```
+
+Stop transient resources while retaining the Realm home and Gateway CA:
+
+```sh
+tobari down
+```
+
+Remove the three exact Tobari persistent volumes as well:
+
+```sh
+tobari down --purge
+```
+
+`--purge` must be used while Realm state still exists; a preceding ordinary
+`down` deliberately forgets the lifecycle state and preserves volumes.
+
+## Commands
+
+| Command | Outcome |
 |---|---|
-| `task check:fast` | Formatting, architecture, and focused tests for short feedback loops |
-| `task check` | The implementation gate: fast, vet/race, tidy, and diff checks |
-| `task security` | Credential, dependency, egress, and public-boundary checks |
-| `task release:check` | Packaging and release-contract checks |
-| `task public:check` | Public-readiness and template-sanitization checks |
+| `tobari up --root PATH` | Test policy and create or reconcile one Realm |
+| `tobari status [--format text\|json]` | Show root, proxy, policy, containers, and health |
+| `tobari shell` | Open Bash in the running Realm |
+| `tobari exec [--cwd PATH] -- COMMAND...` | Execute exact argv and preserve its exit status |
+| `tobari logs [--component gateway\|opa\|realm\|all] [--tail N]` | Read a bounded, visibly escaped log window |
+| `tobari down [--purge]` | Remove exact owned runtime resources |
+| `tobari doctor [--root PATH] [--format tsv\|json]` | Diagnose Docker, paths, policy, credentials, and residue |
+| `tobari help [COMMAND] [--format text\|agent]` | Read human or machine command contracts |
+| `tobari version` | Print build identity |
 
-CI is the authority. Pull-request CI runs the implementation and security/public boundary gates in parallel. Optional local automation must call the same script rather than reimplementing policy.
+`status`, `logs`, and `doctor` are observational and never repair state.
 
-### Local gate prerequisites
+## Policy
 
-Install the exact Go version declared by `go.mod`, Git, `gofmt`, and [Task](https://taskfile.dev/). The gate deliberately sets `GOTOOLCHAIN=local`; select the exact installation in PATH instead of relying on automatic toolchain download. It validates the Go binary, reported version, `GOROOT`, `GOTOOLDIR`, and compiler before doing long work and prints one remediation block when installations are mixed.
+On first `up`, Tobari initializes editable policy files under:
 
-`task release:check` additionally needs ShellCheck 0.9.0 or newer, Ruby, `tar`, `unzip`, either `sha256sum` or `shasum`, and network access or a pre-populated Go module cache for the pinned action-lint tool. Specialized profiles remain explicit completion evidence for the boundaries they govern.
+- macOS and Linux: `${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy`
 
-## Public template policy
+The sample policy is generic HTTP policy, not a GitHub adapter. It allows only
+listed hosts, rejects ordinary plain HTTP, restricts methods, supports explicit
+host/method/path denials, and validates credential profile bindings.
 
-This repository uses public-safe runnable defaults and synthetic examples. A derived project must keep confidential material out of source, fixtures, documentation, generated files, build logs, and Git history. Review [the public repository guide](docs/05_public_repository.md) before the first push to a public remote.
+```rego
+package tobari.http
+
+import rego.v1
+
+default decision := {
+    "allow": false,
+    "reason": "request did not match an allow rule",
+    "credential_profile": null,
+    "status_code": 403,
+    "audit": {"level": "metadata"},
+}
+
+decision := {
+    "allow": true,
+    "reason": "allowed by policy",
+    "credential_profile": input.credential.requested_profile,
+    "status_code": 403,
+    "audit": {"level": "metadata"},
+} if {
+    input.request.host in data.tobari.allowed_hosts
+    input.request.method in data.tobari.read_methods
+    input.request.scheme == "https"
+}
+```
+
+The actual initialized policy includes tested plain-HTTP mock rules,
+method/path denial, and credential binding. Edit `data.json`, `tobari.rego`,
+and `tobari_test.rego` together. `tobari up` refuses to reload when `opa test`
+fails.
+
+Gateway sends OPA a versioned generic input containing realm/session, scheme,
+normalized host and port, method, path segments, multi-valued query, safe
+headers, bounded body metadata, and an optional requested credential profile.
+Authorization, proxy authorization, cookies, API keys, configured secret
+headers, and raw bodies are excluded.
+
+## Credential injection
+
+Tobari supports static bearer and fixed-header injection. Create an owner-only
+secret file on the host:
+
+```sh
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tobari"
+install -d -m 0700 "$config_dir/credentials"
+install -m 0600 /path/to/token "$config_dir/credentials/github-development"
+```
+
+Configure only metadata in `credentials.json`:
+
+```json
+{
+  "version": "v1",
+  "profiles": {
+    "github-development": {
+      "type": "bearer",
+      "hosts": ["api.github.com"],
+      "secret_file": "/run/tobari/credentials/github-development"
+    }
+  }
+}
+```
+
+Add the same profile-to-host binding to policy data. A Realm client requests
+the profile as non-secret metadata:
+
+```sh
+tobari exec -- curl \
+  -H 'X-Tobari-Credential-Profile: github-development' \
+  https://api.github.com/user
+```
+
+OPA must allow the request and return that profile. Gateway then independently
+checks the exact host binding, reads the secret, removes Realm-supplied
+authorization, and injects the managed header. The secret file is mounted only
+in Gateway and is absent from Realm, CLI argv, OPA input, and audit logs.
+
+## Security guarantees
+
+Under the supported topology and trusted-component assumptions:
+
+- Realm can write only its named home volume and the selected read-write root.
+- Realm has no Docker socket, SSH agent, host networking, privileged mode, or
+  added Linux capabilities.
+- Direct Realm Internet egress has no route.
+- Realm cannot reach OPA or Gateway credential files.
+- HTTP/HTTPS proxy requests fail closed when OPA or Gateway fails.
+- OPA sees the same buffered request bytes Gateway forwards.
+- A managed credential is injected only after allow and an exact host-binding
+  check.
+- Audit logs contain request metadata and decisions, not secret values or raw
+  bodies.
+- Cleanup verifies exact ownership labels before removal.
+
+Read [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for assumptions and abuse
+cases.
+
+## What Tobari does not guarantee
+
+- Realm can modify or delete every file below the selected root.
+- An allowed destination can receive data from that root.
+- An allowed credential can exercise all authority granted by its provider.
+- Tobari does not protect against Docker/host compromise, container or VM
+  escape, covert channels, malware, or interference among processes in the
+  shared Realm.
+- Proxy environment variables do not transparently support applications that
+  ignore proxies or pin certificates; those applications fail rather than
+  bypass Gateway.
+- HTTP/3/QUIC, raw TCP, UDP, Git SSH, and other non-HTTP protocols are
+  unsupported.
+
+## Troubleshooting
+
+`doctor` reports Docker CLI/Engine/context/Compose, root validity, state, policy
+tests, secret-file modes, and residual owned containers:
+
+```sh
+tobari doctor --root /absolute/root
+```
+
+Common failures:
+
+- `policy_test_failed`: run `tobari status`, edit the reported policy directory,
+  and correct the Rego test failure.
+- HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
+  `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`; certificate-pinned programs are
+  unsupported.
+- `Could not resolve proxy`: inspect `tobari status` and
+  `tobari logs --component gateway`; all three containers must be healthy.
+- root bind-mount error under Colima/Lima: move the root under a shared host
+  directory or configure that VM's mounts.
+- an intended request returns `403`: inspect the Gateway denial record and
+  refine the minimum host/method/path rule on the host.
+- partial lifecycle failure: use `tobari status` before retrying `up` or `down`.
+
+## Development and tests
+
+Use the exact Go toolchain from `go.mod`:
+
+```sh
+task check:fast
+task check
+task policy:test
+task gateway:test
+task integration:test
+task runtime:test
+task security
+task public:check
+```
+
+`task integration:test` requires an unused set of Tobari container names. It
+creates real Realm, Gateway, OPA, and mock-upstream containers and proves:
+HTTP allow/deny, HTTPS interception and CA trust, direct-egress denial,
+control-plane isolation, OPA/Gateway fail closed, credential injection and
+non-disclosure, exit-code preservation, concurrent exec, idempotent startup,
+secret-free denial evidence, and exact cleanup.
+
+CI runs the Go implementation gate, security/public gates, and complete
+container runtime gate as separate jobs.
+
+## MVP exclusions
+
+The MVP deliberately excludes multiple or per-repository Realms, process-level
+identity, transparent proxying, raw TCP/UDP/QUIC, Git SSH semantic inspection,
+provider-specific adapters, AWS SigV4, OAuth refresh, GitHub App token refresh,
+Keychain integration, human approval, policy engines other than OPA,
+Kubernetes, filesystem overlays, private clone mode, GUI, remote execution,
+and production multi-tenancy.
 
 ## License
 
-Agentic CLI Foundry is available under the [MIT License](LICENSE). Derived projects must make an explicit license choice; keeping MIT is allowed, but it must not happen accidentally.
+Tobari is available under the [MIT License](LICENSE).

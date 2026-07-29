@@ -1,4 +1,4 @@
-// Command agentic-cli-foundry is the executable entry point for Agentic CLI Foundry.
+// Command tobari is the executable entry point for Tobari.
 package main
 
 import (
@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/cli"
+	"github.com/tasuku43/tobari/internal/cli"
 )
 
 // Release builds inject both values with -ldflags.

@@ -87,7 +87,7 @@ Application packages define the smallest port needed by their task. Infrastructu
 The default vertical slice is:
 
 ```text
-cmd/agentic-cli-foundry
+cmd/tobari
   -> internal/cli
   -> internal/app/doctorcmd
   -> internal/domain/doctor and internal/domain/operation

@@ -10,7 +10,17 @@
     "reason": ""
   },
   {
-    "id": "sample.inspect",
+    "id": "realm.execute",
+    "status": "public",
+    "reason": ""
+  },
+  {
+    "id": "realm.lifecycle",
+    "status": "public",
+    "reason": ""
+  },
+  {
+    "id": "realm.logs",
     "status": "public",
     "reason": ""
   },

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/doctor"
+	"github.com/tasuku43/tobari/internal/domain/doctor"
 )
 
 // Inspector reports properties of the running binary without network access.

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	domainauthn "github.com/tasuku43/agentic-cli-foundry/internal/domain/authn"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/fault"
+	domainauthn "github.com/tasuku43/tobari/internal/domain/authn"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 )
 
 type authenticatorStub struct {
