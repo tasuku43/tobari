@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/realm"
 )
 
@@ -174,5 +175,35 @@ func TestComposeEnvironmentUsesPinnedEmbeddedImages(t *testing.T) {
 		if index < 0 || !strings.Contains(joined[index:], "@sha256:") {
 			t.Fatalf("%s is not digest pinned", key)
 		}
+	}
+}
+
+func TestCredentialConfigValidationRejectsPathEscape(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	config := filepath.Join(root, "config")
+	if err := os.MkdirAll(config, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{
+		"version":"v1",
+		"profiles":{
+			"escaped":{
+				"type":"bearer",
+				"hosts":["api.example.com"],
+				"secret_file":"/run/tobari/credentials/../credentials.json"
+			}
+		}
+	}`)
+	if err := os.WriteFile(filepath.Join(config, "credentials.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, status := runtime.checkCredentialConfig()
+	if status != doctor.CheckStatusFail {
+		t.Fatalf("credential config status = %q, want fail", status)
 	}
 }

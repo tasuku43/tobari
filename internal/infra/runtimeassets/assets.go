@@ -60,7 +60,7 @@ func Materialize(destination string) error {
 		if strings.HasSuffix(relative, ".sh") {
 			mode = 0o700
 		}
-		if current, err := os.ReadFile(target); err == nil && string(current) == string(data) {
+		if current, err := os.ReadFile(target); err == nil && string(current) == string(data) { // #nosec G304 -- target is formed only from an absolute caller state root and embed.FS-walked local asset names.
 			if err := os.Chmod(target, mode); err != nil {
 				return fmt.Errorf("set runtime asset mode: %w", err)
 			}

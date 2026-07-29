@@ -9,6 +9,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -210,7 +211,13 @@ def _validated_profile(config: dict[str, Any], name: str, host: str) -> dict[str
         raise CredentialError("credential profile hosts are invalid")
     if host not in {item.rstrip(".").lower() for item in hosts}:
         raise CredentialError("credential profile is not bound to the request host")
-    if not isinstance(secret_file, str) or not secret_file.startswith("/run/tobari/credentials/"):
+    if not isinstance(secret_file, str):
+        raise CredentialError("credential secret path is invalid")
+    secret_path = PurePosixPath(secret_file)
+    if (
+        secret_path.parent != PurePosixPath("/run/tobari/credentials")
+        or secret_path.name in {"", ".", ".."}
+    ):
         raise CredentialError("credential secret path is invalid")
     header = profile.get("header", "authorization" if profile_type == "bearer" else None)
     if not isinstance(header, str) or not header or header.lower() in {"host", "content-length"}:

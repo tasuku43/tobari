@@ -125,7 +125,7 @@ done
 
 for required in \
   './scripts/check.sh full' './scripts/check.sh security' './scripts/check.sh release' \
-  './scripts/check.sh public' './scripts/package-release.sh' 'checksums.txt' \
+  './scripts/check.sh public' './scripts/check.sh runtime' './scripts/package-release.sh' 'checksums.txt' \
   'gh release create' 'Formula/' 'scripts/render-formula.sh'; do
   grep -qF "$required" .github/workflows/release.yml || {
     echo "release workflow is missing: $required" >&2

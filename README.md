@@ -149,6 +149,10 @@ tobari exec --cwd ~/ghq/github.com/example/repository -- codex
 tobari exec -- curl https://example.com/
 ```
 
+Agent CLIs are not bundled. Install them inside Realm or place their binaries
+below the selected root; the named Realm home persists across ordinary
+`down`/`up` cycles.
+
 Tobari preserves the invoked process exit status:
 
 ```sh

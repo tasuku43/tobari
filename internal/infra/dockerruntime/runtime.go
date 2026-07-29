@@ -47,7 +47,7 @@ func (osCommandRunner) Run(
 	in io.Reader,
 	out, errOut io.Writer,
 ) error {
-	command := exec.CommandContext(ctx, "docker", args...)
+	command := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- executable is fixed and every value is passed as one exact argv element, never through a shell.
 	command.Env = environment
 	command.Stdin = in
 	command.Stdout = out
@@ -56,7 +56,7 @@ func (osCommandRunner) Run(
 }
 
 func (osCommandRunner) Output(ctx context.Context, args, environment []string) ([]byte, error) {
-	command := exec.CommandContext(ctx, "docker", args...)
+	command := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- executable is fixed and every value is passed as one exact argv element, never through a shell.
 	command.Env = environment
 	return command.CombinedOutput()
 }
@@ -313,7 +313,7 @@ func initializeBytes(target string, data []byte, mode os.FileMode) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect configuration file: %w", err)
 	}
-	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode) // #nosec G304 -- target is one fixed Tobari configuration child and O_EXCL prevents overwrite or final-component symlink traversal.
 	if err != nil {
 		return fmt.Errorf("create configuration file: %w", err)
 	}
@@ -617,7 +617,7 @@ func (r *Runtime) composeEnvironment(state realm.State) ([]string, error) {
 
 // Doctor reports all locally testable prerequisites without repairing them.
 func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error) {
-	checks := make([]doctor.Check, 0, 9)
+	checks := make([]doctor.Check, 0, 13)
 	add := func(name string, status doctor.CheckStatus, detail string) {
 		checks = append(checks, doctor.Check{Name: name, Status: status, Detail: detail})
 	}
@@ -641,14 +641,17 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 	} else {
 		add("docker_compose", doctor.CheckStatusPass, strings.TrimSpace(string(output)))
 	}
+	add("proxy_port", doctor.CheckStatusPass, "Gateway has no host-published port, so there is no host port conflict")
 	if root != "" {
 		if resolved, err := r.ResolveRoot(ctx, root); err != nil {
 			add("root", doctor.CheckStatusFail, err.Error())
 		} else {
 			add("root", doctor.CheckStatusPass, resolved)
+			add("root_sharing", doctor.CheckStatusWarn, "path is valid; Docker VM bind sharing is confirmed by up")
 		}
 	} else {
 		add("root", doctor.CheckStatusWarn, "no root was supplied")
+		add("root_sharing", doctor.CheckStatusWarn, "no root was supplied")
 	}
 	state, exists, stateErr := r.LoadState(ctx)
 	if stateErr != nil {
@@ -669,6 +672,11 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 	} else {
 		add("credentials", doctor.CheckStatusPass, "credential files have safe Unix modes")
 	}
+	if detail, status := r.checkCredentialConfig(); status != doctor.CheckStatusPass {
+		add("credential_config", status, detail)
+	} else {
+		add("credential_config", doctor.CheckStatusPass, detail)
+	}
 	output, err := r.runner.Output(
 		ctx,
 		[]string{"ps", "-a", "--filter", "label=" + ownerLabel + "=" + ownerValue, "--format", "{{.Names}}"},
@@ -682,6 +690,58 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 		add("owned_resources", doctor.CheckStatusWarn, "owned containers exist: "+strings.Join(strings.Fields(string(output)), ","))
 	}
 	return doctor.Report{Checks: checks}, nil
+}
+
+func (r *Runtime) checkCredentialConfig() (string, doctor.CheckStatus) {
+	path := filepath.Join(r.configDirectory, "credentials.json")
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "configuration will be initialized by up", doctor.CheckStatusWarn
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return "credentials.json must be a regular owner-only file", doctor.CheckStatusFail
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- path is the fixed credentials.json child of Tobari's user configuration directory.
+	if err != nil || len(data) > 256*1024 {
+		return "credentials.json is unreadable or exceeds 256 KiB", doctor.CheckStatusFail
+	}
+	var document struct {
+		Version  string `json:"version"`
+		Profiles map[string]struct {
+			Type       string   `json:"type"`
+			Hosts      []string `json:"hosts"`
+			SecretFile string   `json:"secret_file"`
+			Header     string   `json:"header"`
+		} `json:"profiles"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil || document.Version != "v1" || document.Profiles == nil {
+		return "credentials.json does not match schema v1", doctor.CheckStatusFail
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return "credentials.json contains trailing data", doctor.CheckStatusFail
+	}
+	for name, profile := range document.Profiles {
+		secretName := strings.TrimPrefix(profile.SecretFile, "/run/tobari/credentials/")
+		if name == "" || (profile.Type != "bearer" && profile.Type != "header") ||
+			len(profile.Hosts) == 0 ||
+			!strings.HasPrefix(profile.SecretFile, "/run/tobari/credentials/") ||
+			secretName == "" || secretName == "." || secretName == ".." ||
+			strings.Contains(secretName, "/") {
+			return "credentials.json contains an invalid profile", doctor.CheckStatusFail
+		}
+		for _, host := range profile.Hosts {
+			if host == "" || host != strings.ToLower(strings.TrimSuffix(host, ".")) {
+				return "credentials.json contains an invalid host binding", doctor.CheckStatusFail
+			}
+		}
+		if profile.Type == "header" && profile.Header == "" {
+			return "header credential profile requires a header name", doctor.CheckStatusFail
+		}
+	}
+	return "credential profile metadata matches schema v1", doctor.CheckStatusPass
 }
 
 func (r *Runtime) checkCredentialPermissions() error {

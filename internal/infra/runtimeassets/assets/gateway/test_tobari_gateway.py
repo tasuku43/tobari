@@ -79,6 +79,15 @@ class GatewayTests(unittest.TestCase):
         with self.assertRaises(gateway.CredentialError):
             gateway.inject_credential(request, self.config, "example", "other.example.com")
 
+    def test_credential_path_cannot_escape_gateway_directory(self):
+        request = self.flow().request
+        escaped = json.loads(json.dumps(self.config))
+        escaped["profiles"]["example"]["secret_file"] = (
+            "/run/tobari/credentials/../config/credentials.json"
+        )
+        with self.assertRaises(gateway.CredentialError):
+            gateway.inject_credential(request, escaped, "example", "api.example.com")
+
     def test_deny_and_audit_never_include_secrets_or_body(self):
         flow = self.flow()
         addon = gateway.TobariGateway()

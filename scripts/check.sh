@@ -155,7 +155,7 @@ run_public() {
 }
 
 load_runtime_versions() {
-  # shellcheck source=../internal/infra/runtimeassets/assets/versions.env
+  # shellcheck disable=SC1091
   source internal/infra/runtimeassets/assets/versions.env
   [[ -n ${OPA_IMAGE:-} && -n ${MITMPROXY_IMAGE:-} ]] || {
     echo "runtime image references are incomplete" >&2

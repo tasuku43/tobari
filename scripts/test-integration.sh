@@ -21,8 +21,8 @@ assert_contains() {
 
 wait_healthy() {
   local container=$1
-  local attempt
-  for attempt in $(seq 1 60); do
+  local _
+  for _ in $(seq 1 60); do
     if [[ $(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true) == healthy ]]; then
       return 0
     fi
@@ -123,6 +123,9 @@ other_host_status=$(run_tobari exec -- curl -sS -o /dev/null -w '%{http_code}' \
 
 https_status=$(run_tobari exec -- curl -fsS -o /dev/null -w '%{http_code}' https://example.com/)
 [[ $https_status == 200 ]] || fail "intercepted HTTPS returned $https_status instead of 200"
+
+shell_output=$(printf 'printf shell-ok\\nexit\\n' | run_tobari shell)
+assert_contains "$shell_output" "shell-ok" "interactive shell"
 
 if run_tobari exec -- env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
   curl --noproxy '*' --max-time 3 -fsS https://example.com/ >/dev/null 2>&1; then
