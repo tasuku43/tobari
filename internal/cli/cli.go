@@ -7,12 +7,14 @@ import (
 	"io"
 	"strings"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/app/doctorcmd"
-	"github.com/tasuku43/agentic-cli-foundry/internal/app/samplecmd"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/fault"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/operation"
-	"github.com/tasuku43/agentic-cli-foundry/internal/infra/sampledata"
-	"github.com/tasuku43/agentic-cli-foundry/internal/infra/systemdoctor"
+	"github.com/tasuku43/tobari/internal/app/doctorcmd"
+	"github.com/tasuku43/tobari/internal/app/realmcmd"
+	"github.com/tasuku43/tobari/internal/app/samplecmd"
+	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
+	"github.com/tasuku43/tobari/internal/infra/sampledata"
+	"github.com/tasuku43/tobari/internal/infra/systemdoctor"
 )
 
 // CLI contains injected streams and application services.
@@ -25,12 +27,18 @@ type CLI struct {
 
 	catalog Catalog
 	doctor  *doctorcmd.Service
+	realm   *realmcmd.Service
 	samples *samplecmd.Service
 }
 
-// New builds the production CLI with offline template adapters.
+// New builds the production CLI with the Docker-backed Tobari runtime.
 func New(in io.Reader, out, errOut io.Writer) *CLI {
-	return newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
+	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
+	runtime, err := dockerruntime.New()
+	if err == nil {
+		command.realm = realmcmd.New(runtime)
+	}
+	return command
 }
 
 func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doctorcmd.InspectorPort) *CLI {

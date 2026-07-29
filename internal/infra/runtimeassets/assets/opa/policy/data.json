@@ -1,0 +1,35 @@
+{
+  "tobari": {
+    "allowed_hosts": [
+      "api.github.com",
+      "example.com",
+      "mock-upstream"
+    ],
+    "allowed_http_hosts": [
+      "mock-upstream"
+    ],
+    "read_methods": [
+      "GET",
+      "HEAD"
+    ],
+    "credentials": {
+      "github-development": {
+        "hosts": [
+          "api.github.com"
+        ]
+      },
+      "integration": {
+        "hosts": [
+          "mock-upstream"
+        ]
+      }
+    },
+    "deny_rules": [
+      {
+        "host": "api.github.com",
+        "method": "POST",
+        "path_prefix": "/repos/"
+      }
+    ]
+  }
+}

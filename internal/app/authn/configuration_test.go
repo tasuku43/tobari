@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	domainauthn "github.com/tasuku43/agentic-cli-foundry/internal/domain/authn"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/fault"
+	domainauthn "github.com/tasuku43/tobari/internal/domain/authn"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 )
 
 type configurationSourceStub struct {

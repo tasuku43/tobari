@@ -10,14 +10,14 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/authn"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/fault"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/authn"
+	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
 )
 
 const (
 	// ProgramName is intentionally a single bootstrap replacement token.
-	ProgramName = "agentic-cli-foundry"
+	ProgramName = "tobari"
 
 	// maxAgentIndexEntryBytes bounds the selection-only root help cost per
 	// command. Detailed invocation contracts belong in scoped help.
@@ -417,13 +417,17 @@ func stringPointer(value string) *string {
 	return &value
 }
 
+func int64Pointer(value int64) *int64 {
+	return &value
+}
+
 // DefaultCatalog returns the public CLI contract.
 func DefaultCatalog() Catalog {
-	return NewCatalog(
+	catalog := NewCatalog(
 		CommandSpec{
 			Path:    "doctor",
 			Summary: "Run local, read-only diagnostics",
-			Args:    "[--format tsv|json]",
+			Args:    "[--root <path>] [--format tsv|json]",
 			Effect:  operation.EffectRead,
 			Role:    RoleUtility,
 			Agent: AgentContract{
@@ -435,6 +439,11 @@ func DefaultCatalog() Catalog {
 						ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
 						Description: "Select the complete report representation.", AllowedValues: []string{"tsv", "json"},
 						DefaultValue: stringPointer("tsv"),
+					},
+					{
+						Name: "--root", Source: InputSourceFlag, Required: false,
+						ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+						Description: "Validate an existing host directory as a prospective Realm root.", AllowedValues: []string{},
 					},
 				},
 				Output: CommandOutput{
@@ -454,6 +463,9 @@ func DefaultCatalog() Catalog {
 				Errors: []CommandError{
 					declaredCommandError(fault.KindInvalidInput, "invalid_arguments", false, "help doctor", "Correct the command arguments."),
 					declaredCommandError(fault.KindRejected, "diagnostic_failed", false, "doctor", "Review the failed diagnostic and correct the local prerequisite."),
+					declaredCommandError(fault.KindInternal, "doctor_failed", false, "doctor", "Inspect the local diagnostic runtime."),
+					declaredCommandError(fault.KindContract, "invalid_doctor_contract", false, "doctor", "Repair the diagnostic adapter contract."),
+					declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 					declaredCommandError(fault.KindContract, "output_contract_exceeded", false, "doctor", "Review the bounded output contract and diagnostic adapter."),
 					declaredCommandError(fault.KindContract, "output_encoding_failed", false, "doctor", "Repair the diagnostic JSON projection."),
 					declaredCommandError(fault.KindInternal, "internal_error", false, "doctor", "Retry after investigating the local diagnostic adapter."),
@@ -635,6 +647,7 @@ func DefaultCatalog() Catalog {
 			handler: runVersion,
 		},
 	)
+	return NewCatalog(append(catalog.commands, runtimeCommandSpecs()...)...)
 }
 
 // Validate rejects incomplete command declarations before any handler runs.

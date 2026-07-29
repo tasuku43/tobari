@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "profiles": {
+    "github-development": {
+      "type": "bearer",
+      "hosts": [
+        "api.github.com"
+      ],
+      "secret_file": "/run/tobari/credentials/github-development"
+    }
+  }
+}

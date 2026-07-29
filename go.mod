@@ -1,3 +1,3 @@
-module github.com/tasuku43/agentic-cli-foundry
+module github.com/tasuku43/tobari
 
 go 1.26.5

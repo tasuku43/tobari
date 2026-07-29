@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/page"
+	"github.com/tasuku43/tobari/internal/domain/page"
 )
 
 func TestRepositoryProvidesStableOpaqueIDs(t *testing.T) {

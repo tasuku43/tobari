@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/page"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/sample"
+	"github.com/tasuku43/tobari/internal/domain/page"
+	"github.com/tasuku43/tobari/internal/domain/sample"
 )
 
 type cliSampleRepository struct {
@@ -155,7 +155,7 @@ func TestSampleListRejectsArgumentsBeforeRepository(t *testing.T) {
 	if code := runCLI(command, []string{"sample", "list", "extra"}); code != ExitUsage {
 		t.Fatalf("sample list code = %d, want %d", code, ExitUsage)
 	}
-	if repository.lists != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage: agentic-cli-foundry sample list") {
+	if repository.lists != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage: tobari sample list") {
 		t.Fatalf("lists = %d, stdout = %q, stderr = %q", repository.lists, stdout.String(), stderr.String())
 	}
 }

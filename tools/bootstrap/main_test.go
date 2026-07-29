@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/agentic-cli-foundry/tools/internal/projectconfig"
+	"github.com/tasuku43/tobari/tools/internal/projectconfig"
 )
 
 func TestApplyPreviewsAndAppliesExactContentAndPathReplacements(t *testing.T) {
@@ -98,7 +98,7 @@ func TestApplyDoesNotRecursivelyReplaceTargetValues(t *testing.T) {
 	root := t.TempDir()
 	writeFixture(t, root, "go.mod", "module "+projectconfig.Defaults.GoModule+"\n")
 	target := projectconfig.Defaults
-	target.GoModule = "github.com/acme/agentic-cli-foundry-pro"
+	target.GoModule = "github.com/acme/tobari-pro"
 	target.GitHubRepository = "different-repository"
 	if _, _, err := apply(root, replacements(target), false); err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func TestApplyDoesNotRecursivelyReplaceTargetValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(data); got != "module github.com/acme/agentic-cli-foundry-pro\n" {
+	if got := string(data); got != "module github.com/acme/tobari-pro\n" {
 		t.Fatalf("replacement was recursive: %q", got)
 	}
 }

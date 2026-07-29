@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Agentic CLI Foundry is a technical community where contributors should be able to propose, question, review, and learn without harassment or intimidation.
+Tobari is a technical community where contributors should be able to propose, question, review, and learn without harassment or intimidation.
 
 ## Expected behavior
 

@@ -7,14 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/doctor"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/fault"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/doctor"
+	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
 )
 
 type cliInspector struct {
@@ -66,7 +65,7 @@ func TestNoArgsReturnsStructuredUsageFailure(t *testing.T) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "kind: invalid_input") || !strings.Contains(stderr.String(), "code: missing_command") ||
-		!strings.Contains(stderr.String(), "next_action: agentic-cli-foundry help") {
+		!strings.Contains(stderr.String(), "next_action: tobari help") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -88,7 +87,7 @@ func TestVersionOutputContract(t *testing.T) {
 	if code := runCLI(command, []string{"version"}); code != ExitOK {
 		t.Fatalf("Run(version) code = %d, stderr = %q", code, stderr.String())
 	}
-	want := "agentic-cli-foundry v1.2.3 (0123456789abcdef0123456789abcdef01234567)\n"
+	want := "tobari v1.2.3 (0123456789abcdef0123456789abcdef01234567)\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("version output = %q, want %q", got, want)
 	}
@@ -618,33 +617,57 @@ func TestDoctorRejectsArgumentsBeforeInspection(t *testing.T) {
 	if code := runCLI(command, []string{"doctor", "extra"}); code != ExitUsage {
 		t.Fatalf("Run(doctor extra) code = %d, want %d", code, ExitUsage)
 	}
-	if inspector.calls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage: agentic-cli-foundry doctor") {
+	if inspector.calls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage: tobari doctor") {
 		t.Fatalf("calls = %d, stdout = %q, stderr = %q", inspector.calls, stdout.String(), stderr.String())
 	}
 }
 
-func TestE2EDoctorUsesProductionOfflineAdapter(t *testing.T) {
+func TestE2EDoctorUsesProductionRuntimeAdapter(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := New(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"doctor"}); code != ExitOK {
+	if code := runCLI(command, []string{"doctor"}); code != ExitOK && code != ExitRejected {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.HasPrefix(output, "CHECK\tSTATUS\tDETAIL\nruntime\tpass\t") {
+	if !strings.HasPrefix(output, "CHECK\tSTATUS\tDETAIL\ndocker_cli\t") {
 		t.Fatalf("doctor output = %q", output)
 	}
-	if !strings.Contains(output, runtime.Version()) || !strings.Contains(output, runtime.GOOS+"/"+runtime.GOARCH) {
-		t.Fatalf("doctor output does not describe runtime: %q", output)
+	if !strings.Contains(output, "\ndocker_engine\t") || !strings.Contains(output, "\ndocker_context\t") {
+		t.Fatalf("doctor output does not describe Docker runtime: %q", output)
 	}
 }
 
 func TestEveryCatalogCommandDispatchesThroughItsSpec(t *testing.T) {
 	for _, spec := range DefaultCatalog().Commands() {
 		inspector := passingInspector("test/test")
-		command, _, stderr := newTestCLI(inspector)
+		var stdout, stderr bytes.Buffer
+		commands := DefaultCatalog().Commands()
+		for index := range commands {
+			commands[index].handler = noOpHandler
+		}
+		command := newCLI(strings.NewReader(""), &stdout, &stderr, NewCatalog(commands...), inspector)
 		args := strings.Split(spec.Path, " ")
-		if spec.Path == "sample read" {
-			args = append(args, "--id", "smp_2f4a6c8e0b1d")
+		for _, input := range spec.Agent.Inputs {
+			if !input.Required || input.DefaultValue != nil {
+				continue
+			}
+			value := "value"
+			if len(input.AllowedValues) != 0 {
+				value = input.AllowedValues[0]
+			}
+			switch input.Name {
+			case "--id":
+				value = "smp_2f4a6c8e0b1d"
+			case "--root":
+				value = "/tmp"
+			case "command":
+				value = "true"
+			}
+			if input.Source == InputSourceFlag {
+				args = append(args, input.Name+"="+value)
+			} else if input.Source == InputSourceArgument {
+				args = append(args, value)
+			}
 		}
 		if code := runCLI(command, args); code != ExitOK {
 			t.Errorf("Run(%q) code = %d, stderr = %q", spec.Path, code, stderr.String())
@@ -657,10 +680,10 @@ func TestRootAliasesUseCatalogCommands(t *testing.T) {
 		args []string
 		want string
 	}{
-		{args: []string{"--help"}, want: "Agentic CLI Foundry\n"},
-		{args: []string{"-h"}, want: "Agentic CLI Foundry\n"},
-		{args: []string{"--version"}, want: "agentic-cli-foundry dev\n"},
-		{args: []string{"-v"}, want: "agentic-cli-foundry dev\n"},
+		{args: []string{"--help"}, want: "Tobari\n"},
+		{args: []string{"-h"}, want: "Tobari\n"},
+		{args: []string{"--version"}, want: "tobari dev\n"},
+		{args: []string{"-v"}, want: "tobari dev\n"},
 	}
 	for _, test := range tests {
 		command, stdout, stderr := newTestCLI(passingInspector("unused"))

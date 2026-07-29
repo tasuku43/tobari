@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/agentic-cli-foundry/tools/internal/projectconfig"
+	"github.com/tasuku43/tobari/tools/internal/projectconfig"
 )
 
 func TestRepositoryPathsSkipsTrackedDeletionAndKeepsUntrackedRenameDestination(t *testing.T) {
@@ -227,12 +227,12 @@ func TestCheckTextAllowsConfiguredIdentityContainingTemplateSubstring(t *testing
 	config := projectconfig.Config{
 		Profile: "ready",
 		Project: projectconfig.Project{
-			Name: "Acme Agentic CLI Foundry", BinaryName: "acme-agentic-cli-foundry", GoModule: "github.com/acme/acme-agentic-cli-foundry",
-			GitHubOwner: "acme", GitHubRepository: "acme-agentic-cli-foundry", Description: "An Acme CLI template.",
-			FormulaClass: "AcmeAgenticCliFoundry", SecurityContact: "security@acme.example",
+			Name: "Acme Tobari", BinaryName: "acme-tobari", GoModule: "github.com/acme/acme-tobari",
+			GitHubOwner: "acme", GitHubRepository: "acme-tobari", Description: "An Acme CLI template.",
+			FormulaClass: "AcmeTobari", SecurityContact: "security@acme.example",
 		},
 	}
-	line := "github.com/acme/acme-agentic-cli-foundry acme-agentic-cli-foundry AcmeAgenticCliFoundry"
+	line := "github.com/acme/acme-tobari acme-tobari AcmeTobari"
 	if issues := checkText("README.md", line, config, nil, "public"); len(issues) != 0 {
 		t.Fatalf("configured identity issues = %#v", issues)
 	}
@@ -556,7 +556,7 @@ func TestCheckTextAllowsDocumentedExamplesAndReleasePlaceholders(t *testing.T) {
 	}
 	marker := "@" + "@"
 	formula := "url \"" + marker + "MACOS_ARM64_URL" + marker + "\"\nsha256 \"" + marker + "MACOS_ARM64_SHA256" + marker + "\""
-	if issues := checkText("Formula/agentic-cli-foundry.rb.template", formula, config, nil, "public"); len(issues) != 0 {
+	if issues := checkText("Formula/tobari.rb.template", formula, config, nil, "public"); len(issues) != 0 {
 		t.Fatalf("formula issues = %#v", issues)
 	}
 }
@@ -566,10 +566,10 @@ func TestCheckFilesystemShapeRejectsClaudePolicyAndRootBuildArtifacts(t *testing
 	if err := os.MkdirAll(filepath.Join(root, ".claude", "hooks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "agentic-cli-foundry"), []byte("binary fixture\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "tobari"), []byte("binary fixture\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	config := projectconfig.Config{Project: projectconfig.Project{BinaryName: "agentic-cli-foundry"}}
+	config := projectconfig.Config{Project: projectconfig.Project{BinaryName: "tobari"}}
 	issues, err := checkFilesystemShape(root, config)
 	if err != nil {
 		t.Fatal(err)
@@ -592,7 +592,7 @@ func TestCheckFilesystemShapeDoesNotTreatIgnoredLocalFilesAsPublishable(t *testi
 			t.Fatal(err)
 		}
 	}
-	config := projectconfig.Config{Project: projectconfig.Project{BinaryName: "agentic-cli-foundry"}}
+	config := projectconfig.Config{Project: projectconfig.Project{BinaryName: "tobari"}}
 	issues, err := checkFilesystemShape(root, config)
 	if err != nil {
 		t.Fatal(err)
@@ -621,7 +621,7 @@ func TestCheckAgentHarnessRequiresRepositorySkills(t *testing.T) {
 }
 
 func TestCheckPathRejectsParallelAgentPolicyFiles(t *testing.T) {
-	config := projectconfig.Config{Project: projectconfig.Project{BinaryName: "agentic-cli-foundry"}}
+	config := projectconfig.Config{Project: projectconfig.Project{BinaryName: "tobari"}}
 	for _, path := range []string{"CLAUDE.md", "docs/Claude.md"} {
 		issues := checkWorkingTreeArtifact(path, config)
 		if len(issues) != 1 || !strings.Contains(issues[0].Message, "Claude-specific") {
@@ -636,7 +636,7 @@ func TestCheckMarkdownLinksAllowsPublishableFilesAndSkipsExternalTargets(t *test
 	writeRepositoryFixture(t, root, "docs/guide.md", strings.Join([]string{
 		"[root](../README.md#root)",
 		"[external](https://example.com/docs)",
-		"[mail](mailto:security@agentic-cli-foundry.example)",
+		"[mail](mailto:43329036+tasuku43@users.noreply.github.com)",
 		"[same page](#section)",
 		"[root reference]: ../README.md",
 		"```text",

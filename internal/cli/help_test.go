@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 )
 
 func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
@@ -39,7 +39,7 @@ func TestCommandHelpUsesCatalogMetadataAndDerivedReferences(t *testing.T) {
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		"Usage:\n  agentic-cli-foundry sample read --id <sample-id> [--format tsv|json]",
+		"Usage:\n  tobari sample read --id <sample-id> [--format tsv|json]",
 		"Read exactly one offline sample by opaque ID.",
 		"Effect: read",
 		"Role: act",
@@ -153,7 +153,7 @@ func TestRootAgentHelpIsACompactProjectionOfTheCatalog(t *testing.T) {
 	if document.SchemaVersion != 6 || agentHelpSchemaVersion != 6 || document.View != "index" || document.Program != ProgramName {
 		t.Fatalf("agent document header = %+v", document)
 	}
-	if document.ScopeRequest.InvocationTemplate != "agentic-cli-foundry help <command-or-namespace> --format agent" ||
+	if document.ScopeRequest.InvocationTemplate != "tobari help <command-or-namespace> --format agent" ||
 		!reflect.DeepEqual(document.ScopeRequest.SelectorFields, []string{"commands[].path", "commands[].namespace"}) ||
 		document.ScopeRequest.UnknownOutcomeMaxInvocations != 2 || document.ScopeRequest.KnownPathMaxInvocations != 1 {
 		t.Fatalf("scope request = %+v", document.ScopeRequest)
@@ -512,7 +512,7 @@ func TestTrailingHelpAliasSupportsNamespaceAndExactCommand(t *testing.T) {
 			if len(args) == 2 && !strings.Contains(stdout.String(), "Commands in namespace sample:") {
 				t.Fatalf("namespace alias output = %q", stdout.String())
 			}
-			if len(args) == 3 && !strings.Contains(stdout.String(), "agentic-cli-foundry sample read") {
+			if len(args) == 3 && !strings.Contains(stdout.String(), "tobari sample read") {
 				t.Fatalf("exact alias output = %q", stdout.String())
 			}
 		})
@@ -590,9 +590,9 @@ func TestAgentHelpPublishesDiscoverToActReferenceFlow(t *testing.T) {
 	}
 	if len(document.Workflows) != 1 || document.Workflows[0].ReferenceKind != "sample" ||
 		!reflect.DeepEqual(document.Workflows[0].Producers, []agentWorkflowProducer{{
-			Path: "sample list", Usage: "agentic-cli-foundry sample list [--format tsv|json]", Field: "id",
+			Path: "sample list", Usage: "tobari sample list [--format tsv|json]", Field: "id",
 		}}) || !reflect.DeepEqual(document.Workflows[0].Consumers, []agentWorkflowConsumer{{
-		Path: "sample read", Usage: "agentic-cli-foundry sample read --id <sample-id> [--format tsv|json]", Input: "--id",
+		Path: "sample read", Usage: "tobari sample read --id <sample-id> [--format tsv|json]", Input: "--id",
 	}}) {
 		t.Fatalf("derived grouped workflow = %+v", document.Workflows)
 	}
@@ -628,7 +628,7 @@ func TestSelectedProducerDerivesExactNextArgvFromGroupedWorkflow(t *testing.T) {
 	producer := document.Workflows[0].Producers[0]
 	consumer := document.Workflows[0].Consumers[0]
 	if producer.Path != "sample list" || producer.Field != "id" || consumer.Path != "sample read" ||
-		consumer.Input != "--id" || consumer.Usage != "agentic-cli-foundry sample read --id <sample-id> [--format tsv|json]" {
+		consumer.Input != "--id" || consumer.Usage != "tobari sample read --id <sample-id> [--format tsv|json]" {
 		t.Fatalf("selected producer adjacency = producer %+v consumer %+v", producer, consumer)
 	}
 	nextArgv := append(strings.Fields(consumer.Path), consumer.Input, listed.Items[0].ID)

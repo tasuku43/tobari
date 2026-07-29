@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/agentic-cli-foundry-go-environment.XXXXXXXX")
+fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/tobari-go-environment.XXXXXXXX")
 mismatch_root=
 cleanup() {
   rm -rf -- "$fixture_root"
@@ -36,7 +36,7 @@ fi
 
 echo "test-check-environment: OK"
 
-mismatch_root=$(mktemp -d "${TMPDIR:-/tmp}/agentic-cli-foundry-go-mismatch.XXXXXXXX")
+mismatch_root=$(mktemp -d "${TMPDIR:-/tmp}/tobari-go-mismatch.XXXXXXXX")
 cp scripts/testdata/fake-go-toolchain-mismatch.sh "$mismatch_root/go"
 mkdir -p "$mismatch_root/fake-goroot/pkg/tool/darwin_arm64"
 cp scripts/testdata/fake-go-toolchain-mismatch.sh "$mismatch_root/fake-goroot/pkg/tool/darwin_arm64/compile"

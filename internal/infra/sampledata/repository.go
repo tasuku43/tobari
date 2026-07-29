@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/page"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/sample"
+	"github.com/tasuku43/tobari/internal/domain/page"
+	"github.com/tasuku43/tobari/internal/domain/sample"
 )
 
 // Repository is an in-memory adapter with stable opaque IDs.

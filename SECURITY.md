@@ -1,6 +1,6 @@
 # Security Policy
 
-Agentic CLI Foundry treats security statements as contracts that must identify both a trust boundary and an enforcement mechanism. A derived project must replace the generic model with the concrete assets, actors, side effects, storage, network destinations, and release guarantees of that tool.
+Tobari treats security statements as contracts that must identify both a trust boundary and an enforcement mechanism. A derived project must replace the generic model with the concrete assets, actors, side effects, storage, network destinations, and release guarantees of that tool.
 
 ## Supported versions
 

@@ -1,8 +1,8 @@
 # Build and release output
 /bin/
 /dist/
-/agentic-cli-foundry
-/agentic-cli-foundry.exe
+/tobari
+/tobari.exe
 
 # Test output
 /coverage.out

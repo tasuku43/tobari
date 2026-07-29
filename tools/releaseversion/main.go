@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tasuku43/agentic-cli-foundry/tools/internal/releaseversion"
+	"github.com/tasuku43/tobari/tools/internal/releaseversion"
 )
 
 func main() {

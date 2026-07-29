@@ -7,7 +7,7 @@ tasks:
       - mkdir -p bin
       # Local builds intentionally retain the compiled dev version. Only the
       # validated release packaging path may inject version and revision data.
-      - go build -buildvcs=false -trimpath -o bin/agentic-cli-foundry ./cmd/agentic-cli-foundry
+      - go build -buildvcs=false -trimpath -o bin/tobari ./cmd/tobari
 
   test:
     desc: Run the Go test suite.

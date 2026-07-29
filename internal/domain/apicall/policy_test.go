@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/operation"
 )
 
 func TestPolicyAllowsExplicitSafeContracts(t *testing.T) {

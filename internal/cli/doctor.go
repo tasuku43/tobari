@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/doctor"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/fault"
-	"github.com/tasuku43/agentic-cli-foundry/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/doctor"
+	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
 )
 
 const (
@@ -22,7 +22,12 @@ func runDoctor(ctx context.Context, c *CLI, command CommandSpec, intent operatio
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help doctor", "Correct the command arguments.")
 	}
-	report, err := c.doctor.Run(ctx, intent)
+	var report doctor.Report
+	if c.realm != nil {
+		report, err = c.realm.Doctor(ctx, inputs.One("--root"))
+	} else {
+		report, err = c.doctor.Run(ctx, intent)
+	}
 	if err != nil {
 		return c.fail(ctx, err)
 	}

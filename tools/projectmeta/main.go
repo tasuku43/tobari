@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tasuku43/agentic-cli-foundry/tools/internal/projectconfig"
+	"github.com/tasuku43/tobari/tools/internal/projectconfig"
 )
 
 func main() {
