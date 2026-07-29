@@ -70,23 +70,39 @@ type Runtime struct {
 
 // New resolves XDG paths without creating them.
 func New() (*Runtime, error) {
-	configHome, err := os.UserConfigDir()
+	configHome, stateHome, err := resolveRuntimeHomes(
+		os.Getenv("XDG_CONFIG_HOME"),
+		os.Getenv("XDG_STATE_HOME"),
+		os.UserHomeDir,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("resolve user configuration directory: %w", err)
-	}
-	stateHome := os.Getenv("XDG_STATE_HOME")
-	if stateHome == "" {
-		home, homeErr := os.UserHomeDir()
-		if homeErr != nil {
-			return nil, fmt.Errorf("resolve user state directory: %w", homeErr)
-		}
-		stateHome = filepath.Join(home, ".local", "state")
+		return nil, err
 	}
 	return newRuntime(
 		filepath.Join(configHome, "tobari"),
 		filepath.Join(stateHome, "tobari"),
 		osCommandRunner{},
 	)
+}
+
+func resolveRuntimeHomes(
+	configHome, stateHome string,
+	userHome func() (string, error),
+) (string, string, error) {
+	if configHome != "" && stateHome != "" {
+		return configHome, stateHome, nil
+	}
+	home, err := userHome()
+	if err != nil {
+		return "", "", fmt.Errorf("resolve user home directory: %w", err)
+	}
+	if configHome == "" {
+		configHome = filepath.Join(home, ".config")
+	}
+	if stateHome == "" {
+		stateHome = filepath.Join(home, ".local", "state")
+	}
+	return configHome, stateHome, nil
 }
 
 func newRuntime(configDirectory, stateDirectory string, runner commandRunner) (*Runtime, error) {

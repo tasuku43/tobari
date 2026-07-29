@@ -195,8 +195,7 @@ tobari down --purge
 
 On first `up`, Tobari initializes editable policy files under:
 
-- macOS: `~/Library/Application Support/tobari/policy`
-- Linux: `${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy`
+- macOS and Linux: `${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy`
 
 The sample policy is generic HTTP policy, not a GitHub adapter. It allows only
 listed hosts, rejects ordinary plain HTTP, restricts methods, supports explicit
@@ -249,9 +248,6 @@ config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tobari"
 install -d -m 0700 "$config_dir/credentials"
 install -m 0600 /path/to/token "$config_dir/credentials/github-development"
 ```
-
-On macOS, use
-`$HOME/Library/Application Support/tobari` as `config_dir`.
 
 Configure only metadata in `credentials.json`:
 

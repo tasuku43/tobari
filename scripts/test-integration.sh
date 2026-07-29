@@ -94,11 +94,6 @@ test_root=$(mktemp -d "$PWD/.tobari-integration.XXXXXX")
 mkdir -p "$test_root/user" "$test_root/config/tobari/credentials" "$test_root/state" "$test_root/workspace"
 
 config_directory=$test_root/config/tobari
-if [[ $(uname -s) == Darwin ]]; then
-  config_directory="$test_root/user/Library/Application Support/tobari"
-  mkdir -p "$config_directory/credentials"
-fi
-
 secret_value=tobari-integration-secret-canary
 secret_file=$config_directory/credentials/integration
 printf '%s\n' "$secret_value" >"$secret_file"

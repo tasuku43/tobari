@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,48 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/realm"
 )
+
+func TestResolveRuntimeHomesPrefersXDGWithoutResolvingUserHome(t *testing.T) {
+	t.Parallel()
+	configHome := filepath.Join(string(filepath.Separator), "xdg", "config")
+	stateHome := filepath.Join(string(filepath.Separator), "xdg", "state")
+	gotConfig, gotState, err := resolveRuntimeHomes(configHome, stateHome, func() (string, error) {
+		return "", errors.New("user home must not be resolved")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotConfig != configHome || gotState != stateHome {
+		t.Fatalf("resolveRuntimeHomes() = (%q, %q), want (%q, %q)", gotConfig, gotState, configHome, stateHome)
+	}
+}
+
+func TestResolveRuntimeHomesUsesXDGFallbacksOnEveryPlatform(t *testing.T) {
+	t.Parallel()
+	home := filepath.Join(string(filepath.Separator), "home", "example")
+	configHome, stateHome, err := resolveRuntimeHomes("", "", func() (string, error) {
+		return home, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".config"); configHome != want {
+		t.Fatalf("config home = %q, want %q", configHome, want)
+	}
+	if want := filepath.Join(home, ".local", "state"); stateHome != want {
+		t.Fatalf("state home = %q, want %q", stateHome, want)
+	}
+}
+
+func TestResolveRuntimeHomesRequiresUserHomeForFallback(t *testing.T) {
+	t.Parallel()
+	_, _, err := resolveRuntimeHomes("", "/xdg/state", func() (string, error) {
+		return "", errors.New("missing home")
+	})
+	if err == nil || !strings.Contains(err.Error(), "resolve user home directory") {
+		t.Fatalf("resolveRuntimeHomes() error = %v, want user home resolution error", err)
+	}
+}
 
 type runnerCall struct {
 	args []string

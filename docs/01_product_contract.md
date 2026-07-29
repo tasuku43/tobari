@@ -81,9 +81,8 @@ window of 1 through 10,000 lines per selected component.
 
 ## Configuration contract
 
-Configuration is resolved from the operating-system user configuration
-directory (`~/Library/Application Support/tobari` on macOS and
-`${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on Linux):
+Configuration is resolved from
+`${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on both macOS and Linux:
 
 - `policy/`: Rego mounted read-only into OPA;
 - `credentials.json`: schema-v1 profile type, exact hosts, and Gateway mount path;
