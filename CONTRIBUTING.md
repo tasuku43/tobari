@@ -21,7 +21,8 @@ task check:fast
 
 The required pre-merge `task check` also runs the complete security, release, and public profiles. Local execution needs ShellCheck 0.9.0 or newer, Ruby, `tar`, `unzip`, either `sha256sum` or `shasum`, plus network access or a pre-populated Go module cache for pinned Go-based linters. Preflight reports missing tools or a mixed Go installation before the long-running profiles begin. See [Harness](docs/04_harness.md) for the composition and diagnostic contract.
 
-The default repository must remain runnable as `github.com/tasuku43/tobari` with the `tobari` binary. Identity changes belong in a derived repository through the bootstrap workflow, not in a contribution to the reusable template.
+The repository must remain runnable as `github.com/tasuku43/tobari` with the
+`tobari` binary.
 
 ## Propose the outcome first
 

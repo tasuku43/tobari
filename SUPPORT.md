@@ -1,10 +1,11 @@
 # Support
 
-Tobari is maintained on a best-effort basis. This file explains where to ask for help and what information maintainers need. A derived project must replace this generic policy with support promises appropriate to its users and release maturity.
+Tobari is maintained on a best-effort basis. This file explains where to ask
+for help and what information maintainers need.
 
 ## Where to ask
 
-- Use a GitHub issue for a reproducible bug or a focused template improvement.
+- Use a GitHub issue for a reproducible Tobari bug or focused improvement.
 - Use the repository's discussion channel, when enabled, for usage and design questions.
 - Use a pull request for a reviewed implementation tied to a clear outcome.
 - Use the private process in [SECURITY.md](SECURITY.md) for vulnerabilities or sensitive security details.
@@ -14,7 +15,7 @@ Do not put credentials, private URLs, personal data, confidential logs, or embar
 
 ## Information to include
 
-- Template or derived-project version and commit.
+- Tobari version and commit.
 - Operating system and architecture.
 - Go and Task versions when the problem concerns development.
 - Exact command, expected result, actual result, and exit status.
@@ -24,7 +25,10 @@ Do not put credentials, private URLs, personal data, confidential logs, or embar
 
 ## Support boundary
 
-The template supports its documented runnable defaults, bootstrap behavior, architecture contracts, and repository gates. It does not provide support for an arbitrary derived project's private integrations, credentials, deployments, external services, or modified release process.
+Support covers the documented Tobari CLI, Docker Realm, Gateway/OPA policy
+flow, repository gates, and release artifacts. It does not include private
+policies, credentials, third-party services, local Docker administration, or
+modified forks.
 
 Maintainers do not guarantee a response time, long-term support for old releases, or private implementation consulting. Security-report acknowledgement targets are stated separately in `SECURITY.md`.
 
@@ -34,6 +38,6 @@ Maintainers do not guarantee a response time, long-term support for old releases
 2. Check existing issues and accepted decisions.
 3. Run the smallest relevant verification profile.
 4. Reduce the problem to a public, synthetic reproduction.
-5. Confirm the behavior belongs to this template rather than a derived integration.
+5. Confirm the behavior reproduces with Tobari's documented configuration.
 
 Clear evidence makes support faster and helps turn one report into a lasting test or documentation improvement.

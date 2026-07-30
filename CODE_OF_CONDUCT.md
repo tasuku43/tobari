@@ -28,8 +28,6 @@ This policy applies in repository issues, pull requests, reviews, discussions, r
 
 Report conduct concerns privately to the maintainer contact published by the repository. Do not open a public issue containing personal or sensitive details. If a report concerns one maintainer, direct it to another maintainer when possible.
 
-A derived project must replace generic contact metadata with a working private channel before inviting external participation.
-
 ## Response
 
 Maintainers will protect the reporter's privacy as far as practical, hear relevant parties, document the decision, and choose a response proportionate to the behavior. Responses may include a private correction, warning, temporary participation restriction, removal of content, or permanent exclusion.

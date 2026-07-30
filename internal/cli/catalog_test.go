@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/tobari/internal/domain/authn"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 )
@@ -72,24 +71,6 @@ func mutationErrors(base []CommandError, path string) []CommandError {
 		}
 	}
 	return append(errors, mutationRuntimeErrors(path)...)
-}
-
-func authenticationGateRuntimeErrors(path string) []CommandError {
-	return []CommandError{
-		declaredCommandError(fault.KindContract, "missing_authentication_context", false, path, "Repair the authenticated use case wiring."),
-		declaredCommandError(fault.KindContract, "missing_authenticated_action", false, path, "Configure the authenticated action."),
-		declaredCommandError(fault.KindContract, "invalid_authentication_requirement", false, path, "Repair the authentication requirement."),
-		declaredCommandError(fault.KindAuthentication, "missing_authenticator", false, path, "Configure a supported authentication method."),
-		declaredCommandError(fault.KindContract, "missing_authentication_clock", false, path, "Configure the authentication clock."),
-		declaredCommandError(fault.KindAuthentication, "invalid_authentication_session", false, path, "Repair the authentication adapter contract."),
-		declaredCommandError(fault.KindContract, "authentication_evaluation_failed", false, path, "Repair the authentication evaluation contract."),
-		declaredCommandError(fault.KindPermission, "insufficient_authentication_capability", false, path, "Obtain the required capability."),
-		declaredCommandError(fault.KindAuthentication, "authentication_expired", false, path, "Reacquire authentication according to project policy."),
-		declaredCommandError(fault.KindAuthentication, "authentication_context_mismatch", false, path, "Select the required account and authentication context."),
-		declaredCommandError(fault.KindAuthentication, "authentication_failed", false, path, "Establish authentication with a supported method."),
-		declaredCommandError(fault.KindCanceled, "authentication_canceled", false, path, "Start a new attempt when the caller is ready."),
-		declaredCommandError(fault.KindInternal, "unclassified_authenticated_action_error", false, path, "Repair the adapter fault classification."),
-	}
 }
 
 func discoverSpec(path, kind string) CommandSpec {
@@ -977,76 +958,6 @@ func TestCreateMutationBindsOpaqueParentOnly(t *testing.T) {
 	parentOutsideTargets.Agent.Mutation.TargetInputs = []string{"--missing"}
 	if err := validateAgentContract(parentOutsideTargets); err == nil {
 		t.Fatal("create mutation with unbound parent passed")
-	}
-}
-
-func TestAuthenticationRequirementRequiresGateFailureSurfaceAndDeepCopies(t *testing.T) {
-	spec := utilitySpec("items read")
-	spec.Agent.Authentication = &authn.Requirement{
-		Methods: []authn.Method{authn.MethodOAuth2, authn.MethodPAT}, Authority: "example",
-		Audience: "items", RequiredCapabilities: []string{"items.read"},
-	}
-	if err := validateAgentContract(spec); err == nil {
-		t.Fatal("authenticated command without gate errors passed")
-	}
-	required := authenticationGateRuntimeErrors(spec.Path)
-	spec.Agent.Errors = append(spec.Agent.Errors, required...)
-	if err := validateAgentContract(spec); err != nil {
-		t.Fatalf("valid authenticated contract: %v", err)
-	}
-	for _, contract := range required {
-		contract := contract
-		t.Run("missing_"+contract.Code, func(t *testing.T) {
-			candidate := cloneCommandSpec(spec)
-			filtered := make([]CommandError, 0, len(candidate.Agent.Errors)-1)
-			for _, declared := range candidate.Agent.Errors {
-				if declared.Code != contract.Code {
-					filtered = append(filtered, declared)
-				}
-			}
-			candidate.Agent.Errors = filtered
-			if err := validateAgentContract(candidate); err == nil || !strings.Contains(err.Error(), contract.Code) {
-				t.Fatalf("authenticated command without %q error = %v", contract.Code, err)
-			}
-		})
-		t.Run("wrong_kind_"+contract.Code, func(t *testing.T) {
-			candidate := cloneCommandSpec(spec)
-			for index := range candidate.Agent.Errors {
-				if candidate.Agent.Errors[index].Code == contract.Code {
-					candidate.Agent.Errors[index].Kind = fault.KindInternal
-					if contract.Kind == fault.KindInternal {
-						candidate.Agent.Errors[index].Kind = fault.KindContract
-					}
-				}
-			}
-			if err := validateAgentContract(candidate); err == nil || !strings.Contains(err.Error(), contract.Code) {
-				t.Fatalf("authenticated command with wrong %q kind error = %v", contract.Code, err)
-			}
-		})
-		t.Run("wrong_retryability_"+contract.Code, func(t *testing.T) {
-			candidate := cloneCommandSpec(spec)
-			for index := range candidate.Agent.Errors {
-				if candidate.Agent.Errors[index].Code == contract.Code {
-					candidate.Agent.Errors[index].Retryable = !contract.Retryable
-				}
-			}
-			if err := validateAgentContract(candidate); err == nil || !strings.Contains(err.Error(), contract.Code) {
-				t.Fatalf("authenticated command with wrong %q retryability error = %v", contract.Code, err)
-			}
-		})
-	}
-	withProviderFault := cloneCommandSpec(spec)
-	withProviderFault.Agent.Errors = append(withProviderFault.Agent.Errors,
-		declaredCommandError(fault.KindRateLimited, "identity_rate_limited", true, spec.Path, "Retry after the provider delay."),
-	)
-	if err := validateAgentContract(withProviderFault); err != nil {
-		t.Fatalf("provider-specific authentication fault: %v", err)
-	}
-	clone := cloneCommandSpec(spec)
-	clone.Agent.Authentication.Methods[0] = authn.MethodPAT
-	clone.Agent.Authentication.RequiredCapabilities[0] = "changed"
-	if spec.Agent.Authentication.Methods[0] != authn.MethodOAuth2 || spec.Agent.Authentication.RequiredCapabilities[0] != "items.read" {
-		t.Fatal("authentication requirement shares slice storage")
 	}
 }
 

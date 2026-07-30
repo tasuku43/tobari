@@ -247,9 +247,9 @@ func (d Declaration) validate(name string) error {
 	return nil
 }
 
-// Impact captures policy-relevant facts that apply across API-backed CLIs.
-// Product-specific impact remains a domain-owned extension in derived
-// projects; this base contract deliberately does not encode vendor concepts.
+// Impact captures policy-relevant facts for Tobari mutations. Additional
+// product-specific impact remains a domain-owned extension; this contract does
+// not encode vendor concepts.
 type Impact struct {
 	Cardinality  Cardinality `json:"cardinality,omitempty"`
 	Notification Declaration `json:"notification,omitempty"`

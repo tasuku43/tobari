@@ -45,10 +45,10 @@ var productionTargets = []goTarget{
 	{goos: "windows", goarch: "amd64"},
 }
 
-// allowedCLIThirdPartyImports is intentionally empty in the public template.
-// A derived project may add an exact presentation-only package path after an
-// accepted ADR; prefixes, module-wide entries, SDKs, and transports belong in
-// infrastructure and must not be added here.
+// allowedCLIThirdPartyImports is intentionally empty. Tobari may add an exact
+// presentation-only package path after an accepted ADR; prefixes, module-wide
+// entries, SDKs, and transports belong in infrastructure and must not be added
+// here.
 var allowedCLIThirdPartyImports = []string{}
 
 func main() {
@@ -416,8 +416,7 @@ func inspectSourceFile(layer, path string) ([]violation, error) {
 			alias = imported.Name.Name
 		}
 		if alias == "." && (layer == "cmd" || importPath == "context" || importPath == "net/http" ||
-			(layer == "app" && importPath == "fmt") ||
-			(layer != "infra" && strings.HasSuffix(importPath, "/internal/domain/authn"))) {
+			(layer == "app" && importPath == "fmt")) {
 			return []violation{{
 				From:   path,
 				To:     importPath,
@@ -478,13 +477,6 @@ func inspectSourceFile(layer, path string) ([]violation, error) {
 		}
 		position := set.Position(selector.Pos())
 		from := fmt.Sprintf("%s:%d", path, position.Line)
-		if selector.Sel.Name == "NewBindingID" && strings.HasSuffix(aliases[identifier.Name], "/internal/domain/authn") && layer != "infra" {
-			found = append(found, violation{
-				From:   from,
-				To:     identifier.Name + ".NewBindingID",
-				Reason: "authentication binding IDs may only be issued inside infrastructure",
-			})
-		}
 		if layer == "cmd" {
 			if reason := forbiddenCommandSelector(aliases[identifier.Name], selector.Sel.Name); reason != "" {
 				found = append(found, violation{From: from, To: identifier.Name + "." + selector.Sel.Name, Reason: reason})

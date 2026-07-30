@@ -18,17 +18,6 @@ Read documents in numeric order when several apply. If the scope is unclear,
 the change revises a thesis, or it crosses product, architecture, security, and
 harness boundaries, read `00` through `04` before acting.
 
-## Bootstrap before capability work
-
-When `.harness/project.json` has `profile: template`, use
-[`$bootstrap-derived-cli`](.agents/skills/bootstrap-derived-cli/SKILL.md) before
-adding a capability. It is the first-run Codex workflow: resolve the derived
-identity, preview and apply the repository bootstrap, verify the result, and
-make the first project-specific thesis and security decisions. Do not start
-`$add-capability` until bootstrap reports the identity-only stored value
-`profile: ready` and the generic product reasoning has been made concrete for
-the derived tool.
-
 ## Decision precedence
 
 When instructions conflict, use this order:
@@ -63,7 +52,7 @@ A thesis change is not complete when only `docs/00_theses.md` changed. Its conse
 4. **Every externally visible operation declares an effect.** Use `operation.EffectRead`, `operation.EffectCreate`, or `operation.EffectWrite`; unknown effects fail closed.
 5. **Mutations declare intent, target binding, impact, and outcome.** A reference-bound create binds exactly one required opaque CLI input as `parent_input`; a reference-bound write binds a required opaque `target_id_input` whose kind equals `TargetKind` and may bind a distinct required opaque parent. A fixed-target mutation instead declares an explicit empty `target_inputs`, no `parent_input` or `target_id_input`, and a `TargetKind` equal to its fixed target kind; create treats the singleton as creation scope and write as the existing target. `operation.Intent`, `operation.TargetRef`, and every base `operation.Impact` dimension remain mandatory before an adapter performs the operation. After the action call, preserve valid structured outcome faults before generic cancellation; collapse every unclassified result to non-retryable `unclassified_mutation_outcome` with a read-only reconciliation action. Emit a confirmed mutation result through the mutation-complete output boundary so later cancellation cannot turn success into replay permission. Authoritative rate-window evidence is independent from logical retry permission.
 6. **Side effects cross one controlled boundary.** Do not give a command or use case an unrestricted executor, filesystem, process, or network client.
-7. **The catalog is the public-command and invocation source of truth.** Routing, typed argv parsing, hierarchical human help, agent help, role, reference flow, and command tests derive from `cli.Catalog`; do not create a competing registry. Every input declares value kind, cardinality, omission/default behavior, applicable bounds, and explicit dependencies or conflicts. Root agent help is an outcome/capability index only, with at most 512 encoded bytes per command entry; retrieve inputs, output, authentication, failures, mutation facts, and workflows through an exact-command or namespace selector. Recovery commands are exact catalog paths or `help <exact-path-or-namespace>`; do not append unchecked argv.
+7. **The catalog is the public-command and invocation source of truth.** Routing, typed argv parsing, hierarchical human help, agent help, role, reference flow, and command tests derive from `cli.Catalog`; do not create a competing registry. Every input declares value kind, cardinality, omission/default behavior, applicable bounds, and explicit dependencies or conflicts. Root agent help is an outcome/capability index only, with at most 512 encoded bytes per command entry; retrieve inputs, output, prerequisites, failures, mutation facts, and workflows through an exact-command or namespace selector. Recovery commands are exact catalog paths or `help <exact-path-or-namespace>`; do not append unchecked argv.
 8. **Claims are executable.** When adding an invariant, add the type, lint, contract test, or release check that detects its violation.
 9. **The public boundary stays clean.** Never add credentials, confidential URLs, private organization identifiers, real personal data, or copied private history.
 10. **One gate decides completion.** Finish implementation work only when `task check` passes. Publication work also requires `task public:check`; release work requires `task release:check`.
@@ -82,7 +71,12 @@ internal/cli/      Command catalog, arguments, presentation, and dependency wiri
 
 Application packages define the smallest port needed by their task. Infrastructure satisfies that port through Go's structural typing. Application code must not import infrastructure or construct transport-specific requests.
 
-`cmd` and `internal/cli` have no third-party imports in the template. Keep provider SDKs and transports in `internal/infra`. If a derived project needs a presentation-only CLI parser or renderer, first accept an ADR or thesis consequence that explains the need and supply-chain tradeoff; then add only the exact package path to `allowedCLIThirdPartyImports` in `tools/archlint/main.go`, review its license and dependency delta, and add a negative test proving that sibling paths and effectful packages are still denied. Never add a wildcard, module prefix, SDK, or transport to that allowlist.
+`cmd` and `internal/cli` have no third-party imports. Keep reviewed effectful
+dependencies in `internal/infra`. A presentation-only CLI parser or renderer
+requires an ADR or thesis consequence, license and dependency review, one exact
+package path in `allowedCLIThirdPartyImports`, and a negative test proving
+sibling paths and effectful packages remain denied. Never add a wildcard,
+module prefix, SDK, or transport to that allowlist.
 
 The default vertical slice is:
 
@@ -141,7 +135,11 @@ Observe runtime-only behavior before changing it. Add bounded diagnostics, repro
 6. Implement a concrete infrastructure adapter behind those ports.
 7. Register one complete `cli.CommandSpec` in `cli.Catalog` and derive routing, typed parsing, hierarchical human help, scoped agent help, capability, role, reference flow, output, prerequisites, and recovery metadata from it. Each input declares `value_kind`, `cardinality`, any omission default, numeric bounds, and explicit `requires`/`conflicts_with` relations; do not reimplement those facts in a handler switch. Keep the root agent index limited to path, namespace, summary, outcome, capability, effect, and role; verify detailed metadata and the executable argv grammar only in scoped help. Dash-prefixed flag values use the equals form and dash-prefixed positional values follow the positional-only marker. Declare delivery (`complete` or `paged`) separately from collection coverage (`not_applicable`, `exhaustive`, `bounded_window`, or `differential_window`); complete delivery does not imply exhaustive provider history. Complete delivery has no public pagination binding. Paged delivery is JSON-only, cannot use `not_applicable`, and binds one optional opaque cursor argument or flag to one same-kind, always-present top-level string cursor beside the JSON envelope, with typed `empty_cursor` completion.
 8. Declare `Effect`, `Intent`, `TargetRef`, and `Impact`. Bind create scope through `MutationContract.parent_input`; bind a write's existing target through `target_id_input` and any distinct scope through optional `parent_input`. Make missing, unbound, mismatched, or inconsistent values fail before the side effect.
-9. For an external API, bind the secret-free authentication requirement, declare every standard `app/authn.Gate` fault plus any provider-specific fault in the catalog, issue `BindingID` only inside infrastructure, pass the validated session's non-serialized binding unchanged through each authenticated task port, resolve and revalidate that exact infrastructure authentication record immediately before I/O, and declare pagination/call policy, provider fault mapping, and publishable schema fixtures before enabling live I/O. Each mutation endpoint also declares patch/replacement/append behavior and omission/empty/clear/default/unchanged semantics. Each result distinguishes task coverage from provider visibility restrictions and isolates optional semantic enrichment from a valid core record. Never pass credential-bearing clients or provider types into application code.
+9. Provider-specific API adapters, OAuth, PAT discovery, and account selection
+   are excluded from the MVP. Adding one requires prior thesis, product,
+   architecture, and security decisions; do not reintroduce a dormant generic
+   authentication or adapter framework as a shortcut. Keep credential-bearing
+   clients, tokens, and provider types inside infrastructure.
 10. Add unit, contract, opaque-reference round-trip, negative-path,
     hostile-output, recovery, and public-boundary tests in proportion to risk.
     For interpretation-sensitive results, include a presentation-independent
@@ -172,5 +170,10 @@ Do not weaken a check merely to make a change pass. If a check encodes the wrong
 - Do not rewrite Git history, delete data, publish, or create releases unless the task explicitly requires it.
 - Do not fetch or embed external content without verifying its license and integrity.
 - Use synthetic fixtures such as `example.com`, deterministic timestamps, and non-secret tokens.
-- Keep repository documentation in the explicit `.harness/project.json` `public_guard.documentation_locale` (English in the template). A derived project changes it only with an explicit thesis or product-contract decision. Stable command paths, flags, environment names, fault codes, JSON keys, schema values, and reference kinds remain language-neutral machine identifiers; external text remains untranslated untrusted data.
+- Keep repository documentation in the explicit `.harness/project.json`
+  `public_guard.documentation_locale` (English for Tobari). Change it only with
+  an explicit thesis or product-contract decision. Stable command paths, flags,
+  environment names, fault codes, JSON keys, schema values, and reference kinds
+  remain language-neutral machine identifiers; external text remains
+  untranslated untrusted data.
 - Security reports follow [SECURITY.md](SECURITY.md), never public issues containing sensitive details.

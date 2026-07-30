@@ -25,7 +25,7 @@ type issue struct {
 }
 
 var (
-	bootstrapPlaceholder  = regexp.MustCompile(`__CLI_[A-Z0-9_]+__|TODO_TEMPLATE|CHANGEME|<your[-_ ][^>]+>`)
+	repositoryPlaceholder = regexp.MustCompile(`__CLI_[A-Z0-9_]+__|TODO_TEMPLATE|CHANGEME|<your[-_ ][^>]+>`)
 	japaneseText          = regexp.MustCompile(`[\x{3040}-\x{30ff}\x{3400}-\x{9fff}]`)
 	absoluteHome          = regexp.MustCompile(`(?:/Users/[^/\s]+|/home/[^/\s]+|[A-Za-z]:\\Users\\[^\\\s]+)`)
 	privateNetwork        = regexp.MustCompile(`(?i)https?://(?:[^/]*\.(?:internal|corp|local)|10\.[0-9.]+|192\.168\.[0-9.]+|172\.(?:1[6-9]|2[0-9]|3[01])\.[0-9.]+)`)
@@ -132,11 +132,6 @@ func inspect(root, scope string) ([]issue, error) {
 	issues = append(issues, linkIssues...)
 	for _, relative := range paths {
 		issues = append(issues, checkPath(relative)...)
-		if config.Profile == "ready" && relative != "tools/internal/projectconfig/defaults.go" {
-			if identity := remainingTemplateIdentity(relative, config.Project); identity != "" {
-				issues = append(issues, issue{Path: relative, Message: fmt.Sprintf("template identity %q remains in path after bootstrap", identity)})
-			}
-		}
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative))) // #nosec G304 -- git and fallback paths are validated as local repository paths.
 		if err != nil {
 			return nil, err
@@ -152,11 +147,6 @@ func inspect(root, scope string) ([]issue, error) {
 			scope,
 			workPacketLocaleExempt(relative, historicalLocaleExemptions),
 		)...)
-	}
-	if scope == "public" && config.Profile == "ready" {
-		for _, problem := range projectconfig.ReadyProblems(config.Project) {
-			issues = append(issues, issue{Path: ".harness/project.json", Message: problem})
-		}
 	}
 	sort.Slice(issues, func(i, j int) bool {
 		if issues[i].Path != issues[j].Path {
@@ -824,7 +814,7 @@ func repositoryPaths(root string) ([]string, error) {
 		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(relative))); err != nil {
 			if os.IsNotExist(err) {
 				// Git keeps tracked working-tree deletions in its cached path set.
-				// Bootstrap renames intentionally create that state before staging.
+				// Omit them while still inspecting untracked replacements.
 				continue
 			}
 			return nil, fmt.Errorf("inspect git path %q: %w", relative, err)
@@ -890,8 +880,6 @@ func checkRequired(root string, config projectconfig.Config, scope string) []iss
 
 func checkAgentHarness(root string) []issue {
 	paths := []string{
-		".agents/skills/bootstrap-derived-cli/SKILL.md",
-		".agents/skills/bootstrap-derived-cli/agents/openai.yaml",
 		".agents/skills/add-capability/SKILL.md",
 	}
 	var issues []issue
@@ -921,7 +909,7 @@ func checkFilesystemShape(root string, config projectconfig.Config) ([]issue, er
 			return filepath.SkipDir
 		}
 		if strings.EqualFold(entry.Name(), ".claude") {
-			issues = append(issues, issue{Path: relative, Message: "Claude-specific harness paths are outside this Codex-only template"})
+			issues = append(issues, issue{Path: relative, Message: "Claude-specific harness paths are outside this Codex-only repository"})
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -943,13 +931,9 @@ func checkFilesystemShape(root string, config projectconfig.Config) ([]issue, er
 }
 
 func checkWorkingTreeArtifact(path string, config projectconfig.Config) []issue {
-	lower := strings.ToLower(path)
 	base := strings.ToLower(filepath.Base(path))
 	if strings.EqualFold(base, "claude.md") {
-		return []issue{{Path: path, Message: "Claude-specific instructions are outside this Codex-only template"}}
-	}
-	if strings.HasSuffix(lower, ".bootstrap.tmp") || strings.HasSuffix(lower, ".bootstrap.orig") {
-		return []issue{{Path: path, Message: "interrupted bootstrap residue must not be published"}}
+		return []issue{{Path: path, Message: "Claude-specific instructions are outside this Codex-only repository"}}
 	}
 	if filepath.ToSlash(path) == config.Project.BinaryName || filepath.ToSlash(path) == config.Project.BinaryName+".exe" {
 		return []issue{{Path: path, Message: "root build artifact must not be published; use bin/ or a temporary release directory"}}
@@ -1097,13 +1081,8 @@ func checkTextWithLocaleExemption(path, text string, config projectconfig.Config
 			documentationLine = documentationLines[index]
 			visible = documentationVisible[index]
 		}
-		if config.Profile == "ready" && path != "tools/internal/projectconfig/defaults.go" {
-			if identity := remainingTemplateIdentity(line, config.Project); identity != "" {
-				issues = append(issues, issue{Path: path, Line: lineNumber, Message: fmt.Sprintf("template identity %q remains after bootstrap", identity)})
-			}
-		}
-		if config.Profile == "ready" && !scannerSource && bootstrapPlaceholder.MatchString(line) {
-			issues = append(issues, issue{Path: path, Line: lineNumber, Message: "unresolved bootstrap placeholder"})
+		if !scannerSource && repositoryPlaceholder.MatchString(line) {
+			issues = append(issues, issue{Path: path, Line: lineNumber, Message: "unresolved repository placeholder"})
 		}
 		if checkDocumentationLocale && visible && japaneseText.MatchString(documentationLine) {
 			issues = append(issues, issue{Path: path, Line: lineNumber, Message: "documentation contains Japanese text while public_guard.documentation_locale is English"})
@@ -1431,39 +1410,6 @@ func safeExampleSecret(value string) bool {
 		return true
 	}
 	return exampleSecret.MatchString(lower) || environmentSecret.MatchString(trimmed)
-}
-
-func remainingTemplateIdentity(line string, target projectconfig.Project) string {
-	defaults := projectconfig.Defaults
-	type identityReplacement struct {
-		from string
-		to   string
-	}
-	values := []identityReplacement{
-		{"https://github.com/" + defaults.GitHubOwner + "/" + defaults.GitHubRepository, "https://github.com/" + target.GitHubOwner + "/" + target.GitHubRepository},
-		{defaults.GoModule, target.GoModule},
-		{defaults.GitHubOwner + "/" + defaults.GitHubRepository, target.GitHubOwner + "/" + target.GitHubRepository},
-		{defaults.Description, target.Description},
-		{defaults.SecurityContact, target.SecurityContact},
-		{defaults.Name, target.Name},
-		{defaults.FormulaClass, target.FormulaClass},
-		{defaults.BinaryName, target.BinaryName},
-		{defaults.GitHubRepository, target.GitHubRepository},
-	}
-	sort.SliceStable(values, func(i, j int) bool { return len(values[i].to) > len(values[j].to) })
-	withoutTargetIdentity := line
-	for _, value := range values {
-		if value.to != "" && value.to != value.from {
-			withoutTargetIdentity = strings.ReplaceAll(withoutTargetIdentity, value.to, "")
-		}
-	}
-	sort.SliceStable(values, func(i, j int) bool { return len(values[i].from) > len(values[j].from) })
-	for _, value := range values {
-		if strings.Contains(withoutTargetIdentity, value.from) {
-			return value.from
-		}
-	}
-	return ""
 }
 
 func readDenylist(root, relative string) ([]string, error) {

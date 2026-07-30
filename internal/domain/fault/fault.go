@@ -10,8 +10,8 @@ import (
 	"unicode"
 )
 
-// Kind is a small cross-project failure taxonomy. Derived projects may add
-// stable Codes, but should map them to one of these recovery classes.
+// Kind is Tobari's stable failure taxonomy. Commands may add task-specific
+// Codes, but should map them to one of these recovery classes.
 type Kind string
 
 const (

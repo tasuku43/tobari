@@ -10,9 +10,8 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/operation"
 )
 
-// Policy applies the derived project's authorization, confirmation, dry-run,
-// or other security decision. The template deliberately chooses none of those
-// policies itself.
+// Policy applies Tobari's authorization, confirmation, dry-run, or other
+// security decision.
 type Policy interface {
 	Check(context.Context, operation.Intent) error
 }

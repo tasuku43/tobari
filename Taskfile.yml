@@ -68,13 +68,3 @@ tasks:
     desc: Validate that the repository is safe to publish.
     cmds:
       - ./scripts/check.sh public
-
-  bootstrap:preview:
-    desc: Preview exact template substitutions without changing files.
-    cmds:
-      - go run ./tools/bootstrap --dry-run
-
-  bootstrap:
-    desc: Apply validated template substitutions and switch to identity-ready state.
-    cmds:
-      - go run ./tools/bootstrap

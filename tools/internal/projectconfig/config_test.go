@@ -7,12 +7,26 @@ import (
 	"testing"
 )
 
+func testProject() Project {
+	return Project{
+		Name:             "Example Tool",
+		BinaryName:       "example-tool",
+		GoModule:         "example.com/example/tool",
+		GitHubOwner:      "example",
+		GitHubRepository: "example-tool",
+		Description:      "Example tool.",
+		FormulaClass:     "ExampleTool",
+		LicenseSPDX:      "MIT",
+		SecurityContact:  "security@example.com",
+	}
+}
+
 func TestLoadRejectsUnknownFields(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".harness"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	raw := `{"schema_version":2,"profile":"template","project":{},"public_guard":{},"unknown":true}`
+	raw := `{"schema_version":3,"project":{},"public_guard":{},"unknown":true}`
 	if err := os.WriteFile(filepath.Join(root, ".harness", "project.json"), []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -21,19 +35,20 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func TestLoadExplainsSchemaOneLocaleMigrationWithoutChoosingADefault(t *testing.T) {
+func TestLoadExplainsLegacyProfileMigrationWithoutInferringState(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".harness"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	raw := `{"schema_version":1,"profile":"ready","project":{"name":"Example Tool","binary_name":"example-tool","go_module":"example.com/example/tool","github_owner":"example","github_repository":"example-tool","description":"Example tool.","formula_class":"ExampleTool","license_spdx":"MIT","security_contact":"security@example.com"},"public_guard":{"denylist_file":".harness/denylist.txt","required_paths":[]}}`
+	raw := `{"schema_version":2,"project":{"name":"Example Tool","binary_name":"example-tool","go_module":"example.com/example/tool","github_owner":"example","github_repository":"example-tool","description":"Example tool.","formula_class":"ExampleTool","license_spdx":"MIT","security_contact":"security@example.com"},"public_guard":{"documentation_locale":"en","denylist_file":".harness/denylist.txt","required_paths":[]}}`
 	if err := os.WriteFile(filepath.Join(root, ".harness", "project.json"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Load(root)
 	if err == nil || !strings.Contains(err.Error(), "requires explicit migration") ||
-		!strings.Contains(err.Error(), "documentation_locale") || !strings.Contains(err.Error(), "no locale default") {
-		t.Fatalf("schema 1 migration error = %v", err)
+		!strings.Contains(err.Error(), "remove the obsolete profile field") ||
+		!strings.Contains(err.Error(), "no repository state is inferred") {
+		t.Fatalf("legacy migration error = %v", err)
 	}
 }
 
@@ -44,8 +59,7 @@ func TestWriteAndLoadPreserveExplicitNonEnglishLocale(t *testing.T) {
 	}
 	config := Config{
 		SchemaVersion: SchemaVersion,
-		Profile:       "ready",
-		Project:       Defaults,
+		Project:       testProject(),
 		PublicGuard: PublicGuard{
 			DocumentationLocale: "ja",
 			DenylistFile:        ".harness/denylist.txt",
@@ -64,72 +78,10 @@ func TestWriteAndLoadPreserveExplicitNonEnglishLocale(t *testing.T) {
 	}
 }
 
-func TestReadyProblemsRequireProjectSpecificIdentity(t *testing.T) {
-	wantTemplateProblems := []string{
-		"name still uses the runnable template default",
-		"binary_name still uses the runnable template default",
-		"go_module still uses the runnable template default",
-		"github_repository still uses the runnable template default",
-		"description still uses the runnable template default",
-		"formula_class still uses the runnable template default",
-		"security_contact still uses the runnable template default",
-	}
-	if got := ReadyProblems(Defaults); strings.Join(got, "\n") != strings.Join(wantTemplateProblems, "\n") {
-		t.Fatalf("problems = %v, want %v", got, wantTemplateProblems)
-	}
-	project := Defaults
-	project.Name = "Example Tool"
-	project.BinaryName = "example-tool"
-	project.GoModule = "github.com/" + Defaults.GitHubOwner + "/example-tool"
-	project.GitHubRepository = "example-tool"
-	project.Description = "An example command-line tool."
-	project.FormulaClass = "ExampleTool"
-	project.SecurityContact = "security@example.com"
-	if got := ReadyProblems(project); len(got) != 0 {
-		t.Fatalf("problems = %v", got)
-	}
-}
-
-func TestReadyProblemsRequireEachMeaningfulDerivedField(t *testing.T) {
-	project := Defaults
-	project.Name = "Example Tool"
-	project.BinaryName = "example-tool"
-	project.GoModule = "github.com/" + Defaults.GitHubOwner + "/example-tool"
-	project.GitHubRepository = "example-tool"
-	project.Description = "An example command-line tool."
-	project.FormulaClass = "ExampleTool"
-	project.SecurityContact = "security@example.com"
-
-	tests := []struct {
-		name    string
-		restore func(*Project)
-	}{
-		{name: "name", restore: func(p *Project) { p.Name = Defaults.Name }},
-		{name: "binary_name", restore: func(p *Project) { p.BinaryName = Defaults.BinaryName }},
-		{name: "go_module", restore: func(p *Project) { p.GoModule = Defaults.GoModule }},
-		{name: "github_repository", restore: func(p *Project) { p.GitHubRepository = Defaults.GitHubRepository }},
-		{name: "description", restore: func(p *Project) { p.Description = Defaults.Description }},
-		{name: "formula_class", restore: func(p *Project) { p.FormulaClass = Defaults.FormulaClass }},
-		{name: "security_contact", restore: func(p *Project) { p.SecurityContact = Defaults.SecurityContact }},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			candidate := project
-			test.restore(&candidate)
-			got := ReadyProblems(candidate)
-			want := test.name + " still uses the runnable template default"
-			if len(got) != 1 || got[0] != want {
-				t.Fatalf("problems = %v, want [%q]", got, want)
-			}
-		})
-	}
-}
-
 func TestConfigRejectsWindowsReservedBinaryNames(t *testing.T) {
 	config := Config{
 		SchemaVersion: SchemaVersion,
-		Profile:       "template",
-		Project:       Defaults,
+		Project:       testProject(),
 		PublicGuard:   PublicGuard{DocumentationLocale: "en", DenylistFile: ".harness/denylist.txt"},
 	}
 	for _, name := range []string{"con", "aux", "prn", "nul", "com1", "com9", "lpt1", "lpt9", "Con", "cOm1", "LpT9"} {
@@ -166,8 +118,7 @@ func TestConfigRejectsWindowsReservedBinaryNames(t *testing.T) {
 func TestConfigRequiresExplicitDocumentationLocale(t *testing.T) {
 	config := Config{
 		SchemaVersion: SchemaVersion,
-		Profile:       "template",
-		Project:       Defaults,
+		Project:       testProject(),
 		PublicGuard: PublicGuard{
 			DocumentationLocale: "en",
 			DenylistFile:        ".harness/denylist.txt",

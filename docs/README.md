@@ -1,8 +1,9 @@
 # Documentation Map
 
-This directory contains the durable reasoning for Tobari. Read the numbered documents in order when starting a derived project or making a change that crosses product, architecture, security, harness, publication, or release boundaries.
-
-In a newly derived repository, Codex starts with [`$bootstrap-derived-cli`](../.agents/skills/bootstrap-derived-cli/SKILL.md). After identity and initial project reasoning are concrete, recurring capability work uses [`$add-capability`](../.agents/skills/add-capability/SKILL.md).
+This directory contains the durable reasoning for Tobari. Read the numbered
+documents in order when making a change that crosses product, architecture,
+security, harness, publication, or release boundaries. Recurring capability
+work uses [`$add-capability`](../.agents/skills/add-capability/SKILL.md).
 
 | Document | Purpose | Primary readers |
 |---|---|---|
@@ -13,8 +14,8 @@ In a newly derived repository, Codex starts with [`$bootstrap-derived-cli`](../.
 | [04_harness.md](04_harness.md) | How written claims become local and CI checks | Contributors, agents, maintainers |
 | [05_public_repository.md](05_public_repository.md) | Clean-room derivation, sanitization, licensing, and public-readiness review | Maintainers and release owners |
 | [06_release.md](06_release.md) | Versioning, artifact construction, provenance decisions, and release procedure | Release owners |
-| [07_authentication.md](07_authentication.md) | Secret-free OAuth/PAT boundary and derived security decisions | Security owners, adapter authors, agents |
-| [08_external_api_contracts.md](08_external_api_contracts.md) | Pagination, retry/idempotency, schema, capability, and API adapter contracts | Adapter authors, agents, reviewers |
+| [07_authentication.md](07_authentication.md) | Gateway credential injection and deliberate authentication exclusions | Security owners, adapter authors, agents |
+| [08_external_api_contracts.md](08_external_api_contracts.md) | Generic HTTP Gateway and OPA request contracts | Adapter authors, agents, reviewers |
 | [09_agent_readiness_validation.md](09_agent_readiness_validation.md) | Scenario-based discovery, execution, interpretation, and recovery validation | Product owners, agents, reviewers |
 
 Additional directories serve different lifetimes:
@@ -26,7 +27,7 @@ Root community documents have stable conventional locations:
 
 | Document | Purpose |
 |---|---|
-| [`README.md`](../README.md) | User and template-adopter entry point |
+| [`README.md`](../README.md) | User entry point |
 | [`AGENTS.md`](../AGENTS.md) | Canonical contribution policy for humans and agents |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Contribution workflow and review expectations |
 | [`CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md) | Participation standards and private conduct reporting |
@@ -53,21 +54,11 @@ Durable documentation explains **why the system has its current shape**. Task-ti
 
 Conversely, do not leave a durable product or security decision only in a work plan. Promote it to a numbered document or ADR before closing the work packet.
 
-## Derived-project documentation pass
+## Documentation language
 
-Bootstrap changes identity, not intent. Before adding real capabilities, a derived project must:
-
-1. Rewrite the generic north star and success measures.
-2. Name its primary users, supported tasks, and explicit non-goals.
-3. Document every credential, data store, subprocess, filesystem write, and network destination; complete the authentication and external-API decisions when applicable.
-4. Decide compatibility and release promises.
-5. Bind each important claim to a type, test, lint, or release check.
-6. Run `task check` and `task public:check`.
-
-All repository documentation is public and written in English by default. A
-derived project may adopt another language only through an explicit thesis or
-product-contract decision and the matching
-`.harness/project.json` `public_guard.documentation_locale`. The repository
-guard has only a narrow English/Japanese trusted-Markdown canary; maintainers
-remain responsible for broader linguistic review and understandable
+All repository documentation is public and written in English. Changing the
+language requires an explicit thesis or product-contract decision and the
+matching `.harness/project.json` `public_guard.documentation_locale`. The
+repository guard has only a narrow English/Japanese trusted-Markdown canary;
+maintainers remain responsible for broader linguistic review and understandable
 public-boundary checks.

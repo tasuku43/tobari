@@ -27,7 +27,7 @@ func main() {
 		"go_module": config.Project.GoModule, "github_owner": config.Project.GitHubOwner,
 		"github_repository": config.Project.GitHubRepository, "description": config.Project.Description,
 		"formula_class": config.Project.FormulaClass, "license_spdx": config.Project.LicenseSPDX,
-		"security_contact": config.Project.SecurityContact, "profile": config.Profile,
+		"security_contact": config.Project.SecurityContact,
 	}
 	value, ok := values[*field]
 	if !ok {

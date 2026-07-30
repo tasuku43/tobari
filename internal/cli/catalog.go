@@ -10,13 +10,12 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/tasuku43/tobari/internal/domain/authn"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 )
 
 const (
-	// ProgramName is intentionally a single bootstrap replacement token.
+	// ProgramName is the stable public executable name.
 	ProgramName = "tobari"
 
 	// maxAgentIndexEntryBytes bounds the selection-only root help cost per
@@ -77,8 +76,8 @@ type ConsumedRef struct {
 	Argument string `json:"argument"`
 }
 
-// FixedTargetScope identifies where a command-bound target is owned. The
-// template currently permits only a singleton owned by this CLI installation.
+// FixedTargetScope identifies where a command-bound target is owned. Tobari
+// permits only a singleton owned by this CLI installation.
 type FixedTargetScope string
 
 const (
@@ -357,16 +356,15 @@ func (m MutationContract) MarshalJSON() ([]byte, error) {
 // interpret a command without exploratory calls. Nil slices mean unknown and
 // are invalid; non-nil empty slices explicitly mean none.
 type AgentContract struct {
-	CapabilityID   string              `json:"capability_id"`
-	Outcome        string              `json:"outcome"`
-	Inputs         []CommandInput      `json:"inputs"`
-	Output         CommandOutput       `json:"output"`
-	Pagination     *PaginationContract `json:"pagination,omitempty"`
-	Prerequisites  []string            `json:"prerequisites"`
-	Authentication *authn.Requirement  `json:"authentication,omitempty"`
-	FixedTarget    *FixedTarget        `json:"fixed_target,omitempty"`
-	Errors         []CommandError      `json:"errors"`
-	Mutation       *MutationContract   `json:"mutation,omitempty"`
+	CapabilityID  string              `json:"capability_id"`
+	Outcome       string              `json:"outcome"`
+	Inputs        []CommandInput      `json:"inputs"`
+	Output        CommandOutput       `json:"output"`
+	Pagination    *PaginationContract `json:"pagination,omitempty"`
+	Prerequisites []string            `json:"prerequisites"`
+	FixedTarget   *FixedTarget        `json:"fixed_target,omitempty"`
+	Errors        []CommandError      `json:"errors"`
+	Mutation      *MutationContract   `json:"mutation,omitempty"`
 }
 
 // CommandSpec is the single source of truth for dispatch, human help, and the
@@ -973,12 +971,6 @@ func validateAgentContract(command CommandSpec) error {
 		}
 		seenPrerequisites[prerequisite] = struct{}{}
 	}
-	if contract.Authentication != nil {
-		if err := contract.Authentication.Validate(); err != nil {
-			return fmt.Errorf("agent authentication requirement: %w", err)
-		}
-	}
-
 	if contract.Errors == nil || len(contract.Errors) == 0 {
 		return fmt.Errorf("agent error contract is unknown")
 	}
@@ -1033,32 +1025,6 @@ func validateAgentContract(command CommandSpec) error {
 			return err
 		}
 	}
-	if contract.Authentication != nil {
-		for _, required := range []struct {
-			code      string
-			kind      fault.Kind
-			retryable bool
-		}{
-			{code: "missing_authentication_context", kind: fault.KindContract},
-			{code: "missing_authenticated_action", kind: fault.KindContract},
-			{code: "invalid_authentication_requirement", kind: fault.KindContract},
-			{code: "missing_authenticator", kind: fault.KindAuthentication},
-			{code: "missing_authentication_clock", kind: fault.KindContract},
-			{code: "invalid_authentication_session", kind: fault.KindAuthentication},
-			{code: "authentication_evaluation_failed", kind: fault.KindContract},
-			{code: "insufficient_authentication_capability", kind: fault.KindPermission},
-			{code: "authentication_expired", kind: fault.KindAuthentication},
-			{code: "authentication_context_mismatch", kind: fault.KindAuthentication},
-			{code: "authentication_failed", kind: fault.KindAuthentication},
-			{code: "authentication_canceled", kind: fault.KindCanceled},
-			{code: "unclassified_authenticated_action_error", kind: fault.KindInternal},
-		} {
-			if err := requireAgentError(seenErrors, required.code, required.kind, required.retryable); err != nil {
-				return err
-			}
-		}
-	}
-
 	if command.Effect == operation.EffectRead {
 		if contract.Mutation != nil {
 			return fmt.Errorf("read command must not declare a mutation contract")
@@ -1925,10 +1891,6 @@ func cloneAgentContract(contract AgentContract) AgentContract {
 		contract.Pagination = &pagination
 	}
 	contract.Prerequisites = cloneSlice(contract.Prerequisites)
-	if contract.Authentication != nil {
-		authentication := contract.Authentication.Clone()
-		contract.Authentication = &authentication
-	}
 	if contract.FixedTarget != nil {
 		fixedTarget := *contract.FixedTarget
 		contract.FixedTarget = &fixedTarget

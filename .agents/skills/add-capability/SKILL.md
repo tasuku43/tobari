@@ -8,16 +8,6 @@ description: >
 
 # Add a CLI Capability
 
-Before designing the change, run:
-
-```sh
-go run ./tools/projectmeta --field profile
-```
-
-If the profile is `template`, stop and use `$bootstrap-derived-cli`. Do not add
-a capability while the repository still has the foundry identity or generic
-product reasoning.
-
 Read `docs/00_theses.md` before designing the change. A capability is complete
 only when its user outcome, safety boundary, discoverability, and verification
 are explicit.
@@ -94,7 +84,8 @@ For every external action, specify:
 - validation performed before the external boundary;
 - finite timeout, delivery, collection coverage, pagination, maximum attempts,
   and upstream idempotency behavior;
-- which derived policy applies at `app/execution.Invoker`; do not make the template assume approval, confirmation, OS authentication, or dry-run;
+- which Tobari policy applies at `app/execution.Invoker`; do not assume
+  approval, confirmation, OS authentication, or dry-run;
 - audit-safe fields and secret fields;
 - allowed network destination.
 
@@ -107,9 +98,8 @@ Add the command to the canonical catalog and derive dispatch and help from that
 entry. Complete its `AgentContract`: stable capability ID, user outcome,
 inputs with source, value kind, cardinality, required/default behavior,
 allowed values, numeric bounds, dependencies, and conflicts; formats,
-fields/types/descriptions,
-delivery, collection coverage, non-auth prerequisites, optional secret-free authentication
-requirement, stable faults with exact next commands, and mutation contract when
+fields/types/descriptions, delivery, collection coverage, prerequisites, stable
+faults with exact next commands, and mutation contract when
 applicable. Nil collections mean unknown and are invalid; use explicit empty
 collections for known none.
 
@@ -170,7 +160,7 @@ required reference rather than forming a closed cycle.
 Verify that root agent help adds only the command's path, namespace, summary,
 capability, outcome, effect, and role. Then use an exact-command or
 namespace-scoped invocation to verify the complete contract and workflows.
-Root help must not regain inputs, output detail, authentication, errors,
+Root help must not regain inputs, output detail, errors,
 mutation facts, or workflows as the catalog grows, and each encoded command
 entry must remain within the 512-byte catalog budget.
 
@@ -182,14 +172,14 @@ and `<binary> <exact-command> --help` for exact human help.
 Treat `scope_request` invocation counts as help-discovery bounds only. An
 unknown outcome needs the root index plus one selected scoped contract. A known
 path needs one scoped-help invocation when the caller already holds every
-required reference and other task input. These counts exclude authentication,
+required reference and other task input. These counts exclude credential setup,
 task execution, producer discovery, and any later scoped-help request needed to
 retrieve the complete contract of a workflow endpoint outside the selected
 scope.
 
-Keep every recovery `command` executable under the template's small grammar:
+Keep every recovery `command` executable under the catalog's small grammar:
 use one exact catalog path, or `help` plus an exact path/canonical namespace.
-Do not append flags, values, or guessed selectors. If a derived product needs a
+Do not append flags, values, or guessed selectors. If Tobari needs a
 fixed argument-bearing recovery, introduce a typed argument contract and
 parser-aware validation before publishing it.
 
@@ -199,7 +189,7 @@ result with one shape, compare the executable schema version, envelope, and
 item keys with `CommandOutput`; do not accept a declaration-only or
 renderer-only change.
 
-The template help command is the one deliberate input-selected variant:
+The help command is the one deliberate input-selected variant:
 `CommandOutput.Fields` describes root `view: index` command entries, while a
 selector returns an independent `view: scope` shape under the same agent-help
 schema version. Exact-key contract tests cover both views and reject both
@@ -246,52 +236,18 @@ mutation as safe to repeat. A non-retryable mutation `rate_limited` recovery is
 also read-only. Treat positive `retry_after` as timing evidence independent of
 the `retryable` replay decision, and render an absent rate window as unknown.
 
-## 5. Add authentication and API boundaries only when needed
+## 5. Keep external API adapters out of the MVP
 
-Read `docs/07_authentication.md` and `docs/08_external_api_contracts.md` for an
-external API capability.
+Read `docs/07_authentication.md` and `docs/08_external_api_contracts.md`.
+Tobari authorizes generic HTTP effects at Gateway and does not expose a
+provider-specific API adapter, OAuth flow, PAT discovery, or account-selection
+command.
 
-- Keep raw PATs, OAuth tokens, refresh material, token sources, authorization
-  headers, and credential-store handles inside `internal/infra`.
-- Use `app/authn.Gate` with a secret-free requirement/session and prove auth,
-  permission, mismatch, and cancellation failures make zero downstream calls.
-- Treat non-nil `AgentContract.Authentication` as a binding to that gate. Declare
-  every standard gate fault with its exact code, kind, and retryability, plus
-  each provider-specific pass-through fault and a command-valid recovery action;
-  catalog validation rejects an incomplete standard set before dispatch.
-- Make each authenticated application task port accept `authn.BindingID`.
-  Pass the ID from the validated `Session` unchanged; the infrastructure
-  adapter resolves that process-local binding and revalidates or refreshes the
-  exact private authentication record immediately before I/O. Never pass an
-  OAuth client, token source, PAT wrapper, authenticated transport, provider
-  SDK type, or credential-store handle into application code.
-- Call `authn.NewBindingID` only from production infrastructure. Architecture
-  lint rejects issuance in domain, application, CLI, and command packages, so
-  argv or configuration values cannot be promoted into authentication bindings.
-- Treat gate expiry as admission metadata rather than a lease. Keep refresh
-  thresholds, reuse, cache/storage, account selection, and approval policy in
-  the derived security model, while making stale or mismatched bindings fail
-  before a provider task request.
-- Do not implement OAuth protocol machinery. Add a reviewed OAuth library only
-  in a derived project whose accepted security model selects OAuth.
-- Keep schema-versioned non-secret user configuration separate from credential storage. Decode it strictly within a byte bound, fail closed on an invalid higher-priority environment or persistent value, and never probe another method after a selected method fails.
-- For an injected persistent-configuration path, confine staging and replacement through one verified opened parent directory, use create-exclusive temporary files, revalidate parent/staged/target identities before and after replacement, and sync the directory where the platform provides that guarantee. State Windows ACL, atomicity, and durability limitations explicitly; an error after replacement begins leaves the active version uncertain.
-- If OAuth launches a browser, separate URL presentation, platform auto-open, and callback receipt; retain a manual URL fallback and never place authorization codes, PKCE verifiers, tokens, PATs, or client secrets in subprocess argv.
-- Make one-page adapters return an opaque cursor envelope. Use bounded
-  complete traversal, or declare a paged public result with the catalog-bound
-  optional cursor input and next-cursor output.
-- Keep wire DTOs in infrastructure. Add publishable fixtures under `testdata`
-  and bind their path, digest, provenance, and license in
-  `.harness/schemas.json`.
-- Classify each mutation payload as replacement, patch, or append. Preserve
-  omitted separately from explicit empty/zero/false and provider `null`, and
-  assert exact encoded bodies for every meaningful presence state.
-- Keep access limitation separate from delivery/coverage and core record
-  validity separate from optional enrichment. Optional enrichment may fail
-  wholly unknown with a bounded reason; never publish a partially inferred
-  relation from labels, order, indentation, or neighboring records.
-- Map provider failures once into stable `fault.Error` values. Never expose a
-  raw response body or cause.
+Adding one is a thesis, product-contract, architecture, and security change
+before it is a capability implementation. Accept the new trust boundary first,
+then introduce only the task-specific domain, application port, infrastructure
+adapter, catalog contract, fixtures, and tests required by that decision.
+Never revive a dormant generic adapter framework as a shortcut.
 
 ## 6. Test at each boundary
 
@@ -308,17 +264,13 @@ Add the smallest set that proves the capability:
 - rejection tests proving invalid input causes zero external calls;
 - catalog tests rejecting missing, extra, duplicate, optional, non-CLI, non-opaque, and reference-kind-mismatched mutation bindings;
 - catalog tests rejecting optional act references and closed required-reference cycles;
-- authentication/policy/cancellation tests proving zero downstream mutation;
+- policy/cancellation tests proving zero downstream mutation;
 - mutation outcome tests proving structured deadline/cancellation causes retain their typed classification, unstructured post-action errors are non-retryable, confirmed success is not overwritten, and reconciliation cannot point to a mutation;
 - confirmed-mutation output tests proving late cancellation does not replace
   success, short writes emit non-retryable `mutation_output_write_failed`, and
   every recovery remains read-only;
 - rate-limit tests covering known and unknown timing independently from
   retryability, including a non-retryable mutation with positive timing;
-- authentication-binding tests with simultaneous accounts/authorities,
-  missing, stale, wrong-account, and cross-session IDs, typed-nil task ports,
-  expiry races, refresh identity mismatch/failure, and zero unintended provider
-  task requests;
 - pagination tests for empty, one, many, repeated-cursor, budget, and mid-page failure paths;
 - catalog tests rejecting missing, extra, required, non-string, non-opaque, and
   reference-kind-mismatched public cursor bindings;
@@ -334,7 +286,10 @@ Add the smallest set that proves the capability:
   negative-inference canaries proving names, prose, ordering, proximity,
   quotation, and indentation cannot create identity or relationships that are
   absent from typed semantic facts;
-- for setup or authentication UX, a work-packet scorecard comparing environment exports, fixed-value re-entry, terminal/browser transfers, clipboard/OS dependencies, non-selecting discover/act trips, first-run and steady-state commands, and ceremonial inputs; retain steps justified by safety or certainty.
+- for setup or credential UX, a work-packet scorecard comparing environment
+  exports, fixed-value re-entry, terminal/browser transfers, clipboard/OS
+  dependencies, first-run and steady-state commands, and ceremonial inputs;
+  retain steps justified by safety or certainty.
 
 Tests must use temporary directories, fixed clocks, fake credentials, and local
 test servers. They must not require a developer account or live network.
@@ -368,8 +323,8 @@ Run:
 profiles above. Publication work also requires `task public:check`; release
 work requires `task release:check`.
 
-Before public release, also confirm `./scripts/check.sh public` passes with the
-stored identity-ready value `profile: ready` in `.harness/project.json`.
+Before public release, also confirm `./scripts/check.sh public` passes against
+the committed `.harness/project.json`.
 
 ## 8. Validate the agent journey
 

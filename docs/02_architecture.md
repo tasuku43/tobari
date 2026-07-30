@@ -41,7 +41,7 @@ internal/cli  ------> internal/app
 - `internal/app`: lifecycle, status, exec, logs, and doctor use cases with
   consumer-owned ports.
 - `internal/infra`: Docker CLI runner, local state/config filesystem, embedded
-  asset materialization, and platform inspection.
+asset materialization, and platform inspection.
 - `internal/cli`: the canonical catalog, typed argv parsing, rendering, signal
   handoff, and composition root.
 
@@ -68,7 +68,7 @@ runtime/
 
 `up` materializes exact embedded bytes under the Tobari state directory, writes
 generated non-secret runtime configuration, and invokes Docker through the
-runtime port. No template is downloaded during startup. The Gateway CA and key
+runtime port. No runtime asset is downloaded during startup. The Gateway CA and key
 persist in a named volume; a separate volume exposes only the public
 certificate to Realm, whose entrypoint builds an ephemeral CA bundle.
 

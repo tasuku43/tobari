@@ -10,7 +10,7 @@
 ## Context
 
 The `full` profile nested the complete security, public, and release profiles.
-Production use in a derived repository measured about 90 seconds for a warm
+Production use in the Tobari repository measured about 90 seconds for a warm
 `full` run, with about 75 seconds spent rebuilding the five-target release
 matrix twice. The isolated implementation gate completed in about 10 seconds.
 A tracked Stop hook also added one fast gate to every agent turn while

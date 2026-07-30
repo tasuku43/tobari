@@ -14,13 +14,12 @@ import (
 )
 
 const (
-	SchemaVersion          = 2
+	SchemaVersion          = 3
 	maximumBinaryNameBytes = 96 // Leaves room for the mandatory Windows .exe suffix under the 100-byte archive-entry limit.
 )
 
 type Config struct {
 	SchemaVersion int         `json:"schema_version"`
-	Profile       string      `json:"profile"`
 	Project       Project     `json:"project"`
 	PublicGuard   PublicGuard `json:"public_guard"`
 }
@@ -97,14 +96,11 @@ func Write(root string, config Config) error {
 }
 
 func (c Config) Validate() error {
-	if c.SchemaVersion == 1 {
-		return errors.New("project config schema_version 1 requires explicit migration: choose the trusted documentation locale in the project thesis or product contract, add public_guard.documentation_locale, then set schema_version to 2; no locale default is applied")
+	if c.SchemaVersion < SchemaVersion {
+		return fmt.Errorf("project config schema_version %d requires explicit migration: remove the obsolete profile field and set schema_version to %d; no repository state is inferred", c.SchemaVersion, SchemaVersion)
 	}
 	if c.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("project config schema_version = %d, want %d", c.SchemaVersion, SchemaVersion)
-	}
-	if c.Profile != "template" && c.Profile != "ready" {
-		return errors.New(`project config profile must be "template" or "ready"`)
 	}
 	p := c.Project
 	if !namePattern.MatchString(p.Name) || strings.TrimSpace(p.Name) != p.Name {
@@ -179,30 +175,4 @@ func validateModule(module string) error {
 		return fmt.Errorf("go_module %q must begin with a domain", module)
 	}
 	return nil
-}
-
-func ReadyProblems(project Project) []string {
-	var problems []string
-	// A derived repository may legitimately remain under the template owner and
-	// may deliberately retain its license. The fields below are the runnable and
-	// user-facing identity that bootstrap must actually replace.
-	checks := []struct {
-		name     string
-		value    string
-		template string
-	}{
-		{"name", project.Name, Defaults.Name},
-		{"binary_name", project.BinaryName, Defaults.BinaryName},
-		{"go_module", project.GoModule, Defaults.GoModule},
-		{"github_repository", project.GitHubRepository, Defaults.GitHubRepository},
-		{"description", project.Description, Defaults.Description},
-		{"formula_class", project.FormulaClass, Defaults.FormulaClass},
-		{"security_contact", project.SecurityContact, Defaults.SecurityContact},
-	}
-	for _, check := range checks {
-		if check.value == check.template {
-			problems = append(problems, check.name+" still uses the runnable template default")
-		}
-	}
-	return problems
 }

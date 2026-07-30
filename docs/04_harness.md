@@ -12,7 +12,7 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `full` | `task check` | Required implementation gate | Fast profile plus vet, race, tidy/diff checks |
 | `security` | `task security` | Security and dependency changes | Repository guard, module integrity, pinned static and vulnerability analysis |
 | `release` | `task release:check` | Packaging and release changes | Artifact, metadata, checksum, Formula, and workflow contracts |
-| `public` | `task public:check` | Bootstrap completion and public publication | Ready-profile identity, forbidden-data, required-file, license, capability/schema contracts, and public-boundary checks |
+| `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, and public-boundary checks |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Pinned mitmproxy addon unit tests |
 | `integration` | `task integration:test` | Real runtime boundary | Docker topology, TLS, fail-closed, credential, audit, exec, lifecycle, and cleanup scenarios |
@@ -55,19 +55,18 @@ must not claim equivalence to a profile it did not run.
 
 ### `.harness/project.json`
 
-This schema-versioned file is the machine-readable source for template identity, bootstrap state, exact runnable defaults, and repository policy. The bootstrap tool validates it before replacement and changes its profile from `template` to `ready` only after successful application. The stored word `ready` means identity-ready only; it does not assert product, security, legal, or release readiness.
+This schema-versioned file is the machine-readable source for Tobari identity,
+release metadata, and repository policy. Schema 3 contains no lifecycle
+profile: repository readiness is established by the named verification gates,
+not by a stored state label.
 
 `binary_name` is a portable lowercase executable basename of at most 96 bytes, leaving room for the mandatory Windows `.exe` suffix under the 100-byte cross-format archive-entry limit. Validation rejects the case-insensitive Windows device names `CON`, `AUX`, `PRN`, `NUL`, `COM1` through `COM9`, and `LPT1` through `LPT9`; adding `.exe` does not make those names extractable on Windows. It also rejects `LICENSE` case-insensitively because every release archive reserves that entry name. These are parts of the default cross-format release-matrix contract, not naming-style preferences.
 
 Policy that must be reviewed by both humans and tools belongs here when it is finite and structural, such as forbidden private identifiers or expected module and binary names. Product reasoning remains in documentation.
 
-Schema 2 adds `public_guard.documentation_locale`, one explicit BCP-47-like
-language tag for the intended locale of trusted repository documentation and
-CLI-authored prose. The template uses `en`. A schema-1 derived repository must
-first choose that locale in its thesis or product contract, add the field, and
-then set `schema_version` to 2; the loader applies no default and performs no
-automatic migration. Bootstrap and later profile writes preserve the selected
-value.
+`public_guard.documentation_locale` is one explicit BCP-47-like language tag
+for the intended locale of trusted repository documentation and CLI-authored
+prose. Tobari uses `en`; the loader applies no default.
 
 Repository guard mechanically enforces only a narrow English/Japanese canary:
 when the tag is English, Japanese script is rejected in trusted Markdown prose.
@@ -81,52 +80,57 @@ documentation and are checked. Stable machine identifiers and external provider
 data are never translated by this setting. Both `en` and the valid three-letter
 `eng` language tag activate the English canary.
 
-### `tools/bootstrap`
-
-Bootstrap derives its validated exact replacement set from the protected provenance values in `projectconfig.Defaults`. It maps the runnable module, repository, binary, display identity, and associated project metadata to `.harness/project.json`; it does not search-and-guess arbitrary names. The defaults declaration itself is excluded from replacement so a derived repository can prove the source values.
-
-Always preview first:
-
-```sh
-go run ./tools/bootstrap --dry-run
-go run ./tools/bootstrap
-```
-
-Bootstrap failure must leave the repository in a diagnosable state and must not claim identity readiness. Bootstrap changes identity; it cannot complete theses, threat models, or release promises. `ReadyProblems` therefore requires every runnable and user-facing derived field to change, while allowing a deliberate reuse of the GitHub owner or license.
-
-### `.agents/skills/bootstrap-derived-cli`
-
-`$bootstrap-derived-cli` is the first-run Codex workflow for a derived repository. It does not implement a second replacement engine: it resolves missing identity decisions, invokes `tools/bootstrap` in preview-then-apply order, verifies the resulting module/import/command paths and gates, then requires a project-specific thesis and security handoff before `$add-capability`. `tools/repoguard` requires both the Skill instructions and their Codex interface metadata, while the Skill's workflow delegates mechanical safety to the same bootstrap and check commands used by humans and CI.
-
-The Skill deliberately leaves provider selection, OAuth versus PAT, credential storage, side-effect approval, user tasks, and release ownership to the derived project's theses and security model. A `ready` profile proves only that identity replacement completed; treat it as identity-ready when communicating state.
-
 ### `tools/archlint`
 
-Architecture lint checks production dependency direction, rejects unclassified production packages, and keeps each `cmd/` entrypoint limited to argument/stream handoff, signal cancellation, the CLI composition root, and process exit. It merges Go package information for the native build and every release target on Linux, macOS, and Windows, so a platform-specific file cannot hide a forbidden dependency from the host CI platform. Each `go list -json` process is decoded from stdout only; stderr remains a separate diagnostic channel and cannot corrupt the package stream. Source checks reject detached application, infrastructure, and CLI contexts, default HTTP clients, application-layer `fmt` presentation/scanning calls, built-in `print`/`println` in domain, application, CLI, and command packages, authentication-binding issuance outside infrastructure, and command-entrypoint access outside the narrow selector allowlist. Domain and application packages cannot import `log`, `log/slog`, or Cgo. Reviewed user-facing presentation belongs in CLI and must use its injected streams; observability and native integration are explicit derived-project infrastructure policies. Any allowed exception must be narrow, named, and tested.
+Architecture lint checks production dependency direction, rejects unclassified
+production packages, and keeps each `cmd/` entrypoint limited to
+argument/stream handoff, signal cancellation, the CLI composition root, and
+process exit. It merges Go package information for the native build and every
+release target on Linux, macOS, and Windows, so a platform-specific file cannot
+hide a forbidden dependency from the host CI platform. Each `go list -json`
+process is decoded from stdout only; stderr remains a separate diagnostic
+channel and cannot corrupt the package stream. Source checks reject detached
+application, infrastructure, and CLI contexts, default HTTP clients,
+application-layer `fmt` presentation/scanning calls, built-in `print`/`println`
+in domain, application, CLI, and command packages, and command-entrypoint
+access outside the narrow selector allowlist. Domain and application packages
+cannot import `log`, `log/slog`, or Cgo. Reviewed user-facing presentation
+belongs in CLI and must use its injected streams. Any allowed exception must be
+narrow, named, and tested.
 
-The template also rejects every third-party import from `cmd` and `internal/cli` by default. Vendor SDKs, authenticated transports, and other effectful clients belong in `internal/infra`, where third-party imports remain available and the dependency/security gates review them. A derived project may allow a CLI parser or renderer only by adding its exact package path to `allowedCLIThirdPartyImports` in `tools/archlint/main.go`. The same change must include an accepted ADR or thesis consequence, license and dependency review, and a regression test proving that sibling packages, module-wide prefixes, SDKs, and transports remain rejected. Wildcards and prefix allowlists are not valid exceptions.
+Tobari rejects every third-party import from `cmd` and `internal/cli` by
+default. Reviewed effectful dependencies belong in `internal/infra`. A
+presentation-only exception requires an accepted ADR or thesis consequence,
+license and dependency review, one exact package path in
+`allowedCLIThirdPartyImports`, and a regression test proving sibling paths and
+effectful packages remain rejected. Wildcards and prefix allowlists are not
+valid exceptions.
 
 ### `tools/repoguard`
 
-Repository guard checks public-boundary and repository-shape policy, including bootstrap state, forbidden identifiers, likely secrets, invalid or leftover identity, work-packet lifecycle consistency, required public files, and the configured documentation locale. Its English-locale check is the narrow trusted-Markdown Japanese-script canary described above, not general language detection. Its publishable path set comes from a successful Git enumeration. Tracked paths already absent from the working tree are omitted so an unstaged bootstrap rename is valid, while untracked destinations remain included. Git errors, symbolic links, special files, and other inspection errors still fail closed. A derived project extends its policy when it adds credentials, private migrations, generated content, or publication constraints.
+Repository guard checks public-boundary and repository-shape policy, including
+forbidden identifiers, unresolved placeholders, likely secrets, work-packet
+lifecycle consistency, required public files, and the configured documentation
+locale. Its English-locale check is the narrow trusted-Markdown Japanese-script
+canary described above, not general language detection. Its publishable path
+set comes from successful Git enumeration. Git errors, symbolic links, special
+files, and other inspection errors fail closed.
 
 Work-goal status is one of `Draft`, `Accepted`, `Active`, `Complete`, or
 `Superseded`. `Accepted` remains a valid pre-execution state for existing
-derived histories; new work may move directly from Draft to Active. Complete
+histories; new work may move directly from Draft to Active. Complete
 requires every acceptance checkbox in every visible Acceptance section and
 every task checkbox to be checked across the standard GFM unordered and ordered
 list markers. Metadata is read only from the contiguous top-level
 `- Key: value` block directly below the first top-level ATX H1 (`# ...`).
 Fenced examples and HTML comments do not supply metadata, headings, or
 checkboxes; valid top-level and list-container CommonMark fences are
-recognized. A
-Superseded goal names one canonical raw relative path to a non-template
+recognized. A Superseded goal names one canonical raw relative path to a non-template
 repository goal, and its successor chain must terminate rather than cycle. The
 guard reads each goal and successor through the same regular-file/no-symlink
-repository boundary. When adopting this guard in an existing derived
-repository, maintainers must review an inconsistent historical Complete packet
-and either supply its evidence, return it to Active, or supersede it explicitly.
-A migration must not check boxes automatically.
+repository boundary. Maintainers must review an inconsistent historical
+Complete packet and either supply its evidence, return it to Active, or
+supersede it explicitly. A migration must not check boxes automatically.
 
 ### `tools/contractlint`
 
@@ -172,7 +176,9 @@ The test suite has complementary levels:
   and interpretation-relevant state distinctions, reject field/reference-kind
   laundering where multiple kinds exist, and add negative-inference canaries
   where display details could be mistaken for facts.
-- Authentication, pagination, and mutation-boundary tests prove rejection/cancellation before downstream calls, exact secret-free authentication binding, complete standard runtime-fault declarations, and complete-or-no-result behavior.
+- Pagination and mutation-boundary tests prove rejection/cancellation before
+  downstream calls, complete runtime-fault declarations, and
+  complete-or-no-result behavior.
 - Catalog output tests validate `complete|paged` delivery independently from
   `not_applicable|exhaustive|bounded_window|differential_window` collection
   coverage. Pagination tests require an exact optional-input/top-level-string
@@ -230,20 +236,14 @@ Every strong statement should identify its enforcement path.
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
-| Authentication precondition | Secret-free session contract, zero-downstream-call tests, and catalog validation of every standard gate fault's code/kind/retryability |
-| Authentication binding | Opaque JSON-excluded/fmt-redacted binding type, infrastructure-only issuance lint, exact pass-through test, and derived two-account/stale-binding/refresh-race adapter fixtures |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |
 | Public paged continuation | Catalog validation of one exact same-kind optional input/top-level output binding, non-`not_applicable` coverage, JSON-only presentation, and agent-help/reference-workflow projection |
-| Non-secret authentication configuration | Bounded strict codec, unknown-schema and unsafe-file rejection, opened-directory confinement, immediate identity revalidation, Unix directory sync, explicit Windows limitation, fail-closed source precedence, and read-only status tests |
-| Human authentication handoff | Agent-readiness records environment exports, re-entry, browser/terminal transfers, OS integration, ceremonial inputs, and first-run/steady-state invocations |
 | Retry safety | Timeout/attempt/idempotency validation and adapter contract tests |
 | Rate evidence versus replay permission | Fault validation permits positive `retry_after` on non-retryable rate limits only, plus text/JSON projection tests |
 | Executable command inputs | Catalog validation, one shared typed parser, handler integration tests, and exact human/agent-help input projection |
 | Agent recovery | Catalog fault declarations, exact-path/help-selector executable grammar tests, and structured error snapshots |
 | Bounded agent discovery | Fixed root-index shape, 512-byte per-command entry validation, 100-command growth/selection tests, and a derived-scale grouped-workflow whole-response budget with edge-equivalence checks |
-| Meaningful derived identity | Field-level `ReadyProblems` tests that reject unchanged runnable/user-facing identity while allowing owner/license reuse, plus protected-defaults bootstrap tests |
 | Work-packet lifecycle consistency | Repository validation of finite status, all GFM completion checkboxes, CommonMark fence handling, explicit non-template acyclic supersession, and regular-file paths |
-| Bootstrap working-tree paths | Temporary-Git deletion/untracked-destination regression, successful Git enumeration requirement, selected-path no-link/regular-file validation, and full shape scan |
 | Local Go consistency | Gate preflight comparison of required/reported/compiler versions and GOROOT/GOTOOLDIR, with a mixed-installation shell fixture |
 | External text structure | Visible-projection unit/E2E tests plus scoped I/O trust metadata; printable meaning remains explicitly out of scope |
 | Documentation locale | Versioned project policy, explicit schema-1 migration diagnostic, locale preservation test, and narrow English/Japanese trusted-Markdown fixtures; broader linguistic conformance remains manual |

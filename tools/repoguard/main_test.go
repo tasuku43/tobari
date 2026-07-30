@@ -48,7 +48,7 @@ func TestRepositoryPathsFailsClosedWhenGitEnumerationFails(t *testing.T) {
 }
 
 func TestCheckTextDetectsPublicLeaksAndUnsafeSecrets(t *testing.T) {
-	config := projectconfig.Config{Profile: "ready"}
+	config := projectconfig.Config{}
 	text := strings.Join([]string{
 		"home=/Users" + "/alice/private",
 		"docs=https://service." + "corp/runbook",
@@ -159,7 +159,7 @@ func TestHistoricalWorkPacketLocaleExemptionsFollowTerminalStatus(t *testing.T) 
 }
 
 func TestCheckTextDetectsQuotedJSONSecretsAndMarkerSubstrings(t *testing.T) {
-	config := projectconfig.Config{Profile: "template"}
+	config := projectconfig.Config{}
 	unsafe := jsonSecretAssignment("client_"+"secret", "prod-contest-value")
 	issues := checkText("config.json", unsafe, config, nil, "security")
 	if len(issues) != 1 || issues[0].Message != "secret-like value assigned in source" {
@@ -202,43 +202,6 @@ func TestCheckSecretsDetectsAuthorizationHeadersAndCredentialURLs(t *testing.T) 
 	issues = checkSecrets("fixture.txt", credentialURL, 1)
 	if len(issues) != 1 || !strings.Contains(issues[0].Message, "credential-bearing URL") {
 		t.Fatalf("URL issues = %#v", issues)
-	}
-}
-
-func TestCheckTextRejectsReadyTemplateIdentityOutsideDefaults(t *testing.T) {
-	config := projectconfig.Config{
-		Profile: "ready",
-		Project: projectconfig.Project{
-			Name: "Acme Tool", BinaryName: "acme", GoModule: "github.com/acme/tool",
-			GitHubOwner: "acme", GitHubRepository: "tool", Description: "An Acme tool.",
-			FormulaClass: "Acme", SecurityContact: "security@acme.example",
-		},
-	}
-	issues := checkText("README.md", "module "+projectconfig.Defaults.GoModule, config, nil, "public")
-	if len(issues) != 1 || !strings.Contains(issues[0].Message, "template identity") {
-		t.Fatalf("identity issues = %#v", issues)
-	}
-	if issues := checkText("tools/internal/projectconfig/defaults.go", projectconfig.Defaults.GoModule, config, nil, "public"); len(issues) != 0 {
-		t.Fatalf("protected defaults issues = %#v", issues)
-	}
-}
-
-func TestCheckTextAllowsConfiguredIdentityContainingTemplateSubstring(t *testing.T) {
-	config := projectconfig.Config{
-		Profile: "ready",
-		Project: projectconfig.Project{
-			Name: "Acme Tobari", BinaryName: "acme-tobari", GoModule: "github.com/acme/acme-tobari",
-			GitHubOwner: "acme", GitHubRepository: "acme-tobari", Description: "An Acme CLI template.",
-			FormulaClass: "AcmeTobari", SecurityContact: "security@acme.example",
-		},
-	}
-	line := "github.com/acme/acme-tobari acme-tobari AcmeTobari"
-	if issues := checkText("README.md", line, config, nil, "public"); len(issues) != 0 {
-		t.Fatalf("configured identity issues = %#v", issues)
-	}
-	line += " " + projectconfig.Defaults.GoModule
-	if issues := checkText("README.md", line, config, nil, "public"); len(issues) != 1 {
-		t.Fatalf("residual identity issues = %#v", issues)
 	}
 }
 
@@ -550,7 +513,7 @@ func TestCheckWorkPacketsRejectsMarkdownSuccessorSyntax(t *testing.T) {
 }
 
 func TestCheckTextAllowsDocumentedExamplesAndReleasePlaceholders(t *testing.T) {
-	config := projectconfig.Config{Profile: "template"}
+	config := projectconfig.Config{}
 	if issues := checkText("example.env", "api_key=dummy-value", config, nil, "security"); len(issues) != 0 {
 		t.Fatalf("example issues = %#v", issues)
 	}
@@ -604,8 +567,6 @@ func TestCheckFilesystemShapeDoesNotTreatIgnoredLocalFilesAsPublishable(t *testi
 
 func TestCheckAgentHarnessRequiresRepositorySkills(t *testing.T) {
 	root := t.TempDir()
-	writeRepositoryFixture(t, root, ".agents/skills/bootstrap-derived-cli/SKILL.md", "# Skill\n")
-	writeRepositoryFixture(t, root, ".agents/skills/bootstrap-derived-cli/agents/openai.yaml", "interface: {}\n")
 	writeRepositoryFixture(t, root, ".agents/skills/add-capability/SKILL.md", "# Skill\n")
 
 	if issues := checkAgentHarness(root); len(issues) != 0 {

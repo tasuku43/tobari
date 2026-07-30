@@ -279,58 +279,6 @@ func render() {
 	}
 }
 
-func TestInspectSourceRestrictsAuthenticationBindingIssuanceToInfrastructure(t *testing.T) {
-	directory := t.TempDir()
-	path := filepath.Join(directory, "binding.go")
-	source := `package binding
-import security "example.test/tool/internal/domain/authn"
-func issue() { _, _ = security.NewBindingID("ephemeral-binding") }
-`
-	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for _, layer := range []string{"cmd", "domain", "app", "cli"} {
-		t.Run(layer, func(t *testing.T) {
-			got, err := inspectSourceFile(layer, path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			found := false
-			for _, item := range got {
-				if item.To == "security.NewBindingID" {
-					found = true
-				}
-			}
-			if !found {
-				t.Fatalf("violations = %#v, want binding issuance rejection", got)
-			}
-		})
-	}
-	got, err := inspectSourceFile("infra", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("infrastructure binding issuance violations = %#v", got)
-	}
-
-	dotPath := filepath.Join(directory, "dot_binding.go")
-	dotSource := `package binding
-import . "example.test/tool/internal/domain/authn"
-func issue() { _, _ = NewBindingID("ephemeral-binding") }
-`
-	if err := os.WriteFile(dotPath, []byte(dotSource), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	got, err = inspectSourceFile("app", dotPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Reason != "dot imports bypass static API-boundary checks" {
-		t.Fatalf("dot-import violations = %#v, want boundary rejection", got)
-	}
-}
-
 func TestFindSourceViolationsScansDomainAndCLIForBuiltinOutput(t *testing.T) {
 	const module = "example.test/tool"
 	root := t.TempDir()
