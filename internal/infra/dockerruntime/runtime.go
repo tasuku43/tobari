@@ -202,6 +202,12 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 		_ = r.recordRecentError(state, "Cluster startup did not complete; inspect component logs.")
 		return tobari.State{}, fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
+	for _, instance := range state.Tobari {
+		if err := r.ensureGatewayNetwork(ctx, instance.Network); err != nil {
+			_ = r.recordRecentError(state, "Gateway did not rejoin every Tobari network; inspect cluster status.")
+			return tobari.State{}, err
+		}
+	}
 	state.RecentError = ""
 	if err := r.writeState(state); err != nil {
 		return tobari.State{}, err
@@ -417,10 +423,8 @@ func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root str
 	if err := r.verifyOwnedTobari(ctx, "volume", instance.HomeVolume, instance.ID); err != nil {
 		return tobari.State{}, err
 	}
-	if output, err := r.runner.Output(
-		ctx, []string{"network", "connect", "--alias", "gateway", instance.Network, gatewayContainer}, os.Environ(),
-	); err != nil {
-		return tobari.State{}, fmt.Errorf("connect Gateway to Tobari network: %w: %s", err, boundedDiagnostic(output))
+	if err := r.ensureGatewayNetwork(ctx, instance.Network); err != nil {
+		return tobari.State{}, err
 	}
 	args := []string{
 		"create", "--name", instance.Container, "--hostname", instance.Name,
@@ -454,6 +458,33 @@ func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root str
 		return tobari.State{}, fmt.Errorf("persist attached Tobari: %w", err)
 	}
 	return state, nil
+}
+
+func (r *Runtime) ensureGatewayNetwork(ctx context.Context, network string) error {
+	output, err := r.runner.Output(
+		ctx,
+		[]string{"inspect", "--format", "{{json .NetworkSettings.Networks}}", gatewayContainer},
+		os.Environ(),
+	)
+	if err != nil {
+		return fmt.Errorf("inspect Gateway networks: %w: %s", err, boundedDiagnostic(output))
+	}
+	var networks map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(output), &networks); err != nil {
+		return fmt.Errorf("decode Gateway networks: %w", err)
+	}
+	if _, connected := networks[network]; connected {
+		return nil
+	}
+	output, err = r.runner.Output(
+		ctx,
+		[]string{"network", "connect", "--alias", "gateway", network, gatewayContainer},
+		os.Environ(),
+	)
+	if err != nil {
+		return fmt.Errorf("connect Gateway to Tobari network: %w: %s", err, boundedDiagnostic(output))
+	}
+	return nil
 }
 
 // InspectCluster observes exact shared container state.

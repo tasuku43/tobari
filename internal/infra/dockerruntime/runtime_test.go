@@ -33,6 +33,25 @@ func (r *recordingRunner) Output(_ context.Context, args, _ []string) ([]byte, e
 	return append([]byte{}, r.outputData...), nil
 }
 
+type gatewayNetworkRunner struct {
+	outputs  []runnerCall
+	networks string
+}
+
+func (r *gatewayNetworkRunner) Run(
+	context.Context, []string, []string, io.Reader, io.Writer, io.Writer,
+) error {
+	return nil
+}
+
+func (r *gatewayNetworkRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+	if len(args) > 0 && args[0] == "inspect" {
+		return []byte(r.networks), nil
+	}
+	return []byte{}, nil
+}
+
 func runtimeState(root string) tobari.State {
 	return tobari.State{
 		SchemaVersion: 2, RuntimeDirectory: filepath.Join(root, "runtime"),
@@ -193,5 +212,37 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 		if index < 0 || !strings.Contains(joined[index:], "@sha256:") {
 			t.Fatalf("%s is not digest pinned", key)
 		}
+	}
+}
+
+func TestEnsureGatewayNetworkReconnectsAfterComposeReplacement(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		networks  string
+		wantCalls int
+	}{
+		"already connected": {networks: `{"tobari-work-net":{}}`, wantCalls: 1},
+		"reconnect":         {networks: `{"tobari-control":{}}`, wantCalls: 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &gatewayNetworkRunner{networks: test.networks}
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.ensureGatewayNetwork(context.Background(), "tobari-work-net"); err != nil {
+				t.Fatal(err)
+			}
+			if len(runner.outputs) != test.wantCalls {
+				t.Fatalf("Docker calls = %v, want %d", runner.outputs, test.wantCalls)
+			}
+			if test.wantCalls == 2 {
+				want := []string{"network", "connect", "--alias", "gateway", "tobari-work-net", gatewayContainer}
+				if !slices.Equal(runner.outputs[1].args, want) {
+					t.Fatalf("reconnect argv = %v, want %v", runner.outputs[1].args, want)
+				}
+			}
+		})
 	}
 }
