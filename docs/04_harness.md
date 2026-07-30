@@ -262,7 +262,7 @@ Every strong statement should identify its enforcement path.
 | Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
 | Typed denial recovery | Strict audit projection, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
-| Explicit policy learning | Candidate/reference domain validation, discover-act graph and round trip, strict atomic XDG writer, preflight ordering, and Docker retry |
+| Explicit policy learning | OPA learnability classification, candidate/reference domain validation, discover-act graph and round trip, strict atomic XDG writer, preflight ordering, and Docker retry |
 | Bounded policy compaction | Pure deterministic grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |

@@ -62,7 +62,10 @@ explicit read-write scope. Users must not attach the parent configuration
 directory because it also contains credential files. OPA itself sees policy
 read-only and watches host changes where Docker-host events propagate. The
 fixed-target `policy apply` path tests the host files and recreates only the
-owned OPA component for deterministic activation.
+owned OPA component for deterministic activation. The reference-bound
+`policy allow` and `policy compact` paths write only the CLI-owned learned-rule
+member after validating owner-only regular files, testing a private complete
+policy copy, and checking that the discovered source state is unchanged.
 
 ### Forged authorization
 
@@ -76,7 +79,13 @@ allow. Only an OPA-selected, exact-host-bound profile can add a managed value.
 OPA times out, stops, returns malformed JSON, or returns an incomplete
 decision. Gateway denies and does not contact upstream. Invalid watched policy
 does not create an allow decision, and `policy apply` refuses it before OPA
-recreation.
+recreation. Learned-rule evaluation also validates the rule shape before
+matching it. A failed learned-rule or compaction preflight leaves `data.json`
+unchanged; a concurrent source change makes the opaque proposal stale.
+OPA also classifies exact-rule learnability only after scheme, cluster, and
+credential binding pass. Gateway records that boolean, and candidate discovery
+excludes false values instead of offering a permission that cannot resolve the
+denial.
 
 ### Request/body mismatch
 

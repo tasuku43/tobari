@@ -15,11 +15,12 @@ interactive or non-interactive execution, inspection, logs, and cleanup.
 
 The primary operating loop is progressive policy learning: a Tobari workload is
 denied by default, Gateway records the rejected host/method/path and reason
-without secrets, `cluster denials` presents that evidence with the XDG policy
-path, the user refines policy on the trusted host, `policy apply` tests and
-activates it, and the same workload is retried. OPA watch may make activation
-immediate when Docker-host filesystem events propagate. Denial evidence is a
-product output, not incidental debug noise.
+without secrets, `policy tail` presents a bounded exact proposal and opaque ID,
+the user runs `policy allow --id`, and the same workload is retried. Trusted-host
+Rego editing plus `policy apply` remains the advanced path for behavior that
+exact learned rules cannot express. OPA watch may make host edits visible when
+Docker-host filesystem events propagate. Denial evidence is a product output,
+not incidental debug noise.
 
 ## Public vocabulary
 
@@ -47,7 +48,7 @@ The public commands are:
 | `doctor [--root PATH]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
 | `cluster up` | act, fixed target | create | Reconcile and start shared Gateway and OPA |
 | `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
-| `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, policy path, and activation command |
+| `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and activation command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Tobari is detached |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover unique pending exact-rule candidates and opaque IDs |
@@ -171,6 +172,9 @@ Gateway remains up and fails closed during that bounded activation interval.
 policy in a private host temporary directory. After successful tests they
 atomically replace only `policy/data.json` and invoke the same activation
 boundary. They never write Rego source or credential files.
+OPA marks a denial learnable only when its version, cluster, scheme, and
+credential binding already satisfy the orthogonal boundary. Candidate
+discovery excludes other denials, preventing a successful no-op approval.
 
 ## Compatibility
 

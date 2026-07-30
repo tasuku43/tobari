@@ -34,14 +34,21 @@ OPA must return exactly one object:
   "allow": true,
   "reason": "allowed by policy",
   "credential_profile": null,
+  "status_code": 403,
+  "learnable": false,
   "audit": {"level": "metadata"}
 }
 ```
 
 Denied decisions may include `status_code`, restricted to 403 in the MVP.
-Unknown keys are tolerated for forward compatibility, but missing or
-wrong-typed required fields deny. `allow` is the only authorization fact; no
-`ask` or pending state exists.
+`learnable` is an optional boolean for compatibility and defaults to false;
+the initialized policy always emits it. It may be true only on a denial after
+version, cluster, scheme, and credential binding pass, meaning an exact
+host/method/path rule can resolve that denial. Gateway records the value for
+candidate discovery but never treats it as authorization. Unknown keys are
+tolerated for forward compatibility, but missing or wrong-typed required
+fields deny. `allow` is the only authorization fact; no `ask` or pending state
+exists.
 
 ## Timeouts, attempts, and retry
 

@@ -161,12 +161,16 @@ only when complete and within the limit. The addon never retries.
 Denied audit records are also the policy-development feedback interface.
 `tobari cluster denials` parses one bounded Gateway log window, rejects
 malformed denial-shaped records, and returns typed host, method, path, reason,
-status, request identity, timestamp, the trusted host policy directory, and the
-exact apply command. `policy candidates` deterministically maps that retained
-evidence to opaque exact-rule references and removes effects already covered by
-the CLI-owned learned-rule data. `policy tail` is a human text projection over
-the same bounded task result. Raw `cluster logs` remains the
-component-debugging interface.
+status, exact-rule learnability, request identity, timestamp, the trusted host
+policy directory, and the exact apply command. OPA computes learnability only
+when version, cluster, scheme, and credential binding already pass, so an exact
+host/method/path rule can close the request. `policy candidates`
+deterministically maps only that eligible retained evidence to opaque
+exact-rule references that remain stable across repeated denials of the same
+host/method/path, and removes effects already covered by the CLI-owned
+learned-rule data. `policy tail` is a human text projection over the same
+bounded task result. Raw `cluster logs` remains the component-debugging
+interface.
 
 `policy allow` resolves one exact candidate reference against retained
 validated audit state without decoding it. Infrastructure reads the bounded,
@@ -180,8 +184,10 @@ prefix agree. The opaque proposal binds the exact source-rule set.
 `policy compact` resolves that current proposal, replaces only those sources
 with one prefix rule retaining the positive examples, runs rule-match boundary
 canaries and the full OPA suite, then uses the same atomic write and activation
-path. A changed source set makes the proposal stale rather than silently
-recomputing its meaning.
+path. Compaction discovery and prefix evaluation reject encoded separators,
+backslashes, empty segments, and dot segments rather than generalizing across
+ambiguous upstream normalization. A changed source set makes the proposal stale
+rather than silently recomputing its meaning.
 
 ## Docker abstraction
 

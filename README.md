@@ -14,8 +14,8 @@ The normal loop is progressive policy learning:
 1. Start the shared enforcement cluster.
 2. Attach a named Tobari to a work directory.
 3. Work freely until an undeclared request receives `403`.
-4. Inspect the secret-free typed denial and its host policy path.
-5. Edit the XDG policy, test and activate it, then retry.
+4. Review the secret-free pending queue.
+5. Approve one exact host, method, and path rule by opaque ID, then retry.
 
 ```sh
 tobari cluster up
@@ -24,13 +24,17 @@ tobari list
 
 # Copy the exact opaque ID printed by list.
 tobari shell --id tbr_0123456789abcdef0123456789abcdef
-tobari cluster denials --tail 100
-# Edit the printed policy directory on the trusted host.
-tobari policy apply
+tobari policy tail --tail 100
+# Copy one exact opaque ID printed by policy tail.
+tobari policy allow --id pcy_0123456789abcdef0123456789abcdef
 ```
 
-Denial output includes bounded `host`, `method`, `path`, and `reason` evidence,
-the canonical policy directory, and the exact apply command. Tobari never turns
+The queue includes bounded `host`, `method`, `path`, and `reason` evidence plus
+the exact approval command. It includes only denials OPA marks resolvable by an
+exact learned rule; immutable scheme, cluster, and credential-binding failures
+remain diagnostics instead of becoming ineffective approvals. `policy allow`
+resolves the opaque ID against retained denials, tests the complete policy,
+atomically records one exact rule, and activates it. Tobari never turns
 observed traffic into permission automatically.
 
 ## Cluster and Tobari topology
@@ -278,6 +282,11 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and activation command |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
 | `tobari cluster down [--purge]` | Remove an empty cluster and optionally shared CA state |
+| `tobari policy candidates [--tail N] [--format text\|json]` | Discover pending exact approvals and opaque IDs |
+| `tobari policy tail [--tail N]` | Review the bounded queue with exact approval commands |
+| `tobari policy allow --id ID` | Test, store, and activate one exact observed permission |
+| `tobari policy compactions [--format text\|json]` | Discover test-backed prefix compactions and opaque IDs |
+| `tobari policy compact --id ID` | Test and activate one current bounded compaction |
 | `tobari policy apply` | Test host policy, recreate only OPA, and wait for health |
 | `tobari attach --name NAME --root PATH [--image IMAGE] [--devcontainer PATH]` | Attach one named Tobari with a compatible local image |
 | `tobari list [--format text\|json]` | Discover configured Tobari and opaque action IDs |
@@ -289,8 +298,9 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version` | Print build identity |
 
-`cluster status`, `cluster denials`, `list`, `logs`, and `doctor` are
-observational and never repair state.
+`cluster status`, `cluster denials`, `policy candidates`, `policy tail`,
+`policy compactions`, `list`, `logs`, and `doctor` are observational and never
+repair state.
 
 ## XDG configuration and live policy
 
@@ -341,6 +351,39 @@ must remain outside untrusted containers.
 The initialized policy is generic HTTP policy, not a GitHub adapter. It starts
 deny-by-default, distinguishes HTTPS from explicitly allowed test-only HTTP,
 restricts methods and paths, and validates credential profile bindings.
+
+### Grow and compact learned policy
+
+Use the human review queue during normal work:
+
+```sh
+tobari policy tail --tail 200
+tobari policy allow --id PCY_ID
+```
+
+`PCY_ID` must be copied unchanged from `policy tail` or `policy candidates`.
+It expires when its denial falls outside retained logs or another learned rule
+already covers that exact effect. Repeating the same denied host/method/path
+retains the same ID and refreshes its evidence. Approval never accepts a host
+wildcard, method wildcard, prefix, or user-supplied pattern.
+
+After at least three exact rules accumulate under the same sufficiently deep
+directory for one host and method, review an optional compaction:
+
+```sh
+tobari policy compactions
+tobari policy compact --id PCX_ID
+```
+
+Compaction is never automatic. Its opaque ID binds the current source-rule set.
+The replacement keeps all positive examples, tests an adjacent outside-prefix
+canary, and is rejected if the source set changed. These finite tests catch the
+declared boundary regression; they do not prove every unknown future path is
+safe.
+
+For advanced policy behavior that the exact learning flow cannot express, edit
+the XDG Rego and data files on the trusted host, add tests, then run
+`tobari policy apply`.
 
 Run read-only diagnostics when you want to test policy without activating it:
 
@@ -451,8 +494,9 @@ Common failures:
 - `unsupported_devcontainer`: remove runtime properties outside the documented
   image-based subset.
 - `tobari_not_found`: pass an opaque ID from `list` unchanged.
-- intended request returns `403`: run `cluster denials`, refine the minimum
-  host/method/path rule, run `policy apply`, and retry.
+- intended request returns `403`: run `policy tail`, approve one exact candidate
+  with `policy allow --id`, and retry; use `cluster denials` plus a tested host
+  edit only when the exact learning flow cannot express the required behavior.
 - root bind-mount error under Colima/Lima: use a directory shared with the VM.
 
 Schema-1 singleton state from older pre-v1 builds is intentionally not guessed

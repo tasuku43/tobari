@@ -22,11 +22,14 @@ variables, or configuration files.
 
 1. Tobari sends an HTTP/HTTPS request through Gateway.
 2. Gateway removes inbound secret headers and creates redacted OPA input.
-3. OPA returns allow/deny and an optional credential profile name.
+3. OPA returns allow/deny, an optional credential profile name, and a
+   non-authorizing exact-rule learnability classification for denial UX.
 4. Gateway rejects an unknown profile or a host/profile mismatch.
 5. Gateway reads the already-mounted secret file, validates its bounded value,
    injects the configured header, and sends the authorized request once.
-6. Audit output records only the profile name.
+6. Audit output records only the profile name; a learnable candidate repeats
+   that non-secret name so the user can see credential-bearing intent before
+   approving network access.
 
 There is no fallback profile and no probing of another secret after failure.
 Missing, unreadable, empty, oversized, or malformed secret material fails

@@ -148,15 +148,18 @@ trusted host's current tested files. Gateway remains fail-closed while OPA is
 recreated.
 `policy allow` and `policy compact` are access-changing writes bound to opaque
 candidate references. Discovery never mutates. An allow reference identifies
-one retained validated denial; a compaction reference identifies one current
-exact source-rule set. The mutation rejects stale or ambiguous references,
-unsafe policy files, malformed learned data, failed preflight tests, and
-unrecognized compaction shapes before the atomic policy write.
+one retained validated denial that OPA marked exact-rule learnable; a
+compaction reference identifies one current exact source-rule set. Scheme,
+cluster, and credential-binding failures never become permission candidates.
+The mutation rejects stale or ambiguous references, unsafe policy files,
+malformed learned data, failed preflight tests, and unrecognized compaction
+shapes before the atomic policy write.
 
 Learned rules never broaden a host or method beyond the explicitly approved
 evidence. Exact approvals may override an older deny rule only for their exact
 host/method/path. Prefix compaction requires three exact sources, keeps host and
-method fixed, requires a multi-segment directory boundary, retains positive
+method fixed, requires a multi-segment directory boundary, rejects percent
+encoding, backslashes, empty segments, and dot segments, retains positive
 examples, and tests its matcher against an adjacent outside-prefix canary.
 Host wildcards, method wildcards, user-supplied pattern text, and automatic
 compaction are unsupported.

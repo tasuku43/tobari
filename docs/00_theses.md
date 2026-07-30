@@ -207,13 +207,14 @@ rule from the trusted host.
 ### Consequences
 
 - Every HTTP denial emits bounded structured audit metadata including host,
-  method, path, decision, and reason.
+  method, path, decision, reason, and whether an exact learned rule can resolve
+  the denial without weakening orthogonal invariants.
 - `tobari cluster denials` is the first diagnostic step: it projects only
   validated denial records, reports the editable host-side policy directory,
   and names the exact activation command. Raw component logs remain available.
-- `policy candidates` turns retained denials into unique exact
-  host/method/path proposals with opaque IDs. `policy tail` is the bounded
-  human review of that same queue. Neither command changes authority.
+- `policy candidates` turns only learnable retained denials into unique exact
+  host/method/path proposals with stable opaque IDs. `policy tail` is the
+  bounded human review of that same queue. Neither command changes authority.
 - `policy allow --id` is the explicit trusted-host action that consumes one
   candidate ID unchanged, preflights and atomically records one exact learned
   rule, then activates it through the same portable OPA boundary.
@@ -240,7 +241,8 @@ rule from the trusted host.
   through the CLI, approve the exact candidate, exercise the allowed rule,
   compact repeated exact rules, and retain a denied boundary without restarting
   any Tobari.
-- README makes the observe-edit-test-retry loop the primary operating workflow.
+- README makes the observe-review-approve-retry loop the primary operating
+  workflow and keeps tested host editing as the advanced escape hatch.
 
 ## Deliberate non-goals
 

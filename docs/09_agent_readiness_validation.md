@@ -19,13 +19,17 @@ go run ./cmd/tobari attach --name test --root /absolute/test/root \
 go run ./cmd/tobari list --format json
 go run ./cmd/tobari exec --id TBR_ID -- curl https://example.com/
 go run ./cmd/tobari cluster denials --tail 100 --format json
-go run ./cmd/tobari policy apply
+go run ./cmd/tobari policy candidates --tail 100 --format json
+go run ./cmd/tobari policy allow --id PCY_ID
+go run ./cmd/tobari policy compactions --format json
 go run ./cmd/tobari detach --id TBR_ID --purge
 go run ./cmd/tobari cluster down --purge
 ```
 
 `TBR_ID` denotes the exact value emitted by `list`, not a reconstructable
-literal. The transcript must prove:
+literal. `PCY_ID` denotes one exact value emitted by `policy candidates`; the
+compaction command may validly return an empty collection until enough exact
+rules exist. The transcript must prove:
 
 - Root agent help is a compact outcome/capability index.
 - Scoped help supplies inputs, outputs, prerequisites, effects, references,
@@ -42,7 +46,12 @@ literal. The transcript must prove:
 - `exec` passes exact argv and preserves the child status.
 - A denied request produces bounded typed secret-free host/method/path
   evidence, the host policy path, and the exact activation command.
-- A tested host edit can be activated portably without restarting a Tobari.
+- Candidate discovery deduplicates pending effects and emits opaque references
+  without changing authority; orthogonal scheme or credential failures remain
+  diagnostics and do not become ineffective candidates.
+- `policy allow` consumes one candidate reference unchanged, tests the complete
+  policy, records only an exact rule, and activates it without restarting a
+  Tobari.
 - Cleanup verifies exact owner and opaque-ID labels.
 
 ## Policy-learning scenario
@@ -53,11 +62,15 @@ The Docker integration test supplies the executable loop:
 2. A mock-host POST under `/denied` receives `403` and never reaches upstream.
 3. `cluster denials` exposes the rejected dimensions, trusted XDG policy path,
    and exact apply command without a body or credential canary.
-4. A second named Tobari attaches only that policy directory.
-5. A host-visible policy and test edit passes `policy apply`; only OPA is
-   recreated and confirmed healthy.
-6. The retry succeeds; no rule is generated or accepted automatically and no
-   Tobari is restarted.
+4. `policy candidates` and `policy tail` expose one pending exact proposal and
+   its opaque reference without mutating policy.
+5. `policy allow` tests a private complete policy copy, atomically stores the
+   exact learned rule, recreates only OPA, and confirms it healthy.
+6. The exact retry succeeds while a child path remains denied.
+7. Three separately denied and approved sibling paths produce one current
+   `policy compactions` proposal.
+8. `policy compact` retains the examples, activates the bounded prefix, permits
+   a sibling, and keeps its adjacent outside-prefix canary denied.
 
 Routine success and denial require zero undeclared provider parsers,
 provider-notation decoders, source inspection steps, or exploratory provider
@@ -106,6 +119,12 @@ At minimum, exercise:
 - invalid Rego before cluster reconciliation;
 - invalid Rego before policy activation and exact OPA-only recreation after a
   valid edit;
+- invalid, stale, already-covered, or wrong-kind policy candidate references;
+- duplicate, symlinked, group/world-accessible, concurrently changed, or
+  malformed managed policy data before write;
+- fewer than three, shallow, mixed-host, mixed-method, or stale compaction
+  sources;
+- failed learned-policy preflight before atomic replacement;
 - partial startup mapped to non-retryable `cluster_start_failed`;
 - partial attach mapped to non-retryable `attach_failed`;
 - non-empty cluster removal rejection;
