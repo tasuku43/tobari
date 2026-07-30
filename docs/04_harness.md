@@ -211,6 +211,8 @@ The test suite has complementary levels:
 - Named-Tobari integration tests prove that two roots receive distinct
   containers, networks, and home volumes while sharing only Gateway, OPA, and
   public CA state.
+- Custom-image tests build from the stable local Tobari base, select it through
+  attach, and prove compatibility is checked before per-Tobari resources exist.
 - Policy-watch integration edits a host XDG policy fixture and observes the
   changed decision without restarting OPA or any Tobari.
 - Negative tests prove rejection before side effects.
@@ -239,6 +241,7 @@ Every strong statement should identify its enforcement path.
 | Request-bound semantic result | Per-capability domain/application tests for declared task identity and every applicable request dimension, including scope, state, contextual-kind, empty-result, no-partial-result, and negative-inference fixtures where applicable |
 | Action target composition | Reachable reference-graph validation and byte-preserving round trips for reference-bound acts; complete, exclusive, reference-free declarations for command-bound fixed targets |
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
+| Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |

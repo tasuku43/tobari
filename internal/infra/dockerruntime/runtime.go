@@ -152,6 +152,54 @@ func (r *Runtime) IsTerminal(writer io.Writer) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
+// ResolveImageSelector applies explicit CLI input before the XDG default.
+func (r *Runtime) ResolveImageSelector(ctx context.Context, explicit string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if explicit != "" {
+		return explicit, nil
+	}
+	path := filepath.Join(r.configDirectory, "config.json")
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return tobari.BuiltinImageSelector, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("inspect config.json: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("config.json must be a regular owner-only file")
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- fixed config.json child.
+	if err != nil {
+		return "", fmt.Errorf("read config.json: %w", err)
+	}
+	if len(data) > 64*1024 {
+		return "", fmt.Errorf("config.json exceeds 64 KiB")
+	}
+	var document struct {
+		Version      string `json:"version"`
+		DefaultImage string `json:"default_image"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
+		return "", fmt.Errorf("decode config.json: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("config.json contains trailing data")
+	}
+	if document.Version != "v1" {
+		return "", fmt.Errorf("config.json version must be v1")
+	}
+	if err := tobari.ValidateImageSelector(document.DefaultImage); err != nil {
+		return "", fmt.Errorf("config.json default_image: %w", err)
+	}
+	return document.DefaultImage, nil
+}
+
 // ClusterUp materializes assets and reconciles shared Gateway and OPA.
 func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 	if err := ctx.Err(); err != nil {
@@ -230,6 +278,7 @@ func (r *Runtime) buildTobariImage(ctx context.Context, state tobari.State, envi
 			"--build-arg", "TOBARI_UID=" + strconv.Itoa(uid),
 			"--build-arg", "TOBARI_GID=" + strconv.Itoa(gid),
 			"--tag", tobariImage(state),
+			"--tag", "tobari-runtime:local",
 			filepath.Join(state.RuntimeDirectory, "tobari"),
 		},
 		environment, nil, &output, &output,
@@ -271,6 +320,12 @@ func (r *Runtime) prepareState() (tobari.State, error) {
 	}
 	if err := initializeBytes(
 		credentialConfig, []byte("{\n  \"version\": \"v1\",\n  \"profiles\": {}\n}\n"), 0o600,
+	); err != nil {
+		return tobari.State{}, err
+	}
+	if err := initializeBytes(
+		filepath.Join(r.configDirectory, "config.json"),
+		[]byte("{\n  \"version\": \"v1\",\n  \"default_image\": \"builtin\"\n}\n"), 0o600,
 	); err != nil {
 		return tobari.State{}, err
 	}
@@ -386,11 +441,14 @@ func (r *Runtime) LoadState(ctx context.Context) (tobari.State, bool, error) {
 }
 
 // Attach creates one exact container, internal network, and persistent home.
-func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root string) (tobari.State, error) {
+func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root, imageSelector string) (tobari.State, error) {
 	if err := state.Validate(); err != nil {
 		return tobari.State{}, err
 	}
 	if err := tobari.ValidateName(name); err != nil {
+		return tobari.State{}, err
+	}
+	if err := tobari.ValidateImageSelector(imageSelector); err != nil {
 		return tobari.State{}, err
 	}
 	if resolved, err := r.ResolveRoot(ctx, root); err != nil || resolved != root {
@@ -401,8 +459,16 @@ func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root str
 	instance := tobari.Instance{
 		ID: id, Name: name, Root: root, Container: "tobari-" + name,
 		Network: "tobari-" + name + "-net", HomeVolume: "tobari-" + name + "-home",
+		Image: imageSelector,
 	}
 	if err := instance.Validate(); err != nil {
+		return tobari.State{}, err
+	}
+	image := imageSelector
+	if image == tobari.BuiltinImageSelector {
+		image = tobariImage(state)
+	}
+	if err := r.validateCompatibleImage(ctx, image); err != nil {
 		return tobari.State{}, err
 	}
 	labels := []string{
@@ -426,9 +492,11 @@ func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root str
 	if err := r.ensureGatewayNetwork(ctx, instance.Network); err != nil {
 		return tobari.State{}, err
 	}
+	uid, gid := currentIDs()
 	args := []string{
 		"create", "--name", instance.Container, "--hostname", instance.Name,
 		"--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		"--tmpfs", "/tmp:size=512m,mode=1777", "--tmpfs", "/run:size=16m,mode=1777",
 		"--env", "HOME=/var/lib/tobari",
 		"--env", "HTTP_PROXY=http://gateway:8080", "--env", "HTTPS_PROXY=http://gateway:8080",
@@ -445,7 +513,7 @@ func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root str
 		"--health-timeout", "2s", "--health-retries", "30",
 	}
 	args = append(args, labels...)
-	args = append(args, tobariImage(state))
+	args = append(args, image)
 	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
 		return tobari.State{}, fmt.Errorf("create Tobari container: %w: %s", err, boundedDiagnostic(output))
 	}
@@ -458,6 +526,54 @@ func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root str
 		return tobari.State{}, fmt.Errorf("persist attached Tobari: %w", err)
 	}
 	return state, nil
+}
+
+func (r *Runtime) validateCompatibleImage(ctx context.Context, image string) error {
+	output, err := r.runner.Output(
+		ctx,
+		[]string{
+			"image", "inspect", "--format",
+			`{"api":{{json (index .Config.Labels "` + tobari.RuntimeImageAPILabel + `")}},"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}}}`,
+			image,
+		},
+		os.Environ(),
+	)
+	if err != nil {
+		return fault.Wrap(
+			fault.KindUnavailable, "image_not_found",
+			"selected Tobari image is not available locally; build or pull it explicitly", false, err,
+			fault.NextAction{Command: "help attach", Reason: "Read the compatible image contract."},
+		)
+	}
+	var configuration struct {
+		API        string   `json:"api"`
+		User       string   `json:"user"`
+		Entrypoint []string `json:"entrypoint"`
+	}
+	expectedEntrypoint := []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}
+	if err := json.Unmarshal(bytes.TrimSpace(output), &configuration); err != nil ||
+		configuration.API != tobari.RuntimeImageAPI ||
+		configuration.User != "tobari" ||
+		!equalStrings(configuration.Entrypoint, expectedEntrypoint) {
+		return fault.New(
+			fault.KindRejected, "incompatible_image",
+			"selected image does not preserve the supported Tobari runtime API, user, and entrypoint", false,
+			fault.NextAction{Command: "help attach", Reason: "Extend the documented Tobari runtime base."},
+		)
+	}
+	return nil
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *Runtime) ensureGatewayNetwork(ctx context.Context, network string) error {
@@ -552,6 +668,7 @@ func (r *Runtime) InspectTobari(ctx context.Context, state tobari.State) ([]toba
 		}
 		items = append(items, tobari.ItemStatus{
 			ID: instance.ID, Name: instance.Name, Root: instance.Root,
+			Image:     instance.ImageSelector(),
 			Running:   component.State == "running" && (component.Health == "healthy" || component.Health == "none"),
 			Container: instance.Container,
 		})
@@ -589,7 +706,11 @@ func (r *Runtime) Exec(
 	if request.TTY {
 		args = append(args, "-t")
 	}
-	args = append(args, "--user", "tobari", "--workdir", containerCWD, instance.Container)
+	uid, gid := currentIDs()
+	args = append(
+		args, "--user", strconv.Itoa(uid)+":"+strconv.Itoa(gid),
+		"--workdir", containerCWD, instance.Container,
+	)
 	args = append(args, request.Command...)
 	err = r.runner.Run(ctx, args, os.Environ(), in, out, errOut)
 	if err == nil {
@@ -845,7 +966,7 @@ func (r *Runtime) recordRecentError(state tobari.State, message string) error {
 
 // Doctor reports locally testable prerequisites without repairing them.
 func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error) {
-	checks := make([]doctor.Check, 0, 13)
+	checks := make([]doctor.Check, 0, 14)
 	add := func(name string, status doctor.CheckStatus, detail string) {
 		checks = append(checks, doctor.Check{Name: name, Status: status, Detail: detail})
 	}
@@ -904,6 +1025,11 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 		add("credential_config", status, detail)
 	} else {
 		add("credential_config", doctor.CheckStatusPass, detail)
+	}
+	if _, err := r.ResolveImageSelector(ctx, ""); err != nil {
+		add("image_config", doctor.CheckStatusFail, err.Error())
+	} else {
+		add("image_config", doctor.CheckStatusPass, "default image configuration is valid")
 	}
 	output, err := r.runner.Output(
 		ctx, []string{"ps", "-a", "--filter", "label=" + ownerLabel + "=" + ownerValue, "--format", "{{.Names}}"}, os.Environ(),

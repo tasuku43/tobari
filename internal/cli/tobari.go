@@ -87,13 +87,16 @@ func runAttach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Int
 		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ParentID: tobari.ClusterTargetID},
 		Impact: command.Agent.Mutation.Impact,
 	}
-	instance, err := c.tobari.Attach(ctx, intent, inputs.One("--name"), inputs.One("--root"))
+	instance, err := c.tobari.Attach(
+		ctx, intent, inputs.One("--name"), inputs.One("--root"), inputs.One("--image"),
+	)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
 	var output bytes.Buffer
 	fmt.Fprintf(&output, "name: %s\n", escapeTSVCell(instance.Name))
 	fmt.Fprintf(&output, "root: %s\n", escapeTSVCell(instance.Root))
+	fmt.Fprintf(&output, "image: %s\n", escapeTSVCell(instance.ImageSelector()))
 	return c.emitMutationResult(ctx, command, output.Bytes())
 }
 
@@ -249,9 +252,10 @@ func renderTobariList(result tobari.ListResult, format successFormat) ([]byte, e
 		for index := range items {
 			items[index].Name = safeExternalText(items[index].Name)
 			items[index].Root = safeExternalText(items[index].Root)
+			items[index].Image = safeExternalText(items[index].Image)
 			items[index].Container = safeExternalText(items[index].Container)
 		}
-		output, err := json.Marshal(tobariListDocument{SchemaVersion: 1, Tobari: items})
+		output, err := json.Marshal(tobariListDocument{SchemaVersion: 2, Tobari: items})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Tobari list JSON could not be encoded", false, err)
 		}
@@ -260,8 +264,9 @@ func renderTobariList(result tobari.ListResult, format successFormat) ([]byte, e
 	var output bytes.Buffer
 	for _, item := range result.Items {
 		fmt.Fprintf(
-			&output, "id=%s\tname=%s\troot=%s\trunning=%t\tcontainer=%s\n",
-			item.ID, escapeTSVCell(item.Name), escapeTSVCell(item.Root), item.Running, escapeTSVCell(item.Container),
+			&output, "id=%s\tname=%s\troot=%s\timage=%s\trunning=%t\tcontainer=%s\n",
+			item.ID, escapeTSVCell(item.Name), escapeTSVCell(item.Root), escapeTSVCell(item.Image),
+			item.Running, escapeTSVCell(item.Container),
 		)
 	}
 	return output.Bytes(), nil

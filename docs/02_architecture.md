@@ -67,18 +67,34 @@ runtime/
 `cluster up` materializes exact embedded bytes under the Tobari state directory,
 writes generated non-secret runtime configuration, and invokes Docker through
 the runtime port. Compose owns only Gateway, OPA, shared networks, and CA
-volumes. The runtime adapter creates each named Tobari from the same embedded
-image and connects Gateway to its dedicated network. No runtime asset is
-downloaded during startup. A public-only CA volume is mounted read-only into
+volumes. The built-in image receives an asset-version tag and the stable local
+extension tag `tobari-runtime:local`. The runtime adapter creates each named
+Tobari from the built-in image or an exact user-selected local image and
+connects Gateway to its dedicated network. No runtime asset is downloaded
+during startup or attach. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
+
+Custom images are supported only when they preserve runtime API label
+`io.tobari.runtime-api=1`, the `tobari` image user, and the exact built-in
+entrypoint. The intended construction is `FROM tobari-runtime:local`; a
+runtime-API label is a compatibility assertion, not an image provenance or
+trust signature. Docker create still supplies the invoking numeric UID/GID,
+read-only root filesystem, dropped capabilities, fixed mounts, proxy
+environment, internal network, and health check.
+
+Attach resolves an explicit image first. When omitted, infrastructure reads the
+strict owner-only XDG `config.json` and uses `default_image`; absence before
+first initialization falls back to `builtin`. The resolved selector, rather
+than the source of the default, is persisted on the Tobari.
 
 ## Lifecycle model
 
 The MVP owns one cluster `tool_local` target with stable ID `cluster-default`.
 Schema-2 runtime state records shared resource names, policy path, proxy
 endpoint, asset revision, and a finite list of named Tobari. Every Tobari record
-contains an opaque ID, canonical root, and exact container, network, and volume
-names. Docker labels include:
+contains an opaque ID, canonical root, selected image, and exact container,
+network, and volume names. Older schema-2 records without the additive image
+field mean `builtin`. Docker labels include:
 
 ```text
 io.tobari.owner=default

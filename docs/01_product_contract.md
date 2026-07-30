@@ -30,6 +30,8 @@ product output, not incidental debug noise.
   `/workspace`.
 - **Tobari home:** a per-Tobari persistent Docker volume mounted as the work
   user's home.
+- **Tobari image:** the built-in runtime or one locally available compatible
+  OCI image selected when a Tobari is first attached.
 - **Tobari ID:** an opaque CLI-owned reference produced by `list` and consumed
   unchanged by individual actions.
 - **credential profile:** a Gateway-only secret and exact host binding.
@@ -45,7 +47,7 @@ The public commands are:
 | `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Tobari is detached |
-| `attach --name NAME --root PATH` | act, fixed cluster target | create | Attach one named Tobari to an existing root |
+| `attach --name NAME --root PATH [--image IMAGE]` | act, fixed cluster target | create | Attach one named Tobari with a compatible image to an existing root |
 | `list [--format text|json]` | discover | read | List all configured Tobari and produce opaque IDs |
 | `shell --id ID` | act, reference bound | read | Open an interactive shell in one Tobari |
 | `exec --id ID [--cwd PATH] -- COMMAND...` | act, reference bound | read | Execute one command in one Tobari and preserve its exit code |
@@ -62,7 +64,13 @@ security property rather than an undeclared Docker mutation by the CLI.
 - Paths are expanded and canonicalized on the host before Docker calls.
 - `attach --root` requires an existing directory and a name matching
   `[a-z][a-z0-9-]{0,62}`.
+- `attach --image` accepts `builtin` or a portable OCI image reference and
+  defaults to `builtin`. A custom image must already exist locally and preserve
+  runtime API `1`, the `tobari` image user, and the Tobari entrypoint. Attach
+  never pulls an image implicitly.
 - Names are unique display identities, not action selectors.
+- Repeated attach is idempotent only when name, canonical root, and image
+  selector all match.
 - A host `--cwd` must be inside the referenced Tobari root and maps byte-for-byte by
   relative path under `/workspace`.
 - The command after `exec --` is positional and repeatable; Tobari does not
@@ -73,9 +81,10 @@ security property rather than an undeclared Docker mutation by the CLI.
 
 ## Output and exit contract
 
-Human output is concise text. `status --format json` is schema version 1 under
-`status`; agent help uses the catalog schema. Successful data is stdout,
-failures are stderr.
+Human output is concise text. Cluster status JSON is schema version 1 and
+`list --format json` is schema version 2, with the selected image added to each
+item. Agent help uses the catalog schema. Successful data is stdout; failures
+are stderr.
 
 | Exit | Meaning |
 |---:|---|
@@ -97,6 +106,7 @@ a bounded recent window of 1 through 10,000 lines per selected component.
 Configuration is resolved from
 `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on both macOS and Linux:
 
+- `config.json`: schema-v1 default Tobari image selector;
 - `policy/`: Rego and data mounted read-only into OPA and watched for host edits;
 - `credentials.json`: schema-v1 profile type, exact hosts, and Gateway mount path;
 - `credentials/`: secret files, required to be regular owner-readable files
@@ -107,11 +117,18 @@ The state contains paths and Docker resource names, never credential contents.
 Environment variables select only XDG locations and test/runtime overrides
 documented in scoped help; they do not carry managed tokens.
 
+Image selection precedence is an explicit `attach --image`, then
+`config.json.default_image`, then `builtin` when the configuration file has not
+yet been initialized.
+
 ## Side effects
 
 `cluster up` creates shared labeled networks, images, configuration material,
-Gateway, OPA, and CA volumes. `attach` creates one labeled container, one
-internal network, and one home volume, then joins Gateway to that network.
+Gateway, OPA, and CA volumes. It tags the built-in runtime both by asset
+version and as the local extension base `tobari-runtime:local`. `attach`
+inspects the selected local image for compatibility, creates one labeled
+container, one internal network, and one home volume, then joins Gateway to
+that network.
 `detach` removes only the exact label-owned container and network; `--purge`
 also removes that exact home. `cluster down` rejects while any Tobari remains
 and removes only exact shared resources; its `--purge` also removes shared CA

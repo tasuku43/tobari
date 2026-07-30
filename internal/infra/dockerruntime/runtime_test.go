@@ -22,6 +22,7 @@ type recordingRunner struct {
 	runs       []runnerCall
 	outputs    []runnerCall
 	outputData []byte
+	outputErr  error
 }
 
 func (r *recordingRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
@@ -30,7 +31,7 @@ func (r *recordingRunner) Run(_ context.Context, args, _ []string, _ io.Reader, 
 }
 func (r *recordingRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
-	return append([]byte{}, r.outputData...), nil
+	return append([]byte{}, r.outputData...), r.outputErr
 }
 
 type gatewayNetworkRunner struct {
@@ -133,8 +134,9 @@ func TestExecMapsCWDAndPreservesExactArgv(t *testing.T) {
 		tobari.ExecRequest{HostCWD: subdirectory, CWDExplicit: true, Command: []string{"printf", "%s", "a value"}},
 		bytes.NewReader(nil), io.Discard, io.Discard,
 	)
+	uid, gid := currentIDs()
 	want := []string{
-		"exec", "-i", "--user", "tobari", "--workdir", "/workspace/repository",
+		"exec", "-i", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid), "--workdir", "/workspace/repository",
 		"tobari-work", "printf", "%s", "a value",
 	}
 	if err != nil || code != 0 || len(runner.runs) != 1 || !slices.Equal(runner.runs[0].args, want) {
@@ -172,11 +174,67 @@ func TestPrepareStateUsesXDGPolicyAndEmptySchemaTwoCollection(t *testing.T) {
 	for path, want := range map[string]os.FileMode{
 		state.PolicyDirectory: 0o700, filepath.Join(state.PolicyDirectory, "tobari.rego"): 0o600,
 		state.CredentialDir: 0o700, state.CredentialConfig: 0o600,
+		filepath.Join(root, "config", "config.json"): 0o600,
 	} {
 		info, err := os.Stat(path)
 		if err != nil || info.Mode().Perm() != want {
 			t.Fatalf("%s mode=%v err=%v want=%o", path, info.Mode().Perm(), err, want)
 		}
+	}
+}
+
+func TestResolveImageSelectorUsesExplicitThenXDGDefaultThenBuiltin(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	config := filepath.Join(root, "config")
+	runtime, _ := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
+	got, err := runtime.ResolveImageSelector(context.Background(), "")
+	if err != nil || got != tobari.BuiltinImageSelector {
+		t.Fatalf("missing config resolved %q, %v", got, err)
+	}
+	if err := os.MkdirAll(config, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(config, "config.json"),
+		[]byte("{\"version\":\"v1\",\"default_image\":\"workbench:dev\"}\n"), 0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	got, err = runtime.ResolveImageSelector(context.Background(), "")
+	if err != nil || got != "workbench:dev" {
+		t.Fatalf("configured default resolved %q, %v", got, err)
+	}
+	got, err = runtime.ResolveImageSelector(context.Background(), "explicit:dev")
+	if err != nil || got != "explicit:dev" {
+		t.Fatalf("explicit selector resolved %q, %v", got, err)
+	}
+}
+
+func TestResolveImageSelectorRejectsUnsafeOrMalformedConfig(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		data []byte
+		mode os.FileMode
+	}{
+		"unknown field": {data: []byte(`{"version":"v1","default_image":"builtin","extra":true}`), mode: 0o600},
+		"invalid image": {data: []byte(`{"version":"v1","default_image":"--pull=always"}`), mode: 0o600},
+		"unsafe mode":   {data: []byte(`{"version":"v1","default_image":"builtin"}`), mode: 0o644},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			config := filepath.Join(root, "config")
+			if err := os.MkdirAll(config, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(config, "config.json"), test.data, test.mode); err != nil {
+				t.Fatal(err)
+			}
+			runtime, _ := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
+			if _, err := runtime.ResolveImageSelector(context.Background(), ""); err == nil {
+				t.Fatal("invalid config was accepted")
+			}
+		})
 	}
 }
 
@@ -212,6 +270,82 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 		if index < 0 || !strings.Contains(joined[index:], "@sha256:") {
 			t.Fatalf("%s is not digest pinned", key)
 		}
+	}
+}
+
+func TestBuildTobariImageTagsVersionAndStableExtensionBase(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	state := runtimeState(root)
+	if err := runtime.buildTobariImage(context.Background(), state, os.Environ()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.runs) != 1 {
+		t.Fatalf("build calls = %v", runner.runs)
+	}
+	args := runner.runs[0].args
+	for _, tag := range []string{tobariImage(state), "tobari-runtime:local"} {
+		found := false
+		for index := 0; index+1 < len(args); index++ {
+			if args[index] == "--tag" && args[index+1] == tag {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("build args %v lack tag %q", args, tag)
+		}
+	}
+}
+
+func TestAttachRejectsMissingImageBeforeCreatingResources(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	runner := &recordingRunner{outputErr: errors.New("No such image")}
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	_, err := runtime.Attach(context.Background(), runtimeState(root), "work", root, "workbench:dev")
+	if err == nil {
+		t.Fatal("missing image was accepted")
+	}
+	if len(runner.outputs) != 1 || len(runner.outputs[0].args) < 2 ||
+		runner.outputs[0].args[0] != "image" || runner.outputs[0].args[1] != "inspect" {
+		t.Fatalf("Docker calls = %v", runner.outputs)
+	}
+}
+
+func TestValidateCompatibleImageRequiresRuntimeAPILabel(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		configuration string
+		wantErr       bool
+	}{
+		"compatible": {
+			configuration: `{"api":"1","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
+		},
+		"unlabeled": {
+			configuration: `{"api":"","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
+			wantErr:       true,
+		},
+		"overridden entrypoint": {
+			configuration: `{"api":"1","user":"tobari","entrypoint":["/bin/sh"]}`,
+			wantErr:       true,
+		},
+		"overridden user": {
+			configuration: `{"api":"1","user":"root","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
+			wantErr:       true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &recordingRunner{outputData: []byte(test.configuration)}
+			runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+			err := runtime.validateCompatibleImage(context.Background(), "workbench:dev")
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateCompatibleImage() error = %v, wantErr %t", err, test.wantErr)
+			}
+		})
 	}
 }
 

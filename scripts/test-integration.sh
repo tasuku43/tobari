@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 
 binary=$PWD/bin/tobari
 mock_name=tobari-mock-upstream
+custom_image="tobari-integration-custom-$$"
 test_root=
 work_id=
 policy_id=
@@ -75,6 +76,7 @@ cleanup() {
     fi
     run_tobari cluster down --purge >/dev/null 2>&1 || true
   fi
+  docker image rm -f "$custom_image" >/dev/null 2>&1 || true
 }
 
 finish() {
@@ -131,8 +133,14 @@ chmod 0600 "$credential_config"
 
 go build -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
 run_tobari cluster up >/dev/null
+docker build --tag "$custom_image" \
+  --file test/integration/custom-image.Dockerfile . >/dev/null
+printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
+  >"$config_directory/config.json"
+chmod 0600 "$config_directory/config.json"
 run_tobari attach --name work --root "$test_root/workspace" >/dev/null
-run_tobari attach --name policy --root "$config_directory/policy" >/dev/null
+run_tobari attach --name policy --root "$config_directory/policy" \
+  --image builtin >/dev/null
 
 list_json=$(run_tobari list --format json)
 work_id=$(id_for_name work <<<"$list_json")
@@ -154,6 +162,15 @@ if run_tobari exec --id "$work_id" -- getent hosts tobari-policy >/dev/null 2>&1
 fi
 
 tobari_image=$(docker inspect --format '{{.Config.Image}}' tobari-work)
+[[ $tobari_image == "$custom_image" ]] ||
+  fail "custom Tobari image selector was not preserved"
+work_uid=$(docker exec tobari-work sh -c "awk '/^Uid:/{print \$2}' /proc/1/status")
+[[ $work_uid == "$(id -u)" ]] ||
+  fail "custom-image Tobari runs as uid $work_uid instead of the host uid"
+[[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' tobari-work) == true ]] ||
+  fail "custom-image Tobari root filesystem is writable"
+[[ $(docker inspect --format '{{join .HostConfig.CapDrop ","}}' tobari-work) == ALL ]] ||
+  fail "custom-image Tobari did not drop every capability"
 docker run -d \
   --name "$mock_name" \
   --network tobari-egress \

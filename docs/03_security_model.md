@@ -52,6 +52,18 @@ SSH agent mounts, host home mounts, and added Linux capabilities. Tobari uses a
 non-root work user mapped to the invoking UID/GID where Docker supports it.
 Only the selected root and that Tobari's named home volume are mounted writable.
 
+A custom Tobari image is untrusted input and receives no additional authority.
+Attach accepts only a locally available image that asserts runtime API `1` and
+preserves the built-in image user and entrypoint, then independently fixes the
+numeric runtime user, read-only root, capabilities, security options, mounts,
+network, proxy environment, and health check. Compatibility metadata is not a
+signature or provenance claim. Users remain responsible for image contents and
+should prefer immutable digest references.
+
+The XDG `config.json` image default is a strict, bounded, owner-only regular
+file. An explicit CLI image takes precedence. Malformed defaults fail before
+Docker resource creation.
+
 Gateway image directories are assigned to the invoking host UID/GID at build
 time, and the service starts directly as that non-root identity. It opens no
 root entrypoint and receives no added capability. This preserves owner-only host
@@ -140,6 +152,7 @@ Tobari never converts observed traffic into an allow rule automatically.
 | Secret headers and bodies stay out of logs | Gateway unit tests and log scans |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Each root is its Tobari's only host write scope | Mount-spec and path-containment tests |
+| A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
 | OPA cannot rewrite host policy | Read-only mount-spec test |
 | Actions use exact Tobari identity | Reference round-trip and label-validation tests |
 | Unknown effects fail closed | Domain and catalog validation |
@@ -147,8 +160,10 @@ Tobari never converts observed traffic into an allow rule automatically.
 
 ## Supply chain and publication
 
-Container images and CI actions are pinned to immutable versions or digests
-recorded in source. Third-party licenses are reviewed. Tests use synthetic
+Container bases distributed by Tobari and CI actions are pinned to immutable
+versions or digests recorded in source. User-selected local images are neither
+distributed nor trusted by Tobari; their selector is persisted as user
+configuration. Third-party licenses are reviewed. Tests use synthetic
 credentials and `example.com` identities only. Publication still requires
 `task security` and `task public:check`; neither replaces a human history and
 confidentiality review.

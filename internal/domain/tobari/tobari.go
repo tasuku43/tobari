@@ -22,11 +22,16 @@ const (
 	ClusterTargetID   = "cluster-default"
 	TargetKind        = "tobari"
 	ReferenceKind     = TargetKind
+
+	BuiltinImageSelector = "builtin"
+	RuntimeImageAPILabel = "io.tobari.runtime-api"
+	RuntimeImageAPI      = "1"
 )
 
 var (
-	namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	idPattern   = regexp.MustCompile(`^tbr_[0-9a-f]{32}$`)
+	namePattern           = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	idPattern             = regexp.MustCompile(`^tbr_[0-9a-f]{32}$`)
+	imageReferencePattern = regexp.MustCompile(`^(?:(?:localhost|[a-z0-9]+(?:[.-][a-z0-9]+)*)(?::[0-9]{1,5})?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[0-9a-f]{64})?$`)
 )
 
 // Instance is the persisted secret-free identity and exact Docker resources of one Tobari.
@@ -37,6 +42,7 @@ type Instance struct {
 	Container  string `json:"container"`
 	Network    string `json:"network"`
 	HomeVolume string `json:"home_volume"`
+	Image      string `json:"image,omitempty"`
 }
 
 // ValidateName accepts a portable Docker-resource-safe display name.
@@ -55,6 +61,25 @@ func ValidateID(id string) error {
 	return nil
 }
 
+// ValidateImageSelector accepts the built-in runtime or one conservative OCI image reference.
+func ValidateImageSelector(image string) error {
+	if image == BuiltinImageSelector {
+		return nil
+	}
+	if len(image) == 0 || len(image) > 255 || !imageReferencePattern.MatchString(image) {
+		return fmt.Errorf("image must be %q or a portable OCI image reference", BuiltinImageSelector)
+	}
+	return nil
+}
+
+// ImageSelector maps schema-2 records written before image selection to the built-in runtime.
+func (i Instance) ImageSelector() string {
+	if i.Image == "" {
+		return BuiltinImageSelector
+	}
+	return i.Image
+}
+
 // Validate rejects incomplete instance state before Docker operations.
 func (i Instance) Validate() error {
 	if err := ValidateID(i.ID); err != nil {
@@ -65,6 +90,9 @@ func (i Instance) Validate() error {
 	}
 	if !filepath.IsAbs(i.Root) || filepath.Clean(i.Root) != i.Root {
 		return fmt.Errorf("root must be a canonical absolute path")
+	}
+	if err := ValidateImageSelector(i.ImageSelector()); err != nil {
+		return err
 	}
 	expected := map[string]string{
 		"container":   "tobari-" + i.Name,
@@ -187,6 +215,7 @@ type ItemStatus struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Root      string `json:"root"`
+	Image     string `json:"image"`
 	Running   bool   `json:"running"`
 	Container string `json:"container"`
 }
@@ -210,6 +239,9 @@ func (r ListResult) Validate() error {
 		}
 		if !filepath.IsAbs(item.Root) || item.Container != "tobari-"+item.Name {
 			return fmt.Errorf("Tobari list item is invalid")
+		}
+		if err := ValidateImageSelector(item.Image); err != nil {
+			return err
 		}
 	}
 	return nil

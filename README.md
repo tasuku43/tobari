@@ -126,6 +126,55 @@ ID. `exec` preserves the invoked process exit status.
 Agent CLIs are not bundled. Install them inside a Tobari or place binaries below
 its selected root. Each named home survives ordinary detach/attach cycles.
 
+### Custom work images
+
+`cluster up` also builds `tobari-runtime:local`, a stable local extension base.
+Add tools without replacing its user or entrypoint:
+
+```dockerfile
+FROM tobari-runtime:local
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+USER tobari
+```
+
+Build it explicitly on the trusted host, then select it on first attach:
+
+```sh
+docker build --tag my-tobari:dev .
+tobari attach --name work --root ~/ghq --image my-tobari:dev
+```
+
+For the usual case, set the XDG default once:
+
+```json
+{
+  "version": "v1",
+  "default_image": "my-tobari:dev"
+}
+```
+
+Then ordinary attach calls stay short:
+
+```sh
+tobari attach --name work --root ~/ghq
+```
+
+Image selection precedence is explicit `--image`, then
+`config.json.default_image`, then `builtin` before configuration is initialized.
+
+Tobari never pulls `--image` implicitly. The image must be available locally
+and preserve runtime API `1`, the `tobari` image user, and the inherited
+entrypoint. Prefer a digest selector when reproducibility matters. The
+compatibility check is not a signature or trust decision: image contents remain
+untrusted and run under the same fixed non-root user, read-only root filesystem,
+dropped capabilities, mounts, proxy, and internal network as the built-in
+image. To change an attached Tobari's image, detach it and attach it again; its
+home persists unless `--purge` is used.
+
 Detach one Tobari while retaining its home:
 
 ```sh
@@ -153,7 +202,7 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari cluster status [--format text\|json]` | Show shared health, proxy, XDG policy, and attached count |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
 | `tobari cluster down [--purge]` | Remove an empty cluster and optionally shared CA state |
-| `tobari attach --name NAME --root PATH` | Attach one named Tobari to an existing root |
+| `tobari attach --name NAME --root PATH [--image IMAGE]` | Attach one named Tobari with a compatible local image |
 | `tobari list [--format text\|json]` | Discover configured Tobari and opaque action IDs |
 | `tobari shell --id ID` | Open Bash in one exact Tobari |
 | `tobari exec --id ID [--cwd PATH] -- COMMAND...` | Execute exact argv and preserve its exit status |
@@ -172,6 +221,7 @@ On macOS and Linux, Tobari uses the same XDG paths:
 
 ```text
 ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
+  config.json
   policy/
     data.json
     tobari.rego
@@ -305,6 +355,10 @@ Common failures:
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`.
 - `cluster_not_running`: run `cluster up` before `attach`.
+- `image_not_found`: build or pull the selected image explicitly on the host.
+- `incompatible_image`: extend `tobari-runtime:local` without replacing its
+  user or entrypoint.
+- `image_conflict`: detach before changing an existing Tobari's image.
 - `tobari_not_found`: pass an opaque ID from `list` unchanged.
 - intended request returns `403`: inspect `cluster logs --component gateway`
   and refine the minimum host/method/path rule.

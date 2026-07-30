@@ -4,6 +4,8 @@ FROM ${DEBIAN_IMAGE}
 ARG TOBARI_UID=1000
 ARG TOBARI_GID=1000
 
+LABEL io.tobari.runtime-api="1"
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       bash ca-certificates curl git python3 tini \

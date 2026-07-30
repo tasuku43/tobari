@@ -18,10 +18,11 @@ type RuntimePort interface {
 	ResolveRoot(context.Context, string) (string, error)
 	CurrentDirectory(context.Context) (string, error)
 	IsTerminal(io.Writer) bool
+	ResolveImageSelector(context.Context, string) (string, error)
 	ClusterUp(context.Context) (tobari.State, error)
 	LoadState(context.Context) (tobari.State, bool, error)
 	InspectCluster(context.Context, tobari.State) (tobari.ClusterStatus, error)
-	Attach(context.Context, tobari.State, string, string) (tobari.State, error)
+	Attach(context.Context, tobari.State, string, string, string) (tobari.State, error)
 	InspectTobari(context.Context, tobari.State) ([]tobari.ItemStatus, error)
 	Exec(context.Context, tobari.Instance, tobari.ExecRequest, io.Reader, io.Writer, io.Writer) (int, error)
 	ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error)
@@ -131,12 +132,27 @@ func (s *Service) ClusterStatus(ctx context.Context) (tobari.ClusterStatus, erro
 }
 
 // Attach creates one named Tobari within the shared cluster.
-func (s *Service) Attach(ctx context.Context, intent operation.Intent, name, root string) (tobari.Instance, error) {
+func (s *Service) Attach(ctx context.Context, intent operation.Intent, name, root, image string) (tobari.Instance, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.Instance{}, err
 	}
 	if err := tobari.ValidateName(name); err != nil {
 		return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_name", "Tobari name is invalid", false, err)
+	}
+	if image != "" {
+		if err := tobari.ValidateImageSelector(image); err != nil {
+			return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_image", "Tobari image selector is invalid", false, err)
+		}
+	}
+	image, err := s.runtime.ResolveImageSelector(ctx, image)
+	if err != nil {
+		if _, structured := fault.PublicCopy(err); structured {
+			return tobari.Instance{}, err
+		}
+		return tobari.Instance{}, fault.Wrap(fault.KindRejected, "invalid_image_config", "default Tobari image configuration is invalid", false, err)
+	}
+	if err := tobari.ValidateImageSelector(image); err != nil {
+		return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_image", "Tobari image selector is invalid", false, err)
 	}
 	resolved, err := s.runtime.ResolveRoot(ctx, root)
 	if err != nil {
@@ -152,7 +168,11 @@ func (s *Service) Attach(ctx context.Context, intent operation.Intent, name, roo
 	for _, existing := range state.Tobari {
 		if existing.Name == name {
 			if existing.Root == resolved {
-				return existing, nil
+				if existing.ImageSelector() == image {
+					existing.Image = existing.ImageSelector()
+					return existing, nil
+				}
+				return tobari.Instance{}, fault.New(fault.KindInvalidInput, "image_conflict", "Tobari name and root are already attached with another image", false)
 			}
 			return tobari.Instance{}, fault.New(fault.KindInvalidInput, "name_conflict", "Tobari name is already attached to another root", false)
 		}
@@ -166,7 +186,7 @@ func (s *Service) Attach(ctx context.Context, intent operation.Intent, name, roo
 	}
 	var updated tobari.State
 	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		created, actionErr := s.runtime.Attach(actionContext, state, name, resolved)
+		created, actionErr := s.runtime.Attach(actionContext, state, name, resolved, image)
 		updated = created
 		if actionErr == nil {
 			return nil

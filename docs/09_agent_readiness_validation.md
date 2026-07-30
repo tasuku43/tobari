@@ -29,7 +29,10 @@ literal. The transcript must prove:
 - Scoped help supplies inputs, outputs, prerequisites, effects, references,
   failures, and recovery commands.
 - Cluster startup mounts no work root.
-- Attach binds one validated display name and canonical root.
+- Attach binds one validated display name, canonical root, and compatible local
+  image selector.
+- Omitted image selection resolves from the XDG default and then `builtin`
+  without requiring source inspection.
 - `list` retains an explicitly exhaustive local collection, including empty.
 - Individual actions consume one `tobari` reference unchanged.
 - `exec` passes exact argv and preserves the child status.
@@ -88,6 +91,8 @@ At minimum, exercise:
 
 - invalid name or root before Docker mutation;
 - duplicate name and duplicate root;
+- invalid, missing, incompatible, or conflicting image selection before Docker
+  resource creation;
 - malformed or legacy state;
 - invalid Rego before cluster reconciliation;
 - partial startup mapped to non-retryable `cluster_start_failed`;

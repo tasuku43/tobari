@@ -44,7 +44,8 @@ func TestTobariListRendererPreservesOpaqueIDAndEmptyScope(t *testing.T) {
 	result := tobari.ListResult{
 		Task: tobari.TaskList,
 		Items: []tobari.ItemStatus{{
-			ID: id, Name: "work", Root: "/tmp/work", Running: true, Container: "tobari-work",
+			ID: id, Name: "work", Root: "/tmp/work", Image: "workbench:dev",
+			Running: true, Container: "tobari-work",
 		}},
 	}
 	output, err := renderTobariList(result, successFormatJSON)
@@ -62,7 +63,7 @@ func TestTobariListRendererPreservesOpaqueIDAndEmptyScope(t *testing.T) {
 		tobari.ListResult{Task: tobari.TaskList, Items: []tobari.ItemStatus{}},
 		successFormatJSON,
 	)
-	if err != nil || string(empty) != "{\"schema_version\":1,\"tobari\":[]}\n" {
+	if err != nil || string(empty) != "{\"schema_version\":2,\"tobari\":[]}\n" {
 		t.Fatalf("empty list = %q, error = %v", empty, err)
 	}
 }

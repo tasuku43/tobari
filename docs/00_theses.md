@@ -70,6 +70,9 @@ egress networks; OPA joins only control.
   Gateway or OPA failure do not succeed.
 - Runtime specification tests reject privileged mode, host networking, Docker
   socket mounts, and broad host-home mounts.
+- Image-selection tests require a locally available runtime-API-compatible
+  image before any per-Tobari resource is created; image configuration cannot
+  replace the CLI-owned isolation arguments.
 
 ## Thesis 3: Secrets enter only after authorization
 
@@ -104,8 +107,9 @@ dedicated internal network, and one persistent home volume.
 
 - `tobari cluster up` starts shared policy enforcement without mounting a work
   root.
-- `tobari attach --name --root` persists a unique human-readable name and
-  canonical root, and `list` emits an opaque ID for later actions.
+- `tobari attach --name --root [--image]` persists a unique human-readable
+  name, canonical root, and selected compatible runtime image; `list` emits an
+  opaque ID for later actions.
 - `shell`, `exec`, `logs`, and `detach` consume that opaque ID unchanged rather
   than rediscovering by name.
 - Every process in a Tobari may modify or delete every file below that Tobari's

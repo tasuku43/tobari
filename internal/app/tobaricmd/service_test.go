@@ -26,7 +26,13 @@ func (f *fakeRuntime) CurrentDirectory(context.Context) (string, error) {
 	}
 	return f.state.Tobari[0].Root, nil
 }
-func (f *fakeRuntime) IsTerminal(io.Writer) bool                       { return false }
+func (f *fakeRuntime) IsTerminal(io.Writer) bool { return false }
+func (f *fakeRuntime) ResolveImageSelector(_ context.Context, image string) (string, error) {
+	if image == "" {
+		return tobari.BuiltinImageSelector, nil
+	}
+	return image, nil
+}
 func (f *fakeRuntime) ClusterUp(context.Context) (tobari.State, error) { return f.state, nil }
 func (f *fakeRuntime) LoadState(context.Context) (tobari.State, bool, error) {
 	return f.state, true, nil
@@ -38,12 +44,12 @@ func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.Clus
 		Components: []tobari.ComponentStatus{},
 	}, nil
 }
-func (f *fakeRuntime) Attach(_ context.Context, state tobari.State, name, root string) (tobari.State, error) {
+func (f *fakeRuntime) Attach(_ context.Context, state tobari.State, name, root, image string) (tobari.State, error) {
 	f.attachCalls++
 	state.Tobari = append(state.Tobari, tobari.Instance{
 		ID: "tbr_abcdef0123456789abcdef0123456789", Name: name, Root: root,
 		Container: "tobari-" + name, Network: "tobari-" + name + "-net",
-		HomeVolume: "tobari-" + name + "-home",
+		HomeVolume: "tobari-" + name + "-home", Image: image,
 	})
 	f.state = state
 	return state, nil
@@ -53,7 +59,7 @@ func (f *fakeRuntime) InspectTobari(_ context.Context, state tobari.State) ([]to
 	for _, instance := range state.Tobari {
 		items = append(items, tobari.ItemStatus{
 			ID: instance.ID, Name: instance.Name, Root: instance.Root,
-			Running: true, Container: instance.Container,
+			Image: instance.ImageSelector(), Running: true, Container: instance.Container,
 		})
 	}
 	return items, nil
@@ -108,7 +114,19 @@ func createIntent(command string) operation.Intent {
 func TestAttachRejectsInvalidNameBeforeRuntime(t *testing.T) {
 	t.Parallel()
 	runtime := &fakeRuntime{state: testState(t.TempDir())}
-	_, err := New(runtime).Attach(context.Background(), createIntent("attach"), "../bad", "/tmp/root")
+	_, err := New(runtime).Attach(context.Background(), createIntent("attach"), "../bad", "/tmp/root", tobari.BuiltinImageSelector)
+	if err == nil || runtime.attachCalls != 0 {
+		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
+	}
+}
+
+func TestAttachRejectsImageChangeForExistingNameAndRoot(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	existing := runtime.state.Tobari[0]
+	_, err := New(runtime).Attach(
+		context.Background(), createIntent("attach"), existing.Name, existing.Root, "workbench:dev",
+	)
 	if err == nil || runtime.attachCalls != 0 {
 		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
 	}
