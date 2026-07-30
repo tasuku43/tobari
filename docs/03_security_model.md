@@ -60,6 +60,14 @@ network, proxy environment, and health check. Compatibility metadata is not a
 signature or provenance claim. Users remain responsible for image contents and
 should prefer immutable digest references.
 
+The optional toolbox recipe downloads version-pinned GitHub CLI, AWS CLI,
+kubectl, and TWG artifacts only during an explicit trusted-host build.
+Checksums verify GitHub, Kubernetes, and Atlassian artifacts; the AWS package is
+verified with the reviewed AWS CLI signing key and exact fingerprint. The
+result contains no credentials, copies no host CLI configuration, inherits the
+same untrusted custom-image treatment, and receives no Docker socket or direct
+egress.
+
 The XDG `config.json` image default is a strict, bounded, owner-only regular
 file. An explicit CLI image takes precedence. Malformed defaults fail before
 Docker resource creation.
@@ -169,6 +177,7 @@ automatically.
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Each root is its Tobari's only host write scope | Mount-spec and path-containment tests |
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
+| Optional toolbox artifacts retain reviewed identity | Pinned versions, vendor checksum or signature verification, and explicit build validation |
 | Dev Container metadata cannot become a second runtime boundary | Contained bounded parser, unsupported-property tests, and fixed attach adapter |
 | OPA cannot rewrite host policy | Read-only mount-spec test |
 | Tested host policy activates across Docker hosts | Fixed-target OPA recreation test and integration scenario |

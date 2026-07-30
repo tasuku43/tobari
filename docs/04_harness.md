@@ -18,6 +18,14 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `integration` | `task integration:test` | Real runtime boundary | Shared-cluster lifecycle, multiple named Tobari, network separation, TLS, fail-closed, credential, typed denial, tested host-policy activation, exec, and cleanup scenarios |
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, and integration profiles |
 
+The optional `task toolbox:build` workflow is not a completion profile. It
+requires Docker and the locally materialized `tobari-runtime:local` base,
+downloads the version-pinned public CLI artifacts, builds
+`tobari-toolbox:local`, validates inherited runtime metadata, and executes each
+named tool. The fast profile statically checks that its versions, official
+sources, integrity checks, final user, and inherited entrypoint contract cannot
+silently disappear.
+
 Direct invocation is supported for automation:
 
 ```sh

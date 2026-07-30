@@ -137,6 +137,41 @@ ID. `exec` preserves the invoked process exit status.
 Agent CLIs are not bundled. Install them inside a Tobari or place binaries below
 its selected root. Each named home survives ordinary detach/attach cycles.
 
+### Common CLI toolbox
+
+Repeated policy-learning exercises can use the optional local toolbox image.
+It contains Git, GitHub CLI, AWS CLI v2, kubectl, TWG, curl, jq, SSH, rsync,
+and basic DNS tools. First start the cluster so the supported local extension
+base exists, then build and validate the toolbox:
+
+```sh
+tobari cluster up
+task toolbox:build
+tobari attach --name work --root ~/ghq --image tobari-toolbox:local
+```
+
+Set it once as the usual image by changing the owner-only XDG
+`config.json`:
+
+```json
+{
+  "version": "v1",
+  "default_image": "tobari-toolbox:local"
+}
+```
+
+The versions are pinned in `images/toolbox/versions.env`. Vendor downloads are
+verified during the build, and the build finishes by checking every named CLI
+plus the inherited Tobari runtime label, user, and entrypoint. The image is
+local and optional: Tobari does not pull or rebuild it during `cluster up` or
+`attach`.
+
+The toolbox contains no credentials and does not mount host CLI configuration.
+Authenticate deliberately within the isolated environment or use a supported
+Gateway credential profile. AWS SigV4 and OAuth refresh remain outside the MVP
+credential-injection contract. Git over HTTPS uses the Gateway; Git over SSH
+and other non-HTTP transports have no direct egress route.
+
 ### Custom work images
 
 `cluster up` also builds `tobari-runtime:local`, a stable local extension base.

@@ -72,6 +72,10 @@ security property rather than an undeclared Docker mutation by the CLI.
   otherwise follows the configured default. A custom image must already exist
   locally and preserve runtime API `1`, the `tobari` image user, and the Tobari
   entrypoint. Attach never pulls an image implicitly.
+- The repository's optional `tobari-toolbox:local` recipe is a reviewed custom
+  image workflow, not another built-in selector. Its explicit build verifies
+  pinned vendor artifacts and runtime compatibility; cluster startup and attach
+  neither build nor pull it.
 - `attach --devcontainer` conflicts with `--image` and names one explicit
   regular file below the canonical root. The supported JSONC subset requires
   one literal `image` and permits only inert `$schema`, `name`, and

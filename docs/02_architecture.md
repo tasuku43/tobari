@@ -82,6 +82,13 @@ trust signature. Docker create still supplies the invoking numeric UID/GID,
 read-only root filesystem, dropped capabilities, fixed mounts, proxy
 environment, internal network, and health check.
 
+`images/toolbox` is the optional reference derivation for repeated
+network-facing CLI exercises. A separate host task builds it from
+`tobari-runtime:local`, verifies pinned official artifacts, checks its runtime
+metadata and tool executability, and leaves only the local
+`tobari-toolbox:local` tag. It is not embedded runtime state, a published
+artifact, or an implicit cluster dependency.
+
 Attach resolves an explicit image first. When omitted, infrastructure reads the
 strict owner-only XDG `config.json` and uses `default_image`; absence before
 first initialization falls back to `builtin`. The resolved selector, rather

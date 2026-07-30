@@ -134,6 +134,7 @@ run_fast() {
   go run ./tools/repoguard --scope hygiene
   go run ./tools/archlint
   go run ./tools/contractlint
+  ./scripts/check-toolbox.sh
   go test ./...
 }
 

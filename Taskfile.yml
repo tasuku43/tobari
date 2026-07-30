@@ -39,6 +39,11 @@ tasks:
     cmds:
       - ./scripts/check.sh integration
 
+  toolbox:build:
+    desc: Build and validate the optional local network CLI toolbox image.
+    cmds:
+      - ./scripts/build-toolbox.sh
+
   runtime:test:
     desc: Run all container runtime tests.
     cmds:
