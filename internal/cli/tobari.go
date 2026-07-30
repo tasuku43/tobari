@@ -88,7 +88,8 @@ func runAttach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Int
 		Impact: command.Agent.Mutation.Impact,
 	}
 	instance, err := c.tobari.Attach(
-		ctx, intent, inputs.One("--name"), inputs.One("--root"), inputs.One("--image"),
+		ctx, intent, inputs.One("--name"), inputs.One("--root"),
+		inputs.One("--image"), inputs.One("--devcontainer"),
 	)
 	if err != nil {
 		return c.fail(ctx, err)

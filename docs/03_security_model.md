@@ -64,6 +64,13 @@ The XDG `config.json` image default is a strict, bounded, owner-only regular
 file. An explicit CLI image takes precedence. Malformed defaults fail before
 Docker resource creation.
 
+A Dev Container file is untrusted project data. Tobari reads only an explicit
+path contained by the selected root, with a fixed size limit and no variable or
+environment substitution. Only a literal compatible image is consumed.
+Properties that could request builds, Compose services, Features, commands,
+mounts, environment, users, privileges, capabilities, or ports fail before
+Docker mutation.
+
 Gateway image directories are assigned to the invoking host UID/GID at build
 time, and the service starts directly as that non-root identity. It opens no
 root entrypoint and receives no added capability. This preserves owner-only host
@@ -153,6 +160,7 @@ Tobari never converts observed traffic into an allow rule automatically.
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Each root is its Tobari's only host write scope | Mount-spec and path-containment tests |
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
+| Dev Container metadata cannot become a second runtime boundary | Contained bounded parser, unsupported-property tests, and fixed attach adapter |
 | OPA cannot rewrite host policy | Read-only mount-spec test |
 | Actions use exact Tobari identity | Reference round-trip and label-validation tests |
 | Unknown effects fail closed | Domain and catalog validation |

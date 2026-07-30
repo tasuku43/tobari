@@ -45,6 +45,51 @@ type Instance struct {
 	Image      string `json:"image,omitempty"`
 }
 
+// DevContainerConfig is the parsed, side-effect-free image selection metadata.
+type DevContainerConfig struct {
+	Image      string
+	Properties []string
+}
+
+// Validate rejects ambiguous or incomplete Dev Container metadata.
+func (c DevContainerConfig) Validate() error {
+	if err := ValidateImageSelector(c.Image); err != nil {
+		return err
+	}
+	if c.Properties == nil {
+		return fmt.Errorf("Dev Container properties are unknown")
+	}
+	previous := ""
+	hasImage := false
+	for _, property := range c.Properties {
+		if property == "" || property <= previous {
+			return fmt.Errorf("Dev Container properties must be unique and sorted")
+		}
+		if property == "image" {
+			hasImage = true
+		}
+		previous = property
+	}
+	if !hasImage {
+		return fmt.Errorf("image-based Dev Container requires image")
+	}
+	return nil
+}
+
+// UnsupportedProperties returns properties that Tobari will not silently ignore.
+func (c DevContainerConfig) UnsupportedProperties() []string {
+	allowed := map[string]bool{
+		"$schema": true, "customizations": true, "image": true, "name": true,
+	}
+	unsupported := make([]string, 0)
+	for _, property := range c.Properties {
+		if !allowed[property] {
+			unsupported = append(unsupported, property)
+		}
+	}
+	return unsupported
+}
+
 // ValidateName accepts a portable Docker-resource-safe display name.
 func ValidateName(name string) error {
 	if !namePattern.MatchString(name) {

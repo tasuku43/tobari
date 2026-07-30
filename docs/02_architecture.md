@@ -87,6 +87,15 @@ strict owner-only XDG `config.json` and uses `default_image`; absence before
 first initialization falls back to `builtin`. The resolved selector, rather
 than the source of the default, is persisted on the Tobari.
 
+An explicit Dev Container path is resolved after the root and must remain
+inside it after symlink evaluation. Infrastructure reads at most 256 KiB,
+normalizes JSON-with-comments and trailing commas, and rejects duplicate keys.
+It returns typed image metadata to application; application rejects every
+top-level property outside `image`, `$schema`, `name`, and `customizations`.
+The selected literal image then uses the same local compatibility inspection.
+Tobari does not invoke the Dev Container CLI or transfer container creation to
+a second orchestrator.
+
 ## Lifecycle model
 
 The MVP owns one cluster `tool_local` target with stable ID `cluster-default`.

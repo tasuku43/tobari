@@ -155,7 +155,7 @@ func clusterDownSpec() CommandSpec {
 func attachSpec() CommandSpec {
 	return CommandSpec{
 		Path: "attach", Summary: "Attach one named Tobari to a root",
-		Args: "--name <name> --root <path> [--image <image>]", Effect: operation.EffectCreate, Role: RoleAct,
+		Args: "--name <name> --root <path> [--image <image>] [--devcontainer <path>]", Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
 			Outcome:      "Create one named isolated container with a dedicated network and persistent home",
@@ -174,6 +174,13 @@ func attachSpec() CommandSpec {
 					Name: "--image", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
 					Description: "Locally available compatible OCI image or builtin; omission uses XDG default_image, then builtin.", AllowedValues: []string{},
+					ConflictsWith: []string{"--devcontainer"},
+				},
+				{
+					Name: "--devcontainer", Source: InputSourceFlag, Required: false,
+					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+					Description: "Explicit in-root image-based devcontainer.json path.", AllowedValues: []string{},
+					ConflictsWith: []string{"--image"},
 				},
 			},
 			Output: CommandOutput{
@@ -192,6 +199,8 @@ func attachSpec() CommandSpec {
 				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Validate the intended root."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_image", false, "help attach", "Choose builtin or a portable OCI image reference."),
 				declaredCommandError(fault.KindRejected, "invalid_image_config", false, "doctor", "Correct the XDG default image configuration."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_devcontainer", false, "help attach", "Correct the explicit in-root image configuration."),
+				declaredCommandError(fault.KindUnsupported, "unsupported_devcontainer", false, "help attach", "Use only the documented image-based subset."),
 				declaredCommandError(fault.KindInvalidInput, "name_conflict", false, "list", "Choose another name or detach the existing Tobari."),
 				declaredCommandError(fault.KindInvalidInput, "root_conflict", false, "list", "Use the existing Tobari or detach it."),
 				declaredCommandError(fault.KindInvalidInput, "image_conflict", false, "list", "Use the existing image or detach the Tobari."),

@@ -86,6 +86,23 @@ func TestValidateImageSelectorRejectsOptionAndTransportSyntax(t *testing.T) {
 	}
 }
 
+func TestDevContainerConfigRejectsUnsupportedRuntimeProperties(t *testing.T) {
+	t.Parallel()
+	config := DevContainerConfig{
+		Image: "workbench:dev",
+		Properties: []string{
+			"$schema", "customizations", "image", "mounts", "name", "privileged",
+		},
+	}
+	if err := config.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	unsupported := config.UnsupportedProperties()
+	if len(unsupported) != 2 || unsupported[0] != "mounts" || unsupported[1] != "privileged" {
+		t.Fatalf("unsupported properties = %v", unsupported)
+	}
+}
+
 func TestListResultPreservesEmptyScope(t *testing.T) {
 	t.Parallel()
 	if err := (ListResult{Task: TaskList, Items: []ItemStatus{}}).Validate(); err != nil {

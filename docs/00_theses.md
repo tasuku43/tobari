@@ -110,6 +110,9 @@ dedicated internal network, and one persistent home volume.
 - `tobari attach --name --root [--image]` persists a unique human-readable
   name, canonical root, and selected compatible runtime image; `list` emits an
   opaque ID for later actions.
+- An explicit in-root image-based `devcontainer.json` may select that image,
+  but cannot delegate mounts, privileges, environment, lifecycle, or
+  orchestration to another tool.
 - `shell`, `exec`, `logs`, and `detach` consume that opaque ID unchanged rather
   than rediscovering by name.
 - Every process in a Tobari may modify or delete every file below that Tobari's
@@ -125,6 +128,8 @@ dedicated internal network, and one persistent home volume.
 - Lifecycle integration tests create multiple roots, prove network separation,
   execute concurrent sessions, and repeat attach/detach without growing owned
   resources.
+- Dev Container tests accept bounded JSONC image metadata and reject every
+  unsupported runtime property before Docker mutation.
 
 ## Thesis 5: Lifecycle changes are bounded and ownership-labeled
 

@@ -163,8 +163,9 @@ Then ordinary attach calls stay short:
 tobari attach --name work --root ~/ghq
 ```
 
-Image selection precedence is explicit `--image`, then
-`config.json.default_image`, then `builtin` before configuration is initialized.
+Image selection precedence is an explicit Dev Container image, explicit
+`--image`, `config.json.default_image`, then `builtin` before configuration is
+initialized. `--devcontainer` and `--image` cannot be supplied together.
 
 Tobari never pulls `--image` implicitly. The image must be available locally
 and preserve runtime API `1`, the `tobari` image user, and the inherited
@@ -174,6 +175,34 @@ untrusted and run under the same fixed non-root user, read-only root filesystem,
 dropped capabilities, mounts, proxy, and internal network as the built-in
 image. To change an attached Tobari's image, detach it and attach it again; its
 home persists unless `--purge` is used.
+
+### Dev Container image definitions
+
+Tobari can read an explicit image-based Dev Container definition inside the
+selected root:
+
+```jsonc
+{
+  "name": "work",
+  "image": "my-tobari:dev",
+  "customizations": {}
+}
+```
+
+```sh
+tobari attach --name work --root . \
+  --devcontainer .devcontainer/devcontainer.json
+```
+
+The flag conflicts with `--image`. Tobari supports JSON with comments and
+trailing commas, requires one literal locally available compatible `image`, and
+allows only inert `$schema`, `name`, and `customizations` alongside it.
+Effectful Dev Container properties—including `build`, Compose, Features,
+mounts, environment, users, privileges, capabilities, ports, and lifecycle
+commands—fail with `unsupported_devcontainer`. Tobari does not invoke the Dev
+Container CLI or let the definition replace its isolation boundary. See the
+[Dev Container specification](https://github.com/devcontainers/spec/blob/main/docs/specs/devcontainer-reference.md)
+for the broader format that Tobari deliberately does not claim to implement.
 
 Detach one Tobari while retaining its home:
 
@@ -202,7 +231,7 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari cluster status [--format text\|json]` | Show shared health, proxy, XDG policy, and attached count |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
 | `tobari cluster down [--purge]` | Remove an empty cluster and optionally shared CA state |
-| `tobari attach --name NAME --root PATH [--image IMAGE]` | Attach one named Tobari with a compatible local image |
+| `tobari attach --name NAME --root PATH [--image IMAGE] [--devcontainer PATH]` | Attach one named Tobari with a compatible local image |
 | `tobari list [--format text\|json]` | Discover configured Tobari and opaque action IDs |
 | `tobari shell --id ID` | Open Bash in one exact Tobari |
 | `tobari exec --id ID [--cwd PATH] -- COMMAND...` | Execute exact argv and preserve its exit status |
@@ -359,6 +388,9 @@ Common failures:
 - `incompatible_image`: extend `tobari-runtime:local` without replacing its
   user or entrypoint.
 - `image_conflict`: detach before changing an existing Tobari's image.
+- `invalid_devcontainer`: correct the explicit in-root JSONC image definition.
+- `unsupported_devcontainer`: remove runtime properties outside the documented
+  image-based subset.
 - `tobari_not_found`: pass an opaque ID from `list` unchanged.
 - intended request returns `403`: inspect `cluster logs --component gateway`
   and refine the minimum host/method/path rule.

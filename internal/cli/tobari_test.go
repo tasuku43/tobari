@@ -84,3 +84,19 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 		}
 	}
 }
+
+func TestAttachRejectsImageAndDevContainerTogether(t *testing.T) {
+	t.Parallel()
+	command, found := DefaultCatalog().Lookup("attach")
+	if !found {
+		t.Fatal("attach command is absent")
+	}
+	_, err := parseCommandInputs(command, []string{
+		"--name", "work", "--root", "/tmp/work",
+		"--image", "workbench:dev",
+		"--devcontainer", ".devcontainer/devcontainer.json",
+	})
+	if err == nil {
+		t.Fatal("conflicting image selectors were accepted")
+	}
+}

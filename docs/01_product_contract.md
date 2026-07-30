@@ -47,7 +47,7 @@ The public commands are:
 | `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Tobari is detached |
-| `attach --name NAME --root PATH [--image IMAGE]` | act, fixed cluster target | create | Attach one named Tobari with a compatible image to an existing root |
+| `attach --name NAME --root PATH [--image IMAGE] [--devcontainer PATH]` | act, fixed cluster target | create | Attach one named Tobari with a compatible image to an existing root |
 | `list [--format text|json]` | discover | read | List all configured Tobari and produce opaque IDs |
 | `shell --id ID` | act, reference bound | read | Open an interactive shell in one Tobari |
 | `exec --id ID [--cwd PATH] -- COMMAND...` | act, reference bound | read | Execute one command in one Tobari and preserve its exit code |
@@ -65,9 +65,15 @@ security property rather than an undeclared Docker mutation by the CLI.
 - `attach --root` requires an existing directory and a name matching
   `[a-z][a-z0-9-]{0,62}`.
 - `attach --image` accepts `builtin` or a portable OCI image reference and
-  defaults to `builtin`. A custom image must already exist locally and preserve
-  runtime API `1`, the `tobari` image user, and the Tobari entrypoint. Attach
-  never pulls an image implicitly.
+  otherwise follows the configured default. A custom image must already exist
+  locally and preserve runtime API `1`, the `tobari` image user, and the Tobari
+  entrypoint. Attach never pulls an image implicitly.
+- `attach --devcontainer` conflicts with `--image` and names one explicit
+  regular file below the canonical root. The supported JSONC subset requires
+  one literal `image` and permits only inert `$schema`, `name`, and
+  `customizations` metadata. Dockerfile, Compose, Features, mounts,
+  environment, user, privileges, capabilities, ports, and lifecycle properties
+  are rejected rather than ignored.
 - Names are unique display identities, not action selectors.
 - Repeated attach is idempotent only when name, canonical root, and image
   selector all match.
@@ -117,9 +123,10 @@ The state contains paths and Docker resource names, never credential contents.
 Environment variables select only XDG locations and test/runtime overrides
 documented in scoped help; they do not carry managed tokens.
 
-Image selection precedence is an explicit `attach --image`, then
-`config.json.default_image`, then `builtin` when the configuration file has not
-yet been initialized.
+Image selection precedence is an explicit `attach --devcontainer` image,
+explicit `attach --image`, `config.json.default_image`, then `builtin` when the
+configuration file has not yet been initialized. The two explicit flags cannot
+be supplied together.
 
 ## Side effects
 

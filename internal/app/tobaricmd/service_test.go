@@ -17,6 +17,7 @@ type fakeRuntime struct {
 	attachCalls int
 	detachCalls int
 	execSeen    tobari.Instance
+	devConfig   tobari.DevContainerConfig
 }
 
 func (f *fakeRuntime) ResolveRoot(_ context.Context, root string) (string, error) { return root, nil }
@@ -32,6 +33,32 @@ func (f *fakeRuntime) ResolveImageSelector(_ context.Context, image string) (str
 		return tobari.BuiltinImageSelector, nil
 	}
 	return image, nil
+}
+func (f *fakeRuntime) ReadDevContainer(_ context.Context, _, _ string) (tobari.DevContainerConfig, error) {
+	if f.devConfig.Properties != nil {
+		return f.devConfig, nil
+	}
+	return tobari.DevContainerConfig{
+		Image: "devcontainer:local", Properties: []string{"image"},
+	}, nil
+}
+
+func TestAttachRejectsUnsupportedDevContainerBeforeMutation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime := &fakeRuntime{
+		state: testState(root),
+		devConfig: tobari.DevContainerConfig{
+			Image: "devcontainer:local", Properties: []string{"image", "mounts"},
+		},
+	}
+	_, err := New(runtime).Attach(
+		context.Background(), createIntent("attach"), "config", filepath.Join(root, "config"),
+		"", ".devcontainer/devcontainer.json",
+	)
+	if err == nil || runtime.attachCalls != 0 {
+		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
+	}
 }
 func (f *fakeRuntime) ClusterUp(context.Context) (tobari.State, error) { return f.state, nil }
 func (f *fakeRuntime) LoadState(context.Context) (tobari.State, bool, error) {
@@ -114,7 +141,35 @@ func createIntent(command string) operation.Intent {
 func TestAttachRejectsInvalidNameBeforeRuntime(t *testing.T) {
 	t.Parallel()
 	runtime := &fakeRuntime{state: testState(t.TempDir())}
-	_, err := New(runtime).Attach(context.Background(), createIntent("attach"), "../bad", "/tmp/root", tobari.BuiltinImageSelector)
+	_, err := New(runtime).Attach(
+		context.Background(), createIntent("attach"), "../bad", "/tmp/root",
+		tobari.BuiltinImageSelector, "",
+	)
+	if err == nil || runtime.attachCalls != 0 {
+		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
+	}
+}
+
+func TestAttachCanceledBeforeRuntime(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := New(runtime).Attach(
+		ctx, createIntent("attach"), "work", "/tmp/root", "", ".devcontainer/devcontainer.json",
+	)
+	if err == nil || runtime.attachCalls != 0 {
+		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
+	}
+}
+
+func TestAttachRejectsConflictingImageSourcesBeforeRuntime(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	_, err := New(runtime).Attach(
+		context.Background(), createIntent("attach"), "work", "/tmp/root",
+		"workbench:dev", ".devcontainer/devcontainer.json",
+	)
 	if err == nil || runtime.attachCalls != 0 {
 		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
 	}
@@ -125,10 +180,26 @@ func TestAttachRejectsImageChangeForExistingNameAndRoot(t *testing.T) {
 	runtime := &fakeRuntime{state: testState(t.TempDir())}
 	existing := runtime.state.Tobari[0]
 	_, err := New(runtime).Attach(
-		context.Background(), createIntent("attach"), existing.Name, existing.Root, "workbench:dev",
+		context.Background(), createIntent("attach"), existing.Name, existing.Root, "workbench:dev", "",
 	)
 	if err == nil || runtime.attachCalls != 0 {
 		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
+	}
+}
+
+func TestAttachUsesDevContainerImageInsteadOfXDGDefault(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime := &fakeRuntime{state: testState(root)}
+	instance, err := New(runtime).Attach(
+		context.Background(), createIntent("attach"), "config", filepath.Join(root, "config"),
+		"", ".devcontainer/devcontainer.json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance.Image != "devcontainer:local" || runtime.attachCalls != 1 {
+		t.Fatalf("instance = %+v, calls = %d", instance, runtime.attachCalls)
 	}
 }
 

@@ -135,12 +135,21 @@ go build -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
 run_tobari cluster up >/dev/null
 docker build --tag "$custom_image" \
   --file test/integration/custom-image.Dockerfile . >/dev/null
+mkdir -p "$test_root/workspace/.devcontainer"
+cat >"$test_root/workspace/.devcontainer/devcontainer.json" <<JSON
+{
+  // Tobari consumes only this literal compatible image.
+  "name": "integration",
+  "image": "$custom_image",
+  "customizations": {},
+}
+JSON
 printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
   >"$config_directory/config.json"
 chmod 0600 "$config_directory/config.json"
-run_tobari attach --name work --root "$test_root/workspace" >/dev/null
-run_tobari attach --name policy --root "$config_directory/policy" \
-  --image builtin >/dev/null
+run_tobari attach --name work --root "$test_root/workspace" \
+  --devcontainer .devcontainer/devcontainer.json >/dev/null
+run_tobari attach --name policy --root "$config_directory/policy" >/dev/null
 
 list_json=$(run_tobari list --format json)
 work_id=$(id_for_name work <<<"$list_json")
@@ -149,7 +158,8 @@ policy_id=$(id_for_name policy <<<"$list_json")
   fail "list did not return two distinct opaque IDs"
 
 run_tobari cluster up >/dev/null
-run_tobari attach --name work --root "$test_root/workspace" >/dev/null
+run_tobari attach --name work --root "$test_root/workspace" \
+  --devcontainer .devcontainer/devcontainer.json >/dev/null
 owned_containers=$(docker ps -a --filter label=io.tobari.owner=default --format '{{.Names}}' | wc -l | tr -d ' ')
 [[ $owned_containers == 4 ]] || fail "idempotent reconciliation left $owned_containers owned containers"
 
@@ -164,6 +174,8 @@ fi
 tobari_image=$(docker inspect --format '{{.Config.Image}}' tobari-work)
 [[ $tobari_image == "$custom_image" ]] ||
   fail "custom Tobari image selector was not preserved"
+[[ $(docker inspect --format '{{.Config.Image}}' tobari-policy) == "$custom_image" ]] ||
+  fail "XDG default Tobari image selector was not applied"
 work_uid=$(docker exec tobari-work sh -c "awk '/^Uid:/{print \$2}' /proc/1/status")
 [[ $work_uid == "$(id -u)" ]] ||
   fail "custom-image Tobari runs as uid $work_uid instead of the host uid"

@@ -213,6 +213,9 @@ The test suite has complementary levels:
   public CA state.
 - Custom-image tests build from the stable local Tobari base, select it through
   attach, and prove compatibility is checked before per-Tobari resources exist.
+- Dev Container tests cover comments, trailing commas, duplicate keys, size and
+  symlink escape, unsupported runtime properties, input conflicts, and one
+  image-based Docker integration path.
 - Policy-watch integration edits a host XDG policy fixture and observes the
   changed decision without restarting OPA or any Tobari.
 - Negative tests prove rejection before side effects.
@@ -242,6 +245,7 @@ Every strong statement should identify its enforcement path.
 | Action target composition | Reachable reference-graph validation and byte-preserving round trips for reference-bound acts; complete, exclusive, reference-free declarations for command-bound fixed targets |
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
+| Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |

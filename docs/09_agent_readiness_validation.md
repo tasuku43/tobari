@@ -14,7 +14,8 @@ go run ./cmd/tobari help cluster --format agent
 go run ./cmd/tobari help attach --format agent
 go run ./cmd/tobari doctor --root /absolute/test/root --format json
 go run ./cmd/tobari cluster up
-go run ./cmd/tobari attach --name test --root /absolute/test/root
+go run ./cmd/tobari attach --name test --root /absolute/test/root \
+  --devcontainer .devcontainer/devcontainer.json
 go run ./cmd/tobari list --format json
 go run ./cmd/tobari exec --id TBR_ID -- curl https://example.com/
 go run ./cmd/tobari cluster logs --component gateway --tail 100
@@ -33,6 +34,8 @@ literal. The transcript must prove:
   image selector.
 - Omitted image selection resolves from the XDG default and then `builtin`
   without requiring source inspection.
+- An explicit image-based Dev Container file resolves within the selected root;
+  unsupported runtime metadata returns one stable recovery fault.
 - `list` retains an explicitly exhaustive local collection, including empty.
 - Individual actions consume one `tobari` reference unchanged.
 - `exec` passes exact argv and preserves the child status.
@@ -93,6 +96,8 @@ At minimum, exercise:
 - duplicate name and duplicate root;
 - invalid, missing, incompatible, or conflicting image selection before Docker
   resource creation;
+- escaping, malformed, ambiguous, oversized, or unsupported Dev Container
+  configuration before Docker mutation;
 - malformed or legacy state;
 - invalid Rego before cluster reconciliation;
 - partial startup mapped to non-retryable `cluster_start_failed`;
