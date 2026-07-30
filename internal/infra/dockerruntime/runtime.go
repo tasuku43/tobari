@@ -918,12 +918,16 @@ func (r *Runtime) verifyOwnedTobari(ctx context.Context, kind, name, id string) 
 }
 
 func (r *Runtime) testPolicy(ctx context.Context, state tobari.State) error {
+	return r.testPolicyDirectory(ctx, state.PolicyDirectory)
+}
+
+func (r *Runtime) testPolicyDirectory(ctx context.Context, policyDirectory string) error {
 	versions, err := runtimeassets.Versions()
 	if err != nil {
 		return err
 	}
 	uid, gid := currentIDs()
-	mount := "type=bind,src=" + state.PolicyDirectory + ",dst=/policy,readonly"
+	mount := "type=bind,src=" + policyDirectory + ",dst=/policy,readonly"
 	output, err := r.runner.Output(
 		ctx,
 		[]string{

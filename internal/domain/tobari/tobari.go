@@ -9,21 +9,28 @@ import (
 )
 
 const (
-	TaskClusterUp      = "cluster.up"
-	TaskClusterStatus  = "cluster.status"
-	TaskClusterDenials = "cluster.denials"
-	TaskClusterDown    = "cluster.down"
-	TaskPolicyApply    = "policy.apply"
-	TaskAttach         = "tobari.attach"
-	TaskList           = "tobari.list"
-	TaskExec           = "tobari.exec"
-	TaskLogs           = "tobari.logs"
-	TaskDetach         = "tobari.detach"
+	TaskClusterUp         = "cluster.up"
+	TaskClusterStatus     = "cluster.status"
+	TaskClusterDenials    = "cluster.denials"
+	TaskClusterDown       = "cluster.down"
+	TaskPolicyCandidates  = "policy.candidates"
+	TaskPolicyTail        = "policy.tail"
+	TaskPolicyAllow       = "policy.allow"
+	TaskPolicyCompactions = "policy.compactions"
+	TaskPolicyCompact     = "policy.compact"
+	TaskPolicyApply       = "policy.apply"
+	TaskAttach            = "tobari.attach"
+	TaskList              = "tobari.list"
+	TaskExec              = "tobari.exec"
+	TaskLogs              = "tobari.logs"
+	TaskDetach            = "tobari.detach"
 
-	ClusterTargetKind = "cluster"
-	ClusterTargetID   = "cluster-default"
-	TargetKind        = "tobari"
-	ReferenceKind     = TargetKind
+	ClusterTargetKind    = "cluster"
+	ClusterTargetID      = "cluster-default"
+	TargetKind           = "tobari"
+	ReferenceKind        = TargetKind
+	PolicyCandidateKind  = "policy-candidate"
+	PolicyCompactionKind = "policy-compaction"
 
 	BuiltinImageSelector = "builtin"
 	RuntimeImageAPILabel = "io.tobari.runtime-api"

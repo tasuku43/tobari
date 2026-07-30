@@ -34,7 +34,13 @@
         "host": "mock-upstream",
         "method": "POST",
         "path_prefix": "/denied"
+      },
+      {
+        "host": "mock-upstream",
+        "method": "POST",
+        "path_prefix": "/api/v1/"
       }
-    ]
+    ],
+    "learned_allow_rules": []
   }
 }

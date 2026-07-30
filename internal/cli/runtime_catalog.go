@@ -13,6 +13,11 @@ func runtimeCommandSpecs() []CommandSpec {
 		clusterDenialsSpec(),
 		clusterLogsSpec(),
 		clusterDownSpec(),
+		policyCandidatesSpec(),
+		policyTailSpec(),
+		policyAllowSpec(),
+		policyCompactionsSpec(),
+		policyCompactSpec(),
 		policyApplySpec(),
 		attachSpec(),
 		listSpec(),
@@ -111,7 +116,7 @@ func clusterDenialsSpec() CommandSpec {
 					{Name: "window_lines", Type: OutputFieldTypeInteger, Description: "Maximum recent Gateway lines inspected."},
 					{
 						Name: "items", Type: OutputFieldTypeArray,
-						Description: "Validated denial objects ordered oldest to newest with timestamp, request_id, host, method, path, reason, and status_code.",
+						Description: "Validated denials ordered oldest to newest with request shape, reason, status, and exact-rule learnability.",
 					},
 					{Name: "apply_command", Type: OutputFieldTypeString, Description: "Exact command that tests and activates the edited policy."},
 				},
@@ -199,6 +204,167 @@ func policyApplySpec() CommandSpec {
 			},
 		},
 		handler: runPolicyApply,
+	}
+}
+
+func policyCandidatesSpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy candidates", Summary: "Discover exact rules from denials",
+		Args:   "[--tail <lines>] [--format text|json]",
+		Effect: operation.EffectRead, Role: RoleDiscover,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Return unique pending exact host, method, and path proposals with opaque approval IDs",
+			Inputs:       []CommandInput{denialTailInput(), formatInput()},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Fields:   policyCandidateOutputFields(),
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
+				JSONEnvelope: "policy_candidates", JSONSchemaVersion: 1,
+			},
+			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
+			Errors:        policyCandidateReadErrors("policy candidates", true),
+		},
+		handler: runPolicyCandidates,
+	}
+}
+
+func policyTailSpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy tail", Summary: "Review pending exact policy rules",
+		Args:   "[--tail <lines>]",
+		Effect: operation.EffectRead, Role: RoleDiscover,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Review the bounded pending policy queue with exact approval commands",
+			Inputs:       []CommandInput{denialTailInput()},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+				Fields:   policyCandidateOutputFields(),
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
+			},
+			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
+			Errors:        policyCandidateReadErrors("policy tail", true),
+		},
+		handler: runPolicyTail,
+	}
+}
+
+func policyAllowSpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy allow", Summary: "Allow one exact denied effect",
+		Args: "--id <id>", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Test, record, and activate one exact retained host, method, and path permission",
+			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCandidateKind, "policy candidates")},
+			Output:       policyLearningChangeOutput(),
+			Prerequisites: []string{
+				"The ID was emitted by policy candidates or policy tail and remains in retained Gateway logs.",
+			},
+			Errors: mutationCommandErrors("policy allow", "policy candidates",
+				declaredCommandError(fault.KindInvalidInput, "invalid_policy_candidate_id", false, "policy candidates", "Use a candidate ID unchanged."),
+				declaredCommandError(fault.KindInvalidInput, "policy_candidate_not_found", false, "policy candidates", "Rediscover the current pending queue."),
+				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
+				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
+				declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster denials", "Inspect retained denial evidence."),
+				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
+				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "policy candidates", "Rediscover after the concurrent policy change."),
+				declaredCommandError(fault.KindRejected, "policy_preflight_failed", false, "doctor", "Correct the complete candidate policy."),
+				declaredCommandError(fault.KindRejected, "policy_test_failed", false, "doctor", "Correct the host policy before activation."),
+				declaredCommandError(fault.KindInternal, "policy_write_failed", false, "policy candidates", "Inspect the unchanged or atomically updated policy data."),
+				declaredCommandError(fault.KindUnavailable, "policy_learning_failed", false, "cluster status", "Reconcile OPA and current policy state."),
+				declaredCommandError(fault.KindContract, "invalid_candidate_contract", false, "cluster denials", "Inspect retained denial compatibility."),
+				declaredCommandError(fault.KindContract, "invalid_learned_policy", false, "doctor", "Repair the learned-rule contract."),
+				declaredCommandError(fault.KindContract, "invalid_policy_learning_result", false, "cluster status", "Reconcile the confirmed policy mutation."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.PolicyCandidateKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id",
+				Impact: operation.Impact{
+					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+					AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
+				},
+			},
+		},
+		handler: runPolicyAllow,
+	}
+}
+
+func policyCompactionsSpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy compactions", Summary: "Discover test-backed rule compactions",
+		Args:   "[--format text|json]",
+		Effect: operation.EffectRead, Role: RoleDiscover,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Return current same-host and same-method exact-rule groups eligible for bounded prefix compaction",
+			Inputs:       []CommandInput{formatInput()},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Fields: []OutputField{
+					{Name: "id", Type: OutputFieldTypeString, Description: "Opaque current compaction reference.", ReferenceKind: tobari.PolicyCompactionKind},
+					{Name: "host", Type: OutputFieldTypeString, Description: "Exact request host."},
+					{Name: "method", Type: OutputFieldTypeString, Description: "Exact uppercase HTTP method."},
+					{Name: "path_prefix", Type: OutputFieldTypeString, Description: "Proposed directory-bound path prefix."},
+					{Name: "source_rule_count", Type: OutputFieldTypeInteger, Description: "Number of exact source rules replaced."},
+					{Name: "examples", Type: OutputFieldTypeArray, Description: "Positive paths retained as policy tests."},
+					{Name: "outside_canary", Type: OutputFieldTypeString, Description: "Adjacent path that must remain outside the proposal."},
+					{Name: "compact_command", Type: OutputFieldTypeString, Description: "Exact reference-bound compaction command."},
+				},
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
+				JSONEnvelope: "policy_compactions", JSONSchemaVersion: 1,
+			},
+			Prerequisites: []string{"At least three exact learned rules share one sufficiently deep directory."},
+			Errors: readCommandErrors("policy compactions", true,
+				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
+				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
+				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
+				declaredCommandError(fault.KindContract, "invalid_compaction_contract", false, "doctor", "Repair the learned-rule contract."),
+				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "policy compactions", "Repair JSON projection."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+		},
+		handler: runPolicyCompactions,
+	}
+}
+
+func policyCompactSpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy compact", Summary: "Apply one test-backed compaction",
+		Args: "--id <id>", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Replace one current bound exact-rule set with its tested directory prefix",
+			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCompactionKind, "policy compactions")},
+			Output:       policyLearningChangeOutput(),
+			Prerequisites: []string{
+				"The ID was emitted by policy compactions and its exact source rules remain unchanged.",
+			},
+			Errors: mutationCommandErrors("policy compact", "policy compactions",
+				declaredCommandError(fault.KindInvalidInput, "invalid_policy_compaction_id", false, "policy compactions", "Use a compaction ID unchanged."),
+				declaredCommandError(fault.KindInvalidInput, "policy_compaction_not_found", false, "policy compactions", "Rediscover current compactions."),
+				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
+				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
+				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
+				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "policy compactions", "Rediscover after the concurrent policy change."),
+				declaredCommandError(fault.KindRejected, "policy_preflight_failed", false, "doctor", "Correct the complete compacted policy."),
+				declaredCommandError(fault.KindRejected, "policy_test_failed", false, "doctor", "Correct the host policy before activation."),
+				declaredCommandError(fault.KindInternal, "policy_write_failed", false, "policy compactions", "Inspect the unchanged or atomically updated policy data."),
+				declaredCommandError(fault.KindUnavailable, "policy_learning_failed", false, "cluster status", "Reconcile OPA and current policy state."),
+				declaredCommandError(fault.KindContract, "invalid_compaction_contract", false, "doctor", "Repair the learned-rule contract."),
+				declaredCommandError(fault.KindContract, "invalid_policy_learning_result", false, "cluster status", "Reconcile the confirmed policy mutation."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.PolicyCompactionKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id",
+				Impact: operation.Impact{
+					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+					AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
+				},
+			},
+		},
+		handler: runPolicyCompact,
 	}
 }
 
@@ -457,6 +623,47 @@ func idInput() CommandInput {
 	}
 }
 
+func policyReferenceInput(kind, producer string) CommandInput {
+	return CommandInput{
+		Name: "--id", Source: InputSourceFlag, Required: true,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description:   "Opaque " + kind + " ID emitted by " + producer + "; pass unchanged.",
+		AllowedValues: []string{}, ReferenceKind: kind,
+	}
+}
+
+func policyCandidateOutputFields() []OutputField {
+	return []OutputField{
+		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque exact approval reference.", ReferenceKind: tobari.PolicyCandidateKind},
+		{Name: "observed_at", Type: OutputFieldTypeString, Description: "Gateway denial timestamp."},
+		{Name: "host", Type: OutputFieldTypeString, Description: "Exact denied request host."},
+		{Name: "method", Type: OutputFieldTypeString, Description: "Exact denied uppercase HTTP method."},
+		{Name: "path", Type: OutputFieldTypeString, Description: "Exact denied HTTP path without query data."},
+		{Name: "reason", Type: OutputFieldTypeString, Description: "Bounded secret-free denial reason."},
+		{Name: "status_code", Type: OutputFieldTypeInteger, Description: "Gateway denial status."},
+		{Name: "credential_profile", Type: OutputFieldTypeString, Description: "Requested bound credential profile or null."},
+		{Name: "allow_command", Type: OutputFieldTypeString, Description: "Exact reference-bound approval command."},
+	}
+}
+
+func policyLearningChangeOutput() CommandOutput {
+	return CommandOutput{
+		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+		Fields: []OutputField{
+			{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
+			{Name: "target_id", Type: OutputFieldTypeString, Description: "Opaque target ID consumed unchanged."},
+			{Name: "rule_id", Type: OutputFieldTypeString, Description: "Deterministic stored learned-rule identity."},
+			{Name: "match", Type: OutputFieldTypeString, Description: "Stored exact or prefix match mode."},
+			{Name: "host", Type: OutputFieldTypeString, Description: "Stored exact host."},
+			{Name: "method", Type: OutputFieldTypeString, Description: "Stored exact uppercase HTTP method."},
+			{Name: "path", Type: OutputFieldTypeString, Description: "Stored exact path or directory prefix."},
+			{Name: "source_rule_count", Type: OutputFieldTypeInteger, Description: "Number of source rules represented by the result."},
+			{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Whether the tested rule is active."},
+		},
+		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
+	}
+}
+
 func formatInput() CommandInput {
 	return CommandInput{
 		Name: "--format", Source: InputSourceFlag, Required: false,
@@ -541,6 +748,19 @@ func readCommandErrors(path string, hasOutput bool, extra ...CommandError) []Com
 		errors = append(errors, declaredCommandError(fault.KindInternal, "output_write_failed", true, path, "Retry with a writable output stream."))
 	}
 	return errors
+}
+
+func policyCandidateReadErrors(path string, hasOutput bool) []CommandError {
+	return readCommandErrors(path, hasOutput,
+		declaredCommandError(fault.KindInvalidInput, "invalid_candidate_request", false, "help "+path, "Select a valid bounded denial window."),
+		declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
+		declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
+		declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster denials", "Inspect retained denial evidence."),
+		declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
+		declaredCommandError(fault.KindContract, "invalid_candidate_contract", false, "cluster denials", "Inspect retained denial compatibility."),
+		declaredCommandError(fault.KindContract, "output_encoding_failed", false, path, "Repair JSON projection."),
+		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+	)
 }
 
 func mutationCommandErrors(path, recovery string, extra ...CommandError) []CommandError {

@@ -28,6 +28,10 @@ type RuntimePort interface {
 	Exec(context.Context, tobari.Instance, tobari.ExecRequest, io.Reader, io.Writer, io.Writer) (int, error)
 	ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error)
 	ClusterDenials(context.Context, tobari.State, int) ([]tobari.PolicyDenial, error)
+	ReadLearnedPolicyRules(context.Context, tobari.State) ([]tobari.LearnedPolicyRule, error)
+	ApplyLearnedPolicyRules(
+		context.Context, tobari.State, []tobari.LearnedPolicyRule, []tobari.LearnedPolicyRule,
+	) error
 	ApplyPolicy(context.Context, tobari.State) error
 	TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error)
 	Detach(context.Context, tobari.State, tobari.Instance, bool) (tobari.State, error)
@@ -46,7 +50,9 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 	case operation.EffectWrite:
 		validCluster := intent.Target.Kind == tobari.ClusterTargetKind && intent.Target.ID == tobari.ClusterTargetID
 		validTobari := intent.Target.Kind == tobari.TargetKind && intent.Target.ID != ""
-		if !validCluster && !validTobari {
+		validPolicyCandidate := intent.Target.Kind == tobari.PolicyCandidateKind && intent.Target.ID != ""
+		validPolicyCompaction := intent.Target.Kind == tobari.PolicyCompactionKind && intent.Target.ID != ""
+		if !validCluster && !validTobari && !validPolicyCandidate && !validPolicyCompaction {
 			return fault.New(fault.KindRejected, "mutation_rejected", "mutation target is not owned by Tobari", false)
 		}
 	default:
@@ -377,6 +383,287 @@ func (s *Service) ClusterDenials(ctx context.Context, tail int) (tobari.DenialRe
 	if err := result.Validate(); err != nil {
 		return tobari.DenialReport{}, fault.Wrap(
 			fault.KindContract, "invalid_denial_contract", "cluster denial result is invalid", false, err,
+		)
+	}
+	return result, nil
+}
+
+func (s *Service) policyCandidates(
+	ctx context.Context, tail int, task string,
+) (tobari.PolicyCandidateReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.PolicyCandidateReport{}, err
+	}
+	request := tobari.LogRequest{Component: "gateway", Tail: tail}
+	if err := request.ValidateCluster(); err != nil {
+		return tobari.PolicyCandidateReport{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_candidate_request",
+			"policy candidate request is invalid", false, err,
+		)
+	}
+	state, exists, err := s.runtime.LoadState(ctx)
+	if err != nil {
+		return tobari.PolicyCandidateReport{}, fault.Wrap(
+			fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err,
+		)
+	}
+	if !exists {
+		return tobari.PolicyCandidateReport{}, fault.New(
+			fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false,
+		)
+	}
+	denials, err := s.runtime.ClusterDenials(ctx, state, tail)
+	if err != nil {
+		return tobari.PolicyCandidateReport{}, fault.Wrap(
+			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
+		)
+	}
+	rules, err := s.runtime.ReadLearnedPolicyRules(ctx, state)
+	if err != nil {
+		return tobari.PolicyCandidateReport{}, fault.Wrap(
+			fault.KindRejected, "policy_data_invalid",
+			"learned policy data could not be read safely", false, err,
+		)
+	}
+	items, err := tobari.PolicyCandidates(denials, rules)
+	if err != nil {
+		return tobari.PolicyCandidateReport{}, fault.Wrap(
+			fault.KindContract, "invalid_candidate_contract",
+			"policy candidates are invalid", false, err,
+		)
+	}
+	result := tobari.PolicyCandidateReport{
+		Task: task, PolicyDirectory: state.PolicyDirectory, WindowLines: tail, Items: items,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.PolicyCandidateReport{}, fault.Wrap(
+			fault.KindContract, "invalid_candidate_contract",
+			"policy candidate result is invalid", false, err,
+		)
+	}
+	return result, nil
+}
+
+// PolicyCandidates discovers pending exact-rule proposals from retained denials.
+func (s *Service) PolicyCandidates(
+	ctx context.Context, tail int,
+) (tobari.PolicyCandidateReport, error) {
+	return s.policyCandidates(ctx, tail, tobari.TaskPolicyCandidates)
+}
+
+// PolicyTail returns the same queue with a distinct human-review task identity.
+func (s *Service) PolicyTail(
+	ctx context.Context, tail int,
+) (tobari.PolicyCandidateReport, error) {
+	return s.policyCandidates(ctx, tail, tobari.TaskPolicyTail)
+}
+
+func (s *Service) loadPolicyState(
+	ctx context.Context,
+) (tobari.State, []tobari.LearnedPolicyRule, error) {
+	state, exists, err := s.runtime.LoadState(ctx)
+	if err != nil {
+		return tobari.State{}, nil, fault.Wrap(
+			fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err,
+		)
+	}
+	if !exists {
+		return tobari.State{}, nil, fault.New(
+			fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false,
+		)
+	}
+	rules, err := s.runtime.ReadLearnedPolicyRules(ctx, state)
+	if err != nil {
+		return tobari.State{}, nil, fault.Wrap(
+			fault.KindRejected, "policy_data_invalid",
+			"learned policy data could not be read safely", false, err,
+		)
+	}
+	return state, rules, nil
+}
+
+func validatePolicyMutationTarget(intent operation.Intent, kind, id string) error {
+	if intent.Target.Kind != kind || intent.Target.ID != id {
+		return fault.New(
+			fault.KindContract, "invalid_mutation_contract",
+			"policy mutation target does not match the consumed opaque ID", false,
+		)
+	}
+	return nil
+}
+
+func (s *Service) applyLearnedRules(
+	ctx context.Context, intent operation.Intent, expectedCommand string,
+	state tobari.State, expected, updated []tobari.LearnedPolicyRule,
+) error {
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: expectedCommand, ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
+	}
+	return s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		actionErr := s.runtime.ApplyLearnedPolicyRules(actionContext, state, expected, updated)
+		if actionErr == nil {
+			return nil
+		}
+		if _, structured := fault.PublicCopy(actionErr); structured {
+			return actionErr
+		}
+		return fault.Wrap(
+			fault.KindUnavailable, "policy_learning_failed",
+			"learned policy activation did not complete; inspect cluster status", false, actionErr,
+			fault.NextAction{
+				Command: "cluster status",
+				Reason:  "Reconcile OPA health and the current policy before another mutation.",
+			},
+		)
+	})
+}
+
+// AllowPolicyCandidate records and activates one exact retained denial.
+func (s *Service) AllowPolicyCandidate(
+	ctx context.Context, intent operation.Intent, id string,
+) (tobari.PolicyLearningChange, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.PolicyLearningChange{}, err
+	}
+	if err := tobari.ValidatePolicyCandidateID(id); err != nil {
+		return tobari.PolicyLearningChange{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_policy_candidate_id",
+			"policy candidate ID is invalid", false, err,
+		)
+	}
+	if err := validatePolicyMutationTarget(intent, tobari.PolicyCandidateKind, id); err != nil {
+		return tobari.PolicyLearningChange{}, err
+	}
+	state, rules, err := s.loadPolicyState(ctx)
+	if err != nil {
+		return tobari.PolicyLearningChange{}, err
+	}
+	denials, err := s.runtime.ClusterDenials(ctx, state, 10_000)
+	if err != nil {
+		return tobari.PolicyLearningChange{}, fault.Wrap(
+			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
+		)
+	}
+	candidates, err := tobari.PolicyCandidates(denials, rules)
+	if err != nil {
+		return tobari.PolicyLearningChange{}, fault.Wrap(
+			fault.KindContract, "invalid_candidate_contract",
+			"policy candidates are invalid", false, err,
+		)
+	}
+	var candidate tobari.PolicyCandidate
+	found := false
+	for _, item := range candidates {
+		if item.ID == id {
+			candidate, found = item, true
+			break
+		}
+	}
+	if !found {
+		return tobari.PolicyLearningChange{}, fault.New(
+			fault.KindInvalidInput, "policy_candidate_not_found",
+			"policy candidate is stale, already covered, or outside retained logs", false,
+		)
+	}
+	rule, err := tobari.NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		return tobari.PolicyLearningChange{}, fault.Wrap(
+			fault.KindContract, "invalid_candidate_contract",
+			"policy candidate cannot become an exact rule", false, err,
+		)
+	}
+	updated := append(append([]tobari.LearnedPolicyRule{}, rules...), rule)
+	if err := tobari.ValidateLearnedPolicyRules(updated); err != nil {
+		return tobari.PolicyLearningChange{}, fault.Wrap(
+			fault.KindContract, "invalid_learned_policy",
+			"exact learned policy is invalid", false, err,
+		)
+	}
+	if err := s.applyLearnedRules(ctx, intent, "policy allow", state, rules, updated); err != nil {
+		return tobari.PolicyLearningChange{}, err
+	}
+	result := tobari.PolicyLearningChange{
+		Task: tobari.TaskPolicyAllow, PolicyDirectory: state.PolicyDirectory,
+		TargetID: id, Rule: rule, SourceRuleCount: 1, Applied: true,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.PolicyLearningChange{}, fault.Wrap(
+			fault.KindContract, "invalid_policy_learning_result",
+			"policy allow result is invalid", false, err,
+		)
+	}
+	return result, nil
+}
+
+// PolicyCompactions discovers every current bounded exact-to-prefix proposal.
+func (s *Service) PolicyCompactions(
+	ctx context.Context,
+) (tobari.PolicyCompactionReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.PolicyCompactionReport{}, err
+	}
+	state, rules, err := s.loadPolicyState(ctx)
+	if err != nil {
+		return tobari.PolicyCompactionReport{}, err
+	}
+	items, err := tobari.PolicyCompactions(rules)
+	if err != nil {
+		return tobari.PolicyCompactionReport{}, fault.Wrap(
+			fault.KindContract, "invalid_compaction_contract",
+			"policy compactions are invalid", false, err,
+		)
+	}
+	result := tobari.PolicyCompactionReport{
+		Task: tobari.TaskPolicyCompactions, PolicyDirectory: state.PolicyDirectory, Items: items,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.PolicyCompactionReport{}, fault.Wrap(
+			fault.KindContract, "invalid_compaction_contract",
+			"policy compaction result is invalid", false, err,
+		)
+	}
+	return result, nil
+}
+
+// CompactPolicy records and activates one current exact-rule compaction.
+func (s *Service) CompactPolicy(
+	ctx context.Context, intent operation.Intent, id string,
+) (tobari.PolicyLearningChange, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.PolicyLearningChange{}, err
+	}
+	if err := tobari.ValidatePolicyCompactionID(id); err != nil {
+		return tobari.PolicyLearningChange{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_policy_compaction_id",
+			"policy compaction ID is invalid", false, err,
+		)
+	}
+	if err := validatePolicyMutationTarget(intent, tobari.PolicyCompactionKind, id); err != nil {
+		return tobari.PolicyLearningChange{}, err
+	}
+	state, rules, err := s.loadPolicyState(ctx)
+	if err != nil {
+		return tobari.PolicyLearningChange{}, err
+	}
+	updated, selected, rule, err := tobari.CompactLearnedPolicyRules(rules, id)
+	if err != nil {
+		return tobari.PolicyLearningChange{}, fault.Wrap(
+			fault.KindInvalidInput, "policy_compaction_not_found",
+			"policy compaction is stale or no longer safe", false, err,
+		)
+	}
+	if err := s.applyLearnedRules(ctx, intent, "policy compact", state, rules, updated); err != nil {
+		return tobari.PolicyLearningChange{}, err
+	}
+	result := tobari.PolicyLearningChange{
+		Task: tobari.TaskPolicyCompact, PolicyDirectory: state.PolicyDirectory,
+		TargetID: id, Rule: rule, SourceRuleCount: len(selected.SourceRuleIDs), Applied: true,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.PolicyLearningChange{}, fault.Wrap(
+			fault.KindContract, "invalid_policy_learning_result",
+			"policy compact result is invalid", false, err,
 		)
 	}
 	return result, nil

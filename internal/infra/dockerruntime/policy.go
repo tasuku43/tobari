@@ -26,6 +26,7 @@ type gatewayAuditRecord struct {
 	Decision          string  `json:"decision"`
 	Reason            string  `json:"reason"`
 	CredentialProfile *string `json:"credential_profile"`
+	Learnable         bool    `json:"learnable"`
 	UpstreamStatus    int     `json:"upstream_status"`
 	DurationMS        int     `json:"duration_ms"`
 }
@@ -84,6 +85,7 @@ func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
 			Timestamp: record.Timestamp, RequestID: record.RequestID,
 			Host: record.Host, Method: record.Method, Path: record.Path,
 			Reason: record.Reason, StatusCode: record.UpstreamStatus,
+			Learnable: record.Learnable, CredentialProfile: record.CredentialProfile,
 		}
 		if err := item.Validate(); err != nil {
 			return nil, fmt.Errorf("Gateway denial line %d: %w", lineNumber+1, err)

@@ -92,6 +92,128 @@ func runClusterDenials(
 	return c.emitResult(ctx, output)
 }
 
+func runPolicyCandidates(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
+) int {
+	return runPolicyCandidateQueue(ctx, c, command, inputs, false)
+}
+
+func runPolicyTail(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
+) int {
+	return runPolicyCandidateQueue(ctx, c, command, inputs, true)
+}
+
+func runPolicyCandidateQueue(
+	ctx context.Context, c *CLI, command CommandSpec, inputs ParsedInputs, tailView bool,
+) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	tail, _ := inputs.Integer("--tail")
+	var (
+		result tobari.PolicyCandidateReport
+		err    error
+	)
+	if tailView {
+		result, err = c.tobari.PolicyTail(ctx, int(tail))
+	} else {
+		result, err = c.tobari.PolicyCandidates(ctx, int(tail))
+	}
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format := successFormatText
+	if !tailView {
+		format, err = parseSuccessFormat(inputs.One("--format"))
+		if err != nil {
+			return c.failUsage(
+				ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(),
+				"help "+command.Path, "Correct the command arguments.",
+			)
+		}
+	}
+	allow, found := c.catalog.Lookup("policy allow")
+	if !found {
+		return c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "policy allow command is missing", false,
+		))
+	}
+	output, err := renderPolicyCandidates(result, ProgramName+" "+allow.Path, format)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitResult(ctx, output)
+}
+
+func runPolicyAllow(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
+) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	id := inputs.One("--id")
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: id},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	result, err := c.tobari.AllowPolicyCandidate(ctx, intent, id)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, renderPolicyLearningChange(result))
+}
+
+func runPolicyCompactions(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
+) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	result, err := c.tobari.PolicyCompactions(ctx)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(
+			ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(),
+			"help "+command.Path, "Correct the command arguments.",
+		)
+	}
+	compact, found := c.catalog.Lookup("policy compact")
+	if !found {
+		return c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "policy compact command is missing", false,
+		))
+	}
+	output, err := renderPolicyCompactions(result, ProgramName+" "+compact.Path, format)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitResult(ctx, output)
+}
+
+func runPolicyCompact(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
+) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	id := inputs.One("--id")
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.PolicyCompactionKind, ID: id},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	result, err := c.tobari.CompactPolicy(ctx, intent, id)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, renderPolicyLearningChange(result))
+}
+
 func runPolicyApply(
 	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, _ ParsedInputs,
 ) int {
@@ -249,6 +371,140 @@ type clusterDenialsOutput struct {
 	WindowLines  int                   `json:"window_lines"`
 	Items        []tobari.PolicyDenial `json:"items"`
 	ApplyCommand string                `json:"apply_command"`
+}
+
+type policyCandidateOutput struct {
+	ID                string  `json:"id"`
+	ObservedAt        string  `json:"observed_at"`
+	Host              string  `json:"host"`
+	Method            string  `json:"method"`
+	Path              string  `json:"path"`
+	Reason            string  `json:"reason"`
+	StatusCode        int     `json:"status_code"`
+	CredentialProfile *string `json:"credential_profile"`
+	AllowCommand      string  `json:"allow_command"`
+}
+
+type policyCandidatesDocument struct {
+	SchemaVersion    int                     `json:"schema_version"`
+	PolicyCandidates []policyCandidateOutput `json:"policy_candidates"`
+}
+
+func renderPolicyCandidates(
+	result tobari.PolicyCandidateReport, allowCommand string, format successFormat,
+) ([]byte, error) {
+	items := make([]policyCandidateOutput, 0, len(result.Items))
+	for _, item := range result.Items {
+		items = append(items, policyCandidateOutput{
+			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt),
+			Host: safeExternalText(item.Host), Method: safeExternalText(item.Method),
+			Path: safeExternalText(item.Path), Reason: safeExternalText(item.Reason),
+			StatusCode:        item.StatusCode,
+			CredentialProfile: safeOptionalExternalText(item.CredentialProfile),
+			AllowCommand:      allowCommand + " --id " + item.ID,
+		})
+	}
+	if format == successFormatJSON {
+		output, err := json.Marshal(policyCandidatesDocument{
+			SchemaVersion: 1, PolicyCandidates: items,
+		})
+		if err != nil {
+			return nil, fault.Wrap(
+				fault.KindContract, "output_encoding_failed",
+				"policy candidates JSON could not be encoded", false, err,
+			)
+		}
+		return append(output, '\n'), nil
+	}
+	var output bytes.Buffer
+	for _, item := range result.Items {
+		action := allowCommand + " --id " + item.ID
+		profile := "none"
+		if item.CredentialProfile != nil {
+			profile = *item.CredentialProfile
+		}
+		fmt.Fprintf(
+			&output,
+			"id=%s\tobserved_at=%s\thost=%s\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\n",
+			item.ID, escapeTSVCell(item.ObservedAt), escapeTSVCell(item.Host),
+			escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
+			item.StatusCode, escapeTSVCell(profile), escapeTSVCell(action),
+		)
+	}
+	return output.Bytes(), nil
+}
+
+type policyCompactionOutput struct {
+	ID              string   `json:"id"`
+	Host            string   `json:"host"`
+	Method          string   `json:"method"`
+	PathPrefix      string   `json:"path_prefix"`
+	SourceRuleCount int      `json:"source_rule_count"`
+	Examples        []string `json:"examples"`
+	OutsideCanary   string   `json:"outside_canary"`
+	CompactCommand  string   `json:"compact_command"`
+}
+
+type policyCompactionsDocument struct {
+	SchemaVersion     int                      `json:"schema_version"`
+	PolicyCompactions []policyCompactionOutput `json:"policy_compactions"`
+}
+
+func renderPolicyCompactions(
+	result tobari.PolicyCompactionReport, compactCommand string, format successFormat,
+) ([]byte, error) {
+	items := make([]policyCompactionOutput, 0, len(result.Items))
+	for _, item := range result.Items {
+		examples := make([]string, len(item.Examples))
+		for index, example := range item.Examples {
+			examples[index] = safeExternalText(example)
+		}
+		items = append(items, policyCompactionOutput{
+			ID: item.ID, Host: safeExternalText(item.Host), Method: safeExternalText(item.Method),
+			PathPrefix: safeExternalText(item.PathPrefix), SourceRuleCount: len(item.SourceRuleIDs),
+			Examples: examples, OutsideCanary: safeExternalText(item.OutsideCanary),
+			CompactCommand: compactCommand + " --id " + item.ID,
+		})
+	}
+	if format == successFormatJSON {
+		output, err := json.Marshal(policyCompactionsDocument{
+			SchemaVersion: 1, PolicyCompactions: items,
+		})
+		if err != nil {
+			return nil, fault.Wrap(
+				fault.KindContract, "output_encoding_failed",
+				"policy compactions JSON could not be encoded", false, err,
+			)
+		}
+		return append(output, '\n'), nil
+	}
+	var output bytes.Buffer
+	for _, item := range result.Items {
+		action := compactCommand + " --id " + item.ID
+		fmt.Fprintf(
+			&output,
+			"id=%s\thost=%s\tmethod=%s\tpath_prefix=%s\tsource_rule_count=%d\texamples=%s\toutside_canary=%s\tcompact_command=%s\n",
+			item.ID, escapeTSVCell(item.Host), escapeTSVCell(item.Method),
+			escapeTSVCell(item.PathPrefix), len(item.SourceRuleIDs),
+			escapeTSVCell(strings.Join(item.Examples, ",")), escapeTSVCell(item.OutsideCanary),
+			escapeTSVCell(action),
+		)
+	}
+	return output.Bytes(), nil
+}
+
+func renderPolicyLearningChange(result tobari.PolicyLearningChange) []byte {
+	var output bytes.Buffer
+	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
+	fmt.Fprintf(&output, "target_id: %s\n", result.TargetID)
+	fmt.Fprintf(&output, "rule_id: %s\n", result.Rule.ID)
+	fmt.Fprintf(&output, "match: %s\n", escapeTSVCell(result.Rule.Match))
+	fmt.Fprintf(&output, "host: %s\n", escapeTSVCell(result.Rule.Host))
+	fmt.Fprintf(&output, "method: %s\n", escapeTSVCell(result.Rule.Method))
+	fmt.Fprintf(&output, "path: %s\n", escapeTSVCell(result.Rule.Path))
+	fmt.Fprintf(&output, "source_rule_count: %d\n", result.SourceRuleCount)
+	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
+	return output.Bytes()
 }
 
 func renderClusterDenials(

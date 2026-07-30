@@ -1,0 +1,408 @@
+package dockerruntime
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
+
+	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
+)
+
+const (
+	maxPolicyDataBytes    = 1024 * 1024
+	maxPolicyPreflight    = 4 * 1024 * 1024
+	maxPolicyFiles        = 128
+	learnedPolicyDataName = "learned_allow_rules"
+)
+
+type policyDataFile struct {
+	document map[string]json.RawMessage
+	tobari   map[string]json.RawMessage
+	rules    []tobari.LearnedPolicyRule
+	source   []byte
+}
+
+func validateNoDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	var parseValue func() error
+	parseValue = func() error {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		delimiter, isDelimiter := token.(json.Delim)
+		if !isDelimiter {
+			return nil
+		}
+		switch delimiter {
+		case '{':
+			seen := map[string]bool{}
+			for decoder.More() {
+				keyToken, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return fmt.Errorf("JSON object key is not a string")
+				}
+				if seen[key] {
+					return fmt.Errorf("duplicate JSON object key %q", key)
+				}
+				seen[key] = true
+				if err := parseValue(); err != nil {
+					return err
+				}
+			}
+			closing, err := decoder.Token()
+			if err != nil || closing != json.Delim('}') {
+				return fmt.Errorf("JSON object is not closed")
+			}
+		case '[':
+			for decoder.More() {
+				if err := parseValue(); err != nil {
+					return err
+				}
+			}
+			closing, err := decoder.Token()
+			if err != nil || closing != json.Delim(']') {
+				return fmt.Errorf("JSON array is not closed")
+			}
+		default:
+			return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+		}
+		return nil
+	}
+	if err := parseValue(); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("JSON contains trailing data")
+		}
+		return err
+	}
+	return nil
+}
+
+func readOwnerPolicyFile(path string, maximum int) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("inspect %s: %w", filepath.Base(path), err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("%s must be a regular owner-only file", filepath.Base(path))
+	}
+	if info.Size() > int64(maximum) {
+		return nil, fmt.Errorf("%s exceeds %d bytes", filepath.Base(path), maximum)
+	}
+	file, err := os.Open(path) // #nosec G304 -- caller supplies an exact state-owned policy child.
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", filepath.Base(path), err)
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("inspect opened %s: %w", filepath.Base(path), err)
+	}
+	if !opened.Mode().IsRegular() || opened.Mode().Perm()&0o077 != 0 ||
+		!os.SameFile(info, opened) {
+		return nil, fmt.Errorf("%s changed during safe open", filepath.Base(path))
+	}
+	data, err := io.ReadAll(io.LimitReader(file, int64(maximum)+1))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", filepath.Base(path), err)
+	}
+	if len(data) > maximum {
+		return nil, fmt.Errorf("%s exceeds %d bytes", filepath.Base(path), maximum)
+	}
+	return data, nil
+}
+
+func validateOwnerPolicyDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect policy directory: %w", err)
+	}
+	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("policy directory must be an owner-only directory")
+	}
+	return nil
+}
+
+func readPolicyData(policyDirectory string) (policyDataFile, error) {
+	if err := validateOwnerPolicyDirectory(policyDirectory); err != nil {
+		return policyDataFile{}, err
+	}
+	path := filepath.Join(policyDirectory, "data.json")
+	data, err := readOwnerPolicyFile(path, maxPolicyDataBytes)
+	if err != nil {
+		return policyDataFile{}, err
+	}
+	if err := validateNoDuplicateJSONKeys(data); err != nil {
+		return policyDataFile{}, fmt.Errorf("validate data.json: %w", err)
+	}
+	document := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data, &document); err != nil {
+		return policyDataFile{}, fmt.Errorf("decode data.json: %w", err)
+	}
+	rawTobari, exists := document["tobari"]
+	if !exists {
+		return policyDataFile{}, fmt.Errorf("data.json must contain a tobari object")
+	}
+	tobariData := map[string]json.RawMessage{}
+	if err := json.Unmarshal(rawTobari, &tobariData); err != nil || tobariData == nil {
+		return policyDataFile{}, fmt.Errorf("decode data.json tobari object")
+	}
+	rules := []tobari.LearnedPolicyRule{}
+	if rawRules, exists := tobariData[learnedPolicyDataName]; exists {
+		if bytes.Equal(bytes.TrimSpace(rawRules), []byte("null")) {
+			return policyDataFile{}, fmt.Errorf("%s must be an array", learnedPolicyDataName)
+		}
+		if err := json.Unmarshal(rawRules, &rules); err != nil {
+			return policyDataFile{}, fmt.Errorf("decode %s: %w", learnedPolicyDataName, err)
+		}
+	}
+	if err := tobari.ValidateLearnedPolicyRules(rules); err != nil {
+		return policyDataFile{}, fmt.Errorf("validate %s: %w", learnedPolicyDataName, err)
+	}
+	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
+	return policyDataFile{
+		document: document, tobari: tobariData, rules: rules,
+		source: append([]byte{}, data...),
+	}, nil
+}
+
+func (f policyDataFile) withRules(rules []tobari.LearnedPolicyRule) ([]byte, error) {
+	if err := tobari.ValidateLearnedPolicyRules(rules); err != nil {
+		return nil, err
+	}
+	rules = append([]tobari.LearnedPolicyRule{}, rules...)
+	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
+	rawRules, err := json.Marshal(rules)
+	if err != nil {
+		return nil, err
+	}
+	tobariData := make(map[string]json.RawMessage, len(f.tobari)+1)
+	for key, value := range f.tobari {
+		tobariData[key] = append(json.RawMessage{}, value...)
+	}
+	tobariData[learnedPolicyDataName] = rawRules
+	rawTobari, err := json.Marshal(tobariData)
+	if err != nil {
+		return nil, err
+	}
+	document := make(map[string]json.RawMessage, len(f.document))
+	for key, value := range f.document {
+		document[key] = append(json.RawMessage{}, value...)
+	}
+	document["tobari"] = rawTobari
+	output, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(output, '\n'), nil
+}
+
+// ReadLearnedPolicyRules returns the validated CLI-owned rule collection while
+// preserving absence as a known empty collection.
+func (r *Runtime) ReadLearnedPolicyRules(
+	ctx context.Context, state tobari.State,
+) ([]tobari.LearnedPolicyRule, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := state.Validate(); err != nil {
+		return nil, err
+	}
+	file, err := readPolicyData(state.PolicyDirectory)
+	if err != nil {
+		return nil, err
+	}
+	return append([]tobari.LearnedPolicyRule{}, file.rules...), nil
+}
+
+func copyPolicyForPreflight(sourceDirectory string, dataJSON []byte) (string, error) {
+	if err := validateOwnerPolicyDirectory(sourceDirectory); err != nil {
+		return "", err
+	}
+	parent := filepath.Dir(sourceDirectory)
+	temporary, err := os.MkdirTemp(parent, ".tobari-policy-preflight-*")
+	if err != nil {
+		return "", fmt.Errorf("create policy preflight directory: %w", err)
+	}
+	cleanup := func(cause error) (string, error) {
+		_ = os.RemoveAll(temporary)
+		return "", cause
+	}
+	total, files := 0, 0
+	err = filepath.WalkDir(sourceDirectory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(sourceDirectory, path)
+		if err != nil {
+			return err
+		}
+		if relative == "." {
+			return nil
+		}
+		target := filepath.Join(temporary, relative)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if info.Mode().Perm()&0o077 != 0 {
+				return fmt.Errorf("policy path %s must be an owner-only directory", relative)
+			}
+			return os.Mkdir(target, 0o700)
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("policy path %s must be a regular owner-only file", relative)
+		}
+		files++
+		if files > maxPolicyFiles {
+			return fmt.Errorf("policy directory exceeds %d files", maxPolicyFiles)
+		}
+		data := dataJSON
+		if relative != "data.json" {
+			data, err = readOwnerPolicyFile(path, maxPolicyPreflight-total)
+			if err != nil {
+				return err
+			}
+		}
+		total += len(data)
+		if total > maxPolicyPreflight {
+			return fmt.Errorf("policy directory exceeds %d bytes", maxPolicyPreflight)
+		}
+		if err := os.WriteFile(target, data, 0o600); err != nil { // #nosec G306 -- policy copies are owner-only.
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return cleanup(fmt.Errorf("copy policy for preflight: %w", err))
+	}
+	if files == 0 {
+		return cleanup(fmt.Errorf("policy directory is empty"))
+	}
+	return temporary, nil
+}
+
+func atomicWriteOwnerFile(path string, data []byte) error {
+	directory := filepath.Dir(path)
+	file, err := os.CreateTemp(directory, ".data.json.tobari-*")
+	if err != nil {
+		return err
+	}
+	temporary := file.Name()
+	defer func() { _ = os.Remove(temporary) }()
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		return err
+	}
+	handle, err := os.Open(directory) // #nosec G304 -- exact state-owned policy directory.
+	if err != nil {
+		return err
+	}
+	defer handle.Close()
+	return handle.Sync()
+}
+
+// ApplyLearnedPolicyRules tests a complete private policy copy, atomically
+// replaces only data.json, then uses the portable OPA activation boundary.
+func (r *Runtime) ApplyLearnedPolicyRules(
+	ctx context.Context, state tobari.State,
+	expected, updated []tobari.LearnedPolicyRule,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := state.Validate(); err != nil {
+		return err
+	}
+	if err := tobari.ValidateLearnedPolicyRules(expected); err != nil {
+		return err
+	}
+	if err := tobari.ValidateLearnedPolicyRules(updated); err != nil {
+		return err
+	}
+	file, err := readPolicyData(state.PolicyDirectory)
+	if err != nil {
+		return fault.Wrap(
+			fault.KindRejected, "policy_data_invalid",
+			"host policy data is not safe for managed learning", false, err,
+		)
+	}
+	expected = append([]tobari.LearnedPolicyRule{}, expected...)
+	sort.Slice(expected, func(i, j int) bool { return expected[i].ID < expected[j].ID })
+	if !reflect.DeepEqual(file.rules, expected) {
+		return fault.New(
+			fault.KindRejected, "policy_data_changed",
+			"learned policy rules changed after discovery", false,
+		)
+	}
+	data, err := file.withRules(updated)
+	if err != nil {
+		return fault.Wrap(
+			fault.KindContract, "invalid_learned_policy",
+			"learned policy update is invalid", false, err,
+		)
+	}
+	preflight, err := copyPolicyForPreflight(state.PolicyDirectory, data)
+	if err != nil {
+		return fault.Wrap(
+			fault.KindRejected, "policy_preflight_failed",
+			"candidate policy could not be prepared for testing", false, err,
+		)
+	}
+	defer func() { _ = os.RemoveAll(preflight) }()
+	if err := r.testPolicyDirectory(ctx, preflight); err != nil {
+		return fault.Wrap(
+			fault.KindRejected, "policy_preflight_failed",
+			"candidate policy failed OPA tests", false, err,
+		)
+	}
+	current, err := readOwnerPolicyFile(
+		filepath.Join(state.PolicyDirectory, "data.json"), maxPolicyDataBytes,
+	)
+	if err != nil || !bytes.Equal(current, file.source) {
+		return fault.Wrap(
+			fault.KindRejected, "policy_data_changed",
+			"policy data changed while the candidate was being tested", false, err,
+		)
+	}
+	if err := atomicWriteOwnerFile(filepath.Join(state.PolicyDirectory, "data.json"), data); err != nil {
+		return fault.Wrap(
+			fault.KindInternal, "policy_write_failed",
+			"tested policy data could not be written atomically", false, err,
+		)
+	}
+	if err := r.ApplyPolicy(ctx, state); err != nil {
+		return err
+	}
+	return nil
+}

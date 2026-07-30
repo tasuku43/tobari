@@ -40,7 +40,7 @@ class CredentialError(Exception):
 class Decision:
     """Validated OPA decision compatible with mitmproxy's script loader."""
 
-    __slots__ = ("allow", "reason", "credential_profile", "status_code")
+    __slots__ = ("allow", "reason", "credential_profile", "status_code", "learnable")
 
     def __init__(
         self,
@@ -48,11 +48,13 @@ class Decision:
         reason: str,
         credential_profile: str | None,
         status_code: int,
+        learnable: bool,
     ) -> None:
         self.allow = allow
         self.reason = reason
         self.credential_profile = credential_profile
         self.status_code = status_code
+        self.learnable = learnable
 
 
 def _positive_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -144,7 +146,18 @@ def _parse_decision(document: Any) -> Decision:
     status = result.get("status_code", 403)
     if not isinstance(status, int) or status != 403:
         raise PolicyUnavailable("OPA result has invalid status_code")
-    return Decision(allow=allow, reason=reason, credential_profile=profile, status_code=status)
+    learnable = result.get("learnable", False)
+    if not isinstance(learnable, bool):
+        raise PolicyUnavailable("OPA result has invalid learnable")
+    if allow and learnable:
+        raise PolicyUnavailable("OPA result cannot allow and be learnable")
+    return Decision(
+        allow=allow,
+        reason=reason,
+        credential_profile=profile,
+        status_code=status,
+        learnable=learnable,
+    )
 
 
 def query_opa(url: str, policy_input: dict[str, Any], timeout: float) -> Decision:
@@ -281,6 +294,7 @@ class TobariGateway:
         upstream_status: int | None = None
         decision_name = "deny"
         reason = "gateway rejected request"
+        learnable = False
         try:
             config = load_credential_config(self.credential_path)
             secret_names = configured_secret_headers(config)
@@ -297,6 +311,7 @@ class TobariGateway:
             decision = query_opa(self.opa_url, policy_input, self.opa_timeout)
             reason = decision.reason
             profile_name = decision.credential_profile
+            learnable = decision.learnable
             if not decision.allow:
                 _deny(flow, decision.status_code, "policy_denied")
                 upstream_status = decision.status_code
@@ -314,6 +329,7 @@ class TobariGateway:
                 "decision": decision_name,
                 "reason": reason,
                 "credential_profile": profile_name,
+                "learnable": learnable,
                 "started": started,
             }
         except PolicyUnavailable as error:
@@ -344,6 +360,7 @@ class TobariGateway:
                     decision=decision_name,
                     reason=reason,
                     credential_profile=profile_name,
+                    learnable=learnable,
                     upstream_status=upstream_status,
                     duration_ms=int((time.monotonic() - started) * 1000),
                 )

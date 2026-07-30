@@ -24,6 +24,7 @@ type recordingRunner struct {
 	outputData  []byte
 	outputErr   error
 	outputQueue [][]byte
+	onOutput    func(int)
 }
 
 func (r *recordingRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
@@ -32,6 +33,9 @@ func (r *recordingRunner) Run(_ context.Context, args, _ []string, _ io.Reader, 
 }
 func (r *recordingRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+	if r.onOutput != nil {
+		r.onOutput(len(r.outputs))
+	}
 	if len(r.outputQueue) > 0 {
 		output := append([]byte{}, r.outputQueue[0]...)
 		r.outputQueue = r.outputQueue[1:]

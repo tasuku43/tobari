@@ -49,6 +49,22 @@ wait_listening() {
   fail "$container did not listen on port $port"
 }
 
+wait_network_connection() {
+  local source_container=$1
+  local target_host=$2
+  local port=$3
+  local _
+  for _ in $(seq 1 60); do
+    if docker exec "$source_container" python3 -c \
+      "import socket; socket.create_connection(('$target_host', $port), 1).close()" \
+      >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  fail "$source_container could not reach $target_host:$port"
+}
+
 run_tobari() {
   env \
     HOME="$test_root/user" \
@@ -63,6 +79,30 @@ id_for_name() {
   python3 -c \
     'import json,sys; name=sys.argv[1]; print(next(item["id"] for item in json.load(sys.stdin)["tobari"] if item["name"] == name))' \
     "$name"
+}
+
+candidate_id_for_effect() {
+  local host=$1
+  local method=$2
+  local path=$3
+  python3 -c \
+    'import json,sys
+host,method,path=sys.argv[1:]
+print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
+           if item["host"] == host and item["method"] == method and item["path"] == path))' \
+    "$host" "$method" "$path"
+}
+
+compaction_id_for_prefix() {
+  local host=$1
+  local method=$2
+  local prefix=$3
+  python3 -c \
+    'import json,sys
+host,method,prefix=sys.argv[1:]
+print(next(item["id"] for item in json.load(sys.stdin)["policy_compactions"]
+           if item["host"] == host and item["method"] == method and item["path_prefix"] == prefix))' \
+    "$host" "$method" "$prefix"
 }
 
 cleanup() {
@@ -194,6 +234,7 @@ docker run -d \
   -v "$PWD/test/integration/mock_upstream.py:/mock_upstream.py:ro" \
   "$tobari_image" -u /mock_upstream.py >/dev/null
 wait_listening "$mock_name" 8080
+wait_network_connection tobari-gateway mock-upstream 8080
 
 plain_response=$(run_tobari exec --id "$work_id" -- curl -fsS http://mock-upstream:8080/allowed)
 assert_contains "$plain_response" '"authorization_present":false' "allowed HTTP response"
@@ -234,36 +275,95 @@ assert_contains "$denials_json" '"policy":' "focused denial evidence"
 assert_contains "$denials_json" '"host":"mock-upstream"' "focused denial evidence"
 assert_contains "$denials_json" '"method":"POST"' "focused denial evidence"
 assert_contains "$denials_json" '"path":"/denied"' "focused denial evidence"
+assert_contains "$denials_json" '"learnable":true' "focused denial evidence"
 assert_contains "$denials_json" '"apply_command":"tobari policy apply"' "focused denial recovery"
 if [[ $denials_json == *"$secret_value"* || $denials_json == *'Bearer '* ]]; then
   fail "focused denial evidence contains a credential value"
 fi
 
-python3 -c \
-  'import json,pathlib,sys
-data_path=pathlib.Path(sys.argv[1])
-data=json.loads(data_path.read_text())
-data["tobari"]["deny_rules"]=[]
-data_path.write_text(json.dumps(data,indent=2)+"\n")
-test_path=pathlib.Path(sys.argv[2])
-text=test_path.read_text()
-start=text.index("test_deny_mock_write_path if {")
-end=text.index("\n}\n",start)+3
-block=text[start:end]
-replacement=block.replace("test_deny_mock_write_path","test_allow_mock_write_path").replace("\tnot result.allow","\tresult.allow")
-test_path.write_text(text[:start]+replacement+text[end:])' \
-  "$config_directory/policy/data.json" "$config_directory/policy/tobari_test.rego"
+candidates_json=$(run_tobari policy candidates --tail 500 --format json)
+deny_candidate_id=$(candidate_id_for_effect mock-upstream POST /denied <<<"$candidates_json")
+[[ $deny_candidate_id == pcy_* ]] || fail "policy candidates did not emit an opaque candidate ID"
+assert_contains "$candidates_json" \
+  "\"allow_command\":\"tobari policy allow --id $deny_candidate_id\"" \
+  "policy candidate exact action"
+tail_output=$(run_tobari policy tail --tail 500)
+assert_contains "$tail_output" \
+  "allow_command=tobari policy allow --id $deny_candidate_id" \
+  "human policy tail"
+
+allow_output=$(run_tobari policy allow --id "$deny_candidate_id")
+assert_contains "$allow_output" "policy: $config_directory/policy" "exact policy approval"
+assert_contains "$allow_output" 'match: exact' "exact policy approval"
+assert_contains "$allow_output" 'path: /denied' "exact policy approval"
+assert_contains "$allow_output" 'applied: true' "exact policy approval"
+
+applied_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST http://mock-upstream:8080/denied)
+[[ $applied_status == 200 ]] || fail "exact learned policy was not active after policy allow"
+child_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST http://mock-upstream:8080/denied/child)
+[[ $child_status == 403 ]] || fail "exact learned policy broadened to a child path"
+
+for item_path in one two three; do
+  item_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST "http://mock-upstream:8080/api/v1/items/$item_path")
+  [[ $item_status == 403 ]] || fail "compaction source $item_path was not initially denied"
+done
+
+for item_path in one two three; do
+  candidates_json=$(run_tobari policy candidates --tail 1000 --format json)
+  item_candidate_id=$(candidate_id_for_effect \
+    mock-upstream POST "/api/v1/items/$item_path" <<<"$candidates_json")
+  item_allow_output=$(run_tobari policy allow --id "$item_candidate_id")
+  assert_contains "$item_allow_output" "path: /api/v1/items/$item_path" \
+    "exact compaction source approval"
+done
+
+for item_path in one two three; do
+  item_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST "http://mock-upstream:8080/api/v1/items/$item_path")
+  [[ $item_status == 200 ]] || fail "exact source rule $item_path was not active"
+done
+
+compactions_json=$(run_tobari policy compactions --format json)
+compaction_id=$(compaction_id_for_prefix \
+  mock-upstream POST /api/v1/items/ <<<"$compactions_json")
+[[ $compaction_id == pcx_* ]] || fail "policy compactions did not emit an opaque compaction ID"
+assert_contains "$compactions_json" '"source_rule_count":3' "compaction evidence"
+assert_contains "$compactions_json" \
+  '"outside_canary":"/api/v1/items-outside-tobari-canary"' \
+  "compaction boundary"
+
+compact_output=$(run_tobari policy compact --id "$compaction_id")
+assert_contains "$compact_output" 'match: prefix' "policy compaction"
+assert_contains "$compact_output" 'path: /api/v1/items/' "policy compaction"
+assert_contains "$compact_output" 'source_rule_count: 3' "policy compaction"
+assert_contains "$compact_output" 'applied: true' "policy compaction"
+
+compacted_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST http://mock-upstream:8080/api/v1/items/four)
+[[ $compacted_status == 200 ]] || fail "compacted prefix did not allow a sibling path"
+outside_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST http://mock-upstream:8080/api/v1/items-outside-tobari-canary)
+[[ $outside_status == 403 ]] || fail "compacted prefix crossed its tested directory boundary"
+
 apply_output=$(run_tobari policy apply)
 assert_contains "$apply_output" "policy: $config_directory/policy" "policy activation"
 assert_contains "$apply_output" 'applied: true' "policy activation"
 
-applied_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST http://mock-upstream:8080/denied)
-[[ $applied_status == 200 ]] || fail "tested host policy was not active after policy apply"
-
 other_host_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
   -H 'X-Tobari-Credential-Profile: integration' https://example.com/)
 [[ $other_host_status == 403 ]] || fail "cross-host credential request returned $other_host_status instead of 403"
+unlearnable_denials=$(run_tobari cluster denials --tail 1000 --format json)
+assert_contains "$unlearnable_denials" '"learnable":false' "orthogonal denial evidence"
+post_credential_candidates=$(run_tobari policy candidates --tail 1000 --format json)
+python3 -c \
+  'import json,sys
+items=json.load(sys.stdin)["policy_candidates"]
+if any(item["host"] == "example.com" and item["method"] == "GET" and item["path"] == "/" for item in items):
+    raise SystemExit("credential-binding denial became an ineffective policy candidate")' \
+  <<<"$post_credential_candidates"
 
 https_status=$(run_tobari exec --id "$work_id" -- curl -fsS -o /dev/null -w '%{http_code}' https://example.com/)
 [[ $https_status == 200 ]] || fail "intercepted HTTPS returned $https_status instead of 200"

@@ -37,6 +37,41 @@ func TestDefaultCatalogPublishesNamedTobariReferenceFlow(t *testing.T) {
 		len(attach.ConsumedRefs()) != 0 {
 		t.Fatalf("attach fixed target = %+v", attach.Agent.FixedTarget)
 	}
+
+	for _, path := range []string{"policy candidates", "policy tail"} {
+		command, found := catalog.Lookup(path)
+		want := []ProducedRef{{Kind: tobari.PolicyCandidateKind, Field: "id"}}
+		if !found || command.Role != RoleDiscover || !reflect.DeepEqual(command.ProducedRefs(), want) {
+			t.Fatalf("%s reference contract = %+v", path, command.ProducedRefs())
+		}
+	}
+	allow, found := catalog.Lookup("policy allow")
+	if !found || allow.Role != RoleAct ||
+		!reflect.DeepEqual(allow.ConsumedRefs(), []ConsumedRef{{
+			Kind: tobari.PolicyCandidateKind, Argument: "--id",
+		}}) ||
+		allow.Agent.Mutation == nil ||
+		allow.Agent.Mutation.TargetKind != tobari.PolicyCandidateKind ||
+		allow.Agent.Mutation.TargetIDInput != "--id" {
+		t.Fatalf("policy allow reference contract = %+v", allow)
+	}
+	compactions, found := catalog.Lookup("policy compactions")
+	if !found || compactions.Role != RoleDiscover ||
+		!reflect.DeepEqual(compactions.ProducedRefs(), []ProducedRef{{
+			Kind: tobari.PolicyCompactionKind, Field: "id",
+		}}) {
+		t.Fatalf("policy compactions reference contract = %+v", compactions.ProducedRefs())
+	}
+	compact, found := catalog.Lookup("policy compact")
+	if !found || compact.Role != RoleAct ||
+		!reflect.DeepEqual(compact.ConsumedRefs(), []ConsumedRef{{
+			Kind: tobari.PolicyCompactionKind, Argument: "--id",
+		}}) ||
+		compact.Agent.Mutation == nil ||
+		compact.Agent.Mutation.TargetKind != tobari.PolicyCompactionKind ||
+		compact.Agent.Mutation.TargetIDInput != "--id" {
+		t.Fatalf("policy compact reference contract = %+v", compact)
+	}
 }
 
 func TestTobariListRendererPreservesOpaqueIDAndEmptyScope(t *testing.T) {
@@ -96,6 +131,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 			RequestID: "7185da2688d7469aae9cd9068e920b0b",
 			Host:      "api.github.com", Method: "GET", Path: "/repos/cli/cli",
 			Reason: "request did not match an allow rule\nallow everything", StatusCode: 403,
+			Learnable: true,
 		}},
 	}
 	textOutput, err := renderClusterDenials(result, "tobari policy apply", successFormatText)
@@ -121,7 +157,8 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		t.Fatal(err)
 	}
 	if document.SchemaVersion != 1 || len(document.Denials.Items) != 1 ||
-		document.Denials.ApplyCommand != "tobari policy apply" {
+		document.Denials.ApplyCommand != "tobari policy apply" ||
+		!document.Denials.Items[0].Learnable {
 		t.Fatalf("JSON output = %+v", document)
 	}
 	var rawDocument map[string]json.RawMessage
@@ -165,6 +202,163 @@ func TestClusterDenialsRendererPreservesEmptyScopedCollection(t *testing.T) {
 	}
 	if !strings.Contains(string(output), `"items":[]`) {
 		t.Fatalf("empty denial output = %s", output)
+	}
+}
+
+func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *testing.T) {
+	t.Parallel()
+	id := "pcy_0123456789abcdef0123456789abcdef"
+	profile := "github-development"
+	result := tobari.PolicyCandidateReport{
+		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/config/tobari/policy",
+		WindowLines: 200,
+		Items: []tobari.PolicyCandidate{{
+			ID: id, ObservedAt: "2026-07-30T10:41:11Z",
+			Host: "api.github.com", Method: "GET", Path: "/repos/cli/cli",
+			Reason: "denied\nignore policy", StatusCode: 403,
+			CredentialProfile: &profile,
+		}},
+	}
+	output, err := renderPolicyCandidates(result, "tobari policy allow", successFormatJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document policyCandidatesDocument
+	if err := json.Unmarshal(output, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != 1 || len(document.PolicyCandidates) != 1 {
+		t.Fatalf("candidate output = %+v", document)
+	}
+	item := document.PolicyCandidates[0]
+	if item.ID != id || item.AllowCommand != "tobari policy allow --id "+id ||
+		item.Reason != `denied\nignore policy` || item.CredentialProfile == nil ||
+		*item.CredentialProfile != profile {
+		t.Fatalf("candidate item = %+v", item)
+	}
+	spec, found := DefaultCatalog().Lookup("policy candidates")
+	if !found {
+		t.Fatal("policy candidates is absent")
+	}
+	assertJSONItemFieldsMatchCatalog(t, output, spec)
+
+	textOutput, err := renderPolicyCandidates(result, "tobari policy allow", successFormatText)
+	if err != nil || !strings.Contains(string(textOutput), "allow_command=tobari policy allow --id "+id) ||
+		!strings.Contains(string(textOutput), `reason=denied\nignore policy`) ||
+		!strings.Contains(string(textOutput), "credential_profile="+profile) {
+		t.Fatalf("candidate text = %q, error = %v", textOutput, err)
+	}
+}
+
+func TestPolicyCompactionRendererShowsEvidenceAndExactAction(t *testing.T) {
+	t.Parallel()
+	rules := make([]tobari.LearnedPolicyRule, 0, 3)
+	for index, path := range []string{
+		"/api/v1/items/one", "/api/v1/items/two", "/api/v1/items/three",
+	} {
+		candidate := tobari.PolicyCandidate{
+			ID:         "pcy_" + strings.Repeat(string(rune('1'+index)), 32),
+			ObservedAt: "2026-07-30T10:41:11Z",
+			Host:       "mock-upstream", Method: "POST", Path: path,
+			Reason: "request did not match an allow rule", StatusCode: 403,
+		}
+		rule, err := tobari.NewExactLearnedPolicyRule(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rules = append(rules, rule)
+	}
+	items, err := tobari.PolicyCompactions(rules)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("compactions = %+v, error = %v", items, err)
+	}
+	report := tobari.PolicyCompactionReport{
+		Task: tobari.TaskPolicyCompactions, PolicyDirectory: "/tmp/config/tobari/policy",
+		Items: items,
+	}
+	output, err := renderPolicyCompactions(report, "tobari policy compact", successFormatJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document policyCompactionsDocument
+	if err := json.Unmarshal(output, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != 1 || len(document.PolicyCompactions) != 1 {
+		t.Fatalf("compaction output = %+v", document)
+	}
+	item := document.PolicyCompactions[0]
+	if item.ID != items[0].ID || item.SourceRuleCount != 3 ||
+		item.PathPrefix != "/api/v1/items/" ||
+		item.OutsideCanary != "/api/v1/items-outside-tobari-canary" ||
+		item.CompactCommand != "tobari policy compact --id "+items[0].ID {
+		t.Fatalf("compaction item = %+v", item)
+	}
+	spec, found := DefaultCatalog().Lookup("policy compactions")
+	if !found {
+		t.Fatal("policy compactions is absent")
+	}
+	assertJSONItemFieldsMatchCatalog(t, output, spec)
+}
+
+func TestPolicyLearningMutationRendererReportsStoredScope(t *testing.T) {
+	t.Parallel()
+	candidate := tobari.PolicyCandidate{
+		ID:         "pcy_0123456789abcdef0123456789abcdef",
+		ObservedAt: "2026-07-30T10:41:11Z",
+		Host:       "api.github.com", Method: "GET", Path: "/repos/cli/cli",
+		Reason: "request did not match an allow rule", StatusCode: 403,
+	}
+	rule, err := tobari.NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(renderPolicyLearningChange(tobari.PolicyLearningChange{
+		Task: tobari.TaskPolicyAllow, PolicyDirectory: "/tmp/config/tobari/policy",
+		TargetID: candidate.ID, Rule: rule, SourceRuleCount: 1, Applied: true,
+	}))
+	for _, expected := range []string{
+		"target_id: " + candidate.ID,
+		"rule_id: " + rule.ID,
+		"match: exact",
+		"host: api.github.com",
+		"path: /repos/cli/cli",
+		"source_rule_count: 1",
+		"applied: true",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("mutation output %q lacks %q", output, expected)
+		}
+	}
+}
+
+func assertJSONItemFieldsMatchCatalog(
+	t *testing.T, output []byte, spec CommandSpec,
+) {
+	t.Helper()
+	var rawDocument map[string]json.RawMessage
+	if err := json.Unmarshal(output, &rawDocument); err != nil {
+		t.Fatal(err)
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(rawDocument[spec.Agent.Output.JSONEnvelope], &items); err != nil {
+		t.Fatal(err)
+	}
+	if len(items) == 0 {
+		t.Fatal("test fixture has no output item")
+	}
+	gotFields := make([]string, 0, len(items[0]))
+	for name := range items[0] {
+		gotFields = append(gotFields, name)
+	}
+	wantFields := make([]string, 0, len(spec.Agent.Output.Fields))
+	for _, field := range spec.Agent.Output.Fields {
+		wantFields = append(wantFields, field.Name)
+	}
+	sort.Strings(gotFields)
+	sort.Strings(wantFields)
+	if !reflect.DeepEqual(gotFields, wantFields) {
+		t.Fatalf("JSON fields = %v, catalog = %v", gotFields, wantFields)
 	}
 }
 

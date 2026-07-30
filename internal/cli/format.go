@@ -39,6 +39,14 @@ func safeExternalText(value string) string {
 	return output.String()
 }
 
+func safeOptionalExternalText(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	projected := safeExternalText(*value)
+	return &projected
+}
+
 func escapeTSVCell(value string) string {
 	var output strings.Builder
 	for _, r := range value {

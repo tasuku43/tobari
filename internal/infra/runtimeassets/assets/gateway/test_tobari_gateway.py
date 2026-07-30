@@ -67,10 +67,46 @@ class GatewayTests(unittest.TestCase):
         self.assertNotIn("value", body)
 
     def test_invalid_opa_response_fails_closed(self):
-        for document in ({}, {"result": {}}, {"result": {"allow": "yes", "reason": "x"}}):
+        for document in (
+            {},
+            {"result": {}},
+            {"result": {"allow": "yes", "reason": "x"}},
+            {
+                "result": {
+                    "allow": False,
+                    "reason": "denied",
+                    "credential_profile": None,
+                    "status_code": 403,
+                    "learnable": "yes",
+                }
+            },
+        ):
             with self.subTest(document=document):
                 with self.assertRaises(gateway.PolicyUnavailable):
                     gateway._parse_decision(document)
+        decision = gateway._parse_decision(
+            {
+                "result": {
+                    "allow": False,
+                    "reason": "denied",
+                    "credential_profile": None,
+                    "status_code": 403,
+                    "learnable": True,
+                }
+            }
+        )
+        self.assertTrue(decision.learnable)
+        legacy = gateway._parse_decision(
+            {
+                "result": {
+                    "allow": False,
+                    "reason": "denied",
+                    "credential_profile": None,
+                    "status_code": 403,
+                }
+            }
+        )
+        self.assertFalse(legacy.learnable)
 
     def test_credential_is_host_bound(self):
         request = self.flow().request
@@ -97,7 +133,9 @@ class GatewayTests(unittest.TestCase):
             with mock.patch.object(
                 gateway,
                 "query_opa",
-                return_value=gateway.Decision(False, "denied", None, 403),
+                return_value=gateway.Decision(
+                    False, "denied", "example", 403, True
+                ),
             ):
                 with redirect_stdout(output):
                     addon.request(flow)
@@ -115,6 +153,8 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(audit["method"], "POST")
         self.assertEqual(audit["path"], "/v1/resources")
         self.assertEqual(audit["reason"], "denied")
+        self.assertTrue(audit["learnable"])
+        self.assertEqual(audit["credential_profile"], "example")
 
     def test_opa_outage_returns_503_without_forwarding(self):
         flow = self.flow()
@@ -129,7 +169,9 @@ class GatewayTests(unittest.TestCase):
                 with redirect_stdout(output):
                     addon.request(flow)
         self.assertEqual(flow.response.status_code, 503)
-        self.assertEqual(json.loads(output.getvalue())["reason"], "OPA request failed")
+        audit = json.loads(output.getvalue())
+        self.assertEqual(audit["reason"], "OPA request failed")
+        self.assertFalse(audit["learnable"])
 
     def test_unexpected_gateway_error_fails_closed(self):
         flow = self.flow()
