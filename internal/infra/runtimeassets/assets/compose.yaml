@@ -10,6 +10,7 @@ services:
       - --server
       - --addr=0.0.0.0:8181
       - --log-format=json
+      - --watch
       - /policy
     read_only: true
     cap_drop: [ALL]
@@ -57,7 +58,7 @@ services:
     environment:
       HOME: /var/lib/mitmproxy
       TOBARI_OPA_URL: http://opa:8181/v1/data/tobari/http/decision
-      TOBARI_REALM: default
+      TOBARI_REALM: shared
       TOBARI_INSPECTION_BYTES: ${TOBARI_INSPECTION_BYTES:-1048576}
       TOBARI_OPA_TIMEOUT_SECONDS: ${TOBARI_OPA_TIMEOUT_SECONDS:-2}
       TOBARI_UPSTREAM_TIMEOUT_SECONDS: ${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}
@@ -68,7 +69,6 @@ services:
       - ${TOBARI_CREDENTIAL_CONFIG}:/run/tobari/config/credentials.json:ro
       - ${TOBARI_CREDENTIAL_DIR}:/run/tobari/credentials:ro
     networks:
-      realm: {}
       control: {}
       egress: {}
     labels:
@@ -84,58 +84,7 @@ services:
       timeout: 2s
       retries: 30
 
-  realm:
-    build:
-      context: realm
-      args:
-        DEBIAN_IMAGE: ${TOBARI_DEBIAN_IMAGE}
-        TOBARI_UID: ${TOBARI_UID}
-        TOBARI_GID: ${TOBARI_GID}
-    image: tobari-realm:${TOBARI_ASSET_VERSION}
-    container_name: tobari-realm
-    depends_on:
-      gateway:
-        condition: service_healthy
-    read_only: true
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
-    tmpfs:
-      - /tmp:size=512m,mode=1777
-      - /run:size=16m,mode=1777
-    environment:
-      HOME: /var/lib/tobari
-      HTTP_PROXY: http://gateway:8080
-      HTTPS_PROXY: http://gateway:8080
-      http_proxy: http://gateway:8080
-      https_proxy: http://gateway:8080
-      NO_PROXY: ""
-      no_proxy: ""
-      SSL_CERT_FILE: /tmp/tobari-ca-bundle.pem
-      REQUESTS_CA_BUNDLE: /tmp/tobari-ca-bundle.pem
-      GIT_SSL_CAINFO: /tmp/tobari-ca-bundle.pem
-    volumes:
-      - ${TOBARI_ROOT}:/workspace:rw
-      - realm-home:/var/lib/tobari
-      - public-ca:/run/tobari/ca-public:ro
-    working_dir: /workspace
-    networks:
-      realm: {}
-    labels:
-      io.tobari.owner: default
-      io.tobari.component: realm
-    healthcheck:
-      test: [CMD, test, -f, /tmp/tobari-ready]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-
 networks:
-  realm:
-    name: tobari-realm-net
-    internal: true
-    labels:
-      io.tobari.owner: default
   control:
     name: tobari-control
     internal: true
@@ -147,10 +96,6 @@ networks:
       io.tobari.owner: default
 
 volumes:
-  realm-home:
-    name: tobari-realm-home
-    labels:
-      io.tobari.owner: default
   gateway-ca:
     name: tobari-gateway-ca
     labels:

@@ -137,7 +137,11 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 			t.Errorf("%s role: %v", command.Path, err)
 		}
 	}
-	for _, required := range []string{"doctor", "help", "version", "up", "status", "shell", "exec", "logs", "down"} {
+	for _, required := range []string{
+		"doctor", "help", "version",
+		"cluster up", "cluster status", "cluster logs", "cluster down",
+		"attach", "list", "shell", "exec", "logs", "detach",
+	} {
 		if !seen[required] {
 			t.Errorf("catalog is missing %q", required)
 		}
@@ -146,15 +150,19 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 
 func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 	wantCoverage := map[string]CollectionCoverage{
-		"doctor":  CollectionCoverageExhaustive,
-		"help":    CollectionCoverageExhaustive,
-		"version": CollectionCoverageNotApplicable,
-		"up":      CollectionCoverageNotApplicable,
-		"status":  CollectionCoverageExhaustive,
-		"shell":   CollectionCoverageNotApplicable,
-		"exec":    CollectionCoverageNotApplicable,
-		"logs":    CollectionCoverageBoundedWindow,
-		"down":    CollectionCoverageNotApplicable,
+		"doctor":         CollectionCoverageExhaustive,
+		"help":           CollectionCoverageExhaustive,
+		"version":        CollectionCoverageNotApplicable,
+		"cluster up":     CollectionCoverageNotApplicable,
+		"cluster status": CollectionCoverageExhaustive,
+		"cluster logs":   CollectionCoverageBoundedWindow,
+		"cluster down":   CollectionCoverageNotApplicable,
+		"attach":         CollectionCoverageNotApplicable,
+		"list":           CollectionCoverageExhaustive,
+		"shell":          CollectionCoverageNotApplicable,
+		"exec":           CollectionCoverageNotApplicable,
+		"logs":           CollectionCoverageBoundedWindow,
+		"detach":         CollectionCoverageNotApplicable,
 	}
 	for path, coverage := range wantCoverage {
 		command, found := DefaultCatalog().Lookup(path)

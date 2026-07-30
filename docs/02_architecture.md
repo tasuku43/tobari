@@ -55,8 +55,8 @@ The Go binary embeds a versioned runtime tree:
 ```text
 runtime/
   compose.yaml
-  realm/Dockerfile
-  realm/entrypoint.sh
+  tobari/Dockerfile
+  tobari/entrypoint.sh
   gateway/Dockerfile
   gateway/addon/tobari_gateway.py
   gateway/config.example.json

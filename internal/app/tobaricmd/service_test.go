@@ -1,0 +1,165 @@
+package tobaricmd
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"path/filepath"
+	"testing"
+
+	"github.com/tasuku43/tobari/internal/domain/doctor"
+	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
+)
+
+type fakeRuntime struct {
+	state       tobari.State
+	attachCalls int
+	detachCalls int
+	execSeen    tobari.Instance
+}
+
+func (f *fakeRuntime) ResolveRoot(_ context.Context, root string) (string, error) { return root, nil }
+func (f *fakeRuntime) CurrentDirectory(context.Context) (string, error) {
+	if len(f.state.Tobari) == 0 {
+		return "/", nil
+	}
+	return f.state.Tobari[0].Root, nil
+}
+func (f *fakeRuntime) IsTerminal(io.Writer) bool                       { return false }
+func (f *fakeRuntime) ClusterUp(context.Context) (tobari.State, error) { return f.state, nil }
+func (f *fakeRuntime) LoadState(context.Context) (tobari.State, bool, error) {
+	return f.state, true, nil
+}
+func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.ClusterStatus, error) {
+	return tobari.ClusterStatus{
+		Configured: true, Running: true, Proxy: f.state.ProxyEndpoint,
+		Policy: f.state.PolicyDirectory, TobariCount: len(f.state.Tobari),
+		Components: []tobari.ComponentStatus{},
+	}, nil
+}
+func (f *fakeRuntime) Attach(_ context.Context, state tobari.State, name, root string) (tobari.State, error) {
+	f.attachCalls++
+	state.Tobari = append(state.Tobari, tobari.Instance{
+		ID: "tbr_abcdef0123456789abcdef0123456789", Name: name, Root: root,
+		Container: "tobari-" + name, Network: "tobari-" + name + "-net",
+		HomeVolume: "tobari-" + name + "-home",
+	})
+	f.state = state
+	return state, nil
+}
+func (f *fakeRuntime) InspectTobari(_ context.Context, state tobari.State) ([]tobari.ItemStatus, error) {
+	items := make([]tobari.ItemStatus, 0, len(state.Tobari))
+	for _, instance := range state.Tobari {
+		items = append(items, tobari.ItemStatus{
+			ID: instance.ID, Name: instance.Name, Root: instance.Root,
+			Running: true, Container: instance.Container,
+		})
+	}
+	return items, nil
+}
+func (f *fakeRuntime) Exec(_ context.Context, instance tobari.Instance, _ tobari.ExecRequest, _ io.Reader, _ io.Writer, _ io.Writer) (int, error) {
+	f.execSeen = instance
+	return 23, nil
+}
+func (f *fakeRuntime) ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error) {
+	return []byte("cluster\n"), nil
+}
+func (f *fakeRuntime) TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error) {
+	return []byte("tobari\n"), nil
+}
+func (f *fakeRuntime) Detach(_ context.Context, state tobari.State, instance tobari.Instance, _ bool) (tobari.State, error) {
+	f.detachCalls++
+	state.Tobari = []tobari.Instance{}
+	f.state = state
+	return state, nil
+}
+func (f *fakeRuntime) ClusterDown(context.Context, tobari.State, bool) error { return nil }
+func (f *fakeRuntime) Doctor(context.Context, string) (doctor.Report, error) {
+	return doctor.Report{Checks: []doctor.Check{{Name: "docker", Status: doctor.CheckStatusPass, Detail: "available"}}}, nil
+}
+
+func testState(root string) tobari.State {
+	instance := tobari.Instance{
+		ID: "tbr_0123456789abcdef0123456789abcdef", Name: "work",
+		Root: filepath.Join(root, "work"), Container: "tobari-work",
+		Network: "tobari-work-net", HomeVolume: "tobari-work-home",
+	}
+	return tobari.State{
+		SchemaVersion: 2, RuntimeDirectory: filepath.Join(root, "runtime"),
+		PolicyDirectory:  filepath.Join(root, "policy"),
+		CredentialConfig: filepath.Join(root, "credentials.json"),
+		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
+		ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{instance},
+	}
+}
+
+func createIntent(command string) operation.Intent {
+	return operation.Intent{
+		Command: command, Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ParentID: tobari.ClusterTargetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo,
+		},
+	}
+}
+
+func TestAttachRejectsInvalidNameBeforeRuntime(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	_, err := New(runtime).Attach(context.Background(), createIntent("attach"), "../bad", "/tmp/root")
+	if err == nil || runtime.attachCalls != 0 {
+		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
+	}
+}
+
+func TestExecUsesOpaqueIDWithoutNameDiscovery(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	instance := runtime.state.Tobari[0]
+	code, err := New(runtime).Exec(
+		context.Background(), instance.ID,
+		tobari.ExecRequest{Command: []string{"sh", "-c", "exit 23"}},
+		bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	if err != nil || code != 23 || runtime.execSeen.ID != instance.ID {
+		t.Fatalf("Exec() code=%d err=%v seen=%+v", code, err, runtime.execSeen)
+	}
+}
+
+func TestDetachRequiresIntentIDToMatchConsumedReference(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	instance := runtime.state.Tobari[0]
+	intent := operation.Intent{
+		Command: "detach", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.TargetKind, ID: "tbr_abcdef0123456789abcdef0123456789"},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationYes,
+		},
+	}
+	if err := New(runtime).Detach(context.Background(), intent, instance.ID, false); err == nil {
+		t.Fatal("mismatched target was accepted")
+	}
+	if runtime.detachCalls != 0 {
+		t.Fatalf("detach calls = %d", runtime.detachCalls)
+	}
+}
+
+func TestClusterDownRejectsNonEmptyClusterBeforeMutation(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	intent := operation.Intent{
+		Command: "cluster down", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationYes,
+		},
+	}
+	if _, err := New(runtime).ClusterDown(context.Background(), intent, false); err == nil {
+		t.Fatal("non-empty cluster was removed")
+	}
+}

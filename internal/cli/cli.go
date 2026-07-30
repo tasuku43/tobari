@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
-	"github.com/tasuku43/tobari/internal/app/realmcmd"
+	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
@@ -25,7 +25,7 @@ type CLI struct {
 
 	catalog Catalog
 	doctor  *doctorcmd.Service
-	realm   *realmcmd.Service
+	tobari  *tobaricmd.Service
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
@@ -33,7 +33,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
 	runtime, err := dockerruntime.New()
 	if err == nil {
-		command.realm = realmcmd.New(runtime)
+		command.tobari = tobaricmd.New(runtime)
 	}
 	return command
 }

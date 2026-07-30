@@ -23,8 +23,8 @@ func runDoctor(ctx context.Context, c *CLI, command CommandSpec, intent operatio
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help doctor", "Correct the command arguments.")
 	}
 	var report doctor.Report
-	if c.realm != nil {
-		report, err = c.realm.Doctor(ctx, inputs.One("--root"))
+	if c.tobari != nil {
+		report, err = c.tobari.Doctor(ctx, inputs.One("--root"))
 	} else {
 		report, err = c.doctor.Run(ctx, intent)
 	}

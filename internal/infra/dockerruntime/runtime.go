@@ -1,9 +1,11 @@
-// Package dockerruntime implements the Tobari runtime through the Docker CLI.
+// Package dockerruntime implements Tobari through the Docker CLI.
 package dockerruntime
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,28 +13,28 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
-	"github.com/tasuku43/tobari/internal/domain/realm"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 const (
-	ownerLabel     = "io.tobari.owner"
-	ownerValue     = "default"
-	maxLogBytes    = 4 * 1024 * 1024
-	defaultLogTail = 200
+	ownerLabel       = "io.tobari.owner"
+	ownerValue       = "default"
+	componentLabel   = "io.tobari.component"
+	tobariIDLabel    = "io.tobari.tobari-id"
+	maxLogBytes      = 4 * 1024 * 1024
+	defaultLogTail   = 200
+	gatewayContainer = "tobari-gateway"
+	opaContainer     = "tobari-opa"
 )
 
-var componentContainers = map[string]string{
-	"gateway": "tobari-gateway",
-	"opa":     "tobari-opa",
-	"realm":   "tobari-realm",
-}
+var clusterContainers = map[string]string{"gateway": gatewayContainer, "opa": opaContainer}
 
 type commandRunner interface {
 	Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
@@ -41,22 +43,14 @@ type commandRunner interface {
 
 type osCommandRunner struct{}
 
-func (osCommandRunner) Run(
-	ctx context.Context,
-	args, environment []string,
-	in io.Reader,
-	out, errOut io.Writer,
-) error {
-	command := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- executable is fixed and every value is passed as one exact argv element, never through a shell.
-	command.Env = environment
-	command.Stdin = in
-	command.Stdout = out
-	command.Stderr = errOut
+func (osCommandRunner) Run(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
+	command := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- executable and argv boundary are fixed.
+	command.Env, command.Stdin, command.Stdout, command.Stderr = environment, in, out, errOut
 	return command.Run()
 }
 
 func (osCommandRunner) Output(ctx context.Context, args, environment []string) ([]byte, error) {
-	command := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- executable is fixed and every value is passed as one exact argv element, never through a shell.
+	command := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- executable and argv boundary are fixed.
 	command.Env = environment
 	return command.CombinedOutput()
 }
@@ -71,24 +65,15 @@ type Runtime struct {
 // New resolves XDG paths without creating them.
 func New() (*Runtime, error) {
 	configHome, stateHome, err := resolveRuntimeHomes(
-		os.Getenv("XDG_CONFIG_HOME"),
-		os.Getenv("XDG_STATE_HOME"),
-		os.UserHomeDir,
+		os.Getenv("XDG_CONFIG_HOME"), os.Getenv("XDG_STATE_HOME"), os.UserHomeDir,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return newRuntime(
-		filepath.Join(configHome, "tobari"),
-		filepath.Join(stateHome, "tobari"),
-		osCommandRunner{},
-	)
+	return newRuntime(filepath.Join(configHome, "tobari"), filepath.Join(stateHome, "tobari"), osCommandRunner{})
 }
 
-func resolveRuntimeHomes(
-	configHome, stateHome string,
-	userHome func() (string, error),
-) (string, string, error) {
+func resolveRuntimeHomes(configHome, stateHome string, userHome func() (string, error)) (string, string, error) {
 	if configHome != "" && stateHome != "" {
 		return configHome, stateHome, nil
 	}
@@ -143,7 +128,6 @@ func (r *Runtime) ResolveRoot(ctx context.Context, value string) (string, error)
 	return filepath.Clean(resolved), nil
 }
 
-// CurrentDirectory returns the canonical host working directory.
 func (r *Runtime) CurrentDirectory(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -159,7 +143,6 @@ func (r *Runtime) CurrentDirectory(ctx context.Context) (string, error) {
 	return filepath.Clean(resolved), nil
 }
 
-// IsTerminal reports whether writer is an attached character device.
 func (r *Runtime) IsTerminal(writer io.Writer) bool {
 	file, ok := writer.(*os.File)
 	if !ok {
@@ -169,151 +152,130 @@ func (r *Runtime) IsTerminal(writer io.Writer) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
-// Up materializes assets and reconciles the three-container runtime.
-func (r *Runtime) Up(ctx context.Context, root string) (realm.State, error) {
+// ClusterUp materializes assets and reconciles shared Gateway and OPA.
+func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 	if err := ctx.Err(); err != nil {
-		return realm.State{}, err
+		return tobari.State{}, err
 	}
-	reloadPolicy := false
-	if existing, exists, err := r.LoadState(ctx); err != nil {
-		return realm.State{}, err
-	} else if exists && existing.Root != root {
-		return realm.State{}, fault.New(
-			fault.KindInvalidInput,
-			"root_conflict",
-			"a Tobari realm is already configured for another root",
-			false,
-		)
-	} else {
-		reloadPolicy = exists
-	}
-	state, err := r.prepareState(root)
+	existing, exists, err := r.LoadState(ctx)
 	if err != nil {
-		return realm.State{}, err
+		return tobari.State{}, err
+	}
+	state, err := r.prepareState()
+	if err != nil {
+		return tobari.State{}, err
+	}
+	if exists {
+		if existing.AssetVersion != state.AssetVersion && len(existing.Tobari) != 0 {
+			return tobari.State{}, fault.New(
+				fault.KindRejected, "asset_conflict",
+				"detach every Tobari before reconciling a new runtime asset version", false,
+			)
+		}
+		state.Tobari = append([]tobari.Instance{}, existing.Tobari...)
+		state.RecentError = existing.RecentError
 	}
 	if err := r.testPolicy(ctx, state); err != nil {
-		return realm.State{}, fault.Wrap(
-			fault.KindRejected,
-			"policy_test_failed",
-			"OPA policy tests failed",
-			false,
-			err,
-		)
+		return tobari.State{}, fault.Wrap(fault.KindRejected, "policy_test_failed", "OPA policy tests failed", false, err)
 	}
 	if err := r.writeState(state); err != nil {
-		return realm.State{}, fmt.Errorf("persist realm state: %w", err)
+		return tobari.State{}, fmt.Errorf("persist Tobari state: %w", err)
 	}
 	environment, err := r.composeEnvironment(state)
 	if err != nil {
-		return realm.State{}, err
+		return tobari.State{}, err
+	}
+	if err := r.buildTobariImage(ctx, state, environment); err != nil {
+		return tobari.State{}, err
 	}
 	var output bytes.Buffer
-	if err := r.runner.Run(
+	err = r.runner.Run(
 		ctx,
 		[]string{
 			"compose", "--project-directory", state.RuntimeDirectory,
 			"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
 			"up", "-d", "--build", "--wait", "--remove-orphans",
 		},
-		environment,
-		nil,
-		&output,
-		&output,
-	); err != nil {
-		if stateErr := r.recordRecentError(state, "Realm startup did not complete; inspect component logs."); stateErr != nil {
-			return realm.State{}, fmt.Errorf("docker compose up failed and recent error could not be persisted: %w", stateErr)
-		}
-		return realm.State{}, fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
+		environment, nil, &output, &output,
+	)
+	if err != nil {
+		_ = r.recordRecentError(state, "Cluster startup did not complete; inspect component logs.")
+		return tobari.State{}, fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
-	if reloadPolicy {
-		if err := r.restartOPA(ctx); err != nil {
-			if stateErr := r.recordRecentError(state, "OPA policy reload did not complete; inspect OPA logs."); stateErr != nil {
-				return realm.State{}, fmt.Errorf("OPA reload failed and recent error could not be persisted: %w", stateErr)
-			}
-			return realm.State{}, err
-		}
+	state.RecentError = ""
+	if err := r.writeState(state); err != nil {
+		return tobari.State{}, err
 	}
 	return state, nil
 }
 
-func (r *Runtime) recordRecentError(state realm.State, message string) error {
-	state.RecentError = message
-	return r.writeState(state)
-}
-
-func (r *Runtime) restartOPA(ctx context.Context) error {
-	output, err := r.runner.Output(ctx, []string{"restart", "tobari-opa"}, os.Environ())
+func (r *Runtime) buildTobariImage(ctx context.Context, state tobari.State, environment []string) error {
+	versions, err := runtimeassets.Versions()
 	if err != nil {
-		return fmt.Errorf("restart OPA after policy reconciliation: %w: %s", err, boundedDiagnostic(output))
+		return err
 	}
-	timer := time.NewTimer(30 * time.Second)
-	defer timer.Stop()
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		health, inspectErr := r.runner.Output(
-			ctx,
-			[]string{"inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", "tobari-opa"},
-			os.Environ(),
-		)
-		if inspectErr == nil && strings.TrimSpace(string(health)) == "healthy" {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timer.C:
-			return fmt.Errorf("OPA did not become healthy after policy reconciliation")
-		case <-ticker.C:
-		}
+	uid, gid := currentIDs()
+	var output bytes.Buffer
+	err = r.runner.Run(
+		ctx,
+		[]string{
+			"build",
+			"--build-arg", "DEBIAN_IMAGE=" + versions["DEBIAN_IMAGE"],
+			"--build-arg", "TOBARI_UID=" + strconv.Itoa(uid),
+			"--build-arg", "TOBARI_GID=" + strconv.Itoa(gid),
+			"--tag", tobariImage(state),
+			filepath.Join(state.RuntimeDirectory, "tobari"),
+		},
+		environment, nil, &output, &output,
+	)
+	if err != nil {
+		return fmt.Errorf("build Tobari image: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
+	return nil
 }
 
-func (r *Runtime) prepareState(root string) (realm.State, error) {
+func tobariImage(state tobari.State) string {
+	return "tobari-runtime:" + state.AssetVersion
+}
+
+func (r *Runtime) prepareState() (tobari.State, error) {
 	version, err := runtimeassets.Version()
 	if err != nil {
-		return realm.State{}, err
+		return tobari.State{}, err
 	}
 	runtimeDirectory := filepath.Join(r.stateDirectory, "runtime", version)
 	if err := runtimeassets.Materialize(runtimeDirectory); err != nil {
-		return realm.State{}, err
+		return tobari.State{}, err
 	}
 	policyDirectory := filepath.Join(r.configDirectory, "policy")
 	credentialDirectory := filepath.Join(r.configDirectory, "credentials")
 	credentialConfig := filepath.Join(r.configDirectory, "credentials.json")
-	if err := os.MkdirAll(policyDirectory, 0o700); err != nil {
-		return realm.State{}, fmt.Errorf("create policy directory: %w", err)
-	}
-	if err := os.Chmod(policyDirectory, 0o700); err != nil { // #nosec G302 -- this is a private directory; owner traversal requires 0700 rather than a regular file's 0600.
-		return realm.State{}, fmt.Errorf("set policy directory permissions: %w", err)
-	}
-	if err := os.MkdirAll(credentialDirectory, 0o700); err != nil {
-		return realm.State{}, fmt.Errorf("create credential directory: %w", err)
+	for _, directory := range []string{policyDirectory, credentialDirectory} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return tobari.State{}, fmt.Errorf("create configuration directory: %w", err)
+		}
+		if err := os.Chmod(directory, 0o700); err != nil { // #nosec G302 -- owner traversal requires 0700.
+			return tobari.State{}, fmt.Errorf("set configuration directory permissions: %w", err)
+		}
 	}
 	for _, name := range []string{"data.json", "tobari.rego", "tobari_test.rego"} {
-		if err := initializeFile(
-			filepath.Join(policyDirectory, name),
-			"opa/policy/"+name,
-			0o600,
-		); err != nil {
-			return realm.State{}, err
+		if err := initializeFile(filepath.Join(policyDirectory, name), "opa/policy/"+name, 0o600); err != nil {
+			return tobari.State{}, err
 		}
 	}
 	if err := initializeBytes(
-		credentialConfig,
-		[]byte("{\n  \"version\": \"v1\",\n  \"profiles\": {}\n}\n"),
-		0o600,
+		credentialConfig, []byte("{\n  \"version\": \"v1\",\n  \"profiles\": {}\n}\n"), 0o600,
 	); err != nil {
-		return realm.State{}, err
+		return tobari.State{}, err
 	}
-	state := realm.State{
-		SchemaVersion: 1, Root: root, RuntimeDirectory: runtimeDirectory,
+	state := tobari.State{
+		SchemaVersion: 2, RuntimeDirectory: runtimeDirectory,
 		PolicyDirectory: policyDirectory, CredentialConfig: credentialConfig,
 		CredentialDir: credentialDirectory, AssetVersion: version,
-		ProxyEndpoint: "http://gateway:8080",
+		ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
 	}
 	if err := state.Validate(); err != nil {
-		return realm.State{}, err
+		return tobari.State{}, err
 	}
 	return state, nil
 }
@@ -338,7 +300,7 @@ func initializeBytes(target string, data []byte, mode os.FileMode) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect configuration file: %w", err)
 	}
-	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode) // #nosec G304 -- target is one fixed Tobari configuration child and O_EXCL prevents overwrite or final-component symlink traversal.
+	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode) // #nosec G304 -- fixed child and O_EXCL prevent overwrite.
 	if err != nil {
 		return fmt.Errorf("create configuration file: %w", err)
 	}
@@ -352,11 +314,9 @@ func initializeBytes(target string, data []byte, mode os.FileMode) error {
 	return nil
 }
 
-func (r *Runtime) statePath() string {
-	return filepath.Join(r.stateDirectory, "state.json")
-}
+func (r *Runtime) statePath() string { return filepath.Join(r.stateDirectory, "state.json") }
 
-func (r *Runtime) writeState(state realm.State) error {
+func (r *Runtime) writeState(state tobari.State) error {
 	if err := state.Validate(); err != nil {
 		return err
 	}
@@ -379,87 +339,201 @@ func (r *Runtime) writeState(state realm.State) error {
 	return nil
 }
 
-// LoadState returns absence separately from corrupt state.
-func (r *Runtime) LoadState(ctx context.Context) (realm.State, bool, error) {
+// LoadState returns absence separately from corrupt or legacy state.
+func (r *Runtime) LoadState(ctx context.Context) (tobari.State, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return realm.State{}, false, err
+		return tobari.State{}, false, err
 	}
 	data, err := os.ReadFile(r.statePath())
 	if errors.Is(err, os.ErrNotExist) {
-		return realm.State{}, false, nil
+		return tobari.State{}, false, nil
 	}
 	if err != nil {
-		return realm.State{}, false, err
+		return tobari.State{}, false, err
+	}
+	var header struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return tobari.State{}, false, fmt.Errorf("decode Tobari state header: %w", err)
+	}
+	if header.SchemaVersion == 1 {
+		return tobari.State{}, false, fault.New(
+			fault.KindRejected, "legacy_state",
+			"schema-1 singleton state must be removed with the older Tobari binary before upgrade", false,
+		)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	var state realm.State
+	var state tobari.State
 	if err := decoder.Decode(&state); err != nil {
-		return realm.State{}, false, fmt.Errorf("decode realm state: %w", err)
+		return tobari.State{}, false, fmt.Errorf("decode Tobari state: %w", err)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return realm.State{}, false, fmt.Errorf("realm state contains trailing data")
+		return tobari.State{}, false, fmt.Errorf("Tobari state contains trailing data")
 	}
 	if err := state.Validate(); err != nil {
-		return realm.State{}, false, err
+		return tobari.State{}, false, err
 	}
 	return state, true, nil
 }
 
-// Inspect observes exact container state.
-func (r *Runtime) Inspect(ctx context.Context, state realm.State) (realm.Status, error) {
+// Attach creates one exact container, internal network, and persistent home.
+func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root string) (tobari.State, error) {
 	if err := state.Validate(); err != nil {
-		return realm.Status{}, err
+		return tobari.State{}, err
+	}
+	if err := tobari.ValidateName(name); err != nil {
+		return tobari.State{}, err
+	}
+	if resolved, err := r.ResolveRoot(ctx, root); err != nil || resolved != root {
+		return tobari.State{}, fmt.Errorf("root must be a canonical existing directory")
+	}
+	digest := sha256.Sum256([]byte("tobari:" + name))
+	id := "tbr_" + hex.EncodeToString(digest[:16])
+	instance := tobari.Instance{
+		ID: id, Name: name, Root: root, Container: "tobari-" + name,
+		Network: "tobari-" + name + "-net", HomeVolume: "tobari-" + name + "-home",
+	}
+	if err := instance.Validate(); err != nil {
+		return tobari.State{}, err
+	}
+	labels := []string{
+		"--label", ownerLabel + "=" + ownerValue,
+		"--label", componentLabel + "=tobari",
+		"--label", tobariIDLabel + "=" + instance.ID,
+	}
+	networkArgs := append([]string{"network", "create", "--internal"}, labels...)
+	networkArgs = append(networkArgs, instance.Network)
+	if output, err := r.runner.Output(ctx, networkArgs, os.Environ()); err != nil {
+		return tobari.State{}, fmt.Errorf("create Tobari network: %w: %s", err, boundedDiagnostic(output))
+	}
+	volumeArgs := append([]string{"volume", "create"}, labels...)
+	volumeArgs = append(volumeArgs, instance.HomeVolume)
+	if output, err := r.runner.Output(ctx, volumeArgs, os.Environ()); err != nil {
+		return tobari.State{}, fmt.Errorf("create Tobari home: %w: %s", err, boundedDiagnostic(output))
+	}
+	if err := r.verifyOwnedTobari(ctx, "volume", instance.HomeVolume, instance.ID); err != nil {
+		return tobari.State{}, err
+	}
+	if output, err := r.runner.Output(
+		ctx, []string{"network", "connect", "--alias", "gateway", instance.Network, gatewayContainer}, os.Environ(),
+	); err != nil {
+		return tobari.State{}, fmt.Errorf("connect Gateway to Tobari network: %w: %s", err, boundedDiagnostic(output))
+	}
+	args := []string{
+		"create", "--name", instance.Container, "--hostname", instance.Name,
+		"--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--tmpfs", "/tmp:size=512m,mode=1777", "--tmpfs", "/run:size=16m,mode=1777",
+		"--env", "HOME=/var/lib/tobari",
+		"--env", "HTTP_PROXY=http://gateway:8080", "--env", "HTTPS_PROXY=http://gateway:8080",
+		"--env", "http_proxy=http://gateway:8080", "--env", "https_proxy=http://gateway:8080",
+		"--env", "NO_PROXY=", "--env", "no_proxy=",
+		"--env", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
+		"--env", "REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem",
+		"--env", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
+		"--mount", "type=bind,src=" + instance.Root + ",dst=/workspace",
+		"--mount", "type=volume,src=" + instance.HomeVolume + ",dst=/var/lib/tobari",
+		"--mount", "type=volume,src=tobari-public-ca,dst=/run/tobari/ca-public,readonly",
+		"--workdir", "/workspace", "--network", instance.Network,
+		"--health-cmd", "test -f /tmp/tobari-ready", "--health-interval", "2s",
+		"--health-timeout", "2s", "--health-retries", "30",
+	}
+	args = append(args, labels...)
+	args = append(args, tobariImage(state))
+	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
+		return tobari.State{}, fmt.Errorf("create Tobari container: %w: %s", err, boundedDiagnostic(output))
+	}
+	if output, err := r.runner.Output(ctx, []string{"start", instance.Container}, os.Environ()); err != nil {
+		return tobari.State{}, fmt.Errorf("start Tobari container: %w: %s", err, boundedDiagnostic(output))
+	}
+	state.Tobari = append(state.Tobari, instance)
+	sort.Slice(state.Tobari, func(i, j int) bool { return state.Tobari[i].Name < state.Tobari[j].Name })
+	if err := r.writeState(state); err != nil {
+		return tobari.State{}, fmt.Errorf("persist attached Tobari: %w", err)
+	}
+	return state, nil
+}
+
+// InspectCluster observes exact shared container state.
+func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobari.ClusterStatus, error) {
+	if err := state.Validate(); err != nil {
+		return tobari.ClusterStatus{}, err
 	}
 	if _, err := r.runner.Output(ctx, []string{"version", "--format", "{{.Server.Version}}"}, os.Environ()); err != nil {
-		return realm.Status{}, fmt.Errorf("Docker Engine is unavailable: %w", err)
+		return tobari.ClusterStatus{}, fmt.Errorf("Docker Engine is unavailable: %w", err)
 	}
-	components := make([]realm.ComponentStatus, 0, len(componentContainers))
+	components := make([]tobari.ComponentStatus, 0, 2)
 	running := true
-	for _, name := range []string{"gateway", "opa", "realm"} {
-		container := componentContainers[name]
-		output, err := r.runner.Output(
-			ctx,
-			[]string{
-				"inspect", "--format",
-				`{"state":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}"}`,
-				container,
-			},
-			os.Environ(),
-		)
-		component := realm.ComponentStatus{Name: name, State: "absent", Health: "none"}
-		if err == nil {
-			var observed struct {
-				State  string `json:"state"`
-				Health string `json:"health"`
-			}
-			if decodeErr := json.Unmarshal(bytes.TrimSpace(output), &observed); decodeErr != nil {
-				return realm.Status{}, fmt.Errorf("decode Docker status for %s: %w", name, decodeErr)
-			}
-			component.State, component.Health = observed.State, observed.Health
+	for _, name := range []string{"gateway", "opa"} {
+		component, err := r.inspectContainer(ctx, name, clusterContainers[name])
+		if err != nil {
+			return tobari.ClusterStatus{}, err
 		}
 		if component.State != "running" || (component.Health != "healthy" && component.Health != "none") {
 			running = false
 		}
 		components = append(components, component)
 	}
-	return realm.Status{
-		Configured: true, Running: running, Root: state.Root,
-		Proxy: state.ProxyEndpoint, Policy: state.PolicyDirectory,
+	return tobari.ClusterStatus{
+		Configured: true, Running: running, Proxy: state.ProxyEndpoint,
+		Policy: state.PolicyDirectory, TobariCount: len(state.Tobari),
 		Components: components, RecentError: state.RecentError,
 	}, nil
 }
 
+func (r *Runtime) inspectContainer(ctx context.Context, component, container string) (tobari.ComponentStatus, error) {
+	output, err := r.runner.Output(
+		ctx,
+		[]string{
+			"inspect", "--format",
+			`{"state":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}"}`,
+			container,
+		},
+		os.Environ(),
+	)
+	status := tobari.ComponentStatus{Name: component, State: "absent", Health: "none"}
+	if err != nil {
+		return status, nil
+	}
+	var observed struct {
+		State  string `json:"state"`
+		Health string `json:"health"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(output), &observed); err != nil {
+		return tobari.ComponentStatus{}, fmt.Errorf("decode Docker status for %s: %w", component, err)
+	}
+	status.State, status.Health = observed.State, observed.Health
+	return status, nil
+}
+
+// InspectTobari observes each exact state-owned container.
+func (r *Runtime) InspectTobari(ctx context.Context, state tobari.State) ([]tobari.ItemStatus, error) {
+	if err := state.Validate(); err != nil {
+		return nil, err
+	}
+	items := make([]tobari.ItemStatus, 0, len(state.Tobari))
+	for _, instance := range state.Tobari {
+		component, err := r.inspectContainer(ctx, instance.Name, instance.Container)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, tobari.ItemStatus{
+			ID: instance.ID, Name: instance.Name, Root: instance.Root,
+			Running:   component.State == "running" && (component.Health == "healthy" || component.Health == "none"),
+			Container: instance.Container,
+		})
+	}
+	return items, nil
+}
+
 // Exec invokes Docker with exact argv and preserves the child exit code.
 func (r *Runtime) Exec(
-	ctx context.Context,
-	state realm.State,
-	request realm.ExecRequest,
-	in io.Reader,
-	out, errOut io.Writer,
+	ctx context.Context, instance tobari.Instance, request tobari.ExecRequest,
+	in io.Reader, out, errOut io.Writer,
 ) (int, error) {
-	if err := state.Validate(); err != nil {
+	if err := instance.Validate(); err != nil {
 		return 0, err
 	}
 	if err := request.Validate(); err != nil {
@@ -467,13 +541,13 @@ func (r *Runtime) Exec(
 	}
 	cwd := request.HostCWD
 	if cwd == "" {
-		cwd = state.Root
+		cwd = instance.Root
 	}
 	resolved, err := r.ResolveRoot(ctx, cwd)
 	if err != nil {
 		return 0, err
 	}
-	containerCWD, err := realm.MapHostCWD(state.Root, resolved)
+	containerCWD, err := tobari.MapHostCWD(instance.Root, resolved)
 	if err != nil {
 		if request.CWDExplicit {
 			return 0, err
@@ -484,7 +558,7 @@ func (r *Runtime) Exec(
 	if request.TTY {
 		args = append(args, "-t")
 	}
-	args = append(args, "--user", "tobari", "--workdir", containerCWD, "tobari-realm")
+	args = append(args, "--user", "tobari", "--workdir", containerCWD, instance.Container)
 	args = append(args, request.Command...)
 	err = r.runner.Run(ctx, args, os.Environ(), in, out, errOut)
 	if err == nil {
@@ -502,25 +576,21 @@ func (r *Runtime) Exec(
 	return 0, err
 }
 
-// Logs returns a bounded window from exact component containers.
-func (r *Runtime) Logs(ctx context.Context, state realm.State, request realm.LogRequest) ([]byte, error) {
+func (r *Runtime) ClusterLogs(ctx context.Context, state tobari.State, request tobari.LogRequest) ([]byte, error) {
 	if err := state.Validate(); err != nil {
 		return nil, err
 	}
-	if err := request.Validate(); err != nil {
+	if err := request.ValidateCluster(); err != nil {
 		return nil, err
 	}
 	names := []string{request.Component}
 	if request.Component == "all" {
-		names = []string{"gateway", "opa", "realm"}
+		names = []string{"gateway", "opa"}
 	}
 	var output bytes.Buffer
 	for _, name := range names {
-		container := componentContainers[name]
 		data, err := r.runner.Output(
-			ctx,
-			[]string{"logs", "--tail", strconv.Itoa(request.Tail), container},
-			os.Environ(),
+			ctx, []string{"logs", "--tail", strconv.Itoa(request.Tail), clusterContainers[name]}, os.Environ(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("read %s logs: %w", name, err)
@@ -537,12 +607,83 @@ func (r *Runtime) Logs(ctx context.Context, state realm.State, request realm.Log
 	return output.Bytes(), nil
 }
 
-// Down removes exact compose resources and optionally persistent volumes.
-func (r *Runtime) Down(ctx context.Context, state realm.State, purge bool) error {
+func (r *Runtime) TobariLogs(ctx context.Context, instance tobari.Instance, request tobari.LogRequest) ([]byte, error) {
+	if err := instance.Validate(); err != nil {
+		return nil, err
+	}
+	if err := request.ValidateTobari(); err != nil {
+		return nil, err
+	}
+	data, err := r.runner.Output(
+		ctx, []string{"logs", "--tail", strconv.Itoa(request.Tail), instance.Container}, os.Environ(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("read Tobari logs: %w", err)
+	}
+	if len(data) > maxLogBytes {
+		return nil, fmt.Errorf("log output exceeds %d bytes", maxLogBytes)
+	}
+	return data, nil
+}
+
+// Detach removes one exact container and network, preserving home by default.
+func (r *Runtime) Detach(
+	ctx context.Context, state tobari.State, instance tobari.Instance, purge bool,
+) (tobari.State, error) {
+	if err := state.Validate(); err != nil {
+		return tobari.State{}, err
+	}
+	stored, found := state.Find(instance.ID)
+	if !found || stored != instance {
+		return tobari.State{}, fmt.Errorf("Tobari target does not match persisted state")
+	}
+	if err := r.verifyOwnedTobari(ctx, "container", instance.Container, instance.ID); err != nil {
+		return tobari.State{}, err
+	}
+	if output, err := r.runner.Output(ctx, []string{"rm", "-f", instance.Container}, os.Environ()); err != nil {
+		return tobari.State{}, fmt.Errorf("remove Tobari container: %w: %s", err, boundedDiagnostic(output))
+	}
+	if output, err := r.runner.Output(
+		ctx, []string{"network", "disconnect", instance.Network, gatewayContainer}, os.Environ(),
+	); err != nil {
+		return tobari.State{}, fmt.Errorf("disconnect Gateway from Tobari network: %w: %s", err, boundedDiagnostic(output))
+	}
+	if err := r.verifyOwnedTobari(ctx, "network", instance.Network, instance.ID); err != nil {
+		return tobari.State{}, err
+	}
+	if output, err := r.runner.Output(ctx, []string{"network", "rm", instance.Network}, os.Environ()); err != nil {
+		return tobari.State{}, fmt.Errorf("remove Tobari network: %w: %s", err, boundedDiagnostic(output))
+	}
+	if purge {
+		if err := r.verifyOwnedTobari(ctx, "volume", instance.HomeVolume, instance.ID); err != nil {
+			return tobari.State{}, err
+		}
+		if output, err := r.runner.Output(ctx, []string{"volume", "rm", instance.HomeVolume}, os.Environ()); err != nil {
+			return tobari.State{}, fmt.Errorf("remove Tobari home: %w: %s", err, boundedDiagnostic(output))
+		}
+	}
+	remaining := make([]tobari.Instance, 0, len(state.Tobari)-1)
+	for _, candidate := range state.Tobari {
+		if candidate.ID != instance.ID {
+			remaining = append(remaining, candidate)
+		}
+	}
+	state.Tobari = remaining
+	if err := r.writeState(state); err != nil {
+		return tobari.State{}, fmt.Errorf("persist detached Tobari: %w", err)
+	}
+	return state, nil
+}
+
+// ClusterDown removes exact shared resources after application-level emptiness validation.
+func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge bool) error {
 	if err := state.Validate(); err != nil {
 		return err
 	}
-	for _, container := range componentContainers {
+	if len(state.Tobari) != 0 {
+		return fmt.Errorf("cluster contains attached Tobari")
+	}
+	for _, container := range clusterContainers {
 		if err := r.verifyOwned(ctx, "container", container); err != nil {
 			return err
 		}
@@ -552,35 +693,31 @@ func (r *Runtime) Down(ctx context.Context, state realm.State, purge bool) error
 		return err
 	}
 	var output bytes.Buffer
-	if err := r.runner.Run(
+	err = r.runner.Run(
 		ctx,
 		[]string{
 			"compose", "--project-directory", state.RuntimeDirectory,
 			"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
 			"down", "--remove-orphans",
 		},
-		environment,
-		nil,
-		&output,
-		&output,
-	); err != nil {
-		if stateErr := r.recordRecentError(state, "Realm cleanup did not complete; inspect component logs."); stateErr != nil {
-			return fmt.Errorf("docker compose down failed and recent error could not be persisted: %w", stateErr)
-		}
+		environment, nil, &output, &output,
+	)
+	if err != nil {
+		_ = r.recordRecentError(state, "Cluster cleanup did not complete; inspect component logs.")
 		return fmt.Errorf("docker compose down: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
 	if purge {
-		for _, volume := range []string{"tobari-realm-home", "tobari-gateway-ca", "tobari-public-ca"} {
+		for _, volume := range []string{"tobari-gateway-ca", "tobari-public-ca"} {
 			if err := r.verifyOwned(ctx, "volume", volume); err != nil {
 				return err
 			}
-			if _, err := r.runner.Output(ctx, []string{"volume", "rm", volume}, os.Environ()); err != nil {
-				return fmt.Errorf("remove owned volume %s: %w", volume, err)
+			if output, err := r.runner.Output(ctx, []string{"volume", "rm", volume}, os.Environ()); err != nil {
+				return fmt.Errorf("remove owned volume %s: %w: %s", volume, err, boundedDiagnostic(output))
 			}
 		}
 	}
 	if err := os.Remove(r.statePath()); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove realm state: %w", err)
+		return fmt.Errorf("remove Tobari state: %w", err)
 	}
 	return nil
 }
@@ -589,6 +726,9 @@ func (r *Runtime) verifyOwned(ctx context.Context, kind, name string) error {
 	args := []string{"inspect", "--format", `{{index .Config.Labels "` + ownerLabel + `"}}`, name}
 	if kind == "volume" {
 		args = []string{"volume", "inspect", "--format", `{{index .Labels "` + ownerLabel + `"}}`, name}
+	}
+	if kind == "network" {
+		args = []string{"network", "inspect", "--format", `{{index .Labels "` + ownerLabel + `"}}`, name}
 	}
 	output, err := r.runner.Output(ctx, args, os.Environ())
 	if err != nil {
@@ -600,7 +740,32 @@ func (r *Runtime) verifyOwned(ctx context.Context, kind, name string) error {
 	return nil
 }
 
-func (r *Runtime) testPolicy(ctx context.Context, state realm.State) error {
+func (r *Runtime) verifyOwnedTobari(ctx context.Context, kind, name, id string) error {
+	if err := r.verifyOwned(ctx, kind, name); err != nil {
+		return err
+	}
+	var args []string
+	switch kind {
+	case "container":
+		args = []string{"inspect", "--format", `{{index .Config.Labels "` + tobariIDLabel + `"}}`, name}
+	case "volume":
+		args = []string{"volume", "inspect", "--format", `{{index .Labels "` + tobariIDLabel + `"}}`, name}
+	case "network":
+		args = []string{"network", "inspect", "--format", `{{index .Labels "` + tobariIDLabel + `"}}`, name}
+	default:
+		return fmt.Errorf("unsupported resource kind %s", kind)
+	}
+	output, err := r.runner.Output(ctx, args, os.Environ())
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(output)) != id {
+		return fmt.Errorf("%s %s does not belong to the selected Tobari", kind, name)
+	}
+	return nil
+}
+
+func (r *Runtime) testPolicy(ctx context.Context, state tobari.State) error {
 	versions, err := runtimeassets.Versions()
 	if err != nil {
 		return err
@@ -610,10 +775,8 @@ func (r *Runtime) testPolicy(ctx context.Context, state realm.State) error {
 	output, err := r.runner.Output(
 		ctx,
 		[]string{
-			"run", "--rm",
-			"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
-			"--mount", mount,
-			versions["OPA_IMAGE"], "test", "/policy",
+			"run", "--rm", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
+			"--mount", mount, versions["OPA_IMAGE"], "test", "/policy",
 		},
 		os.Environ(),
 	)
@@ -623,7 +786,7 @@ func (r *Runtime) testPolicy(ctx context.Context, state realm.State) error {
 	return nil
 }
 
-func (r *Runtime) composeEnvironment(state realm.State) ([]string, error) {
+func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 	versions, err := runtimeassets.Versions()
 	if err != nil {
 		return nil, fmt.Errorf("read embedded runtime versions: %w", err)
@@ -632,13 +795,11 @@ func (r *Runtime) composeEnvironment(state realm.State) ([]string, error) {
 	environment := append([]string{}, os.Environ()...)
 	environment = append(
 		environment,
-		"TOBARI_ROOT="+state.Root,
 		"TOBARI_POLICY_DIR="+state.PolicyDirectory,
 		"TOBARI_CREDENTIAL_CONFIG="+state.CredentialConfig,
 		"TOBARI_CREDENTIAL_DIR="+state.CredentialDir,
 		"TOBARI_ASSET_VERSION="+state.AssetVersion,
-		"TOBARI_UID="+strconv.Itoa(uid),
-		"TOBARI_GID="+strconv.Itoa(gid),
+		"TOBARI_UID="+strconv.Itoa(uid), "TOBARI_GID="+strconv.Itoa(gid),
 		"TOBARI_MITMPROXY_IMAGE="+versions["MITMPROXY_IMAGE"],
 		"TOBARI_OPA_IMAGE="+versions["OPA_IMAGE"],
 		"TOBARI_DEBIAN_IMAGE="+versions["DEBIAN_IMAGE"],
@@ -646,7 +807,12 @@ func (r *Runtime) composeEnvironment(state realm.State) ([]string, error) {
 	return environment, nil
 }
 
-// Doctor reports all locally testable prerequisites without repairing them.
+func (r *Runtime) recordRecentError(state tobari.State, message string) error {
+	state.RecentError = message
+	return r.writeState(state)
+}
+
+// Doctor reports locally testable prerequisites without repairing them.
 func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error) {
 	checks := make([]doctor.Check, 0, 13)
 	add := func(name string, status doctor.CheckStatus, detail string) {
@@ -672,13 +838,13 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 	} else {
 		add("docker_compose", doctor.CheckStatusPass, strings.TrimSpace(string(output)))
 	}
-	add("proxy_port", doctor.CheckStatusPass, "Gateway has no host-published port, so there is no host port conflict")
+	add("proxy_port", doctor.CheckStatusPass, "Gateway has no host-published port")
 	if root != "" {
 		if resolved, err := r.ResolveRoot(ctx, root); err != nil {
 			add("root", doctor.CheckStatusFail, err.Error())
 		} else {
 			add("root", doctor.CheckStatusPass, resolved)
-			add("root_sharing", doctor.CheckStatusWarn, "path is valid; Docker VM bind sharing is confirmed by up")
+			add("root_sharing", doctor.CheckStatusWarn, "path is valid; Docker VM bind sharing is confirmed by attach")
 		}
 	} else {
 		add("root", doctor.CheckStatusWarn, "no root was supplied")
@@ -686,17 +852,17 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 	}
 	state, exists, stateErr := r.LoadState(ctx)
 	if stateErr != nil {
-		add("state", doctor.CheckStatusFail, "realm state is invalid")
+		add("state", doctor.CheckStatusFail, "Tobari state is invalid")
 	} else if exists {
-		add("state", doctor.CheckStatusPass, "realm state is configured")
+		add("state", doctor.CheckStatusPass, fmt.Sprintf("cluster has %d attached Tobari", len(state.Tobari)))
 		if err := r.testPolicy(ctx, state); err != nil {
 			add("policy", doctor.CheckStatusFail, "OPA policy tests failed")
 		} else {
 			add("policy", doctor.CheckStatusPass, "OPA policy tests passed")
 		}
 	} else {
-		add("state", doctor.CheckStatusWarn, "realm is not configured")
-		add("policy", doctor.CheckStatusWarn, "policy will be initialized by up")
+		add("state", doctor.CheckStatusWarn, "cluster is not configured")
+		add("policy", doctor.CheckStatusWarn, "policy will be initialized by cluster up")
 	}
 	if err := r.checkCredentialPermissions(); err != nil {
 		add("credentials", doctor.CheckStatusFail, err.Error())
@@ -709,9 +875,7 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 		add("credential_config", doctor.CheckStatusPass, detail)
 	}
 	output, err := r.runner.Output(
-		ctx,
-		[]string{"ps", "-a", "--filter", "label=" + ownerLabel + "=" + ownerValue, "--format", "{{.Names}}"},
-		os.Environ(),
+		ctx, []string{"ps", "-a", "--filter", "label=" + ownerLabel + "=" + ownerValue, "--format", "{{.Names}}"}, os.Environ(),
 	)
 	if err != nil {
 		add("owned_resources", doctor.CheckStatusWarn, "owned Docker resources could not be listed")
@@ -727,12 +891,12 @@ func (r *Runtime) checkCredentialConfig() (string, doctor.CheckStatus) {
 	path := filepath.Join(r.configDirectory, "credentials.json")
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "configuration will be initialized by up", doctor.CheckStatusWarn
+		return "configuration will be initialized by cluster up", doctor.CheckStatusWarn
 	}
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
 		return "credentials.json must be a regular owner-only file", doctor.CheckStatusFail
 	}
-	data, err := os.ReadFile(path) // #nosec G304 -- path is the fixed credentials.json child of Tobari's user configuration directory.
+	data, err := os.ReadFile(path) // #nosec G304 -- fixed credentials.json child.
 	if err != nil || len(data) > 256*1024 {
 		return "credentials.json is unreadable or exceeds 256 KiB", doctor.CheckStatusFail
 	}
@@ -759,8 +923,7 @@ func (r *Runtime) checkCredentialConfig() (string, doctor.CheckStatus) {
 		if name == "" || (profile.Type != "bearer" && profile.Type != "header") ||
 			len(profile.Hosts) == 0 ||
 			!strings.HasPrefix(profile.SecretFile, "/run/tobari/credentials/") ||
-			secretName == "" || secretName == "." || secretName == ".." ||
-			strings.Contains(secretName, "/") {
+			secretName == "" || secretName == "." || secretName == ".." || strings.Contains(secretName, "/") {
 			return "credentials.json contains an invalid profile", doctor.CheckStatusFail
 		}
 		for _, host := range profile.Hosts {
@@ -807,7 +970,4 @@ func boundedDiagnostic(data []byte) string {
 	return string(data)
 }
 
-// DefaultLogTail is shared with the CLI catalog default.
-func DefaultLogTail() int {
-	return defaultLogTail
-}
+func DefaultLogTail() int { return defaultLogTail }

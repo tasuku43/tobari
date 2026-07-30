@@ -12,9 +12,9 @@ RUN apt-get update \
     && useradd --uid "${TOBARI_UID}" --gid "${TOBARI_GID}" \
       --home-dir /var/lib/tobari --create-home --shell /bin/bash tobari
 
-COPY entrypoint.sh /usr/local/bin/tobari-realm-entrypoint
-RUN chmod 0755 /usr/local/bin/tobari-realm-entrypoint
+COPY entrypoint.sh /usr/local/bin/tobari-entrypoint
+RUN chmod 0755 /usr/local/bin/tobari-entrypoint
 
 USER tobari
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tobari-realm-entrypoint"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"]
 CMD ["sleep", "infinity"]
