@@ -10,17 +10,27 @@
     "reason": ""
   },
   {
-    "id": "realm.execute",
+    "id": "cluster.lifecycle",
     "status": "public",
     "reason": ""
   },
   {
-    "id": "realm.lifecycle",
+    "id": "cluster.logs",
     "status": "public",
     "reason": ""
   },
   {
-    "id": "realm.logs",
+    "id": "tobari.execute",
+    "status": "public",
+    "reason": ""
+  },
+  {
+    "id": "tobari.lifecycle",
+    "status": "public",
+    "reason": ""
+  },
+  {
+    "id": "tobari.logs",
     "status": "public",
     "reason": ""
   },

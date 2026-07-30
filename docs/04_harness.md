@@ -15,7 +15,7 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, and public-boundary checks |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Pinned mitmproxy addon unit tests |
-| `integration` | `task integration:test` | Real runtime boundary | Docker topology, TLS, fail-closed, credential, audit, exec, lifecycle, and cleanup scenarios |
+| `integration` | `task integration:test` | Real runtime boundary | Shared-cluster lifecycle, multiple named Tobari, network separation, TLS, fail-closed, credential, audit, exec, live policy watch, and cleanup scenarios |
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, and integration profiles |
 
 Direct invocation is supported for automation:
@@ -208,6 +208,11 @@ The test suite has complementary levels:
   and missing common runtime failure declarations.
 - Reference-graph tests connect discover producers to act consumers by kind and exact field/argument declarations.
 - Opaque-ID round-trip tests pass discovery output unchanged into action input.
+- Named-Tobari integration tests prove that two roots receive distinct
+  containers, networks, and home volumes while sharing only Gateway, OPA, and
+  public CA state.
+- Policy-watch integration edits a host XDG policy fixture and observes the
+  changed decision without restarting OPA or any Tobari.
 - Negative tests prove rejection before side effects.
 - Release tests inspect actual artifacts and metadata, not only workflow text.
   Archive tests cover deterministic multi-entry order, canonical metadata,

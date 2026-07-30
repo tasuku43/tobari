@@ -2,9 +2,9 @@
 
 ## Product statement
 
-Tobari is a local CLI that creates one Docker-isolated coding realm for a
-user-selected source root and enforces all outbound HTTP and HTTPS requests
-through a mitmproxy Gateway and OPA policy.
+Tobari is a local CLI that runs one shared Gateway and OPA cluster and attaches
+named Docker-isolated coding spaces to user-selected roots. Every supported
+outbound HTTP and HTTPS request is enforced through that shared policy boundary.
 
 ## Primary users and owned outcome
 
@@ -13,19 +13,25 @@ bounded source tree without receiving host credentials or unrestricted network
 egress. Tobari owns the lifecycle from environment validation through startup,
 interactive or non-interactive execution, inspection, logs, and cleanup.
 
-The primary operating loop is progressive policy learning: a Realm workload is
+The primary operating loop is progressive policy learning: a Tobari workload is
 denied by default, Gateway records the rejected host/method/path and reason
-without secrets, the user refines and tests policy on the trusted host, and the
-same workload is retried. Denial evidence is a product output, not incidental
-debug noise.
+without secrets, the user refines and tests XDG policy on the trusted host, OPA
+reloads it through watch, and the same workload is retried. Denial evidence is a
+product output, not incidental debug noise.
 
 ## Public vocabulary
 
-- **Realm:** the single long-lived, untrusted execution container.
+- **Tobari:** one named, long-lived, untrusted execution container.
+- **cluster:** the one installation-local Gateway, OPA, policy, credential, and
+  CA lifecycle.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
-- **root:** the only host directory mounted read-write at `/workspace`.
-- **Realm home:** a persistent Docker volume mounted as the work user's home.
+- **root:** the only host directory mounted read-write into one Tobari at
+  `/workspace`.
+- **Tobari home:** a per-Tobari persistent Docker volume mounted as the work
+  user's home.
+- **Tobari ID:** an opaque CLI-owned reference produced by `list` and consumed
+  unchanged by individual actions.
 - **credential profile:** a Gateway-only secret and exact host binding.
 
 The public commands are:
@@ -35,28 +41,35 @@ The public commands are:
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version` | utility | read | Print build identity |
 | `doctor [--root PATH]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
-| `up --root PATH` | act, fixed target | create | Reconcile and start the one Tobari realm |
-| `status [--format text|json]` | utility | read | Inspect state, containers, health, root, proxy, policy, and recent errors |
-| `shell` | act, fixed target | read | Open an interactive shell in the running Realm |
-| `exec [--cwd PATH] -- COMMAND...` | act, fixed target | read | Execute one command in Realm and preserve its exit code |
-| `logs [--component gateway|opa|realm|all] [--tail N]` | utility | read | Read a bounded redacted log window, including policy-denial evidence |
-| `down [--purge]` | act, fixed target | write | Remove owned containers and transient networks; optionally remove persistent home |
+| `cluster up` | act, fixed target | create | Reconcile and start shared Gateway and OPA |
+| `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
+| `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
+| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Tobari is detached |
+| `attach --name NAME --root PATH` | act, fixed cluster target | create | Attach one named Tobari to an existing root |
+| `list [--format text|json]` | discover | read | List all configured Tobari and produce opaque IDs |
+| `shell --id ID` | act, reference bound | read | Open an interactive shell in one Tobari |
+| `exec --id ID [--cwd PATH] -- COMMAND...` | act, reference bound | read | Execute one command in one Tobari and preserve its exit code |
+| `logs --id ID [--tail N]` | act, reference bound | read | Read one Tobari's bounded logs |
+| `detach --id ID [--purge]` | act, reference bound | write | Remove one Tobari and optionally its persistent home |
 
 `shell` and `exec` intentionally classify the CLI operation as read because the
-CLI observes/enters the existing local singleton. Programs inside Realm can
+CLI enters an existing exact referenced container. Programs inside Tobari can
 mutate the explicitly mounted root; that delegated capability is a documented
 security property rather than an undeclared Docker mutation by the CLI.
 
 ## Input and path contract
 
 - Paths are expanded and canonicalized on the host before Docker calls.
-- `up --root` requires an existing directory.
-- A host `--cwd` must be inside the stored root and maps byte-for-byte by
+- `attach --root` requires an existing directory and a name matching
+  `[a-z][a-z0-9-]{0,62}`.
+- Names are unique display identities, not action selectors.
+- A host `--cwd` must be inside the referenced Tobari root and maps byte-for-byte by
   relative path under `/workspace`.
 - The command after `exec --` is positional and repeatable; Tobari does not
   parse or infer its meaning.
-- A running realm is the one command-bound `tool_local` target. Commands never
-  discover or guess among multiple realms.
+- Shared cluster mutations use one command-bound `tool_local` target.
+- Individual actions require exactly one `tobari_id` emitted by `list` and
+  never discover, decode, reconstruct, or guess a target by name.
 
 ## Output and exit contract
 
@@ -75,16 +88,16 @@ failures are stderr.
 | 13 | Declared contract violation |
 | other from `exec` | Exact child process exit status when Docker started it |
 
-Commands use complete delivery. Status covers the one local realm at one
-observation point and is exhaustive for that scope. Logs are a bounded recent
-window of 1 through 10,000 lines per selected component.
+Commands use complete delivery. `list` is exhaustive for local state at one
+observation point. Status is exhaustive for the shared cluster scope. Logs are
+a bounded recent window of 1 through 10,000 lines per selected component.
 
 ## Configuration contract
 
 Configuration is resolved from
 `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on both macOS and Linux:
 
-- `policy/`: Rego mounted read-only into OPA;
+- `policy/`: Rego and data mounted read-only into OPA and watched for host edits;
 - `credentials.json`: schema-v1 profile type, exact hosts, and Gateway mount path;
 - `credentials/`: secret files, required to be regular owner-readable files
   with no group/other permissions.
@@ -96,19 +109,21 @@ documented in scoped help; they do not carry managed tokens.
 
 ## Side effects
 
-`up` creates labeled networks, a persistent volume, images, configuration
-material, and three containers. `down` removes only exact label-owned
-containers and transient networks; `--purge` also removes the exact persistent
-home and Gateway CA volumes. A subsequent `up` tests current Rego and restarts
-only OPA to reload policy without stopping Realm processes. No command removes
-the mounted root or files inside it.
+`cluster up` creates shared labeled networks, images, configuration material,
+Gateway, OPA, and CA volumes. `attach` creates one labeled container, one
+internal network, and one home volume, then joins Gateway to that network.
+`detach` removes only the exact label-owned container and network; `--purge`
+also removes that exact home. `cluster down` rejects while any Tobari remains
+and removes only exact shared resources; its `--purge` also removes shared CA
+volumes. No command removes a mounted root or files inside it.
 
 ## Compatibility
 
 Before v1.0, command details and configuration schema may change with release
-notes. Command names, resource labels, state schema, OPA input version, audit
-schema, and Gateway decision schema are explicit compatibility boundaries from
-the first MVP.
+notes. Schema-1 singleton state is not guessed or migrated automatically; users
+remove it with the matching older binary before starting the schema-2 cluster.
+Command names, resource labels, state schema, OPA input version, audit schema,
+and Gateway decision schema remain explicit compatibility boundaries.
 
 ## Unsupported outcomes
 

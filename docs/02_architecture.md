@@ -6,22 +6,20 @@
 host
   tobari CLI ---- Docker CLI ---- Docker Engine
       |
-      +-- selected root (rw) --------------------+
-                                                  v
-internal realm network:                    tobari-realm
-  tobari-realm <---- HTTP proxy :8080 ---- tobari-gateway
-                                               |
-internal control network:                     |---- tobari-opa :8181
-                                               |
-egress network:                                +---- HTTPS upstream
+      +-- root A (rw) --> named Tobari A -- internal net A --+
+      +-- root B (rw) --> named Tobari B -- internal net B --+--> tobari-gateway
+                                                               |         |
+internal control network:                              tobari-opa :8181  |
+                                                                         |
+egress network:                                               HTTPS upstream
 ```
 
-Realm joins only the internal realm network. OPA joins only the internal
-control network. Gateway joins realm, control, and egress. The Realm and
-control networks use Docker's `internal` property; the egress network is the
-only network with an external route.
+Each Tobari joins only its dedicated internal network. OPA joins only the
+shared internal control network. Gateway joins every Tobari network plus
+control and egress. Tobari and control networks use Docker's `internal`
+property; the egress network is the only network with an external route.
 
-For HTTPS, Realm connects to the HTTP proxy and sends `CONNECT host:443`.
+For HTTPS, Tobari connects to the HTTP proxy and sends `CONNECT host:443`.
 Gateway responds, terminates client TLS with the installation CA, evaluates the
 decrypted HTTP request, then creates a separate TLS connection to the upstream.
 This is the explicit HTTPS flow documented by mitmproxy; it is not plaintext
@@ -36,7 +34,7 @@ internal/cli  ------> internal/app
       +------------> internal/domain <------ internal/infra
 ```
 
-- `internal/domain`: pure runtime specifications, state, paths, Gateway/OPA
+- `internal/domain`: pure cluster/Tobari specifications, state, paths, Gateway/OPA
   schemas, operation effects, and validation.
 - `internal/app`: lifecycle, status, exec, logs, and doctor use cases with
   consumer-owned ports.
@@ -66,38 +64,46 @@ runtime/
   opa/policy/tobari_test.rego
 ```
 
-`up` materializes exact embedded bytes under the Tobari state directory, writes
-generated non-secret runtime configuration, and invokes Docker through the
-runtime port. No runtime asset is downloaded during startup. The Gateway CA and key
-persist in a named volume; a separate volume exposes only the public
-certificate to Realm, whose entrypoint builds an ephemeral CA bundle.
+`cluster up` materializes exact embedded bytes under the Tobari state directory,
+writes generated non-secret runtime configuration, and invokes Docker through
+the runtime port. Compose owns only Gateway, OPA, shared networks, and CA
+volumes. The runtime adapter creates each named Tobari from the same embedded
+image and connects Gateway to its dedicated network. No runtime asset is
+downloaded during startup. A public-only CA volume is mounted read-only into
+each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
 ## Lifecycle model
 
-The MVP owns one `tool_local` target with stable ID `realm:default`. Runtime
-state records schema version, canonical host root, resource names, policy path,
-proxy endpoint, and asset revision. Docker labels include:
+The MVP owns one cluster `tool_local` target with stable ID `cluster-default`.
+Schema-2 runtime state records shared resource names, policy path, proxy
+endpoint, asset revision, and a finite list of named Tobari. Every Tobari record
+contains an opaque ID, canonical root, and exact container, network, and volume
+names. Docker labels include:
 
 ```text
 io.tobari.owner=default
-io.tobari.component=realm|gateway|opa
+io.tobari.component=tobari|gateway|opa
+io.tobari.tobari-id=<opaque id when applicable>
 io.tobari.version=<asset revision>
 ```
 
-`up` validates configuration, tests policy, reconciles exact resources, starts
-OPA and Gateway before Realm, and waits for health. A conflicting root is an
-input failure. On an existing Realm, `up` restarts only OPA after successful
-policy tests and waits for health so host policy edits take effect without
-terminating Realm work. `down` verifies the ownership label on each exact resource
-before removing it. Persistent home is preserved unless `--purge` is supplied.
+`cluster up` validates configuration, tests policy, reconciles OPA and Gateway,
+and waits for health. OPA runs with `--watch` against a read-only XDG bind, so
+host edits reload without a lifecycle mutation. `attach` requires the cluster,
+validates name/root uniqueness, creates exact labeled resources, connects
+Gateway with the `gateway` alias, and waits for health. `detach` verifies owner
+and Tobari-ID labels before removing exact resources. Persistent home is
+preserved unless `--purge` is supplied. Cluster removal is rejected until the
+Tobari list is empty.
 
 ## Command catalog
 
 `cli.Catalog` is the only registry for public paths, roles, effects, fixed
 targets, inputs, outputs, failures, routing, and human/agent help. Handlers
 receive parsed inputs and call one application service. The catalog declares
-`up` as create and `down` as write with complete mutation intent and impact.
-All other commands are reads; `shell` and `exec` act on the fixed running realm.
+cluster and attach/detach mutations with complete intent and impact. `list` is
+the sole `tobari_id` producer; individual actions consume one exact ID. No
+action selects by display name.
 
 ## Gateway request flow
 
@@ -118,14 +124,15 @@ The same buffered bytes inspected by policy are forwarded. JSON is structured
 only when complete and within the limit. The addon never retries.
 
 Denied audit records are also the policy-development feedback interface:
-`tobari logs --component gateway` exposes bounded host, method, path, decision,
-and reason metadata; `status` exposes the trusted host policy directory. No
+`tobari cluster logs --component gateway` exposes bounded host, method, path,
+decision, and reason metadata; `cluster status` exposes the trusted host policy
+directory. No
 automatic rule generation or permission expansion occurs.
 
 ## Docker abstraction
 
-Application code owns narrow ports such as `Ensure`, `Inspect`, `Exec`,
-`Logs`, and `Remove`. The MVP infrastructure implementation invokes the Docker
+Application code owns narrow ports such as `EnsureCluster`, `Attach`, `Inspect`,
+`Exec`, `Logs`, and `Detach`. The MVP infrastructure implementation invokes the Docker
 CLI with fixed command structures and caller context. This keeps Docker Engine
 API or Podman replacement possible without promising either today. Arbitrary
 shell strings are never constructed; user commands are passed as argv after

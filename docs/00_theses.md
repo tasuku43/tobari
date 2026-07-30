@@ -5,24 +5,28 @@ revise the thesis and its enforcement explicitly instead of adding a bypass.
 
 ## North Star
 
-**A developer can run an untrusted coding agent with broad freedom inside one
-long-lived Docker realm while every HTTP and HTTPS effect that crosses the realm
-boundary is denied by default and authorized as a normalized request by OPA.**
+**A developer can attach named, long-lived Docker isolation spaces to the
+directories where work already happens while every HTTP and HTTPS effect that
+crosses each boundary is denied by default and authorized as a normalized
+request by one shared OPA-backed Gateway.**
 
 The primary users are developers who run Claude Code, Codex, shells, tests, and
-other arbitrary programs against a shared source root. Success means the same
-realm can host concurrent processes, cannot directly reach the Internet, never
-receives managed credentials, and can be created, inspected, entered, and
-removed through one predictable CLI.
+other arbitrary programs against selected source roots. Success means each
+named Tobari can host concurrent processes, cannot reach the Internet or another
+Tobari directly, never receives managed credentials, and can be attached,
+inspected, entered, and removed independently through one predictable CLI. One
+installation-local cluster shares Gateway, OPA, policy, credentials, and CA
+state without sharing Tobari roots or home volumes.
 
 The first testable slice is one local mock upstream reached through the
 Gateway: an allowed request succeeds, a denied request does not reach upstream,
 direct egress fails, and an OPA outage fails closed.
 
-The core product loop is progressive policy learning: work freely in Realm,
+The core product loop is progressive policy learning: work freely in Tobari,
 observe a denied boundary effect as secret-free evidence, refine the host-side
-policy, test it, and retry. A useful denial shortens that loop without silently
-expanding authority.
+XDG policy, test it, and retry. OPA watches that read-only host policy bind, so
+valid edits take effect without restarting active Tobari. A useful denial
+shortens that loop without silently expanding authority.
 
 ## Thesis 1: Authorize effects at the isolation boundary
 
@@ -46,22 +50,22 @@ brand.
 
 ## Thesis 2: Network topology is an enforcement mechanism
 
-Realm has exactly one internal Docker network path: the Gateway proxy
-interface. Gateway alone joins realm, control, and egress networks; OPA joins
-only control.
+Each Tobari has exactly one internal Docker network path: the Gateway proxy
+interface. Gateway alone joins every Tobari network plus the shared control and
+egress networks; OPA joins only control.
 
 ### Consequences
 
 - Proxy bypass has no route to an external upstream.
-- Realm cannot reach OPA or Gateway management interfaces.
+- Tobari cannot reach OPA, Gateway management interfaces, or another Tobari.
 - Gateway or OPA failure denies outbound traffic.
 - Host networking, privileged mode, Docker socket mounts, and added
   capabilities are forbidden.
 
 ### Mechanical enforcement
 
-- The runtime adapter constructs labeled internal realm and control networks and
-  a separate egress network.
+- The runtime adapter constructs one labeled internal network per Tobari, a
+  shared internal control network, and a separate egress network.
 - Integration tests prove direct egress, direct OPA access, and traffic during
   Gateway or OPA failure do not succeed.
 - Runtime specification tests reject privileged mode, host networking, Docker
@@ -90,27 +94,33 @@ profile is configured for the normalized destination host.
 - Integration tests prove injection at an allowed host and non-disclosure to
   Realm or another host.
 
-## Thesis 4: One root owns one long-lived realm
+## Thesis 4: One shared cluster hosts multiple named Tobari
 
-MVP manages a single shared realm for one explicitly selected read-write root.
-Repository-level and process-level isolation would imply safety boundaries that
-the MVP does not provide.
+MVP manages one installation-local enforcement cluster and multiple named
+Tobari. Each Tobari binds exactly one explicitly selected read-write root, one
+dedicated internal network, and one persistent home volume.
 
 ### Consequences
 
-- `tobari up --root` persists one canonical root and rejects conflicting roots
-  while the realm exists.
-- `shell` and `exec` join the existing container, filesystem, home volume, and
-  network namespace.
-- Every process in Realm may modify or delete every file below the mounted root.
-- Multiple realms, overlays, clone modes, and change approval are non-goals.
+- `tobari cluster up` starts shared policy enforcement without mounting a work
+  root.
+- `tobari attach --name --root` persists a unique human-readable name and
+  canonical root, and `list` emits an opaque ID for later actions.
+- `shell`, `exec`, `logs`, and `detach` consume that opaque ID unchanged rather
+  than rediscovering by name.
+- Every process in a Tobari may modify or delete every file below that Tobari's
+  mounted root.
+- Multiple clusters, overlays, clone modes, and change approval are non-goals.
 
 ### Mechanical enforcement
 
-- State and Docker labels identify the one installation-owned realm.
-- Path tests require `--cwd` to be inside the configured root.
-- Lifecycle integration tests execute concurrent sessions and repeated
-  `up`/`down` cycles without growing owned resources.
+- State and Docker labels identify the one installation-owned cluster and each
+  exact named Tobari resource.
+- Path tests require `--cwd` to be inside the selected Tobari root.
+- Reference tests pass `list` IDs byte-for-byte into actions.
+- Lifecycle integration tests create multiple roots, prove network separation,
+  execute concurrent sessions, and repeat attach/detach without growing owned
+  resources.
 
 ## Thesis 5: Lifecycle changes are bounded and ownership-labeled
 
@@ -120,18 +130,20 @@ name prefix or broad Docker query as authority.
 
 ### Consequences
 
-- `up` and `down` are idempotent within the declared state.
-- `down` removes owned containers and transient networks but preserves the
-  persistent Realm home volume unless `--purge` is explicit.
+- Cluster and attach reconciliation are idempotent within declared state.
+- `detach` removes one exact container and network but preserves that Tobari's
+  persistent home volume unless `--purge` is explicit.
+- `cluster down` refuses to remove shared enforcement while any Tobari remains;
+  `--purge` affects only shared CA state after the cluster is empty.
 - Docker CLI is behind an infrastructure port so another engine can replace it
   later without changing application outcomes.
-- `status`, `logs`, and `doctor` never repair state implicitly.
+- `cluster status`, `list`, `logs`, and `doctor` never repair state implicitly.
 
 ### Mechanical enforcement
 
 - Domain resource specifications carry a fixed ownership label.
-- Application tests prove validation precedes Docker calls and cleanup selects
-  exact resources.
+- Application tests prove validation and reference binding precede Docker calls
+  and cleanup selects exact resources.
 - The catalog declares every read/create/write effect and mutation impact.
 
 ## Thesis 6: Fail closed with bounded evidence
@@ -186,8 +198,10 @@ rule from the trusted host.
 
 - Every HTTP denial emits bounded structured audit metadata including host,
   method, path, decision, and reason.
-- `tobari logs --component gateway` is the first diagnostic step and `status`
-  reports the editable host-side policy directory.
+- `tobari cluster logs --component gateway` is the first diagnostic step and
+  `cluster status` reports the editable host-side policy directory.
+- OPA watches the policy directory mounted read-only from XDG; the trusted host
+  remains the only policy writer.
 - Audit evidence never includes credential values, cookies, raw bodies, or raw
   response data.
 - MVP does not automatically turn observed traffic into permission. Policy
@@ -199,12 +213,13 @@ rule from the trusted host.
 - Gateway tests assert both useful denial dimensions and absence of secret/body
   canaries.
 - Integration tests deny a known request, retrieve its audit record through the
-  CLI, and then exercise an allowed rule.
+  CLI, edit policy on the host, and then exercise an allowed rule without
+  restarting the cluster.
 - README makes the observe-edit-test-retry loop the primary operating workflow.
 
 ## Deliberate non-goals
 
-MVP does not support multiple realms, repository/process isolation, transparent
+MVP does not support multiple clusters, process-level identity, transparent
 proxying, non-HTTP protocols, Git SSH, provider-specific semantic adapters,
 OAuth refresh, SigV4, Keychain integration, approval workflows, Kubernetes,
 filesystem overlays, GUIs, remote execution, or multi-tenant production use.

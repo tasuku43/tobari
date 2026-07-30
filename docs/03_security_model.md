@@ -5,28 +5,30 @@ catalog and operational limits are in [Threat Model](THREAT_MODEL.md).
 
 ## Objective
 
-Untrusted Realm processes may freely execute and may modify the explicitly
-mounted root, but they cannot access other host files, Docker control, managed
-credentials, OPA administration, or direct Internet egress through the
-supported configuration. Every supported HTTP/HTTPS request is normalized,
-authorized by OPA, and enforced by Gateway before forwarding.
+Untrusted Tobari processes may freely execute and may modify their explicitly
+mounted root, but they cannot access other host files, another Tobari, Docker
+control, managed credentials, OPA administration, or direct Internet egress
+through the supported configuration. Every supported HTTP/HTTPS request is
+normalized, authorized by OPA, and enforced by the shared Gateway before
+forwarding.
 
 ## Trust boundaries
 
 Trusted components are the host OS, Docker Engine or its Linux VM, Tobari CLI,
-Gateway, OPA, Rego policy, and host credential storage. Realm, every process in
+Gateway, OPA, Rego policy, and host credential storage. Tobari, every process in
 it, coding agents, generated code, downloaded packages, request data, and
 upstream responses are untrusted.
 
 ```text
-host root (rw) ---> Realm --explicit proxy--> Gateway --OPA decision--> upstream
-                       |                         |
-                       | no route               +-- credentials (read-only)
-                       +--X OPA/control
+host root A (rw) ---> Tobari A --+
+                                  +--explicit proxy--> Gateway --OPA--> upstream
+host root B (rw) ---> Tobari B --+                       |
+                no cross-route                           +-- credentials (ro)
 ```
 
-Realm joins only an internal realm network. OPA joins only an internal control
-network. Gateway has separate interfaces for proxy, control, and egress.
+Each Tobari joins only its dedicated internal network. OPA joins only an
+internal control network. Gateway has separate interfaces for every Tobari
+proxy network, control, and egress.
 
 ## Assets
 
@@ -37,8 +39,8 @@ network. Gateway has separate interfaces for proxy, control, and egress.
 - Denial of direct Internet connectivity.
 - Integrity of request normalization, policy decisions, and audit records.
 
-Files under the read-write root are explicitly not protected from Realm. Realm
-processes can change or delete the entire mounted root. Docker or kernel
+Files under a read-write root are explicitly not protected from its Tobari.
+Processes can change or delete that entire mounted root. Docker or kernel
 compromise, VM/container escape, allowed-destination exfiltration, permitted
 credential authority, non-HTTP protocols, covert channels, same-Realm process
 interference, and malware detection are outside the MVP guarantee.
@@ -48,16 +50,21 @@ interference, and malware detection are outside the MVP guarantee.
 Runtime specs prohibit privileged mode, host networking, the Docker socket,
 SSH agent mounts, host home mounts, and added Linux capabilities. Realm uses a
 non-root work user mapped to the invoking UID/GID where Docker supports it.
-Only the selected root and the named home volume are mounted writable.
+Only the selected root and that Tobari's named home volume are mounted writable.
 
 Gateway image directories are assigned to the invoking host UID/GID at build
 time, and the service starts directly as that non-root identity. It opens no
 root entrypoint and receives no added capability. This preserves owner-only host
 credential permissions across native Linux and Docker Desktop.
 
-All resources carry `io.tobari.owner=default`. Destructive lifecycle code
-selects exact stored names and confirms the ownership label before removal.
-`down` preserves the persistent home unless `--purge` is explicit.
+All resources carry `io.tobari.owner=default`; per-Tobari resources also carry
+the exact opaque Tobari ID. Destructive lifecycle code selects exact stored
+names and confirms both labels before removal. `detach` preserves the
+persistent home unless `--purge` is explicit. Shared cluster removal is rejected
+while any Tobari remains.
+
+XDG policy is mounted read-only into OPA. Host-side edits are reflected by the
+bind mount and OPA watch; OPA receives no authority to rewrite trusted policy.
 
 ## HTTP authorization boundary
 
@@ -98,11 +105,13 @@ trusted infrastructure boundary.
 
 ## Mutation policy
 
-Lifecycle mutations target one catalog-declared `tool_local` singleton.
-`up` may create/reconcile only exact Tobari resources; `down` may remove only
-them. Both use complete intent and impact declarations before Docker execution.
-No human approval is required for ordinary reconciliation. `--purge` is an
-explicit destructive input and affects only the Realm home volume.
+Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
+`attach` creates within that exact cluster. Individual `detach` consumes one
+opaque `tobari_id` produced by `list`; it does not select by name or Docker
+discovery. All mutations use complete intent and impact declarations before
+Docker execution. No human approval is required for ordinary reconciliation.
+`--purge` is an explicit destructive input and affects only the exact selected
+home or, after all Tobari are detached, shared CA volumes.
 
 ## External calls
 
@@ -124,13 +133,15 @@ Tobari never converts observed traffic into an allow rule automatically.
 
 | Claim | Enforcement |
 |---|---|
-| No direct Realm egress | Internal network topology and Docker integration test |
-| Realm cannot access OPA | Separate internal networks and integration test |
+| No direct Tobari egress | Per-Tobari internal topology and Docker integration test |
+| Tobari cannot access OPA or peers | Separate internal networks and integration test |
 | OPA outage denies | Gateway unit and integration tests |
-| Secrets stay outside Realm | Mount-spec tests and integration canaries |
+| Secrets stay outside Tobari | Mount-spec tests and integration canaries |
 | Secret headers and bodies stay out of logs | Gateway unit tests and log scans |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
-| Root path is the only host write scope | Mount-spec and path-containment tests |
+| Each root is its Tobari's only host write scope | Mount-spec and path-containment tests |
+| OPA cannot rewrite host policy | Read-only mount-spec test |
+| Actions use exact Tobari identity | Reference round-trip and label-validation tests |
 | Unknown effects fail closed | Domain and catalog validation |
 | Denials support safe policy learning | Structured audit assertions and integration log scan |
 
