@@ -9,14 +9,16 @@ import (
 )
 
 const (
-	TaskClusterUp     = "cluster.up"
-	TaskClusterStatus = "cluster.status"
-	TaskClusterDown   = "cluster.down"
-	TaskAttach        = "tobari.attach"
-	TaskList          = "tobari.list"
-	TaskExec          = "tobari.exec"
-	TaskLogs          = "tobari.logs"
-	TaskDetach        = "tobari.detach"
+	TaskClusterUp      = "cluster.up"
+	TaskClusterStatus  = "cluster.status"
+	TaskClusterDenials = "cluster.denials"
+	TaskClusterDown    = "cluster.down"
+	TaskPolicyApply    = "policy.apply"
+	TaskAttach         = "tobari.attach"
+	TaskList           = "tobari.list"
+	TaskExec           = "tobari.exec"
+	TaskLogs           = "tobari.logs"
+	TaskDetach         = "tobari.detach"
 
 	ClusterTargetKind = "cluster"
 	ClusterTargetID   = "cluster-default"

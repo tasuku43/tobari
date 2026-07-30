@@ -16,8 +16,10 @@ type fakeRuntime struct {
 	state       tobari.State
 	attachCalls int
 	detachCalls int
+	policyCalls int
 	execSeen    tobari.Instance
 	devConfig   tobari.DevContainerConfig
+	denials     []tobari.PolicyDenial
 }
 
 func (f *fakeRuntime) ResolveRoot(_ context.Context, root string) (string, error) { return root, nil }
@@ -98,6 +100,16 @@ func (f *fakeRuntime) Exec(_ context.Context, instance tobari.Instance, _ tobari
 func (f *fakeRuntime) ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error) {
 	return []byte("cluster\n"), nil
 }
+func (f *fakeRuntime) ClusterDenials(context.Context, tobari.State, int) ([]tobari.PolicyDenial, error) {
+	if f.denials == nil {
+		return []tobari.PolicyDenial{}, nil
+	}
+	return append([]tobari.PolicyDenial{}, f.denials...), nil
+}
+func (f *fakeRuntime) ApplyPolicy(context.Context, tobari.State) error {
+	f.policyCalls++
+	return nil
+}
 func (f *fakeRuntime) TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error) {
 	return []byte("tobari\n"), nil
 }
@@ -134,6 +146,17 @@ func createIntent(command string) operation.Intent {
 		Impact: operation.Impact{
 			Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
 			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo,
+		},
+	}
+}
+
+func applyPolicyIntent() operation.Intent {
+	return operation.Intent{
+		Command: "policy apply", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
 		},
 	}
 }
@@ -214,6 +237,46 @@ func TestExecUsesOpaqueIDWithoutNameDiscovery(t *testing.T) {
 	)
 	if err != nil || code != 23 || runtime.execSeen.ID != instance.ID {
 		t.Fatalf("Exec() code=%d err=%v seen=%+v", code, err, runtime.execSeen)
+	}
+}
+
+func TestClusterDenialsReturnsPolicyAndEmptyBoundedScope(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	result, err := New(runtime).ClusterDenials(context.Background(), 75)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Task != tobari.TaskClusterDenials ||
+		result.PolicyDirectory != runtime.state.PolicyDirectory ||
+		result.WindowLines != 75 || result.Items == nil || len(result.Items) != 0 {
+		t.Fatalf("denial result = %+v", result)
+	}
+}
+
+func TestApplyPolicyUsesFixedClusterMutationAndConfirmsResult(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	result, err := New(runtime).ApplyPolicy(context.Background(), applyPolicyIntent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.policyCalls != 1 || !result.Applied ||
+		result.PolicyDirectory != runtime.state.PolicyDirectory {
+		t.Fatalf("activation = %+v, calls = %d", result, runtime.policyCalls)
+	}
+}
+
+func TestApplyPolicyRejectsWrongIntentBeforeRuntime(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	intent := applyPolicyIntent()
+	intent.Effect = operation.EffectCreate
+	if _, err := New(runtime).ApplyPolicy(context.Background(), intent); err == nil {
+		t.Fatal("invalid policy mutation was accepted")
+	}
+	if runtime.policyCalls != 0 {
+		t.Fatalf("policy calls = %d", runtime.policyCalls)
 	}
 }
 

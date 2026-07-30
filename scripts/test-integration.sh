@@ -229,16 +229,37 @@ if [[ $gateway_logs == *"$secret_value"* || $gateway_logs == *'Bearer '* ]]; the
   fail "Gateway logs contain a credential value"
 fi
 
-run_tobari exec --id "$policy_id" -- python3 -c \
-  'import json; p="/workspace/data.json"; d=json.load(open(p)); d["tobari"]["deny_rules"]=[]; open(p,"w").write(json.dumps(d,indent=2)+"\n")'
-live_status=
-for _ in $(seq 1 40); do
-  live_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST http://mock-upstream:8080/denied)
-  [[ $live_status == 200 ]] && break
-  sleep 0.25
-done
-[[ $live_status == 200 ]] || fail "OPA did not apply the host policy edit through watch"
+denials_json=$(run_tobari cluster denials --tail 500 --format json)
+assert_contains "$denials_json" '"policy":' "focused denial evidence"
+assert_contains "$denials_json" '"host":"mock-upstream"' "focused denial evidence"
+assert_contains "$denials_json" '"method":"POST"' "focused denial evidence"
+assert_contains "$denials_json" '"path":"/denied"' "focused denial evidence"
+assert_contains "$denials_json" '"apply_command":"tobari policy apply"' "focused denial recovery"
+if [[ $denials_json == *"$secret_value"* || $denials_json == *'Bearer '* ]]; then
+  fail "focused denial evidence contains a credential value"
+fi
+
+python3 -c \
+  'import json,pathlib,sys
+data_path=pathlib.Path(sys.argv[1])
+data=json.loads(data_path.read_text())
+data["tobari"]["deny_rules"]=[]
+data_path.write_text(json.dumps(data,indent=2)+"\n")
+test_path=pathlib.Path(sys.argv[2])
+text=test_path.read_text()
+start=text.index("test_deny_mock_write_path if {")
+end=text.index("\n}\n",start)+3
+block=text[start:end]
+replacement=block.replace("test_deny_mock_write_path","test_allow_mock_write_path").replace("\tnot result.allow","\tresult.allow")
+test_path.write_text(text[:start]+replacement+text[end:])' \
+  "$config_directory/policy/data.json" "$config_directory/policy/tobari_test.rego"
+apply_output=$(run_tobari policy apply)
+assert_contains "$apply_output" "policy: $config_directory/policy" "policy activation"
+assert_contains "$apply_output" 'applied: true' "policy activation"
+
+applied_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST http://mock-upstream:8080/denied)
+[[ $applied_status == 200 ]] || fail "tested host policy was not active after policy apply"
 
 other_host_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
   -H 'X-Tobari-Credential-Profile: integration' https://example.com/)

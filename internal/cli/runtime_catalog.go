@@ -10,8 +10,10 @@ func runtimeCommandSpecs() []CommandSpec {
 	return []CommandSpec{
 		clusterUpSpec(),
 		clusterStatusSpec(),
+		clusterDenialsSpec(),
 		clusterLogsSpec(),
 		clusterDownSpec(),
+		policyApplySpec(),
 		attachSpec(),
 		listSpec(),
 		shellSpec(),
@@ -90,6 +92,47 @@ func clusterStatusSpec() CommandSpec {
 	}
 }
 
+func clusterDenialsSpec() CommandSpec {
+	return CommandSpec{
+		Path: "cluster denials", Summary: "Read policy-denial evidence",
+		Args:   "[--tail <lines>] [--format text|json]",
+		Effect: operation.EffectRead, Role: RoleUtility,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Identify recent denied HTTP effects, the host policy directory, and the exact activation command",
+			Inputs: []CommandInput{
+				denialTailInput(),
+				formatInput(),
+			},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Fields: []OutputField{
+					{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
+					{Name: "window_lines", Type: OutputFieldTypeInteger, Description: "Maximum recent Gateway lines inspected."},
+					{
+						Name: "items", Type: OutputFieldTypeArray,
+						Description: "Validated denial objects ordered oldest to newest with timestamp, request_id, host, method, path, reason, and status_code.",
+					},
+					{Name: "apply_command", Type: OutputFieldTypeString, Description: "Exact command that tests and activates the edited policy."},
+				},
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
+				JSONEnvelope: "denials", JSONSchemaVersion: 1,
+			},
+			Prerequisites: []string{"The cluster has been created."},
+			Errors: readCommandErrors("cluster denials", true,
+				declaredCommandError(fault.KindInvalidInput, "invalid_denial_request", false, "help cluster denials", "Select a valid bounded window."),
+				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
+				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
+				declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster logs", "Inspect raw Gateway logs."),
+				declaredCommandError(fault.KindContract, "invalid_denial_contract", false, "cluster logs", "Inspect raw Gateway logs and audit compatibility."),
+				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "cluster denials", "Repair JSON projection."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+		},
+		handler: runClusterDenials,
+	}
+}
+
 func clusterLogsSpec() CommandSpec {
 	return CommandSpec{
 		Path: "cluster logs", Summary: "Read Gateway and OPA logs",
@@ -118,6 +161,44 @@ func clusterLogsSpec() CommandSpec {
 			),
 		},
 		handler: runClusterLogs,
+	}
+}
+
+func policyApplySpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy apply", Summary: "Test and activate host policy",
+		Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Test the current host XDG policy and activate it in the exact shared OPA component",
+			Inputs:       []CommandInput{},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+				Fields: []OutputField{
+					{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host policy directory that was tested."},
+					{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Whether the tested policy is active in a healthy OPA."},
+				},
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
+			},
+			Prerequisites: []string{"The cluster has been created.", "Policy edits have been made on the trusted host."},
+			FixedTarget:   fixedClusterTarget(),
+			Errors: mutationCommandErrors("policy apply", "cluster status",
+				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
+				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
+				declaredCommandError(fault.KindRejected, "policy_test_failed", false, "doctor", "Correct the host policy before activation."),
+				declaredCommandError(fault.KindUnavailable, "policy_apply_failed", false, "cluster status", "Reconcile OPA health before another activation."),
+				declaredCommandError(fault.KindContract, "invalid_policy_activation", false, "cluster status", "Reconcile the confirmed activation."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.ClusterTargetKind, TargetInputs: []string{},
+				Impact: operation.Impact{
+					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+					AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
+				},
+			},
+		},
+		handler: runPolicyApply,
 	}
 }
 
@@ -390,6 +471,15 @@ func tailInput() CommandInput {
 		Name: "--tail", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle,
 		Description: "Maximum lines read from each selected component.", AllowedValues: []string{},
+		DefaultValue: stringPointer("200"), Minimum: int64Pointer(1), Maximum: int64Pointer(10_000),
+	}
+}
+
+func denialTailInput() CommandInput {
+	return CommandInput{
+		Name: "--tail", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle,
+		Description: "Maximum recent Gateway log lines inspected for denials.", AllowedValues: []string{},
 		DefaultValue: stringPointer("200"), Minimum: int64Pointer(1), Maximum: int64Pointer(10_000),
 	}
 }

@@ -19,10 +19,11 @@ import (
 
 type runnerCall struct{ args []string }
 type recordingRunner struct {
-	runs       []runnerCall
-	outputs    []runnerCall
-	outputData []byte
-	outputErr  error
+	runs        []runnerCall
+	outputs     []runnerCall
+	outputData  []byte
+	outputErr   error
+	outputQueue [][]byte
 }
 
 func (r *recordingRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
@@ -31,6 +32,11 @@ func (r *recordingRunner) Run(_ context.Context, args, _ []string, _ io.Reader, 
 }
 func (r *recordingRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+	if len(r.outputQueue) > 0 {
+		output := append([]byte{}, r.outputQueue[0]...)
+		r.outputQueue = r.outputQueue[1:]
+		return output, r.outputErr
+	}
 	return append([]byte{}, r.outputData...), r.outputErr
 }
 

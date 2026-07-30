@@ -61,6 +61,58 @@ func runClusterLogs(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Inte
 	return c.emitResult(ctx, renderSafeLogs(output))
 }
 
+func runClusterDenials(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
+) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	tail, _ := inputs.Integer("--tail")
+	result, err := c.tobari.ClusterDenials(ctx, int(tail))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(
+			ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(),
+			"help cluster denials", "Correct the command arguments.",
+		)
+	}
+	apply, found := c.catalog.Lookup("policy apply")
+	if !found {
+		return c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "policy apply command is missing", false,
+		))
+	}
+	output, err := renderClusterDenials(result, ProgramName+" "+apply.Path, format)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitResult(ctx, output)
+}
+
+func runPolicyApply(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, _ ParsedInputs,
+) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	result, err := c.tobari.ApplyPolicy(ctx, intent)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	var output bytes.Buffer
+	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
+	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
+	return c.emitMutationResult(ctx, command, output.Bytes())
+}
+
 func runClusterDown(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
@@ -185,6 +237,63 @@ func runDetach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Int
 type clusterStatusDocument struct {
 	SchemaVersion int                 `json:"schema_version"`
 	Cluster       clusterStatusOutput `json:"cluster"`
+}
+
+type clusterDenialsDocument struct {
+	SchemaVersion int                  `json:"schema_version"`
+	Denials       clusterDenialsOutput `json:"denials"`
+}
+
+type clusterDenialsOutput struct {
+	Policy       string                `json:"policy"`
+	WindowLines  int                   `json:"window_lines"`
+	Items        []tobari.PolicyDenial `json:"items"`
+	ApplyCommand string                `json:"apply_command"`
+}
+
+func renderClusterDenials(
+	result tobari.DenialReport, applyCommand string, format successFormat,
+) ([]byte, error) {
+	if format == successFormatJSON {
+		items := append([]tobari.PolicyDenial{}, result.Items...)
+		for index := range items {
+			items[index].Timestamp = safeExternalText(items[index].Timestamp)
+			items[index].RequestID = safeExternalText(items[index].RequestID)
+			items[index].Host = safeExternalText(items[index].Host)
+			items[index].Method = safeExternalText(items[index].Method)
+			items[index].Path = safeExternalText(items[index].Path)
+			items[index].Reason = safeExternalText(items[index].Reason)
+		}
+		output, err := json.Marshal(clusterDenialsDocument{
+			SchemaVersion: 1,
+			Denials: clusterDenialsOutput{
+				Policy: safeExternalText(result.PolicyDirectory), WindowLines: result.WindowLines,
+				Items: items, ApplyCommand: applyCommand,
+			},
+		})
+		if err != nil {
+			return nil, fault.Wrap(
+				fault.KindContract, "output_encoding_failed",
+				"cluster denials JSON could not be encoded", false, err,
+			)
+		}
+		return append(output, '\n'), nil
+	}
+	var output bytes.Buffer
+	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
+	fmt.Fprintf(&output, "window_lines: %d\n", result.WindowLines)
+	fmt.Fprintf(&output, "denial_count: %d\n", len(result.Items))
+	for _, item := range result.Items {
+		fmt.Fprintf(
+			&output,
+			"denial: timestamp=%s\trequest_id=%s\thost=%s\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\n",
+			escapeTSVCell(item.Timestamp), escapeTSVCell(item.RequestID),
+			escapeTSVCell(item.Host), escapeTSVCell(item.Method),
+			escapeTSVCell(item.Path), item.StatusCode, escapeTSVCell(item.Reason),
+		)
+	}
+	fmt.Fprintf(&output, "apply_command: %s\n", escapeTSVCell(applyCommand))
+	return output.Bytes(), nil
 }
 
 type clusterStatusOutput struct {

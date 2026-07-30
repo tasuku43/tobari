@@ -139,7 +139,8 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 	}
 	for _, required := range []string{
 		"doctor", "help", "version",
-		"cluster up", "cluster status", "cluster logs", "cluster down",
+		"cluster up", "cluster status", "cluster denials", "cluster logs", "cluster down",
+		"policy apply",
 		"attach", "list", "shell", "exec", "logs", "detach",
 	} {
 		if !seen[required] {
@@ -150,19 +151,21 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 
 func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 	wantCoverage := map[string]CollectionCoverage{
-		"doctor":         CollectionCoverageExhaustive,
-		"help":           CollectionCoverageExhaustive,
-		"version":        CollectionCoverageNotApplicable,
-		"cluster up":     CollectionCoverageNotApplicable,
-		"cluster status": CollectionCoverageExhaustive,
-		"cluster logs":   CollectionCoverageBoundedWindow,
-		"cluster down":   CollectionCoverageNotApplicable,
-		"attach":         CollectionCoverageNotApplicable,
-		"list":           CollectionCoverageExhaustive,
-		"shell":          CollectionCoverageNotApplicable,
-		"exec":           CollectionCoverageNotApplicable,
-		"logs":           CollectionCoverageBoundedWindow,
-		"detach":         CollectionCoverageNotApplicable,
+		"doctor":          CollectionCoverageExhaustive,
+		"help":            CollectionCoverageExhaustive,
+		"version":         CollectionCoverageNotApplicable,
+		"cluster up":      CollectionCoverageNotApplicable,
+		"cluster status":  CollectionCoverageExhaustive,
+		"cluster denials": CollectionCoverageBoundedWindow,
+		"cluster logs":    CollectionCoverageBoundedWindow,
+		"cluster down":    CollectionCoverageNotApplicable,
+		"policy apply":    CollectionCoverageNotApplicable,
+		"attach":          CollectionCoverageNotApplicable,
+		"list":            CollectionCoverageExhaustive,
+		"shell":           CollectionCoverageNotApplicable,
+		"exec":            CollectionCoverageNotApplicable,
+		"logs":            CollectionCoverageBoundedWindow,
+		"detach":          CollectionCoverageNotApplicable,
 	}
 	for path, coverage := range wantCoverage {
 		command, found := DefaultCatalog().Lookup(path)

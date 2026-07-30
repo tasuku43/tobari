@@ -1008,7 +1008,10 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 	} else if exists {
 		add("state", doctor.CheckStatusPass, fmt.Sprintf("cluster has %d attached Tobari", len(state.Tobari)))
 		if err := r.testPolicy(ctx, state); err != nil {
-			add("policy", doctor.CheckStatusFail, "OPA policy tests failed")
+			add(
+				"policy", doctor.CheckStatusFail,
+				"OPA policy tests failed; verify syntax and Docker access to the XDG policy directory",
+			)
 		} else {
 			add("policy", doctor.CheckStatusPass, "OPA policy tests passed")
 		}

@@ -27,6 +27,8 @@ type RuntimePort interface {
 	InspectTobari(context.Context, tobari.State) ([]tobari.ItemStatus, error)
 	Exec(context.Context, tobari.Instance, tobari.ExecRequest, io.Reader, io.Writer, io.Writer) (int, error)
 	ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error)
+	ClusterDenials(context.Context, tobari.State, int) ([]tobari.PolicyDenial, error)
+	ApplyPolicy(context.Context, tobari.State) error
 	TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error)
 	Detach(context.Context, tobari.State, tobari.Instance, bool) (tobari.State, error)
 	ClusterDown(context.Context, tobari.State, bool) error
@@ -338,6 +340,101 @@ func (s *Service) ClusterLogs(ctx context.Context, request tobari.LogRequest) ([
 		return nil, fault.Wrap(fault.KindInternal, "logs_failed", "cluster logs could not be read", false, err)
 	}
 	return output, nil
+}
+
+// ClusterDenials returns one typed bounded window of policy-learning evidence.
+func (s *Service) ClusterDenials(ctx context.Context, tail int) (tobari.DenialReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.DenialReport{}, err
+	}
+	request := tobari.LogRequest{Component: "gateway", Tail: tail}
+	if err := request.ValidateCluster(); err != nil {
+		return tobari.DenialReport{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_denial_request", "denial request is invalid", false, err,
+		)
+	}
+	state, exists, err := s.runtime.LoadState(ctx)
+	if err != nil {
+		return tobari.DenialReport{}, fault.Wrap(
+			fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err,
+		)
+	}
+	if !exists {
+		return tobari.DenialReport{}, fault.New(
+			fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false,
+		)
+	}
+	items, err := s.runtime.ClusterDenials(ctx, state, tail)
+	if err != nil {
+		return tobari.DenialReport{}, fault.Wrap(
+			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
+		)
+	}
+	result := tobari.DenialReport{
+		Task: tobari.TaskClusterDenials, PolicyDirectory: state.PolicyDirectory,
+		WindowLines: tail, Items: items,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.DenialReport{}, fault.Wrap(
+			fault.KindContract, "invalid_denial_contract", "cluster denial result is invalid", false, err,
+		)
+	}
+	return result, nil
+}
+
+// ApplyPolicy tests the trusted-host policy and activates it in the exact owned
+// OPA component.
+func (s *Service) ApplyPolicy(
+	ctx context.Context, intent operation.Intent,
+) (tobari.PolicyActivation, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.PolicyActivation{}, err
+	}
+	state, exists, err := s.runtime.LoadState(ctx)
+	if err != nil {
+		return tobari.PolicyActivation{}, fault.Wrap(
+			fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err,
+		)
+	}
+	if !exists {
+		return tobari.PolicyActivation{}, fault.New(
+			fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false,
+		)
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: "policy apply", ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
+	}
+	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		actionErr := s.runtime.ApplyPolicy(actionContext, state)
+		if actionErr == nil {
+			return nil
+		}
+		if _, structured := fault.PublicCopy(actionErr); structured {
+			return actionErr
+		}
+		return fault.Wrap(
+			fault.KindUnavailable, "policy_apply_failed",
+			"Policy activation did not complete; inspect cluster status", false, actionErr,
+			fault.NextAction{
+				Command: "cluster status",
+				Reason:  "Reconcile OPA health before applying policy again.",
+			},
+		)
+	})
+	if err != nil {
+		return tobari.PolicyActivation{}, err
+	}
+	result := tobari.PolicyActivation{
+		Task: tobari.TaskPolicyApply, PolicyDirectory: state.PolicyDirectory, Applied: true,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.PolicyActivation{}, fault.Wrap(
+			fault.KindContract, "invalid_policy_activation",
+			"policy activation result is invalid", false, err,
+		)
+	}
+	return result, nil
 }
 
 // TobariLogs returns a bounded log window for one exact Tobari.
