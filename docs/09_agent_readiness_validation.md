@@ -18,7 +18,8 @@ go run ./cmd/tobari attach --name test --root /absolute/test/root \
   --devcontainer .devcontainer/devcontainer.json
 go run ./cmd/tobari list --format json
 go run ./cmd/tobari exec --id TBR_ID -- curl https://example.com/
-go run ./cmd/tobari cluster logs --component gateway --tail 100
+go run ./cmd/tobari cluster denials --tail 100 --format json
+go run ./cmd/tobari policy apply
 go run ./cmd/tobari detach --id TBR_ID --purge
 go run ./cmd/tobari cluster down --purge
 ```
@@ -39,7 +40,9 @@ literal. The transcript must prove:
 - `list` retains an explicitly exhaustive local collection, including empty.
 - Individual actions consume one `tobari` reference unchanged.
 - `exec` passes exact argv and preserves the child status.
-- A denied request produces bounded secret-free host/method/path evidence.
+- A denied request produces bounded typed secret-free host/method/path
+  evidence, the host policy path, and the exact activation command.
+- A tested host edit can be activated portably without restarting a Tobari.
 - Cleanup verifies exact owner and opaque-ID labels.
 
 ## Policy-learning scenario
@@ -48,12 +51,13 @@ The Docker integration test supplies the executable loop:
 
 1. A mock-host GET is allowed.
 2. A mock-host POST under `/denied` receives `403` and never reaches upstream.
-3. `cluster logs --component gateway` exposes the rejected dimensions without
-   a body or credential canary.
-4. `cluster status` exposes the trusted XDG policy path.
-5. A second named Tobari attaches only that policy directory.
-6. A host-visible policy edit is watched by OPA without restart.
-7. The retry succeeds; no rule is generated or accepted automatically.
+3. `cluster denials` exposes the rejected dimensions, trusted XDG policy path,
+   and exact apply command without a body or credential canary.
+4. A second named Tobari attaches only that policy directory.
+5. A host-visible policy and test edit passes `policy apply`; only OPA is
+   recreated and confirmed healthy.
+6. The retry succeeds; no rule is generated or accepted automatically and no
+   Tobari is restarted.
 
 Routine success and denial require zero undeclared provider parsers,
 provider-notation decoders, source inspection steps, or exploratory provider
@@ -85,7 +89,7 @@ Agents must not infer:
 - protection for files below a selected read-write root.
 
 The opaque reference, declared local collection scope, cluster status, bounded
-log coverage, OPA decision, and structured failures are the supported
+denial/log coverage, OPA decision, and structured failures are the supported
 interpretation inputs.
 
 ## Failure and recovery validation
@@ -100,6 +104,8 @@ At minimum, exercise:
   configuration before Docker mutation;
 - malformed or legacy state;
 - invalid Rego before cluster reconciliation;
+- invalid Rego before policy activation and exact OPA-only recreation after a
+  valid edit;
 - partial startup mapped to non-retryable `cluster_start_failed`;
 - partial attach mapped to non-retryable `attach_failed`;
 - non-empty cluster removal rejection;
@@ -123,5 +129,5 @@ task security
 task public:check
 ```
 
-Review the Gateway denial record, OPA watch event, two-network topology, and
-Docker cleanup counts alongside command results.
+Review the typed Gateway denial, tested OPA activation, two-network topology,
+and Docker cleanup counts alongside command results.

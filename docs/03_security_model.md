@@ -83,7 +83,10 @@ persistent home unless `--purge` is explicit. Shared cluster removal is rejected
 while any Tobari remains.
 
 XDG policy is mounted read-only into OPA. Host-side edits are reflected by the
-bind mount and OPA watch; OPA receives no authority to rewrite trusted policy.
+bind mount. OPA watch reloads them where Docker-host events propagate;
+`policy apply` first tests the bind and then recreates only the exact
+owner-labeled OPA component for deterministic activation. OPA receives no
+authority to rewrite trusted policy.
 
 ## HTTP authorization boundary
 
@@ -131,6 +134,10 @@ discovery. All mutations use complete intent and impact declarations before
 Docker execution. No human approval is required for ordinary reconciliation.
 `--purge` is an explicit destructive input and affects only the exact selected
 home or, after all Tobari are detached, shared CA volumes.
+`policy apply` is an access-changing write to the same fixed cluster target. It
+does not edit policy, but it can change outbound authority by activating the
+trusted host's current tested files. Gateway remains fail-closed while OPA is
+recreated.
 
 ## External calls
 
@@ -145,8 +152,10 @@ Audit JSON includes timestamp, request ID, cluster, host, method, path, decision
 reason, selected credential profile name, upstream status, and duration. A
 profile name is non-secret metadata; secret values and raw bodies are excluded.
 CLI `logs` reads only a bounded component-log window and does not add
-unredacted diagnostics. Policy authors use deny records on the trusted host;
-Tobari never converts observed traffic into an allow rule automatically.
+unredacted diagnostics. `cluster denials` projects only validated deny records
+and omits credential-profile metadata. Policy authors use those records on the
+trusted host; Tobari never converts observed traffic into an allow rule
+automatically.
 
 ## Enforcement
 
@@ -162,9 +171,10 @@ Tobari never converts observed traffic into an allow rule automatically.
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
 | Dev Container metadata cannot become a second runtime boundary | Contained bounded parser, unsupported-property tests, and fixed attach adapter |
 | OPA cannot rewrite host policy | Read-only mount-spec test |
+| Tested host policy activates across Docker hosts | Fixed-target OPA recreation test and integration scenario |
 | Actions use exact Tobari identity | Reference round-trip and label-validation tests |
 | Unknown effects fail closed | Domain and catalog validation |
-| Denials support safe policy learning | Structured audit assertions and integration log scan |
+| Denials support safe policy learning | Typed denial validation, secret canaries, and integration projection |
 
 ## Supply chain and publication
 

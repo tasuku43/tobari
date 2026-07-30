@@ -15,7 +15,7 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, and public-boundary checks |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Pinned mitmproxy addon unit tests |
-| `integration` | `task integration:test` | Real runtime boundary | Shared-cluster lifecycle, multiple named Tobari, network separation, TLS, fail-closed, credential, audit, exec, live policy watch, and cleanup scenarios |
+| `integration` | `task integration:test` | Real runtime boundary | Shared-cluster lifecycle, multiple named Tobari, network separation, TLS, fail-closed, credential, typed denial, tested host-policy activation, exec, and cleanup scenarios |
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, and integration profiles |
 
 Direct invocation is supported for automation:
@@ -216,8 +216,9 @@ The test suite has complementary levels:
 - Dev Container tests cover comments, trailing commas, duplicate keys, size and
   symlink escape, unsupported runtime properties, input conflicts, and one
   image-based Docker integration path.
-- Policy-watch integration edits a host XDG policy fixture and observes the
-  changed decision without restarting OPA or any Tobari.
+- Policy-learning integration projects a denial, edits the host XDG policy and
+  its test, activates it through the fixed-target command, and observes the
+  changed decision without restarting any Tobari.
 - Negative tests prove rejection before side effects.
 - Release tests inspect actual artifacts and metadata, not only workflow text.
   Archive tests cover deterministic multi-entry order, canonical metadata,
@@ -246,6 +247,8 @@ Every strong statement should identify its enforcement path.
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
 | Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |
+| Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
+| Typed denial recovery | Strict audit projection, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |

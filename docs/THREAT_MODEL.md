@@ -60,7 +60,9 @@ A user may intentionally attach a Tobari to the XDG `policy/` directory. That
 Tobari can then modify every policy file because the selected root is an
 explicit read-write scope. Users must not attach the parent configuration
 directory because it also contains credential files. OPA itself sees policy
-read-only and watches host changes.
+read-only and watches host changes where Docker-host events propagate. The
+fixed-target `policy apply` path tests the host files and recreates only the
+owned OPA component for deterministic activation.
 
 ### Forged authorization
 
@@ -73,7 +75,8 @@ allow. Only an OPA-selected, exact-host-bound profile can add a managed value.
 
 OPA times out, stops, returns malformed JSON, or returns an incomplete
 decision. Gateway denies and does not contact upstream. Invalid watched policy
-does not create an allow decision.
+does not create an allow decision, and `policy apply` refuses it before OPA
+recreation.
 
 ### Request/body mismatch
 

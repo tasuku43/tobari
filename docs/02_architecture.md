@@ -114,7 +114,10 @@ io.tobari.version=<asset revision>
 
 `cluster up` validates configuration, tests policy, reconciles OPA and Gateway,
 and waits for health. OPA runs with `--watch` against a read-only XDG bind, so
-host edits reload without a lifecycle mutation. `attach` requires the cluster,
+host edits reload when Docker-host filesystem events propagate. `policy apply`
+provides the deterministic portable path: it tests the current bind, verifies
+the exact OPA ownership label, recreates only OPA, and waits for health.
+`attach` requires the cluster,
 validates name/root uniqueness, creates exact labeled resources, connects
 Gateway with the `gateway` alias, and waits for health. `detach` verifies owner
 and Tobari-ID labels before removing exact resources. Persistent home is
@@ -148,11 +151,12 @@ client flow
 The same buffered bytes inspected by policy are forwarded. JSON is structured
 only when complete and within the limit. The addon never retries.
 
-Denied audit records are also the policy-development feedback interface:
-`tobari cluster logs --component gateway` exposes bounded host, method, path,
-decision, and reason metadata; `cluster status` exposes the trusted host policy
-directory. No
-automatic rule generation or permission expansion occurs.
+Denied audit records are also the policy-development feedback interface.
+`tobari cluster denials` parses one bounded Gateway log window, rejects
+malformed denial-shaped records, and returns typed host, method, path, reason,
+status, request identity, timestamp, the trusted host policy directory, and the
+exact apply command. Raw `cluster logs` remains the component-debugging
+interface. No automatic rule generation or permission expansion occurs.
 
 ## Docker abstraction
 

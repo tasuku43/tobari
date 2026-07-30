@@ -24,9 +24,10 @@ direct egress fails, and an OPA outage fails closed.
 
 The core product loop is progressive policy learning: work freely in Tobari,
 observe a denied boundary effect as secret-free evidence, refine the host-side
-XDG policy, test it, and retry. OPA watches that read-only host policy bind, so
-valid edits take effect without restarting active Tobari. A useful denial
-shortens that loop without silently expanding authority.
+XDG policy, test and activate it, and retry. OPA watches that read-only host
+policy bind where Docker-host filesystem events propagate; `policy apply` is
+the deterministic portable activation path and does not restart active Tobari.
+A useful denial shortens that loop without silently expanding authority.
 
 ## Thesis 1: Authorize effects at the isolation boundary
 
@@ -207,9 +208,12 @@ rule from the trusted host.
 
 - Every HTTP denial emits bounded structured audit metadata including host,
   method, path, decision, and reason.
-- `tobari cluster logs --component gateway` is the first diagnostic step and
-  `cluster status` reports the editable host-side policy directory.
-- OPA watches the policy directory mounted read-only from XDG; the trusted host
+- `tobari cluster denials` is the first diagnostic step: it projects only
+  validated denial records, reports the editable host-side policy directory,
+  and names the exact activation command. Raw component logs remain available.
+- OPA watches the policy directory mounted read-only from XDG; `policy apply`
+  tests the same directory, recreates only exact owned OPA, and waits for
+  health when Docker-host filesystem events are unavailable. The trusted host
   remains the only policy writer.
 - Audit evidence never includes credential values, cookies, raw bodies, or raw
   response data.
@@ -221,9 +225,9 @@ rule from the trusted host.
 
 - Gateway tests assert both useful denial dimensions and absence of secret/body
   canaries.
-- Integration tests deny a known request, retrieve its audit record through the
-  CLI, edit policy on the host, and then exercise an allowed rule without
-  restarting the cluster.
+- Integration tests deny a known request, retrieve its typed audit record
+  through the CLI, edit policy on the host, apply it, and then exercise the
+  allowed rule without restarting any Tobari.
 - README makes the observe-edit-test-retry loop the primary operating workflow.
 
 ## Deliberate non-goals

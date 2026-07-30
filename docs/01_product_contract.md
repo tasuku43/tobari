@@ -15,8 +15,10 @@ interactive or non-interactive execution, inspection, logs, and cleanup.
 
 The primary operating loop is progressive policy learning: a Tobari workload is
 denied by default, Gateway records the rejected host/method/path and reason
-without secrets, the user refines and tests XDG policy on the trusted host, OPA
-reloads it through watch, and the same workload is retried. Denial evidence is a
+without secrets, `cluster denials` presents that evidence with the XDG policy
+path, the user refines policy on the trusted host, `policy apply` tests and
+activates it, and the same workload is retried. OPA watch may make activation
+immediate when Docker-host filesystem events propagate. Denial evidence is a
 product output, not incidental debug noise.
 
 ## Public vocabulary
@@ -45,8 +47,10 @@ The public commands are:
 | `doctor [--root PATH]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
 | `cluster up` | act, fixed target | create | Reconcile and start shared Gateway and OPA |
 | `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
+| `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, policy path, and activation command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Tobari is detached |
+| `policy apply` | act, fixed target | write | Test host policy and activate it in the exact shared OPA component |
 | `attach --name NAME --root PATH [--image IMAGE] [--devcontainer PATH]` | act, fixed cluster target | create | Attach one named Tobari with a compatible image to an existing root |
 | `list [--format text|json]` | discover | read | List all configured Tobari and produce opaque IDs |
 | `shell --id ID` | act, reference bound | read | Open an interactive shell in one Tobari |
@@ -87,10 +91,10 @@ security property rather than an undeclared Docker mutation by the CLI.
 
 ## Output and exit contract
 
-Human output is concise text. Cluster status JSON is schema version 1 and
-`list --format json` is schema version 2, with the selected image added to each
-item. Agent help uses the catalog schema. Successful data is stdout; failures
-are stderr.
+Human output is concise text. Cluster status and cluster-denials JSON are
+schema version 1, and `list --format json` is schema version 2, with the selected
+image added to each item. Agent help uses the catalog schema. Successful data
+is stdout; failures are stderr.
 
 | Exit | Meaning |
 |---:|---|
@@ -106,6 +110,9 @@ are stderr.
 Commands use complete delivery. `list` is exhaustive for local state at one
 observation point. Status is exhaustive for the shared cluster scope. Logs are
 a bounded recent window of 1 through 10,000 lines per selected component.
+Denials are a fully delivered typed projection from the requested bounded
+Gateway-line window; an empty `items` collection means no valid denial occurred
+in that window, not exhaustive history.
 
 ## Configuration contract
 
@@ -128,6 +135,11 @@ explicit `attach --image`, `config.json.default_image`, then `builtin` when the
 configuration file has not yet been initialized. The two explicit flags cannot
 be supplied together.
 
+OPA reads the policy bind with `--watch`. Because Docker-host file-event
+delivery varies by runtime, `policy apply` is the portable completion step: it
+tests the current host directory before recreating only OPA and waiting for
+health.
+
 ## Side effects
 
 `cluster up` creates shared labeled networks, images, configuration material,
@@ -140,6 +152,9 @@ that network.
 also removes that exact home. `cluster down` rejects while any Tobari remains
 and removes only exact shared resources; its `--purge` also removes shared CA
 volumes. No command removes a mounted root or files inside it.
+`policy apply` runs pinned OPA tests against the read-only host bind, then
+recreates only the exact owner-labeled OPA container and waits for health.
+Gateway remains up and fails closed during that bounded activation interval.
 
 ## Compatibility
 

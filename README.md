@@ -14,8 +14,8 @@ The normal loop is progressive policy learning:
 1. Start the shared enforcement cluster.
 2. Attach a named Tobari to a work directory.
 3. Work freely until an undeclared request receives `403`.
-4. Inspect the secret-free Gateway denial.
-5. Edit the host-side XDG policy and retry.
+4. Inspect the secret-free typed denial and its host policy path.
+5. Edit the XDG policy, test and activate it, then retry.
 
 ```sh
 tobari cluster up
@@ -24,11 +24,14 @@ tobari list
 
 # Copy the exact opaque ID printed by list.
 tobari shell --id tbr_0123456789abcdef0123456789abcdef
-tobari cluster logs --component gateway --tail 100
+tobari cluster denials --tail 100
+# Edit the printed policy directory on the trusted host.
+tobari policy apply
 ```
 
-Gateway logs include bounded `host`, `method`, `path`, `decision`, and `reason`
-metadata. Tobari never turns observed traffic into permission automatically.
+Denial output includes bounded `host`, `method`, `path`, and `reason` evidence,
+the canonical policy directory, and the exact apply command. Tobari never turns
+observed traffic into permission automatically.
 
 ## Cluster and Tobari topology
 
@@ -59,6 +62,14 @@ both sides of the policy boundary, not plaintext traffic to the destination.
 
 Certificate-pinned clients that reject the Tobari CA fail rather than bypass
 Gateway.
+
+Proxy-aware tools such as `gh`, Git over HTTPS, and `curl` receive the same
+`HTTP_PROXY` and `HTTPS_PROXY` settings. Their destination remains an HTTPS
+URL: the client uses HTTP `CONNECT` to reach Gateway, Gateway authorizes the
+decrypted request, and the upstream leg is a separate verified HTTPS
+connection. No GitHub-specific URL rewriting or adapter is required. Tool
+authentication prerequisites still belong to that tool or an explicitly
+configured Gateway credential profile.
 
 ## Requirements
 
@@ -229,8 +240,10 @@ tobari cluster down --purge # also removes shared CA volumes
 |---|---|
 | `tobari cluster up` | Test policy and reconcile shared Gateway and OPA |
 | `tobari cluster status [--format text\|json]` | Show shared health, proxy, XDG policy, and attached count |
+| `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and activation command |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
 | `tobari cluster down [--purge]` | Remove an empty cluster and optionally shared CA state |
+| `tobari policy apply` | Test host policy, recreate only OPA, and wait for health |
 | `tobari attach --name NAME --root PATH [--image IMAGE] [--devcontainer PATH]` | Attach one named Tobari with a compatible local image |
 | `tobari list [--format text\|json]` | Discover configured Tobari and opaque action IDs |
 | `tobari shell --id ID` | Open Bash in one exact Tobari |
@@ -241,8 +254,8 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version` | Print build identity |
 
-`cluster status`, `list`, `logs`, and `doctor` are observational and never
-repair state.
+`cluster status`, `cluster denials`, `list`, `logs`, and `doctor` are
+observational and never repair state.
 
 ## XDG configuration and live policy
 
@@ -265,8 +278,18 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tobari/
 
 OPA sees `policy/` through a read-only bind and runs with file watch enabled.
 A read-only bind still reflects host changes; OPA does not need write authority
-over trusted policy. Valid host edits therefore take effect without restarting
-OPA, Gateway, or an active Tobari.
+over trusted policy. Some Docker hosts do not propagate host filesystem events
+to OPA watch reliably, so finish every deliberate edit with:
+
+```sh
+tobari policy apply
+```
+
+This tests the current host policy, recreates only the exact owned OPA
+container, and waits for health. Gateway remains up and fails closed during the
+brief activation interval; active Tobari are not restarted. Where file events
+do propagate, watch may make the change visible before this command completes,
+but `policy apply` remains the portable confirmation.
 
 Use a named Tobari rooted at the policy subdirectory when you want an isolated
 policy-editing environment:
@@ -284,7 +307,7 @@ The initialized policy is generic HTTP policy, not a GitHub adapter. It starts
 deny-by-default, distinguishes HTTPS from explicitly allowed test-only HTTP,
 restricts methods and paths, and validates credential profile bindings.
 
-Run read-only diagnostics after an edit to execute the Rego tests:
+Run read-only diagnostics when you want to test policy without activating it:
 
 ```sh
 tobari doctor
@@ -379,8 +402,9 @@ tobari list
 
 Common failures:
 
-- `policy_test_failed`: edit the policy reported by `cluster status`, then run
-  `doctor`.
+- `policy_test_failed`: edit the policy reported by `cluster denials` or
+  `cluster status`, then run `doctor` or `policy apply`; if tests pass outside
+  Tobari, verify that the XDG policy directory is shared with the Docker VM.
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`.
 - `cluster_not_running`: run `cluster up` before `attach`.
@@ -392,8 +416,8 @@ Common failures:
 - `unsupported_devcontainer`: remove runtime properties outside the documented
   image-based subset.
 - `tobari_not_found`: pass an opaque ID from `list` unchanged.
-- intended request returns `403`: inspect `cluster logs --component gateway`
-  and refine the minimum host/method/path rule.
+- intended request returns `403`: run `cluster denials`, refine the minimum
+  host/method/path rule, run `policy apply`, and retry.
 - root bind-mount error under Colima/Lima: use a directory shared with the VM.
 
 Schema-1 singleton state from older pre-v1 builds is intentionally not guessed
@@ -418,8 +442,8 @@ task public:check
 The integration profile creates two named Tobari, dedicated internal networks,
 one shared Gateway and OPA, and a mock upstream. It proves network separation,
 HTTP and HTTPS enforcement, credential injection, fail-closed outages, opaque
-reference flow, live XDG policy watch, exit-code preservation, concurrency,
-idempotency, and exact cleanup.
+reference flow, typed denial recovery, tested host-policy activation, exit-code
+preservation, concurrency, idempotency, and exact cleanup.
 
 ## MVP exclusions
 
