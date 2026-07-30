@@ -30,7 +30,7 @@ shortens that loop without silently expanding authority.
 
 ## Thesis 1: Authorize effects at the isolation boundary
 
-Tobari authorizes the HTTP request that actually attempts to leave the realm.
+Tobari authorizes the HTTP request that actually attempts to leave a Tobari.
 It does not infer intent from a command name, process name, shell text, or agent
 brand.
 
@@ -73,16 +73,16 @@ egress networks; OPA joins only control.
 
 ## Thesis 3: Secrets enter only after authorization
 
-Realm never receives a Gateway-managed secret. OPA may select a credential
+Tobari never receives a Gateway-managed secret. OPA may select a credential
 profile only after allowing a request, and Gateway injects it only when the
 profile is configured for the normalized destination host.
 
 ### Consequences
 
 - Tokens are supplied through host files mounted read-only into Gateway.
-- CLI arguments, Realm environment, Realm files, OPA input, and audit logs
+- CLI arguments, Tobari environment, Tobari files, OPA input, and audit logs
   never contain token values.
-- Realm-supplied authorization and other configured secret headers are removed
+- Tobari-supplied authorization and other configured secret headers are removed
   before policy evaluation and upstream forwarding.
 - The MVP supports only static bearer or fixed-header injection; OAuth,
   refresh, signing, and OS keychains are excluded.
@@ -92,7 +92,7 @@ profile is configured for the normalized destination host.
 - Credential configuration validation binds every profile to explicit hosts.
 - Gateway tests use canary secrets and scan decisions and audit logs.
 - Integration tests prove injection at an allowed host and non-disclosure to
-  Realm or another host.
+  Tobari or another host.
 
 ## Thesis 4: One shared cluster hosts multiple named Tobari
 

@@ -39,9 +39,9 @@ operation translation remains a documented non-goal.
 
 ## Mechanical enforcement
 
-The public catalog contains only Realm lifecycle, execution, logs, diagnostics,
-help, and version capabilities. Architecture lint keeps provider SDKs out of
-CLI/application packages.
+The public catalog contains only shared-cluster lifecycle, named-Tobari
+lifecycle, execution, logs, diagnostics, help, and version capabilities.
+Architecture lint keeps provider SDKs out of CLI/application packages.
 
 ## Compatibility, security, and validation
 

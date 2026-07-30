@@ -18,7 +18,7 @@ decision := {
 	"audit": {"level": "metadata"},
 } if {
 	input.version == "v1"
-	input.principal.realm == "default"
+	input.principal.cluster == "default"
 	allowed_host
 	allowed_scheme
 	allowed_method

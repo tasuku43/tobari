@@ -9,26 +9,26 @@
 
 ## Context
 
-Agents need authenticated HTTP access, but a secret placed in Realm can be read
+Agents need authenticated HTTP access, but a secret placed in Tobari can be read
 by every untrusted process and sent to any reachable allowed destination.
 
 ## Decision drivers
 
-- Managed secret values must stay outside Realm
+- Managed secret values must stay outside Tobari
 - Policy must approve request shape before credential use
 - A credential must be bound to exact normalized hosts
 
 ## Considered options
 
 - Gateway-only static secret files injected after allow
-- Environment variables or files mounted into Realm
+- Environment variables or files mounted into Tobari
 - Provider OAuth and signing implementations
 
 ## Decision
 
-Realm requests a non-secret profile name. OPA must allow and select it. Gateway
+Tobari requests a non-secret profile name. OPA must allow and select it. Gateway
 then validates an independent configured host binding, reads the owner-only
-secret file, removes Realm-supplied authorization, and injects one bearer or
+secret file, removes Tobari-supplied authorization, and injects one bearer or
 fixed header immediately before forwarding.
 
 ## Consequences
@@ -40,7 +40,7 @@ fixed header immediately before forwarding.
 ## Mechanical enforcement
 
 Gateway unit tests cover host binding, removal, and redaction. Integration uses
-a canary digest to prove injection, cross-host denial, Realm absence, and
+a canary digest to prove injection, cross-host denial, Tobari absence, and
 secret-free logs.
 
 ## Compatibility, security, and validation

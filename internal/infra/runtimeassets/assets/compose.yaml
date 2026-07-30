@@ -58,7 +58,7 @@ services:
     environment:
       HOME: /var/lib/mitmproxy
       TOBARI_OPA_URL: http://opa:8181/v1/data/tobari/http/decision
-      TOBARI_REALM: shared
+      TOBARI_CLUSTER: default
       TOBARI_INSPECTION_BYTES: ${TOBARI_INSPECTION_BYTES:-1048576}
       TOBARI_OPA_TIMEOUT_SECONDS: ${TOBARI_OPA_TIMEOUT_SECONDS:-2}
       TOBARI_UPSTREAM_TIMEOUT_SECONDS: ${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}

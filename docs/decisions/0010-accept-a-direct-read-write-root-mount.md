@@ -15,7 +15,7 @@ substantially expand the MVP.
 
 ## Decision drivers
 
-- One long-lived Realm for an entire selected source root
+- One long-lived named Tobari for each selected source root
 - Immediate, shared, ordinary filesystem semantics
 - Honest scope rather than implied per-repository protection
 
@@ -27,8 +27,8 @@ substantially expand the MVP.
 
 ## Decision
 
-`up --root` mounts the one canonical selected directory read-write at
-`/workspace`. Realm can modify or delete every file below it. No other host
+`attach --name --root` mounts one canonical selected directory read-write at
+`/workspace`. That Tobari can modify or delete every file below it. No other host
 directory, host home, credential directory, SSH agent, or Docker socket is
 mounted.
 
@@ -40,12 +40,12 @@ mounted.
 
 ## Mechanical enforcement
 
-Path validation rejects `--cwd` outside root. Runtime asset tests assert the
-single host write mount and forbidden mounts. The threat model and README state
+Path validation rejects `--cwd` outside the selected root. Runtime tests assert
+one host write mount per Tobari and forbidden mounts. The threat model and README state
 the accepted loss explicitly.
 
 ## Compatibility, security, and validation
 
-The canonical root is persisted and conflicting roots are rejected.
-Integration inspects Realm mounts. Reconsider overlays when users need
+Canonical roots and names are unique in persisted state.
+Integration inspects Tobari mounts. Reconsider overlays when users need
 reversible changes more than direct shared-workspace simplicity.

@@ -14,7 +14,7 @@ would require incomplete and continuously changing semantic reconstruction.
 
 ## Decision drivers
 
-- Authorize the effect that actually crosses the Realm boundary
+- Authorize the effect that actually crosses a Tobari boundary
 - Preserve provider independence
 - Give policy authors request dimensions that are testable with Rego
 

@@ -23,7 +23,7 @@ For HTTPS, Tobari connects to the HTTP proxy and sends `CONNECT host:443`.
 Gateway responds, terminates client TLS with the installation CA, evaluates the
 decrypted HTTP request, then creates a separate TLS connection to the upstream.
 This is the explicit HTTPS flow documented by mitmproxy; it is not plaintext
-HTTP from Realm to the final service.
+HTTP from Tobari to the final service.
 
 ## Four-layer dependency direction
 

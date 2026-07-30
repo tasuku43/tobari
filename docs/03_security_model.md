@@ -42,13 +42,13 @@ proxy network, control, and egress.
 Files under a read-write root are explicitly not protected from its Tobari.
 Processes can change or delete that entire mounted root. Docker or kernel
 compromise, VM/container escape, allowed-destination exfiltration, permitted
-credential authority, non-HTTP protocols, covert channels, same-Realm process
+credential authority, non-HTTP protocols, covert channels, same-Tobari process
 interference, and malware detection are outside the MVP guarantee.
 
 ## Resource and process boundary
 
 Runtime specs prohibit privileged mode, host networking, the Docker socket,
-SSH agent mounts, host home mounts, and added Linux capabilities. Realm uses a
+SSH agent mounts, host home mounts, and added Linux capabilities. Tobari uses a
 non-root work user mapped to the invoking UID/GID where Docker supports it.
 Only the selected root and that Tobari's named home volume are mounted writable.
 
@@ -69,7 +69,7 @@ bind mount and OPA watch; OPA receives no authority to rewrite trusted policy.
 ## HTTP authorization boundary
 
 Gateway constructs OPA input version `v1` from the exact buffered request that
-will be forwarded. It includes realm/session metadata, scheme, normalized host
+will be forwarded. It includes cluster/session metadata, scheme, normalized host
 and port, method, path and path segments, multi-valued query, redacted headers,
 bounded body metadata, and an optional requested credential profile.
 
@@ -89,12 +89,12 @@ files. Secret files are mounted read-only into Gateway only. Configuration
 contains a profile type, exact allowed hosts, and a container secret path; it
 never contains the secret value.
 
-Gateway removes Realm-provided `Authorization`, `Proxy-Authorization`,
+Gateway removes Tobari-provided `Authorization`, `Proxy-Authorization`,
 `X-API-Key`, and configured managed-secret headers. Cookie and Set-Cookie
 values may remain part of the authorized application flow but are excluded
 from OPA input and Tobari audit logs. A managed header is added only after an
 allow decision names a configured profile whose host binding exactly matches
-the normalized host. The value is never returned to Realm, OPA, CLI output,
+the normalized host. The value is never returned to Tobari, OPA, CLI output,
 errors, or audit logs.
 
 OAuth, refresh tokens, provider SDKs, OS keychains, request signing, and
@@ -122,7 +122,7 @@ each resulting request is independently authorized.
 
 ## Logging
 
-Audit JSON includes timestamp, request ID, realm, host, method, path, decision,
+Audit JSON includes timestamp, request ID, cluster, host, method, path, decision,
 reason, selected credential profile name, upstream status, and duration. A
 profile name is non-secret metadata; secret values and raw bodies are excluded.
 CLI `logs` reads only a bounded component-log window and does not add

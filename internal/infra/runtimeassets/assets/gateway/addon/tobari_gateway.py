@@ -96,7 +96,7 @@ def _body_metadata(raw: bytes, content_type: str, inspection_bytes: int) -> dict
 
 def build_policy_input(
     flow: http.HTTPFlow,
-    realm: str,
+    cluster: str,
     session: str | None,
     inspection_bytes: int,
     extra_secret_names: set[str],
@@ -110,7 +110,7 @@ def build_policy_input(
     raw = request.raw_content or b""
     return {
         "version": "v1",
-        "principal": {"realm": realm, "session": session},
+        "principal": {"cluster": cluster, "session": session},
         "request": {
             "scheme": request.scheme.lower(),
             "host": host,
@@ -261,7 +261,7 @@ class TobariGateway:
             "TOBARI_OPA_URL",
             "http://opa:8181/v1/data/tobari/http/decision",
         )
-        self.realm = os.getenv("TOBARI_REALM", "default")
+        self.cluster = os.getenv("TOBARI_CLUSTER", "default")
         self.inspection_bytes = _positive_int(
             "TOBARI_INSPECTION_BYTES", 1024 * 1024, 1024, 8 * 1024 * 1024
         )
@@ -286,7 +286,7 @@ class TobariGateway:
             secret_names = configured_secret_headers(config)
             policy_input = build_policy_input(
                 flow,
-                self.realm,
+                self.cluster,
                 flow.request.headers.get("x-tobari-session"),
                 self.inspection_bytes,
                 secret_names,
@@ -307,7 +307,7 @@ class TobariGateway:
             flow.metadata["tobari_audit"] = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "request_id": request_id,
-                "realm": self.realm,
+                "cluster": self.cluster,
                 "host": host,
                 "method": flow.request.method.upper(),
                 "path": urlsplit(flow.request.url).path or "/",
@@ -337,7 +337,7 @@ class TobariGateway:
                 _audit(
                     timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     request_id=request_id,
-                    realm=self.realm,
+                    cluster=self.cluster,
                     host=host,
                     method=flow.request.method.upper(),
                     path=urlsplit(flow.request.url).path or "/",

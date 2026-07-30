@@ -1,72 +1,64 @@
 # Tobari
 
-Tobari is a local execution boundary for AI coding agents. It gives shells,
-Codex, Claude Code, Python, and arbitrary binaries broad freedom inside one
-long-lived Docker Realm while authorizing every supported outbound HTTP and
-HTTPS request with OPA.
+Tobari attaches named Docker isolation spaces to the directories where coding
+agents already work. One installation-local Gateway and OPA cluster enforces
+every supported outbound HTTP and HTTPS request for every attached Tobari.
 
 Tobari does not guess intent from command strings. It controls the network
-effect at the point where an HTTP request crosses the isolation boundary.
+effect at the point where an HTTP request crosses an isolation boundary.
 
-## The policy-learning loop
+## How it feels to use
 
-Tobari starts deny-by-default. The normal experience is:
+The normal loop is progressive policy learning:
 
-1. Work freely inside Realm.
-2. An undeclared external request receives `403`.
-3. On the trusted host, inspect the secret-free denial:
+1. Start the shared enforcement cluster.
+2. Attach a named Tobari to a work directory.
+3. Work freely until an undeclared request receives `403`.
+4. Inspect the secret-free Gateway denial.
+5. Edit the host-side XDG policy and retry.
 
-   ```sh
-   tobari logs --component gateway --tail 100
-   ```
+```sh
+tobari cluster up
+tobari attach --name work --root ~/ghq
+tobari list
 
-4. Read the `host`, `method`, `path`, and `reason` fields from the JSON audit
-   record.
-5. Locate the editable policy:
+# Copy the exact opaque ID printed by list.
+tobari shell --id tbr_0123456789abcdef0123456789abcdef
+tobari cluster logs --component gateway --tail 100
+```
 
-   ```sh
-   tobari status
-   ```
+Gateway logs include bounded `host`, `method`, `path`, `decision`, and `reason`
+metadata. Tobari never turns observed traffic into permission automatically.
 
-6. Add the smallest intended rule and reconcile it:
-
-   ```sh
-   tobari up --root /absolute/path/to/root
-   ```
-
-`up` runs every Rego test before changing the running decision point. On an
-existing Realm it then reloads policy by restarting only OPA and waiting for
-health; active Realm processes remain running. Tobari never turns observed
-traffic into permission automatically.
-
-## Architecture
+## Cluster and Tobari topology
 
 ```text
 trusted host
-  tobari CLI ── Docker CLI ── Docker Engine
+  Tobari CLI ── Docker CLI ── Docker Engine
        │
-       └── selected root (read-write)
-                         │
-                         ▼
-  internal realm network
-    untrusted tobari-realm ── HTTP proxy :8080 ── trusted tobari-gateway
-                                                        │
-  internal control network                              ├── tobari-opa :8181
-                                                        │
-  egress network                                        └── external HTTPS
+       ├── root A (rw) ── named Tobari A ── internal network A ──┐
+       └── root B (rw) ── named Tobari B ── internal network B ──┤
+                                                                 ▼
+                                                       trusted Gateway
+                                                          │          │
+                                             internal control       egress
+                                                          │          │
+                                                         OPA      HTTPS
 ```
 
-The Realm joins only `tobari-realm-net`, an internal Docker network. Gateway
-joins realm, control, and egress networks. OPA joins only the internal control
-network. Therefore a program that ignores the proxy has no external route, and
-Realm cannot reach OPA.
+Each Tobari has its own internal network and persistent home volume. Gateway
+alone joins that network. OPA joins only the shared control network, and only
+Gateway joins egress. A program that ignores the proxy has no external route;
+one Tobari cannot directly reach OPA or another Tobari.
 
-For HTTPS, `HTTPS_PROXY` still points to an `http://` proxy endpoint. The client
-sends `CONNECT host:443`, then establishes TLS with Gateway using the
-installation CA trusted inside Realm. Gateway decrypts and normalizes the HTTP
-request, asks OPA, and—only after allow—creates a separate verified TLS
-connection to the upstream. Certificate-pinned applications that refuse the
-Tobari CA are not supported by the MVP.
+For HTTPS, `HTTPS_PROXY` points to `http://gateway:8080`. The client sends
+`CONNECT host:443`, establishes TLS with Gateway using the Tobari CA, and sends
+the decrypted HTTP request to Gateway. Gateway asks OPA and, only after allow,
+creates a separate verified TLS connection to the upstream. This is HTTPS on
+both sides of the policy boundary, not plaintext traffic to the destination.
+
+Certificate-pinned clients that reject the Tobari CA fail rather than bypass
+Gateway.
 
 ## Requirements
 
@@ -74,17 +66,14 @@ Tobari CA are not supported by the MVP.
 - Docker Engine 24 or newer
 - Docker Compose v2
 - Go version declared in [`go.mod`](go.mod) for source builds
-- [Task](https://taskfile.dev/) for the documented development commands
+- [Task](https://taskfile.dev/) for development commands
 - outbound image-registry access on first startup
 
 Docker Desktop-specific APIs are not used. Colima, Lima-based Docker contexts,
-and standard Linux Docker Engine are supported by the same Docker CLI adapter.
+and standard Linux Docker Engine use the same Docker CLI adapter.
 
 Container bases are pinned by immutable digest in
-[`versions.env`](internal/infra/runtimeassets/assets/versions.env). The Gateway
-currently uses mitmproxy 12.1.2 because the tested official 12.2.3 arm64 image
-terminates with `SIGILL`; update the pin only after the arm64 runtime test
-passes.
+[`versions.env`](internal/infra/runtimeassets/assets/versions.env).
 
 ## Install from source
 
@@ -95,7 +84,7 @@ task build
 install -m 0755 bin/tobari ~/.local/bin/tobari
 ```
 
-Alternatively, from a checkout:
+Alternatively:
 
 ```sh
 go install ./cmd/tobari
@@ -103,145 +92,136 @@ go install ./cmd/tobari
 
 Ensure the destination is on `PATH`.
 
-## Colima
+## Quick start
 
-Start a VM with enough capacity and confirm its context:
-
-```sh
-colima start --cpu 4 --memory 8 --disk 60
-docker context show
-docker version
-docker compose version
-tobari doctor --root ~/ghq
-```
-
-Colima normally shares the macOS user directory. If the selected root is not
-below a shared directory, configure the mount in Colima before `up`.
-
-## Linux Docker Engine
-
-Confirm that the invoking user can access the intended Engine without passing a
-Docker socket into Realm:
-
-```sh
-docker version
-docker compose version
-tobari doctor --root "$HOME/ghq"
-```
-
-Rootless Docker is compatible in principle, subject to its ordinary bind-mount
-and UID/GID mapping behavior.
-
-## Quick Start
+Validate the host and intended root:
 
 ```sh
 tobari doctor --root ~/ghq
-tobari up --root ~/ghq
-tobari status
-tobari shell
 ```
 
-Run one exact argv at a host directory below the configured root:
+Create shared enforcement, then attach one or more roots:
 
 ```sh
-tobari exec --cwd ~/ghq/github.com/example/repository -- claude
-tobari exec --cwd ~/ghq/github.com/example/repository -- codex
-tobari exec -- curl https://example.com/
+tobari cluster up
+tobari attach --name work --root ~/ghq
+tobari attach --name config \
+  --root "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy"
+tobari list
 ```
 
-Agent CLIs are not bundled. Install them inside Realm or place their binaries
-below the selected root; the named Realm home persists across ordinary
-`down`/`up` cycles.
-
-Tobari preserves the invoked process exit status:
+`list` is the discover step. It emits one opaque ID per Tobari. Pass the exact
+ID unchanged to actions:
 
 ```sh
-tobari exec -- sh -c 'exit 37'
-echo $? # 37
+tobari shell --id TBR_ID
+tobari exec --id TBR_ID --cwd ~/ghq/github.com/example/repository -- codex
+tobari exec --id TBR_ID -- curl https://example.com/
+tobari logs --id TBR_ID --tail 100
 ```
 
-Stop transient resources while retaining the Realm home and Gateway CA:
+Replace `TBR_ID` with the value printed by `list`; it is not a literal built-in
+ID. `exec` preserves the invoked process exit status.
+
+Agent CLIs are not bundled. Install them inside a Tobari or place binaries below
+its selected root. Each named home survives ordinary detach/attach cycles.
+
+Detach one Tobari while retaining its home:
 
 ```sh
-tobari down
+tobari detach --id TBR_ID
 ```
 
-Remove the three exact Tobari persistent volumes as well:
+Remove that exact home too:
 
 ```sh
-tobari down --purge
+tobari detach --id TBR_ID --purge
 ```
 
-`--purge` must be used while Realm state still exists; a preceding ordinary
-`down` deliberately forgets the lifecycle state and preserves volumes.
+The shared cluster can be removed only after every Tobari is detached:
+
+```sh
+tobari cluster down
+tobari cluster down --purge # also removes shared CA volumes
+```
 
 ## Commands
 
 | Command | Outcome |
 |---|---|
-| `tobari up --root PATH` | Test policy and create or reconcile one Realm |
-| `tobari status [--format text\|json]` | Show root, proxy, policy, containers, and health |
-| `tobari shell` | Open Bash in the running Realm |
-| `tobari exec [--cwd PATH] -- COMMAND...` | Execute exact argv and preserve its exit status |
-| `tobari logs [--component gateway\|opa\|realm\|all] [--tail N]` | Read a bounded, visibly escaped log window |
-| `tobari down [--purge]` | Remove exact owned runtime resources |
+| `tobari cluster up` | Test policy and reconcile shared Gateway and OPA |
+| `tobari cluster status [--format text\|json]` | Show shared health, proxy, XDG policy, and attached count |
+| `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
+| `tobari cluster down [--purge]` | Remove an empty cluster and optionally shared CA state |
+| `tobari attach --name NAME --root PATH` | Attach one named Tobari to an existing root |
+| `tobari list [--format text\|json]` | Discover configured Tobari and opaque action IDs |
+| `tobari shell --id ID` | Open Bash in one exact Tobari |
+| `tobari exec --id ID [--cwd PATH] -- COMMAND...` | Execute exact argv and preserve its exit status |
+| `tobari logs --id ID [--tail N]` | Read one Tobari's bounded logs |
+| `tobari detach --id ID [--purge]` | Remove one Tobari and optionally its home |
 | `tobari doctor [--root PATH] [--format tsv\|json]` | Diagnose Docker, paths, policy, credentials, and residue |
-| `tobari help [COMMAND] [--format text\|agent]` | Read human or machine command contracts |
+| `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version` | Print build identity |
 
-`status`, `logs`, and `doctor` are observational and never repair state.
+`cluster status`, `list`, `logs`, and `doctor` are observational and never
+repair state.
 
-## Policy
+## XDG configuration and live policy
 
-On first `up`, Tobari initializes editable policy files under:
+On macOS and Linux, Tobari uses the same XDG paths:
 
-- macOS and Linux: `${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy`
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
+  policy/
+    data.json
+    tobari.rego
+    tobari_test.rego
+  credentials.json
+  credentials/
 
-The initialized policy is generic HTTP policy, not a GitHub adapter. It allows only
-listed hosts, rejects ordinary plain HTTP, restricts methods, supports explicit
-host/method/path denials, and validates credential profile bindings.
-
-```rego
-package tobari.http
-
-import rego.v1
-
-default decision := {
-    "allow": false,
-    "reason": "request did not match an allow rule",
-    "credential_profile": null,
-    "status_code": 403,
-    "audit": {"level": "metadata"},
-}
-
-decision := {
-    "allow": true,
-    "reason": "allowed by policy",
-    "credential_profile": input.credential.requested_profile,
-    "status_code": 403,
-    "audit": {"level": "metadata"},
-} if {
-    input.request.host in data.tobari.allowed_hosts
-    input.request.method in data.tobari.read_methods
-    input.request.scheme == "https"
-}
+${XDG_STATE_HOME:-$HOME/.local/state}/tobari/
+  state.json
+  runtime/
 ```
 
-The actual initialized policy includes tested plain-HTTP mock rules,
-method/path denial, and credential binding. Edit `data.json`, `tobari.rego`,
-and `tobari_test.rego` together. `tobari up` refuses to reload when `opa test`
-fails.
+OPA sees `policy/` through a read-only bind and runs with file watch enabled.
+A read-only bind still reflects host changes; OPA does not need write authority
+over trusted policy. Valid host edits therefore take effect without restarting
+OPA, Gateway, or an active Tobari.
 
-Gateway sends OPA a versioned generic input containing realm/session, scheme,
-normalized host and port, method, path segments, multi-valued query, safe
-headers, bounded body metadata, and an optional requested credential profile.
-Authorization, proxy authorization, cookies, API keys, configured secret
-headers, and raw bodies are excluded.
+Use a named Tobari rooted at the policy subdirectory when you want an isolated
+policy-editing environment:
+
+```sh
+tobari attach --name policy \
+  --root "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy"
+```
+
+Attach the `policy/` subdirectory, not the parent Tobari configuration
+directory. The parent also contains credential metadata and secret files that
+must remain outside untrusted containers.
+
+The initialized policy is generic HTTP policy, not a GitHub adapter. It starts
+deny-by-default, distinguishes HTTPS from explicitly allowed test-only HTTP,
+restricts methods and paths, and validates credential profile bindings.
+
+Run read-only diagnostics after an edit to execute the Rego tests:
+
+```sh
+tobari doctor
+```
+
+An invalid watched edit does not authorize traffic. Inspect OPA logs and correct
+the policy:
+
+```sh
+tobari cluster logs --component opa --tail 100
+```
 
 ## Credential injection
 
 Tobari supports static bearer and fixed-header injection. Create an owner-only
-secret file on the host:
+secret file on the trusted host:
 
 ```sh
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tobari"
@@ -249,7 +229,7 @@ install -d -m 0700 "$config_dir/credentials"
 install -m 0600 /path/to/token "$config_dir/credentials/github-development"
 ```
 
-Configure only metadata in `credentials.json`:
+Configure metadata only in `credentials.json`:
 
 ```json
 {
@@ -264,77 +244,75 @@ Configure only metadata in `credentials.json`:
 }
 ```
 
-Add the same profile-to-host binding to policy data. A Realm client requests
-the profile as non-secret metadata:
+Add the same profile-to-host binding to policy data. A Tobari client requests
+the non-secret profile:
 
 ```sh
-tobari exec -- curl \
+tobari exec --id TBR_ID -- curl \
   -H 'X-Tobari-Credential-Profile: github-development' \
   https://api.github.com/user
 ```
 
-OPA must allow the request and return that profile. Gateway then independently
-checks the exact host binding, reads the secret, removes Realm-supplied
-authorization, and injects the managed header. The secret file is mounted only
-in Gateway and is absent from Realm, CLI argv, OPA input, and audit logs.
+OPA must allow the request and select that profile. Gateway independently
+checks the exact host binding, reads the secret, removes client-supplied
+authorization, and injects the managed header. The secret is absent from
+Tobari mounts, environment, CLI argv, OPA input, and audit logs.
 
 ## Security guarantees
 
-Under the supported topology and trusted-component assumptions:
+Under the documented topology and trusted-component assumptions:
 
-- Realm can write only its named home volume and the selected read-write root.
-- Realm has no Docker socket, SSH agent, host networking, privileged mode, or
+- Each Tobari can write only its selected root and exact home volume.
+- Tobari have no Docker socket, SSH agent, host networking, privileged mode, or
   added Linux capabilities.
-- Direct Realm Internet egress has no route.
-- Realm cannot reach OPA or Gateway credential files.
-- HTTP/HTTPS proxy requests fail closed when OPA or Gateway fails.
-- OPA sees the same buffered request bytes Gateway forwards.
-- A managed credential is injected only after allow and an exact host-binding
-  check.
+- Direct Internet egress has no route.
+- Tobari cannot reach OPA, Gateway credential files, or another Tobari.
+- HTTP/HTTPS requests fail closed when OPA or Gateway fails.
+- Managed credentials are injected only after allow and exact host binding.
 - Audit logs contain request metadata and decisions, not secret values or raw
   bodies.
-- Cleanup verifies exact ownership labels before removal.
+- Cleanup verifies exact owner and opaque Tobari-ID labels.
+- OPA cannot rewrite the host XDG policy.
 
 Read [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for assumptions and abuse
 cases.
 
 ## What Tobari does not guarantee
 
-- Realm can modify or delete every file below the selected root.
+- A Tobari can modify or delete every file below its selected root.
 - An allowed destination can receive data from that root.
-- An allowed credential can exercise all authority granted by its provider.
+- An allowed credential can exercise all provider authority it grants.
 - Tobari does not protect against Docker/host compromise, container or VM
-  escape, covert channels, malware, or interference among processes in the
-  shared Realm.
-- Proxy environment variables do not transparently support applications that
-  ignore proxies or pin certificates; those applications fail rather than
-  bypass Gateway.
+  escape, covert channels, malware, or interference among processes inside the
+  same Tobari.
+- Proxy variables do not support applications that ignore proxies or pin
+  certificates; those applications fail rather than bypass Gateway.
 - HTTP/3/QUIC, raw TCP, UDP, Git SSH, and other non-HTTP protocols are
   unsupported.
 
 ## Troubleshooting
 
-`doctor` reports Docker CLI/Engine/context/Compose, root validity, state, policy
-tests, secret-file modes, and residual owned containers:
-
 ```sh
 tobari doctor --root /absolute/root
+tobari cluster status
+tobari list
 ```
 
 Common failures:
 
-- `policy_test_failed`: run `tobari status`, edit the reported policy directory,
-  and correct the Rego test failure.
+- `policy_test_failed`: edit the policy reported by `cluster status`, then run
+  `doctor`.
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
-  `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`; certificate-pinned programs are
-  unsupported.
-- `Could not resolve proxy`: inspect `tobari status` and
-  `tobari logs --component gateway`; all three containers must be healthy.
-- root bind-mount error under Colima/Lima: move the root under a shared host
-  directory or configure that VM's mounts.
-- an intended request returns `403`: inspect the Gateway denial record and
-  refine the minimum host/method/path rule on the host.
-- partial lifecycle failure: use `tobari status` before retrying `up` or `down`.
+  `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`.
+- `cluster_not_running`: run `cluster up` before `attach`.
+- `tobari_not_found`: pass an opaque ID from `list` unchanged.
+- intended request returns `403`: inspect `cluster logs --component gateway`
+  and refine the minimum host/method/path rule.
+- root bind-mount error under Colima/Lima: use a directory shared with the VM.
+
+Schema-1 singleton state from older pre-v1 builds is intentionally not guessed
+or migrated. Remove it with the matching older binary before starting a
+schema-2 cluster.
 
 ## Development and tests
 
@@ -351,24 +329,20 @@ task security
 task public:check
 ```
 
-`task integration:test` requires an unused set of Tobari container names. It
-creates real Realm, Gateway, OPA, and mock-upstream containers and proves:
-HTTP allow/deny, HTTPS interception and CA trust, direct-egress denial,
-control-plane isolation, OPA/Gateway fail closed, credential injection and
-non-disclosure, exit-code preservation, concurrent exec, idempotent startup,
-secret-free denial evidence, and exact cleanup.
-
-CI runs the Go implementation gate, security/public gates, and complete
-container runtime gate as separate jobs.
+The integration profile creates two named Tobari, dedicated internal networks,
+one shared Gateway and OPA, and a mock upstream. It proves network separation,
+HTTP and HTTPS enforcement, credential injection, fail-closed outages, opaque
+reference flow, live XDG policy watch, exit-code preservation, concurrency,
+idempotency, and exact cleanup.
 
 ## MVP exclusions
 
-The MVP deliberately excludes multiple or per-repository Realms, process-level
-identity, transparent proxying, raw TCP/UDP/QUIC, Git SSH semantic inspection,
-provider-specific adapters, AWS SigV4, OAuth refresh, GitHub App token refresh,
-Keychain integration, human approval, policy engines other than OPA,
-Kubernetes, filesystem overlays, private clone mode, GUI, remote execution,
-and production multi-tenancy.
+The MVP excludes multiple clusters, process-level identity, transparent
+proxying, raw TCP/UDP/QUIC, Git SSH semantic inspection, provider-specific
+adapters, AWS SigV4, OAuth refresh, GitHub App token refresh, Keychain
+integration, approval workflows, policy engines other than OPA, Kubernetes,
+filesystem overlays, private clone mode, GUI, remote execution, and production
+multi-tenancy.
 
 ## License
 

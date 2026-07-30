@@ -8,7 +8,7 @@ generic HTTP request crossing Gateway.
 Gateway posts one JSON document to
 `http://opa:8181/v1/data/tobari/http/decision` with schema version `v1`.
 The request carries normalized scheme, host, port, method, path, path segments,
-multi-valued query, redacted headers, bounded body metadata, realm, optional
+multi-valued query, redacted headers, bounded body metadata, cluster, optional
 session, and optional requested credential profile.
 
 Header names are lowercase. Host excludes a trailing dot and uses the

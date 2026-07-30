@@ -1,51 +1,55 @@
 # Agent Readiness Validation
 
-Tobari is agent-ready when a coding agent can discover and execute the Realm
-workflow without source inspection, infer no authority from display text, and
-recover from a denied network request using only declared outputs.
+Tobari is agent-ready when a coding agent can discover the shared cluster,
+attach a named Tobari, pass one opaque ID unchanged into actions, and recover
+from denied network requests without source inspection.
 
 ## Required scenario
 
-Run the following against a clean Docker Engine with a synthetic root:
+Run against a clean Docker Engine with a synthetic root:
 
 ```sh
 go run ./cmd/tobari help --format agent
-go run ./cmd/tobari help up --format agent
+go run ./cmd/tobari help cluster --format agent
+go run ./cmd/tobari help attach --format agent
 go run ./cmd/tobari doctor --root /absolute/test/root --format json
-go run ./cmd/tobari up --root /absolute/test/root
-go run ./cmd/tobari status --format json
-go run ./cmd/tobari exec -- curl https://example.com/
-go run ./cmd/tobari logs --component gateway --tail 100
-go run ./cmd/tobari down --purge
+go run ./cmd/tobari cluster up
+go run ./cmd/tobari attach --name test --root /absolute/test/root
+go run ./cmd/tobari list --format json
+go run ./cmd/tobari exec --id TBR_ID -- curl https://example.com/
+go run ./cmd/tobari cluster logs --component gateway --tail 100
+go run ./cmd/tobari detach --id TBR_ID --purge
+go run ./cmd/tobari cluster down --purge
 ```
 
-The transcript must prove:
+`TBR_ID` denotes the exact value emitted by `list`, not a reconstructable
+literal. The transcript must prove:
 
 - Root agent help is a compact outcome/capability index.
-- Exact-command help supplies complete inputs, outputs, prerequisites, effects,
-  fixed-target facts, failures, and recovery commands.
-- `up` binds one command-owned Realm singleton and one canonical root.
-- Status retains task identity and explicit configured/running state.
+- Scoped help supplies inputs, outputs, prerequisites, effects, references,
+  failures, and recovery commands.
+- Cluster startup mounts no work root.
+- Attach binds one validated display name and canonical root.
+- `list` retains an explicitly exhaustive local collection, including empty.
+- Individual actions consume one `tobari` reference unchanged.
 - `exec` passes exact argv and preserves the child status.
-- A denied request produces a bounded secret-free audit record containing the
-  host, method, path, decision, and reason needed for policy refinement.
-- Recovery points to an exact catalog command or scoped help selector.
-- Cleanup selects only exact ownership-labeled resources.
+- A denied request produces bounded secret-free host/method/path evidence.
+- Cleanup verifies exact owner and opaque-ID labels.
 
 ## Policy-learning scenario
 
-The Docker integration test supplies the executable policy-development loop:
+The Docker integration test supplies the executable loop:
 
 1. A mock-host GET is allowed.
 2. A mock-host POST under `/denied` receives `403` and never reaches upstream.
-3. `logs --component gateway` exposes the rejected host, method, path, and
-   reason without the body or credential canary.
-4. The editable policy path comes from `status`.
-5. Rego format and unit tests run before `up` reloads OPA.
-6. The user retries the workload; no rule is generated or accepted
-   automatically.
+3. `cluster logs --component gateway` exposes the rejected dimensions without
+   a body or credential canary.
+4. `cluster status` exposes the trusted XDG policy path.
+5. A second named Tobari attaches only that policy directory.
+6. A host-visible policy edit is watched by OPA without restart.
+7. The retry succeeds; no rule is generated or accepted automatically.
 
-Routine success and routine denial require zero undeclared parsers,
+Routine success and denial require zero undeclared provider parsers,
 provider-notation decoders, source inspection steps, or exploratory provider
 calls.
 
@@ -53,55 +57,54 @@ calls.
 
 `task integration:test` additionally proves:
 
-- Realm has no direct egress and cannot reach OPA.
-- HTTPS is authorized after CONNECT interception and validates the Tobari CA
-  without an insecure client flag.
+- Two named Tobari have distinct internal networks, roots, and homes.
+- Neither has direct egress, OPA access, or cross-Tobari reachability.
+- HTTPS is authorized after CONNECT interception and validates the Tobari CA.
 - OPA and Gateway outages fail closed.
 - A profile is injected only after allow and exact host binding.
-- The managed secret is absent from Realm files, mounts, environment, Gateway
-  logs, OPA input, and CLI output.
-- Concurrent processes share the same Realm.
-- Repeated `up` does not grow owned resources.
+- The secret is absent from Tobari files, mounts, environment, logs, OPA input,
+  and CLI output.
+- Concurrent processes share one selected Tobari.
+- Repeated cluster and attach reconciliation does not grow owned resources.
 
 ## Interpretation rules
 
 Agents must not infer:
 
-- identity from a container label, log order, or display position;
-- permission from a previous allow or from a similar path;
-- exhaustive provider history from complete CLI delivery;
+- identity from a display name, container label, log order, or position;
+- permission from a previous allow or similar path;
+- exhaustive external history from complete CLI delivery;
 - credential authority from a profile name;
-- safety of a command from its executable name;
-- protection for files below the selected read-write root.
+- safety from an executable name;
+- protection for files below a selected read-write root.
 
-The catalog's exact fixed target, task-owned status fields, declared bounded log
-coverage, OPA decision, and structured failures are the only supported
+The opaque reference, declared local collection scope, cluster status, bounded
+log coverage, OPA decision, and structured failures are the supported
 interpretation inputs.
 
 ## Failure and recovery validation
 
 At minimum, exercise:
 
-- missing/invalid root before Docker mutation;
-- conflicting root;
-- invalid Rego before OPA reload;
-- partial startup mapped to non-retryable `realm_start_failed` with `status`
-  reconciliation;
-- partial cleanup mapped to non-retryable `realm_stop_failed` with `status`
-  reconciliation;
-- Realm not configured for `shell`, `exec`, and `logs`;
-- explicit `--cwd` outside root;
+- invalid name or root before Docker mutation;
+- duplicate name and duplicate root;
+- malformed or legacy state;
+- invalid Rego before cluster reconciliation;
+- partial startup mapped to non-retryable `cluster_start_failed`;
+- partial attach mapped to non-retryable `attach_failed`;
+- non-empty cluster removal rejection;
+- unknown or modified opaque ID before Docker calls;
+- partial detach mapped to non-retryable `detach_failed`;
+- explicit `--cwd` outside the selected root;
 - child nonzero exit status;
 - OPA unavailable and malformed decision;
 - output write failure without partial structured data.
 
 A post-mutation raw adapter error must never become replay permission. Valid
-structured outcome faults are preserved without private causes; unknown
-outcomes collapse to a non-retryable contract fault.
+structured outcome faults are preserved; unknown outcomes collapse to a
+non-retryable contract fault.
 
 ## Evidence
-
-Completion evidence is:
 
 ```sh
 task check
@@ -110,6 +113,5 @@ task security
 task public:check
 ```
 
-Review the emitted Gateway denial record and Docker cleanup counts alongside
-the command results. A passing unit suite without real container traffic is not
-agent-readiness evidence for Tobari.
+Review the Gateway denial record, OPA watch event, two-network topology, and
+Docker cleanup counts alongside command results.

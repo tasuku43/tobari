@@ -27,9 +27,9 @@ platform-specific routing and elevated network capabilities.
 
 ## Decision
 
-Realm clients use `http://gateway:8080` for both proxy variables. HTTPS
+Tobari clients use `http://gateway:8080` for both proxy variables. HTTPS
 uses CONNECT, client-to-Gateway TLS under the Tobari CA, and a separate
-Gateway-to-upstream TLS session. Realm has no direct route, so ignoring the
+Gateway-to-upstream TLS session. Tobari has no direct route, so ignoring the
 proxy fails rather than bypassing policy.
 
 ## Consequences
@@ -40,7 +40,7 @@ proxy fails rather than bypassing policy.
 
 ## Mechanical enforcement
 
-Compose network tests prove Realm joins only the internal realm network.
+Runtime network tests prove each Tobari joins only its dedicated internal network.
 Integration tests prove HTTPS without `-k`, direct-egress failure, and Gateway
 failure denial.
 

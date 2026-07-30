@@ -6,7 +6,7 @@
     "go_module": "github.com/tasuku43/tobari",
     "github_owner": "tasuku43",
     "github_repository": "tobari",
-    "description": "A policy-enforced Docker realm for autonomous coding agents.",
+    "description": "Named Docker isolation spaces behind one policy-enforced gateway.",
     "formula_class": "Tobari",
     "license_spdx": "MIT",
     "security_contact": "43329036+tasuku43@users.noreply.github.com"

@@ -4,7 +4,7 @@ import rego.v1
 
 base_input := {
 	"version": "v1",
-	"principal": {"realm": "default", "session": null},
+	"principal": {"cluster": "default", "session": null},
 	"request": {
 		"scheme": "https",
 		"host": "api.github.com",

@@ -20,7 +20,7 @@ variables, or configuration files.
 
 ## Runtime flow
 
-1. Realm sends an HTTP/HTTPS request through Gateway.
+1. Tobari sends an HTTP/HTTPS request through Gateway.
 2. Gateway removes inbound secret headers and creates redacted OPA input.
 3. OPA returns allow/deny and an optional credential profile name.
 4. Gateway rejects an unknown profile or a host/profile mismatch.
@@ -37,7 +37,7 @@ closed before upstream forwarding.
 The host credential directory is below the Tobari configuration directory by
 default. Secret files must be regular files, not symlinks, and have no group or
 other permission bits on Unix. Docker mounts individual files read-only into
-Gateway under `/run/tobari/credentials`. Realm and OPA receive neither the
+Gateway under `/run/tobari/credentials`. Tobari and OPA receive neither the
 directory nor its contents.
 
 On non-Unix hosts, the CLI can validate regular-file shape but portable mode
@@ -57,4 +57,4 @@ credential implementation, bounded refresh policy, and dedicated tests.
 - Gateway tests prove injection only after allow and absence from decisions and
   logs.
 - Docker integration tests prove the mock secret reaches only the allowed mock
-  host and is unavailable from Realm files, environment, and process arguments.
+  host and is unavailable from Tobari files, environment, and process arguments.

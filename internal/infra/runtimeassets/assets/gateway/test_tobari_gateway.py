@@ -35,7 +35,7 @@ class GatewayTests(unittest.TestCase):
         flow = tflow.tflow()
         flow.request = http.Request.make(method, url, b'{"example":true}', {
             "content-type": "application/json",
-            "authorization": "Realm supplied secret",
+            "authorization": "Tobari supplied secret",
             "cookie": "session=secret",
             "x-safe": "visible",
         })
@@ -44,6 +44,7 @@ class GatewayTests(unittest.TestCase):
     def test_policy_input_is_generic_and_redacted(self):
         flow = self.flow()
         document = gateway.build_policy_input(flow, "default", None, 1024, set())
+        self.assertEqual(document["principal"]["cluster"], "default")
         request = document["request"]
         self.assertEqual(document["version"], "v1")
         self.assertEqual(request["host"], "api.example.com")
@@ -102,11 +103,13 @@ class GatewayTests(unittest.TestCase):
                     addon.request(flow)
         self.assertEqual(flow.response.status_code, 403)
         rendered = output.getvalue()
-        self.assertNotIn("Realm supplied secret", rendered)
+        self.assertNotIn("Tobari supplied secret", rendered)
         self.assertNotIn("session=secret", rendered)
         self.assertNotIn("example-token", rendered)
         self.assertNotIn('{"example":true}', rendered)
         audit = json.loads(rendered)
+        self.assertEqual(audit["cluster"], "default")
+        self.assertNotIn("realm", audit)
         self.assertEqual(audit["decision"], "deny")
         self.assertEqual(audit["host"], "api.example.com")
         self.assertEqual(audit["method"], "POST")

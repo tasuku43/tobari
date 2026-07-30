@@ -43,7 +43,7 @@ Maintainers should acknowledge a complete report within three business days, coo
 | Unknown or inconsistent effects fail closed | domain validation and mutation-path tests |
 | Public commands come from one catalog | `cli.Catalog` contract tests |
 | Credentials and private identifiers are not committed | `tools/repoguard`, synthetic fixtures, `task security` |
-| Realm has no direct external route | Docker topology and integration tests |
+| Tobari has no direct external route | Docker topology and integration tests |
 | HTTP and HTTPS requests fail closed through Gateway and OPA | Gateway, Rego, and integration tests |
 | Managed credentials enter only after authorization | Gateway credential-binding tests and secret canaries |
 | A release is built from reviewed source and checked artifacts | release profile and release workflow contracts |
@@ -64,7 +64,7 @@ Tobari assumes:
 Tobari does not:
 
 - protect a compromised operating system or developer account;
-- isolate files below the selected read-write root from Realm processes;
+- isolate files below a selected read-write root from that Tobari's processes;
 - authorize non-HTTP protocols or transparent proxy bypass;
 - provide code signing, notarization, or artifact attestation;
 - authorize publication of code copied from another repository;

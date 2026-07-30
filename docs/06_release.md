@@ -12,7 +12,7 @@ MVP runtime is not supported on Windows because bind mounts, Unix ownership,
 TTY behavior, and container networking have not been validated there.
 
 Runtime assets are embedded in the binary and materialized into versioned state
-before Docker builds. The embedded Realm, Gateway, OPA policy, and compose
+before Docker builds. The embedded Tobari, Gateway, OPA policy, and compose
 inputs are therefore bound to the CLI source revision. Container base images
 are pinned to reviewed immutable versions or digests.
 
@@ -21,14 +21,14 @@ are pinned to reviewed immutable versions or digests.
 Before v1.0, breaking changes require release notes but not a deprecation
 window. The stable boundaries are command paths, exit meanings, Docker labels,
 state schema, configuration keys, OPA input/decision schemas, audit fields, and
-preservation of the Realm home volume by default.
+preservation of each Tobari home volume by default.
 
 ## Publication
 
 Tags use `vMAJOR.MINOR.PATCH`. Release publication is create-only and runs the
 full, security, release, public, policy, Gateway, and Docker integration gates
 from the exact tagged revision. GitHub Releases publish checksums with each CLI
-archive. Container images are built locally by `tobari up` in the MVP; no
+archive. Container images are built locally by `tobari cluster up` in the MVP; no
 registry publication is promised.
 
 Tobari does not yet claim code signing, notarization, SBOM attestation, or

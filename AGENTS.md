@@ -88,9 +88,9 @@ cmd/tobari
   -> internal/infra/systemdoctor
 ```
 
-The Realm lifecycle commands follow the same layering through
-`internal/app/realmcmd`, `internal/domain/realm`,
-`internal/infra/dockerruntime`, and `internal/cli/realm.go`.
+The shared-cluster and named-Tobari lifecycle commands follow the same layering
+through `internal/app/tobaricmd`, `internal/domain/tobari`,
+`internal/infra/dockerruntime`, and `internal/cli/tobari.go`.
 
 ## Working method
 

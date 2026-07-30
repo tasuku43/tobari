@@ -25,7 +25,7 @@ Do not put credentials, private URLs, personal data, confidential logs, or embar
 
 ## Support boundary
 
-Support covers the documented Tobari CLI, Docker Realm, Gateway/OPA policy
+Support covers the documented Tobari CLI, named Docker isolation, Gateway/OPA policy
 flow, repository gates, and release artifacts. It does not include private
 policies, credentials, third-party services, local Docker administration, or
 modified forks.
