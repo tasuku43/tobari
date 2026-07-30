@@ -50,6 +50,11 @@ The public commands are:
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, policy path, and activation command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Tobari is detached |
+| `policy candidates [--tail N] [--format text|json]` | discover | read | Discover unique pending exact-rule candidates and opaque IDs |
+| `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact approval commands |
+| `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
+| `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
+| `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `policy apply` | act, fixed target | write | Test host policy and activate it in the exact shared OPA component |
 | `attach --name NAME --root PATH [--image IMAGE] [--devcontainer PATH]` | act, fixed cluster target | create | Attach one named Tobari with a compatible image to an existing root |
 | `list [--format text|json]` | discover | read | List all configured Tobari and produce opaque IDs |
@@ -117,6 +122,9 @@ a bounded recent window of 1 through 10,000 lines per selected component.
 Denials are a fully delivered typed projection from the requested bounded
 Gateway-line window; an empty `items` collection means no valid denial occurred
 in that window, not exhaustive history.
+Policy candidates and tail are bounded by the same retained Gateway-line
+window and omit effects already covered by learned rules. Compactions are
+exhaustive for the current validated learned-rule file at one observation.
 
 ## Configuration contract
 
@@ -159,6 +167,10 @@ volumes. No command removes a mounted root or files inside it.
 `policy apply` runs pinned OPA tests against the read-only host bind, then
 recreates only the exact owner-labeled OPA container and waits for health.
 Gateway remains up and fails closed during that bounded activation interval.
+`policy allow` and `policy compact` first build and test the complete candidate
+policy in a private host temporary directory. After successful tests they
+atomically replace only `policy/data.json` and invoke the same activation
+boundary. They never write Rego source or credential files.
 
 ## Compatibility
 

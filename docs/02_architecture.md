@@ -162,8 +162,26 @@ Denied audit records are also the policy-development feedback interface.
 `tobari cluster denials` parses one bounded Gateway log window, rejects
 malformed denial-shaped records, and returns typed host, method, path, reason,
 status, request identity, timestamp, the trusted host policy directory, and the
-exact apply command. Raw `cluster logs` remains the component-debugging
-interface. No automatic rule generation or permission expansion occurs.
+exact apply command. `policy candidates` deterministically maps that retained
+evidence to opaque exact-rule references and removes effects already covered by
+the CLI-owned learned-rule data. `policy tail` is a human text projection over
+the same bounded task result. Raw `cluster logs` remains the
+component-debugging interface.
+
+`policy allow` resolves one exact candidate reference against retained
+validated audit state without decoding it. Infrastructure reads the bounded,
+owner-only `data.json`, preserves non-owned members, appends one deterministic
+exact learned rule, tests a private complete policy copy, atomically replaces
+the data file, and calls the existing OPA activation boundary.
+
+Compaction discovery is pure over current learned rules. It groups at least
+three exact rules only when host, method, and a sufficiently deep directory
+prefix agree. The opaque proposal binds the exact source-rule set.
+`policy compact` resolves that current proposal, replaces only those sources
+with one prefix rule retaining the positive examples, runs rule-match boundary
+canaries and the full OPA suite, then uses the same atomic write and activation
+path. A changed source set makes the proposal stale rather than silently
+recomputing its meaning.
 
 ## Docker abstraction
 

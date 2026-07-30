@@ -211,23 +211,35 @@ rule from the trusted host.
 - `tobari cluster denials` is the first diagnostic step: it projects only
   validated denial records, reports the editable host-side policy directory,
   and names the exact activation command. Raw component logs remain available.
+- `policy candidates` turns retained denials into unique exact
+  host/method/path proposals with opaque IDs. `policy tail` is the bounded
+  human review of that same queue. Neither command changes authority.
+- `policy allow --id` is the explicit trusted-host action that consumes one
+  candidate ID unchanged, preflights and atomically records one exact learned
+  rule, then activates it through the same portable OPA boundary.
+- Repeated exact learned rules may produce a `policy compactions` proposal only
+  for a fixed host and method beneath a sufficiently specific path prefix.
+  `policy compact --id` is a separate explicit action whose positive examples
+  and boundary canaries must pass before the source rules are replaced.
 - OPA watches the policy directory mounted read-only from XDG; `policy apply`
   tests the same directory, recreates only exact owned OPA, and waits for
   health when Docker-host filesystem events are unavailable. The trusted host
   remains the only policy writer.
 - Audit evidence never includes credential values, cookies, raw bodies, or raw
   response data.
-- MVP does not automatically turn observed traffic into permission. Policy
-  edits remain an explicit trusted-host action and must pass `opa test` before
-  `up` reconciles the runtime.
+- Tobari never changes permission from observation alone. Every learned rule or
+  compaction remains an explicit opaque-reference-bound trusted-host action and
+  must pass `opa test`; finite examples and canaries detect declared
+  regressions but do not prove safety for every unknown future request.
 
 ### Mechanical enforcement
 
 - Gateway tests assert both useful denial dimensions and absence of secret/body
   canaries.
 - Integration tests deny a known request, retrieve its typed audit record
-  through the CLI, edit policy on the host, apply it, and then exercise the
-  allowed rule without restarting any Tobari.
+  through the CLI, approve the exact candidate, exercise the allowed rule,
+  compact repeated exact rules, and retain a denied boundary without restarting
+  any Tobari.
 - README makes the observe-edit-test-retry loop the primary operating workflow.
 
 ## Deliberate non-goals

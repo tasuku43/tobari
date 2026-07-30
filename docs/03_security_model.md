@@ -146,6 +146,20 @@ home or, after all Tobari are detached, shared CA volumes.
 does not edit policy, but it can change outbound authority by activating the
 trusted host's current tested files. Gateway remains fail-closed while OPA is
 recreated.
+`policy allow` and `policy compact` are access-changing writes bound to opaque
+candidate references. Discovery never mutates. An allow reference identifies
+one retained validated denial; a compaction reference identifies one current
+exact source-rule set. The mutation rejects stale or ambiguous references,
+unsafe policy files, malformed learned data, failed preflight tests, and
+unrecognized compaction shapes before the atomic policy write.
+
+Learned rules never broaden a host or method beyond the explicitly approved
+evidence. Exact approvals may override an older deny rule only for their exact
+host/method/path. Prefix compaction requires three exact sources, keeps host and
+method fixed, requires a multi-segment directory boundary, retains positive
+examples, and tests its matcher against an adjacent outside-prefix canary.
+Host wildcards, method wildcards, user-supplied pattern text, and automatic
+compaction are unsupported.
 
 ## External calls
 
@@ -161,9 +175,9 @@ reason, selected credential profile name, upstream status, and duration. A
 profile name is non-secret metadata; secret values and raw bodies are excluded.
 CLI `logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
-and omits credential-profile metadata. Policy authors use those records on the
-trusted host; Tobari never converts observed traffic into an allow rule
-automatically.
+and omits credential-profile metadata. Read-only policy candidate commands
+derive opaque proposals from that evidence. Observation alone never changes
+authority; only an explicit reference-bound mutation can write a learned rule.
 
 ## Enforcement
 
@@ -184,6 +198,8 @@ automatically.
 | Actions use exact Tobari identity | Reference round-trip and label-validation tests |
 | Unknown effects fail closed | Domain and catalog validation |
 | Denials support safe policy learning | Typed denial validation, secret canaries, and integration projection |
+| Learned permissions stay explicit and minimal | Opaque candidate round trips, exact-match domain tests, preflight-before-atomic-write tests, and Docker integration |
+| Compaction preserves declared boundaries | Three-source grouping invariant, retained positive examples, outside-prefix canary, stale-reference rejection, and OPA tests |
 
 ## Supply chain and publication
 

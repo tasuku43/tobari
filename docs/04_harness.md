@@ -227,6 +227,11 @@ The test suite has complementary levels:
 - Policy-learning integration projects a denial, edits the host XDG policy and
   its test, activates it through the fixed-target command, and observes the
   changed decision without restarting any Tobari.
+- Learned-policy integration also passes an opaque denial candidate unchanged
+  into exact approval, verifies a neighboring request remains denied, creates
+  three exact siblings, passes one opaque compaction candidate unchanged into
+  compaction, and rechecks both retained positives and the outside-prefix
+  canary.
 - Negative tests prove rejection before side effects.
 - Release tests inspect actual artifacts and metadata, not only workflow text.
   Archive tests cover deterministic multi-entry order, canonical metadata,
@@ -257,6 +262,8 @@ Every strong statement should identify its enforcement path.
 | Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
 | Typed denial recovery | Strict audit projection, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
+| Explicit policy learning | Candidate/reference domain validation, discover-act graph and round trip, strict atomic XDG writer, preflight ordering, and Docker retry |
+| Bounded policy compaction | Pure deterministic grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |
