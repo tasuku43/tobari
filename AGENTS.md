@@ -94,7 +94,9 @@ cmd/tobari
   -> internal/infra/systemdoctor
 ```
 
-The `sample list` and `sample read --id` pair follows the same layering through `internal/app/samplecmd`, `internal/domain/sample`, `internal/infra/sampledata`, and `internal/cli/sample.go`. It is the reference implementation for discover/act roles and exact opaque-ID flow.
+The Realm lifecycle commands follow the same layering through
+`internal/app/realmcmd`, `internal/domain/realm`,
+`internal/infra/dockerruntime`, and `internal/cli/realm.go`.
 
 ## Working method
 

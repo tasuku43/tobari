@@ -421,9 +421,7 @@ func int64Pointer(value int64) *int64 {
 	return &value
 }
 
-// defaultCatalog retains the template's synthetic sample commands only for
-// framework contract tests. They are not part of Tobari's public product.
-func defaultCatalog(includeSamples bool) Catalog {
+func defaultCatalog() Catalog {
 	catalog := NewCatalog(
 		CommandSpec{
 			Path:    "doctor",
@@ -526,100 +524,6 @@ func defaultCatalog(includeSamples bool) Catalog {
 			handler: runHelp,
 		},
 		CommandSpec{
-			Path:    "sample list",
-			Summary: "Discover offline samples and their opaque IDs",
-			Args:    "[--format tsv|json]",
-			Effect:  operation.EffectRead,
-			Role:    RoleDiscover,
-			Agent: AgentContract{
-				CapabilityID: "sample.inspect",
-				Outcome:      "Discover every offline sample and its stable opaque reference",
-				Inputs: []CommandInput{
-					{
-						Name: "--format", Source: InputSourceFlag, Required: false,
-						ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-						Description: "Select the complete sample collection representation.", AllowedValues: []string{"tsv", "json"},
-						DefaultValue: stringPointer("tsv"),
-					},
-				},
-				Output: CommandOutput{
-					Formats:       []OutputFormat{OutputFormatTSV, OutputFormatJSON},
-					DefaultFormat: OutputFormatTSV,
-					Fields: []OutputField{
-						{Name: "id", Type: OutputFieldTypeString, Description: "Opaque sample reference accepted unchanged by sample read.", ReferenceKind: "sample"},
-						{Name: "name", Type: OutputFieldTypeString, Description: "Human-readable label with unsafe structural runes visibly escaped; never use it as an identifier."},
-					},
-					Delivery:           OutputDeliveryComplete,
-					CollectionCoverage: CollectionCoverageExhaustive,
-					JSONEnvelope:       "items",
-					JSONSchemaVersion:  1,
-				},
-				Prerequisites: []string{},
-				Errors: []CommandError{
-					declaredCommandError(fault.KindInvalidInput, "invalid_arguments", false, "help sample list", "Correct the command arguments."),
-					declaredCommandError(fault.KindUnavailable, "page_fetch_failed", true, "sample list", "Retry after the sample source is available."),
-					declaredCommandError(fault.KindContract, "invalid_page_contract", false, "sample list", "Inspect the sample adapter page contract."),
-					declaredCommandError(fault.KindContract, "pagination_page_limit", false, "sample list", "Review the declared pagination page budget."),
-					declaredCommandError(fault.KindContract, "pagination_item_limit", false, "sample list", "Review the declared pagination item budget."),
-					declaredCommandError(fault.KindContract, "pagination_cursor_loop", false, "sample list", "Inspect the adapter cursor sequence."),
-					declaredCommandError(fault.KindContract, "output_contract_exceeded", false, "sample list", "Review the bounded output contract and sample adapter."),
-					declaredCommandError(fault.KindContract, "output_encoding_failed", false, "sample list", "Repair the sample list JSON projection."),
-					declaredCommandError(fault.KindInternal, "internal_error", false, "sample list", "Inspect the sample adapter and returned items."),
-					declaredCommandError(fault.KindInternal, "output_write_failed", true, "sample list", "Retry with a writable output stream."),
-					declaredCommandError(fault.KindCanceled, "operation_canceled", true, "sample list", "Retry when the caller is ready."),
-				},
-			},
-			handler: runSampleList,
-		},
-		CommandSpec{
-			Path:    "sample read",
-			Summary: "Read exactly one offline sample by opaque ID",
-			Args:    "--id <sample-id> [--format tsv|json]",
-			Effect:  operation.EffectRead,
-			Role:    RoleAct,
-			Agent: AgentContract{
-				CapabilityID: "sample.inspect",
-				Outcome:      "Read one uniquely identified offline sample without rediscovery",
-				Inputs: []CommandInput{
-					{
-						Name: "--id", Source: InputSourceFlag, Required: true,
-						ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-						Description: "Pass an id from sample list byte-for-byte without parsing or transformation.", AllowedValues: []string{}, ReferenceKind: "sample",
-					},
-					{
-						Name: "--format", Source: InputSourceFlag, Required: false,
-						ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-						Description: "Select the single sample representation.", AllowedValues: []string{"tsv", "json"},
-						DefaultValue: stringPointer("tsv"),
-					},
-				},
-				Output: CommandOutput{
-					Formats:       []OutputFormat{OutputFormatTSV, OutputFormatJSON},
-					DefaultFormat: OutputFormatTSV,
-					Fields: []OutputField{
-						{Name: "id", Type: OutputFieldTypeString, Description: "Exact opaque sample ID requested by the caller."},
-						{Name: "name", Type: OutputFieldTypeString, Description: "Human-readable label with unsafe structural runes rendered as visible escapes."},
-						{Name: "content", Type: OutputFieldTypeString, Description: "Complete content with unsafe structural runes rendered as visible escapes."},
-					},
-					Delivery:           OutputDeliveryComplete,
-					CollectionCoverage: CollectionCoverageNotApplicable,
-					JSONEnvelope:       "item",
-					JSONSchemaVersion:  1,
-				},
-				Prerequisites: []string{},
-				Errors: []CommandError{
-					declaredCommandError(fault.KindInvalidInput, "invalid_arguments", false, "help sample read", "Pass exactly one opaque sample ID through --id and choose a supported format."),
-					declaredCommandError(fault.KindNotFound, "sample_not_found", false, "sample list", "Discover a current opaque sample ID."),
-					declaredCommandError(fault.KindContract, "output_contract_exceeded", false, "sample read", "Review the bounded output contract and sample adapter."),
-					declaredCommandError(fault.KindContract, "output_encoding_failed", false, "sample read", "Repair the sample JSON projection."),
-					declaredCommandError(fault.KindInternal, "internal_error", false, "sample read", "Inspect the sample adapter and returned item."),
-					declaredCommandError(fault.KindInternal, "output_write_failed", true, "sample read", "Retry with a writable output stream."),
-					declaredCommandError(fault.KindCanceled, "operation_canceled", true, "sample read", "Retry when the caller is ready."),
-				},
-			},
-			handler: runSampleRead,
-		},
-		CommandSpec{
 			Path:    "version",
 			Summary: "Print version information",
 			Effect:  operation.EffectRead,
@@ -648,21 +552,12 @@ func defaultCatalog(includeSamples bool) Catalog {
 			handler: runVersion,
 		},
 	)
-	commands := catalog.commands
-	if !includeSamples {
-		commands = make([]CommandSpec, 0, len(catalog.commands))
-		for _, command := range catalog.commands {
-			if !strings.HasPrefix(command.Path, "sample ") {
-				commands = append(commands, command)
-			}
-		}
-	}
-	return NewCatalog(append(commands, runtimeCommandSpecs()...)...)
+	return NewCatalog(append(catalog.commands, runtimeCommandSpecs()...)...)
 }
 
 // DefaultCatalog returns the public Tobari CLI contract.
 func DefaultCatalog() Catalog {
-	return defaultCatalog(false)
+	return defaultCatalog()
 }
 
 // Validate rejects incomplete command declarations before any handler runs.

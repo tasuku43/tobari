@@ -13,11 +13,11 @@ func TestFaultValidatesAndPreservesCause(t *testing.T) {
 	cause := errors.New("upstream sentinel with secret-canary")
 	err := Wrap(
 		KindNotFound,
-		"sample_not_found",
-		"the requested sample does not exist",
+		"item_not_found",
+		"the requested item does not exist",
 		false,
 		cause,
-		NextAction{Command: "sample list", Reason: "discover a current sample ID"},
+		NextAction{Command: "items list", Reason: "discover a current item ID"},
 	)
 	if validateErr := err.Validate(); validateErr != nil {
 		t.Fatalf("Validate() error = %v", validateErr)
@@ -25,10 +25,10 @@ func TestFaultValidatesAndPreservesCause(t *testing.T) {
 	if !errors.Is(err, cause) {
 		t.Fatal("fault did not preserve its cause")
 	}
-	if err.Error() != "the requested sample does not exist" {
+	if err.Error() != "the requested item does not exist" {
 		t.Fatalf("public error = %q, want reviewed message without cause", err.Error())
 	}
-	if err.NextActions[0].Command != "sample list" {
+	if err.NextActions[0].Command != "items list" {
 		t.Fatalf("next actions = %+v", err.NextActions)
 	}
 }
@@ -88,9 +88,9 @@ func TestFaultRejectsIncompleteMachineContracts(t *testing.T) {
 		{Kind: KindInternal, Code: "valid", Message: "line\u2028break"},
 		{Kind: KindInternal, Code: "valid", Message: "paragraph\u2029break"},
 		{Kind: KindRateLimited, Code: "rate_limited", Message: "wait", Retryable: true, RetryAfter: -time.Second},
-		{Kind: KindNotFound, Code: "missing", Message: "missing", NextActions: []NextAction{{Command: "sample list"}}},
-		{Kind: KindNotFound, Code: "missing", Message: "missing", NextActions: []NextAction{{Command: "sample list\nunsafe", Reason: "retry"}}},
-		{Kind: KindNotFound, Code: "missing", Message: "missing", NextActions: []NextAction{{Command: "sample list", Reason: "line\u2028unsafe"}}},
+		{Kind: KindNotFound, Code: "missing", Message: "missing", NextActions: []NextAction{{Command: "items list"}}},
+		{Kind: KindNotFound, Code: "missing", Message: "missing", NextActions: []NextAction{{Command: "items list\nunsafe", Reason: "retry"}}},
+		{Kind: KindNotFound, Code: "missing", Message: "missing", NextActions: []NextAction{{Command: "items list", Reason: "line\u2028unsafe"}}},
 	}
 	for index, item := range tests {
 		if err := item.Validate(); err == nil {

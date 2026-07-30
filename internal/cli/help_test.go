@@ -14,17 +14,17 @@ import (
 
 func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"help"}); code != ExitOK {
 		t.Fatalf("Run(help) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"doctor", "help", "version", "sample", "Namespace with 2 commands"} {
+	for _, want := range []string{"doctor", "help", "version", "items", "Namespace with 2 commands"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("root help lacks %q\n%s", want, output)
 		}
 	}
-	for _, unwanted := range []string{"sample list", "sample read"} {
+	for _, unwanted := range []string{"items list", "items read"} {
 		if strings.Contains(output, unwanted) {
 			t.Errorf("root help repeats namespace leaf %q\n%s", unwanted, output)
 		}
@@ -33,14 +33,14 @@ func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 
 func TestCommandHelpUsesCatalogMetadataAndDerivedReferences(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"sample", "read", "--help"}); code != ExitOK {
-		t.Fatalf("Run(sample read --help) code = %d, stderr = %q", code, stderr.String())
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"items", "read", "--help"}); code != ExitOK {
+		t.Fatalf("Run(items read --help) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		"Usage:\n  tobari sample read --id <sample-id> [--format tsv|json]",
-		"Read exactly one offline sample by opaque ID.",
+		"Usage:\n  tobari items read --id <item-id> [--format tsv|json]",
+		"Read exactly one test item by opaque ID.",
 		"Effect: read",
 		"Role: act",
 		"Invocation grammar:",
@@ -48,9 +48,9 @@ func TestCommandHelpUsesCatalogMetadataAndDerivedReferences(t *testing.T) {
 		"Dash-prefixed positional values: -- -value",
 		"Inputs:",
 		"source: flag; required: true; value: text; cardinality: single",
-		"opaque reference kind: sample",
+		"opaque reference kind: item",
 		"default when omitted: \"tsv\"",
-		"Consumes reference: sample from input --id",
+		"Consumes reference: item from input --id",
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("command help lacks %q\n%s", want, output)
@@ -141,7 +141,7 @@ func TestAgentAndHumanHelpPublishFixedTarget(t *testing.T) {
 
 func TestRootAgentHelpIsACompactProjectionOfTheCatalog(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, []string{"help", "--format", "agent"}); code != ExitOK {
 		t.Fatalf("Run(agent help) code = %d, stderr = %q", code, stderr.String())
 	}
@@ -173,11 +173,11 @@ func TestRootAgentHelpIsACompactProjectionOfTheCatalog(t *testing.T) {
 }
 
 func TestScopedAgentHelpIsACompleteProjectionOfEveryCatalogCommand(t *testing.T) {
-	command := newTemplateSampleCLI(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	command := newReferenceTestCLI(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 	for _, spec := range command.catalog.Commands() {
 		t.Run(strings.ReplaceAll(spec.Path, " ", "_"), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			selected := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
+			selected := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
 			args := append([]string{"help"}, strings.Fields(spec.Path)...)
 			args = append(args, "--format=agent")
 			if code := runCLI(selected, args); code != ExitOK {
@@ -224,7 +224,7 @@ func TestScopedAgentHelpIsACompleteProjectionOfEveryCatalogCommand(t *testing.T)
 }
 
 func TestAgentHelpSeparatesRateTimingFromReplayPermission(t *testing.T) {
-	document := runAgentHelpForTest(t, []string{"help", "sample", "--format=agent"})
+	document := runAgentHelpForTest(t, []string{"help", "items", "--format=agent"})
 	var contract agentErrorContract
 	if err := json.Unmarshal(document["error_contract"], &contract); err != nil {
 		t.Fatal(err)
@@ -258,7 +258,7 @@ func TestAgentHelpRootAndScopedShapeSnapshots(t *testing.T) {
 	}
 	assertJSONKeys(t, scopeRequest, []string{"invocation_template", "known_path_max_invocations", "selector_fields", "unknown_outcome_max_invocations"})
 
-	scoped := runAgentHelpForTest(t, []string{"help", "sample", "--format=agent"})
+	scoped := runAgentHelpForTest(t, []string{"help", "items", "--format=agent"})
 	assertJSONKeys(t, scoped, []string{"commands", "error_contract", "global_inputs", "invocation_grammar", "io_contract", "program", "schema_version", "scope", "view", "workflows"})
 	var invocationGrammar map[string]json.RawMessage
 	if err := json.Unmarshal(scoped["invocation_grammar"], &invocationGrammar); err != nil {
@@ -343,7 +343,7 @@ func TestAgentHelpRootAndScopedShapeSnapshots(t *testing.T) {
 }
 
 func TestRootAgentHelpSizeGrowthContainsOnlyIndexFields(t *testing.T) {
-	command := newTemplateSampleCLI(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	command := newReferenceTestCLI(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 	base := utilitySpec("base")
 	makeCommands := func(count int) []CommandSpec {
 		commands := make([]CommandSpec, 0, count)
@@ -401,10 +401,10 @@ func TestRootAgentHelpSizeGrowthContainsOnlyIndexFields(t *testing.T) {
 }
 
 func TestCatalogSelectReturnsDeepCopiesForScopedProjection(t *testing.T) {
-	catalog := defaultCatalog(true)
+	catalog := newReferenceTestCLI(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}).catalog
 	before := catalog.Commands()
 
-	namespace, exact := catalog.Select("sample")
+	namespace, exact := catalog.Select("items")
 	if exact || len(namespace) != 2 {
 		t.Fatalf("namespace selection exact=%t, commands=%+v", exact, namespace)
 	}
@@ -412,7 +412,7 @@ func TestCatalogSelectReturnsDeepCopiesForScopedProjection(t *testing.T) {
 	namespace[0].Agent.Output.Fields[0].Name = "changed"
 	namespace[0].Agent.Errors[0].NextActions[0].Command = "changed"
 
-	selected, exact := catalog.Select("sample read")
+	selected, exact := catalog.Select("items read")
 	if !exact || len(selected) != 1 {
 		t.Fatalf("exact selection exact=%t, commands=%+v", exact, selected)
 	}
@@ -432,7 +432,7 @@ func TestCatalogSelectReturnsDeepCopiesForScopedProjection(t *testing.T) {
 func runAgentHelpForTest(t *testing.T, args []string) map[string]json.RawMessage {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
 	if code := runCLI(command, args); code != ExitOK {
 		t.Fatalf("Run(%v) code = %d, stderr = %q", args, code, stderr.String())
 	}
@@ -467,23 +467,23 @@ func containsOutputFormat(formats []OutputFormat, wanted OutputFormat) bool {
 
 func TestAgentHelpCanSelectNamespaceWithoutLoadingWholeCatalog(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"help", "sample", "--format=agent"}); code != ExitOK {
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"help", "items", "--format=agent"}); code != ExitOK {
 		t.Fatalf("Run(namespace agent help) code = %d, stderr = %q", code, stderr.String())
 	}
 	var document agentDocument
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if len(document.Commands) != 2 || document.Commands[0].Path != "sample list" || document.Commands[1].Path != "sample read" {
+	if len(document.Commands) != 2 || document.Commands[0].Path != "items list" || document.Commands[1].Path != "items read" {
 		t.Fatalf("namespace commands = %+v", document.Commands)
 	}
-	if len(document.Workflows) != 1 || document.Workflows[0].ReferenceKind != "sample" ||
+	if len(document.Workflows) != 1 || document.Workflows[0].ReferenceKind != "item" ||
 		len(document.Workflows[0].Producers) != 1 || len(document.Workflows[0].Consumers) != 1 {
 		t.Fatalf("namespace workflows = %+v", document.Workflows)
 	}
 	for _, entry := range document.Commands {
-		if !strings.HasPrefix(entry.Path, "sample ") {
+		if !strings.HasPrefix(entry.Path, "items ") {
 			t.Fatalf("unscoped command leaked into namespace help: %+v", entry)
 		}
 	}
@@ -491,28 +491,28 @@ func TestAgentHelpCanSelectNamespaceWithoutLoadingWholeCatalog(t *testing.T) {
 
 func TestTextHelpCanSelectNamespace(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"help", "sample"}); code != ExitOK {
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"help", "items"}); code != ExitOK {
 		t.Fatalf("Run(namespace help) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "  list") || !strings.Contains(stdout.String(), "  read") ||
-		strings.Contains(stdout.String(), "sample list") || strings.Contains(stdout.String(), "sample read") || strings.Contains(stdout.String(), "doctor") {
+		strings.Contains(stdout.String(), "items list") || strings.Contains(stdout.String(), "items read") || strings.Contains(stdout.String(), "doctor") {
 		t.Fatalf("namespace text = %q", stdout.String())
 	}
 }
 
 func TestTrailingHelpAliasSupportsNamespaceAndExactCommand(t *testing.T) {
-	for _, args := range [][]string{{"sample", "--help"}, {"sample", "read", "--help"}, {"sample", "-h"}} {
+	for _, args := range [][]string{{"items", "--help"}, {"items", "read", "--help"}, {"items", "-h"}} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
+			command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
 			if code := runCLI(command, args); code != ExitOK {
 				t.Fatalf("Run(%v) code = %d, stderr = %q", args, code, stderr.String())
 			}
-			if len(args) == 2 && !strings.Contains(stdout.String(), "Commands in namespace sample:") {
+			if len(args) == 2 && !strings.Contains(stdout.String(), "Commands in namespace items:") {
 				t.Fatalf("namespace alias output = %q", stdout.String())
 			}
-			if len(args) == 3 && !strings.Contains(stdout.String(), "tobari sample read") {
+			if len(args) == 3 && !strings.Contains(stdout.String(), "tobari items read") {
 				t.Fatalf("exact alias output = %q", stdout.String())
 			}
 		})
@@ -521,8 +521,8 @@ func TestTrailingHelpAliasSupportsNamespaceAndExactCommand(t *testing.T) {
 
 func TestAgentHelpPreservesTopLevelCompatibilityFields(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"help", "sample", "list", "--format=agent"}); code != ExitOK {
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"help", "items", "list", "--format=agent"}); code != ExitOK {
 		t.Fatalf("Run(selected agent help) code = %d, stderr = %q", code, stderr.String())
 	}
 	var raw struct {
@@ -543,29 +543,29 @@ func TestAgentHelpPreservesTopLevelCompatibilityFields(t *testing.T) {
 
 func TestAgentHelpCanSelectOneCatalogCommandWithItsWorkflow(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"help", "sample", "read", "--format=agent"}); code != ExitOK {
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"help", "items", "read", "--format=agent"}); code != ExitOK {
 		t.Fatalf("Run(selected agent help) code = %d, stderr = %q", code, stderr.String())
 	}
 	var document agentDocument
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if len(document.Commands) != 1 || document.Commands[0].Path != "sample read" ||
+	if len(document.Commands) != 1 || document.Commands[0].Path != "items read" ||
 		document.Commands[0].Effect != "read" || document.Commands[0].Role != "act" {
 		t.Fatalf("commands = %+v", document.Commands)
 	}
 	if len(document.Workflows) != 1 || len(document.Workflows[0].Producers) != 1 ||
-		document.Workflows[0].Producers[0].Path != "sample list" || len(document.Workflows[0].Consumers) != 1 ||
-		document.Workflows[0].Consumers[0].Path != "sample read" {
+		document.Workflows[0].Producers[0].Path != "items list" || len(document.Workflows[0].Consumers) != 1 ||
+		document.Workflows[0].Consumers[0].Path != "items read" {
 		t.Fatalf("selected command workflows = %+v", document.Workflows)
 	}
 }
 
 func TestAgentHelpPublishesDiscoverToActReferenceFlow(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"help", "sample", "--format", "agent"}); code != ExitOK {
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"help", "items", "--format", "agent"}); code != ExitOK {
 		t.Fatalf("Run(agent help) code = %d, stderr = %q", code, stderr.String())
 	}
 	var document agentDocument
@@ -576,76 +576,32 @@ func TestAgentHelpPublishesDiscoverToActReferenceFlow(t *testing.T) {
 	for _, entry := range document.Commands {
 		commands[entry.Path] = entry
 	}
-	discover := commands["sample list"]
+	discover := commands["items list"]
 	if discover.Role != "discover" || discover.Effect != "read" ||
-		!reflect.DeepEqual(discover.ProducesRefs, []ProducedRef{{Kind: "sample", Field: "id"}}) ||
+		!reflect.DeepEqual(discover.ProducesRefs, []ProducedRef{{Kind: "item", Field: "id"}}) ||
 		len(discover.ConsumesRefs) != 0 {
-		t.Fatalf("sample list agent contract = %+v", discover)
+		t.Fatalf("items list agent contract = %+v", discover)
 	}
-	act := commands["sample read"]
+	act := commands["items read"]
 	if act.Role != "act" || act.Effect != "read" ||
-		!reflect.DeepEqual(act.ConsumesRefs, []ConsumedRef{{Kind: "sample", Argument: "--id"}}) ||
+		!reflect.DeepEqual(act.ConsumesRefs, []ConsumedRef{{Kind: "item", Argument: "--id"}}) ||
 		len(act.ProducesRefs) != 0 {
-		t.Fatalf("sample read agent contract = %+v", act)
+		t.Fatalf("items read agent contract = %+v", act)
 	}
-	if len(document.Workflows) != 1 || document.Workflows[0].ReferenceKind != "sample" ||
+	if len(document.Workflows) != 1 || document.Workflows[0].ReferenceKind != "item" ||
 		!reflect.DeepEqual(document.Workflows[0].Producers, []agentWorkflowProducer{{
-			Path: "sample list", Usage: "tobari sample list [--format tsv|json]", Field: "id",
+			Path: "items list", Usage: "tobari items list [--format tsv|json]", Field: "id",
 		}}) || !reflect.DeepEqual(document.Workflows[0].Consumers, []agentWorkflowConsumer{{
-		Path: "sample read", Usage: "tobari sample read --id <sample-id> [--format tsv|json]", Input: "--id",
+		Path: "items read", Usage: "tobari items read --id <item-id> [--format tsv|json]", Input: "--id",
 	}}) {
 		t.Fatalf("derived grouped workflow = %+v", document.Workflows)
 	}
 }
 
-func TestSelectedProducerDerivesExactNextArgvFromGroupedWorkflow(t *testing.T) {
-	var listOut, listErr bytes.Buffer
-	listCLI := newTemplateSampleCLI(strings.NewReader(""), &listOut, &listErr)
-	if code := runCLI(listCLI, []string{"sample", "list", "--format", "json"}); code != ExitOK {
-		t.Fatalf("sample list code = %d, stderr = %q", code, listErr.String())
-	}
-	var listed struct {
-		Items []struct {
-			ID string `json:"id"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal(listOut.Bytes(), &listed); err != nil || len(listed.Items) == 0 {
-		t.Fatalf("sample list output = %q, error = %v", listOut.String(), err)
-	}
-
-	var helpOut, helpErr bytes.Buffer
-	helpCLI := newTemplateSampleCLI(strings.NewReader(""), &helpOut, &helpErr)
-	if code := runCLI(helpCLI, []string{"help", "sample", "list", "--format=agent"}); code != ExitOK {
-		t.Fatalf("selected producer help code = %d, stderr = %q", code, helpErr.String())
-	}
-	var document agentDocument
-	if err := json.Unmarshal(helpOut.Bytes(), &document); err != nil {
-		t.Fatal(err)
-	}
-	if len(document.Workflows) != 1 || len(document.Workflows[0].Producers) != 1 || len(document.Workflows[0].Consumers) != 1 {
-		t.Fatalf("selected producer workflows = %+v", document.Workflows)
-	}
-	producer := document.Workflows[0].Producers[0]
-	consumer := document.Workflows[0].Consumers[0]
-	if producer.Path != "sample list" || producer.Field != "id" || consumer.Path != "sample read" ||
-		consumer.Input != "--id" || consumer.Usage != "tobari sample read --id <sample-id> [--format tsv|json]" {
-		t.Fatalf("selected producer adjacency = producer %+v consumer %+v", producer, consumer)
-	}
-	nextArgv := append(strings.Fields(consumer.Path), consumer.Input, listed.Items[0].ID)
-	var readOut, readErr bytes.Buffer
-	readCLI := newTemplateSampleCLI(strings.NewReader(""), &readOut, &readErr)
-	if code := runCLI(readCLI, nextArgv); code != ExitOK {
-		t.Fatalf("derived next argv %v code = %d, stderr = %q", nextArgv, code, readErr.String())
-	}
-	if !strings.Contains(readOut.String(), listed.Items[0].ID) {
-		t.Fatalf("derived next argv output = %q, want exact ID %q", readOut.String(), listed.Items[0].ID)
-	}
-}
-
 func TestAgentRoundTripContractCoversDiscoveryActionAndRecovery(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"help", "sample", "--format=agent"}); code != ExitOK {
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"help", "items", "--format=agent"}); code != ExitOK {
 		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
 	}
 	var document agentDocument
@@ -656,15 +612,15 @@ func TestAgentRoundTripContractCoversDiscoveryActionAndRecovery(t *testing.T) {
 	for _, entry := range document.Commands {
 		commands[entry.Path] = entry
 	}
-	discover := commands["sample list"]
-	act := commands["sample read"]
+	discover := commands["items list"]
+	act := commands["items read"]
 	if discover.Contract.Output.Delivery != OutputDeliveryComplete ||
 		discover.Contract.Output.CollectionCoverage != CollectionCoverageExhaustive ||
-		len(discover.ProducesRefs) != 1 || discover.ProducesRefs[0] != (ProducedRef{Kind: "sample", Field: "id"}) {
+		len(discover.ProducesRefs) != 1 || discover.ProducesRefs[0] != (ProducedRef{Kind: "item", Field: "id"}) {
 		t.Fatalf("discovery contract = %+v", discover)
 	}
 	if len(act.Contract.Inputs) < 1 || act.Contract.Inputs[0].Name != "--id" ||
-		act.Contract.Inputs[0].Source != InputSourceFlag || act.Contract.Inputs[0].ReferenceKind != "sample" ||
+		act.Contract.Inputs[0].Source != InputSourceFlag || act.Contract.Inputs[0].ReferenceKind != "item" ||
 		act.Contract.Inputs[0].Description == "" || act.Contract.Inputs[0].AllowedValues == nil {
 		t.Fatalf("action input contract = %+v", act.Contract.Inputs)
 	}
@@ -675,7 +631,7 @@ func TestAgentRoundTripContractCoversDiscoveryActionAndRecovery(t *testing.T) {
 	}
 	foundRecovery := false
 	for _, declared := range act.Contract.Errors {
-		if declared.Code == "sample_not_found" && declared.Kind == fault.KindNotFound &&
+		if declared.Code == "item_not_found" && declared.Kind == fault.KindNotFound &&
 			len(declared.NextActions) == 1 && declared.NextActions[0].Command == discover.Path {
 			foundRecovery = true
 		}
@@ -869,7 +825,7 @@ func TestHelpRejectsUnknownSelectorsAndFormats(t *testing.T) {
 		{"help", "--unknown"},
 	} {
 		var stdout, stderr bytes.Buffer
-		command := newTemplateSampleCLI(strings.NewReader(""), &stdout, &stderr)
+		command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
 		if code := runCLI(command, args); code != ExitUsage {
 			t.Errorf("Run(%v) code = %d, want %d", args, code, ExitUsage)
 		}

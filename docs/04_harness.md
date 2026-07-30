@@ -171,10 +171,7 @@ The test suite has complementary levels:
   dimensions it actually carries. The tests preserve scoped empty collections
   and interpretation-relevant state distinctions, reject field/reference-kind
   laundering where multiple kinds exist, and add negative-inference canaries
-  where display details could be mistaken for facts. The template sample
-  mechanically covers exact-ID binding, repository target mismatch, successful
-  empty output, same-label identity separation, and no partial pagination
-  result; it is not a universal result type.
+  where display details could be mistaken for facts.
 - Authentication, pagination, and mutation-boundary tests prove rejection/cancellation before downstream calls, exact secret-free authentication binding, complete standard runtime-fault declarations, and complete-or-no-result behavior.
 - Catalog output tests validate `complete|paged` delivery independently from
   `not_applicable|exhaustive|bounded_window|differential_window` collection
@@ -228,7 +225,7 @@ Every strong statement should identify its enforcement path.
 | Catalog completeness | Whole-catalog contract tests |
 | Output delivery versus collection coverage | Independent finite enums and catalog tests, including complete bounded/differential windows and paged exhaustive traversal |
 | Operationally closed supported outcome | Reviewed agent-readiness transcript with zero undeclared external reconstruction, plus task-owned deterministic-composition tests and declared field extraction |
-| Request-bound semantic result | Per-capability domain/application tests for declared task identity and every applicable request dimension; the sample proves exact-ID/mismatch/empty/no-partial behavior, while scoped or relationship-rich capabilities add their own scope, state, contextual-kind, and negative-inference fixtures |
+| Request-bound semantic result | Per-capability domain/application tests for declared task identity and every applicable request dimension, including scope, state, contextual-kind, empty-result, no-partial-result, and negative-inference fixtures where applicable |
 | Action target composition | Reachable reference-graph validation and byte-preserving round trips for reference-bound acts; complete, exclusive, reference-free declarations for command-bound fixed targets |
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |

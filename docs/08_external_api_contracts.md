@@ -71,6 +71,6 @@ provider schema is vendored, so `.harness/schemas.json` remains empty.
 
 ## Policy testing
 
-Rego is formatted with the pinned OPA image and tested by `opa test`. The sample
-policy proves deny by default, allowed hosts, plain-HTTP restriction,
-host/method/path denial, and credential-profile host binding.
+Rego is formatted with the pinned OPA image and tested by `opa test`. The
+initialized policy proves deny by default, allowed hosts, plain-HTTP
+restriction, host/method/path denial, and credential-profile host binding.

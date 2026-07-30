@@ -73,7 +73,7 @@ logs raw request or response bodies.
 
 OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
-to non-local destinations is denied by the sample policy.
+to non-local destinations is denied by the initialized policy.
 
 ## Credentials
 

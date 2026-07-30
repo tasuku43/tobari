@@ -89,15 +89,12 @@ func TestPagedOutputRequiresExactOpaqueCursorBinding(t *testing.T) {
 	}
 }
 
-func TestDefaultSampleOutputRemainsCompleteAndUnpaged(t *testing.T) {
-	sampleList, found := defaultCatalog(true).Lookup("sample list")
-	if !found {
-		t.Fatal("default catalog lacks sample list")
-	}
-	if sampleList.Agent.Output.Delivery != OutputDeliveryComplete ||
-		sampleList.Agent.Output.CollectionCoverage != CollectionCoverageExhaustive ||
-		sampleList.Agent.Pagination != nil {
-		t.Fatalf("sample list output contract = %+v, pagination = %+v", sampleList.Agent.Output, sampleList.Agent.Pagination)
+func TestCompleteDiscoverOutputRemainsUnpaged(t *testing.T) {
+	items := discoverSpec("items list", "item")
+	if items.Agent.Output.Delivery != OutputDeliveryComplete ||
+		items.Agent.Output.CollectionCoverage != CollectionCoverageExhaustive ||
+		items.Agent.Pagination != nil {
+		t.Fatalf("items list output contract = %+v, pagination = %+v", items.Agent.Output, items.Agent.Pagination)
 	}
 }
 

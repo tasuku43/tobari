@@ -36,9 +36,46 @@ func newTestCLI(inspector *cliInspector) (*CLI, *bytes.Buffer, *bytes.Buffer) {
 	return command, stdout, stderr
 }
 
-func newTemplateSampleCLI(in io.Reader, out, errOut io.Writer) *CLI {
+func newReferenceTestCLI(in io.Reader, out, errOut io.Writer) *CLI {
 	command := New(in, out, errOut)
-	command.catalog = defaultCatalog(true)
+	commands := DefaultCatalog().Commands()
+	list := discoverSpec("items list", "item")
+	list.Args = "[--format tsv|json]"
+	list.Agent.Inputs = []CommandInput{{
+		Name: "--format", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description:   "Select the complete test item collection representation.",
+		AllowedValues: []string{"tsv", "json"}, DefaultValue: stringPointer("tsv"),
+	}}
+	read := actSpec("items read", "item", "--id")
+	read.Summary = "Read exactly one test item by opaque ID"
+	read.Args = "--id <item-id> [--format tsv|json]"
+	read.Agent.Inputs = append(read.Agent.Inputs, CommandInput{
+		Name: "--format", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description:   "Select the test item representation.",
+		AllowedValues: []string{"tsv", "json"}, DefaultValue: stringPointer("tsv"),
+	})
+	read.Agent.Output = CommandOutput{
+		Formats:       []OutputFormat{OutputFormatTSV, OutputFormatJSON},
+		DefaultFormat: OutputFormatTSV,
+		Fields: []OutputField{
+			{Name: "id", Type: OutputFieldTypeString, Description: "Exact opaque test item ID requested by the caller."},
+			{Name: "name", Type: OutputFieldTypeString, Description: "Test item name."},
+		},
+		Delivery:           OutputDeliveryComplete,
+		CollectionCoverage: CollectionCoverageNotApplicable,
+		JSONEnvelope:       "item",
+		JSONSchemaVersion:  1,
+	}
+	read.Agent.Errors = append(read.Agent.Errors, declaredCommandError(
+		fault.KindNotFound,
+		"item_not_found",
+		false,
+		"items list",
+		"Discover a current opaque test item ID.",
+	))
+	command.catalog = NewCatalog(append(commands, list, read)...)
 	return command
 }
 
@@ -83,6 +120,16 @@ func TestUnknownCommandUsesUsageExitCode(t *testing.T) {
 	}
 	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: unknown_command") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestRemovedSampleNamespaceIsUnknown(t *testing.T) {
+	command, stdout, stderr := newTestCLI(passingInspector("unused"))
+	if code := runCLI(command, []string{"sample", "list"}); code != ExitUsage {
+		t.Fatalf("removed sample namespace code = %d, want %d", code, ExitUsage)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: unknown_command") {
+		t.Fatalf("removed sample namespace stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }
 
@@ -222,7 +269,7 @@ func TestEmitMutationResultStillRequiresCompleteWrite(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "code: mutation_output_write_failed") ||
 		!strings.Contains(stderr.String(), "retryable: false") ||
-		!strings.Contains(stderr.String(), "next_action: "+ProgramName+" sample list") ||
+		!strings.Contains(stderr.String(), "next_action: "+ProgramName+" items list") ||
 		strings.Contains(stderr.String(), "code: operation_canceled") ||
 		strings.Contains(stderr.String(), "next_action: "+ProgramName+" items update") {
 		t.Fatalf("stderr = %q", stderr.String())
@@ -317,7 +364,7 @@ func mutationOutputCommand() CommandSpec {
 				fault.KindInternal,
 				"mutation_output_write_failed",
 				false,
-				"sample list",
+				"items list",
 				"Reconcile the confirmed mutation result without repeating the mutation.",
 			),
 		}},
@@ -468,7 +515,7 @@ func TestRateLimitTimingPresentationDoesNotAuthorizeRetry(t *testing.T) {
 
 func TestFaultNormalizationPreservesValidStructuredClassificationBeforeCancellation(t *testing.T) {
 	const canary = "private-deadline-canary"
-	ctx := withCommandPath(context.Background(), "sample read")
+	ctx := withCommandPath(context.Background(), "items read")
 	providerFault := fault.Wrap(
 		fault.KindUnavailable,
 		"mutation_outcome_unknown",

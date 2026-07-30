@@ -24,7 +24,7 @@ func TestJSONOutputMatchesCatalogContract(t *testing.T) {
 	newDefault := func() (*CLI, *bytes.Buffer, *bytes.Buffer) {
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
-		return newTemplateSampleCLI(strings.NewReader(""), stdout, stderr), stdout, stderr
+		return newReferenceTestCLI(strings.NewReader(""), stdout, stderr), stdout, stderr
 	}
 	probes := []probe{
 		{
@@ -34,8 +34,6 @@ func TestJSONOutputMatchesCatalogContract(t *testing.T) {
 			},
 		},
 		{path: "help", args: []string{"help", "--format=agent"}, build: newDefault, view: "index"},
-		{path: "sample list", args: []string{"sample", "list", "--format=json"}, build: newDefault},
-		{path: "sample read", args: []string{"sample", "read", "--id", "smp_2f4a6c8e0b1d", "--format=json"}, build: newDefault},
 	}
 
 	for _, current := range probes {

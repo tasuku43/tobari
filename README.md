@@ -197,7 +197,7 @@ On first `up`, Tobari initializes editable policy files under:
 
 - macOS and Linux: `${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy`
 
-The sample policy is generic HTTP policy, not a GitHub adapter. It allows only
+The initialized policy is generic HTTP policy, not a GitHub adapter. It allows only
 listed hosts, rejects ordinary plain HTTP, restricts methods, supports explicit
 host/method/path denials, and validates credential profile bindings.
 

@@ -9,11 +9,9 @@ import (
 
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
 	"github.com/tasuku43/tobari/internal/app/realmcmd"
-	"github.com/tasuku43/tobari/internal/app/samplecmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
-	"github.com/tasuku43/tobari/internal/infra/sampledata"
 	"github.com/tasuku43/tobari/internal/infra/systemdoctor"
 )
 
@@ -28,7 +26,6 @@ type CLI struct {
 	catalog Catalog
 	doctor  *doctorcmd.Service
 	realm   *realmcmd.Service
-	samples *samplecmd.Service
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
@@ -42,16 +39,6 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 }
 
 func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doctorcmd.InspectorPort) *CLI {
-	return newCLIWithSamples(in, out, errOut, catalog, inspector, sampledata.New())
-}
-
-func newCLIWithSamples(
-	in io.Reader,
-	out, errOut io.Writer,
-	catalog Catalog,
-	inspector doctorcmd.InspectorPort,
-	repository samplecmd.RepositoryPort,
-) *CLI {
 	if in == nil {
 		in = strings.NewReader("")
 	}
@@ -66,7 +53,6 @@ func newCLIWithSamples(
 		Version: "dev",
 		catalog: catalog,
 		doctor:  doctorcmd.New(inspector),
-		samples: samplecmd.New(repository),
 	}
 }
 
