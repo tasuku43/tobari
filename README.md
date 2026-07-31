@@ -128,6 +128,11 @@ the host while the Tobari remains `exists`. Run `tobari` again to reuse it.
 `list` shows the stable ID only as diagnostic information, not as a routine
 action input.
 
+The former named lifecycle commands (`attach`, `lower`, `enter`, `lift`, and
+their named shell/exec forms) are rejected with a replacement message; they do
+not create a second lifecycle model. Legacy named state is not guessed or
+automatically migrated.
+
 Agent CLIs are not bundled. Install them inside a Tobari or place binaries below
 its selected root. The per-Tobari home survives shell exit and runtime recovery.
 

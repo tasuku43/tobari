@@ -185,6 +185,9 @@ discovery excludes other denials, preventing a successful no-op approval.
 Before v1.0, command details and configuration schema may change with release
 notes. Legacy named state is not guessed or migrated automatically; users clean
 it with the matching older binary before adopting the CWD-owned lifecycle.
+Legacy named lifecycle invocations are rejected explicitly and direct users to
+run `tobari` from the project directory. No compatibility alias recreates the
+old name/root lifecycle.
 Command names, resource labels, state schema, OPA input version, audit schema,
 and Gateway decision schema remain explicit compatibility boundaries.
 
