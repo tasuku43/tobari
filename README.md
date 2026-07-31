@@ -295,8 +295,9 @@ tobari cluster down --purge # also removes shared CA volumes
 
 `cluster status`, `cluster denials`, `policy candidates`, `policy tail`,
 `policy compactions`, `status`, `list`, and `doctor` are observational and
-never repair state. Runtime recovery belongs only to the root `tobari`
-operation.
+never reconcile Docker or create/delete runtime resources. They may clear an
+exact durable journal before selecting logical state. Runtime recovery belongs
+only to the root `tobari` operation.
 
 ## XDG configuration and live policy
 

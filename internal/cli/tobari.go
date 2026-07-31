@@ -292,6 +292,19 @@ func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operat
 		return c.fail(ctx, missingRuntimeFault())
 	}
 	force, _ := inputs.Boolean("--force")
+	if force {
+		preview, err := c.tobari.ProjectStatus(ctx)
+		if err != nil {
+			return c.fail(ctx, err)
+		}
+		if preview.Exists && c.Err != nil {
+			fmt.Fprintf(
+				c.Err,
+				"delete_target: root=%s\tid=%s\thome=%s\truntime=%s\n",
+				escapeTSVCell(preview.Root), preview.ID, escapeTSVCell(preview.Home), preview.Runtime,
+			)
+		}
+	}
 	intent := operation.Intent{
 		Command: command.Path, Effect: command.Effect,
 		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ID: tobari.CurrentDirectoryTargetID},
