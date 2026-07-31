@@ -76,6 +76,7 @@ run_tobari() {
     DOCKER_CONFIG="$host_docker_config" \
     XDG_CONFIG_HOME="$test_root/config" \
     XDG_STATE_HOME="$test_root/state" \
+    XDG_DATA_HOME="$test_root/data" \
     "$binary" "$@"
 }
 
@@ -96,11 +97,13 @@ run_tobari_pty_at() {
         DOCKER_CONFIG="$host_docker_config" \
         XDG_CONFIG_HOME="$test_root/config" \
         XDG_STATE_HOME="$test_root/state" \
+        XDG_DATA_HOME="$test_root/data" \
         script -q /dev/null "$binary" "$@"
     else
       local command
       printf -v command '%q ' env HOME="$test_root/user" DOCKER_CONFIG="$host_docker_config" \
-        XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" "$binary" "$@"
+        XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
+        XDG_DATA_HOME="$test_root/data" "$binary" "$@"
       script -q -c "$command" /dev/null
     fi
   )
@@ -254,6 +257,8 @@ enter_tobari_at "$other_root"
 status_from_nested=$(run_tobari_at "$work_nested_root" status --format json)
 assert_contains "$status_from_nested" '"exists":true' "nested status"
 assert_contains "$status_from_nested" "\"root\":\"$work_root\"" "nested status root"
+nested_pwd=$(printf 'pwd\nexit\n' | run_tobari_pty_at "$work_nested_root" 2>&1)
+assert_contains "$nested_pwd" "/workspace${work_root}/root" "nested host CWD mapping"
 list_json=$(run_tobari_at "$work_root" list --format json)
 work_id=$(id_for_root "$work_root" <<<"$list_json")
 other_id=$(id_for_root "$other_root" <<<"$list_json")
@@ -266,6 +271,32 @@ work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["h
 other_status=$(run_tobari_at "$other_root" status --format json)
 other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$other_status")
 [[ $work_home != "$other_home" ]] || fail "CWD projects share a home directory"
+
+profile_directory=$test_root/data/tobari/profiles/default
+profile_skill=$profile_directory/claude/skills/shared.md
+profile_settings=$profile_directory/common/settings.json
+printf 'shared skill\n' >"$profile_skill"
+printf '{"shared":true,"theme":"dark"}\n' >"$profile_settings"
+mkdir -p "$work_root/.claude"
+printf '{"theme":"light","local":true}\n' >"$work_home/.claude/settings.json"
+printf 'project-local\n' >"$work_root/.claude/project.md"
+enter_tobari_at "$work_root"
+merged_settings=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$work_home/.claude/settings.json")
+assert_contains "$merged_settings" '"shared": true' "merged shared settings"
+assert_contains "$merged_settings" '"theme": "light"' "local settings override"
+assert_contains "$merged_settings" '"local": true' "per-Tobari settings"
+assert_contains "$(run_project cat /var/lib/tobari/.claude/skills/shared.md)" "shared skill" "shared profile skill"
+assert_contains "$(docker exec "$other_container" cat /var/lib/tobari/.claude/skills/shared.md)" "shared skill" "shared profile reuse"
+if docker exec "$work_container" sh -c 'printf forbidden > /var/lib/tobari/.claude/skills/shared.md' >/dev/null 2>&1; then
+  fail "Tobari modified the read-only shared profile"
+fi
+if ! docker exec "$work_container" test -e "/workspace${work_root}/.claude/project.md"; then
+  fail "Tobari did not expose project-local .claude content"
+fi
+run_project sh -c 'printf private > /var/lib/tobari/.claude/memory.txt'
+if docker exec "$other_container" test -e /var/lib/tobari/.claude/memory.txt; then
+  fail "Tobari home state leaked to another project"
+fi
 
 run_tobari cluster up >/dev/null
 enter_tobari_at "$work_root"
@@ -496,6 +527,7 @@ work_id=
 work_container=
 status_after_delete=$(run_tobari_at "$work_root" status --format json)
 assert_contains "$status_after_delete" '"exists":false' "status after delete"
+[[ -f "$profile_skill" && -f "$profile_settings" ]] || fail "delete removed the shared agent profile"
 run_tobari_at "$other_root" delete --force >/dev/null
 other_id=
 other_container=
