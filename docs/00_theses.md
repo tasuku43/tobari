@@ -132,8 +132,8 @@ network, and one persistent XDG-owned home directory.
 ### Mechanical enforcement
 
 - Root-index and instance-state tests prove canonical path resolution, nearest
-  ancestor selection, stable IDs, atomic state updates, and explicit handling
-  of corrupt or legacy state.
+  ancestor selection, stable IDs, atomic state updates, journal recovery at
+  multi-file boundaries, and explicit handling of corrupt or legacy state.
 - State and Docker labels identify the one installation-owned cluster and each
   exact logical Tobari resource.
 - Lifecycle integration tests create multiple roots, prove network separation,
@@ -160,8 +160,11 @@ name prefix or broad Docker query as authority.
   `--purge` affects only shared CA state after the cluster is empty.
 - Docker CLI is behind an infrastructure port so another engine can replace it
   later without changing application outcomes.
-- `status`, `list`, and `doctor` never repair state implicitly. The root
-  command is the single deliberate ensure-and-enter reconciliation path.
+- `status`, `list`, and `doctor` never reconcile Docker or create/delete
+  runtime resources. They may perform bounded journal cleanup before selecting
+  logical state so an interrupted multi-file write cannot remain authoritative.
+  The root command is the single deliberate ensure-and-enter runtime
+  reconciliation path.
 
 ### Mechanical enforcement
 

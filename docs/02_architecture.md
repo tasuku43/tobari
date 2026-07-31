@@ -128,7 +128,13 @@ Root invocation only verifies that configured cluster is ready, resolves the
 canonical CWD and nearest indexed ancestor, and then, when there is no record,
 atomically creates an ID, root index, state record, and home. It ensures one
 exact project network and work container, connects Gateway with the `gateway`
-alias, waits for project readiness, and enters the container. OPA runs with
+alias, waits for project readiness, and enters the container. The logical
+creation and deletion boundaries use durable journals so an interruption
+between the home, instance, index, runtime, and deletion steps is recoverable
+without treating a partial file set as a second project. Runtime convergence
+stores a hash of the desired image identity, mounts, security, environment,
+health contract, and profile revision on the project container; drift recreates
+only that container. OPA runs with
 `--watch` against a read-only XDG bind, so host edits reload when Docker-host
 filesystem events propagate. `policy apply` provides the deterministic
 portable path: it tests the current bind, verifies the exact OPA ownership

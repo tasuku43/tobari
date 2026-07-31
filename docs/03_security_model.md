@@ -53,9 +53,11 @@ non-root work user mapped to the invoking UID/GID where Docker supports it.
 Only the selected root and that Tobari's exact XDG-owned home directory are
 mounted writable. The project-root resolver rejects filesystem root, the user's
 home and its ancestors, and paths overlapping XDG configuration, state, or
-shared-profile management directories. Policy source repositories remain
-allowed; the active host policy and credential directories are separate
-trusted assets and are never selected as project roots.
+shared-profile management directories, Docker sockets, and Docker management
+paths. Policy source repositories remain allowed; the active host policy and
+credential directories are separate trusted assets and are never selected as
+project roots. Publishing or applying a source to active policy is an explicit
+trusted-host operation; entering that source repository never changes policy.
 
 A custom Tobari image is untrusted input and receives no additional authority.
 The CWD-owned runtime accepts only a locally available image that asserts runtime API `1` and
@@ -83,6 +85,12 @@ environment substitution. Only a literal compatible image is consumed.
 Properties that could request builds, Compose services, Features, commands,
 mounts, environment, users, privileges, capabilities, or ports fail before
 Docker mutation.
+
+Project runtime readiness is an explicit healthcheck boundary. Enter waits for
+healthy rather than treating a running or healthcheck-less container as ready;
+unhealthy, exited, and timeout outcomes remain distinct diagnostics. Desired
+runtime drift is detected from an ownership-scoped spec hash and recreates only
+the work container, preserving the logical project home and root record.
 
 Gateway image directories are assigned to the invoking host UID/GID at build
 time, and the service starts directly as that non-root identity. It opens no

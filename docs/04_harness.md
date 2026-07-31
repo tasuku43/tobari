@@ -219,7 +219,13 @@ The test suite has complementary levels:
 - CWD-owned lifecycle integration tests prove that two roots receive distinct
   containers, networks, and XDG homes while sharing only Gateway, OPA, and
   public CA state. They also prove canonical ancestor lookup, container/network
-  recovery, and exact selected deletion.
+  recovery, profile/spec drift recreation, concurrent entry convergence, and
+  exact selected deletion after partial runtime cleanup.
+- Logical lifecycle tests inject interruptions at home, instance, root-index,
+  runtime, and deletion boundaries; they prove journals recover without
+  duplicate IDs and diagnose orphaned one-sided records. Shared-state tests
+  prove locked atomic writes, interrupted cluster reconcile diagnosis, and
+  explicit cluster network reconnects.
 - Custom-image tests build from the stable local Tobari base, select it through
   bounded configuration, and prove compatibility is checked before per-Tobari
   resources exist.

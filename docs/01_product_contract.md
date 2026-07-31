@@ -78,9 +78,9 @@ property rather than an undeclared Docker mutation by the CLI.
   nearest existing root; it never creates nested Tobari environments.
 - Project-root selection rejects the filesystem root, the user's home and its
   ancestors, and any path overlapping XDG Tobari configuration, state, or
-  shared-profile management directories. A repository containing policy source
-  remains allowed; only the trusted active policy/configuration paths are
-  protected.
+  shared-profile management directories, Docker sockets, or Docker management
+  paths. A repository containing policy source remains allowed; only the
+  trusted active policy/configuration paths are protected.
 - The first creation uses the canonical current directory as root. Project
   moves and copies are not inferred or recorded in the project tree.
 - The selected root is mounted at `/workspace/<canonical-root-without-leading-slash>`
@@ -151,7 +151,9 @@ Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`:
 identifiers. `instances/<id>/home` is the writable home. Shared read-only agent
 profiles are under `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles`.
 State contains paths and Docker resource names or identifiers, never credential
-contents.
+contents. Project and cluster mutation journals are durable recovery markers;
+an interrupted marker makes the next observation fail closed or reconcile only
+the exact incomplete record.
 Environment variables select only XDG locations and test/runtime overrides
 documented in scoped help; they do not carry managed tokens.
 
@@ -169,11 +171,15 @@ health.
 `cluster up` creates shared labeled networks, images, configuration material,
 Gateway, OPA, and CA volumes as needed. It tags the built-in runtime both by
 asset version and as the local extension base `tobari-runtime:local`, then
-reconnects Gateway to existing registered project networks without creating
-project state or project resources. The root command only verifies the shared
-cluster is configured and ready, creates or reuses the current root's logical
-record, reconciles its labeled container and internal network, binds its XDG
-home, joins Gateway to that network, and enters the resulting terminal session.
+reconnects Gateway to the shared networks and existing registered project
+networks without creating project state or project resources, then waits for
+Gateway and OPA health. The root command only verifies the shared cluster is
+configured and ready, creates or reuses the current root's logical record,
+reconciles its labeled container and internal network, binds its XDG home,
+joins Gateway to that network, waits for the project healthcheck, and enters
+the resulting terminal session. A changed image identity, runtime contract,
+mount/security/environment/health specification, or shared profile revision
+recreates only the project container and preserves its logical state and home.
 `delete` removes only that exact label-owned container,
 network, root index, instance state, and home. `cluster down` rejects while any
 Tobari remains
