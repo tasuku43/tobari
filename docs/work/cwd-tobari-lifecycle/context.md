@@ -1,10 +1,20 @@
 # Work Context: CWD-owned Tobari lifecycle
 
-## Current behavior
+## Verified implementation state
 
-- The catalog exposes `attach --name --root`, `shell --id`, `exec --id`, `logs --id`, and `detach --id`; root invocation returns `missing_command`.
-- Schema-2 state stores all named instances in one state file and each instance owns a Docker volume home.
-- The Docker runtime already canonicalizes host directories and attaches Gateway to each owned network.
+- The catalog exposes the fixed-target root command `tobari`, plus CWD-scoped
+  `status`, exhaustive `list`, and destructive `delete`; the named lifecycle
+  commands are no longer public catalog entries.
+- Root invocation resolves the nearest canonical root, persists one UUIDv7
+  logical instance under XDG state, and keeps logical existence independent of
+  container or network health.
+- Project homes are host directories under `instances/<id>/home`; project
+  networks and containers are owned by exact ID and role labels.
+- Runtime inspection reports missing, degraded, or unreachable resources as
+  diagnostics, while reconciliation can recreate missing resources and
+  reconnect a container to its project network.
+- A shared XDG profile is mounted read-only, while each project's `.claude`
+  directory and home remain writable only within that project's state.
 
 ## Relevant structure
 

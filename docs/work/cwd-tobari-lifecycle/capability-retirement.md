@@ -11,16 +11,16 @@
 
 ## Public contract removal
 
-- [ ] Command paths, namespaces, help entries, and dispatch bindings are retired.
-- [ ] Reference edges and required chains are removed with the named-action surface.
-- [ ] Fault declarations and recovery actions no longer name retired commands.
-- [ ] Capability ledger and schema compatibility are updated.
-- [ ] Negative tests prove retired commands produce only the explicit migration error.
+- [x] Command paths, namespaces, help entries, and dispatch bindings are retired.
+- [x] Reference edges and required chains are removed with the named-action surface.
+- [x] Fault declarations and recovery actions no longer name retired commands.
+- [x] Capability ledger and schema compatibility are updated.
+- [x] Negative tests prove retired commands are unknown and cannot dispatch.
 
 ## Implementation and dependency removal
 
-- [ ] Named selectors, Docker volume homes, and user-facing lifecycle state are removed or replaced by shared logic.
-- [ ] No hidden named-command fallback remains reachable.
+- [x] Named selectors, Docker volume homes, and user-facing lifecycle state are removed or replaced by shared logic.
+- [x] No hidden named-command fallback remains reachable from the public catalog.
 
 ## Persisted state
 
@@ -30,7 +30,7 @@
 
 ## Verification
 
-- Focused negative tests:
-- Catalog/capability/schema checks:
-- Persisted-state migration or cleanup tests:
-- Required gate:
+- Focused negative tests: `TestRetiredNamedCommandsAreUnknown` and catalog absence assertions.
+- Catalog/capability/schema checks: default catalog validation and scoped agent-help tests.
+- Persisted-state migration or cleanup tests: project state unknown-field and atomic-write tests.
+- Required gate: `task check`, `task security`, and `task public:check`.

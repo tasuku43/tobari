@@ -1,4 +1,4 @@
-// Package tobari defines the shared enforcement cluster and named isolation spaces.
+// Package tobari defines the shared enforcement cluster and CWD-owned isolation spaces.
 package tobari
 
 import (

@@ -1,8 +1,9 @@
 # Agent Readiness Validation
 
 Tobari is agent-ready when a coding agent can discover the shared cluster,
-attach a named Tobari, pass one opaque ID unchanged into actions, and recover
-from denied network requests without source inspection.
+run the root command from a project directory, reuse the nearest CWD-owned
+Tobari without an ID, and recover from denied network requests without source
+inspection.
 
 ## Required scenario
 
@@ -11,23 +12,25 @@ Run against a clean Docker Engine with a synthetic root:
 ```sh
 go run ./cmd/tobari help --format agent
 go run ./cmd/tobari help cluster --format agent
-go run ./cmd/tobari help attach --format agent
+go run ./cmd/tobari help tobari --format agent
+go run ./cmd/tobari help status --format agent
 go run ./cmd/tobari doctor --root /absolute/test/root --format json
-go run ./cmd/tobari cluster up
-go run ./cmd/tobari attach --name test --root /absolute/test/root \
-  --devcontainer .devcontainer/devcontainer.json
-go run ./cmd/tobari list --format json
-go run ./cmd/tobari exec --id TBR_ID -- curl https://example.com/
+cd /absolute/test/root
+go build -o /tmp/tobari ./cmd/tobari
+(cd /absolute/test/root && /tmp/tobari)
+(cd /absolute/test/root && /tmp/tobari status --format json)
+(cd /absolute/test/root && /tmp/tobari list --format json)
 go run ./cmd/tobari cluster denials --tail 100 --format json
 go run ./cmd/tobari policy candidates --tail 100 --format json
 go run ./cmd/tobari policy allow --id PCY_ID
 go run ./cmd/tobari policy compactions --format json
-go run ./cmd/tobari detach --id TBR_ID --purge
+go run ./cmd/tobari delete --force
 go run ./cmd/tobari cluster down --purge
 ```
 
-`TBR_ID` denotes the exact value emitted by `list`, not a reconstructable
-literal. `PCY_ID` denotes one exact value emitted by `policy candidates`; the
+`list` emits a stable ID only as diagnostic information; lifecycle actions
+resolve the same target from the current directory. `PCY_ID` denotes one exact
+value emitted by `policy candidates`; the
 compaction command may validly return an empty collection until enough exact
 rules exist. The transcript must prove:
 
@@ -35,15 +38,16 @@ rules exist. The transcript must prove:
 - Scoped help supplies inputs, outputs, prerequisites, effects, references,
   failures, and recovery commands.
 - Cluster startup mounts no work root.
-- Attach binds one validated display name, canonical root, and compatible local
-  image selector.
+- The root command binds the canonical current directory and a compatible local
+  image selector without a name or root flag.
 - Omitted image selection resolves from the XDG default and then `builtin`
   without requiring source inspection.
 - An explicit image-based Dev Container file resolves within the selected root;
   unsupported runtime metadata returns one stable recovery fault.
-- `list` retains an explicitly exhaustive local collection, including empty.
-- Individual actions consume one `tobari` reference unchanged.
-- `exec` passes exact argv and preserves the child status.
+- `list` retains an explicitly exhaustive local collection, including empty,
+  while preserving diagnostic IDs without making them action inputs.
+- `status` and `delete` resolve the same nearest canonical ancestor.
+- A child terminal exit leaves the logical Tobari existing for reuse.
 - A denied request produces bounded typed secret-free host/method/path
   evidence, the host policy path, and the exact activation command.
 - Candidate discovery deduplicates pending effects and emits opaque references
@@ -80,7 +84,7 @@ calls.
 
 `task integration:test` additionally proves:
 
-- Two named Tobari have distinct internal networks, roots, and homes.
+- Two CWD-owned Tobari have distinct internal networks, roots, and homes.
 - Neither has direct egress, OPA access, or cross-Tobari reachability.
 - HTTPS is authorized after CONNECT interception and validates the Tobari CA.
 - OPA and Gateway outages fail closed.
@@ -88,7 +92,7 @@ calls.
 - The secret is absent from Tobari files, mounts, environment, logs, OPA input,
   and CLI output.
 - Concurrent processes share one selected Tobari.
-- Repeated cluster and attach reconciliation does not grow owned resources.
+- Repeated root reconciliation does not grow owned resources.
 
 ## Interpretation rules
 
@@ -109,8 +113,8 @@ interpretation inputs.
 
 At minimum, exercise:
 
-- invalid name or root before Docker mutation;
-- duplicate name and duplicate root;
+- invalid or inaccessible root before Docker mutation;
+- nested-root lookup selects the nearest existing ancestor;
 - invalid, missing, incompatible, or conflicting image selection before Docker
   resource creation;
 - escaping, malformed, ambiguous, oversized, or unsupported Dev Container
@@ -126,12 +130,12 @@ At minimum, exercise:
   sources;
 - failed learned-policy preflight before atomic replacement;
 - partial startup mapped to non-retryable `cluster_start_failed`;
-- partial attach mapped to non-retryable `attach_failed`;
+- partial root reconciliation mapped to non-retryable `runtime_reconcile_failed`;
 - non-empty cluster removal rejection;
 - unknown or modified opaque ID before Docker calls;
-- partial detach mapped to non-retryable `detach_failed`;
-- explicit `--cwd` outside the selected root;
-- child nonzero exit status;
+- partial delete remains retryable through `delete` and never removes logical
+  state before exact resource cleanup;
+- non-TTY root invocation fails before logical state creation;
 - OPA unavailable and malformed decision;
 - output write failure without partial structured data.
 

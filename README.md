@@ -1,8 +1,8 @@
 # Tobari
 
-Tobari attaches named Docker isolation spaces to the directories where coding
-agents already work. One installation-local Gateway and OPA cluster enforces
-every supported outbound HTTP and HTTPS request for every attached Tobari.
+Tobari creates or reuses one long-lived Docker-isolated coding space for the
+current project directory. One installation-local Gateway and OPA cluster
+enforces every supported outbound HTTP and HTTPS request for every Tobari.
 
 Tobari does not guess intent from command strings. It controls the network
 effect at the point where an HTTP request crosses an isolation boundary.
@@ -11,19 +11,18 @@ effect at the point where an HTTP request crosses an isolation boundary.
 
 The normal loop is progressive policy learning:
 
-1. Start the shared enforcement cluster.
-2. Attach a named Tobari to a work directory.
-3. Work freely until an undeclared request receives `403`.
-4. Review the secret-free pending queue.
-5. Approve one exact host, method, and path rule by opaque ID, then retry.
+1. Run `tobari` from a project directory.
+2. Work freely until an undeclared request receives `403`.
+3. Review the secret-free pending queue.
+4. Approve one exact host, method, and path rule by opaque ID, then retry.
 
 ```sh
-tobari cluster up
-tobari attach --name work --root ~/ghq
+cd ~/ghq/example
+tobari
+tobari status
 tobari list
 
-# Copy the exact opaque ID printed by list.
-tobari shell --id tbr_0123456789abcdef0123456789abcdef
+# The ID in list is diagnostic only; lifecycle actions use the current directory.
 tobari policy tail --tail 100
 # Copy one exact opaque ID printed by policy tail.
 tobari policy allow --id pcy_0123456789abcdef0123456789abcdef
@@ -43,8 +42,8 @@ observed traffic into permission automatically.
 trusted host
   Tobari CLI ── Docker CLI ── Docker Engine
        │
-       ├── root A (rw) ── named Tobari A ── internal network A ──┐
-       └── root B (rw) ── named Tobari B ── internal network B ──┤
+       ├── root A (rw) ── CWD-owned Tobari A ── internal network A ──┐
+       └── root B (rw) ── CWD-owned Tobari B ── internal network B ──┤
                                                                  ▼
                                                        trusted Gateway
                                                           │          │
@@ -53,7 +52,7 @@ trusted host
                                                          OPA      HTTPS
 ```
 
-Each Tobari has its own internal network and persistent home volume. Gateway
+Each Tobari has its own internal network and persistent XDG home directory. Gateway
 alone joins that network. OPA joins only the shared control network, and only
 Gateway joins egress. A program that ignores the proxy has no external route;
 one Tobari cannot directly reach OPA or another Tobari.
@@ -109,49 +108,38 @@ Ensure the destination is on `PATH`.
 
 ## Quick start
 
-Validate the host and intended root:
+Validate the host and intended project directory:
 
 ```sh
-tobari doctor --root ~/ghq
+tobari doctor --root ~/ghq/example
 ```
 
-Create shared enforcement, then attach one or more roots:
+Run the primary operation from the project directory. It creates the shared
+enforcement cluster and the project Tobari as needed:
 
 ```sh
-tobari cluster up
-tobari attach --name work --root ~/ghq
-tobari attach --name config \
-  --root "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy"
-tobari list
+tobari
 ```
 
-`list` is the discover step. It emits one opaque ID per Tobari. Pass the exact
-ID unchanged to actions:
-
-```sh
-tobari shell --id TBR_ID
-tobari exec --id TBR_ID --cwd ~/ghq/github.com/example/repository -- codex
-tobari exec --id TBR_ID -- curl https://example.com/
-tobari logs --id TBR_ID --tail 100
-```
-
-Replace `TBR_ID` with the value printed by `list`; it is not a literal built-in
-ID. `exec` preserves the invoked process exit status.
+The root command requires a TTY and enters the container at the host-relative
+working directory. A shell exit returns to the host while the Tobari remains
+`exists`; run `tobari` again to reuse it. `list` shows the stable ID only as
+diagnostic information, not as a routine action input.
 
 Agent CLIs are not bundled. Install them inside a Tobari or place binaries below
-its selected root. Each named home survives ordinary detach/attach cycles.
+its selected root. The per-Tobari home survives shell exit and runtime recovery.
 
 ### Common CLI toolbox
 
 Repeated policy-learning exercises can use the optional local toolbox image.
 It contains Git, GitHub CLI, AWS CLI v2, kubectl, TWG, curl, jq, SSH, rsync,
-and basic DNS tools. First start the cluster so the supported local extension
-base exists, then build and validate the toolbox:
+and basic DNS tools. Build and validate the optional toolbox on the trusted
+host:
 
 ```sh
-tobari cluster up
 task toolbox:build
-tobari attach --name work --root ~/ghq --image tobari-toolbox:local
+cd ~/ghq/example
+tobari
 ```
 
 Set it once as the usual image by changing the owner-only XDG
@@ -167,8 +155,8 @@ Set it once as the usual image by changing the owner-only XDG
 The versions are pinned in `images/toolbox/versions.env`. Vendor downloads are
 verified during the build, and the build finishes by checking every named CLI
 plus the inherited Tobari runtime label, user, and entrypoint. The image is
-local and optional: Tobari does not pull or rebuild it during `cluster up` or
-`attach`.
+local and optional: Tobari does not pull it implicitly or rebuild it during
+ordinary root invocation.
 
 The toolbox contains no credentials and does not mount host CLI configuration.
 Authenticate deliberately within the isolated environment or use a supported
@@ -191,11 +179,11 @@ RUN apt-get update \
 USER tobari
 ```
 
-Build it explicitly on the trusted host, then select it on first attach:
+Build it explicitly on the trusted host, then select it in the owner-only XDG
+`config.json` before the first root invocation:
 
 ```sh
 docker build --tag my-tobari:dev .
-tobari attach --name work --root ~/ghq --image my-tobari:dev
 ```
 
 For the usual case, set the XDG default once:
@@ -207,24 +195,23 @@ For the usual case, set the XDG default once:
 }
 ```
 
-Then ordinary attach calls stay short:
+Then ordinary root invocations stay short:
 
 ```sh
-tobari attach --name work --root ~/ghq
+tobari
 ```
 
-Image selection precedence is an explicit Dev Container image, explicit
-`--image`, `config.json.default_image`, then `builtin` before configuration is
-initialized. `--devcontainer` and `--image` cannot be supplied together.
+Image selection uses `config.json.default_image`, then `builtin` before
+configuration is initialized.
 
-Tobari never pulls `--image` implicitly. The image must be available locally
+Tobari never pulls a configured image implicitly. The image must be available locally
 and preserve runtime API `1`, the `tobari` image user, and the inherited
 entrypoint. Prefer a digest selector when reproducibility matters. The
 compatibility check is not a signature or trust decision: image contents remain
 untrusted and run under the same fixed non-root user, read-only root filesystem,
 dropped capabilities, mounts, proxy, and internal network as the built-in
-image. To change an attached Tobari's image, detach it and attach it again; its
-home persists unless `--purge` is used.
+image. To change an existing Tobari's image, delete it and run `tobari` again;
+the new logical environment receives a new home.
 
 ### Dev Container image definitions
 
@@ -240,13 +227,14 @@ selected root:
 ```
 
 ```sh
-tobari attach --name work --root . \
-  --devcontainer .devcontainer/devcontainer.json
+cd ~/ghq/example
+tobari
 ```
 
-The flag conflicts with `--image`. Tobari supports JSON with comments and
-trailing commas, requires one literal locally available compatible `image`, and
-allows only inert `$schema`, `name`, and `customizations` alongside it.
+When `.devcontainer/devcontainer.json` exists below the selected root, Tobari
+uses its one literal locally available compatible `image`. JSON comments and
+trailing commas are accepted, and only inert `$schema`, `name`, and
+`customizations` are allowed alongside it.
 Effectful Dev Container properties—including `build`, Compose, Features,
 mounts, environment, users, privileges, capabilities, ports, and lifecycle
 commands—fail with `unsupported_devcontainer`. Tobari does not invoke the Dev
@@ -254,19 +242,13 @@ Container CLI or let the definition replace its isolation boundary. See the
 [Dev Container specification](https://github.com/devcontainers/spec/blob/main/docs/specs/devcontainer-reference.md)
 for the broader format that Tobari deliberately does not claim to implement.
 
-Detach one Tobari while retaining its home:
+Delete the selected Tobari and its per-Tobari home:
 
 ```sh
-tobari detach --id TBR_ID
+tobari delete --force
 ```
 
-Remove that exact home too:
-
-```sh
-tobari detach --id TBR_ID --purge
-```
-
-The shared cluster can be removed only after every Tobari is detached:
+The shared cluster can be removed only after every Tobari is deleted:
 
 ```sh
 tobari cluster down
@@ -278,7 +260,7 @@ tobari cluster down --purge # also removes shared CA volumes
 | Command | Outcome |
 |---|---|
 | `tobari cluster up` | Test policy and reconcile shared Gateway and OPA |
-| `tobari cluster status [--format text\|json]` | Show shared health, proxy, XDG policy, and attached count |
+| `tobari cluster status [--format text\|json]` | Show shared health, proxy, XDG policy, and project count |
 | `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and activation command |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
 | `tobari cluster down [--purge]` | Remove an empty cluster and optionally shared CA state |
@@ -288,19 +270,18 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari policy compactions [--format text\|json]` | Discover test-backed prefix compactions and opaque IDs |
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
 | `tobari policy apply` | Test host policy, recreate only OPA, and wait for health |
-| `tobari attach --name NAME --root PATH [--image IMAGE] [--devcontainer PATH]` | Attach one named Tobari with a compatible local image |
-| `tobari list [--format text\|json]` | Discover configured Tobari and opaque action IDs |
-| `tobari shell --id ID` | Open Bash in one exact Tobari |
-| `tobari exec --id ID [--cwd PATH] -- COMMAND...` | Execute exact argv and preserve its exit status |
-| `tobari logs --id ID [--tail N]` | Read one Tobari's bounded logs |
-| `tobari detach --id ID [--purge]` | Remove one Tobari and optionally its home |
+| `tobari` | Create or reuse the nearest current-directory Tobari and enter it |
+| `tobari status [--format text\|json]` | Report logical existence and runtime diagnostics for the current directory |
+| `tobari list [--format text\|json]` | List local roots, runtime diagnostics, and diagnostic IDs |
+| `tobari delete [--force]` | Delete the nearest current-directory Tobari and its per-Tobari state |
 | `tobari doctor [--root PATH] [--format tsv\|json]` | Diagnose Docker, paths, policy, credentials, and residue |
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version` | Print build identity |
 
 `cluster status`, `cluster denials`, `policy candidates`, `policy tail`,
-`policy compactions`, `list`, `logs`, and `doctor` are observational and never
-repair state.
+`policy compactions`, `status`, `list`, and `doctor` are observational and
+never repair state. Runtime recovery belongs only to the root `tobari`
+operation.
 
 ## XDG configuration and live policy
 
@@ -317,8 +298,12 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
   credentials/
 
 ${XDG_STATE_HOME:-$HOME/.local/state}/tobari/
-  state.json
-  runtime/
+  roots/<root-hash>.json
+  instances/<tobari-id>/state.json
+  instances/<tobari-id>/home
+
+${XDG_DATA_HOME:-$HOME/.local/share}/tobari/
+  profiles/default/   # shared read-only agent profile
 ```
 
 OPA sees `policy/` through a read-only bind and runs with file watch enabled.
@@ -336,15 +321,14 @@ brief activation interval; active Tobari are not restarted. Where file events
 do propagate, watch may make the change visible before this command completes,
 but `policy apply` remains the portable confirmation.
 
-Use a named Tobari rooted at the policy subdirectory when you want an isolated
-policy-editing environment:
+Use the policy directory as a trusted-host path when editing policy; do not
+mount its parent configuration directory into a Tobari:
 
 ```sh
-tobari attach --name policy \
-  --root "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy"
+${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy/tobari.rego"
 ```
 
-Attach the `policy/` subdirectory, not the parent Tobari configuration
+Keep the `policy/` subdirectory separate from the parent Tobari configuration
 directory. The parent also contains credential metadata and secret files that
 must remain outside untrusted containers.
 
@@ -424,11 +408,11 @@ Configure metadata only in `credentials.json`:
 }
 ```
 
-Add the same profile-to-host binding to policy data. A Tobari client requests
-the non-secret profile:
+Add the same profile-to-host binding to policy data. A process inside a Tobari
+requests the non-secret profile:
 
 ```sh
-tobari exec --id TBR_ID -- curl \
+curl \
   -H 'X-Tobari-Credential-Profile: github-development' \
   https://api.github.com/user
 ```
@@ -442,7 +426,7 @@ Tobari mounts, environment, CLI argv, OPA input, and audit logs.
 
 Under the documented topology and trusted-component assumptions:
 
-- Each Tobari can write only its selected root and exact home volume.
+- Each Tobari can write only its selected root and exact XDG home directory.
 - Tobari have no Docker socket, SSH agent, host networking, privileged mode, or
   added Linux capabilities.
 - Direct Internet egress has no route.
@@ -485,15 +469,14 @@ Common failures:
   Tobari, verify that the XDG policy directory is shared with the Docker VM.
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`.
-- `cluster_not_running`: run `cluster up` before `attach`.
+- `tty_required`: run the root `tobari` command from an interactive terminal.
+- `already_inside`: exit the current Tobari before entering another session.
 - `image_not_found`: build or pull the selected image explicitly on the host.
 - `incompatible_image`: extend `tobari-runtime:local` without replacing its
   user or entrypoint.
-- `image_conflict`: detach before changing an existing Tobari's image.
-- `invalid_devcontainer`: correct the explicit in-root JSONC image definition.
-- `unsupported_devcontainer`: remove runtime properties outside the documented
-  image-based subset.
-- `tobari_not_found`: pass an opaque ID from `list` unchanged.
+- `project_not_found`: run `tobari` from the intended project directory.
+- `confirmation_required`: repeat `tobari delete --force` after reviewing the
+  selected root and home path.
 - intended request returns `403`: run `policy tail`, approve one exact candidate
   with `policy allow --id`, and retry; use `cluster denials` plus a tested host
   edit only when the exact learning flow cannot express the required behavior.
@@ -518,11 +501,12 @@ task security
 task public:check
 ```
 
-The integration profile creates two named Tobari, dedicated internal networks,
-one shared Gateway and OPA, and a mock upstream. It proves network separation,
-HTTP and HTTPS enforcement, credential injection, fail-closed outages, opaque
-reference flow, typed denial recovery, tested host-policy activation, exit-code
-preservation, concurrency, idempotency, and exact cleanup.
+The integration profile creates two CWD-owned Tobari, dedicated internal
+networks, one shared Gateway and OPA, and a mock upstream. It proves network
+separation, HTTP and HTTPS enforcement, credential injection, fail-closed
+outages, CWD resolution, runtime recovery, typed denial recovery, tested
+host-policy activation, terminal exit behavior, concurrency, idempotency, and
+exact cleanup.
 
 ## MVP exclusions
 

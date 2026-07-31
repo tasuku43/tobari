@@ -52,7 +52,7 @@ The public commands are:
 | `doctor [--root PATH]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
 | `tobari` | act, fixed target | create | Resolve or create the current directory's Tobari, reconcile runtime, and enter it |
 | `status` | utility | read | Inspect the nearest current-directory Tobari and its diagnostic runtime state |
-| `list [--format text|json]` | discover | read | List local Tobari roots with runtime diagnostics and IDs |
+| `list [--format text|json]` | utility | read | List local Tobari roots with runtime diagnostics and diagnostic IDs |
 | `delete [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari after destructive confirmation |
 | `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and activation command |
@@ -111,7 +111,7 @@ failures are stderr.
 | 10 | Policy or diagnostic rejection |
 | 11 | Caller cancellation |
 | 13 | Declared contract violation |
-| other from `exec` | Exact child process exit status when Docker started it |
+| other from root entry | Exact child process exit status when Docker started the interactive work process |
 
 Commands use complete delivery. `list` is exhaustive for local logical state at
 one observation point. `status` is a CWD-local scalar observation; cluster

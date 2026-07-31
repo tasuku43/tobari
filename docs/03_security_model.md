@@ -180,7 +180,7 @@ each resulting request is independently authorized.
 Audit JSON includes timestamp, request ID, cluster, host, method, path, decision,
 reason, selected credential profile name, upstream status, and duration. A
 profile name is non-secret metadata; secret values and raw bodies are excluded.
-CLI `logs` reads only a bounded component-log window and does not add
+CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
 and omits credential-profile metadata. Read-only policy candidate commands
 derive opaque proposals from that evidence. Observation alone never changes

@@ -25,17 +25,7 @@
     "reason": ""
   },
   {
-    "id": "tobari.execute",
-    "status": "public",
-    "reason": ""
-  },
-  {
     "id": "tobari.lifecycle",
-    "status": "public",
-    "reason": ""
-  },
-  {
-    "id": "tobari.logs",
     "status": "public",
     "reason": ""
   },

@@ -3,8 +3,8 @@
 ## Scope
 
 This model covers the local MVP: one shared Gateway and OPA cluster, multiple
-named Tobari, one selected read-write root and home per Tobari, and optional
-static credential injection.
+CWD-owned Tobari, one selected read-write root and home per Tobari, and
+optional static credential injection.
 
 ## Trust classification
 
@@ -16,7 +16,7 @@ Trusted:
 
 Untrusted:
 
-- every named Tobari and its selected root;
+- every CWD-owned Tobari and its selected root;
 - coding agents, shells, generated or downloaded code, packages, and processes;
 - request content and upstream responses.
 
@@ -45,7 +45,7 @@ do not weaken this network control.
 
 ### Cross-Tobari access
 
-A process resolves another named container. The two containers have different
+A process resolves another CWD-owned container. The two containers have different
 internal networks; only Gateway joins both. Neither container receives a peer
 route or shared root.
 
@@ -56,16 +56,15 @@ the proxy port on the Tobari interface and no management port.
 
 ### Policy editing
 
-A user may intentionally attach a Tobari to the XDG `policy/` directory. That
-Tobari can then modify every policy file because the selected root is an
-explicit read-write scope. Users must not attach the parent configuration
-directory because it also contains credential files. OPA itself sees policy
-read-only and watches host changes where Docker-host events propagate. The
-fixed-target `policy apply` path tests the host files and recreates only the
-owned OPA component for deterministic activation. The reference-bound
-`policy allow` and `policy compact` paths write only the CLI-owned learned-rule
-member after validating owner-only regular files, testing a private complete
-policy copy, and checking that the discovered source state is unchanged.
+A process in a CWD-owned Tobari may intentionally modify the selected project
+root, but the shared XDG `policy/` directory is not mounted into it. OPA itself
+sees policy read-only and watches host changes where Docker-host events
+propagate. The fixed-target `policy apply` path tests the host files and
+recreates only the owned OPA component for deterministic activation. The
+reference-bound `policy allow` and `policy compact` paths write only the
+CLI-owned learned-rule member after validating owner-only regular files,
+testing a private complete policy copy, and checking that the discovered source
+state is unchanged.
 
 ### Forged authorization
 
