@@ -99,6 +99,9 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 	commandArgs = normalizeTrailingHelpAlias(c.catalog, commandArgs)
 	command, rest, found := c.catalog.Match(commandArgs)
 	if !found {
+		if message, retired := retiredCommandMessage(commandArgs); retired {
+			return c.failUsage(ctx, "retired_command", message, "tobari", "Run the root command from the project directory.")
+		}
 		return c.failUsage(
 			ctx,
 			"unknown_command",
@@ -144,6 +147,20 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 		}
 	}
 	return command.handler(ctx, c, command, intent, inputs)
+}
+
+func retiredCommandMessage(args []string) (string, bool) {
+	if len(args) == 0 {
+		return "", false
+	}
+	switch args[0] {
+	case "attach", "lower", "enter", "lift", "shell", "exec", "detach":
+		return "The named Tobari lifecycle command has been removed. Run `tobari` from the project directory instead.", true
+	case "logs":
+		return "The named Tobari logs command has been removed. Run `tobari cluster logs` for shared component logs.", true
+	default:
+		return "", false
+	}
 }
 
 func normalizeTrailingHelpAlias(catalog Catalog, args []string) []string {

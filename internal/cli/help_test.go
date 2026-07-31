@@ -194,7 +194,7 @@ func TestScopedAgentHelpIsACompleteProjectionOfEveryCatalogCommand(t *testing.T)
 			if len(document.GlobalInputs) != 1 || document.GlobalInputs[0].Name != "--error-format" ||
 				!reflect.DeepEqual(document.GlobalInputs[0].AllowedValues, []string{"text", "json"}) ||
 				document.ErrorContract.CommandErrorsField != "commands[].contract.errors" || len(document.ErrorContract.ExitCodes) != 12 ||
-				len(document.ErrorContract.GlobalErrors) != 6 || document.ErrorContract.JSONSchemaVersion != 1 {
+				len(document.ErrorContract.GlobalErrors) != 7 || document.ErrorContract.JSONSchemaVersion != 1 {
 				t.Fatalf("global agent contract = %+v / %+v", document.GlobalInputs, document.ErrorContract)
 			}
 			if document.IOContract.SuccessStream != "stdout" || document.IOContract.ErrorStream != "stderr" ||

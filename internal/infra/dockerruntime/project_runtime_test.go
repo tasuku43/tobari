@@ -2,6 +2,7 @@ package dockerruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -88,5 +89,39 @@ func TestDeleteProjectRemovesLogicalStateWhenRuntimeResourcesAreMissing(t *testi
 	}
 	if _, found, err := runtime.ResolveProject(context.Background(), instance.Root); err != nil || found {
 		t.Fatalf("ResolveProject() = found=%t err=%v, want not found", found, err)
+	}
+}
+
+func TestEnsureProjectAgentStateMergesSharedAndLocalSettings(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	profile, err := runtime.ensureSharedProfile(tobari.DefaultProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "common", "settings.json"), []byte(`{"shared":true,"theme":"dark"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	if err := runtime.ensureProjectAgentState(instance.ID, profile); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(runtime.projectHomePath(instance.ID), ".claude", "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"theme":"light","local":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ensureProjectAgentState(instance.ID, profile); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["shared"] != true || got["theme"] != "light" || got["local"] != true {
+		t.Fatalf("merged settings = %v", got)
 	}
 }

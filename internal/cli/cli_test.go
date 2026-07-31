@@ -132,6 +132,17 @@ func TestRemovedSampleNamespaceIsUnknown(t *testing.T) {
 	}
 }
 
+func TestRetiredLifecycleCommandExplainsCWDReplacement(t *testing.T) {
+	command, stdout, stderr := newTestCLI(passingInspector("unused"))
+	if code := runCLI(command, []string{"attach", "--name", "old"}); code != ExitUsage {
+		t.Fatalf("Run(attach) code = %d, want %d", code, ExitUsage)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: retired_command") ||
+		!strings.Contains(stderr.String(), "Run `tobari` from the project directory") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
+	}
+}
+
 func TestVersionOutputContract(t *testing.T) {
 	command, stdout, stderr := newTestCLI(passingInspector("unused"))
 	command.Version = "v1.2.3"

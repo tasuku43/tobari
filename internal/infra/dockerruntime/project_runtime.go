@@ -456,7 +456,42 @@ func (r *Runtime) ensureProjectAgentState(id, profile string) error {
 	if err != nil {
 		return err
 	}
-	return initializeBytes(filepath.Join(claude, "settings.json"), baseSettings, 0o600)
+	base, err := decodeSettingsObject(baseSettings)
+	if err != nil {
+		return fmt.Errorf("shared agent settings are invalid: %w", err)
+	}
+	settingsPath := filepath.Join(claude, "settings.json")
+	local := map[string]json.RawMessage{}
+	if info, statErr := os.Lstat(settingsPath); statErr == nil {
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("per-project agent settings path is unsafe")
+		}
+		data, readErr := os.ReadFile(settingsPath) // #nosec G304 -- exact per-project state path.
+		if readErr != nil {
+			return readErr
+		}
+		local, err = decodeSettingsObject(data)
+		if err != nil {
+			return fmt.Errorf("per-project agent settings are invalid: %w", err)
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	for key, value := range local {
+		base[key] = value
+	}
+	return writeAtomicJSON(settingsPath, base)
+}
+
+func decodeSettingsObject(data []byte) (map[string]json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return nil, err
+	}
+	if object == nil {
+		return nil, fmt.Errorf("settings must be a JSON object")
+	}
+	return object, nil
 }
 
 func (r *Runtime) removeProjectRecords(instance tobari.ProjectInstance) error {
