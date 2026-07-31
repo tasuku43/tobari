@@ -97,6 +97,63 @@ func TestResolveRuntimeHomesUsesXDGAndPortableFallbacks(t *testing.T) {
 	}
 }
 
+func TestResolveProjectRootRejectsProtectedManagementPaths(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &recordingRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtime.configDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtime.stateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtime.dataDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectRoot := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err = filepath.EvalSymlinks(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protected := map[string]string{
+		"filesystem root": string(filepath.Separator),
+		"user home":       home,
+		"config":          runtime.configDirectory,
+		"config child":    filepath.Join(runtime.configDirectory, "policy"),
+		"config ancestor": filepath.Dir(runtime.configDirectory),
+		"state":           runtime.stateDirectory,
+		"data":            runtime.dataDirectory,
+	}
+	for name, candidate := range protected {
+		name, candidate := name, candidate
+		t.Run(name, func(t *testing.T) {
+			if candidate != string(filepath.Separator) {
+				if err := os.MkdirAll(candidate, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := runtime.ResolveProjectRoot(context.Background(), candidate); err == nil {
+				t.Fatalf("ResolveProjectRoot(%q) unexpectedly succeeded", candidate)
+			}
+		})
+	}
+	if _, err := runtime.ResolveProjectRoot(context.Background(), projectRoot); err != nil {
+		t.Fatalf("ordinary project root rejected: %v", err)
+	}
+}
+
 func TestLoadStateRejectsLegacyAndTrailingDocuments(t *testing.T) {
 	t.Parallel()
 	for name, data := range map[string][]byte{

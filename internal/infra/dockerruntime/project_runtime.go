@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -19,6 +21,7 @@ import (
 const (
 	projectIDLabel   = "io.tobari.id"
 	projectRoleLabel = "io.tobari.role"
+	projectSpecLabel = "io.tobari.spec-hash"
 	projectWorkRole  = "work"
 	projectNetRole   = "network"
 )
@@ -41,10 +44,10 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
-		if stored != instance {
-			return fmt.Errorf("project state changed before runtime reconciliation")
+		if stored.ID != instance.ID || stored.Root != instance.Root || stored.Profile != instance.Profile || stored.Image != instance.Image {
+			return fmt.Errorf("project logical state changed before runtime reconciliation")
 		}
-		if resolved, resolveErr := r.ResolveRoot(ctx, stored.Root); resolveErr != nil || resolved != stored.Root {
+		if resolved, resolveErr := r.ResolveProjectRoot(ctx, stored.Root); resolveErr != nil || resolved != stored.Root {
 			return fmt.Errorf("project root is no longer accessible at its canonical path")
 		}
 		if err := r.ensurePrivateDirectory(r.projectHomePath(stored.ID)); err != nil {
@@ -68,13 +71,21 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err := r.validateCompatibleImage(ctx, image); err != nil {
 			return err
 		}
+		imageID, err := r.compatibleImageID(ctx, image)
+		if err != nil {
+			return err
+		}
+		specHash, err := r.projectSpecHash(state, stored, profile, network, image, imageID)
+		if err != nil {
+			return err
+		}
 		if err := r.ensureProjectNetwork(ctx, network, stored.ID); err != nil {
 			return err
 		}
 		if err := r.ensureGatewayNetwork(ctx, network); err != nil {
 			return err
 		}
-		if err := r.ensureProjectContainer(ctx, state, stored, profile, container, network, image); err != nil {
+		if err := r.ensureProjectContainer(ctx, state, stored, profile, container, network, image, specHash); err != nil {
 			return err
 		}
 		containerID, err := r.projectResourceID(ctx, "container", container)
@@ -128,7 +139,7 @@ func (r *Runtime) InspectProjectRuntime(
 	if err != nil {
 		return tobari.RuntimeDiagnosticUnknown, err
 	}
-	if component.State != "running" || (component.Health != "healthy" && component.Health != "none") {
+	if component.State != "running" || component.Health != "healthy" {
 		return tobari.RuntimeDiagnosticDegraded, nil
 	}
 	return tobari.RuntimeDiagnosticReady, nil
@@ -144,7 +155,7 @@ func (r *Runtime) EnterProjectRuntime(
 	if err := instance.Validate(); err != nil {
 		return 0, err
 	}
-	resolved, err := r.ResolveRoot(ctx, cwd)
+	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
 		return 0, err
 	}
@@ -276,7 +287,7 @@ func (r *Runtime) ensureProjectNetwork(ctx context.Context, network, id string) 
 
 func (r *Runtime) ensureProjectContainer(
 	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
-	profile, container, network, image string,
+	profile, container, network, image, specHash string,
 ) error {
 	workspaceRoot, err := tobari.ProjectWorkspaceRoot(instance.Root)
 	if err != nil {
@@ -290,6 +301,18 @@ func (r *Runtime) ensureProjectContainer(
 		if err := r.verifyOwnedProjectResource(ctx, "container", container, instance.ID, projectWorkRole); err != nil {
 			return err
 		}
+		observedSpec, specErr := r.projectContainerSpecHash(ctx, container)
+		if specErr != nil {
+			return specErr
+		}
+		if observedSpec != specHash {
+			if output, removeErr := r.runner.Output(ctx, []string{"rm", "-f", container}, os.Environ()); removeErr != nil {
+				return fmt.Errorf("remove drifted project container: %w: %s", removeErr, boundedDiagnostic(output))
+			}
+			exists = false
+		}
+	}
+	if exists {
 		component, inspectErr := r.inspectContainer(ctx, projectWorkRole, container)
 		if inspectErr != nil {
 			return inspectErr
@@ -302,7 +325,7 @@ func (r *Runtime) ensureProjectContainer(
 				return fmt.Errorf("start project container: %w: %s", startErr, boundedDiagnostic(output))
 			}
 		}
-		return nil
+		return r.waitProjectReady(ctx, container)
 	}
 	uid, gid := currentIDs()
 	args := []string{
@@ -334,6 +357,7 @@ func (r *Runtime) ensureProjectContainer(
 		"--label", componentLabel + "=tobari",
 		"--label", projectIDLabel + "=" + instance.ID,
 		"--label", projectRoleLabel + "=" + projectWorkRole,
+		"--label", projectSpecLabel + "=" + specHash,
 		image,
 	}
 	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
@@ -342,7 +366,139 @@ func (r *Runtime) ensureProjectContainer(
 	if output, err := r.runner.Output(ctx, []string{"start", container}, os.Environ()); err != nil {
 		return fmt.Errorf("start project container: %w: %s", err, boundedDiagnostic(output))
 	}
-	return nil
+	return r.waitProjectReady(ctx, container)
+}
+
+func (r *Runtime) waitProjectReady(ctx context.Context, container string) error {
+	const attempts = 60
+	for attempt := 0; attempt < attempts; attempt++ {
+		output, err := r.runner.Output(
+			ctx,
+			[]string{"inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}", container},
+			os.Environ(),
+		)
+		if err != nil {
+			return fmt.Errorf("inspect project readiness: %w: %s", err, boundedDiagnostic(output))
+		}
+		switch strings.TrimSpace(string(output)) {
+		case "healthy":
+			return nil
+		case "unhealthy":
+			return fmt.Errorf("project container is unhealthy")
+		case "none":
+			return fmt.Errorf("project container has no readiness healthcheck")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("project container did not become healthy")
+}
+
+func (r *Runtime) compatibleImageID(ctx context.Context, image string) (string, error) {
+	output, err := r.runner.Output(ctx, []string{"image", "inspect", "--format", "{{.Id}}", image}, os.Environ())
+	if err != nil {
+		return "", fmt.Errorf("inspect compatible image identity: %w: %s", err, boundedDiagnostic(output))
+	}
+	imageID := strings.TrimSpace(string(output))
+	if imageID == "" {
+		return "", fmt.Errorf("compatible image identity is empty")
+	}
+	return imageID, nil
+}
+
+type projectRuntimeSpec struct {
+	Image          string   `json:"image"`
+	ImageID        string   `json:"image_id"`
+	RuntimeAPI     string   `json:"runtime_api"`
+	AssetVersion   string   `json:"asset_version"`
+	WorkspaceRoot  string   `json:"workspace_root"`
+	Root           string   `json:"root"`
+	Network        string   `json:"network"`
+	User           string   `json:"user"`
+	Environment    []string `json:"environment"`
+	Mounts         []string `json:"mounts"`
+	ReadOnly       bool     `json:"read_only"`
+	Capabilities   string   `json:"capabilities"`
+	Security       string   `json:"security"`
+	HealthCommand  string   `json:"health_command"`
+	HealthInterval string   `json:"health_interval"`
+	ProfileDigest  string   `json:"profile_digest"`
+}
+
+func (r *Runtime) projectSpecHash(
+	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+) (string, error) {
+	workspaceRoot, err := tobari.ProjectWorkspaceRoot(instance.Root)
+	if err != nil {
+		return "", err
+	}
+	profileDigest, err := r.projectProfileDigest(profile)
+	if err != nil {
+		return "", err
+	}
+	uid, gid := currentIDs()
+	spec := projectRuntimeSpec{
+		Image: image, ImageID: imageID, RuntimeAPI: tobari.RuntimeImageAPI, AssetVersion: state.AssetVersion,
+		WorkspaceRoot: workspaceRoot, Root: instance.Root, Network: network,
+		User: strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
+		Environment: []string{
+			"HOME=/var/lib/tobari", "TOBARI_INSIDE=1", "TOBARI_ID=" + instance.ID,
+			"TOBARI_ROOT=" + workspaceRoot, "TOBARI_PROFILE=/opt/tobari/profile",
+			"HTTP_PROXY=http://gateway:8080", "HTTPS_PROXY=http://gateway:8080",
+			"http_proxy=http://gateway:8080", "https_proxy=http://gateway:8080",
+			"NO_PROXY=", "no_proxy=", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
+			"REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
+		},
+		Mounts: []string{
+			"bind:" + instance.Root + "->" + workspaceRoot,
+			"bind:" + r.projectHomePath(instance.ID) + "->/var/lib/tobari",
+			"bind:" + profile + "->/opt/tobari/profile:ro",
+			"bind:" + filepath.Join(profile, "claude", "skills") + "->/var/lib/tobari/.claude/skills:ro",
+			"bind:" + filepath.Join(profile, "claude", "agents") + "->/var/lib/tobari/.claude/agents:ro",
+			"bind:" + filepath.Join(profile, "claude", "commands") + "->/var/lib/tobari/.claude/commands:ro",
+			"bind:" + filepath.Join(profile, "claude", "plugins.lock") + "->/var/lib/tobari/.claude/plugins.lock:ro",
+			"volume:tobari-public-ca->/run/tobari/ca-public:ro",
+		},
+		ReadOnly: true, Capabilities: "ALL", Security: "no-new-privileges:true",
+		HealthCommand: "test -f /tmp/tobari-ready", HealthInterval: "2s", ProfileDigest: profileDigest,
+	}
+	encoded, err := json.Marshal(spec)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", digest[:]), nil
+}
+
+func (r *Runtime) projectProfileDigest(profile string) (string, error) {
+	hash := sha256.New()
+	for _, path := range []string{
+		filepath.Join(profile, "claude", "plugins.lock"),
+		filepath.Join(profile, "common", "settings.json"),
+	} {
+		data, err := os.ReadFile(path) // #nosec G304 -- exact runtime-owned profile files.
+		if err != nil {
+			return "", fmt.Errorf("read shared profile revision: %w", err)
+		}
+		_, _ = hash.Write([]byte(filepath.Base(filepath.Dir(path))))
+		_, _ = hash.Write(data)
+	}
+	return fmt.Sprintf("sha256:%x", hash.Sum(nil)), nil
+}
+
+func (r *Runtime) projectContainerSpecHash(ctx context.Context, container string) (string, error) {
+	output, err := r.runner.Output(
+		ctx,
+		[]string{"inspect", "--format", `{{index .Config.Labels "` + projectSpecLabel + `"}}`, container},
+		os.Environ(),
+	)
+	if err != nil {
+		return "", fmt.Errorf("inspect project spec hash: %w: %s", err, boundedDiagnostic(output))
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func (r *Runtime) ensureProjectContainerNetwork(ctx context.Context, container, network string) error {

@@ -107,9 +107,10 @@ network, and one persistent XDG-owned home directory.
 
 ### Consequences
 
-- `tobari` resolves an existing canonical-root record or creates one at the
-  current directory, reconciles the shared enforcement runtime, and enters the
-  work container on a terminal.
+- `cluster up` explicitly creates or reconciles the shared enforcement runtime;
+  `tobari` requires that configured cluster to be ready, resolves an existing
+  canonical-root record or creates one at the current directory, reconciles
+  only the project runtime, and enters the work container on a terminal.
 - The logical record owns a generated stable internal ID, canonical root,
   selected compatible runtime image, profile, XDG home, and diagnostic runtime
   identifiers. Container or network loss never changes logical existence.
@@ -123,6 +124,10 @@ network, and one persistent XDG-owned home directory.
 - Every process in a Tobari may modify or delete every file below that Tobari's
   mounted root.
 - Multiple clusters, overlays, clone modes, and change approval are non-goals.
+- A project root cannot be the filesystem root, the user's home or its
+  ancestor, or any XDG configuration, state, or shared-profile management
+  path. A policy source repository remains an ordinary allowed project root;
+  active policy is published separately by explicit trusted-host operations.
 
 ### Mechanical enforcement
 

@@ -11,8 +11,9 @@ that shared policy boundary.
 
 The primary user is a developer who wants an autonomous coding agent to edit a
 bounded source tree without receiving host credentials or unrestricted network
-egress. `cd project && tobari` owns the routine lifecycle from logical state
-resolution through startup, recovery, and interactive entry. The user normally
+egress. `cluster up` explicitly owns shared Gateway and OPA setup; `cd project
+&& tobari` requires that ready cluster, then owns project logical-state
+resolution, project-runtime recovery, and interactive entry. The user normally
 manages only the directory; a Tobari either exists or does not exist.
 
 The primary operating loop is progressive policy learning: a Tobari workload is
@@ -75,6 +76,11 @@ property rather than an undeclared Docker mutation by the CLI.
 - The current working directory is expanded and canonicalized on the host
   before state or Docker calls. Lookup walks canonical parents and selects the
   nearest existing root; it never creates nested Tobari environments.
+- Project-root selection rejects the filesystem root, the user's home and its
+  ancestors, and any path overlapping XDG Tobari configuration, state, or
+  shared-profile management directories. A repository containing policy source
+  remains allowed; only the trusted active policy/configuration paths are
+  protected.
 - The first creation uses the canonical current directory as root. Project
   moves and copies are not inferred or recorded in the project tree.
 - The selected root is mounted at `/workspace/<canonical-root-without-leading-slash>`
@@ -94,7 +100,8 @@ property rather than an undeclared Docker mutation by the CLI.
   `customizations` metadata. Dockerfile, Compose, Features, mounts,
   environment, user, privileges, capabilities, ports, and lifecycle properties
   are rejected rather than ignored.
-- Shared cluster mutations use one command-bound `tool_local` target.
+- Shared cluster mutations use one command-bound `tool_local` target and are
+  never performed by the root `tobari` operation.
 - CWD-local lifecycle operations use one command-bound `tool_local` current
   directory target and do not accept an ID, name, or root selector.
 
@@ -159,12 +166,15 @@ health.
 
 ## Side effects
 
-The root command creates shared labeled networks, images, configuration
-material, Gateway, OPA, and CA volumes as needed. It tags the built-in runtime
-both by asset version and as the local extension base `tobari-runtime:local`.
-It creates or reuses the current root's labeled container and internal network,
-binds its XDG home, joins Gateway to that network, and enters the resulting
-terminal session. `delete` removes only that exact label-owned container,
+`cluster up` creates shared labeled networks, images, configuration material,
+Gateway, OPA, and CA volumes as needed. It tags the built-in runtime both by
+asset version and as the local extension base `tobari-runtime:local`, then
+reconnects Gateway to existing registered project networks without creating
+project state or project resources. The root command only verifies the shared
+cluster is configured and ready, creates or reuses the current root's logical
+record, reconciles its labeled container and internal network, binds its XDG
+home, joins Gateway to that network, and enters the resulting terminal session.
+`delete` removes only that exact label-owned container,
 network, root index, instance state, and home. `cluster down` rejects while any
 Tobari remains
 and removes only exact shared resources; its `--purge` also removes shared CA

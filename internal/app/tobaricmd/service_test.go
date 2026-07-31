@@ -14,16 +14,20 @@ import (
 )
 
 type fakeRuntime struct {
-	state        tobari.State
-	clusterCalls int
-	attachCalls  int
-	detachCalls  int
-	policyCalls  int
-	learnedCalls int
-	execSeen     tobari.Instance
-	devConfig    tobari.DevContainerConfig
-	denials      []tobari.PolicyDenial
-	rules        []tobari.LearnedPolicyRule
+	state          tobari.State
+	clusterCalls   int
+	loadStateCalls int
+	inspectCalls   int
+	configured     *bool
+	clusterReady   *bool
+	attachCalls    int
+	detachCalls    int
+	policyCalls    int
+	learnedCalls   int
+	execSeen       tobari.Instance
+	devConfig      tobari.DevContainerConfig
+	denials        []tobari.PolicyDenial
+	rules          []tobari.LearnedPolicyRule
 }
 
 func (f *fakeRuntime) ResolveRoot(_ context.Context, root string) (string, error) { return root, nil }
@@ -71,11 +75,20 @@ func (f *fakeRuntime) ClusterUp(context.Context) (tobari.State, error) {
 	return f.state, nil
 }
 func (f *fakeRuntime) LoadState(context.Context) (tobari.State, bool, error) {
+	f.loadStateCalls++
+	if f.configured != nil {
+		return f.state, *f.configured, nil
+	}
 	return f.state, true, nil
 }
 func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.ClusterStatus, error) {
+	f.inspectCalls++
+	running := true
+	if f.clusterReady != nil {
+		running = *f.clusterReady
+	}
 	return tobari.ClusterStatus{
-		Configured: true, Running: true, Proxy: f.state.ProxyEndpoint,
+		Configured: true, Running: running, Proxy: f.state.ProxyEndpoint,
 		Policy: f.state.PolicyDirectory, TobariCount: len(f.state.Tobari),
 		Components: []tobari.ComponentStatus{},
 	}, nil
@@ -282,8 +295,40 @@ func TestEnterProjectAcceptsCurrentDirectoryMutationAndNestedCWD(t *testing.T) {
 	if err != nil || code != 0 {
 		t.Fatalf("EnterProject() = (%d, %v)", code, err)
 	}
-	if fake.clusterCalls != 1 || fake.resolveCalls != 1 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
+	if fake.clusterCalls != 0 || fake.resolveCalls != 1 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
 		t.Fatalf("calls = cluster:%d resolve:%d ensure:%d enter:%d", fake.clusterCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
+	}
+}
+
+func TestEnterProjectRequiresReadyConfiguredClusterBeforeProjectResolution(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		configured bool
+		ready      bool
+		wantCode   string
+	}{
+		"unconfigured": {configured: false, ready: false, wantCode: "cluster_not_configured"},
+		"unready":      {configured: true, ready: false, wantCode: "cluster_not_ready"},
+	} {
+		name, test := name, test
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fake := &projectRuntimeFake{
+				fakeRuntime: &fakeRuntime{
+					state:        testState(t.TempDir()),
+					configured:   &test.configured,
+					clusterReady: &test.ready,
+				},
+				cwd: "/tmp/project", terminal: true, project: testProjectInstance(),
+			}
+			_, err := New(fake).EnterProject(
+				context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
+			)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.wantCode || fake.resolveCalls != 0 || fake.ensureCalls != 0 || fake.enterCalls != 0 || fake.clusterCalls != 0 {
+				t.Fatalf("error=%v public=%+v calls: load=%d inspect=%d cluster=%d resolve=%d ensure=%d enter=%d", err, public, fake.loadStateCalls, fake.inspectCalls, fake.clusterCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
+			}
+		})
 	}
 }
 

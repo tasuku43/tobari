@@ -177,6 +177,9 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 		}
 		return nil, nil
 	case "inspect":
+		if len(args) > 2 && strings.Contains(args[2], ".State.Health") {
+			return []byte("healthy\n"), nil
+		}
 		if len(args) > 2 && strings.Contains(args[2], ".NetworkSettings.Networks") {
 			return []byte(`{}`), nil
 		}

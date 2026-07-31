@@ -23,7 +23,7 @@ const maxProjectStateBytes = 128 * 1024
 // ResolveProject resolves cwd, then returns the nearest indexed logical
 // Tobari without changing state or inspecting Docker.
 func (r *Runtime) ResolveProject(ctx context.Context, cwd string) (tobari.ProjectInstance, bool, error) {
-	resolved, err := r.ResolveRoot(ctx, cwd)
+	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
 		return tobari.ProjectInstance{}, false, err
 	}
@@ -51,7 +51,7 @@ func (r *Runtime) ResolveProject(ctx context.Context, cwd string) (tobari.Projec
 func (r *Runtime) ResolveOrCreateProject(
 	ctx context.Context, cwd string,
 ) (tobari.ProjectInstance, bool, error) {
-	resolved, err := r.ResolveRoot(ctx, cwd)
+	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
 		return tobari.ProjectInstance{}, false, err
 	}

@@ -122,19 +122,23 @@ io.tobari.role=work|network
 io.tobari.version=<asset revision>
 ```
 
-Root invocation resolves the canonical CWD and nearest indexed ancestor. When
-there is no record it atomically creates an ID, root index, state record, and
-home; when a record exists it retains those values. It then validates
-configuration, tests policy, reconciles OPA and Gateway, ensures one exact
-network and work container, connects Gateway with the `gateway` alias, and
-enters the container. OPA runs with `--watch` against a read-only XDG bind, so
-host edits reload when Docker-host filesystem events propagate. `policy apply`
-provides the deterministic portable path: it tests the current bind, verifies
-the exact OPA ownership label, recreates only OPA, and waits for health.
+Explicit `cluster up` validates configuration, tests policy, reconciles OPA and
+Gateway, and reconnects Gateway to every existing registered project network.
+Root invocation only verifies that configured cluster is ready, resolves the
+canonical CWD and nearest indexed ancestor, and then, when there is no record,
+atomically creates an ID, root index, state record, and home. It ensures one
+exact project network and work container, connects Gateway with the `gateway`
+alias, waits for project readiness, and enters the container. OPA runs with
+`--watch` against a read-only XDG bind, so host edits reload when Docker-host
+filesystem events propagate. `policy apply` provides the deterministic
+portable path: it tests the current bind, verifies the exact OPA ownership
+label, recreates only OPA, and waits for health.
 `delete` verifies owner, ID, and role labels before removing the selected
 container and network, then removes only its XDG home and records. Container
 or network loss is reconciled by the root operation; it never deletes logical
-state. Cluster removal is rejected until no instance record remains.
+state. Cluster status and reconcile derive project counts and network joins
+from the indexed CWD-owned records rather than the legacy named collection.
+Cluster removal is rejected until no instance record remains.
 
 ## Command catalog
 

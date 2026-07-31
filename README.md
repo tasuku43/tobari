@@ -114,14 +114,22 @@ Validate the host and intended project directory:
 tobari doctor --root ~/ghq/example
 ```
 
-Run the primary operation from the project directory. It creates the shared
-enforcement cluster and the project Tobari as needed:
+Start the shared enforcement cluster explicitly:
+
+```sh
+tobari cluster up
+```
+
+Then run the primary operation from the project directory. It requires the
+cluster to be configured and ready, and creates or reuses only the project
+Tobari:
 
 ```sh
 tobari
 ```
 
-The root command requires a TTY and enters the container at the mirrored host
+The root command does not create or repair the shared cluster. It requires a
+TTY and enters the container at the mirrored host
 working directory. For example, a Tobari rooted at `/work` enters
 `/workspace/work/root` when invoked from `/work/root`; a shell exit returns to
 the host while the Tobari remains `exists`. Run `tobari` again to reuse it.

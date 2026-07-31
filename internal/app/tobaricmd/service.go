@@ -158,16 +158,37 @@ func (s *Service) EnterProject(
 	if err != nil {
 		return 0, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
+	state, configured, stateErr := s.runtime.LoadState(ctx)
+	if stateErr != nil {
+		return 0, fault.Wrap(fault.KindInternal, "state_read_failed", "shared cluster state could not be read", false, stateErr,
+			fault.NextAction{Command: "cluster status", Reason: "Inspect the configured shared cluster."})
+	}
+	if !configured {
+		return 0, fault.New(
+			fault.KindUnavailable, "cluster_not_configured",
+			"the shared cluster is not configured; run cluster up before entering a Tobari", false,
+			fault.NextAction{Command: "cluster up", Reason: "Create the shared Gateway and OPA cluster explicitly."},
+		)
+	}
+	clusterStatus, statusErr := s.runtime.InspectCluster(ctx, state)
+	if statusErr != nil {
+		return 0, fault.Wrap(fault.KindUnavailable, "cluster_status_failed", "the shared cluster could not be inspected", false, statusErr,
+			fault.NextAction{Command: "cluster status", Reason: "Inspect the shared cluster before entering a Tobari."})
+	}
+	if !clusterStatus.Running {
+		return 0, fault.New(
+			fault.KindUnavailable, "cluster_not_ready",
+			"the shared cluster is not ready; repair it with an explicit cluster operation", false,
+			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster explicitly."},
+		)
+	}
+
 	var instance tobari.ProjectInstance
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
 	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		state, actionErr := s.runtime.ClusterUp(actionContext)
-		if actionErr != nil {
-			return classifyProjectMutationError(actionErr, "tobari", "status", "runtime reconciliation did not complete")
-		}
 		resolved, _, actionErr := project.ResolveOrCreateProject(actionContext, cwd)
 		if actionErr != nil {
 			return classifyProjectMutationError(actionErr, "tobari", "status", "logical state may need reconciliation")
@@ -1044,7 +1065,10 @@ func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purg
 		return tobari.ClusterStatus{Task: tobari.TaskClusterDown, Components: []tobari.ComponentStatus{}}, nil
 	}
 	if len(state.Tobari) != 0 {
-		return tobari.ClusterStatus{}, fault.New(fault.KindRejected, "cluster_not_empty", "detach every Tobari before removing the cluster", false)
+		return tobari.ClusterStatus{}, fault.New(
+			fault.KindRejected, "legacy_named_state",
+			"the shared state contains legacy named Tobari records; remove them with the older binary before continuing", false,
+		)
 	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: "cluster down", ExpectedEffect: operation.EffectWrite,

@@ -140,8 +140,27 @@ func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, r
 	}, nil
 }
 
-// ResolveRoot resolves symlinks and requires an existing directory.
+// ResolveRoot resolves symlinks and requires an existing directory. It is kept
+// broad for diagnostics and legacy internal utilities; CWD-owned project
+// lifecycle uses ResolveProjectRoot below.
 func (r *Runtime) ResolveRoot(ctx context.Context, value string) (string, error) {
+	return r.resolveCanonicalRoot(ctx, value)
+}
+
+// ResolveProjectRoot resolves a project root and rejects host-management paths
+// that must never be read-write mounted into an untrusted Tobari.
+func (r *Runtime) ResolveProjectRoot(ctx context.Context, value string) (string, error) {
+	resolved, err := r.resolveCanonicalRoot(ctx, value)
+	if err != nil {
+		return "", err
+	}
+	if err := r.validateProjectRoot(resolved); err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+func (r *Runtime) resolveCanonicalRoot(ctx context.Context, value string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -166,6 +185,73 @@ func (r *Runtime) ResolveRoot(ctx context.Context, value string) (string, error)
 	return filepath.Clean(resolved), nil
 }
 
+func (r *Runtime) validateProjectRoot(root string) error {
+	if root == string(filepath.Separator) {
+		return fmt.Errorf("filesystem root cannot be a Tobari project root")
+	}
+	homeDirectory, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve user home for project-root protection: %w", err)
+	}
+	home, err := canonicalPathWithMissing(homeDirectory)
+	if err != nil {
+		return fmt.Errorf("resolve user home for project-root protection: %w", err)
+	}
+	if root == home || isPathAncestor(root, home) {
+		return fmt.Errorf("user home or its ancestor cannot be a Tobari project root")
+	}
+	for name, candidate := range map[string]string{
+		"configuration": r.configDirectory,
+		"state":         r.stateDirectory,
+		"data":          r.dataDirectory,
+	} {
+		protected, pathErr := canonicalPathWithMissing(candidate)
+		if pathErr != nil {
+			return fmt.Errorf("resolve protected %s path: %w", name, pathErr)
+		}
+		if isPathAncestor(root, protected) || isPathAncestor(protected, root) {
+			return fmt.Errorf("project root overlaps protected %s path", name)
+		}
+	}
+	return nil
+}
+
+func isPathAncestor(ancestor, candidate string) bool {
+	return ancestor == candidate || (ancestor != string(filepath.Separator) && strings.HasPrefix(candidate, ancestor+string(filepath.Separator))) || ancestor == string(filepath.Separator)
+}
+
+func canonicalPathWithMissing(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	current := filepath.Clean(absolute)
+	missing := make([]string, 0)
+	for {
+		if _, statErr := os.Lstat(current); statErr == nil {
+			resolved, evalErr := filepath.EvalSymlinks(current)
+			if evalErr != nil {
+				return "", evalErr
+			}
+			for index := len(missing) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, missing[index])
+			}
+			return filepath.Clean(resolved), nil
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return "", statErr
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("no existing ancestor for %q", path)
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+	}
+}
+
 func (r *Runtime) CurrentDirectory(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -174,11 +260,7 @@ func (r *Runtime) CurrentDirectory(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resolved, err := filepath.EvalSymlinks(current)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Clean(resolved), nil
+	return r.ResolveProjectRoot(ctx, current)
 }
 
 func (r *Runtime) IsTerminal(writer io.Writer) bool {
@@ -252,13 +334,12 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 		return tobari.State{}, err
 	}
 	if exists {
-		if existing.AssetVersion != state.AssetVersion && len(existing.Tobari) != 0 {
+		if len(existing.Tobari) != 0 {
 			return tobari.State{}, fault.New(
-				fault.KindRejected, "asset_conflict",
-				"detach every Tobari before reconciling a new runtime asset version", false,
+				fault.KindRejected, "legacy_named_state",
+				"the shared state contains legacy named Tobari records; remove them with the older binary before continuing", false,
 			)
 		}
-		state.Tobari = append([]tobari.Instance{}, existing.Tobari...)
 		state.RecentError = existing.RecentError
 	}
 	if err := r.testPolicy(ctx, state); err != nil {
@@ -288,8 +369,23 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 		_ = r.recordRecentError(state, "Cluster startup did not complete; inspect component logs.")
 		return tobari.State{}, fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
-	for _, instance := range state.Tobari {
-		if err := r.ensureGatewayNetwork(ctx, instance.Network); err != nil {
+	projects, err := r.ListProjects(ctx)
+	if err != nil {
+		return tobari.State{}, fmt.Errorf("read CWD-owned projects for Gateway reconciliation: %w", err)
+	}
+	for _, project := range projects {
+		_, network, nameErr := tobari.ProjectResourceNames(project.ID)
+		if nameErr != nil {
+			return tobari.State{}, nameErr
+		}
+		exists, existsErr := r.projectResourceExists(ctx, "network", network)
+		if existsErr != nil {
+			return tobari.State{}, existsErr
+		}
+		if !exists {
+			continue
+		}
+		if err := r.ensureGatewayNetwork(ctx, network); err != nil {
 			_ = r.recordRecentError(state, "Gateway did not rejoin every Tobari network; inspect cluster status.")
 			return tobari.State{}, err
 		}
@@ -661,9 +757,13 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 		}
 		components = append(components, component)
 	}
+	projects, err := r.ListProjects(ctx)
+	if err != nil {
+		return tobari.ClusterStatus{}, fmt.Errorf("read CWD-owned projects: %w", err)
+	}
 	return tobari.ClusterStatus{
 		Configured: true, Running: running, Proxy: state.ProxyEndpoint,
-		Policy: state.PolicyDirectory, TobariCount: len(state.Tobari),
+		Policy: state.PolicyDirectory, TobariCount: len(projects),
 		Components: components, RecentError: state.RecentError,
 	}, nil
 }

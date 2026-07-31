@@ -51,7 +51,11 @@ Runtime specs prohibit privileged mode, host networking, the Docker socket,
 SSH agent mounts, host home mounts, and added Linux capabilities. Tobari uses a
 non-root work user mapped to the invoking UID/GID where Docker supports it.
 Only the selected root and that Tobari's exact XDG-owned home directory are
-mounted writable.
+mounted writable. The project-root resolver rejects filesystem root, the user's
+home and its ancestors, and paths overlapping XDG configuration, state, or
+shared-profile management directories. Policy source repositories remain
+allowed; the active host policy and credential directories are separate
+trusted assets and are never selected as project roots.
 
 A custom Tobari image is untrusted input and receives no additional authority.
 The CWD-owned runtime accepts only a locally available image that asserts runtime API `1` and
@@ -139,13 +143,15 @@ trusted infrastructure boundary.
 
 Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
 The root command uses the catalog-declared current-directory fixed target to
-create or reconcile one logical Tobari; `delete` resolves the same target and
-is its only lifecycle-ending mutation. Neither operation accepts an ID, name,
-or arbitrary root selector. All mutations use complete intent and impact
-declarations before Docker execution. Ordinary runtime reconciliation needs no
-human approval; destructive deletion requires confirmation or `--force` and
-affects only the selected XDG home and exact owned resources. Shared CA purge
-remains separate and only follows an empty instance repository.
+create or reconcile one logical Tobari only after a read-only check confirms
+the explicitly configured shared cluster is ready; it never creates shared
+resources. `delete` resolves the same target and is its only lifecycle-ending
+mutation. Neither operation accepts an ID, name, or arbitrary root selector.
+All mutations use complete intent and impact declarations before Docker
+execution. Ordinary runtime reconciliation needs no human approval;
+destructive deletion requires confirmation or `--force` and affects only the
+selected XDG home and exact owned resources. Shared CA purge remains separate
+and only follows an empty instance repository.
 `policy apply` is an access-changing write to the same fixed cluster target. It
 does not edit policy, but it can change outbound authority by activating the
 trusted host's current tested files. Gateway remains fail-closed while OPA is
