@@ -244,6 +244,84 @@ func TestResolveOrCreateProjectCleansUpAfterLogicalCreationBoundaryFailures(t *t
 	}
 }
 
+func TestProjectJournalReconcilesInterruptedCreateAndDelete(t *testing.T) {
+	t.Parallel()
+	for name, operation := range map[string]string{"create": projectOpCreate, "delete": projectOpDelete} {
+		name, operation := name, operation
+		t.Run(name, func(t *testing.T) {
+			runtime := newProjectStateRuntime(t)
+			root := filepath.Join(t.TempDir(), "project")
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			instance, _, err := runtime.ResolveOrCreateProject(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.removeProjectRootIndex(instance.Root); err != nil {
+				t.Fatal(err)
+			}
+			if operation == projectOpDelete {
+				if err := runtime.removeProjectInstanceDirectory(instance.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := runtime.writeProjectJournal(projectJournal{
+				SchemaVersion: projectJournalSchema, Operation: operation,
+				ProjectID: instance.ID, Root: instance.Root, Phase: projectPhaseRuntime,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			recreated, created, err := runtime.ResolveOrCreateProject(context.Background(), root)
+			if err != nil || !created || recreated.ID == instance.ID {
+				t.Fatalf("ResolveOrCreateProject() = (%+v, %t, %v), want fresh project after %s recovery", recreated, created, err, operation)
+			}
+			if _, err := os.Stat(runtime.projectJournalPath()); !os.IsNotExist(err) {
+				t.Fatalf("journal remains after %s recovery: %v", operation, err)
+			}
+		})
+	}
+}
+
+func TestResolveProjectFindsOneSidedLogicalRecordsForRecovery(t *testing.T) {
+	t.Parallel()
+	tests := map[string]func(*testing.T, *Runtime, tobari.ProjectInstance){
+		"root index only": func(t *testing.T, runtime *Runtime, instance tobari.ProjectInstance) {
+			path, err := runtime.projectStatePath(instance.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"instance only": func(t *testing.T, runtime *Runtime, instance tobari.ProjectInstance) {
+			if err := runtime.removeProjectRootIndex(instance.Root); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, breakRecord := range tests {
+		name, breakRecord := name, breakRecord
+		t.Run(name, func(t *testing.T) {
+			runtime := newProjectStateRuntime(t)
+			root := filepath.Join(t.TempDir(), "project")
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			instance, _, err := runtime.ResolveOrCreateProject(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			breakRecord(t, runtime, instance)
+			resolved, found, err := runtime.ResolveProject(context.Background(), root)
+			if err != nil || !found || resolved.ID != instance.ID || resolved.Root != instance.Root {
+				t.Fatalf("ResolveProject() = (%+v, %t, %v), want recoverable %s record", resolved, found, err, name)
+			}
+		})
+	}
+}
+
 func TestUpdateProjectRuntimeDoesNotChangeLogicalIdentity(t *testing.T) {
 	t.Parallel()
 	runtime := newProjectStateRuntime(t)

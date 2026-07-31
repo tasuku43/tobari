@@ -40,9 +40,19 @@ func (r *Runtime) EnsureProjectRuntime(
 	}
 	var updated tobari.ProjectInstance
 	err := r.withProjectLock(ctx, func() error {
-		stored, err := r.readProjectInstance(instance.ID)
-		if err != nil {
+		if err := r.reconcileProjectJournal(); err != nil {
 			return err
+		}
+		stored, err := r.readProjectInstance(instance.ID)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			// ResolveProject can return a validated synthetic record when the
+			// root index survived but the instance file did not. The immutable
+			// ID and root are sufficient to derive and safely remove owned
+			// runtime resources; no mutable instance data is reconstructed.
+			stored = instance
 		}
 		if stored.ID != instance.ID || stored.Root != instance.Root || stored.Profile != instance.Profile || stored.Image != instance.Image {
 			return fmt.Errorf("project logical state changed before runtime reconciliation")
@@ -216,12 +226,22 @@ func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.ProjectInst
 		return err
 	}
 	return r.withProjectLock(ctx, func() error {
+		if err := r.reconcileProjectJournal(); err != nil {
+			return err
+		}
 		stored, err := r.readProjectInstance(instance.ID)
 		if err != nil {
 			return err
 		}
-		if stored != instance {
-			return fmt.Errorf("project state changed before deletion")
+		if stored.ID != instance.ID || stored.Root != instance.Root || stored.Profile != instance.Profile || stored.Image != instance.Image {
+			return fmt.Errorf("project logical state changed before deletion")
+		}
+		journal := projectJournal{
+			SchemaVersion: projectJournalSchema, Operation: projectOpDelete,
+			ProjectID: stored.ID, Root: stored.Root, Phase: projectPhaseStarted,
+		}
+		if err := r.writeProjectJournal(journal); err != nil {
+			return err
 		}
 		container, network, err := tobari.ProjectResourceNames(stored.ID)
 		if err != nil {
@@ -247,19 +267,28 @@ func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.ProjectInst
 			if err := r.verifyOwnedProjectResource(ctx, "network", network, stored.ID, projectNetRole); err != nil {
 				return err
 			}
-			if output, disconnectErr := r.runner.Output(
-				ctx, []string{"network", "disconnect", "-f", network, gatewayContainer}, os.Environ(),
-			); disconnectErr != nil {
-				return fmt.Errorf("disconnect Gateway from project network: %w: %s", disconnectErr, boundedDiagnostic(output))
+			if err := r.disconnectGatewayIfConnected(ctx, network); err != nil {
+				return err
 			}
 			if output, removeErr := r.runner.Output(ctx, []string{"network", "rm", network}, os.Environ()); removeErr != nil {
 				return fmt.Errorf("remove project network: %w: %s", removeErr, boundedDiagnostic(output))
 			}
 		}
-		if err := r.removeProjectRecords(stored); err != nil {
+		journal.Phase = projectPhaseRuntime
+		if err := r.writeProjectJournal(journal); err != nil {
 			return err
 		}
-		return nil
+		if err := r.removeProjectInstanceDirectory(stored.ID); err != nil {
+			return err
+		}
+		journal.Phase = projectPhaseInstance
+		if err := r.writeProjectJournal(journal); err != nil {
+			return err
+		}
+		if err := r.removeProjectRootIndex(stored.Root); err != nil {
+			return err
+		}
+		return r.clearProjectJournal()
 	})
 }
 
@@ -523,6 +552,38 @@ func (r *Runtime) ensureProjectContainerNetwork(ctx context.Context, container, 
 	return nil
 }
 
+func (r *Runtime) disconnectGatewayIfConnected(ctx context.Context, network string) error {
+	exists, err := r.projectResourceExists(ctx, "container", gatewayContainer)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	output, err := r.runner.Output(
+		ctx, []string{"inspect", "--format", "{{json .NetworkSettings.Networks}}", gatewayContainer}, os.Environ(),
+	)
+	if err != nil {
+		if isMissingDockerResource(err, output) {
+			return nil
+		}
+		return fmt.Errorf("inspect Gateway networks for deletion: %w: %s", err, boundedDiagnostic(output))
+	}
+	var networks map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(output), &networks); err != nil {
+		return fmt.Errorf("decode Gateway networks for deletion: %w", err)
+	}
+	if _, connected := networks[network]; !connected {
+		return nil
+	}
+	if output, disconnectErr := r.runner.Output(
+		ctx, []string{"network", "disconnect", "-f", network, gatewayContainer}, os.Environ(),
+	); disconnectErr != nil && !isMissingDockerResource(disconnectErr, output) {
+		return fmt.Errorf("disconnect Gateway from project network: %w: %s", disconnectErr, boundedDiagnostic(output))
+	}
+	return nil
+}
+
 func (r *Runtime) projectResourceExists(ctx context.Context, kind, name string) (bool, error) {
 	args := []string{"inspect", "--format", "{{.Id}}", name}
 	if kind == "network" {
@@ -652,32 +713,26 @@ func decodeSettingsObject(data []byte) (map[string]json.RawMessage, error) {
 	return object, nil
 }
 
-func (r *Runtime) removeProjectRecords(instance tobari.ProjectInstance) error {
-	indexPath, err := r.rootIndexPath(instance.Root)
-	if err != nil {
-		return err
-	}
-	var index tobari.RootIndex
-	if err := readStrictJSON(indexPath, &index); err != nil {
-		return err
-	}
-	if index.InstanceID != instance.ID || index.Root != instance.Root {
-		return fmt.Errorf("root index no longer identifies selected Tobari")
-	}
-	directory, err := r.projectDirectory(instance.ID)
+func (r *Runtime) removeProjectInstanceDirectory(id string) error {
+	directory, err := r.projectDirectory(id)
 	if err != nil {
 		return err
 	}
 	if err := os.RemoveAll(directory); err != nil { // #nosec G301 -- exact validated instance directory after owned resource cleanup.
 		return fmt.Errorf("remove project instance state: %w", err)
 	}
-	if err := os.Remove(indexPath); err != nil {
-		return fmt.Errorf("remove project root index: %w", err)
-	}
-	if err := syncDirectory(filepath.Dir(indexPath)); err != nil {
+	return syncDirectoryIfPresent(filepath.Dir(directory))
+}
+
+func (r *Runtime) removeProjectRootIndex(root string) error {
+	indexPath, err := r.rootIndexPath(root)
+	if err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(directory))
+	if err := os.Remove(indexPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove project root index: %w", err)
+	}
+	return syncDirectoryIfPresent(filepath.Dir(indexPath))
 }
 
 func syncDirectory(path string) error {
@@ -687,4 +742,16 @@ func syncDirectory(path string) error {
 	}
 	defer directory.Close()
 	return directory.Sync()
+}
+
+func syncDirectoryIfPresent(path string) error {
+	if err := syncDirectory(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func isMissingDockerResource(err error, output []byte) bool {
+	diagnostic := strings.ToLower(err.Error() + " " + string(output))
+	return strings.Contains(diagnostic, "no such") || strings.Contains(diagnostic, "not found")
 }

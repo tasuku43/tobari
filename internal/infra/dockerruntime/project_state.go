@@ -20,29 +20,144 @@ import (
 
 const maxProjectStateBytes = 128 * 1024
 
-// ResolveProject resolves cwd, then returns the nearest indexed logical
-// Tobari without changing state or inspecting Docker.
+const (
+	projectJournalSchema = 1
+	projectOpCreate      = "create"
+	projectOpDelete      = "delete"
+	projectPhaseStarted  = "started"
+	projectPhaseHome     = "home_created"
+	projectPhaseState    = "state_created"
+	projectPhaseIndex    = "root_index_created"
+	projectPhaseRuntime  = "runtime_removed"
+	projectPhaseInstance = "instance_removed"
+)
+
+type projectJournal struct {
+	SchemaVersion int    `json:"schema_version"`
+	Operation     string `json:"operation"`
+	ProjectID     string `json:"project_id"`
+	Root          string `json:"root"`
+	Phase         string `json:"phase"`
+}
+
+func (j projectJournal) Validate() error {
+	if j.SchemaVersion != projectJournalSchema {
+		return fmt.Errorf("project journal schema version must be %d", projectJournalSchema)
+	}
+	if j.Operation != projectOpCreate && j.Operation != projectOpDelete {
+		return fmt.Errorf("project journal operation is invalid")
+	}
+	if err := tobari.ValidateProjectID(j.ProjectID); err != nil {
+		return err
+	}
+	if err := tobari.ValidateCanonicalRoot(j.Root); err != nil {
+		return err
+	}
+	if j.Phase == "" {
+		return fmt.Errorf("project journal phase is missing")
+	}
+	return nil
+}
+
+// ResolveProject resolves cwd, then returns the nearest logical Tobari. A
+// pending journal is reconciled under the project lock before selection so a
+// process interrupted at a multi-file boundary cannot make the next command
+// select stale state.
 func (r *Runtime) ResolveProject(ctx context.Context, cwd string) (tobari.ProjectInstance, bool, error) {
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
 		return tobari.ProjectInstance{}, false, err
 	}
+	var (
+		instance tobari.ProjectInstance
+		found    bool
+	)
+	err = r.withProjectLock(ctx, func() error {
+		if err := r.reconcileProjectJournal(); err != nil {
+			return err
+		}
+		var resolveErr error
+		instance, found, resolveErr = r.resolveProjectUnlocked(resolved)
+		return resolveErr
+	})
+	if err != nil {
+		return tobari.ProjectInstance{}, false, err
+	}
+	return instance, found, nil
+}
+
+func (r *Runtime) resolveProjectUnlocked(cwd string) (tobari.ProjectInstance, bool, error) {
 	indexes, err := r.listRootIndexes()
 	if err != nil {
 		return tobari.ProjectInstance{}, false, err
 	}
-	index, found, err := tobari.NearestRoot(resolved, indexes)
+	index, found, err := tobari.NearestRoot(cwd, indexes)
+	if err != nil || !found {
+		if err != nil {
+			return tobari.ProjectInstance{}, false, err
+		}
+		return r.resolveOrphanInstance(cwd)
+	}
+	instance, err := r.readProjectInstance(index.InstanceID)
+	if err == nil {
+		if instance.Root != index.Root {
+			return tobari.ProjectInstance{}, false, fmt.Errorf("root index and instance root disagree")
+		}
+		return instance, true, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return tobari.ProjectInstance{}, false, err
+	}
+	// A root index contains enough immutable identity to make deletion
+	// recoverable even when the instance file was lost after the index write.
+	// The caller must still use the normal ownership checks before removing
+	// Docker resources.
+	return tobari.ProjectInstance{
+		SchemaVersion: tobari.ProjectStateSchemaVersion,
+		ID:            index.InstanceID,
+		Root:          index.Root,
+		Profile:       tobari.DefaultProfile,
+		Image:         tobari.BuiltinImageSelector,
+	}, true, nil
+}
+
+func (r *Runtime) resolveOrphanInstance(cwd string) (tobari.ProjectInstance, bool, error) {
+	entries, err := os.ReadDir(r.instancesDirectory())
+	if errors.Is(err, os.ErrNotExist) {
+		return tobari.ProjectInstance{}, false, nil
+	}
+	if err != nil {
+		return tobari.ProjectInstance{}, false, fmt.Errorf("read project instances: %w", err)
+	}
+	instances := make([]tobari.ProjectInstance, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return tobari.ProjectInstance{}, false, fmt.Errorf("project instance directory contains an unsafe entry")
+		}
+		instance, readErr := r.readProjectInstance(entry.Name())
+		if readErr != nil {
+			return tobari.ProjectInstance{}, false, readErr
+		}
+		instances = append(instances, instance)
+	}
+	if len(instances) == 0 {
+		return tobari.ProjectInstance{}, false, nil
+	}
+	roots := make([]tobari.RootIndex, 0, len(instances))
+	byRoot := make(map[string]tobari.ProjectInstance, len(instances))
+	for _, instance := range instances {
+		roots = append(roots, tobari.RootIndex{
+			SchemaVersion: tobari.ProjectStateSchemaVersion,
+			Root:          instance.Root,
+			InstanceID:    instance.ID,
+		})
+		byRoot[instance.Root] = instance
+	}
+	index, found, err := tobari.NearestRoot(cwd, roots)
 	if err != nil || !found {
 		return tobari.ProjectInstance{}, found, err
 	}
-	instance, err := r.readProjectInstance(index.InstanceID)
-	if err != nil {
-		return tobari.ProjectInstance{}, false, err
-	}
-	if instance.Root != index.Root {
-		return tobari.ProjectInstance{}, false, fmt.Errorf("root index and instance root disagree")
-	}
-	return instance, true, nil
+	return byRoot[index.Root], true, nil
 }
 
 // ResolveOrCreateProject returns the nearest logical Tobari. When none covers
@@ -60,6 +175,9 @@ func (r *Runtime) ResolveOrCreateProject(
 		created  bool
 	)
 	err = r.withProjectLock(ctx, func() error {
+		if err := r.reconcileProjectJournal(); err != nil {
+			return err
+		}
 		indexes, loadErr := r.listRootIndexes()
 		if loadErr != nil {
 			return loadErr
@@ -87,11 +205,26 @@ func (r *Runtime) ResolveOrCreateProject(
 		if createErr != nil {
 			return createErr
 		}
+		journal := projectJournal{
+			SchemaVersion: projectJournalSchema, Operation: projectOpCreate,
+			ProjectID: createdInstance.ID, Root: createdInstance.Root, Phase: projectPhaseStarted,
+		}
+		if err := r.writeProjectJournal(journal); err != nil {
+			return err
+		}
 		if err := r.ensurePrivateDirectory(r.projectHomePath(createdInstance.ID)); err != nil {
-			return fmt.Errorf("create project home: %w", err)
+			return r.discardUnindexedProject(createdInstance, fmt.Errorf("create project home: %w", err))
+		}
+		journal.Phase = projectPhaseHome
+		if err := r.writeProjectJournal(journal); err != nil {
+			return err
 		}
 		if err := r.writeProjectInstance(createdInstance); err != nil {
 			return r.discardUnindexedProject(createdInstance, err)
+		}
+		journal.Phase = projectPhaseState
+		if err := r.writeProjectJournal(journal); err != nil {
+			return err
 		}
 		if err := r.writeRootIndex(tobari.RootIndex{
 			SchemaVersion: tobari.ProjectStateSchemaVersion,
@@ -99,6 +232,10 @@ func (r *Runtime) ResolveOrCreateProject(
 			InstanceID:    createdInstance.ID,
 		}); err != nil {
 			return r.discardUnindexedProject(createdInstance, err)
+		}
+		journal.Phase = projectPhaseIndex
+		if err := r.clearProjectJournal(); err != nil {
+			return err
 		}
 		instance, created = createdInstance, true
 		return nil
@@ -120,7 +257,96 @@ func (r *Runtime) discardUnindexedProject(instance tobari.ProjectInstance, cause
 	if err := syncDirectory(filepath.Dir(directory)); err != nil {
 		return fmt.Errorf("%w; sync discarded project state: %v", cause, err)
 	}
+	if err := r.clearProjectJournal(); err != nil {
+		return fmt.Errorf("%w; clear project journal: %v", cause, err)
+	}
 	return cause
+}
+
+func (r *Runtime) projectJournalPath() string {
+	return filepath.Join(r.stateDirectory, "project-journal.json")
+}
+
+func (r *Runtime) writeProjectJournal(journal projectJournal) error {
+	if err := journal.Validate(); err != nil {
+		return err
+	}
+	return writeAtomicJSON(r.projectJournalPath(), journal)
+}
+
+func (r *Runtime) readProjectJournal() (projectJournal, bool, error) {
+	var journal projectJournal
+	if err := readStrictJSON(r.projectJournalPath(), &journal); errors.Is(err, os.ErrNotExist) {
+		return projectJournal{}, false, nil
+	} else if err != nil {
+		return projectJournal{}, false, err
+	}
+	if err := journal.Validate(); err != nil {
+		return projectJournal{}, false, err
+	}
+	return journal, true, nil
+}
+
+func (r *Runtime) clearProjectJournal() error {
+	if err := os.Remove(r.projectJournalPath()); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return syncDirectory(r.stateDirectory)
+}
+
+func (r *Runtime) reconcileProjectJournal() error {
+	journal, exists, err := r.readProjectJournal()
+	if err != nil || !exists {
+		return err
+	}
+	switch journal.Operation {
+	case projectOpCreate:
+		indexPath, pathErr := r.rootIndexPath(journal.Root)
+		if pathErr != nil {
+			return pathErr
+		}
+		state, stateErr := r.readProjectInstance(journal.ProjectID)
+		var index tobari.RootIndex
+		indexErr := readStrictJSON(indexPath, &index)
+		if stateErr == nil && indexErr == nil && state.Root == journal.Root && index.Root == journal.Root && index.InstanceID == journal.ProjectID {
+			return r.clearProjectJournal()
+		}
+		return r.removeIncompleteProject(journal, indexPath)
+	case projectOpDelete:
+		if journal.Phase != projectPhaseRuntime && journal.Phase != projectPhaseInstance {
+			return nil
+		}
+		indexPath, pathErr := r.rootIndexPath(journal.Root)
+		if pathErr != nil {
+			return pathErr
+		}
+		return r.removeIncompleteProject(journal, indexPath)
+	default:
+		return fmt.Errorf("unsupported project journal operation")
+	}
+}
+
+func (r *Runtime) removeIncompleteProject(journal projectJournal, indexPath string) error {
+	directory, err := r.projectDirectory(journal.ProjectID)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(directory); err != nil {
+		return fmt.Errorf("remove incomplete project directory: %w", err)
+	}
+	if err := os.Remove(indexPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove incomplete project index: %w", err)
+	}
+	if err := syncDirectoryIfPresent(filepath.Dir(directory)); err != nil {
+		return err
+	}
+	if err := syncDirectoryIfPresent(filepath.Dir(indexPath)); err != nil {
+		return err
+	}
+	return r.clearProjectJournal()
 }
 
 func (r *Runtime) resolveProjectImage(ctx context.Context, root string) (string, error) {
