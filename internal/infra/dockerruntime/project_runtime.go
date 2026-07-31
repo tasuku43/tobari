@@ -484,7 +484,7 @@ func (r *Runtime) removeProjectRecords(instance tobari.ProjectInstance) error {
 }
 
 func syncDirectory(path string) error {
-	directory, err := os.Open(path)
+	directory, err := os.Open(path) // #nosec G304 -- callers pass only runtime-owned state directories.
 	if err != nil {
 		return err
 	}

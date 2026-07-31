@@ -20,7 +20,7 @@
 
 ## Verify
 
-- [x] `task check` passes. Evidence: `env -u GOROOT -u GOTOOLDIR PATH=/Users/tasuku/.local/share/mise/installs/go/1.26.5/bin:$PATH task check:fast` passed; full gate remains pending.
-- [ ] `task security` passes. Evidence: pending after the full gate.
-- [x] `task public:check` passes. Evidence: `env -u GOROOT -u GOTOOLDIR PATH=/Users/tasuku/.local/share/mise/installs/go/1.26.5/bin:$PATH ./scripts/check.sh public` passed.
+- [x] `task check` passes. Evidence: `task check` passed with Go 1.26.5 selected.
+- [x] `task security` passes. Evidence: `task security` passed with no vulnerabilities after bounding runtime-owned directory opens.
+- [x] `task public:check` passes. Evidence: `./scripts/check.sh public` passed with Go 1.26.5 selected.
 - [x] Agent-readiness journey is recorded. Evidence: `docs/09_agent_readiness_validation.md` now uses CWD resolution and delete recovery.

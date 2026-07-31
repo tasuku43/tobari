@@ -392,7 +392,7 @@ func writeAtomicJSON(path string, value any) error {
 	if err := os.Rename(temporaryPath, path); err != nil {
 		return err
 	}
-	directoryFile, err := os.Open(directory)
+	directoryFile, err := os.Open(directory) // #nosec G304 -- directory is the parent of a runtime-owned state path.
 	if err != nil {
 		return err
 	}
