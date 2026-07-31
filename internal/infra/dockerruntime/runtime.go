@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -342,7 +343,11 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 		}
 		state.RecentError = existing.RecentError
 	}
+	if err := r.startClusterReconcile(clusterOperationUp); err != nil {
+		return tobari.State{}, fmt.Errorf("start cluster reconcile journal: %w", err)
+	}
 	if err := r.testPolicy(ctx, state); err != nil {
+		_ = r.clearClusterJournal()
 		return tobari.State{}, fault.Wrap(fault.KindRejected, "policy_test_failed", "OPA policy tests failed", false, err)
 	}
 	if err := r.writeState(state); err != nil {
@@ -390,9 +395,15 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 			return tobari.State{}, err
 		}
 	}
+	if err := r.markClusterRuntimeReconciled(clusterOperationUp); err != nil {
+		return tobari.State{}, fmt.Errorf("mark cluster reconcile complete: %w", err)
+	}
 	state.RecentError = ""
 	if err := r.writeState(state); err != nil {
 		return tobari.State{}, err
+	}
+	if err := r.clearClusterJournal(); err != nil {
+		return tobari.State{}, fmt.Errorf("clear cluster reconcile journal: %w", err)
 	}
 	return state, nil
 }
@@ -515,29 +526,66 @@ func (r *Runtime) writeState(state tobari.State) error {
 	if err := state.Validate(); err != nil {
 		return err
 	}
+	return r.withClusterLock(func() error {
+		if err := os.MkdirAll(r.stateDirectory, 0o700); err != nil {
+			return err
+		}
+		if err := os.Chmod(r.stateDirectory, 0o700); err != nil { // #nosec G302 -- shared state is owner-only.
+			return err
+		}
+		return writeAtomicJSON(r.statePath(), state)
+	})
+}
+
+func (r *Runtime) withClusterLock(action func() error) error {
 	if err := os.MkdirAll(r.stateDirectory, 0o700); err != nil {
-		return err
+		return fmt.Errorf("prepare shared state directory: %w", err)
 	}
-	data, err := json.MarshalIndent(state, "", "  ")
+	if err := os.Chmod(r.stateDirectory, 0o700); err != nil { // #nosec G302 -- shared state is owner-only.
+		return fmt.Errorf("protect shared state directory: %w", err)
+	}
+	path := filepath.Join(r.stateDirectory, "cluster.lock")
+	if info, err := os.Lstat(path); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
+		return fmt.Errorf("cluster lock is not a regular file")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect cluster lock: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- fixed state child after lstat.
 	if err != nil {
-		return err
+		return fmt.Errorf("open cluster lock: %w", err)
 	}
-	data = append(data, '\n')
-	temporary := r.statePath() + ".tmp"
-	if err := os.WriteFile(temporary, data, 0o600); err != nil {
-		return err
+	defer file.Close()
+	if err := file.Chmod(0o600); err != nil {
+		return fmt.Errorf("protect cluster lock: %w", err)
 	}
-	if err := os.Rename(temporary, r.statePath()); err != nil {
-		_ = os.Remove(temporary)
-		return err
+	for {
+		acquired, lockErr := tryLockProjectFile(file)
+		if lockErr != nil {
+			return fmt.Errorf("lock shared state: %w", lockErr)
+		}
+		if acquired {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
-	return nil
+	defer unlockProjectFile(file)
+	return action()
 }
 
 // LoadState returns absence separately from corrupt or legacy state.
 func (r *Runtime) LoadState(ctx context.Context) (tobari.State, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.State{}, false, err
+	}
+	info, err := os.Lstat(r.statePath())
+	if errors.Is(err, os.ErrNotExist) {
+		return tobari.State{}, false, nil
+	}
+	if err != nil {
+		return tobari.State{}, false, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > maxProjectStateBytes {
+		return tobari.State{}, false, fmt.Errorf("Tobari state file is unsafe")
 	}
 	data, err := os.ReadFile(r.statePath())
 	if errors.Is(err, os.ErrNotExist) {
@@ -740,6 +788,9 @@ func (r *Runtime) ensureGatewayNetwork(ctx context.Context, network string) erro
 // InspectCluster observes exact shared container state.
 func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobari.ClusterStatus, error) {
 	if err := state.Validate(); err != nil {
+		return tobari.ClusterStatus{}, err
+	}
+	if err := r.requireNoInterruptedClusterReconcile(ctx); err != nil {
 		return tobari.ClusterStatus{}, err
 	}
 	if _, err := r.runner.Output(ctx, []string{"version", "--format", "{{.Server.Version}}"}, os.Environ()); err != nil {
@@ -973,6 +1024,9 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 	if len(state.Tobari) != 0 {
 		return fmt.Errorf("cluster contains attached Tobari")
 	}
+	if err := r.startClusterReconcile(clusterOperationDown); err != nil {
+		return fmt.Errorf("start cluster reconcile journal: %w", err)
+	}
 	for _, container := range clusterContainers {
 		if err := r.verifyOwned(ctx, "container", container); err != nil {
 			return err
@@ -1005,6 +1059,12 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 				return fmt.Errorf("remove owned volume %s: %w: %s", volume, err, boundedDiagnostic(output))
 			}
 		}
+	}
+	if err := r.markClusterRuntimeReconciled(clusterOperationDown); err != nil {
+		return fmt.Errorf("mark cluster reconcile complete: %w", err)
+	}
+	if err := r.clearClusterJournal(); err != nil {
+		return fmt.Errorf("clear cluster reconcile journal: %w", err)
 	}
 	if err := os.Remove(r.statePath()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove Tobari state: %w", err)

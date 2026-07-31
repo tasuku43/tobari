@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -247,6 +248,66 @@ func TestPrepareStateUsesXDGPolicyAndEmptySchemaTwoCollection(t *testing.T) {
 		if err != nil || info.Mode().Perm() != want {
 			t.Fatalf("%s mode=%v err=%v want=%o", path, info.Mode().Perm(), err, want)
 		}
+	}
+}
+
+func TestSharedStateWriterIsAtomicAndSerialized(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(root)
+	const writers = 16
+	errs := make(chan error, writers)
+	for index := 0; index < writers; index++ {
+		index := index
+		go func() {
+			copy := state
+			copy.RecentError = fmt.Sprintf("writer-%d", index)
+			errs <- runtime.writeState(copy)
+		}()
+	}
+	for range writers {
+		if err := <-errs; err != nil {
+			t.Fatalf("writeState() error = %v", err)
+		}
+	}
+	loaded, exists, err := runtime.LoadState(context.Background())
+	if err != nil || !exists || loaded.SchemaVersion != state.SchemaVersion {
+		t.Fatalf("LoadState() = (%+v, %t, %v)", loaded, exists, err)
+	}
+	if _, err := os.Stat(filepath.Join(runtime.stateDirectory, "cluster.lock")); err != nil {
+		t.Fatalf("cluster lock was not durable: %v", err)
+	}
+	entries, err := os.ReadDir(runtime.stateDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Fatalf("temporary state file remains: %s", entry.Name())
+		}
+	}
+}
+
+func TestInterruptedClusterReconcileFailsClosedInStatus(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(root)
+	if err := runtime.startClusterReconcile(clusterOperationUp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.InspectCluster(context.Background(), state); err == nil {
+		t.Fatal("InspectCluster() succeeded with an interrupted reconcile journal")
+	}
+	if err := runtime.clearClusterJournal(); err != nil {
+		t.Fatal(err)
 	}
 }
 
