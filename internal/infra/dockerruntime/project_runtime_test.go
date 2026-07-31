@@ -135,6 +135,21 @@ type projectReconcileRunner struct {
 	containerExists bool
 }
 
+type projectExitRunner struct{ code int }
+
+func (r *projectExitRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+	return projectExitError{code: r.code}
+}
+
+func (r *projectExitRunner) Output(context.Context, []string, []string) ([]byte, error) {
+	return nil, nil
+}
+
+type projectExitError struct{ code int }
+
+func (e projectExitError) Error() string { return fmt.Sprintf("child exited with status %d", e.code) }
+func (e projectExitError) ExitCode() int { return e.code }
+
 func (r *projectReconcileRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
 	return nil
 }
@@ -256,5 +271,22 @@ func TestEnsureProjectRuntimeStateWriteFailurePreservesLogicalState(t *testing.T
 	stored, found, err := runtime.ResolveProject(context.Background(), projectRoot)
 	if err != nil || !found || stored.ID != instance.ID || stored.Runtime != (tobari.ProjectRuntime{}) {
 		t.Fatalf("logical state after state update failure = (%+v, %t, %v)", stored, found, err)
+	}
+}
+
+func TestEnterProjectRuntimePreservesChildExitStatus(t *testing.T) {
+	t.Parallel()
+	runtimeRoot := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(runtimeRoot, "config"), filepath.Join(runtimeRoot, "state"), filepath.Join(runtimeRoot, "data"),
+		&projectExitRunner{code: 37},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	code, err := runtime.EnterProjectRuntime(context.Background(), instance, instance.Root, nil, io.Discard, io.Discard)
+	if err != nil || code != 37 {
+		t.Fatalf("EnterProjectRuntime() = (%d, %v), want child status 37", code, err)
 	}
 }

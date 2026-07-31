@@ -158,6 +158,8 @@ func (r *Runtime) EnterProjectRuntime(
 	}
 	uid, gid := currentIDs()
 	args := []string{
+		// Docker's attached exec path owns the PTY resize and terminal signal
+		// forwarding; inherit the caller's streams without a shell wrapper.
 		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		"--workdir", workdir, container, "/bin/bash",
 	}
