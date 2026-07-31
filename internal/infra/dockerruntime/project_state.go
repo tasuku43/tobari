@@ -277,6 +277,9 @@ func (r *Runtime) writeProjectInstance(instance tobari.ProjectInstance) error {
 	if err := instance.Validate(); err != nil {
 		return err
 	}
+	if r.projectStateWriter != nil {
+		return r.projectStateWriter(instance)
+	}
 	path, err := r.projectStatePath(instance.ID)
 	if err != nil {
 		return err

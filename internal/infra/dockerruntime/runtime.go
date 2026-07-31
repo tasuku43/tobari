@@ -61,6 +61,9 @@ type Runtime struct {
 	stateDirectory  string
 	dataDirectory   string
 	runner          commandRunner
+	// projectStateWriter is nil in production. Tests may use it to inject a
+	// durable-state write failure after Docker reconciliation has completed.
+	projectStateWriter func(tobari.ProjectInstance) error
 }
 
 // New resolves XDG paths without creating them.
@@ -577,7 +580,7 @@ func (r *Runtime) validateCompatibleImage(ctx context.Context, image string) err
 		return fault.Wrap(
 			fault.KindUnavailable, "image_not_found",
 			"selected Tobari image is not available locally; build or pull it explicitly", false, err,
-			fault.NextAction{Command: "help attach", Reason: "Read the compatible image contract."},
+			fault.NextAction{Command: "help tobari", Reason: "Read the compatible image contract."},
 		)
 	}
 	var configuration struct {
@@ -593,7 +596,7 @@ func (r *Runtime) validateCompatibleImage(ctx context.Context, image string) err
 		return fault.New(
 			fault.KindRejected, "incompatible_image",
 			"selected image does not preserve the supported Tobari runtime API, user, and entrypoint", false,
-			fault.NextAction{Command: "help attach", Reason: "Extend the documented Tobari runtime base."},
+			fault.NextAction{Command: "help tobari", Reason: "Extend the documented Tobari runtime base."},
 		)
 	}
 	return nil
