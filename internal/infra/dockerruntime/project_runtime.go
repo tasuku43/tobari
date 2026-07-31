@@ -148,7 +148,7 @@ func (r *Runtime) EnterProjectRuntime(
 	if err != nil {
 		return 0, err
 	}
-	workdir, err := tobari.MapHostCWD(instance.Root, resolved)
+	workdir, err := tobari.MapProjectCWD(instance.Root, resolved)
 	if err != nil {
 		return 0, err
 	}
@@ -276,6 +276,10 @@ func (r *Runtime) ensureProjectContainer(
 	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
 	profile, container, network, image string,
 ) error {
+	workspaceRoot, err := tobari.ProjectWorkspaceRoot(instance.Root)
+	if err != nil {
+		return err
+	}
 	exists, err := r.projectResourceExists(ctx, "container", container)
 	if err != nil {
 		return err
@@ -305,7 +309,7 @@ func (r *Runtime) ensureProjectContainer(
 		"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		"--tmpfs", "/tmp:size=512m,mode=1777", "--tmpfs", "/run:size=16m,mode=1777",
 		"--env", "HOME=/var/lib/tobari",
-		"--env", "TOBARI_INSIDE=1", "--env", "TOBARI_ID=" + instance.ID, "--env", "TOBARI_ROOT=/workspace",
+		"--env", "TOBARI_INSIDE=1", "--env", "TOBARI_ID=" + instance.ID, "--env", "TOBARI_ROOT=" + workspaceRoot,
 		"--env", "TOBARI_PROFILE=/opt/tobari/profile",
 		"--env", "HTTP_PROXY=http://gateway:8080", "--env", "HTTPS_PROXY=http://gateway:8080",
 		"--env", "http_proxy=http://gateway:8080", "--env", "https_proxy=http://gateway:8080",
@@ -313,7 +317,7 @@ func (r *Runtime) ensureProjectContainer(
 		"--env", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
 		"--env", "REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem",
 		"--env", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
-		"--mount", "type=bind,src=" + instance.Root + ",dst=/workspace",
+		"--mount", "type=bind,src=" + instance.Root + ",dst=" + workspaceRoot,
 		"--mount", "type=bind,src=" + r.projectHomePath(instance.ID) + ",dst=/var/lib/tobari",
 		"--mount", "type=bind,src=" + profile + ",dst=/opt/tobari/profile,readonly",
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "skills") + ",dst=/var/lib/tobari/.claude/skills,readonly",
@@ -321,7 +325,7 @@ func (r *Runtime) ensureProjectContainer(
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "commands") + ",dst=/var/lib/tobari/.claude/commands,readonly",
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "plugins.lock") + ",dst=/var/lib/tobari/.claude/plugins.lock,readonly",
 		"--mount", "type=volume,src=tobari-public-ca,dst=/run/tobari/ca-public,readonly",
-		"--workdir", "/workspace", "--network", network,
+		"--workdir", workspaceRoot, "--network", network,
 		"--health-cmd", "test -f /tmp/tobari-ready", "--health-interval", "2s",
 		"--health-timeout", "2s", "--health-retries", "30",
 		"--label", ownerLabel + "=" + ownerValue,

@@ -270,6 +270,23 @@ func TestEnterProjectRejectsNonTTYBeforeCreatingOrReconciling(t *testing.T) {
 	}
 }
 
+func TestEnterProjectAcceptsCurrentDirectoryMutationAndNestedCWD(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project/root", terminal: true, found: true, project: testProjectInstance(),
+	}
+	code, err := New(fake).EnterProject(
+		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	if err != nil || code != 0 {
+		t.Fatalf("EnterProject() = (%d, %v)", code, err)
+	}
+	if fake.clusterCalls != 1 || fake.resolveCalls != 1 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
+		t.Fatalf("calls = cluster:%d resolve:%d ensure:%d enter:%d", fake.clusterCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
+	}
+}
+
 func TestProjectStatusPreservesExistsWhenRuntimeIsMissing(t *testing.T) {
 	t.Parallel()
 	fake := &projectRuntimeFake{

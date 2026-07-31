@@ -121,10 +121,12 @@ enforcement cluster and the project Tobari as needed:
 tobari
 ```
 
-The root command requires a TTY and enters the container at the host-relative
-working directory. A shell exit returns to the host while the Tobari remains
-`exists`; run `tobari` again to reuse it. `list` shows the stable ID only as
-diagnostic information, not as a routine action input.
+The root command requires a TTY and enters the container at the mirrored host
+working directory. For example, a Tobari rooted at `/work` enters
+`/workspace/work/root` when invoked from `/work/root`; a shell exit returns to
+the host while the Tobari remains `exists`. Run `tobari` again to reuse it.
+`list` shows the stable ID only as diagnostic information, not as a routine
+action input.
 
 Agent CLIs are not bundled. Install them inside a Tobari or place binaries below
 its selected root. The per-Tobari home survives shell exit and runtime recovery.

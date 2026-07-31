@@ -101,3 +101,21 @@ func TestProjectResourceNamesUseStableID(t *testing.T) {
 		t.Fatalf("ProjectResourceNames() = (%q, %q)", container, network)
 	}
 }
+
+func TestMapProjectCWDUsesMirroredAbsoluteHostPath(t *testing.T) {
+	t.Parallel()
+	got, err := MapProjectCWD("/work", "/work/root")
+	if err != nil {
+		t.Fatalf("MapProjectCWD() error = %v", err)
+	}
+	if got != "/workspace/work/root" {
+		t.Fatalf("MapProjectCWD() = %q, want /workspace/work/root", got)
+	}
+}
+
+func TestMapProjectCWDRejectsSibling(t *testing.T) {
+	t.Parallel()
+	if _, err := MapProjectCWD("/work", "/work-other/root"); err == nil {
+		t.Fatal("MapProjectCWD() accepted a sibling path")
+	}
+}

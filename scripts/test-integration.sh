@@ -7,6 +7,7 @@ mock_name=tobari-mock-upstream
 custom_image="tobari-integration-custom-$$"
 test_root=
 work_root=
+work_nested_root=
 other_root=
 work_id=
 other_id=
@@ -108,7 +109,12 @@ run_tobari_pty_at() {
 enter_tobari_at() {
   local root=$1
   shift
-  printf 'exit\n' | run_tobari_pty_at "$root" "$@" >/dev/null
+  local output
+  if output=$(printf 'exit\n' | run_tobari_pty_at "$root" "$@" 2>&1); then
+    return 0
+  fi
+  printf '%s\n' "$output" >&2
+  return 1
 }
 
 container_for_id() {
@@ -128,11 +134,7 @@ run_project() {
 }
 
 run_project_shell() {
-  if [[ $(uname -s) == Darwin ]]; then
-    script -q /dev/null docker exec -i -t "$work_container" /bin/bash
-  else
-    script -q -c "docker exec -i -t $(printf '%q' "$work_container") /bin/bash" /dev/null
-  fi
+  docker exec -i "$work_container" /bin/bash
 }
 
 candidate_id_for_effect() {
@@ -241,12 +243,18 @@ printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
   >"$config_directory/config.json"
 chmod 0600 "$config_directory/config.json"
 work_root=$test_root/workspace
+work_nested_root=$work_root/root
 other_root=$test_root/other-workspace
+mkdir -p "$work_nested_root"
 mkdir -p "$other_root"
 enter_tobari_at "$work_root"
+enter_tobari_at "$work_nested_root"
 enter_tobari_at "$other_root"
 
-list_json=$(run_tobari list --format json)
+status_from_nested=$(run_tobari_at "$work_nested_root" status --format json)
+assert_contains "$status_from_nested" '"exists":true' "nested status"
+assert_contains "$status_from_nested" "\"root\":\"$work_root\"" "nested status root"
+list_json=$(run_tobari_at "$work_root" list --format json)
 work_id=$(id_for_root "$work_root" <<<"$list_json")
 other_id=$(id_for_root "$other_root" <<<"$list_json")
 work_container=$(container_for_id "$work_id")
@@ -254,12 +262,9 @@ other_container=$(container_for_id "$other_id")
 [[ $work_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
   fail "list did not return the project's stable ID"
 [[ $work_id != "$other_id" ]] || fail "CWD projects received the same stable ID"
-work_home=$(python3 -c \
-  'import json,sys; root=sys.argv[1]; print(next(item["home"] for item in json.load(sys.stdin)["tobari"] if item["root"] == root))' \
-  "$work_root" <<<"$list_json")
-other_home=$(python3 -c \
-  'import json,sys; root=sys.argv[1]; print(next(item["home"] for item in json.load(sys.stdin)["tobari"] if item["root"] == root))' \
-  "$other_root" <<<"$list_json")
+work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$status_from_nested")
+other_status=$(run_tobari_at "$other_root" status --format json)
+other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$other_status")
 [[ $work_home != "$other_home" ]] || fail "CWD projects share a home directory"
 
 run_tobari cluster up >/dev/null
@@ -267,7 +272,7 @@ enter_tobari_at "$work_root"
 owned_containers=$(docker ps -a --filter label=io.tobari.owner=default --format '{{.Names}}' | wc -l | tr -d ' ')
 [[ $owned_containers == 4 ]] || fail "idempotent reconciliation left $owned_containers owned containers"
 
-if run_project test -e /workspace/credentials; then
+if run_project test -e "/workspace${work_root}/credentials"; then
   fail "Tobari unexpectedly contains the host credential directory"
 fi
 if run_project getent hosts "$other_container" >/dev/null 2>&1; then

@@ -18,6 +18,7 @@ go run ./cmd/tobari doctor --root /absolute/test/root --format json
 cd /absolute/test/root
 go build -o /tmp/tobari ./cmd/tobari
 (cd /absolute/test/root && /tmp/tobari)
+(mkdir -p /absolute/test/root/root && cd /absolute/test/root/root && /tmp/tobari)
 (cd /absolute/test/root && /tmp/tobari status --format json)
 (cd /absolute/test/root && /tmp/tobari list --format json)
 go run ./cmd/tobari cluster denials --tail 100 --format json

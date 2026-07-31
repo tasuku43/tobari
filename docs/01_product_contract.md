@@ -77,6 +77,9 @@ property rather than an undeclared Docker mutation by the CLI.
   nearest existing root; it never creates nested Tobari environments.
 - The first creation uses the canonical current directory as root. Project
   moves and copies are not inferred or recorded in the project tree.
+- The selected root is mounted at `/workspace/<canonical-root-without-leading-slash>`
+  and the container workdir mirrors the host CWD below that path. Thus a root
+  at `/work` and a host CWD of `/work/root` enter at `/workspace/work/root`.
 - The configured image accepts `builtin` or a portable OCI image reference. A
   custom image must already exist locally and preserve runtime API `1`, the
   `tobari` image user, and the Tobari entrypoint. Tobari never pulls an image

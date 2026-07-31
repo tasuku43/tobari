@@ -58,9 +58,13 @@ type ProjectRuntimePort interface {
 type ownedPolicy struct{}
 
 func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
+	validCurrentDirectory := intent.Target.Kind == tobari.CurrentDirectoryTargetKind &&
+		(intent.Target.ID == "" || intent.Target.ID == tobari.CurrentDirectoryTargetID) &&
+		(intent.Target.ParentID == "" || intent.Target.ParentID == tobari.CurrentDirectoryTargetID)
 	switch intent.Effect {
 	case operation.EffectCreate:
-		if intent.Target.Kind != tobari.ClusterTargetKind || intent.Target.ParentID != tobari.ClusterTargetID {
+		validCluster := intent.Target.Kind == tobari.ClusterTargetKind && intent.Target.ParentID == tobari.ClusterTargetID
+		if !validCluster && !validCurrentDirectory {
 			return fault.New(fault.KindRejected, "mutation_rejected", "cluster creation scope is not owned by Tobari", false)
 		}
 	case operation.EffectWrite:
@@ -68,7 +72,7 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 		validTobari := intent.Target.Kind == tobari.TargetKind && intent.Target.ID != ""
 		validPolicyCandidate := intent.Target.Kind == tobari.PolicyCandidateKind && intent.Target.ID != ""
 		validPolicyCompaction := intent.Target.Kind == tobari.PolicyCompactionKind && intent.Target.ID != ""
-		if !validCluster && !validTobari && !validPolicyCandidate && !validPolicyCompaction {
+		if !validCluster && !validTobari && !validPolicyCandidate && !validPolicyCompaction && !validCurrentDirectory {
 			return fault.New(fault.KindRejected, "mutation_rejected", "mutation target is not owned by Tobari", false)
 		}
 	default:

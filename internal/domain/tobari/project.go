@@ -226,6 +226,42 @@ func (p ProjectInstance) Validate() error {
 	return p.Runtime.Validate()
 }
 
+// ProjectWorkspaceRoot returns the container path that mirrors the absolute
+// host root below the shared /workspace prefix. Only the selected root is
+// mounted there; the full path keeps a nested host cwd unambiguous.
+func ProjectWorkspaceRoot(root string) (string, error) {
+	if err := ValidateCanonicalRoot(root); err != nil {
+		return "", err
+	}
+	if root == string(filepath.Separator) {
+		return "/workspace", nil
+	}
+	return "/workspace" + filepath.ToSlash(root), nil
+}
+
+// MapProjectCWD maps an absolute host cwd below a CWD-owned root into the
+// mirrored container workspace path.
+func MapProjectCWD(root, cwd string) (string, error) {
+	workspaceRoot, err := ProjectWorkspaceRoot(root)
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(cwd) || filepath.Clean(cwd) != cwd {
+		return "", fmt.Errorf("cwd must be canonical and absolute")
+	}
+	relative, err := filepath.Rel(root, cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolve cwd below project root: %w", err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("cwd must be inside the selected project root")
+	}
+	if relative == "." {
+		return workspaceRoot, nil
+	}
+	return workspaceRoot + "/" + filepath.ToSlash(relative), nil
+}
+
 // ValidateProjectID accepts only a canonical UUIDv7 logical identity.
 func ValidateProjectID(id string) error {
 	if !projectIDPattern.MatchString(id) {

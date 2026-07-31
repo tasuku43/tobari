@@ -37,6 +37,36 @@ func TestInspectProjectRuntimeClassifiesDockerUnreachable(t *testing.T) {
 	}
 }
 
+func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	nested := filepath.Join(instance.Root, "root")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, nested, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.runs) != 1 {
+		t.Fatalf("EnterProjectRuntime() run count = %d, want 1", len(runner.runs))
+	}
+	want := "/workspace" + nested
+	for index, arg := range runner.runs[0].args {
+		if arg == "--workdir" {
+			if index+1 >= len(runner.runs[0].args) || runner.runs[0].args[index+1] != want {
+				t.Fatalf("EnterProjectRuntime() workdir = %q, want %q", runner.runs[0].args[index+1], want)
+			}
+			return
+		}
+	}
+	t.Fatalf("EnterProjectRuntime() args = %v, missing --workdir", runner.runs[0].args)
+}
+
 func TestDeleteProjectRemovesLogicalStateWhenRuntimeResourcesAreMissing(t *testing.T) {
 	t.Parallel()
 	runner := &recordingRunner{outputErr: errors.New("No such object")}
