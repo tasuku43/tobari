@@ -14,13 +14,118 @@ const (
 	ProjectStateSchemaVersion = 1
 	DefaultProfile            = "default"
 
-	TaskEnter  = "tobari.enter"
-	TaskStatus = "tobari.status"
-	TaskDelete = "tobari.delete"
+	TaskEnter       = "tobari.enter"
+	TaskStatus      = "tobari.status"
+	TaskDelete      = "tobari.delete"
+	TaskProjectList = "tobari.project-list"
 
 	CurrentDirectoryTargetKind = "current-directory-tobari"
 	CurrentDirectoryTargetID   = "current-directory"
 )
+
+// RuntimeDiagnostic describes recoverable Docker health. It is deliberately
+// separate from logical Tobari existence: a missing container never changes a
+// valid ProjectInstance into not-exists.
+type RuntimeDiagnostic string
+
+const (
+	RuntimeDiagnosticUnknown     RuntimeDiagnostic = "unknown"
+	RuntimeDiagnosticReady       RuntimeDiagnostic = "ready"
+	RuntimeDiagnosticMissing     RuntimeDiagnostic = "missing"
+	RuntimeDiagnosticDegraded    RuntimeDiagnostic = "degraded"
+	RuntimeDiagnosticUnreachable RuntimeDiagnostic = "unreachable"
+)
+
+func (d RuntimeDiagnostic) Validate() error {
+	switch d {
+	case RuntimeDiagnosticUnknown, RuntimeDiagnosticReady, RuntimeDiagnosticMissing,
+		RuntimeDiagnosticDegraded, RuntimeDiagnosticUnreachable:
+		return nil
+	default:
+		return fmt.Errorf("runtime diagnostic is invalid: %q", d)
+	}
+}
+
+// ProjectStatus is the CWD-scoped lifecycle result. Exists is the only
+// user-facing logical lifecycle bit; Runtime is diagnostic detail.
+type ProjectStatus struct {
+	Task    string            `json:"task"`
+	Exists  bool              `json:"exists"`
+	Root    string            `json:"root,omitempty"`
+	ID      string            `json:"id,omitempty"`
+	Home    string            `json:"home,omitempty"`
+	Runtime RuntimeDiagnostic `json:"runtime"`
+}
+
+func (s ProjectStatus) Validate() error {
+	if s.Task != TaskStatus {
+		return fmt.Errorf("project status task identity is invalid")
+	}
+	if err := s.Runtime.Validate(); err != nil {
+		return err
+	}
+	if !s.Exists {
+		if s.Root != "" || s.ID != "" || s.Home != "" {
+			return fmt.Errorf("not-existing project status contains identity")
+		}
+		return nil
+	}
+	if err := ValidateCanonicalRoot(s.Root); err != nil {
+		return err
+	}
+	if err := ValidateProjectID(s.ID); err != nil {
+		return err
+	}
+	if s.Home == "" || filepath.IsAbs(s.Home) == false || filepath.Clean(s.Home) != s.Home {
+		return fmt.Errorf("project home is invalid")
+	}
+	return nil
+}
+
+// ProjectListItem is one local logical Tobari with runtime diagnostics.
+type ProjectListItem struct {
+	Root    string            `json:"root"`
+	ID      string            `json:"id"`
+	Home    string            `json:"home"`
+	Runtime RuntimeDiagnostic `json:"runtime"`
+}
+
+func (i ProjectListItem) Validate() error {
+	if err := ValidateCanonicalRoot(i.Root); err != nil {
+		return err
+	}
+	if err := ValidateProjectID(i.ID); err != nil {
+		return err
+	}
+	if i.Home == "" || !filepath.IsAbs(i.Home) || filepath.Clean(i.Home) != i.Home {
+		return fmt.Errorf("project home is invalid")
+	}
+	return i.Runtime.Validate()
+}
+
+// ProjectListResult preserves the complete local logical-state observation,
+// including a known empty result.
+type ProjectListResult struct {
+	Task  string            `json:"task"`
+	Items []ProjectListItem `json:"items"`
+}
+
+func (r ProjectListResult) Validate() error {
+	if r.Task != TaskProjectList || r.Items == nil {
+		return fmt.Errorf("project list task or scope is invalid")
+	}
+	seen := make(map[string]bool, len(r.Items))
+	for _, item := range r.Items {
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		if seen[item.ID] {
+			return fmt.Errorf("project list IDs must be unique")
+		}
+		seen[item.ID] = true
+	}
+	return nil
+}
 
 var projectIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 

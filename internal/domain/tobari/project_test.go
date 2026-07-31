@@ -36,6 +36,34 @@ func TestProjectInstanceDoesNotRequireRuntimeResources(t *testing.T) {
 	}
 }
 
+func TestProjectStatusKeepsLogicalExistenceSeparateFromRuntimeDiagnostic(t *testing.T) {
+	t.Parallel()
+	status := ProjectStatus{
+		Task: TaskStatus, Exists: true, Root: "/tmp/project",
+		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/home",
+		Runtime: RuntimeDiagnosticMissing,
+	}
+	if err := status.Validate(); err != nil {
+		t.Fatalf("ProjectStatus.Validate() error = %v", err)
+	}
+	if !status.Exists || status.Runtime != RuntimeDiagnosticMissing {
+		t.Fatalf("status = %+v", status)
+	}
+
+	notExists := ProjectStatus{Task: TaskStatus, Runtime: RuntimeDiagnosticUnknown}
+	if err := notExists.Validate(); err != nil {
+		t.Fatalf("not-existing ProjectStatus.Validate() error = %v", err)
+	}
+}
+
+func TestProjectListResultAcceptsKnownEmptyScope(t *testing.T) {
+	t.Parallel()
+	result := ProjectListResult{Task: TaskProjectList, Items: []ProjectListItem{}}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("ProjectListResult.Validate() error = %v", err)
+	}
+}
+
 func TestNearestRootSelectsNearestAncestor(t *testing.T) {
 	t.Parallel()
 	indexes := []RootIndex{

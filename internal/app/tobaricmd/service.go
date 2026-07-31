@@ -39,6 +39,22 @@ type RuntimePort interface {
 	Doctor(context.Context, string) (doctor.Report, error)
 }
 
+// ProjectRuntimePort is the CWD-owned lifecycle boundary. It is separate from
+// RuntimePort so the shared-cluster and policy use cases can be migrated
+// without making their test doubles implement unrelated project operations.
+type ProjectRuntimePort interface {
+	ResolveProject(context.Context, string) (tobari.ProjectInstance, bool, error)
+	ResolveOrCreateProject(context.Context, string) (tobari.ProjectInstance, bool, error)
+	ListProjects(context.Context) ([]tobari.ProjectInstance, error)
+	ProjectHome(context.Context, tobari.ProjectInstance) (string, error)
+	IsTerminal(io.Writer) bool
+	EnsureProjectRuntime(context.Context, tobari.State, tobari.ProjectInstance) (tobari.ProjectInstance, error)
+	InspectProjectRuntime(context.Context, tobari.ProjectInstance) (tobari.RuntimeDiagnostic, error)
+	EnterProjectRuntime(context.Context, tobari.ProjectInstance, string, io.Reader, io.Writer, io.Writer) (int, error)
+	InsideProject(context.Context) bool
+	DeleteProject(context.Context, tobari.ProjectInstance) error
+}
+
 type ownedPolicy struct{}
 
 func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
@@ -76,6 +92,216 @@ func (s *Service) requireRuntime() error {
 		return fault.New(fault.KindInternal, "missing_runtime", "Tobari runtime is not configured", false)
 	}
 	return nil
+}
+
+func (s *Service) projectRuntime() (ProjectRuntimePort, error) {
+	if err := s.requireRuntime(); err != nil {
+		return nil, err
+	}
+	project, ok := s.runtime.(ProjectRuntimePort)
+	if !ok || portcheck.IsNil(project) {
+		return nil, fault.New(
+			fault.KindInternal, "missing_runtime",
+			"CWD-owned Tobari runtime is not configured", false,
+		)
+	}
+	return project, nil
+}
+
+func (s *Service) validateProjectIntent(intent operation.Intent, effect operation.Effect) error {
+	if intent.Command == "" {
+		return fault.New(fault.KindContract, "invalid_mutation_contract", "project mutation command is missing", false)
+	}
+	if intent.Effect != effect || intent.Target.Kind != tobari.CurrentDirectoryTargetKind ||
+		(intent.Target.ID != "" && intent.Target.ID != tobari.CurrentDirectoryTargetID) ||
+		(intent.Target.ParentID != "" && intent.Target.ParentID != tobari.CurrentDirectoryTargetID) {
+		return fault.New(fault.KindContract, "invalid_mutation_contract", "project target binding is invalid", false)
+	}
+	return nil
+}
+
+// EnterProject resolves the current directory, ensures the shared runtime and
+// project runtime, then attaches the caller's terminal. It never creates a
+// project when the caller has no TTY.
+func (s *Service) EnterProject(
+	ctx context.Context, intent operation.Intent, in io.Reader, out, errOut io.Writer,
+) (int, error) {
+	project, err := s.projectRuntime()
+	if err != nil {
+		return 0, err
+	}
+	if err := s.validateProjectIntent(intent, operation.EffectCreate); err != nil {
+		return 0, err
+	}
+	if project.InsideProject(ctx) {
+		return 0, fault.New(
+			fault.KindRejected, "already_inside",
+			"This process is already inside a Tobari; nested entry is not supported", false,
+			fault.NextAction{Command: "exit", Reason: "Leave the current Tobari before entering another session."},
+		)
+	}
+	if !project.IsTerminal(out) {
+		return 0, fault.New(
+			fault.KindInvalidInput, "tty_required",
+			"tobari requires an interactive terminal", false,
+			fault.NextAction{Command: "help tobari", Reason: "Run the root command from a terminal."},
+		)
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	cwd, err := s.runtime.CurrentDirectory(ctx)
+	if err != nil {
+		return 0, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
+	}
+	var instance tobari.ProjectInstance
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
+		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
+	}
+	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		state, actionErr := s.runtime.ClusterUp(actionContext)
+		if actionErr != nil {
+			return classifyProjectMutationError(actionErr, "tobari", "status", "runtime reconciliation did not complete")
+		}
+		resolved, _, actionErr := project.ResolveOrCreateProject(actionContext, cwd)
+		if actionErr != nil {
+			return classifyProjectMutationError(actionErr, "tobari", "status", "logical state may need reconciliation")
+		}
+		instance, actionErr = project.EnsureProjectRuntime(actionContext, state, resolved)
+		if actionErr != nil {
+			return classifyProjectMutationError(actionErr, "tobari", "status", "inspect the selected project before retrying")
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	code, err := project.EnterProjectRuntime(ctx, instance, cwd, in, out, errOut)
+	if err != nil {
+		return 0, fault.Wrap(fault.KindInternal, "enter_failed", "Tobari session could not be started", false, err,
+			fault.NextAction{Command: "status", Reason: "Inspect the selected project's runtime."})
+	}
+	return code, nil
+}
+
+func classifyProjectMutationError(err error, command, recovery, message string) error {
+	if _, structured := fault.PublicCopy(err); structured {
+		return err
+	}
+	return fault.Wrap(
+		fault.KindUnavailable, "runtime_reconcile_failed", message, false, err,
+		fault.NextAction{Command: recovery, Reason: "Inspect the logical project and recoverable runtime state."},
+	)
+}
+
+// ProjectStatus observes the nearest CWD-owned logical Tobari without
+// creating or repairing it.
+func (s *Service) ProjectStatus(ctx context.Context) (tobari.ProjectStatus, error) {
+	project, err := s.projectRuntime()
+	if err != nil {
+		return tobari.ProjectStatus{}, err
+	}
+	cwd, err := s.runtime.CurrentDirectory(ctx)
+	if err != nil {
+		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
+	}
+	instance, found, err := project.ResolveProject(ctx, cwd)
+	if err != nil {
+		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
+	}
+	if !found {
+		result := tobari.ProjectStatus{Task: tobari.TaskStatus, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown}
+		return result, result.Validate()
+	}
+	diagnostic, err := project.InspectProjectRuntime(ctx, instance)
+	if err != nil {
+		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInternal, "runtime_status_failed", "project runtime status could not be read", false, err)
+	}
+	home, err := project.ProjectHome(ctx, instance)
+	if err != nil {
+		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project home path could not be resolved", false, err)
+	}
+	result := tobari.ProjectStatus{
+		Task: tobari.TaskStatus, Exists: true, Root: instance.Root, ID: instance.ID,
+		Home: home, Runtime: diagnostic,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.ProjectStatus{}, fault.Wrap(fault.KindContract, "invalid_status_contract", "project status is invalid", false, err)
+	}
+	return result, nil
+}
+
+// ProjectList observes every locally indexed logical Tobari and its runtime
+// diagnostics. It does not create, repair, or delete any entry.
+func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, error) {
+	project, err := s.projectRuntime()
+	if err != nil {
+		return tobari.ProjectListResult{}, err
+	}
+	instances, err := project.ListProjects(ctx)
+	if err != nil {
+		return tobari.ProjectListResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
+	}
+	result := tobari.ProjectListResult{Task: tobari.TaskProjectList, Items: make([]tobari.ProjectListItem, 0, len(instances))}
+	for _, instance := range instances {
+		diagnostic, diagnosticErr := project.InspectProjectRuntime(ctx, instance)
+		if diagnosticErr != nil {
+			return tobari.ProjectListResult{}, fault.Wrap(fault.KindInternal, "runtime_status_failed", "project runtime status could not be read", false, diagnosticErr)
+		}
+		home, homeErr := project.ProjectHome(ctx, instance)
+		if homeErr != nil {
+			return tobari.ProjectListResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project home path could not be resolved", false, homeErr)
+		}
+		result.Items = append(result.Items, tobari.ProjectListItem{
+			Root: instance.Root, ID: instance.ID, Home: home, Runtime: diagnostic,
+		})
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.ProjectListResult{}, fault.Wrap(fault.KindContract, "invalid_list_contract", "project list is invalid", false, err)
+	}
+	return result, nil
+}
+
+// DeleteProject removes only the nearest CWD-owned logical Tobari after the
+// caller has completed the explicit destructive confirmation.
+func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, force bool) error {
+	project, err := s.projectRuntime()
+	if err != nil {
+		return err
+	}
+	if err := s.validateProjectIntent(intent, operation.EffectWrite); err != nil {
+		return err
+	}
+	if !force {
+		return fault.New(
+			fault.KindRejected, "confirmation_required",
+			"deleting a Tobari requires explicit confirmation; use --force", false,
+			fault.NextAction{Command: "delete --force", Reason: "Confirm removal of the current directory's Tobari."},
+		)
+	}
+	cwd, err := s.runtime.CurrentDirectory(ctx)
+	if err != nil {
+		return fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
+	}
+	instance, found, err := project.ResolveProject(ctx, cwd)
+	if err != nil {
+		return fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
+	}
+	if !found {
+		return fault.New(fault.KindNotFound, "project_not_found", "no Tobari exists for the current directory", false,
+			fault.NextAction{Command: "tobari", Reason: "Create a Tobari from the current project directory."})
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
+	}
+	return s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		if actionErr := project.DeleteProject(actionContext, instance); actionErr != nil {
+			return classifyProjectMutationError(actionErr, "delete", "status", "deletion did not complete; retry delete after inspecting status")
+		}
+		return nil
+	})
 }
 
 // ClusterUp creates or reconciles the shared enforcement cluster.
