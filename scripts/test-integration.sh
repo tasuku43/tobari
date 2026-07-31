@@ -6,8 +6,12 @@ binary=$PWD/bin/tobari
 mock_name=tobari-mock-upstream
 custom_image="tobari-integration-custom-$$"
 test_root=
+work_root=
+other_root=
 work_id=
-policy_id=
+other_id=
+work_container=
+other_container=
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
 
 fail() {
@@ -74,11 +78,61 @@ run_tobari() {
     "$binary" "$@"
 }
 
-id_for_name() {
-  local name=$1
+run_tobari_at() {
+  local root=$1
+  shift
+  (cd "$root" && run_tobari "$@")
+}
+
+run_tobari_pty_at() {
+  local root=$1
+  shift
+  (
+    cd "$root"
+    if [[ $(uname -s) == Darwin ]]; then
+      env \
+        HOME="$test_root/user" \
+        DOCKER_CONFIG="$host_docker_config" \
+        XDG_CONFIG_HOME="$test_root/config" \
+        XDG_STATE_HOME="$test_root/state" \
+        script -q /dev/null "$binary" "$@"
+    else
+      local command
+      printf -v command '%q ' env HOME="$test_root/user" DOCKER_CONFIG="$host_docker_config" \
+        XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" "$binary" "$@"
+      script -q -c "$command" /dev/null
+    fi
+  )
+}
+
+enter_tobari_at() {
+  local root=$1
+  shift
+  printf 'exit\n' | run_tobari_pty_at "$root" "$@" >/dev/null
+}
+
+container_for_id() {
+  local id=$1
+  python3 -c 'import sys; print("tobari-" + sys.argv[1][:13].replace("-", "") + "-work")' "$id"
+}
+
+id_for_root() {
+  local root=$1
   python3 -c \
-    'import json,sys; name=sys.argv[1]; print(next(item["id"] for item in json.load(sys.stdin)["tobari"] if item["name"] == name))' \
-    "$name"
+    'import json,sys; root=sys.argv[1]; print(next(item["id"] for item in json.load(sys.stdin)["tobari"] if item["root"] == root))' \
+    "$root"
+}
+
+run_project() {
+  docker exec "$work_container" "$@"
+}
+
+run_project_shell() {
+  if [[ $(uname -s) == Darwin ]]; then
+    script -q /dev/null docker exec -i -t "$work_container" /bin/bash
+  else
+    script -q -c "docker exec -i -t $(printf '%q' "$work_container") /bin/bash" /dev/null
+  fi
 }
 
 candidate_id_for_effect() {
@@ -107,12 +161,10 @@ print(next(item["id"] for item in json.load(sys.stdin)["policy_compactions"]
 
 cleanup() {
   docker rm -f "$mock_name" >/dev/null 2>&1 || true
-  if [[ -n ${test_root:-} && -x $binary ]]; then
-    if [[ -n ${work_id:-} ]]; then
-      run_tobari detach --id "$work_id" --purge >/dev/null 2>&1 || true
-    fi
-    if [[ -n ${policy_id:-} ]]; then
-      run_tobari detach --id "$policy_id" --purge >/dev/null 2>&1 || true
+  if [[ -n ${test_root:-} && -x $binary && -n ${work_root:-} ]]; then
+    run_tobari_at "$work_root" delete --force >/dev/null 2>&1 || true
+    if [[ -n $other_root ]]; then
+      run_tobari_at "$other_root" delete --force >/dev/null 2>&1 || true
     fi
     run_tobari cluster down --purge >/dev/null 2>&1 || true
   fi
@@ -123,7 +175,8 @@ finish() {
   local status=$?
   trap - EXIT
   if ((status != 0)); then
-    for container in tobari-work tobari-policy tobari-gateway tobari-opa "$mock_name"; do
+    for container in tobari-gateway tobari-opa "$mock_name" "$work_container" "$other_container"; do
+      [[ -n $container ]] || continue
       if docker inspect "$container" >/dev/null 2>&1; then
         echo "integration diagnostics: $container" >&2
         docker inspect --format '{{json .State}}' "$container" >&2 || true
@@ -142,7 +195,7 @@ trap finish EXIT
 command -v docker >/dev/null || fail "docker is required"
 command -v python3 >/dev/null || fail "python3 is required"
 docker version >/dev/null 2>&1 || fail "Docker Engine is unavailable"
-for name in tobari-work tobari-policy tobari-gateway tobari-opa "$mock_name"; do
+for name in tobari-gateway tobari-opa "$mock_name"; do
   if docker inspect "$name" >/dev/null 2>&1; then
     fail "container $name already exists; stop the active Tobari cluster before integration tests"
   fi
@@ -187,41 +240,49 @@ JSON
 printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
   >"$config_directory/config.json"
 chmod 0600 "$config_directory/config.json"
-run_tobari attach --name work --root "$test_root/workspace" \
-  --devcontainer .devcontainer/devcontainer.json >/dev/null
-run_tobari attach --name policy --root "$config_directory/policy" >/dev/null
+work_root=$test_root/workspace
+other_root=$test_root/other-workspace
+mkdir -p "$other_root"
+enter_tobari_at "$work_root"
+enter_tobari_at "$other_root"
 
 list_json=$(run_tobari list --format json)
-work_id=$(id_for_name work <<<"$list_json")
-policy_id=$(id_for_name policy <<<"$list_json")
-[[ $work_id == tbr_* && $policy_id == tbr_* && $work_id != "$policy_id" ]] ||
-  fail "list did not return two distinct opaque IDs"
+work_id=$(id_for_root "$work_root" <<<"$list_json")
+other_id=$(id_for_root "$other_root" <<<"$list_json")
+work_container=$(container_for_id "$work_id")
+other_container=$(container_for_id "$other_id")
+[[ $work_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
+  fail "list did not return the project's stable ID"
+[[ $work_id != "$other_id" ]] || fail "CWD projects received the same stable ID"
+work_home=$(python3 -c \
+  'import json,sys; root=sys.argv[1]; print(next(item["home"] for item in json.load(sys.stdin)["tobari"] if item["root"] == root))' \
+  "$work_root" <<<"$list_json")
+other_home=$(python3 -c \
+  'import json,sys; root=sys.argv[1]; print(next(item["home"] for item in json.load(sys.stdin)["tobari"] if item["root"] == root))' \
+  "$other_root" <<<"$list_json")
+[[ $work_home != "$other_home" ]] || fail "CWD projects share a home directory"
 
 run_tobari cluster up >/dev/null
-run_tobari attach --name work --root "$test_root/workspace" \
-  --devcontainer .devcontainer/devcontainer.json >/dev/null
+enter_tobari_at "$work_root"
 owned_containers=$(docker ps -a --filter label=io.tobari.owner=default --format '{{.Names}}' | wc -l | tr -d ' ')
 [[ $owned_containers == 4 ]] || fail "idempotent reconciliation left $owned_containers owned containers"
 
-run_tobari exec --id "$policy_id" -- test -f /workspace/tobari.rego
-if run_tobari exec --id "$policy_id" -- test -e /workspace/credentials; then
-  fail "policy Tobari unexpectedly contains the sibling credential directory"
+if run_project test -e /workspace/credentials; then
+  fail "Tobari unexpectedly contains the host credential directory"
 fi
-if run_tobari exec --id "$work_id" -- getent hosts tobari-policy >/dev/null 2>&1; then
-  fail "one Tobari can resolve another Tobari across dedicated networks"
+if run_project getent hosts "$other_container" >/dev/null 2>&1; then
+  fail "one CWD-owned Tobari can resolve another Tobari across dedicated networks"
 fi
 
-tobari_image=$(docker inspect --format '{{.Config.Image}}' tobari-work)
+tobari_image=$(docker inspect --format '{{.Config.Image}}' "$work_container")
 [[ $tobari_image == "$custom_image" ]] ||
   fail "custom Tobari image selector was not preserved"
-[[ $(docker inspect --format '{{.Config.Image}}' tobari-policy) == "$custom_image" ]] ||
-  fail "XDG default Tobari image selector was not applied"
-work_uid=$(docker exec tobari-work sh -c "awk '/^Uid:/{print \$2}' /proc/1/status")
+work_uid=$(docker exec "$work_container" sh -c "awk '/^Uid:/{print \$2}' /proc/1/status")
 [[ $work_uid == "$(id -u)" ]] ||
   fail "custom-image Tobari runs as uid $work_uid instead of the host uid"
-[[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' tobari-work) == true ]] ||
+[[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$work_container") == true ]] ||
   fail "custom-image Tobari root filesystem is writable"
-[[ $(docker inspect --format '{{join .HostConfig.CapDrop ","}}' tobari-work) == ALL ]] ||
+[[ $(docker inspect --format '{{join .HostConfig.CapDrop ","}}' "$work_container") == ALL ]] ||
   fail "custom-image Tobari did not drop every capability"
 docker run -d \
   --name "$mock_name" \
@@ -236,7 +297,7 @@ docker run -d \
 wait_listening "$mock_name" 8080
 wait_network_connection tobari-gateway mock-upstream 8080
 
-plain_response=$(run_tobari exec --id "$work_id" -- curl -fsS http://mock-upstream:8080/allowed)
+plain_response=$(run_project curl -fsS http://mock-upstream:8080/allowed)
 assert_contains "$plain_response" '"authorization_present":false' "allowed HTTP response"
 
 gateway_uid=$(docker exec tobari-gateway sh -c "awk '/^Uid:/{print \$2}' /proc/1/status")
@@ -248,13 +309,13 @@ policy_mount_rw=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination
 [[ $policy_mount_rw == false ]] || fail "OPA policy bind is writable"
 
 expected_digest=$(printf 'Bearer %s' "$secret_value" | shasum -a 256 | awk '{print $1}')
-credential_response=$(run_tobari exec --id "$work_id" -- curl -fsS \
+credential_response=$(run_project curl -fsS \
   -H 'X-Tobari-Credential-Profile: integration' \
   http://mock-upstream:8080/credential)
 assert_contains "$credential_response" '"authorization_present":true' "credential response"
 assert_contains "$credential_response" "\"authorization_sha256\":\"$expected_digest\"" "credential digest"
 
-deny_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST http://mock-upstream:8080/denied)
 [[ $deny_status == 403 ]] || fail "denied method/path returned $deny_status instead of 403"
 if docker logs "$mock_name" 2>&1 | grep -F '"/denied"' >/dev/null; then
@@ -298,15 +359,15 @@ assert_contains "$allow_output" 'match: exact' "exact policy approval"
 assert_contains "$allow_output" 'path: /denied' "exact policy approval"
 assert_contains "$allow_output" 'applied: true' "exact policy approval"
 
-applied_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST http://mock-upstream:8080/denied)
 [[ $applied_status == 200 ]] || fail "exact learned policy was not active after policy allow"
-child_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+child_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST http://mock-upstream:8080/denied/child)
 [[ $child_status == 403 ]] || fail "exact learned policy broadened to a child path"
 
 for item_path in one two three; do
-  item_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+  item_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
     -X POST "http://mock-upstream:8080/api/v1/items/$item_path")
   [[ $item_status == 403 ]] || fail "compaction source $item_path was not initially denied"
 done
@@ -321,7 +382,7 @@ for item_path in one two three; do
 done
 
 for item_path in one two three; do
-  item_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+  item_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
     -X POST "http://mock-upstream:8080/api/v1/items/$item_path")
   [[ $item_status == 200 ]] || fail "exact source rule $item_path was not active"
 done
@@ -341,10 +402,10 @@ assert_contains "$compact_output" 'path: /api/v1/items/' "policy compaction"
 assert_contains "$compact_output" 'source_rule_count: 3' "policy compaction"
 assert_contains "$compact_output" 'applied: true' "policy compaction"
 
-compacted_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+compacted_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST http://mock-upstream:8080/api/v1/items/four)
 [[ $compacted_status == 200 ]] || fail "compacted prefix did not allow a sibling path"
-outside_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+outside_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST http://mock-upstream:8080/api/v1/items-outside-tobari-canary)
 [[ $outside_status == 403 ]] || fail "compacted prefix crossed its tested directory boundary"
 
@@ -352,7 +413,7 @@ apply_output=$(run_tobari policy apply)
 assert_contains "$apply_output" "policy: $config_directory/policy" "policy activation"
 assert_contains "$apply_output" 'applied: true' "policy activation"
 
-other_host_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+other_host_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -H 'X-Tobari-Credential-Profile: integration' https://example.com/)
 [[ $other_host_status == 403 ]] || fail "cross-host credential request returned $other_host_status instead of 403"
 unlearnable_denials=$(run_tobari cluster denials --tail 1000 --format json)
@@ -365,72 +426,74 @@ if any(item["host"] == "example.com" and item["method"] == "GET" and item["path"
     raise SystemExit("credential-binding denial became an ineffective policy candidate")' \
   <<<"$post_credential_candidates"
 
-https_status=$(run_tobari exec --id "$work_id" -- curl -fsS -o /dev/null -w '%{http_code}' https://example.com/)
+https_status=$(run_project curl -fsS -o /dev/null -w '%{http_code}' https://example.com/)
 [[ $https_status == 200 ]] || fail "intercepted HTTPS returned $https_status instead of 200"
 
-shell_output=$(printf 'printf shell-ok\\nexit\\n' | run_tobari shell --id "$work_id")
+shell_output=$(printf 'printf shell-ok\\nexit\\n' | run_project_shell)
 assert_contains "$shell_output" "shell-ok" "interactive shell"
 
-if run_tobari exec --id "$work_id" -- env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+if run_project env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
   curl --noproxy '*' --max-time 3 -fsS https://example.com/ >/dev/null 2>&1; then
   fail "Tobari reached the Internet without Gateway"
 fi
-if run_tobari exec --id "$work_id" -- curl --noproxy '*' --max-time 3 -fsS \
+if run_project curl --noproxy '*' --max-time 3 -fsS \
   http://opa:8181/health >/dev/null 2>&1; then
   fail "Tobari reached the OPA control API"
 fi
 
 docker stop tobari-opa >/dev/null
-opa_down_status=$(run_tobari exec --id "$work_id" -- curl -sS -o /dev/null -w '%{http_code}' \
+opa_down_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   http://mock-upstream:8080/opa-down)
 [[ $opa_down_status == 503 ]] || fail "OPA outage returned $opa_down_status instead of 503"
 docker start tobari-opa >/dev/null
 wait_healthy tobari-opa
 
 docker stop tobari-gateway >/dev/null
-if run_tobari exec --id "$work_id" -- curl --max-time 3 -fsS \
+if run_project curl --max-time 3 -fsS \
   http://mock-upstream:8080/gateway-down >/dev/null 2>&1; then
   fail "request succeeded while Gateway was stopped"
 fi
 docker start tobari-gateway >/dev/null
 wait_healthy tobari-gateway
 
-if run_tobari exec --id "$work_id" -- test -e /var/run/docker.sock; then
+if run_project test -e /var/run/docker.sock; then
   fail "Tobari contains the Docker socket"
 fi
-if run_tobari exec --id "$work_id" -- test -e /run/tobari/credentials/integration; then
+if run_project test -e /run/tobari/credentials/integration; then
   fail "Tobari contains the Gateway credential file"
 fi
-if run_tobari exec --id "$work_id" -- env | grep -E 'TOBARI_CREDENTIAL|AUTHORIZATION|API_KEY' >/dev/null; then
+if run_project env | grep -E 'TOBARI_CREDENTIAL|AUTHORIZATION|API_KEY' >/dev/null; then
   fail "Tobari environment exposes credential metadata"
 fi
-mounts=$(docker inspect --format '{{range .Mounts}}{{.Destination}}{{"\n"}}{{end}}' tobari-work)
+mounts=$(docker inspect --format '{{range .Mounts}}{{.Destination}}{{"\n"}}{{end}}' "$work_container")
 if grep -E '^/(run/tobari/credentials|var/run/docker.sock)$' <<<"$mounts" >/dev/null; then
   fail "Tobari has a forbidden mount"
 fi
 
 set +e
-run_tobari exec --id "$work_id" -- sh -c 'exit 37'
+run_project sh -c 'exit 37'
 exec_status=$?
 set -e
 [[ $exec_status == 37 ]] || fail "exec returned $exec_status instead of child status 37"
 
-run_tobari exec --id "$work_id" -- sh -c 'sleep 1' &
+run_project sh -c 'sleep 1' &
 first_pid=$!
-run_tobari exec --id "$work_id" -- sh -c 'sleep 1' &
+run_project sh -c 'sleep 1' &
 second_pid=$!
 wait "$first_pid"
 wait "$second_pid"
 
-if run_tobari cluster down >/dev/null 2>&1; then
-  fail "cluster down succeeded while Tobari remained attached"
-fi
-
 docker rm -f "$mock_name" >/dev/null
-run_tobari detach --id "$work_id" --purge >/dev/null
+status_before_delete=$(run_tobari_at "$work_root" status --format json)
+assert_contains "$status_before_delete" '"exists":true' "status before delete"
+run_tobari_at "$work_root" delete --force >/dev/null
 work_id=
-run_tobari detach --id "$policy_id" --purge >/dev/null
-policy_id=
+work_container=
+status_after_delete=$(run_tobari_at "$work_root" status --format json)
+assert_contains "$status_after_delete" '"exists":false' "status after delete"
+run_tobari_at "$other_root" delete --force >/dev/null
+other_id=
+other_container=
 run_tobari cluster down --purge >/dev/null
 run_tobari cluster down >/dev/null
 

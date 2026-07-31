@@ -82,6 +82,29 @@ func TestResolveProjectFollowsCanonicalSymlink(t *testing.T) {
 	}
 }
 
+func TestResolveOrCreateProjectUsesProjectLocalDevContainerImage(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(filepath.Join(root, ".devcontainer"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	definition := []byte(`{
+  // Only image metadata is interpreted by Tobari.
+  "image": "workbench:local",
+}`)
+	if err := os.WriteFile(filepath.Join(root, ".devcontainer", "devcontainer.json"), definition, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	instance, created, err := runtime.ResolveOrCreateProject(context.Background(), root)
+	if err != nil {
+		t.Fatalf("ResolveOrCreateProject() error = %v", err)
+	}
+	if !created || instance.Image != "workbench:local" {
+		t.Fatalf("instance = %+v, created=%t", instance, created)
+	}
+}
+
 func TestProjectStateRejectsUnknownFields(t *testing.T) {
 	t.Parallel()
 	runtime := newProjectStateRuntime(t)

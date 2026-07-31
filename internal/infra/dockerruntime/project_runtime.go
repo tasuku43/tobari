@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -111,14 +112,14 @@ func (r *Runtime) InspectProjectRuntime(
 	}
 	containerExists, err := r.projectResourceExists(ctx, "container", container)
 	if err != nil {
-		return tobari.RuntimeDiagnosticUnreachable, err
+		return tobari.RuntimeDiagnosticUnreachable, nil
 	}
 	if !containerExists {
 		return tobari.RuntimeDiagnosticMissing, nil
 	}
 	networkExists, err := r.projectResourceExists(ctx, "network", network)
 	if err != nil {
-		return tobari.RuntimeDiagnosticUnreachable, err
+		return tobari.RuntimeDiagnosticUnreachable, nil
 	}
 	if !networkExists {
 		return tobari.RuntimeDiagnosticDegraded, nil
@@ -287,6 +288,9 @@ func (r *Runtime) ensureProjectContainer(
 		if inspectErr != nil {
 			return inspectErr
 		}
+		if err := r.ensureProjectContainerNetwork(ctx, container, network); err != nil {
+			return err
+		}
 		if component.State != "running" {
 			if output, startErr := r.runner.Output(ctx, []string{"start", container}, os.Environ()); startErr != nil {
 				return fmt.Errorf("start project container: %w: %s", startErr, boundedDiagnostic(output))
@@ -302,6 +306,7 @@ func (r *Runtime) ensureProjectContainer(
 		"--tmpfs", "/tmp:size=512m,mode=1777", "--tmpfs", "/run:size=16m,mode=1777",
 		"--env", "HOME=/var/lib/tobari",
 		"--env", "TOBARI_INSIDE=1", "--env", "TOBARI_ID=" + instance.ID, "--env", "TOBARI_ROOT=/workspace",
+		"--env", "TOBARI_PROFILE=/opt/tobari/profile",
 		"--env", "HTTP_PROXY=http://gateway:8080", "--env", "HTTPS_PROXY=http://gateway:8080",
 		"--env", "http_proxy=http://gateway:8080", "--env", "https_proxy=http://gateway:8080",
 		"--env", "NO_PROXY=", "--env", "no_proxy=",
@@ -311,6 +316,10 @@ func (r *Runtime) ensureProjectContainer(
 		"--mount", "type=bind,src=" + instance.Root + ",dst=/workspace",
 		"--mount", "type=bind,src=" + r.projectHomePath(instance.ID) + ",dst=/var/lib/tobari",
 		"--mount", "type=bind,src=" + profile + ",dst=/opt/tobari/profile,readonly",
+		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "skills") + ",dst=/var/lib/tobari/.claude/skills,readonly",
+		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "agents") + ",dst=/var/lib/tobari/.claude/agents,readonly",
+		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "commands") + ",dst=/var/lib/tobari/.claude/commands,readonly",
+		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "plugins.lock") + ",dst=/var/lib/tobari/.claude/plugins.lock,readonly",
 		"--mount", "type=volume,src=tobari-public-ca,dst=/run/tobari/ca-public,readonly",
 		"--workdir", "/workspace", "--network", network,
 		"--health-cmd", "test -f /tmp/tobari-ready", "--health-interval", "2s",
@@ -326,6 +335,28 @@ func (r *Runtime) ensureProjectContainer(
 	}
 	if output, err := r.runner.Output(ctx, []string{"start", container}, os.Environ()); err != nil {
 		return fmt.Errorf("start project container: %w: %s", err, boundedDiagnostic(output))
+	}
+	return nil
+}
+
+func (r *Runtime) ensureProjectContainerNetwork(ctx context.Context, container, network string) error {
+	output, err := r.runner.Output(
+		ctx, []string{"inspect", "--format", "{{json .NetworkSettings.Networks}}", container}, os.Environ(),
+	)
+	if err != nil {
+		return fmt.Errorf("inspect project container networks: %w: %s", err, boundedDiagnostic(output))
+	}
+	var networks map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(output), &networks); err != nil {
+		return fmt.Errorf("decode project container networks: %w", err)
+	}
+	if _, connected := networks[network]; connected {
+		return nil
+	}
+	if output, err := r.runner.Output(
+		ctx, []string{"network", "connect", network, container}, os.Environ(),
+	); err != nil {
+		return fmt.Errorf("connect project container to network: %w: %s", err, boundedDiagnostic(output))
 	}
 	return nil
 }
@@ -407,8 +438,15 @@ func (r *Runtime) ensureSharedProfile(profile string) (string, error) {
 func (r *Runtime) ensureProjectAgentState(id, profile string) error {
 	home := r.projectHomePath(id)
 	claude := filepath.Join(home, ".claude")
-	if err := r.ensurePrivateDirectory(claude); err != nil {
-		return err
+	for _, directory := range []string{
+		claude,
+		filepath.Join(claude, "skills"),
+		filepath.Join(claude, "agents"),
+		filepath.Join(claude, "commands"),
+	} {
+		if err := r.ensurePrivateDirectory(directory); err != nil {
+			return err
+		}
 	}
 	baseSettings, err := os.ReadFile(filepath.Join(profile, "common", "settings.json")) // #nosec G304 -- profile path is runtime-owned.
 	if err != nil {
@@ -453,8 +491,3 @@ func syncDirectory(path string) error {
 	defer directory.Close()
 	return directory.Sync()
 }
-
-// bytes is retained here because Docker errors are safely bounded before they
-// are returned as faults. The explicit use prevents raw runner output from
-// becoming an unbounded error payload.
-var _ = bytes.MinRead

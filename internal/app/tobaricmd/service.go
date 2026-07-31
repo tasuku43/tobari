@@ -1019,6 +1019,19 @@ func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purg
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ClusterStatus{}, err
 	}
+	if project, ok := s.runtime.(ProjectRuntimePort); ok && !portcheck.IsNil(project) {
+		projects, projectErr := project.ListProjects(ctx)
+		if projectErr != nil {
+			return tobari.ClusterStatus{}, fault.Wrap(
+				fault.KindInternal, "state_read_failed", "CWD-owned Tobari state could not be read", false, projectErr,
+			)
+		}
+		if len(projects) != 0 {
+			return tobari.ClusterStatus{}, fault.New(
+				fault.KindRejected, "cluster_not_empty", "delete every CWD-owned Tobari before removing the cluster", false,
+			)
+		}
+	}
 	state, exists, err := s.runtime.LoadState(ctx)
 	if err != nil {
 		return tobari.ClusterStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err)

@@ -601,3 +601,23 @@ func TestClusterDownRejectsNonEmptyClusterBeforeMutation(t *testing.T) {
 		t.Fatal("non-empty cluster was removed")
 	}
 }
+
+func TestClusterDownRejectsRemainingCWDProjectBeforeMutation(t *testing.T) {
+	t.Parallel()
+	runtime := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{},
+		found:       true,
+		project:     testProjectInstance(),
+	}
+	intent := operation.Intent{
+		Command: "cluster down", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationYes,
+		},
+	}
+	if _, err := New(runtime).ClusterDown(context.Background(), intent, false); err == nil {
+		t.Fatal("cluster down accepted while a CWD-owned project remained")
+	}
+}
