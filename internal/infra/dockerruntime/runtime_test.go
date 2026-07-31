@@ -136,6 +136,7 @@ func TestResolveProjectRootRejectsProtectedManagementPaths(t *testing.T) {
 		"config ancestor": filepath.Dir(runtime.configDirectory),
 		"state":           runtime.stateDirectory,
 		"data":            runtime.dataDirectory,
+		"docker runtime":  filepath.Join(string(filepath.Separator), "var", "run"),
 	}
 	for name, candidate := range protected {
 		name, candidate := name, candidate

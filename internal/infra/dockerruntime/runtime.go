@@ -201,17 +201,25 @@ func (r *Runtime) validateProjectRoot(root string) error {
 	if root == home || isPathAncestor(root, home) {
 		return fmt.Errorf("user home or its ancestor cannot be a Tobari project root")
 	}
-	for name, candidate := range map[string]string{
-		"configuration": r.configDirectory,
-		"state":         r.stateDirectory,
-		"data":          r.dataDirectory,
-	} {
+	protectedPaths := map[string]string{
+		"configuration":     r.configDirectory,
+		"state":             r.stateDirectory,
+		"data":              r.dataDirectory,
+		"docker config":     filepath.Join(home, ".docker"),
+		"docker socket":     filepath.Join(string(filepath.Separator), "var", "run", "docker.sock"),
+		"docker run socket": filepath.Join(string(filepath.Separator), "run", "docker.sock"),
+		"docker data":       filepath.Join(string(filepath.Separator), "var", "lib", "docker"),
+		"docker runtime":    filepath.Join(string(filepath.Separator), "var", "run", "docker"),
+	}
+	for name, candidate := range protectedPaths {
 		protected, pathErr := canonicalPathWithMissing(candidate)
 		if pathErr != nil {
 			return fmt.Errorf("resolve protected %s path: %w", name, pathErr)
 		}
-		if isPathAncestor(root, protected) || isPathAncestor(protected, root) {
-			return fmt.Errorf("project root overlaps protected %s path", name)
+		for _, protectedPath := range []string{protected, filepath.Clean(candidate)} {
+			if isPathAncestor(root, protectedPath) || isPathAncestor(protectedPath, root) {
+				return fmt.Errorf("project root overlaps protected %s path", name)
+			}
 		}
 	}
 	return nil
@@ -235,7 +243,13 @@ func canonicalPathWithMissing(path string) (string, error) {
 		if _, statErr := os.Lstat(current); statErr == nil {
 			resolved, evalErr := filepath.EvalSymlinks(current)
 			if evalErr != nil {
-				return "", evalErr
+				if !errors.Is(evalErr, os.ErrNotExist) {
+					return "", evalErr
+				}
+				// A dangling management symlink is still a protected lexical
+				// path. Preserve it rather than treating the missing target as
+				// a discovery failure.
+				resolved = current
 			}
 			for index := len(missing) - 1; index >= 0; index-- {
 				resolved = filepath.Join(resolved, missing[index])
@@ -1208,7 +1222,12 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 	if stateErr != nil {
 		add("state", doctor.CheckStatusFail, "Tobari state is invalid")
 	} else if exists {
-		add("state", doctor.CheckStatusPass, fmt.Sprintf("cluster has %d attached Tobari", len(state.Tobari)))
+		projects, projectErr := r.ListProjects(ctx)
+		if projectErr != nil {
+			add("state", doctor.CheckStatusFail, "CWD-owned Tobari state is invalid")
+		} else {
+			add("state", doctor.CheckStatusPass, fmt.Sprintf("cluster has %d CWD-owned Tobari", len(projects)))
+		}
 		if err := r.testPolicy(ctx, state); err != nil {
 			add(
 				"policy", doctor.CheckStatusFail,

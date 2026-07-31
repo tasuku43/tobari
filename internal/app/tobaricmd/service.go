@@ -23,9 +23,6 @@ type RuntimePort interface {
 	ClusterUp(context.Context) (tobari.State, error)
 	LoadState(context.Context) (tobari.State, bool, error)
 	InspectCluster(context.Context, tobari.State) (tobari.ClusterStatus, error)
-	Attach(context.Context, tobari.State, string, string, string) (tobari.State, error)
-	InspectTobari(context.Context, tobari.State) ([]tobari.ItemStatus, error)
-	Exec(context.Context, tobari.Instance, tobari.ExecRequest, io.Reader, io.Writer, io.Writer) (int, error)
 	ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error)
 	ClusterDenials(context.Context, tobari.State, int) ([]tobari.PolicyDenial, error)
 	ReadLearnedPolicyRules(context.Context, tobari.State) ([]tobari.LearnedPolicyRule, error)
@@ -33,10 +30,19 @@ type RuntimePort interface {
 		context.Context, tobari.State, []tobari.LearnedPolicyRule, []tobari.LearnedPolicyRule,
 	) error
 	ApplyPolicy(context.Context, tobari.State) error
-	TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error)
-	Detach(context.Context, tobari.State, tobari.Instance, bool) (tobari.State, error)
 	ClusterDown(context.Context, tobari.State, bool) error
 	Doctor(context.Context, string) (doctor.Report, error)
+}
+
+// legacyNamedRuntimePort is deliberately outside RuntimePort. The old
+// name-bound container lifecycle remains only as a migration diagnostic and
+// cannot become an authority for the CWD-owned public commands.
+type legacyNamedRuntimePort interface {
+	Attach(context.Context, tobari.State, string, string, string) (tobari.State, error)
+	InspectTobari(context.Context, tobari.State) ([]tobari.ItemStatus, error)
+	Exec(context.Context, tobari.Instance, tobari.ExecRequest, io.Reader, io.Writer, io.Writer) (int, error)
+	TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error)
+	Detach(context.Context, tobari.State, tobari.Instance, bool) (tobari.State, error)
 }
 
 // ProjectRuntimePort is the CWD-owned lifecycle boundary. It is separate from
@@ -110,6 +116,20 @@ func (s *Service) projectRuntime() (ProjectRuntimePort, error) {
 		)
 	}
 	return project, nil
+}
+
+func (s *Service) legacyNamedRuntime() (legacyNamedRuntimePort, error) {
+	if err := s.requireRuntime(); err != nil {
+		return nil, err
+	}
+	legacy, ok := s.runtime.(legacyNamedRuntimePort)
+	if !ok || portcheck.IsNil(legacy) {
+		return nil, fault.New(
+			fault.KindRejected, "legacy_named_lifecycle",
+			"named Tobari lifecycle is retired; run tobari from the project directory", false,
+		)
+	}
+	return legacy, nil
 }
 
 func (s *Service) validateProjectIntent(intent operation.Intent, effect operation.Effect) error {
@@ -407,7 +427,8 @@ func (s *Service) ClusterStatus(ctx context.Context) (tobari.ClusterStatus, erro
 func (s *Service) Attach(
 	ctx context.Context, intent operation.Intent, name, root, image, devcontainer string,
 ) (tobari.Instance, error) {
-	if err := s.requireRuntime(); err != nil {
+	legacy, err := s.legacyNamedRuntime()
+	if err != nil {
 		return tobari.Instance{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -495,7 +516,7 @@ func (s *Service) Attach(
 	}
 	var updated tobari.State
 	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		created, actionErr := s.runtime.Attach(actionContext, state, name, resolved, image)
+		created, actionErr := legacy.Attach(actionContext, state, name, resolved, image)
 		updated = created
 		if actionErr == nil {
 			return nil
@@ -522,7 +543,8 @@ func (s *Service) Attach(
 
 // List returns every configured Tobari in the exact local scope.
 func (s *Service) List(ctx context.Context) (tobari.ListResult, error) {
-	if err := s.requireRuntime(); err != nil {
+	legacy, err := s.legacyNamedRuntime()
+	if err != nil {
 		return tobari.ListResult{}, err
 	}
 	state, exists, err := s.runtime.LoadState(ctx)
@@ -531,7 +553,7 @@ func (s *Service) List(ctx context.Context) (tobari.ListResult, error) {
 	}
 	result := tobari.ListResult{Task: tobari.TaskList, Items: []tobari.ItemStatus{}}
 	if exists {
-		result.Items, err = s.runtime.InspectTobari(ctx, state)
+		result.Items, err = legacy.InspectTobari(ctx, state)
 		if err != nil {
 			return tobari.ListResult{}, fault.Wrap(fault.KindInternal, "list_failed", "Tobari list could not be observed", false, err)
 		}
@@ -565,7 +587,8 @@ func (s *Service) Exec(
 	ctx context.Context, id string, request tobari.ExecRequest,
 	in io.Reader, out, errOut io.Writer,
 ) (int, error) {
-	if err := s.requireRuntime(); err != nil {
+	legacy, err := s.legacyNamedRuntime()
+	if err != nil {
 		return 0, err
 	}
 	if err := request.Validate(); err != nil {
@@ -582,7 +605,7 @@ func (s *Service) Exec(
 		}
 	}
 	request.TTY = request.TTY && s.runtime.IsTerminal(out)
-	code, err := s.runtime.Exec(ctx, instance, request, in, out, errOut)
+	code, err := legacy.Exec(ctx, instance, request, in, out, errOut)
 	if err != nil {
 		return 0, fault.Wrap(fault.KindInternal, "exec_failed", "Tobari command could not be started", false, err)
 	}
@@ -989,7 +1012,8 @@ func (s *Service) ApplyPolicy(
 
 // TobariLogs returns a bounded log window for one exact Tobari.
 func (s *Service) TobariLogs(ctx context.Context, id string, tail int) ([]byte, error) {
-	if err := s.requireRuntime(); err != nil {
+	legacy, err := s.legacyNamedRuntime()
+	if err != nil {
 		return nil, err
 	}
 	request := tobari.LogRequest{Component: "tobari", Tail: tail}
@@ -1000,7 +1024,7 @@ func (s *Service) TobariLogs(ctx context.Context, id string, tail int) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	output, err := s.runtime.TobariLogs(ctx, instance, request)
+	output, err := legacy.TobariLogs(ctx, instance, request)
 	if err != nil {
 		return nil, fault.Wrap(fault.KindInternal, "logs_failed", "Tobari logs could not be read", false, err)
 	}
@@ -1009,7 +1033,8 @@ func (s *Service) TobariLogs(ctx context.Context, id string, tail int) ([]byte, 
 
 // Detach removes one exact referenced Tobari.
 func (s *Service) Detach(ctx context.Context, intent operation.Intent, id string, purge bool) error {
-	if err := s.requireRuntime(); err != nil {
+	legacy, err := s.legacyNamedRuntime()
+	if err != nil {
 		return err
 	}
 	state, instance, err := s.loadInstance(ctx, id)
@@ -1024,7 +1049,7 @@ func (s *Service) Detach(ctx context.Context, intent operation.Intent, id string
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
 	return s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		_, actionErr := s.runtime.Detach(actionContext, state, instance, purge)
+		_, actionErr := legacy.Detach(actionContext, state, instance, purge)
 		if actionErr == nil {
 			return nil
 		}
