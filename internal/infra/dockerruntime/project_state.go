@@ -388,7 +388,9 @@ func (r *Runtime) ListProjects(ctx context.Context) ([]tobari.ProjectInstance, e
 		return nil, err
 	}
 	instances := make([]tobari.ProjectInstance, 0, len(indexes))
+	indexedIDs := make(map[string]bool, len(indexes))
 	for _, index := range indexes {
+		indexedIDs[index.InstanceID] = true
 		instance, readErr := r.readProjectInstance(index.InstanceID)
 		if readErr != nil {
 			return nil, readErr
@@ -397,6 +399,25 @@ func (r *Runtime) ListProjects(ctx context.Context) ([]tobari.ProjectInstance, e
 			return nil, fmt.Errorf("root index and instance root disagree")
 		}
 		instances = append(instances, instance)
+	}
+	entries, err := os.ReadDir(r.instancesDirectory())
+	if errors.Is(err, os.ErrNotExist) {
+		entries = nil
+	} else if err != nil {
+		return nil, fmt.Errorf("read project instances for orphan diagnosis: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("project instance directory contains an unsafe entry")
+		}
+		if indexedIDs[entry.Name()] {
+			continue
+		}
+		instance, readErr := r.readProjectInstance(entry.Name())
+		if readErr != nil {
+			return nil, fmt.Errorf("diagnose orphan project instance: %w", readErr)
+		}
+		return nil, fmt.Errorf("project instance %s has no root index", instance.ID)
 	}
 	sort.Slice(instances, func(left, right int) bool { return instances[left].Root < instances[right].Root })
 	return instances, nil

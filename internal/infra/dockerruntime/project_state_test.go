@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -319,6 +320,25 @@ func TestResolveProjectFindsOneSidedLogicalRecordsForRecovery(t *testing.T) {
 				t.Fatalf("ResolveProject() = (%+v, %t, %v), want recoverable %s record", resolved, found, err, name)
 			}
 		})
+	}
+}
+
+func TestListProjectsDiagnosesUnindexedInstance(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.removeProjectRootIndex(instance.Root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ListProjects(context.Background()); err == nil || !strings.Contains(err.Error(), "has no root index") {
+		t.Fatalf("ListProjects() error = %v, want unindexed-instance diagnostic", err)
 	}
 }
 

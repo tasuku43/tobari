@@ -141,6 +141,19 @@ type projectSpecDriftRunner struct {
 	calls      [][]string
 }
 
+type projectReadinessRunner struct {
+	state  string
+	health string
+}
+
+func (r *projectReadinessRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+	return nil
+}
+
+func (r *projectReadinessRunner) Output(context.Context, []string, []string) ([]byte, error) {
+	return []byte(fmt.Sprintf(`{"state":%q,"health":%q}`, r.state, r.health)), nil
+}
+
 func (r *projectSpecDriftRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
 	return nil
 }
@@ -158,7 +171,7 @@ func (r *projectSpecDriftRunner) Output(_ context.Context, args, _ []string) ([]
 		}
 		switch {
 		case strings.Contains(format, ".State.Health"):
-			return []byte("healthy\n"), nil
+			return []byte(`{"state":"running","health":"healthy"}`), nil
 		case strings.Contains(format, projectSpecLabel):
 			if r.stale {
 				return []byte("sha256:stale\n"), nil
@@ -226,7 +239,7 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 		return nil, nil
 	case "inspect":
 		if len(args) > 2 && strings.Contains(args[2], ".State.Health") {
-			return []byte("healthy\n"), nil
+			return []byte(`{"state":"running","health":"healthy"}`), nil
 		}
 		if len(args) > 2 && strings.Contains(args[2], ".NetworkSettings.Networks") {
 			return []byte(`{}`), nil
@@ -287,6 +300,33 @@ func TestEnsureProjectContainerRecreatesOnSpecDrift(t *testing.T) {
 	}
 	if !removed || !created {
 		t.Fatalf("spec drift calls = %v, want rm followed by create", runner.calls)
+	}
+}
+
+func TestWaitProjectReadyDistinguishesTerminalFailures(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		state  string
+		health string
+		want   string
+	}{
+		"unhealthy": {state: "running", health: "unhealthy", want: "unhealthy"},
+		"exited":    {state: "exited", health: "none", want: "exited"},
+		"no health": {state: "running", health: "none", want: "no readiness healthcheck"},
+	} {
+		name, test := name, test
+		t.Run(name, func(t *testing.T) {
+			runtime, err := newRuntimeWithData(
+				filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), filepath.Join(t.TempDir(), "data"),
+				&projectReadinessRunner{state: test.state, health: test.health},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.waitProjectReady(context.Background(), "tobari-project"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("waitProjectReady() error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 

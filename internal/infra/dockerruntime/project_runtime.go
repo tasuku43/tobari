@@ -403,13 +403,23 @@ func (r *Runtime) waitProjectReady(ctx context.Context, container string) error 
 	for attempt := 0; attempt < attempts; attempt++ {
 		output, err := r.runner.Output(
 			ctx,
-			[]string{"inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}", container},
+			[]string{"inspect", "--format", `{"state":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}"}`, container},
 			os.Environ(),
 		)
 		if err != nil {
 			return fmt.Errorf("inspect project readiness: %w: %s", err, boundedDiagnostic(output))
 		}
-		switch strings.TrimSpace(string(output)) {
+		var observed struct {
+			State  string `json:"state"`
+			Health string `json:"health"`
+		}
+		if err := json.Unmarshal(bytes.TrimSpace(output), &observed); err != nil {
+			return fmt.Errorf("decode project readiness: %w", err)
+		}
+		if observed.State == "exited" || observed.State == "dead" {
+			return fmt.Errorf("project container exited")
+		}
+		switch observed.Health {
 		case "healthy":
 			return nil
 		case "unhealthy":
