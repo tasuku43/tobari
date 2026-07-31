@@ -135,6 +135,54 @@ type projectReconcileRunner struct {
 	containerExists bool
 }
 
+type projectSpecDriftRunner struct {
+	instanceID string
+	stale      bool
+	calls      [][]string
+}
+
+func (r *projectSpecDriftRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+	return nil
+}
+
+func (r *projectSpecDriftRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	r.calls = append(r.calls, append([]string{}, args...))
+	if len(args) == 0 {
+		return nil, errors.New("empty Docker argv")
+	}
+	switch args[0] {
+	case "inspect":
+		format := ""
+		if len(args) > 2 {
+			format = args[2]
+		}
+		switch {
+		case strings.Contains(format, ".State.Health"):
+			return []byte("healthy\n"), nil
+		case strings.Contains(format, projectSpecLabel):
+			if r.stale {
+				return []byte("sha256:stale\n"), nil
+			}
+			return []byte("sha256:desired\n"), nil
+		case strings.Contains(format, projectIDLabel):
+			return []byte(r.instanceID + "\n"), nil
+		case strings.Contains(format, projectRoleLabel):
+			return []byte(projectWorkRole + "\n"), nil
+		case strings.Contains(format, ownerLabel):
+			return []byte(ownerValue + "\n"), nil
+		default:
+			return []byte("container-id\n"), nil
+		}
+	case "rm":
+		r.stale = false
+		return nil, nil
+	case "create", "start":
+		return nil, nil
+	default:
+		return nil, nil
+	}
+}
+
 type projectExitRunner struct{ code int }
 
 func (r *projectExitRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
@@ -194,6 +242,51 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 		return nil, nil
 	default:
 		return nil, nil
+	}
+}
+
+func TestEnsureProjectContainerRecreatesOnSpecDrift(t *testing.T) {
+	t.Parallel()
+	runner := &projectSpecDriftRunner{stale: true, instanceID: "01900000-0000-7000-8000-000000000001"}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), filepath.Join(t.TempDir(), "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := tobari.ProjectInstance{
+		SchemaVersion: tobari.ProjectStateSchemaVersion,
+		ID:            runner.instanceID,
+		Root:          filepath.Join(t.TempDir(), "project"),
+		Profile:       tobari.DefaultProfile,
+		Image:         tobari.BuiltinImageSelector,
+	}
+	if err := os.MkdirAll(instance.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	state := tobari.State{
+		SchemaVersion: 2, RuntimeDirectory: filepath.Join(t.TempDir(), "runtime"),
+		PolicyDirectory: filepath.Join(t.TempDir(), "policy"), CredentialConfig: filepath.Join(t.TempDir(), "credentials.json"),
+		CredentialDir: filepath.Join(t.TempDir(), "credentials"), AssetVersion: "asset",
+		ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
+	}
+	if err := runtime.ensureProjectContainer(context.Background(), state, instance, "/profile", "tobari-project", "tobari-network", "tobari-image", "sha256:desired"); err != nil {
+		t.Fatalf("ensureProjectContainer() error = %v", err)
+	}
+	var removed, created bool
+	for _, call := range runner.calls {
+		if len(call) > 0 && call[0] == "rm" {
+			removed = true
+		}
+		if len(call) > 0 && call[0] == "create" {
+			created = true
+			if !strings.Contains(strings.Join(call, " "), projectSpecLabel+"=sha256:desired") {
+				t.Fatalf("recreated container is missing desired spec hash: %v", call)
+			}
+		}
+	}
+	if !removed || !created {
+		t.Fatalf("spec drift calls = %v, want rm followed by create", runner.calls)
 	}
 }
 
