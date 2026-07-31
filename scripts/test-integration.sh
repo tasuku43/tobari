@@ -281,12 +281,16 @@ other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["
 profile_directory=$test_root/data/tobari/profiles/default
 profile_skill=$profile_directory/claude/skills/shared.md
 profile_settings=$profile_directory/common/settings.json
+container_before_profile_change=$(docker inspect --format '{{.Id}}' "$work_container")
 printf 'shared skill\n' >"$profile_skill"
 printf '{"shared":true,"theme":"dark"}\n' >"$profile_settings"
 mkdir -p "$work_root/.claude"
 printf '{"theme":"light","local":true}\n' >"$work_home/.claude/settings.json"
 printf 'project-local\n' >"$work_root/.claude/project.md"
 enter_tobari_at "$work_root"
+container_after_profile_change=$(docker inspect --format '{{.Id}}' "$work_container")
+[[ $container_before_profile_change != "$container_after_profile_change" ]] ||
+  fail "profile revision drift did not recreate only the project container"
 merged_settings=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$work_home/.claude/settings.json")
 assert_contains "$merged_settings" '"shared": true' "merged shared settings"
 assert_contains "$merged_settings" '"theme": "light"' "local settings override"
@@ -305,7 +309,12 @@ if docker exec "$other_container" test -e /var/lib/tobari/.claude/memory.txt; th
 fi
 
 run_tobari cluster up >/dev/null
-enter_tobari_at "$work_root"
+enter_tobari_at "$work_root" &
+first_enter_pid=$!
+enter_tobari_at "$work_root" &
+second_enter_pid=$!
+wait "$first_enter_pid"
+wait "$second_enter_pid"
 owned_containers=$(docker ps -a --filter label=io.tobari.owner=default --format '{{.Names}}' | wc -l | tr -d ' ')
 [[ $owned_containers == 4 ]] || fail "idempotent reconciliation left $owned_containers owned containers"
 
@@ -537,6 +546,9 @@ wait "$second_pid"
 docker rm -f "$mock_name" >/dev/null
 status_before_delete=$(run_tobari_at "$work_root" status --format json)
 assert_contains "$status_before_delete" '"exists":true' "status before delete"
+docker rm -f "$work_container" >/dev/null
+docker network disconnect -f "$work_network" tobari-gateway >/dev/null 2>&1 || true
+docker network rm "$work_network" >/dev/null 2>&1 || true
 run_tobari_at "$work_root" delete --force >/dev/null
 work_id=
 work_container=

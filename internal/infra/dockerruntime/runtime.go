@@ -380,13 +380,23 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 		[]string{
 			"compose", "--project-directory", state.RuntimeDirectory,
 			"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
-			"up", "-d", "--build", "--wait", "--remove-orphans",
+			"up", "-d", "--build", "--remove-orphans",
 		},
 		environment, nil, &output, &output,
 	)
 	if err != nil {
 		_ = r.recordRecentError(state, "Cluster startup did not complete; inspect component logs.")
 		return tobari.State{}, fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
+	}
+	for _, sharedNetwork := range []string{"tobari-control", "tobari-egress"} {
+		if err := r.ensureGatewayNetwork(ctx, sharedNetwork); err != nil {
+			_ = r.recordRecentError(state, "Gateway did not rejoin the shared cluster network; inspect cluster status.")
+			return tobari.State{}, err
+		}
+	}
+	if err := r.waitForClusterReady(ctx); err != nil {
+		_ = r.recordRecentError(state, "Cluster components did not become healthy; inspect component status.")
+		return tobari.State{}, err
 	}
 	projects, err := r.ListProjects(ctx)
 	if err != nil {
@@ -420,6 +430,33 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 		return tobari.State{}, fmt.Errorf("clear cluster reconcile journal: %w", err)
 	}
 	return state, nil
+}
+
+func (r *Runtime) waitForClusterReady(ctx context.Context) error {
+	const attempts = 60
+	for attempt := 0; attempt < attempts; attempt++ {
+		ready := true
+		statuses := make([]tobari.ComponentStatus, 0, len(clusterContainers))
+		for _, name := range []string{"gateway", "opa"} {
+			component, err := r.inspectContainer(ctx, name, clusterContainers[name])
+			if err != nil {
+				return err
+			}
+			statuses = append(statuses, component)
+			if component.State != "running" || component.Health != "healthy" {
+				ready = false
+			}
+		}
+		if ready {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("cluster components did not become healthy")
 }
 
 func (r *Runtime) buildTobariImage(ctx context.Context, state tobari.State, environment []string) error {
