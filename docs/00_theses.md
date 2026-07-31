@@ -5,18 +5,18 @@ revise the thesis and its enforcement explicitly instead of adding a bypass.
 
 ## North Star
 
-**A developer can attach named, long-lived Docker isolation spaces to the
-directories where work already happens while every HTTP and HTTPS effect that
-crosses each boundary is denied by default and authorized as a normalized
-request by one shared OPA-backed Gateway.**
+**A developer can run `tobari` in a project directory to create or reuse its
+long-lived isolated environment while every HTTP and HTTPS effect that crosses
+the boundary is denied by default and authorized as a normalized request by one
+shared OPA-backed Gateway.**
 
 The primary users are developers who run Claude Code, Codex, shells, tests, and
-other arbitrary programs against selected source roots. Success means each
-named Tobari can host concurrent processes, cannot reach the Internet or another
-Tobari directly, never receives managed credentials, and can be attached,
-inspected, entered, and removed independently through one predictable CLI. One
-installation-local cluster shares Gateway, OPA, policy, credentials, and CA
-state without sharing Tobari roots or home volumes.
+other arbitrary programs against project roots. Success means each Tobari can
+host concurrent processes, cannot reach the Internet or another Tobari directly,
+never receives managed credentials, and is selected from the canonical current
+directory rather than a user-managed name, root flag, or container identifier.
+One installation-local cluster shares Gateway, OPA, policy, credentials, and CA
+state without sharing Tobari roots or homes.
 
 The first testable slice is one local mock upstream reached through the
 Gateway: an allowed request succeeds, a denied request does not reach upstream,
@@ -98,37 +98,42 @@ profile is configured for the normalized destination host.
 - Integration tests prove injection at an allowed host and non-disclosure to
   Tobari or another host.
 
-## Thesis 4: One shared cluster hosts multiple named Tobari
+## Thesis 4: One shared cluster hosts multiple CWD-owned Tobari
 
-MVP manages one installation-local enforcement cluster and multiple named
-Tobari. Each Tobari binds exactly one explicitly selected read-write root, one
-dedicated internal network, and one persistent home volume.
+MVP manages one installation-local enforcement cluster and multiple logical
+Tobari. A Tobari is selected by the nearest indexed canonical ancestor of the
+current directory, binds exactly one read-write root, one dedicated internal
+network, and one persistent XDG-owned home directory.
 
 ### Consequences
 
-- `tobari cluster up` starts shared policy enforcement without mounting a work
-  root.
-- `tobari attach --name --root [--image]` persists a unique human-readable
-  name, canonical root, and selected compatible runtime image; `list` emits an
-  opaque ID for later actions.
+- `tobari` resolves an existing canonical-root record or creates one at the
+  current directory, reconciles the shared enforcement runtime, and enters the
+  work container on a terminal.
+- The logical record owns a generated stable internal ID, canonical root,
+  selected compatible runtime image, profile, XDG home, and diagnostic runtime
+  identifiers. Container or network loss never changes logical existence.
+- `status` and `delete` resolve the same nearest canonical root. `list` shows
+  local roots and diagnostics without turning an ID into a normal user input.
 - An explicit in-root image-based `devcontainer.json` may select that image,
   but cannot delegate mounts, privileges, environment, lifecycle, or
   orchestration to another tool.
-- `shell`, `exec`, `logs`, and `detach` consume that opaque ID unchanged rather
-  than rediscovering by name.
+- `tobari delete` is the only routine operation that ends a logical Tobari;
+  ending a shell or losing a runtime resource leaves it existing.
 - Every process in a Tobari may modify or delete every file below that Tobari's
   mounted root.
 - Multiple clusters, overlays, clone modes, and change approval are non-goals.
 
 ### Mechanical enforcement
 
+- Root-index and instance-state tests prove canonical path resolution, nearest
+  ancestor selection, stable IDs, atomic state updates, and explicit handling
+  of corrupt or legacy state.
 - State and Docker labels identify the one installation-owned cluster and each
-  exact named Tobari resource.
-- Path tests require `--cwd` to be inside the selected Tobari root.
-- Reference tests pass `list` IDs byte-for-byte into actions.
+  exact logical Tobari resource.
 - Lifecycle integration tests create multiple roots, prove network separation,
-  execute concurrent sessions, and repeat attach/detach without growing owned
-  resources.
+  enter and recover the same root repeatedly, and delete only the selected
+  instance without growing owned resources.
 - Dev Container tests accept bounded JSONC image metadata and reject every
   unsupported runtime property before Docker mutation.
 
@@ -140,20 +145,24 @@ name prefix or broad Docker query as authority.
 
 ### Consequences
 
-- Cluster and attach reconciliation are idempotent within declared state.
-- `detach` removes one exact container and network but preserves that Tobari's
-  persistent home volume unless `--purge` is explicit.
+- Root resolution, logical creation, runtime reconciliation, and deletion are
+  idempotent within declared state. Concurrent mutations serialize through the
+  XDG state lock and atomic durable records.
+- `delete` removes one exact container, network, home directory, and instance
+  records after an explicit destructive confirmation. It can continue after
+  partial runtime cleanup and never selects by a Docker name or prefix.
 - `cluster down` refuses to remove shared enforcement while any Tobari remains;
   `--purge` affects only shared CA state after the cluster is empty.
 - Docker CLI is behind an infrastructure port so another engine can replace it
   later without changing application outcomes.
-- `cluster status`, `list`, `logs`, and `doctor` never repair state implicitly.
+- `status`, `list`, and `doctor` never repair state implicitly. The root
+  command is the single deliberate ensure-and-enter reconciliation path.
 
 ### Mechanical enforcement
 
 - Domain resource specifications carry a fixed ownership label.
-- Application tests prove validation and reference binding precede Docker calls
-  and cleanup selects exact resources.
+- Application tests prove validation and CWD-local target resolution precede
+  Docker calls and cleanup selects exact resources.
 - The catalog declares every read/create/write effect and mutation impact.
 
 ## Thesis 6: Fail closed with bounded evidence

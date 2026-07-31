@@ -50,10 +50,11 @@ interference, and malware detection are outside the MVP guarantee.
 Runtime specs prohibit privileged mode, host networking, the Docker socket,
 SSH agent mounts, host home mounts, and added Linux capabilities. Tobari uses a
 non-root work user mapped to the invoking UID/GID where Docker supports it.
-Only the selected root and that Tobari's named home volume are mounted writable.
+Only the selected root and that Tobari's exact XDG-owned home directory are
+mounted writable.
 
 A custom Tobari image is untrusted input and receives no additional authority.
-Attach accepts only a locally available image that asserts runtime API `1` and
+The CWD-owned runtime accepts only a locally available image that asserts runtime API `1` and
 preserves the built-in image user and entrypoint, then independently fixes the
 numeric runtime user, read-only root, capabilities, security options, mounts,
 network, proxy environment, and health check. Compatibility metadata is not a
@@ -69,11 +70,11 @@ same untrusted custom-image treatment, and receives no Docker socket or direct
 egress.
 
 The XDG `config.json` image default is a strict, bounded, owner-only regular
-file. An explicit CLI image takes precedence. Malformed defaults fail before
-Docker resource creation.
+file. Bounded project metadata may select only a literal compatible image.
+Malformed defaults fail before Docker resource creation.
 
-A Dev Container file is untrusted project data. Tobari reads only an explicit
-path contained by the selected root, with a fixed size limit and no variable or
+A Dev Container file is untrusted project data. Tobari reads only configured
+metadata contained by the selected root, with a fixed size limit and no variable or
 environment substitution. Only a literal compatible image is consumed.
 Properties that could request builds, Compose services, Features, commands,
 mounts, environment, users, privileges, capabilities, or ports fail before
@@ -85,10 +86,11 @@ root entrypoint and receives no added capability. This preserves owner-only host
 credential permissions across native Linux and Docker Desktop.
 
 All resources carry `io.tobari.owner=default`; per-Tobari resources also carry
-the exact opaque Tobari ID. Destructive lifecycle code selects exact stored
-names and confirms both labels before removal. `detach` preserves the
-persistent home unless `--purge` is explicit. Shared cluster removal is rejected
-while any Tobari remains.
+the exact stable Tobari ID and a resource role. Destructive lifecycle code
+resolves the nearest canonical CWD root, selects exact stored names, and
+confirms owner, ID, and role labels before removal. `delete` removes that
+instance's persistent XDG home and records only after explicit confirmation.
+Shared cluster removal is rejected while any Tobari record remains.
 
 XDG policy is mounted read-only into OPA. Host-side edits are reflected by the
 bind mount. OPA watch reloads them where Docker-host events propagate;
@@ -136,12 +138,14 @@ trusted infrastructure boundary.
 ## Mutation policy
 
 Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
-`attach` creates within that exact cluster. Individual `detach` consumes one
-opaque `tobari_id` produced by `list`; it does not select by name or Docker
-discovery. All mutations use complete intent and impact declarations before
-Docker execution. No human approval is required for ordinary reconciliation.
-`--purge` is an explicit destructive input and affects only the exact selected
-home or, after all Tobari are detached, shared CA volumes.
+The root command uses the catalog-declared current-directory fixed target to
+create or reconcile one logical Tobari; `delete` resolves the same target and
+is its only lifecycle-ending mutation. Neither operation accepts an ID, name,
+or arbitrary root selector. All mutations use complete intent and impact
+declarations before Docker execution. Ordinary runtime reconciliation needs no
+human approval; destructive deletion requires confirmation or `--force` and
+affects only the selected XDG home and exact owned resources. Shared CA purge
+remains separate and only follows an empty instance repository.
 `policy apply` is an access-changing write to the same fixed cluster target. It
 does not edit policy, but it can change outbound authority by activating the
 trusted host's current tested files. Gateway remains fail-closed while OPA is
@@ -192,13 +196,13 @@ authority; only an explicit reference-bound mutation can write a learned rule.
 | Secrets stay outside Tobari | Mount-spec tests and integration canaries |
 | Secret headers and bodies stay out of logs | Gateway unit tests and log scans |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
-| Each root is its Tobari's only host write scope | Mount-spec and path-containment tests |
+| Each root and XDG home are its Tobari's only host write scopes | Mount-spec and path-containment tests |
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
 | Optional toolbox artifacts retain reviewed identity | Pinned versions, vendor checksum or signature verification, and explicit build validation |
-| Dev Container metadata cannot become a second runtime boundary | Contained bounded parser, unsupported-property tests, and fixed attach adapter |
+| Dev Container metadata cannot become a second runtime boundary | Contained bounded parser, unsupported-property tests, and fixed runtime adapter |
 | OPA cannot rewrite host policy | Read-only mount-spec test |
 | Tested host policy activates across Docker hosts | Fixed-target OPA recreation test and integration scenario |
-| Actions use exact Tobari identity | Reference round-trip and label-validation tests |
+| CWD lifecycle actions use exact Tobari identity | Canonical-root, state, and label-validation tests |
 | Unknown effects fail closed | Domain and catalog validation |
 | Denials support safe policy learning | Typed denial validation, secret canaries, and integration projection |
 | Learned permissions stay explicit and minimal | Opaque candidate round trips, exact-match domain tests, preflight-before-atomic-write tests, and Docker integration |

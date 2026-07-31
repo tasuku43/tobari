@@ -6,8 +6,8 @@
 host
   tobari CLI ---- Docker CLI ---- Docker Engine
       |
-      +-- root A (rw) --> named Tobari A -- internal net A --+
-      +-- root B (rw) --> named Tobari B -- internal net B --+--> tobari-gateway
+      +-- root A (rw) --> Tobari A -- internal net A --+
+      +-- root B (rw) --> Tobari B -- internal net B --+--> tobari-gateway
                                                                |         |
 internal control network:                              tobari-opa :8181  |
                                                                          |
@@ -36,7 +36,7 @@ internal/cli  ------> internal/app
 
 - `internal/domain`: pure cluster/Tobari specifications, state, paths, Gateway/OPA
   schemas, operation effects, and validation.
-- `internal/app`: lifecycle, status, exec, logs, and doctor use cases with
+- `internal/app`: lifecycle, status, entry, diagnostics, and doctor use cases with
   consumer-owned ports.
 - `internal/infra`: Docker CLI runner, local state/config filesystem, embedded
 asset materialization, and platform inspection.
@@ -64,14 +64,14 @@ runtime/
   opa/policy/tobari_test.rego
 ```
 
-`cluster up` materializes exact embedded bytes under the Tobari state directory,
+The root ensure operation materializes exact embedded bytes under the Tobari state directory,
 writes generated non-secret runtime configuration, and invokes Docker through
 the runtime port. Compose owns only Gateway, OPA, shared networks, and CA
 volumes. The built-in image receives an asset-version tag and the stable local
-extension tag `tobari-runtime:local`. The runtime adapter creates each named
-Tobari from the built-in image or an exact user-selected local image and
+extension tag `tobari-runtime:local`. The runtime adapter creates each logical
+Tobari from the built-in image or an exact configured local image and
 connects Gateway to its dedicated network. No runtime asset is downloaded
-during startup or attach. A public-only CA volume is mounted read-only into
+during startup. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
 Custom images are supported only when they preserve runtime API label
@@ -89,10 +89,10 @@ metadata and tool executability, and leaves only the local
 `tobari-toolbox:local` tag. It is not embedded runtime state, a published
 artifact, or an implicit cluster dependency.
 
-Attach resolves an explicit image first. When omitted, infrastructure reads the
-strict owner-only XDG `config.json` and uses `default_image`; absence before
-first initialization falls back to `builtin`. The resolved selector, rather
-than the source of the default, is persisted on the Tobari.
+The root resolver obtains an image from bounded project metadata or the strict
+owner-only XDG `config.json` `default_image`; absence before first initialization
+falls back to `builtin`. The resolved selector, rather than the source of the
+default, is persisted on the logical Tobari.
 
 An explicit Dev Container path is resolved after the root and must remain
 inside it after symlink evaluation. Infrastructure reads at most 256 KiB,
@@ -105,40 +105,46 @@ a second orchestrator.
 
 ## Lifecycle model
 
-The MVP owns one cluster `tool_local` target with stable ID `cluster-default`.
-Schema-2 runtime state records shared resource names, policy path, proxy
-endpoint, asset revision, and a finite list of named Tobari. Every Tobari record
-contains an opaque ID, canonical root, selected image, and exact container,
-network, and volume names. Older schema-2 records without the additive image
-field mean `builtin`. Docker labels include:
+The MVP owns one shared cluster `tool_local` target with stable ID
+`cluster-default` and many CWD-owned logical Tobari records. The root index
+stores a canonical root and stable internal ID at
+`$XDG_STATE_HOME/tobari/roots/<hash>.json`; each instance owns
+`instances/<id>/state.json` and `instances/<id>/home`. The instance record
+contains the stable ID, canonical root, selected image, profile, and diagnostic
+container or network identifiers. Logical state, not Docker inspection,
+defines whether a Tobari exists. Docker labels include:
 
 ```text
 io.tobari.owner=default
 io.tobari.component=tobari|gateway|opa
-io.tobari.tobari-id=<opaque id when applicable>
+io.tobari.id=<stable ID when applicable>
+io.tobari.role=work|network
 io.tobari.version=<asset revision>
 ```
 
-`cluster up` validates configuration, tests policy, reconciles OPA and Gateway,
-and waits for health. OPA runs with `--watch` against a read-only XDG bind, so
+Root invocation resolves the canonical CWD and nearest indexed ancestor. When
+there is no record it atomically creates an ID, root index, state record, and
+home; when a record exists it retains those values. It then validates
+configuration, tests policy, reconciles OPA and Gateway, ensures one exact
+network and work container, connects Gateway with the `gateway` alias, and
+enters the container. OPA runs with `--watch` against a read-only XDG bind, so
 host edits reload when Docker-host filesystem events propagate. `policy apply`
 provides the deterministic portable path: it tests the current bind, verifies
 the exact OPA ownership label, recreates only OPA, and waits for health.
-`attach` requires the cluster,
-validates name/root uniqueness, creates exact labeled resources, connects
-Gateway with the `gateway` alias, and waits for health. `detach` verifies owner
-and Tobari-ID labels before removing exact resources. Persistent home is
-preserved unless `--purge` is supplied. Cluster removal is rejected until the
-Tobari list is empty.
+`delete` verifies owner, ID, and role labels before removing the selected
+container and network, then removes only its XDG home and records. Container
+or network loss is reconciled by the root operation; it never deletes logical
+state. Cluster removal is rejected until no instance record remains.
 
 ## Command catalog
 
 `cli.Catalog` is the only registry for public paths, roles, effects, fixed
-targets, inputs, outputs, failures, routing, and human/agent help. Handlers
-receive parsed inputs and call one application service. The catalog declares
-cluster and attach/detach mutations with complete intent and impact. `list` is
-the sole `tobari_id` producer; individual actions consume one exact ID. No
-action selects by display name.
+targets, inputs, outputs, failures, routing, and human/agent help. The root
+operation is represented as a catalog-owned fixed current-directory target even
+though it has no argv path words. Handlers receive parsed inputs and call one
+application service. `tobari` and `delete` declare complete fixed-target
+mutation impacts; `status` resolves the same CWD target. `list` reports IDs as
+diagnostic fields but no public lifecycle action consumes them.
 
 ## Gateway request flow
 
@@ -191,8 +197,8 @@ rather than silently recomputing its meaning.
 
 ## Docker abstraction
 
-Application code owns narrow ports such as `EnsureCluster`, `Attach`, `Inspect`,
-`Exec`, `Logs`, and `Detach`. The MVP infrastructure implementation invokes the Docker
+Application code owns narrow ports such as `ResolveOrCreate`, `EnsureRuntime`,
+`EnterRuntime`, `Inspect`, and `Delete`. The MVP infrastructure implementation invokes the Docker
 CLI with fixed command structures and caller context. This keeps Docker Engine
 API or Podman replacement possible without promising either today. Arbitrary
 shell strings are never constructed; user commands are passed as argv after
@@ -201,10 +207,10 @@ Docker's `--`.
 ## Cancellation and errors
 
 The command root installs signal-aware cancellation and propagates one context.
-Pre-execution cancellation makes zero Docker calls. A child `exec` exit status
-is preserved. Lifecycle operations return structured state after confirmed
-completion; unclassified post-mutation errors are non-retryable and direct the
-user to `status` for reconciliation.
+Pre-execution cancellation makes zero Docker calls. A child interactive session
+exit status is preserved. Lifecycle operations return structured state after
+confirmed completion; unclassified post-mutation errors are non-retryable and
+direct the user to `status` for reconciliation.
 
 ## Architecture enforcement
 

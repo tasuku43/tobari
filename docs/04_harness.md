@@ -15,7 +15,7 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, and public-boundary checks |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Pinned mitmproxy addon unit tests |
-| `integration` | `task integration:test` | Real runtime boundary | Shared-cluster lifecycle, multiple named Tobari, network separation, TLS, fail-closed, credential, typed denial, tested host-policy activation, exec, and cleanup scenarios |
+| `integration` | `task integration:test` | Real runtime boundary | Shared-cluster lifecycle, multiple CWD-owned Tobari, network separation, TLS, fail-closed, credential, typed denial, tested host-policy activation, entry, recovery, and cleanup scenarios |
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, and integration profiles |
 
 The optional `task toolbox:build` workflow is not a completion profile. It
@@ -216,11 +216,13 @@ The test suite has complementary levels:
   and missing common runtime failure declarations.
 - Reference-graph tests connect discover producers to act consumers by kind and exact field/argument declarations.
 - Opaque-ID round-trip tests pass discovery output unchanged into action input.
-- Named-Tobari integration tests prove that two roots receive distinct
-  containers, networks, and home volumes while sharing only Gateway, OPA, and
-  public CA state.
+- CWD-owned lifecycle integration tests prove that two roots receive distinct
+  containers, networks, and XDG homes while sharing only Gateway, OPA, and
+  public CA state. They also prove canonical ancestor lookup, container/network
+  recovery, and exact selected deletion.
 - Custom-image tests build from the stable local Tobari base, select it through
-  attach, and prove compatibility is checked before per-Tobari resources exist.
+  bounded configuration, and prove compatibility is checked before per-Tobari
+  resources exist.
 - Dev Container tests cover comments, trailing commas, duplicate keys, size and
   symlink escape, unsupported runtime properties, input conflicts, and one
   image-based Docker integration path.

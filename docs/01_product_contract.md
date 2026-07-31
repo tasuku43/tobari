@@ -2,16 +2,18 @@
 
 ## Product statement
 
-Tobari is a local CLI that runs one shared Gateway and OPA cluster and attaches
-named Docker-isolated coding spaces to user-selected roots. Every supported
-outbound HTTP and HTTPS request is enforced through that shared policy boundary.
+Tobari is a local CLI that runs one shared Gateway and OPA cluster and creates
+or reuses Docker-isolated coding spaces selected from the current project
+directory. Every supported outbound HTTP and HTTPS request is enforced through
+that shared policy boundary.
 
 ## Primary users and owned outcome
 
 The primary user is a developer who wants an autonomous coding agent to edit a
 bounded source tree without receiving host credentials or unrestricted network
-egress. Tobari owns the lifecycle from environment validation through startup,
-interactive or non-interactive execution, inspection, logs, and cleanup.
+egress. `cd project && tobari` owns the routine lifecycle from logical state
+resolution through startup, recovery, and interactive entry. The user normally
+manages only the directory; a Tobari either exists or does not exist.
 
 The primary operating loop is progressive policy learning: a Tobari workload is
 denied by default, Gateway records the rejected host/method/path and reason
@@ -24,19 +26,21 @@ not incidental debug noise.
 
 ## Public vocabulary
 
-- **Tobari:** one named, long-lived, untrusted execution container.
+- **Tobari:** one long-lived logical untrusted execution environment selected
+  by a canonical project root. Its work container is recoverable runtime
+  implementation detail.
 - **cluster:** the one installation-local Gateway, OPA, policy, credential, and
   CA lifecycle.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
-- **root:** the only host directory mounted read-write into one Tobari at
-  `/workspace`.
-- **Tobari home:** a per-Tobari persistent Docker volume mounted as the work
-  user's home.
+- **root:** the canonical host directory selected from the current working
+  directory and mounted read-write into one Tobari at `/workspace`.
+- **Tobari home:** a per-Tobari persistent owner-only XDG state directory
+  mounted as the work user's home.
 - **Tobari image:** the built-in runtime or one locally available compatible
-  OCI image selected when a Tobari is first attached.
-- **Tobari ID:** an opaque CLI-owned reference produced by `list` and consumed
-  unchanged by individual actions.
+  OCI image selected when a Tobari is first created.
+- **Tobari ID:** a generated stable internal identity used for state and exact
+  resource labels. It is diagnostic output, not a routine user action input.
 - **credential profile:** a Gateway-only secret and exact host binding.
 
 The public commands are:
@@ -46,65 +50,57 @@ The public commands are:
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version` | utility | read | Print build identity |
 | `doctor [--root PATH]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
-| `cluster up` | act, fixed target | create | Reconcile and start shared Gateway and OPA |
+| `tobari` | act, fixed target | create | Resolve or create the current directory's Tobari, reconcile runtime, and enter it |
+| `status` | utility | read | Inspect the nearest current-directory Tobari and its diagnostic runtime state |
+| `list [--format text|json]` | discover | read | List local Tobari roots with runtime diagnostics and IDs |
+| `delete [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari after destructive confirmation |
 | `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and activation command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
-| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Tobari is detached |
+| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover unique pending exact-rule candidates and opaque IDs |
 | `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact approval commands |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `policy apply` | act, fixed target | write | Test host policy and activate it in the exact shared OPA component |
-| `attach --name NAME --root PATH [--image IMAGE] [--devcontainer PATH]` | act, fixed cluster target | create | Attach one named Tobari with a compatible image to an existing root |
-| `list [--format text|json]` | discover | read | List all configured Tobari and produce opaque IDs |
-| `shell --id ID` | act, reference bound | read | Open an interactive shell in one Tobari |
-| `exec --id ID [--cwd PATH] -- COMMAND...` | act, reference bound | read | Execute one command in one Tobari and preserve its exit code |
-| `logs --id ID [--tail N]` | act, reference bound | read | Read one Tobari's bounded logs |
-| `detach --id ID [--purge]` | act, reference bound | write | Remove one Tobari and optionally its persistent home |
 
-`shell` and `exec` intentionally classify the CLI operation as read because the
-CLI enters an existing exact referenced container. Programs inside Tobari can
-mutate the explicitly mounted root; that delegated capability is a documented
-security property rather than an undeclared Docker mutation by the CLI.
+The root command is interactive and requires a TTY. It does not silently create
+state in a non-interactive context. Programs inside Tobari can mutate the
+explicitly mounted root; that delegated capability is a documented security
+property rather than an undeclared Docker mutation by the CLI.
 
 ## Input and path contract
 
-- Paths are expanded and canonicalized on the host before Docker calls.
-- `attach --root` requires an existing directory and a name matching
-  `[a-z][a-z0-9-]{0,62}`.
-- `attach --image` accepts `builtin` or a portable OCI image reference and
-  otherwise follows the configured default. A custom image must already exist
-  locally and preserve runtime API `1`, the `tobari` image user, and the Tobari
-  entrypoint. Attach never pulls an image implicitly.
+- The current working directory is expanded and canonicalized on the host
+  before state or Docker calls. Lookup walks canonical parents and selects the
+  nearest existing root; it never creates nested Tobari environments.
+- The first creation uses the canonical current directory as root. Project
+  moves and copies are not inferred or recorded in the project tree.
+- The configured image accepts `builtin` or a portable OCI image reference. A
+  custom image must already exist locally and preserve runtime API `1`, the
+  `tobari` image user, and the Tobari entrypoint. Tobari never pulls an image
+  implicitly.
 - The repository's optional `tobari-toolbox:local` recipe is a reviewed custom
   image workflow, not another built-in selector. Its explicit build verifies
-  pinned vendor artifacts and runtime compatibility; cluster startup and attach
+  pinned vendor artifacts and runtime compatibility; root runtime startup
   neither build nor pull it.
-- `attach --devcontainer` conflicts with `--image` and names one explicit
-  regular file below the canonical root. The supported JSONC subset requires
+- An explicitly configured Dev Container file is one regular file below the
+  canonical root. The supported JSONC subset requires
   one literal `image` and permits only inert `$schema`, `name`, and
   `customizations` metadata. Dockerfile, Compose, Features, mounts,
   environment, user, privileges, capabilities, ports, and lifecycle properties
   are rejected rather than ignored.
-- Names are unique display identities, not action selectors.
-- Repeated attach is idempotent only when name, canonical root, and image
-  selector all match.
-- A host `--cwd` must be inside the referenced Tobari root and maps byte-for-byte by
-  relative path under `/workspace`.
-- The command after `exec --` is positional and repeatable; Tobari does not
-  parse or infer its meaning.
 - Shared cluster mutations use one command-bound `tool_local` target.
-- Individual actions require exactly one `tobari_id` emitted by `list` and
-  never discover, decode, reconstruct, or guess a target by name.
+- CWD-local lifecycle operations use one command-bound `tool_local` current
+  directory target and do not accept an ID, name, or root selector.
 
 ## Output and exit contract
 
 Human output is concise text. Cluster status and cluster-denials JSON are
-schema version 1, and `list --format json` is schema version 2, with the selected
-image added to each item. Agent help uses the catalog schema. Successful data
-is stdout; failures are stderr.
+schema version 1. `list --format json` reports root, runtime diagnostic, and
+stable ID. Agent help uses the catalog schema. Successful data is stdout;
+failures are stderr.
 
 | Exit | Meaning |
 |---:|---|
@@ -117,8 +113,9 @@ is stdout; failures are stderr.
 | 13 | Declared contract violation |
 | other from `exec` | Exact child process exit status when Docker started it |
 
-Commands use complete delivery. `list` is exhaustive for local state at one
-observation point. Status is exhaustive for the shared cluster scope. Logs are
+Commands use complete delivery. `list` is exhaustive for local logical state at
+one observation point. `status` is a CWD-local scalar observation; cluster
+status is exhaustive for the shared cluster scope. Logs are
 a bounded recent window of 1 through 10,000 lines per selected component.
 Denials are a fully delivered typed projection from the requested bounded
 Gateway-line window; an empty `items` collection means no valid denial occurred
@@ -138,15 +135,19 @@ Configuration is resolved from
 - `credentials/`: secret files, required to be regular owner-readable files
   with no group/other permissions.
 
-Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`.
-The state contains paths and Docker resource names, never credential contents.
+Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`:
+`roots/<hash>.json` indexes canonical roots and
+`instances/<id>/state.json` contains one logical instance and diagnostic runtime
+identifiers. `instances/<id>/home` is the writable home. Shared read-only agent
+profiles are under `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles`.
+State contains paths and Docker resource names or identifiers, never credential
+contents.
 Environment variables select only XDG locations and test/runtime overrides
 documented in scoped help; they do not carry managed tokens.
 
-Image selection precedence is an explicit `attach --devcontainer` image,
-explicit `attach --image`, `config.json.default_image`, then `builtin` when the
-configuration file has not yet been initialized. The two explicit flags cannot
-be supplied together.
+Image selection uses configured bounded image metadata, then
+`config.json.default_image`, then `builtin` when configuration has not yet been
+initialized. Project metadata can select only a literal compatible image.
 
 OPA reads the policy bind with `--watch`. Because Docker-host file-event
 delivery varies by runtime, `policy apply` is the portable completion step: it
@@ -155,14 +156,14 @@ health.
 
 ## Side effects
 
-`cluster up` creates shared labeled networks, images, configuration material,
-Gateway, OPA, and CA volumes. It tags the built-in runtime both by asset
-version and as the local extension base `tobari-runtime:local`. `attach`
-inspects the selected local image for compatibility, creates one labeled
-container, one internal network, and one home volume, then joins Gateway to
-that network.
-`detach` removes only the exact label-owned container and network; `--purge`
-also removes that exact home. `cluster down` rejects while any Tobari remains
+The root command creates shared labeled networks, images, configuration
+material, Gateway, OPA, and CA volumes as needed. It tags the built-in runtime
+both by asset version and as the local extension base `tobari-runtime:local`.
+It creates or reuses the current root's labeled container and internal network,
+binds its XDG home, joins Gateway to that network, and enters the resulting
+terminal session. `delete` removes only that exact label-owned container,
+network, root index, instance state, and home. `cluster down` rejects while any
+Tobari remains
 and removes only exact shared resources; its `--purge` also removes shared CA
 volumes. No command removes a mounted root or files inside it.
 `policy apply` runs pinned OPA tests against the read-only host bind, then
@@ -179,8 +180,8 @@ discovery excludes other denials, preventing a successful no-op approval.
 ## Compatibility
 
 Before v1.0, command details and configuration schema may change with release
-notes. Schema-1 singleton state is not guessed or migrated automatically; users
-remove it with the matching older binary before starting the schema-2 cluster.
+notes. Legacy named state is not guessed or migrated automatically; users clean
+it with the matching older binary before adopting the CWD-owned lifecycle.
 Command names, resource labels, state schema, OPA input version, audit schema,
 and Gateway decision schema remain explicit compatibility boundaries.
 
