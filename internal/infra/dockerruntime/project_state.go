@@ -91,14 +91,14 @@ func (r *Runtime) ResolveOrCreateProject(
 			return fmt.Errorf("create project home: %w", err)
 		}
 		if err := r.writeProjectInstance(createdInstance); err != nil {
-			return err
+			return r.discardUnindexedProject(createdInstance, err)
 		}
 		if err := r.writeRootIndex(tobari.RootIndex{
 			SchemaVersion: tobari.ProjectStateSchemaVersion,
 			Root:          createdInstance.Root,
 			InstanceID:    createdInstance.ID,
 		}); err != nil {
-			return err
+			return r.discardUnindexedProject(createdInstance, err)
 		}
 		instance, created = createdInstance, true
 		return nil
@@ -107,6 +107,20 @@ func (r *Runtime) ResolveOrCreateProject(
 		return tobari.ProjectInstance{}, false, err
 	}
 	return instance, created, nil
+}
+
+func (r *Runtime) discardUnindexedProject(instance tobari.ProjectInstance, cause error) error {
+	directory, err := r.projectDirectory(instance.ID)
+	if err != nil {
+		return fmt.Errorf("%w; discard unindexed project: %v", cause, err)
+	}
+	if err := os.RemoveAll(directory); err != nil {
+		return fmt.Errorf("%w; discard unindexed project: %v", cause, err)
+	}
+	if err := syncDirectory(filepath.Dir(directory)); err != nil {
+		return fmt.Errorf("%w; sync discarded project state: %v", cause, err)
+	}
+	return cause
 }
 
 func (r *Runtime) resolveProjectImage(ctx context.Context, root string) (string, error) {

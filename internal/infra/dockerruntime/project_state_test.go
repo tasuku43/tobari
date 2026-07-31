@@ -2,6 +2,7 @@ package dockerruntime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -194,6 +195,52 @@ func TestProjectStateDoesNotTreatTemporaryAtomicFileAsState(t *testing.T) {
 	}
 	if !created || instance.ID == "" {
 		t.Fatalf("ResolveOrCreateProject() = (%+v, created=%t)", instance, created)
+	}
+}
+
+func TestResolveOrCreateProjectCleansUpAfterLogicalCreationBoundaryFailures(t *testing.T) {
+	t.Parallel()
+	tests := map[string]func(*testing.T, *Runtime, string){
+		"instance state": func(t *testing.T, runtime *Runtime, _ string) {
+			runtime.projectStateWriter = func(tobari.ProjectInstance) error {
+				return errors.New("injected instance state failure")
+			}
+		},
+		"root index": func(t *testing.T, runtime *Runtime, root string) {
+			path, err := runtime.rootIndexPath(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"home": func(t *testing.T, runtime *Runtime, _ string) {
+			if err := os.MkdirAll(filepath.Dir(runtime.instancesDirectory()), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(runtime.instancesDirectory(), []byte("not a directory"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, inject := range tests {
+		name, inject := name, inject
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			runtime := newProjectStateRuntime(t)
+			root := filepath.Join(t.TempDir(), "project")
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			inject(t, runtime, root)
+			if _, _, err := runtime.ResolveOrCreateProject(context.Background(), root); err == nil {
+				t.Fatal("ResolveOrCreateProject() unexpectedly succeeded")
+			}
+			if entries, err := os.ReadDir(runtime.instancesDirectory()); err == nil && len(entries) != 0 {
+				t.Fatalf("unindexed instance state remains after %s failure: %v", name, entries)
+			}
+		})
 	}
 }
 
