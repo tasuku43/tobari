@@ -125,6 +125,11 @@ container_for_id() {
   python3 -c 'import sys; print("tobari-" + sys.argv[1][:13].replace("-", "") + "-work")' "$id"
 }
 
+network_for_id() {
+  local id=$1
+  python3 -c 'import sys; print("tobari-" + sys.argv[1][:13].replace("-", "") + "-net")' "$id"
+}
+
 id_for_root() {
   local root=$1
   python3 -c \
@@ -263,6 +268,7 @@ list_json=$(run_tobari_at "$work_root" list --format json)
 work_id=$(id_for_root "$work_root" <<<"$list_json")
 other_id=$(id_for_root "$other_root" <<<"$list_json")
 work_container=$(container_for_id "$work_id")
+work_network=$(network_for_id "$work_id")
 other_container=$(container_for_id "$other_id")
 [[ $work_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
   fail "list did not return the project's stable ID"
@@ -302,6 +308,15 @@ run_tobari cluster up >/dev/null
 enter_tobari_at "$work_root"
 owned_containers=$(docker ps -a --filter label=io.tobari.owner=default --format '{{.Names}}' | wc -l | tr -d ' ')
 [[ $owned_containers == 4 ]] || fail "idempotent reconciliation left $owned_containers owned containers"
+
+docker rm -f "$work_container" >/dev/null
+enter_tobari_at "$work_root"
+docker network disconnect -f "$work_network" "$work_container" >/dev/null
+docker network disconnect -f "$work_network" tobari-gateway >/dev/null
+docker network rm "$work_network" >/dev/null
+enter_tobari_at "$work_root"
+status_after_reconcile=$(run_tobari_at "$work_root" status --format json)
+assert_contains "$status_after_reconcile" '"runtime":"ready"' "runtime recovery"
 
 if run_project test -e "/workspace${work_root}/credentials"; then
   fail "Tobari unexpectedly contains the host credential directory"
