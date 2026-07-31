@@ -59,6 +59,7 @@ func (osCommandRunner) Output(ctx context.Context, args, environment []string) (
 type Runtime struct {
 	configDirectory string
 	stateDirectory  string
+	dataDirectory   string
 	runner          commandRunner
 }
 
@@ -70,7 +71,14 @@ func New() (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newRuntime(filepath.Join(configHome, "tobari"), filepath.Join(stateHome, "tobari"), osCommandRunner{})
+	dataHome, err := resolveDataHome(os.Getenv("XDG_DATA_HOME"), os.UserHomeDir)
+	if err != nil {
+		return nil, err
+	}
+	return newRuntimeWithData(
+		filepath.Join(configHome, "tobari"), filepath.Join(stateHome, "tobari"),
+		filepath.Join(dataHome, "tobari"), osCommandRunner{},
+	)
 }
 
 func resolveRuntimeHomes(configHome, stateHome string, userHome func() (string, error)) (string, string, error) {
@@ -90,8 +98,30 @@ func resolveRuntimeHomes(configHome, stateHome string, userHome func() (string, 
 	return configHome, stateHome, nil
 }
 
+func resolveDataHome(dataHome string, userHome func() (string, error)) (string, error) {
+	if dataHome != "" {
+		return dataHome, nil
+	}
+	home, err := userHome()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home directory: %w", err)
+	}
+	return filepath.Join(home, ".local", "share"), nil
+}
+
 func newRuntime(configDirectory, stateDirectory string, runner commandRunner) (*Runtime, error) {
-	for name, path := range map[string]string{"configuration": configDirectory, "state": stateDirectory} {
+	return newRuntimeWithData(
+		configDirectory, stateDirectory,
+		filepath.Join(filepath.Dir(stateDirectory), "data", filepath.Base(stateDirectory)), runner,
+	)
+}
+
+func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, runner commandRunner) (*Runtime, error) {
+	for name, path := range map[string]string{
+		"configuration": configDirectory,
+		"state":         stateDirectory,
+		"data":          dataDirectory,
+	} {
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 			return nil, fmt.Errorf("%s directory must be canonical and absolute", name)
 		}
@@ -99,7 +129,12 @@ func newRuntime(configDirectory, stateDirectory string, runner commandRunner) (*
 	if runner == nil {
 		return nil, fmt.Errorf("Docker command runner is required")
 	}
-	return &Runtime{configDirectory: configDirectory, stateDirectory: stateDirectory, runner: runner}, nil
+	return &Runtime{
+		configDirectory: configDirectory,
+		stateDirectory:  stateDirectory,
+		dataDirectory:   dataDirectory,
+		runner:          runner,
+	}, nil
 }
 
 // ResolveRoot resolves symlinks and requires an existing directory.
