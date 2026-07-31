@@ -8,12 +8,14 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 type fakeRuntime struct {
 	state        tobari.State
+	clusterCalls int
 	attachCalls  int
 	detachCalls  int
 	policyCalls  int
@@ -64,7 +66,10 @@ func TestAttachRejectsUnsupportedDevContainerBeforeMutation(t *testing.T) {
 		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
 	}
 }
-func (f *fakeRuntime) ClusterUp(context.Context) (tobari.State, error) { return f.state, nil }
+func (f *fakeRuntime) ClusterUp(context.Context) (tobari.State, error) {
+	f.clusterCalls++
+	return f.state, nil
+}
 func (f *fakeRuntime) LoadState(context.Context) (tobari.State, bool, error) {
 	return f.state, true, nil
 }
@@ -141,6 +146,55 @@ func (f *fakeRuntime) Doctor(context.Context, string) (doctor.Report, error) {
 	return doctor.Report{Checks: []doctor.Check{{Name: "docker", Status: doctor.CheckStatusPass, Detail: "available"}}}, nil
 }
 
+type projectRuntimeFake struct {
+	*fakeRuntime
+	cwd          string
+	terminal     bool
+	inside       bool
+	project      tobari.ProjectInstance
+	found        bool
+	resolveCalls int
+	ensureCalls  int
+	enterCalls   int
+	deleteCalls  int
+}
+
+func (f *projectRuntimeFake) CurrentDirectory(context.Context) (string, error) { return f.cwd, nil }
+func (f *projectRuntimeFake) IsTerminal(io.Writer) bool                        { return f.terminal }
+func (f *projectRuntimeFake) InsideProject(context.Context) bool               { return f.inside }
+func (f *projectRuntimeFake) ResolveProject(context.Context, string) (tobari.ProjectInstance, bool, error) {
+	f.resolveCalls++
+	return f.project, f.found, nil
+}
+func (f *projectRuntimeFake) ResolveOrCreateProject(context.Context, string) (tobari.ProjectInstance, bool, error) {
+	f.resolveCalls++
+	return f.project, true, nil
+}
+func (f *projectRuntimeFake) ListProjects(context.Context) ([]tobari.ProjectInstance, error) {
+	if !f.found {
+		return []tobari.ProjectInstance{}, nil
+	}
+	return []tobari.ProjectInstance{f.project}, nil
+}
+func (f *projectRuntimeFake) ProjectHome(context.Context, tobari.ProjectInstance) (string, error) {
+	return "/tmp/tobari-home", nil
+}
+func (f *projectRuntimeFake) EnsureProjectRuntime(_ context.Context, _ tobari.State, instance tobari.ProjectInstance) (tobari.ProjectInstance, error) {
+	f.ensureCalls++
+	return instance, nil
+}
+func (f *projectRuntimeFake) InspectProjectRuntime(context.Context, tobari.ProjectInstance) (tobari.RuntimeDiagnostic, error) {
+	return tobari.RuntimeDiagnosticMissing, nil
+}
+func (f *projectRuntimeFake) EnterProjectRuntime(context.Context, tobari.ProjectInstance, string, io.Reader, io.Writer, io.Writer) (int, error) {
+	f.enterCalls++
+	return 0, nil
+}
+func (f *projectRuntimeFake) DeleteProject(context.Context, tobari.ProjectInstance) error {
+	f.deleteCalls++
+	return nil
+}
+
 func testState(root string) tobari.State {
 	instance := tobari.Instance{
 		ID: "tbr_0123456789abcdef0123456789abcdef", Name: "work",
@@ -164,6 +218,70 @@ func createIntent(command string) operation.Intent {
 			Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
 			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo,
 		},
+	}
+}
+
+func projectCreateIntent(command string) operation.Intent {
+	return operation.Intent{
+		Command: command, Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo,
+		},
+	}
+}
+
+func projectWriteIntent(command string) operation.Intent {
+	return operation.Intent{
+		Command: command, Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ID: tobari.CurrentDirectoryTargetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes,
+		},
+	}
+}
+
+func testProjectInstance() tobari.ProjectInstance {
+	return tobari.ProjectInstance{
+		SchemaVersion: tobari.ProjectStateSchemaVersion,
+		ID:            "01912345-6789-7abc-8def-0123456789ab",
+		Root:          "/tmp/project", Profile: tobari.DefaultProfile,
+		Image: tobari.BuiltinImageSelector,
+	}
+}
+
+func TestEnterProjectRejectsNonTTYBeforeCreatingOrReconciling(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project", terminal: false, project: testProjectInstance(),
+	}
+	_, err := New(fake).EnterProject(
+		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	if err == nil {
+		t.Fatal("EnterProject() accepted a non-TTY")
+	}
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "tty_required" || fake.clusterCalls != 0 || fake.resolveCalls != 0 {
+		t.Fatalf("error=%v public=%+v cluster=%d resolve=%d", err, public, fake.clusterCalls, fake.resolveCalls)
+	}
+}
+
+func TestProjectStatusPreservesExistsWhenRuntimeIsMissing(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project", found: true, project: testProjectInstance(),
+	}
+	result, err := New(fake).ProjectStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Exists || result.Runtime != tobari.RuntimeDiagnosticMissing || fake.resolveCalls != 1 {
+		t.Fatalf("status=%+v calls=%d", result, fake.resolveCalls)
 	}
 }
 

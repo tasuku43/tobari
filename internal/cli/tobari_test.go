@@ -10,32 +10,21 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-func TestDefaultCatalogPublishesNamedTobariReferenceFlow(t *testing.T) {
+func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
-	discover, found := catalog.Lookup("list")
-	if !found {
-		t.Fatal("list command is absent")
+	for _, path := range []string{"attach", "shell", "exec", "logs", "detach"} {
+		if _, found := catalog.Lookup(path); found {
+			t.Fatalf("retired command %q is still public", path)
+		}
 	}
-	wantProduced := []ProducedRef{{Kind: tobari.ReferenceKind, Field: "id"}}
-	if discover.Role != RoleDiscover || !reflect.DeepEqual(discover.ProducedRefs(), wantProduced) {
-		t.Fatalf("list reference contract = %+v", discover.ProducedRefs())
-	}
-	for _, path := range []string{"shell", "exec", "logs", "detach"} {
+	for _, path := range []string{"tobari", "delete"} {
 		command, found := catalog.Lookup(path)
-		if !found {
-			t.Fatalf("%s command is absent", path)
+		if !found || command.Role != RoleAct || command.Agent.FixedTarget == nil ||
+			command.Agent.FixedTarget.Kind != tobari.CurrentDirectoryTargetKind ||
+			len(command.ConsumedRefs()) != 0 {
+			t.Fatalf("%s fixed target = %+v", path, command.Agent.FixedTarget)
 		}
-		wantConsumed := []ConsumedRef{{Kind: tobari.ReferenceKind, Argument: "--id"}}
-		if command.Role != RoleAct || !reflect.DeepEqual(command.ConsumedRefs(), wantConsumed) {
-			t.Errorf("%s reference contract = %+v", path, command.ConsumedRefs())
-		}
-	}
-	attach, found := catalog.Lookup("attach")
-	if !found || attach.Agent.FixedTarget == nil ||
-		attach.Agent.FixedTarget.Kind != tobari.ClusterTargetKind ||
-		len(attach.ConsumedRefs()) != 0 {
-		t.Fatalf("attach fixed target = %+v", attach.Agent.FixedTarget)
 	}
 
 	for _, path := range []string{"policy candidates", "policy tail"} {
@@ -362,18 +351,11 @@ func assertJSONItemFieldsMatchCatalog(
 	}
 }
 
-func TestAttachRejectsImageAndDevContainerTogether(t *testing.T) {
+func TestRetiredNamedCommandsAreUnknown(t *testing.T) {
 	t.Parallel()
-	command, found := DefaultCatalog().Lookup("attach")
-	if !found {
-		t.Fatal("attach command is absent")
-	}
-	_, err := parseCommandInputs(command, []string{
-		"--name", "work", "--root", "/tmp/work",
-		"--image", "workbench:dev",
-		"--devcontainer", ".devcontainer/devcontainer.json",
-	})
-	if err == nil {
-		t.Fatal("conflicting image selectors were accepted")
+	for _, path := range []string{"attach", "lower", "enter", "lift"} {
+		if _, found := DefaultCatalog().Lookup(path); found {
+			t.Fatalf("retired command %q is still public", path)
+		}
 	}
 }

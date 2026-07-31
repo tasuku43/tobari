@@ -90,7 +90,9 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 		))
 	}
 	if len(commandArgs) == 0 {
-		return c.failUsage(ctx, "missing_command", "A command is required.", "help", "Discover available command outcomes.")
+		// The root invocation is the primary interactive outcome. Help remains
+		// explicit through `help` or `--help` and is handled before this branch.
+		commandArgs = []string{"tobari"}
 	}
 
 	commandArgs = normalizeRootAlias(commandArgs)

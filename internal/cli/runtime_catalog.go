@@ -19,12 +19,114 @@ func runtimeCommandSpecs() []CommandSpec {
 		policyCompactionsSpec(),
 		policyCompactSpec(),
 		policyApplySpec(),
-		attachSpec(),
+		projectEnterSpec(),
+		statusSpec(),
 		listSpec(),
-		shellSpec(),
-		execSpec(),
-		logsSpec(),
-		detachSpec(),
+		deleteSpec(),
+	}
+}
+
+func projectEnterSpec() CommandSpec {
+	return CommandSpec{
+		Path: "tobari", Summary: "Create or reuse the current directory's Tobari and enter it",
+		Effect: operation.EffectCreate, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "tobari.lifecycle",
+			Outcome:      "Resolve or create the nearest CWD-owned Tobari, recover its runtime, and enter an interactive session",
+			Inputs:       []CommandInput{}, Output: noOutput(),
+			Prerequisites: []string{
+				"The current directory is an accessible project directory.",
+				"The caller is attached to an interactive terminal.",
+			},
+			FixedTarget: fixedCurrentDirectoryTarget(),
+			Errors:      projectEnterErrors(),
+			Mutation: &MutationContract{
+				TargetKind: tobari.CurrentDirectoryTargetKind, TargetInputs: []string{},
+				Impact: operation.Impact{
+					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+					AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo,
+				},
+			},
+		},
+		handler: runProjectEnter,
+	}
+}
+
+func statusSpec() CommandSpec {
+	return CommandSpec{
+		Path: "status", Summary: "Inspect the nearest current-directory Tobari",
+		Args:   "[--format text|json]",
+		Effect: operation.EffectRead, Role: RoleUtility,
+		Agent: AgentContract{
+			CapabilityID: "tobari.lifecycle",
+			Outcome:      "Report whether a Tobari exists for the current directory and its recoverable runtime diagnostic",
+			Inputs:       []CommandInput{formatInput()},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Fields: []OutputField{
+					{Name: "exists", Type: OutputFieldTypeBoolean, Description: "Whether logical Tobari state exists for the current directory."},
+					{Name: "root", Type: OutputFieldTypeString, Description: "Nearest canonical project root when one exists."},
+					{Name: "id", Type: OutputFieldTypeString, Description: "Diagnostic stable logical ID when one exists."},
+					{Name: "home", Type: OutputFieldTypeString, Description: "Diagnostic per-Tobari XDG home path when one exists."},
+					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic, not logical lifecycle state."},
+				},
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
+				JSONEnvelope: "status", JSONSchemaVersion: 1,
+			},
+			Prerequisites: []string{},
+			Errors: readCommandErrors("status", true,
+				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
+				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local CWD-owned state."),
+				declaredCommandError(fault.KindInternal, "runtime_status_failed", false, "status", "Inspect the selected project's runtime."),
+				declaredCommandError(fault.KindContract, "invalid_status_contract", false, "help status", "Repair the CWD status contract."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+		},
+		handler: runProjectStatus,
+	}
+}
+
+func deleteSpec() CommandSpec {
+	return CommandSpec{
+		Path: "delete", Summary: "Delete the nearest current-directory Tobari",
+		Args: "[--force]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "tobari.lifecycle",
+			Outcome:      "Delete one nearest CWD-owned Tobari, its runtime resources, and its per-Tobari state",
+			Inputs: []CommandInput{{
+				Name: "--force", Source: InputSourceFlag, Required: false,
+				ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
+				Description: "Confirm destructive deletion without an interactive prompt.", AllowedValues: []string{}, DefaultValue: stringPointer("false"),
+			}},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+				Fields: []OutputField{
+					{Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Whether the selected logical Tobari was deleted."},
+					{Name: "root", Type: OutputFieldTypeString, Description: "Deleted canonical project root."},
+					{Name: "id", Type: OutputFieldTypeString, Description: "Deleted stable logical ID."},
+					{Name: "home", Type: OutputFieldTypeString, Description: "Deleted per-Tobari XDG home path."},
+				},
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
+			},
+			Prerequisites: []string{"The target is the nearest CWD-owned Tobari."},
+			FixedTarget:   fixedCurrentDirectoryTarget(),
+			Errors: mutationCommandErrors("delete", "status",
+				declaredCommandError(fault.KindRejected, "confirmation_required", false, "help delete", "Review the delete contract and confirm with --force."),
+				declaredCommandError(fault.KindNotFound, "project_not_found", false, "tobari", "Create a Tobari from the current project directory."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
+				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local CWD-owned state."),
+				declaredCommandError(fault.KindUnavailable, "runtime_reconcile_failed", false, "status", "Retry deletion after inspecting remaining runtime state."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.CurrentDirectoryTargetKind, TargetInputs: []string{},
+				Impact: operation.Impact{
+					Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+					AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes,
+				},
+			},
+		},
+		handler: runProjectDelete,
 	}
 }
 
@@ -473,29 +575,27 @@ func attachSpec() CommandSpec {
 
 func listSpec() CommandSpec {
 	return CommandSpec{
-		Path: "list", Summary: "List named Tobari and action IDs",
-		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
+		Path: "list", Summary: "List local CWD-owned Tobari roots",
+		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Return every configured Tobari and an opaque ID for exact later actions",
+			Outcome:      "Return every configured CWD-owned Tobari root with diagnostic runtime state",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
 				Fields: []OutputField{
-					{Name: "id", Type: OutputFieldTypeString, Description: "Opaque action reference.", ReferenceKind: tobari.ReferenceKind},
-					{Name: "name", Type: OutputFieldTypeString, Description: "Human-readable Tobari name."},
-					{Name: "root", Type: OutputFieldTypeString, Description: "Canonical host root."},
-					{Name: "image", Type: OutputFieldTypeString, Description: "Selected image selector."},
-					{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether the exact container is healthy."},
-					{Name: "container", Type: OutputFieldTypeString, Description: "Exact owned container name."},
+					{Name: "root", Type: OutputFieldTypeString, Description: "Canonical project root."},
+					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic."},
+					{Name: "id", Type: OutputFieldTypeString, Description: "Diagnostic stable logical ID; not a routine action input."},
+					{Name: "home", Type: OutputFieldTypeString, Description: "Per-Tobari XDG home path."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "tobari", JSONSchemaVersion: 2,
+				JSONEnvelope: "tobari", JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("list", true,
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindInternal, "list_failed", false, "cluster status", "Inspect Docker state."),
+				declaredCommandError(fault.KindInternal, "runtime_status_failed", false, "status", "Inspect the selected project's runtime."),
 				declaredCommandError(fault.KindContract, "invalid_list_contract", false, "doctor", "Repair list semantics."),
 				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "list", "Repair JSON projection."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
@@ -612,6 +712,32 @@ func fixedClusterTarget() *FixedTarget {
 		Description: "This installation's one shared local enforcement cluster.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
+}
+
+func fixedCurrentDirectoryTarget() *FixedTarget {
+	return &FixedTarget{
+		Kind: tobari.CurrentDirectoryTargetKind, ID: tobari.CurrentDirectoryTargetID,
+		Description: "The nearest logical Tobari selected from this process's canonical current directory.",
+		Scope:       FixedTargetScopeToolLocal,
+	}
+}
+
+func projectEnterErrors() []CommandError {
+	errors := mutationCommandErrors("tobari", "status")
+	filtered := errors[:0]
+	for _, declared := range errors {
+		if declared.Code != "mutation_output_write_failed" {
+			filtered = append(filtered, declared)
+		}
+	}
+	return append(filtered,
+		declaredCommandError(fault.KindInvalidInput, "tty_required", false, "help tobari", "Run the root command from an interactive terminal."),
+		declaredCommandError(fault.KindRejected, "already_inside", false, "help tobari", "Exit the current Tobari before entering another session."),
+		declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
+		declaredCommandError(fault.KindUnavailable, "runtime_reconcile_failed", false, "status", "Inspect the selected project's runtime."),
+		declaredCommandError(fault.KindInternal, "enter_failed", false, "status", "Inspect the selected project's runtime."),
+		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+	)
 }
 
 func idInput() CommandInput {

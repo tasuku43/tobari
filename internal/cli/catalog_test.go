@@ -141,7 +141,7 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 		"doctor", "help", "version",
 		"cluster up", "cluster status", "cluster denials", "cluster logs", "cluster down",
 		"policy apply",
-		"attach", "list", "shell", "exec", "logs", "detach",
+		"tobari", "status", "list", "delete",
 	} {
 		if !seen[required] {
 			t.Errorf("catalog is missing %q", required)
@@ -160,12 +160,10 @@ func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 		"cluster logs":    CollectionCoverageBoundedWindow,
 		"cluster down":    CollectionCoverageNotApplicable,
 		"policy apply":    CollectionCoverageNotApplicable,
-		"attach":          CollectionCoverageNotApplicable,
+		"tobari":          CollectionCoverageNotApplicable,
+		"status":          CollectionCoverageNotApplicable,
 		"list":            CollectionCoverageExhaustive,
-		"shell":           CollectionCoverageNotApplicable,
-		"exec":            CollectionCoverageNotApplicable,
-		"logs":            CollectionCoverageBoundedWindow,
-		"detach":          CollectionCoverageNotApplicable,
+		"delete":          CollectionCoverageNotApplicable,
 	}
 	for path, coverage := range wantCoverage {
 		command, found := DefaultCatalog().Lookup(path)

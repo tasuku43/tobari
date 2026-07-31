@@ -99,16 +99,15 @@ func TestExitCodesAreStable(t *testing.T) {
 	}
 }
 
-func TestNoArgsReturnsStructuredUsageFailure(t *testing.T) {
+func TestNoArgsDispatchesThePrimaryRootOutcome(t *testing.T) {
 	command, stdout, stderr := newTestCLI(passingInspector("unused"))
-	if code := runCLI(command, nil); code != ExitUsage {
-		t.Fatalf("Run(nil) code = %d, want %d", code, ExitUsage)
+	if code := runCLI(command, nil); code != ExitInternal {
+		t.Fatalf("Run(nil) code = %d, want %d", code, ExitInternal)
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "kind: invalid_input") || !strings.Contains(stderr.String(), "code: missing_command") ||
-		!strings.Contains(stderr.String(), "next_action: tobari help") {
+	if !strings.Contains(stderr.String(), "kind: internal") || !strings.Contains(stderr.String(), "code: missing_runtime") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

@@ -127,6 +127,33 @@ func (r ProjectListResult) Validate() error {
 	return nil
 }
 
+// ProjectDeleteResult records the exact logical target whose state was
+// confirmed deleted. It is separate from ProjectStatus because deletion is a
+// completed mutation, not an observation that the target still exists.
+type ProjectDeleteResult struct {
+	Task    string `json:"task"`
+	Deleted bool   `json:"deleted"`
+	Root    string `json:"root"`
+	ID      string `json:"id"`
+	Home    string `json:"home"`
+}
+
+func (r ProjectDeleteResult) Validate() error {
+	if r.Task != TaskDelete || !r.Deleted {
+		return fmt.Errorf("project delete result is incomplete")
+	}
+	if err := ValidateCanonicalRoot(r.Root); err != nil {
+		return err
+	}
+	if err := ValidateProjectID(r.ID); err != nil {
+		return err
+	}
+	if r.Home == "" || !filepath.IsAbs(r.Home) || filepath.Clean(r.Home) != r.Home {
+		return fmt.Errorf("project home is invalid")
+	}
+	return nil
+}
+
 var projectIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 // RootIndex binds one canonical host root to its stable logical Tobari ID.

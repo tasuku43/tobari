@@ -252,6 +252,58 @@ func runClusterDown(ctx context.Context, c *CLI, command CommandSpec, _ operatio
 	return c.emitMutationResult(ctx, command, renderClusterStatusText(status))
 }
 
+func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, _ ParsedInputs) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	code, err := c.tobari.EnterProject(ctx, intent, c.In, c.Out, c.Err)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return code
+}
+
+func runProjectStatus(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	result, err := c.tobari.ProjectStatus(ctx)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help status", "Correct the command arguments.")
+	}
+	output, err := renderProjectStatus(result, format)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitResult(ctx, output)
+}
+
+func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	force, _ := inputs.Boolean("--force")
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ID: tobari.CurrentDirectoryTargetID},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	result, err := c.tobari.DeleteProject(ctx, intent, force)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, renderProjectDelete(result))
+}
+
 func runAttach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
@@ -279,7 +331,7 @@ func runList(ctx context.Context, c *CLI, command CommandSpec, _ operation.Inten
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
-	result, err := c.tobari.List(ctx)
+	result, err := c.tobari.ProjectList(ctx)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -287,7 +339,7 @@ func runList(ctx context.Context, c *CLI, command CommandSpec, _ operation.Inten
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help list", "Correct the command arguments.")
 	}
-	output, err := renderTobariList(result, format)
+	output, err := renderProjectList(result, format)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -636,6 +688,88 @@ func renderTobariList(result tobari.ListResult, format successFormat) ([]byte, e
 		)
 	}
 	return output.Bytes(), nil
+}
+
+type projectStatusOutput struct {
+	Exists  bool   `json:"exists"`
+	Root    string `json:"root"`
+	ID      string `json:"id"`
+	Home    string `json:"home"`
+	Runtime string `json:"runtime"`
+}
+
+type projectStatusDocument struct {
+	SchemaVersion int                 `json:"schema_version"`
+	Status        projectStatusOutput `json:"status"`
+}
+
+func renderProjectStatus(result tobari.ProjectStatus, format successFormat) ([]byte, error) {
+	if err := result.Validate(); err != nil {
+		return nil, fault.Wrap(fault.KindContract, "invalid_status_contract", "project status is invalid", false, err)
+	}
+	value := projectStatusOutput{
+		Exists: result.Exists, Root: safeExternalText(result.Root), ID: result.ID,
+		Home: safeExternalText(result.Home), Runtime: string(result.Runtime),
+	}
+	if format == successFormatJSON {
+		output, err := json.Marshal(projectStatusDocument{SchemaVersion: 1, Status: value})
+		if err != nil {
+			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project status JSON could not be encoded", false, err)
+		}
+		return append(output, '\n'), nil
+	}
+	if !result.Exists {
+		return []byte("No Tobari exists for the current directory\n"), nil
+	}
+	var output bytes.Buffer
+	fmt.Fprintf(&output, "Tobari exists at %s\n", escapeTSVCell(result.Root))
+	fmt.Fprintf(&output, "Runtime: %s\n", escapeTSVCell(string(result.Runtime)))
+	return output.Bytes(), nil
+}
+
+type projectListOutput struct {
+	Root    string `json:"root"`
+	Runtime string `json:"runtime"`
+	ID      string `json:"id"`
+}
+
+type projectListDocument struct {
+	SchemaVersion int                 `json:"schema_version"`
+	Tobari        []projectListOutput `json:"tobari"`
+}
+
+func renderProjectList(result tobari.ProjectListResult, format successFormat) ([]byte, error) {
+	if err := result.Validate(); err != nil {
+		return nil, fault.Wrap(fault.KindContract, "invalid_list_contract", "project list is invalid", false, err)
+	}
+	items := make([]projectListOutput, 0, len(result.Items))
+	for _, item := range result.Items {
+		items = append(items, projectListOutput{
+			Root: safeExternalText(item.Root), Runtime: string(item.Runtime), ID: item.ID,
+		})
+	}
+	if format == successFormatJSON {
+		output, err := json.Marshal(projectListDocument{SchemaVersion: 1, Tobari: items})
+		if err != nil {
+			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project list JSON could not be encoded", false, err)
+		}
+		return append(output, '\n'), nil
+	}
+	var output bytes.Buffer
+	fmt.Fprintln(&output, "ROOT\tRUNTIME\tID")
+	for _, item := range items {
+		fmt.Fprintf(&output, "%s\t%s\t%s\n", escapeTSVCell(item.Root), item.Runtime, item.ID)
+	}
+	return output.Bytes(), nil
+}
+
+func renderProjectDelete(result tobari.ProjectDeleteResult) []byte {
+	var output bytes.Buffer
+	fmt.Fprintf(&output, "deleted: %t\n", result.Deleted)
+	fmt.Fprintf(&output, "root: %s\n", escapeTSVCell(result.Root))
+	fmt.Fprintf(&output, "id: %s\n", result.ID)
+	fmt.Fprintf(&output, "home: %s\n", escapeTSVCell(result.Home))
+	return output.Bytes()
 }
 
 func renderSafeLogs(raw []byte) []byte {

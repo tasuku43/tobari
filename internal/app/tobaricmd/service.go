@@ -265,16 +265,16 @@ func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, er
 
 // DeleteProject removes only the nearest CWD-owned logical Tobari after the
 // caller has completed the explicit destructive confirmation.
-func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, force bool) error {
+func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, force bool) (tobari.ProjectDeleteResult, error) {
 	project, err := s.projectRuntime()
 	if err != nil {
-		return err
+		return tobari.ProjectDeleteResult{}, err
 	}
 	if err := s.validateProjectIntent(intent, operation.EffectWrite); err != nil {
-		return err
+		return tobari.ProjectDeleteResult{}, err
 	}
 	if !force {
-		return fault.New(
+		return tobari.ProjectDeleteResult{}, fault.New(
 			fault.KindRejected, "confirmation_required",
 			"deleting a Tobari requires explicit confirmation; use --force", false,
 			fault.NextAction{Command: "delete --force", Reason: "Confirm removal of the current directory's Tobari."},
@@ -282,26 +282,38 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 	}
 	cwd, err := s.runtime.CurrentDirectory(ctx)
 	if err != nil {
-		return fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
+		return tobari.ProjectDeleteResult{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
 	instance, found, err := project.ResolveProject(ctx, cwd)
 	if err != nil {
-		return fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
+		return tobari.ProjectDeleteResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
 	}
 	if !found {
-		return fault.New(fault.KindNotFound, "project_not_found", "no Tobari exists for the current directory", false,
+		return tobari.ProjectDeleteResult{}, fault.New(fault.KindNotFound, "project_not_found", "no Tobari exists for the current directory", false,
 			fault.NextAction{Command: "tobari", Reason: "Create a Tobari from the current project directory."})
+	}
+	home, err := project.ProjectHome(ctx, instance)
+	if err != nil {
+		return tobari.ProjectDeleteResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project home path could not be resolved", false, err)
 	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
-	return s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
 		if actionErr := project.DeleteProject(actionContext, instance); actionErr != nil {
 			return classifyProjectMutationError(actionErr, "delete", "status", "deletion did not complete; retry delete after inspecting status")
 		}
 		return nil
 	})
+	if err != nil {
+		return tobari.ProjectDeleteResult{}, err
+	}
+	result := tobari.ProjectDeleteResult{Task: tobari.TaskDelete, Deleted: true, Root: instance.Root, ID: instance.ID, Home: home}
+	if err := result.Validate(); err != nil {
+		return tobari.ProjectDeleteResult{}, fault.Wrap(fault.KindContract, "invalid_delete_contract", "project delete result is invalid", false, err)
+	}
+	return result, nil
 }
 
 // ClusterUp creates or reconciles the shared enforcement cluster.
