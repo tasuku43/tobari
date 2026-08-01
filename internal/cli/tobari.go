@@ -1072,10 +1072,12 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 		output.heading("✓", fmt.Sprintf("Workspaces (%d)", len(items)), colorTokenSuccess)
 		for _, item := range items {
 			marker := "  "
+			rootToken := colorTokenAccent
 			if item.ID == result.CurrentID {
 				marker = "▸ "
+				rootToken = colorTokenSelected
 			}
-			output.section(marker + item.Root)
+			output.sectionWithToken(marker+item.Root, rootToken)
 			output.row("Runtime", item.Runtime, humanStatusToken(item.Runtime))
 			output.row("ID", item.ID, colorTokenMuted)
 		}

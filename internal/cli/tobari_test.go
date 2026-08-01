@@ -160,7 +160,7 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndMutedID(t *testing.T) {
 		applyColorToken(true, colorTokenSuccess, "✓"),
 		applyColorToken(true, colorTokenAccent, "Workspaces (2)"),
 		applyColorToken(true, colorTokenAccent, "  /tmp/parent"),
-		applyColorToken(true, colorTokenAccent, "▸ /tmp/project"),
+		applyColorToken(true, colorTokenSelected, "▸ /tmp/project"),
 		applyColorToken(true, colorTokenSuccess, "ready"),
 		applyColorToken(true, colorTokenWarning, "missing"),
 		applyColorToken(true, colorTokenMuted, "01912345-6789-7abc-8def-0123456789ab"),
@@ -174,6 +174,9 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndMutedID(t *testing.T) {
 	}
 	if strings.Contains(value, applyColorToken(true, colorTokenAccent, "01912345-6789-7abc-8def-0123456789ab")) {
 		t.Fatalf("workspace ID used accent instead of muted: %q", value)
+	}
+	if strings.Contains(value, applyColorToken(true, colorTokenSelected, "  /tmp/parent")) {
+		t.Fatalf("non-selected workspace used selected color: %q", value)
 	}
 }
 

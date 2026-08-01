@@ -6,21 +6,23 @@ package cli
 type colorToken string
 
 const (
-	colorTokenMuted   colorToken = "muted"
-	colorTokenAccent  colorToken = "accent"
-	colorTokenSuccess colorToken = "success"
-	colorTokenWarning colorToken = "warning"
-	colorTokenError   colorToken = "error"
+	colorTokenMuted    colorToken = "muted"
+	colorTokenAccent   colorToken = "accent"
+	colorTokenSelected colorToken = "selected"
+	colorTokenSuccess  colorToken = "success"
+	colorTokenWarning  colorToken = "warning"
+	colorTokenError    colorToken = "error"
 )
 
 const ansiReset = "\x1b[0m"
 
 var ansiColorTokens = map[colorToken]string{
-	colorTokenMuted:   "\x1b[2m",
-	colorTokenAccent:  "\x1b[36m",
-	colorTokenSuccess: "\x1b[32m",
-	colorTokenWarning: "\x1b[33m",
-	colorTokenError:   "\x1b[31m",
+	colorTokenMuted:    "\x1b[2m",
+	colorTokenAccent:   "\x1b[36m",
+	colorTokenSelected: "\x1b[96m",
+	colorTokenSuccess:  "\x1b[32m",
+	colorTokenWarning:  "\x1b[33m",
+	colorTokenError:    "\x1b[31m",
 }
 
 func applyColorToken(enabled bool, token colorToken, value string) string {

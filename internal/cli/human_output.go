@@ -27,10 +27,14 @@ func (o *humanOutput) heading(marker, title string, token colorToken) {
 }
 
 func (o *humanOutput) section(title string) {
+	o.sectionWithToken(title, colorTokenAccent)
+}
+
+func (o *humanOutput) sectionWithToken(title string, token colorToken) {
 	if o.Len() > 0 && !strings.HasSuffix(o.String(), "\n\n") {
 		o.WriteByte('\n')
 	}
-	fmt.Fprintln(&o.Buffer, applyColorToken(o.color, colorTokenAccent, title))
+	fmt.Fprintln(&o.Buffer, applyColorToken(o.color, token, title))
 }
 
 // row aligns the label before applying color so ANSI escape bytes never affect
