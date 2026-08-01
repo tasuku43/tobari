@@ -2,10 +2,12 @@ package tobari
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -22,6 +24,10 @@ const (
 	CurrentDirectoryTargetKind = "current-directory-tobari"
 	CurrentDirectoryTargetID   = "current-directory"
 )
+
+// ErrProjectExists means a caller requested creation at a root that became
+// indexed after its read-only selection snapshot was taken.
+var ErrProjectExists = errors.New("a project already exists at the requested root")
 
 // RuntimeDiagnostic describes recoverable Docker health. It is deliberately
 // separate from logical Tobari existence: a missing container never changes a
@@ -223,6 +229,136 @@ type ProjectInstance struct {
 	Incomplete bool `json:"-"`
 }
 
+// ProjectSelectionCandidate is the presentation-independent identity and
+// runtime state of one Workspace that contains a canonical current directory.
+// ID is an internal binding value; it is never a routine user input.
+type ProjectSelectionCandidate struct {
+	ID      string
+	Root    string
+	Runtime RuntimeDiagnostic
+}
+
+func (c ProjectSelectionCandidate) Validate(cwd string) error {
+	if err := ValidateCanonicalRoot(cwd); err != nil {
+		return err
+	}
+	if err := ValidateProjectID(c.ID); err != nil {
+		return err
+	}
+	if err := ValidateCanonicalRoot(c.Root); err != nil {
+		return err
+	}
+	if !containsRoot(c.Root, cwd) {
+		return fmt.Errorf("selection candidate root does not contain the current directory")
+	}
+	return c.Runtime.Validate()
+}
+
+// ProjectSelection is a complete read-only snapshot used to resolve an
+// ambiguous current-directory entry. Candidates are ordered nearest-first.
+// CanCreate is false when the current directory is already an indexed root.
+type ProjectSelection struct {
+	CWD        string                      `json:"-"`
+	Candidates []ProjectSelectionCandidate `json:"-"`
+	CanCreate  bool                        `json:"-"`
+}
+
+func (s ProjectSelection) Validate() error {
+	if err := ValidateCanonicalRoot(s.CWD); err != nil {
+		return err
+	}
+	if s.Candidates == nil {
+		return fmt.Errorf("project selection candidates must be an explicit collection")
+	}
+	seenIDs := make(map[string]bool, len(s.Candidates))
+	seenRoots := make(map[string]bool, len(s.Candidates))
+	hasCurrentRoot := false
+	for index, candidate := range s.Candidates {
+		if err := candidate.Validate(s.CWD); err != nil {
+			return fmt.Errorf("selection candidate %d is invalid: %w", index, err)
+		}
+		if seenIDs[candidate.ID] {
+			return fmt.Errorf("selection candidate IDs must be unique")
+		}
+		if seenRoots[candidate.Root] {
+			return fmt.Errorf("selection candidate roots must be unique")
+		}
+		seenIDs[candidate.ID] = true
+		seenRoots[candidate.Root] = true
+		if candidate.Root == s.CWD {
+			hasCurrentRoot = true
+		}
+		if index > 0 {
+			previous := s.Candidates[index-1]
+			if len(previous.Root) < len(candidate.Root) ||
+				(len(previous.Root) == len(candidate.Root) && previous.Root > candidate.Root) {
+				return fmt.Errorf("selection candidates must be ordered nearest-first")
+			}
+		}
+	}
+	if s.CanCreate == hasCurrentRoot {
+		return fmt.Errorf("selection create option does not match current-root presence")
+	}
+	return nil
+}
+
+// RequiresChoice is true only when one or more ancestor candidates exist and
+// no exact current-root Workspace can be entered directly.
+func (s ProjectSelection) RequiresChoice() bool {
+	return len(s.Candidates) > 0 && s.Candidates[0].Root != s.CWD
+}
+
+func (s ProjectSelection) Candidate(id string) (ProjectSelectionCandidate, bool) {
+	for _, candidate := range s.Candidates {
+		if candidate.ID == id {
+			return candidate, true
+		}
+	}
+	return ProjectSelectionCandidate{}, false
+}
+
+type ProjectSelectionChoiceKind string
+
+const (
+	ProjectSelectionUse    ProjectSelectionChoiceKind = "use"
+	ProjectSelectionCreate ProjectSelectionChoiceKind = "create"
+)
+
+// ProjectSelectionChoice is returned by the interactive selector. A use
+// choice binds one candidate ID from the validated snapshot; create has no ID
+// and always means the canonical current directory.
+type ProjectSelectionChoice struct {
+	Kind ProjectSelectionChoiceKind
+	ID   string
+}
+
+func (s ProjectSelection) ValidateChoice(choice ProjectSelectionChoice) error {
+	switch choice.Kind {
+	case ProjectSelectionCreate:
+		if choice.ID != "" {
+			return fmt.Errorf("create choice must not contain a candidate ID")
+		}
+		if !s.CanCreate {
+			return fmt.Errorf("current directory already has a Workspace")
+		}
+		return nil
+	case ProjectSelectionUse:
+		if choice.ID == "" {
+			return fmt.Errorf("use choice requires a candidate ID")
+		}
+		candidate, found := s.Candidate(choice.ID)
+		if !found {
+			return fmt.Errorf("selection candidate is not present in the snapshot")
+		}
+		if candidate.Runtime == RuntimeDiagnosticIncomplete {
+			return fmt.Errorf("selection candidate has incomplete logical state")
+		}
+		return nil
+	default:
+		return fmt.Errorf("selection choice kind is invalid")
+	}
+}
+
 // Validate rejects invalid durable logical state before runtime reconciliation.
 func (p ProjectInstance) Validate() error {
 	if p.SchemaVersion != ProjectStateSchemaVersion {
@@ -359,28 +495,43 @@ func ValidateCanonicalRoot(root string) error {
 	return nil
 }
 
-// NearestRoot returns the containing indexed root with the longest canonical
-// path. Inputs have already been canonicalized by infrastructure.
-func NearestRoot(cwd string, indexes []RootIndex) (RootIndex, bool, error) {
+// ContainingRoots returns every indexed root containing cwd, ordered from the
+// nearest root to the farthest ancestor. Inputs have already been canonicalized
+// by infrastructure, but each index is still validated before use.
+func ContainingRoots(cwd string, indexes []RootIndex) ([]RootIndex, error) {
 	if err := ValidateCanonicalRoot(cwd); err != nil {
-		return RootIndex{}, false, err
+		return nil, err
 	}
-	var (
-		nearest RootIndex
-		found   bool
-	)
+	containing := make([]RootIndex, 0, len(indexes))
 	for _, index := range indexes {
 		if err := index.Validate(); err != nil {
-			return RootIndex{}, false, err
+			return nil, err
 		}
 		if !containsRoot(index.Root, cwd) {
 			continue
 		}
-		if !found || len(index.Root) > len(nearest.Root) {
-			nearest, found = index, true
-		}
+		containing = append(containing, index)
 	}
-	return nearest, found, nil
+	sort.SliceStable(containing, func(left, right int) bool {
+		if len(containing[left].Root) != len(containing[right].Root) {
+			return len(containing[left].Root) > len(containing[right].Root)
+		}
+		return containing[left].Root < containing[right].Root
+	})
+	return containing, nil
+}
+
+// NearestRoot returns the containing indexed root with the longest canonical
+// path. Inputs have already been canonicalized by infrastructure.
+func NearestRoot(cwd string, indexes []RootIndex) (RootIndex, bool, error) {
+	containing, err := ContainingRoots(cwd, indexes)
+	if err != nil {
+		return RootIndex{}, false, err
+	}
+	if len(containing) == 0 {
+		return RootIndex{}, false, nil
+	}
+	return containing[0], true, nil
 }
 
 func containsRoot(root, candidate string) bool {

@@ -110,6 +110,89 @@ func TestNearestRootSelectsNearestAncestor(t *testing.T) {
 	}
 }
 
+func TestContainingRootsReturnsEveryAncestorNearestFirst(t *testing.T) {
+	t.Parallel()
+	indexes := []RootIndex{
+		{SchemaVersion: 1, Root: "/src", InstanceID: "018bcfe5-687b-7000-8000-000000000000"},
+		{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000001"},
+		{SchemaVersion: 1, Root: "/src/project/internal", InstanceID: "018bcfe5-687b-7000-8000-000000000002"},
+	}
+	got, err := ContainingRoots("/src/project/internal/cli", indexes)
+	if err != nil {
+		t.Fatalf("ContainingRoots() error = %v", err)
+	}
+	want := []string{"/src/project/internal", "/src/project", "/src"}
+	if len(got) != len(want) {
+		t.Fatalf("ContainingRoots() = %+v, want %d roots", got, len(want))
+	}
+	for index, root := range want {
+		if got[index].Root != root {
+			t.Fatalf("ContainingRoots()[%d] = %q, want %q", index, got[index].Root, root)
+		}
+	}
+}
+
+func TestProjectSelectionDistinguishesAncestorReuseAndExplicitCreate(t *testing.T) {
+	t.Parallel()
+	ancestor := ProjectSelectionCandidate{
+		ID: "018bcfe5-687b-7000-8000-000000000000", Root: "/src/project",
+		Runtime: RuntimeDiagnosticReady,
+	}
+	selection := ProjectSelection{
+		CWD: "/src/project/internal", Candidates: []ProjectSelectionCandidate{ancestor}, CanCreate: true,
+	}
+	if err := selection.Validate(); err != nil {
+		t.Fatalf("ProjectSelection.Validate() error = %v", err)
+	}
+	if !selection.RequiresChoice() {
+		t.Fatal("ancestor selection did not require a choice")
+	}
+	if err := selection.ValidateChoice(ProjectSelectionChoice{Kind: ProjectSelectionUse, ID: ancestor.ID}); err != nil {
+		t.Fatalf("use choice rejected: %v", err)
+	}
+	if err := selection.ValidateChoice(ProjectSelectionChoice{Kind: ProjectSelectionCreate}); err != nil {
+		t.Fatalf("create choice rejected: %v", err)
+	}
+
+	exact := selection
+	exact.Candidates = []ProjectSelectionCandidate{{
+		ID: ancestor.ID, Root: selection.CWD, Runtime: RuntimeDiagnosticReady,
+	}}
+	exact.CanCreate = false
+	if err := exact.Validate(); err != nil {
+		t.Fatalf("exact ProjectSelection.Validate() error = %v", err)
+	}
+	if exact.RequiresChoice() {
+		t.Fatal("exact current-root selection unexpectedly required a choice")
+	}
+	if err := exact.ValidateChoice(ProjectSelectionChoice{Kind: ProjectSelectionCreate}); err == nil {
+		t.Fatal("exact current-root selection accepted an explicit create choice")
+	}
+}
+
+func TestProjectSelectionRejectsMissingAndIncompleteChoices(t *testing.T) {
+	t.Parallel()
+	selection := ProjectSelection{
+		CWD: "/src/project/internal", CanCreate: true,
+		Candidates: []ProjectSelectionCandidate{{
+			ID: "018bcfe5-687b-7000-8000-000000000000", Root: "/src/project",
+			Runtime: RuntimeDiagnosticIncomplete,
+		}},
+	}
+	if err := selection.Validate(); err != nil {
+		t.Fatalf("ProjectSelection.Validate() error = %v", err)
+	}
+	for _, choice := range []ProjectSelectionChoice{
+		{Kind: ProjectSelectionUse},
+		{Kind: ProjectSelectionUse, ID: "018bcfe5-687b-7000-8000-000000000001"},
+		{Kind: ProjectSelectionUse, ID: "018bcfe5-687b-7000-8000-000000000000"},
+	} {
+		if err := selection.ValidateChoice(choice); err == nil {
+			t.Fatalf("selection accepted invalid choice %+v", choice)
+		}
+	}
+}
+
 func TestNearestRootRejectsPathPrefixConfusion(t *testing.T) {
 	t.Parallel()
 	indexes := []RootIndex{{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000000"}}
