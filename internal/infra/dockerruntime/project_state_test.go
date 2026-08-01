@@ -56,6 +56,39 @@ func TestResolveOrCreateProjectCreatesDurableCWDState(t *testing.T) {
 	}
 }
 
+func TestCreateProjectAllowsExplicitNestedWorkspaceCreation(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	base := t.TempDir()
+	parent := filepath.Join(base, "project")
+	child := filepath.Join(parent, "internal")
+	if err := os.MkdirAll(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	canonicalChild, err := runtime.ResolveRoot(context.Background(), child)
+	if err != nil {
+		t.Fatalf("ResolveRoot(child) error = %v", err)
+	}
+	parentInstance, _, err := runtime.ResolveOrCreateProject(context.Background(), parent)
+	if err != nil {
+		t.Fatalf("ResolveOrCreateProject(parent) error = %v", err)
+	}
+	childInstance, err := runtime.CreateProject(context.Background(), child)
+	if err != nil {
+		t.Fatalf("CreateProject(child) error = %v", err)
+	}
+	if childInstance.Root != canonicalChild || childInstance.ID == parentInstance.ID {
+		t.Fatalf("CreateProject(child) = %+v, parent = %+v", childInstance, parentInstance)
+	}
+	resolved, found, err := runtime.ResolveProject(context.Background(), child)
+	if err != nil || !found || resolved.ID != childInstance.ID || resolved.Root != canonicalChild {
+		t.Fatalf("ResolveProject(child) = (%+v, %t, %v)", resolved, found, err)
+	}
+	if _, err := runtime.CreateProject(context.Background(), child); !errors.Is(err, tobari.ErrProjectExists) {
+		t.Fatalf("CreateProject(existing child) error = %v, want ErrProjectExists", err)
+	}
+}
+
 func TestResolveProjectFollowsCanonicalSymlink(t *testing.T) {
 	t.Parallel()
 	runtime := newProjectStateRuntime(t)

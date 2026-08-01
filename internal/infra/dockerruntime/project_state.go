@@ -206,45 +206,9 @@ func (r *Runtime) ResolveOrCreateProject(
 			instance = loaded
 			return nil
 		}
-		image, imageErr := r.resolveProjectImage(ctx, resolved)
-		if imageErr != nil {
-			return imageErr
-		}
-		createdInstance, createErr := tobari.NewProductionProjectInstance(resolved, image)
+		createdInstance, createErr := r.createProjectUnlocked(ctx, resolved)
 		if createErr != nil {
 			return createErr
-		}
-		journal := projectJournal{
-			SchemaVersion: projectJournalSchema, Operation: projectOpCreate,
-			ProjectID: createdInstance.ID, Root: createdInstance.Root, Phase: projectPhaseStarted,
-		}
-		if err := r.writeProjectJournal(journal); err != nil {
-			return err
-		}
-		if err := r.ensurePrivateDirectory(r.projectHomePath(createdInstance.ID)); err != nil {
-			return r.discardUnindexedProject(createdInstance, fmt.Errorf("create project home: %w", err))
-		}
-		journal.Phase = projectPhaseHome
-		if err := r.writeProjectJournal(journal); err != nil {
-			return err
-		}
-		if err := r.writeProjectInstance(createdInstance); err != nil {
-			return r.discardUnindexedProject(createdInstance, err)
-		}
-		journal.Phase = projectPhaseState
-		if err := r.writeProjectJournal(journal); err != nil {
-			return err
-		}
-		if err := r.writeRootIndex(tobari.RootIndex{
-			SchemaVersion: tobari.ProjectStateSchemaVersion,
-			Root:          createdInstance.Root,
-			InstanceID:    createdInstance.ID,
-		}); err != nil {
-			return r.discardUnindexedProject(createdInstance, err)
-		}
-		journal.Phase = projectPhaseIndex
-		if err := r.clearProjectJournal(); err != nil {
-			return err
 		}
 		instance, created = createdInstance, true
 		return nil
@@ -253,6 +217,85 @@ func (r *Runtime) ResolveOrCreateProject(
 		return tobari.ProjectInstance{}, false, err
 	}
 	return instance, created, nil
+}
+
+// CreateProject always creates a logical Workspace at the canonical cwd. It
+// intentionally permits containing ancestor roots, but rejects an exact root
+// that appeared after the caller's selection snapshot.
+func (r *Runtime) CreateProject(ctx context.Context, cwd string) (tobari.ProjectInstance, error) {
+	resolved, err := r.ResolveProjectRoot(ctx, cwd)
+	if err != nil {
+		return tobari.ProjectInstance{}, err
+	}
+	var instance tobari.ProjectInstance
+	err = r.withProjectLock(ctx, func() error {
+		if err := r.reconcileProjectJournal(); err != nil {
+			return err
+		}
+		indexes, err := r.listRootIndexes()
+		if err != nil {
+			return err
+		}
+		for _, index := range indexes {
+			if index.Root == resolved {
+				return tobari.ErrProjectExists
+			}
+		}
+		created, err := r.createProjectUnlocked(ctx, resolved)
+		if err != nil {
+			return err
+		}
+		instance = created
+		return nil
+	})
+	if err != nil {
+		return tobari.ProjectInstance{}, err
+	}
+	return instance, nil
+}
+
+func (r *Runtime) createProjectUnlocked(ctx context.Context, resolved string) (tobari.ProjectInstance, error) {
+	image, imageErr := r.resolveProjectImage(ctx, resolved)
+	if imageErr != nil {
+		return tobari.ProjectInstance{}, imageErr
+	}
+	createdInstance, createErr := tobari.NewProductionProjectInstance(resolved, image)
+	if createErr != nil {
+		return tobari.ProjectInstance{}, createErr
+	}
+	journal := projectJournal{
+		SchemaVersion: projectJournalSchema, Operation: projectOpCreate,
+		ProjectID: createdInstance.ID, Root: createdInstance.Root, Phase: projectPhaseStarted,
+	}
+	if err := r.writeProjectJournal(journal); err != nil {
+		return tobari.ProjectInstance{}, err
+	}
+	if err := r.ensurePrivateDirectory(r.projectHomePath(createdInstance.ID)); err != nil {
+		return tobari.ProjectInstance{}, r.discardUnindexedProject(createdInstance, fmt.Errorf("create project home: %w", err))
+	}
+	journal.Phase = projectPhaseHome
+	if err := r.writeProjectJournal(journal); err != nil {
+		return tobari.ProjectInstance{}, err
+	}
+	if err := r.writeProjectInstance(createdInstance); err != nil {
+		return tobari.ProjectInstance{}, r.discardUnindexedProject(createdInstance, err)
+	}
+	journal.Phase = projectPhaseState
+	if err := r.writeProjectJournal(journal); err != nil {
+		return tobari.ProjectInstance{}, err
+	}
+	if err := r.writeRootIndex(tobari.RootIndex{
+		SchemaVersion: tobari.ProjectStateSchemaVersion,
+		Root:          createdInstance.Root,
+		InstanceID:    createdInstance.ID,
+	}); err != nil {
+		return tobari.ProjectInstance{}, r.discardUnindexedProject(createdInstance, err)
+	}
+	journal.Phase = projectPhaseIndex
+	if err := r.clearProjectJournal(); err != nil {
+		return tobari.ProjectInstance{}, err
+	}
+	return createdInstance, nil
 }
 
 func (r *Runtime) discardUnindexedProject(instance tobari.ProjectInstance, cause error) error {
