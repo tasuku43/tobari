@@ -138,15 +138,136 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 	status := tobari.ClusterStatus{
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
 		Proxy: "http://gateway:8080", Policy: "/tmp/config/tobari/policy",
-		TobariCount: 2, Components: []tobari.ComponentStatus{},
+		TobariCount: 2, Components: []tobari.ComponentStatus{
+			{Name: "gateway", State: "running", Health: "healthy"},
+			{Name: "opa", State: "running", Health: "healthy"},
+		},
 	}
 	output := string(renderClusterStatusText(status))
 	for _, expected := range []string{
-		"policy: /tmp/config/tobari/policy", "tobari_count: 2", "running: true",
+		"✓ Cluster ready", "  Gateway  healthy", "  OPA      healthy",
+		"  Policy   /tmp/config/tobari/policy", "  Tobari   2",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("status output %q lacks %q", output, expected)
 		}
+	}
+	for _, omitted := range []string{"Configured", "Running", "Proxy"} {
+		if strings.Contains(output, omitted) {
+			t.Fatalf("ready summary retained redundant detail %q: %q", omitted, output)
+		}
+	}
+}
+
+func TestClusterStatusTextUsesSameSummaryForUnconfiguredAndNotReadyStates(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		status tobari.ClusterStatus
+		want   []string
+	}{
+		{
+			name: "unconfigured",
+			status: tobari.ClusterStatus{
+				Task: tobari.TaskClusterStatus, Components: []tobari.ComponentStatus{},
+			},
+			want: []string{"○ Cluster not configured"},
+		},
+		{
+			name: "not ready",
+			status: tobari.ClusterStatus{
+				Task: tobari.TaskClusterStatus, Configured: true, Running: false,
+				Proxy: "http://gateway:8080", Policy: "/tmp/config/tobari/policy",
+				Components: []tobari.ComponentStatus{{
+					Name: "gateway", State: "running", Health: "unhealthy",
+				}}, RecentError: "Gateway healthcheck failed\ninspect logs",
+			},
+			want: []string{
+				"! Cluster not ready", "  Gateway  running · unhealthy",
+				"Recent error  Gateway healthcheck failed\\ninspect logs",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := string(renderClusterStatusText(test.status))
+			for _, expected := range test.want {
+				if !strings.Contains(output, expected) {
+					t.Fatalf("status output %q lacks %q", output, expected)
+				}
+			}
+		})
+	}
+}
+
+func TestClusterStatusTextUsesSemanticColorTokens(t *testing.T) {
+	t.Parallel()
+	status := tobari.ClusterStatus{
+		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
+		Policy: "/tmp/config/tobari/policy", TobariCount: 0,
+		Components: []tobari.ComponentStatus{{Name: "gateway", State: "running", Health: "healthy"}},
+	}
+	output := string(renderClusterStatusTextWithColor(status, true))
+	for _, expected := range []string{
+		applyColorToken(true, colorTokenSuccess, "✓"),
+		applyColorToken(true, colorTokenSuccess, "healthy"),
+		ansiColorTokens[colorTokenMuted] + "Tobari",
+		ansiColorTokens[colorTokenMuted] + "Policy",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("colored status output %q lacks %q", output, expected)
+		}
+	}
+	if strings.Contains(output, applyColorToken(true, colorTokenError, "healthy")) {
+		t.Fatalf("healthy status used error color: %q", output)
+	}
+}
+
+func TestClusterStatusTextColorsWarningAndFailureStates(t *testing.T) {
+	t.Parallel()
+	status := tobari.ClusterStatus{
+		Task: tobari.TaskClusterStatus, Configured: true, Running: false,
+		Components: []tobari.ComponentStatus{{Name: "gateway", State: "running", Health: "unhealthy"}},
+	}
+	output := string(renderClusterStatusTextWithColor(status, true))
+	for _, expected := range []string{
+		applyColorToken(true, colorTokenWarning, "!"),
+		applyColorToken(true, colorTokenError, "unhealthy"),
+		applyColorToken(true, colorTokenMuted, "running"),
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("warning/failure output %q lacks %q", output, expected)
+		}
+	}
+}
+
+func TestClusterUpTextAddsNextActionToSharedSummary(t *testing.T) {
+	t.Parallel()
+	status := tobari.ClusterStatus{
+		Task: tobari.TaskClusterUp, Configured: true, Running: true,
+		Policy: "/tmp/config/tobari/policy", Components: []tobari.ComponentStatus{},
+	}
+	output := string(renderClusterUpText(status, false))
+	for _, expected := range []string{
+		"✓ Cluster ready", "Next: from a project directory, run `tobari`.",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("cluster up output %q lacks %q", output, expected)
+		}
+	}
+}
+
+func TestClusterStatusJSONDoesNotContainTerminalColors(t *testing.T) {
+	t.Parallel()
+	status := tobari.ClusterStatus{
+		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
+		Policy: "/tmp/config/tobari/policy", Components: []tobari.ComponentStatus{},
+	}
+	output, err := renderClusterStatus(status, successFormatJSON, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(output), "\x1b[") {
+		t.Fatalf("cluster status JSON contains terminal colors: %q", output)
 	}
 }
 

@@ -34,6 +34,14 @@ type RuntimePort interface {
 	Doctor(context.Context, string) (doctor.Report, error)
 }
 
+// clusterUpProgressRuntimePort is an optional extension of RuntimePort. The
+// base port remains available to non-interactive callers and older fakes;
+// production runtimes use it to keep human progress outside application
+// policy and Docker output.
+type clusterUpProgressRuntimePort interface {
+	ClusterUpWithProgress(context.Context, tobari.ClusterUpProgressSink) (tobari.State, error)
+}
+
 // legacyNamedRuntimePort is deliberately outside RuntimePort. The old
 // name-bound container lifecycle remains only as a migration diagnostic and
 // cannot become an authority for the CWD-owned public commands.
@@ -110,6 +118,16 @@ func (s *Service) requireRuntime() error {
 		return fault.New(fault.KindInternal, "missing_runtime", "Tobari runtime is not configured", false)
 	}
 	return nil
+}
+
+// IsTerminal reports whether the injected writer is an interactive terminal.
+// Terminal ownership remains in the runtime adapter; the CLI uses this only
+// to decide whether to attach human progress presentation.
+func (s *Service) IsTerminal(writer io.Writer) bool {
+	if s == nil || portcheck.IsNil(s.runtime) {
+		return false
+	}
+	return s.runtime.IsTerminal(writer)
 }
 
 func (s *Service) projectRuntime() (ProjectRuntimePort, error) {
@@ -402,6 +420,22 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 
 // ClusterUp creates or reconciles the shared enforcement cluster.
 func (s *Service) ClusterUp(ctx context.Context, intent operation.Intent) (tobari.ClusterStatus, error) {
+	return s.clusterUp(ctx, intent, nil)
+}
+
+// ClusterUpWithProgress creates or reconciles the shared enforcement cluster
+// and forwards bounded startup signals to an optional human presentation sink.
+// The sink cannot affect mutation policy, runtime calls, or the returned
+// status.
+func (s *Service) ClusterUpWithProgress(
+	ctx context.Context, intent operation.Intent, progress tobari.ClusterUpProgressSink,
+) (tobari.ClusterStatus, error) {
+	return s.clusterUp(ctx, intent, progress)
+}
+
+func (s *Service) clusterUp(
+	ctx context.Context, intent operation.Intent, progress tobari.ClusterUpProgressSink,
+) (tobari.ClusterStatus, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ClusterStatus{}, err
 	}
@@ -412,7 +446,7 @@ func (s *Service) ClusterUp(ctx context.Context, intent operation.Intent) (tobar
 	}
 	err := s.withLifecycleLock(ctx, func(actionContext context.Context) error {
 		return s.mutator.Invoke(actionContext, request, func(actionContext context.Context, _ operation.Intent) error {
-			created, actionErr := s.runtime.ClusterUp(actionContext)
+			created, actionErr := s.clusterUpRuntime(actionContext, progress)
 			state = created
 			if actionErr == nil {
 				return nil
@@ -430,8 +464,14 @@ func (s *Service) ClusterUp(ctx context.Context, intent operation.Intent) (tobar
 	if err != nil {
 		return tobari.ClusterStatus{}, err
 	}
+	emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+		Step: tobari.ClusterUpProgressVerifyStatus, Status: tobari.ClusterUpProgressStarted,
+	})
 	status, err := s.runtime.InspectCluster(ctx, state)
 	if err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressVerifyStatus, Status: tobari.ClusterUpProgressFailed,
+		})
 		if structured, ok := fault.PublicCopy(err); ok {
 			return tobari.ClusterStatus{}, structured
 		}
@@ -439,9 +479,36 @@ func (s *Service) ClusterUp(ctx context.Context, intent operation.Intent) (tobar
 	}
 	status.Task = tobari.TaskClusterUp
 	if err := status.Validate(); err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressVerifyStatus, Status: tobari.ClusterUpProgressFailed,
+		})
 		return tobari.ClusterStatus{}, fault.Wrap(fault.KindContract, "invalid_status_contract", "cluster status is invalid", false, err)
 	}
+	emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+		Step: tobari.ClusterUpProgressVerifyStatus, Status: tobari.ClusterUpProgressCompleted,
+	})
 	return status, nil
+}
+
+func (s *Service) clusterUpRuntime(
+	ctx context.Context, progress tobari.ClusterUpProgressSink,
+) (tobari.State, error) {
+	if runtime, ok := s.runtime.(clusterUpProgressRuntimePort); ok {
+		return runtime.ClusterUpWithProgress(ctx, progress)
+	}
+	return s.runtime.ClusterUp(ctx)
+}
+
+func emitClusterUpProgress(
+	progress tobari.ClusterUpProgressSink, event tobari.ClusterUpProgress,
+) {
+	if progress == nil {
+		return
+	}
+	if err := event.Validate(); err != nil {
+		return
+	}
+	progress(event)
 }
 
 // ClusterStatus observes shared enforcement without repairing it.

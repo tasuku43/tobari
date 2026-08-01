@@ -20,6 +20,7 @@ type fakeRuntime struct {
 	inspectCalls   int
 	configured     *bool
 	clusterReady   *bool
+	inspectErr     error
 	attachCalls    int
 	detachCalls    int
 	policyCalls    int
@@ -74,6 +75,19 @@ func (f *fakeRuntime) ClusterUp(context.Context) (tobari.State, error) {
 	f.clusterCalls++
 	return f.state, nil
 }
+func (f *fakeRuntime) ClusterUpWithProgress(
+	ctx context.Context, progress tobari.ClusterUpProgressSink,
+) (tobari.State, error) {
+	if progress != nil {
+		progress(tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressStarted,
+		})
+		progress(tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressCompleted,
+		})
+	}
+	return f.ClusterUp(ctx)
+}
 func (f *fakeRuntime) LoadState(context.Context) (tobari.State, bool, error) {
 	f.loadStateCalls++
 	if f.configured != nil {
@@ -83,6 +97,9 @@ func (f *fakeRuntime) LoadState(context.Context) (tobari.State, bool, error) {
 }
 func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.ClusterStatus, error) {
 	f.inspectCalls++
+	if f.inspectErr != nil {
+		return tobari.ClusterStatus{}, f.inspectErr
+	}
 	running := true
 	if f.clusterReady != nil {
 		running = *f.clusterReady
@@ -92,6 +109,49 @@ func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.Clus
 		Policy: f.state.PolicyDirectory, TobariCount: len(f.state.Tobari),
 		Components: []tobari.ComponentStatus{},
 	}, nil
+}
+
+func TestClusterUpWithProgressKeepsMutationAndStatusContracts(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	var events []tobari.ClusterUpProgress
+	status, err := New(runtime).ClusterUpWithProgress(
+		context.Background(), createIntent("cluster up"),
+		func(event tobari.ClusterUpProgress) { events = append(events, event) },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []tobari.ClusterUpProgress{
+		{Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressStarted},
+		{Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressCompleted},
+		{Step: tobari.ClusterUpProgressVerifyStatus, Status: tobari.ClusterUpProgressStarted},
+		{Step: tobari.ClusterUpProgressVerifyStatus, Status: tobari.ClusterUpProgressCompleted},
+	}
+	if len(events) != len(want) {
+		t.Fatalf("progress events = %+v, want %+v", events, want)
+	}
+	for index := range want {
+		if events[index] != want[index] {
+			t.Fatalf("progress event %d = %+v, want %+v", index, events[index], want[index])
+		}
+	}
+	if status.Task != tobari.TaskClusterUp || !status.Running || runtime.clusterCalls != 1 || runtime.inspectCalls != 1 {
+		t.Fatalf("status=%+v cluster calls=%d inspect calls=%d", status, runtime.clusterCalls, runtime.inspectCalls)
+	}
+}
+
+func TestClusterUpWithProgressMarksStatusFailure(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir()), inspectErr: context.Canceled}
+	var events []tobari.ClusterUpProgress
+	_, err := New(runtime).ClusterUpWithProgress(
+		context.Background(), createIntent("cluster up"),
+		func(event tobari.ClusterUpProgress) { events = append(events, event) },
+	)
+	if err == nil || len(events) != 4 || events[2].Status != tobari.ClusterUpProgressStarted || events[3].Status != tobari.ClusterUpProgressFailed {
+		t.Fatalf("err=%v events=%+v", err, events)
+	}
 }
 func (f *fakeRuntime) Attach(_ context.Context, state tobari.State, name, root, image string) (tobari.State, error) {
 	f.attachCalls++

@@ -21,11 +21,22 @@ func runClusterUp(ctx context.Context, c *CLI, command CommandSpec, _ operation.
 		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ParentID: tobari.ClusterTargetID},
 		Impact: command.Agent.Mutation.Impact,
 	}
-	status, err := c.tobari.ClusterUp(ctx, intent)
+	var progress *clusterUpProgress
+	var progressSink tobari.ClusterUpProgressSink
+	if c.tobari.IsTerminal(c.Err) && clusterUpProgressAllowed(ctx) {
+		progress = newClusterUpProgress(c.Err, true)
+		progress.Start()
+		progressSink = progress.Report
+		defer progress.Close()
+	}
+	status, err := c.tobari.ClusterUpWithProgress(ctx, intent, progressSink)
 	if err != nil {
+		if progress != nil {
+			progress.Fail()
+		}
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderClusterStatusText(status))
+	return c.emitMutationResult(ctx, command, renderClusterUpText(status, clusterColorAllowed(ctx, c)))
 }
 
 func runClusterStatus(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
@@ -40,7 +51,7 @@ func runClusterStatus(ctx context.Context, c *CLI, command CommandSpec, _ operat
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help cluster status", "Correct the command arguments.")
 	}
-	output, err := renderClusterStatus(status, format)
+	output, err := renderClusterStatus(status, format, clusterColorAllowed(ctx, c))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -249,7 +260,11 @@ func runClusterDown(ctx context.Context, c *CLI, command CommandSpec, _ operatio
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderClusterStatusText(status))
+	return c.emitMutationResult(ctx, command, renderClusterStatusTextWithColor(status, clusterColorAllowed(ctx, c)))
+}
+
+func clusterColorAllowed(ctx context.Context, c *CLI) bool {
+	return c != nil && c.tobari != nil && c.tobari.IsTerminal(c.Out) && clusterUpProgressAllowed(ctx)
 }
 
 func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, _ ParsedInputs) int {
@@ -634,7 +649,7 @@ type clusterStatusOutput struct {
 	RecentError string                   `json:"recent_error"`
 }
 
-func renderClusterStatus(status tobari.ClusterStatus, format successFormat) ([]byte, error) {
+func renderClusterStatus(status tobari.ClusterStatus, format successFormat, color bool) ([]byte, error) {
 	if format == successFormatJSON {
 		document := clusterStatusDocument{
 			SchemaVersion: 1,
@@ -652,31 +667,113 @@ func renderClusterStatus(status tobari.ClusterStatus, format successFormat) ([]b
 		}
 		return append(output, '\n'), nil
 	}
-	return renderClusterStatusText(status), nil
+	return renderClusterStatusTextWithColor(status, color), nil
 }
 
 func renderClusterStatusText(status tobari.ClusterStatus) []byte {
+	return renderClusterStatusTextWithColor(status, false)
+}
+
+func renderClusterUpText(status tobari.ClusterStatus, color bool) []byte {
+	output := renderClusterStatusTextWithColor(status, color)
+	if !status.Configured || !status.Running {
+		return output
+	}
+	var withNext bytes.Buffer
+	withNext.Write(output)
+	fmt.Fprintf(
+		&withNext, "\n%s from a project directory, run `tobari`.\n",
+		applyColorToken(color, colorTokenAccent, "Next:"),
+	)
+	return withNext.Bytes()
+}
+
+func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) []byte {
 	var output bytes.Buffer
+	marker, heading, headingToken := clusterStatusHeading(status)
+	fmt.Fprintf(&output, "%s %s\n", applyColorToken(color, headingToken, marker), heading)
 	if !status.Configured {
-		fmt.Fprintln(&output, "configured: false")
-		fmt.Fprintln(&output, "running: false")
+		renderClusterRecentError(&output, status.RecentError, color)
 		return output.Bytes()
 	}
-	fmt.Fprintln(&output, "configured: true")
-	fmt.Fprintf(&output, "running: %t\n", status.Running)
-	fmt.Fprintf(&output, "proxy: %s\n", escapeTSVCell(status.Proxy))
-	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(status.Policy))
-	fmt.Fprintf(&output, "tobari_count: %d\n", status.TobariCount)
+	fmt.Fprintln(&output)
 	for _, component := range status.Components {
+		renderClusterComponent(&output, component, status.Running, color)
+	}
+	fmt.Fprintf(
+		&output, "  %s %d\n",
+		applyColorToken(color, colorTokenMuted, fmt.Sprintf("%-8s", "Tobari")), status.TobariCount,
+	)
+	if status.Policy != "" {
+		fmt.Fprintln(&output)
 		fmt.Fprintf(
-			&output, "component: %s state=%s health=%s\n",
-			escapeTSVCell(component.Name), escapeTSVCell(component.State), escapeTSVCell(component.Health),
+			&output, "  %s %s\n",
+			applyColorToken(color, colorTokenMuted, fmt.Sprintf("%-8s", "Policy")), escapeTSVCell(status.Policy),
 		)
 	}
-	if status.RecentError != "" {
-		fmt.Fprintf(&output, "recent_error: %s\n", escapeTSVCell(status.RecentError))
-	}
+	renderClusterRecentError(&output, status.RecentError, color)
 	return output.Bytes()
+}
+
+func clusterStatusHeading(status tobari.ClusterStatus) (string, string, colorToken) {
+	switch {
+	case !status.Configured:
+		return "○", "Cluster not configured", colorTokenMuted
+	case !status.Running:
+		return "!", "Cluster not ready", colorTokenWarning
+	default:
+		return "✓", "Cluster ready", colorTokenSuccess
+	}
+}
+
+func renderClusterComponent(output *bytes.Buffer, component tobari.ComponentStatus, ready, color bool) {
+	name := clusterComponentName(component.Name)
+	health := escapeTSVCell(component.Health)
+	healthOutput := applyColorToken(color, clusterHealthColorToken(component.Health), health)
+	if ready && component.Health == "healthy" {
+		fmt.Fprintf(output, "  %-8s %s\n", name, healthOutput)
+		return
+	}
+	state := applyColorToken(color, colorTokenMuted, escapeTSVCell(component.State))
+	fmt.Fprintf(output, "  %-8s %s · %s\n", name, state, healthOutput)
+}
+
+func clusterComponentName(name string) string {
+	switch strings.ToLower(name) {
+	case "gateway":
+		return "Gateway"
+	case "opa":
+		return "OPA"
+	default:
+		return escapeTSVCell(name)
+	}
+}
+
+func clusterHealthColorToken(health string) colorToken {
+	switch strings.ToLower(health) {
+	case "healthy":
+		return colorTokenSuccess
+	case "starting", "pending", "unknown":
+		return colorTokenWarning
+	case "unhealthy", "exited", "dead", "failed":
+		return colorTokenError
+	default:
+		return colorTokenMuted
+	}
+}
+
+func renderClusterRecentError(output *bytes.Buffer, recentError string, color bool) {
+	if recentError == "" {
+		return
+	}
+	if output.Len() > 0 && !strings.HasSuffix(output.String(), "\n\n") {
+		fmt.Fprintln(output)
+	}
+	fmt.Fprintf(
+		output, "  %s  %s\n",
+		applyColorToken(color, colorTokenMuted, "Recent error"),
+		applyColorToken(color, colorTokenError, escapeTSVCell(recentError)),
+	)
 }
 
 type tobariListDocument struct {
@@ -685,6 +782,10 @@ type tobariListDocument struct {
 }
 
 func renderTobariList(result tobari.ListResult, format successFormat) ([]byte, error) {
+	return renderTobariListWithColor(result, format, false)
+}
+
+func renderTobariListWithColor(result tobari.ListResult, format successFormat, color bool) ([]byte, error) {
 	if format == successFormatJSON {
 		items := append([]tobari.ItemStatus{}, result.Items...)
 		for index := range items {
@@ -698,6 +799,25 @@ func renderTobariList(result tobari.ListResult, format successFormat) ([]byte, e
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Tobari list JSON could not be encoded", false, err)
 		}
 		return append(output, '\n'), nil
+	}
+	if color && format == successFormatText {
+		if len(result.Items) == 0 {
+			output := newHumanOutput(true)
+			output.empty("No Tobari attached", "The shared cluster has no attached Tobari.", "tobari", "Create or enter a Tobari from the current project directory.")
+			return output.bytes(), nil
+		}
+		output := newHumanOutput(true)
+		output.heading("✓", fmt.Sprintf("Tobari (%d)", len(result.Items)), colorTokenSuccess)
+		for index, item := range result.Items {
+			output.section(fmt.Sprintf("Tobari %d", index+1))
+			output.row("Name", safeExternalText(item.Name), colorTokenAccent)
+			output.row("ID", item.ID, colorTokenAccent)
+			output.row("Root", safeExternalText(item.Root), colorTokenMuted)
+			output.row("Image", safeExternalText(item.Image), colorTokenMuted)
+			output.row("Container", safeExternalText(item.Container), colorTokenMuted)
+			output.row("Running", humanBool(item.Running), humanBoolToken(item.Running))
+		}
+		return output.bytes(), nil
 	}
 	var output bytes.Buffer
 	for _, item := range result.Items {

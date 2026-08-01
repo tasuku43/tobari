@@ -38,6 +38,114 @@ type policyProbeRunner struct {
 	outputs []runnerCall
 }
 
+type clusterUpProgressRunner struct{}
+
+func (clusterUpProgressRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+	return nil
+}
+
+func (clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if len(args) >= 3 && args[0] == "inspect" {
+		if strings.Contains(args[2], "NetworkSettings.Networks") {
+			return []byte(`{}`), nil
+		}
+		return []byte(`{"state":"running","health":"healthy"}`), nil
+	}
+	return []byte{}, nil
+}
+
+func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"),
+		clusterUpProgressRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []tobari.ClusterUpProgress
+	if _, err := runtime.ClusterUpWithProgress(context.Background(), func(event tobari.ClusterUpProgress) {
+		events = append(events, event)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wantSteps := []tobari.ClusterUpProgressStep{
+		tobari.ClusterUpProgressPrepare,
+		tobari.ClusterUpProgressPolicy,
+		tobari.ClusterUpProgressBuildImage,
+		tobari.ClusterUpProgressStartServices,
+		tobari.ClusterUpProgressConnectNetworks,
+		tobari.ClusterUpProgressWaitForHealth,
+		tobari.ClusterUpProgressReconcileProjects,
+		tobari.ClusterUpProgressFinalize,
+	}
+	if len(events) != len(wantSteps)*2 {
+		t.Fatalf("progress event count = %d, events = %+v", len(events), events)
+	}
+	for index, step := range wantSteps {
+		start, complete := events[index*2], events[index*2+1]
+		if start != (tobari.ClusterUpProgress{Step: step, Status: tobari.ClusterUpProgressStarted}) ||
+			complete != (tobari.ClusterUpProgress{Step: step, Status: tobari.ClusterUpProgressCompleted}) {
+			t.Fatalf("stage %q events = %+v, %+v", step, start, complete)
+		}
+	}
+}
+
+func TestRunClusterUpProgressStepReportsCompletionAndFailure(t *testing.T) {
+	t.Parallel()
+	var completed []tobari.ClusterUpProgress
+	if err := runClusterUpProgressStep(
+		func(event tobari.ClusterUpProgress) { completed = append(completed, event) },
+		tobari.ClusterUpProgressPolicy,
+		func() error { return nil },
+	); err != nil {
+		t.Fatal(err)
+	}
+	want := []tobari.ClusterUpProgress{
+		{Step: tobari.ClusterUpProgressPolicy, Status: tobari.ClusterUpProgressStarted},
+		{Step: tobari.ClusterUpProgressPolicy, Status: tobari.ClusterUpProgressCompleted},
+	}
+	if len(completed) != len(want) || completed[0] != want[0] || completed[1] != want[1] {
+		t.Fatalf("completed events = %+v, want %+v", completed, want)
+	}
+	failed := []tobari.ClusterUpProgress{}
+	wantErr := errors.New("synthetic stage failure")
+	if err := runClusterUpProgressStep(
+		func(event tobari.ClusterUpProgress) { failed = append(failed, event) },
+		tobari.ClusterUpProgressBuildImage,
+		func() error { return wantErr },
+	); !errors.Is(err, wantErr) {
+		t.Fatalf("failed step error = %v, want %v", err, wantErr)
+	}
+	if len(failed) != 2 || failed[0].Status != tobari.ClusterUpProgressStarted || failed[1].Status != tobari.ClusterUpProgressFailed {
+		t.Fatalf("failed events = %+v", failed)
+	}
+}
+
+func TestWaitForClusterReadyEmitsHealthUpdates(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{outputData: []byte(`{"state":"starting","health":"starting"}`)}
+	runtime := &Runtime{runner: runner}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var events []tobari.ClusterUpProgress
+	err := runtime.waitForClusterReady(ctx, func(event tobari.ClusterUpProgress) {
+		events = append(events, event)
+		if event.Status == tobari.ClusterUpProgressUpdated {
+			cancel()
+		}
+	})
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("wait error = %v", err)
+	}
+	if len(events) != 1 || events[0] != (tobari.ClusterUpProgress{
+		Step: tobari.ClusterUpProgressWaitForHealth, Status: tobari.ClusterUpProgressUpdated,
+	}) {
+		t.Fatalf("health progress events = %+v", events)
+	}
+}
+
 func (r *ownershipInspectFailureRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
 	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
 	return nil

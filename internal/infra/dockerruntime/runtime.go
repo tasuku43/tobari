@@ -340,19 +340,39 @@ func (r *Runtime) ResolveImageSelector(ctx context.Context, explicit string) (st
 
 // ClusterUp materializes assets and reconciles shared Gateway and OPA.
 func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
+	return r.ClusterUpWithProgress(ctx, nil)
+}
+
+// ClusterUpWithProgress materializes assets and reconciles shared Gateway and
+// OPA while emitting only fixed, secret-free lifecycle signals.
+func (r *Runtime) ClusterUpWithProgress(
+	ctx context.Context, progress tobari.ClusterUpProgressSink,
+) (tobari.State, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.State{}, err
 	}
+	emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+		Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressStarted,
+	})
 	existing, exists, err := r.LoadState(ctx)
 	if err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+		})
 		return tobari.State{}, err
 	}
 	state, err := r.prepareState()
 	if err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+		})
 		return tobari.State{}, err
 	}
 	if exists {
 		if len(existing.Tobari) != 0 {
+			emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+				Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+			})
 			return tobari.State{}, fault.New(
 				fault.KindRejected, "legacy_named_state",
 				"the shared state contains legacy named Tobari records; remove them with the older binary before continuing", false,
@@ -361,68 +381,141 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 		state.RecentError = existing.RecentError
 	}
 	if err := r.startClusterReconcile(clusterOperationUp); err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+		})
 		return tobari.State{}, fmt.Errorf("start cluster reconcile journal: %w", err)
 	}
-	if err := r.testPolicy(ctx, state); err != nil {
-		_ = r.clearClusterJournal()
-		return tobari.State{}, fault.Wrap(fault.KindRejected, "policy_test_failed", policyTestFailureMessage, false, err)
-	}
-	if err := r.writeState(state); err != nil {
-		return tobari.State{}, fmt.Errorf("persist Tobari state: %w", err)
-	}
-	environment, err := r.composeEnvironment(state)
-	if err != nil {
-		return tobari.State{}, err
-	}
-	if err := r.buildTobariImage(ctx, state, environment); err != nil {
-		return tobari.State{}, err
-	}
-	var output bytes.Buffer
-	err = r.runner.Run(
-		ctx,
-		[]string{
-			"compose", "--project-directory", state.RuntimeDirectory,
-			"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
-			"up", "-d", "--build", "--remove-orphans",
-		},
-		environment, nil, &output, &output,
-	)
-	if err != nil {
-		_ = r.recordRecentError(state, "Cluster startup did not complete; inspect component logs.")
-		return tobari.State{}, fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
-	}
-	for _, sharedNetwork := range []string{"tobari-control", "tobari-egress"} {
-		if err := r.ensureGatewayNetwork(ctx, sharedNetwork); err != nil {
-			_ = r.recordRecentError(state, "Gateway did not rejoin the shared cluster network; inspect cluster status.")
-			return tobari.State{}, err
+	emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+		Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressCompleted,
+	})
+
+	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressPolicy, func() error {
+		if err := r.testPolicy(ctx, state); err != nil {
+			_ = r.clearClusterJournal()
+			return fault.Wrap(fault.KindRejected, "policy_test_failed", policyTestFailureMessage, false, err)
 		}
-	}
-	if err := r.waitForClusterReady(ctx); err != nil {
-		_ = r.recordRecentError(state, "Cluster components did not become healthy; inspect component status.")
+		return nil
+	}); err != nil {
 		return tobari.State{}, err
 	}
-	projects, err := r.ListProjects(ctx)
-	if err != nil {
-		return tobari.State{}, fmt.Errorf("read CWD-owned projects for Gateway reconciliation: %w", err)
-	}
-	if err := r.syncProjectPrincipalRegistry(ctx, projects); err != nil {
-		_ = r.recordRecentError(state, "Gateway did not rejoin every Tobari network; inspect cluster status.")
+
+	var environment []string
+	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressBuildImage, func() error {
+		if err := r.writeState(state); err != nil {
+			return fmt.Errorf("persist Tobari state: %w", err)
+		}
+		var err error
+		environment, err = r.composeEnvironment(state)
+		if err != nil {
+			return err
+		}
+		return r.buildTobariImage(ctx, state, environment)
+	}); err != nil {
 		return tobari.State{}, err
 	}
-	if err := r.markClusterRuntimeReconciled(clusterOperationUp); err != nil {
-		return tobari.State{}, fmt.Errorf("mark cluster reconcile complete: %w", err)
-	}
-	state.RecentError = ""
-	if err := r.writeState(state); err != nil {
+
+	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressStartServices, func() error {
+		var output bytes.Buffer
+		err := r.runner.Run(
+			ctx,
+			[]string{
+				"compose", "--project-directory", state.RuntimeDirectory,
+				"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
+				"up", "-d", "--build", "--remove-orphans",
+			},
+			environment, nil, &output, &output,
+		)
+		if err != nil {
+			_ = r.recordRecentError(state, "Cluster startup did not complete; inspect component logs.")
+			return fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
+		}
+		return nil
+	}); err != nil {
 		return tobari.State{}, err
 	}
-	if err := r.clearClusterJournal(); err != nil {
-		return tobari.State{}, fmt.Errorf("clear cluster reconcile journal: %w", err)
+
+	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressConnectNetworks, func() error {
+		for _, sharedNetwork := range []string{"tobari-control", "tobari-egress"} {
+			if err := r.ensureGatewayNetwork(ctx, sharedNetwork); err != nil {
+				_ = r.recordRecentError(state, "Gateway did not rejoin the shared cluster network; inspect cluster status.")
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return tobari.State{}, err
+	}
+
+	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressWaitForHealth, func() error {
+		if err := r.waitForClusterReady(ctx, progress); err != nil {
+			_ = r.recordRecentError(state, "Cluster components did not become healthy; inspect component status.")
+			return err
+		}
+		return nil
+	}); err != nil {
+		return tobari.State{}, err
+	}
+
+	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressReconcileProjects, func() error {
+		projects, err := r.ListProjects(ctx)
+		if err != nil {
+			return fmt.Errorf("read CWD-owned projects for Gateway reconciliation: %w", err)
+		}
+		if err := r.syncProjectPrincipalRegistry(ctx, projects); err != nil {
+			_ = r.recordRecentError(state, "Gateway did not rejoin every Tobari network; inspect cluster status.")
+			return err
+		}
+		return nil
+	}); err != nil {
+		return tobari.State{}, err
+	}
+
+	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressFinalize, func() error {
+		if err := r.markClusterRuntimeReconciled(clusterOperationUp); err != nil {
+			return fmt.Errorf("mark cluster reconcile complete: %w", err)
+		}
+		state.RecentError = ""
+		if err := r.writeState(state); err != nil {
+			return err
+		}
+		if err := r.clearClusterJournal(); err != nil {
+			return fmt.Errorf("clear cluster reconcile journal: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return tobari.State{}, err
 	}
 	return state, nil
 }
 
-func (r *Runtime) waitForClusterReady(ctx context.Context) error {
+func runClusterUpProgressStep(
+	progress tobari.ClusterUpProgressSink, step tobari.ClusterUpProgressStep, action func() error,
+) error {
+	emitClusterUpProgress(progress, tobari.ClusterUpProgress{Step: step, Status: tobari.ClusterUpProgressStarted})
+	if err := action(); err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{Step: step, Status: tobari.ClusterUpProgressFailed})
+		return err
+	}
+	emitClusterUpProgress(progress, tobari.ClusterUpProgress{Step: step, Status: tobari.ClusterUpProgressCompleted})
+	return nil
+}
+
+func emitClusterUpProgress(
+	progress tobari.ClusterUpProgressSink, event tobari.ClusterUpProgress,
+) {
+	if progress == nil {
+		return
+	}
+	if err := event.Validate(); err != nil {
+		return
+	}
+	progress(event)
+}
+
+func (r *Runtime) waitForClusterReady(
+	ctx context.Context, progress tobari.ClusterUpProgressSink,
+) error {
 	const attempts = 60
 	for attempt := 0; attempt < attempts; attempt++ {
 		ready := true
@@ -440,6 +533,9 @@ func (r *Runtime) waitForClusterReady(ctx context.Context) error {
 		if ready {
 			return nil
 		}
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressWaitForHealth, Status: tobari.ClusterUpProgressUpdated,
+		})
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
