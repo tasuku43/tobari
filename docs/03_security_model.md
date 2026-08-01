@@ -188,10 +188,12 @@ upstream I/O.
 
 Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
 The root command uses the catalog-declared current-directory fixed target to
-create or reconcile one logical Tobari only after a read-only check confirms
-the explicitly configured shared cluster is ready; it never creates shared
-resources. `delete` resolves the same target and is its only lifecycle-ending
-mutation. Neither operation accepts an ID, name, or arbitrary root selector.
+read and present containing Workspace candidates, then creates or reconciles
+one logical Tobari only after an explicit choice and a fresh locked check. An
+exact current-root record is reused directly; a nested root requires the
+explicit create-here choice. The command never creates shared resources.
+`delete` resolves the same target and is its only lifecycle-ending mutation.
+Neither operation accepts an ID, name, or arbitrary root selector.
 All mutations use complete intent and impact declarations before Docker
 execution. Ordinary runtime reconciliation needs no human approval;
 destructive deletion requires confirmation or `--force` and affects only the
@@ -251,6 +253,7 @@ authority; only an explicit reference-bound mutation can write a learned rule.
 | Secret headers and bodies stay out of logs | Gateway unit tests and log scans |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Each root and XDG home are its Tobari's only host write scopes | Mount-spec and path-containment tests |
+| Ambiguous CWD selection cannot mutate before a valid choice | Typed candidate snapshot, locked stale-choice revalidation, and zero-call cancellation tests |
 | One Tobari cannot consume unbounded CPU, memory, PIDs, or container logs | Fixed create-argv and spec-hash tests plus runtime HostConfig assertions |
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
 | Optional toolbox artifacts retain reviewed identity | Pinned versions, vendor checksum or signature verification, and explicit build validation |

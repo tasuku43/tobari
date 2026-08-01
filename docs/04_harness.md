@@ -177,7 +177,10 @@ When adding an external API, first record every considered user capability in th
 The test suite has complementary levels:
 
 - Domain tests fix pure invariants.
-- Application tests fix task interpretation, orchestration, and ambiguity behavior.
+- Application tests fix task interpretation, orchestration, and ambiguity behavior,
+  including nearest-first Workspace candidate snapshots, explicit create/use
+  choices, stale-choice rejection under the lifecycle lock, and zero mutation
+  calls on cancellation or invalid selection.
 - Each interpretation-sensitive capability adds task-owned semantic-result
   tests for its declared task identity and the target, parent, and/or scope
   dimensions it actually carries. The tests preserve scoped empty collections
@@ -198,7 +201,10 @@ The test suite has complementary levels:
 - CLI tests fix routing, help, rendering, exit behavior, the catalog-owned typed
   argv parser, and the distinction among absent, defaulted, and explicitly
   supplied values. Negative fixtures cover type/range/enumeration,
-  repeatability, dependency/conflict, duplicate scalar, and syntax drift.
+  repeatability, dependency/conflict, duplicate scalar, and syntax drift. The
+  Workspace selector tests cover the dependency-free raw key state machine,
+  bounded scrolling, terminal restoration, English status rendering, and
+  ANSI-free numbered-input fallback.
 - Agent-help shape, edge-equivalence, and derived-scale size tests keep root
   discovery index-only while grouped scoped workflows retain the complete
   invocation, reference, and recovery contract without producer/consumer
@@ -219,8 +225,9 @@ The test suite has complementary levels:
 - CWD-owned lifecycle integration tests prove that two roots receive distinct
   containers, networks, and XDG homes while sharing only Gateway, OPA, and
   public CA state. They also prove canonical ancestor lookup, container/network
-  recovery, profile/spec drift recreation, concurrent entry convergence, and
-  exact selected deletion after partial runtime cleanup.
+  recovery, explicit ancestor Workspace selection and current-CWD creation,
+  profile/spec drift recreation, concurrent entry convergence, and exact
+  selected deletion after partial runtime cleanup.
 - Logical lifecycle tests inject interruptions at home, instance, root-index,
   runtime, and deletion boundaries; they prove journals recover without
   duplicate IDs and diagnose orphaned one-sided records. Shared-state tests
@@ -287,6 +294,7 @@ Every strong statement should identify its enforcement path.
 | Request-bound semantic result | Per-capability domain/application tests for declared task identity and every applicable request dimension, including scope, state, contextual-kind, empty-result, no-partial-result, and negative-inference fixtures where applicable |
 | Action target composition | Reachable reference-graph validation and byte-preserving round trips for reference-bound acts; complete, exclusive, reference-free declarations for command-bound fixed targets |
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
+| Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, and zero-downstream-call cancellation tests |
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
 | Shared runtime resource bounds | Fixed project create-argv, resource-aware spec hash, and Docker HostConfig integration assertions |
 | Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |

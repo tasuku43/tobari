@@ -124,9 +124,12 @@ it appears in caller data, but the host binds it to the exact Gateway network
 interface that received the request. The initialized policy is an
 installation-wide baseline; learned permissions and managed credentials are
 project-bound and cannot be selected by another project. A Tobari is selected
-by the nearest indexed canonical ancestor of the
-current directory, binds exactly one read-write root, one dedicated internal
-network, and one persistent XDG-owned home directory.
+from the canonical current directory: an exact indexed root is reused directly;
+when only ancestor roots exist, the interactive root command presents every
+containing root nearest-first and an explicit create-here option. A new nested
+root is never implicit. Every selected Tobari binds exactly one read-write
+root, one dedicated internal network, and one persistent XDG-owned home
+directory.
 
 ### Consequences
 
@@ -137,8 +140,11 @@ network, and one persistent XDG-owned home directory.
 - The logical record owns a generated stable internal ID, canonical root,
   selected compatible runtime image, profile, XDG home, and diagnostic runtime
   identifiers. Container or network loss never changes logical existence.
-- `status` and `delete` resolve the same nearest canonical root. `list` shows
-  local roots and diagnostics without turning an ID into a normal user input.
+- `status` and `delete` resolve the nearest canonical root. The interactive
+  `tobari` entry path resolves an exact root directly or requires an explicit
+  choice among containing ancestor roots before it can create a nested root.
+  `list` shows local roots and diagnostics without turning an ID into a normal
+  user input.
 - An explicit in-root image-based `devcontainer.json` may select that image,
   but cannot delegate mounts, privileges, environment, lifecycle, or
   orchestration to another tool.
@@ -159,9 +165,10 @@ network, and one persistent XDG-owned home directory.
 
 ### Mechanical enforcement
 
-- Root-index and instance-state tests prove canonical path resolution, nearest
-  ancestor selection, stable IDs, atomic state updates, journal recovery at
-  multi-file boundaries, and explicit handling of corrupt or legacy state.
+- Root-index and instance-state tests prove canonical path resolution, ordered
+  ancestor-candidate selection, explicit nested-root creation, stable IDs,
+  atomic state updates, journal recovery at multi-file boundaries, and explicit
+  handling of corrupt or legacy state.
 - State and Docker labels identify the one installation-owned cluster and each
   exact logical Tobari resource.
 - Lifecycle integration tests create multiple roots, prove network separation,
@@ -205,7 +212,8 @@ name prefix or broad Docker query as authority.
 
 - Domain resource specifications carry a fixed ownership label.
 - Application tests prove validation and CWD-local target resolution precede
-  Docker calls and cleanup selects exact resources.
+  Docker calls, ambiguous entry requires an explicit choice, and cleanup
+  selects exact resources.
 - The catalog declares every read/create/write effect and mutation impact.
 
 ## Thesis 6: Fail closed with bounded evidence

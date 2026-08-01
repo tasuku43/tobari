@@ -13,8 +13,9 @@ The primary user is a developer who wants an autonomous coding agent to edit a
 bounded source tree without receiving host credentials or unrestricted network
 egress. `cluster up` explicitly owns shared Gateway and OPA setup; `cd project
 && tobari` requires that ready cluster, then owns project logical-state
-resolution, project-runtime recovery, and interactive entry. The user normally
-manages only the directory; a Tobari either exists or does not exist.
+resolution, an explicit Workspace choice when ancestor roots are ambiguous,
+project-runtime recovery, and interactive entry. The user normally manages only
+the directory; a Tobari either exists or does not exist.
 
 The primary operating loop is progressive policy learning: a Tobari workload is
 denied by default, Gateway records the rejected host/port/method/path and reason
@@ -71,7 +72,7 @@ The public commands are:
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version` | utility | read | Print build identity |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
-| `tobari` | act, fixed target | create | Resolve or create the current directory's Tobari, reconcile runtime, and enter it |
+| `tobari` | act, fixed target | create | Choose or create the current directory's Workspace, reconcile runtime, and enter it |
 | `status` | utility | read | Inspect the nearest current-directory Tobari and its diagnostic runtime state |
 | `list [--format text|json]` | utility | read | List local Workspaces with runtime diagnostics and diagnostic IDs |
 | `delete [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari after destructive confirmation |
@@ -86,23 +87,32 @@ The public commands are:
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `policy apply` | act, fixed target | write | Test host policy and activate it in the exact shared OPA component |
 
-The root command is interactive and requires a TTY. It does not silently create
-state in a non-interactive context. Programs inside Tobari can mutate the
-explicitly mounted root; that delegated capability is a documented security
-property rather than an undeclared Docker mutation by the CLI.
+The root command is interactive and requires a TTY on stdin, stdout, and stderr.
+It does not silently create state in a non-interactive context. When the
+canonical current directory is below one or more indexed Workspace roots, the
+command presents an English selector ordered nearest-first. Arrow keys and
+Enter choose an existing Workspace; `n` chooses explicit creation at the
+current directory; `q` or Escape cancels. If raw terminal mode is unavailable,
+the same choices use numbered line input without adding a terminal module or
+shell subprocess. Candidate status and path text remain meaningful without
+color. Programs inside Tobari can mutate the explicitly mounted root; that
+delegated capability is a documented security property rather than an
+undeclared Docker mutation by the CLI.
 
 ## Input and path contract
 
 - The current working directory is expanded and canonicalized on the host
-  before state or Docker calls. Lookup walks canonical parents and selects the
-  nearest existing root; it never creates nested Tobari environments.
+  before state or Docker calls. An exact indexed root is reused directly. When
+  only containing ancestor roots exist, `tobari` lists every valid root
+  nearest-first and offers explicit creation at the current directory; it never
+  creates a nested Tobari implicitly.
 - Project-root selection rejects the filesystem root, the user's home and its
   ancestors, and any path overlapping XDG Tobari configuration, state, or
   shared-profile management directories, Docker sockets, or Docker management
   paths. A repository containing policy source remains allowed; only the
   trusted active policy/configuration paths are protected.
-- The first creation uses the canonical current directory as root. Project
-  moves and copies are not inferred or recorded in the project tree.
+- An explicit create choice uses the canonical current directory as root.
+  Project moves and copies are not inferred or recorded in the project tree.
 - The selected root is mounted at `/workspace/<canonical-root-without-leading-slash>`
   and the container workdir mirrors the host CWD below that path. Thus a root
   at `/work` and a host CWD of `/work/root` enter at `/workspace/work/root`.
@@ -133,6 +143,12 @@ because their items retain the project principal. `list --format json` reports
 root, runtime diagnostic, and stable ID. Agent help uses the catalog schema.
 Successful data is stdout;
 failures are stderr.
+The Workspace selector is a human stderr interaction; it produces no JSON or
+stdout selection protocol. A successful choice prints an English summary before
+the child session, and cancellation or stale selection prints no success
+summary. The choice is revalidated under the lifecycle lock before logical or
+Docker mutation, so a changed candidate set fails closed and asks the user to
+run `tobari` again.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
 a small state marker, aligned detail rows, semantic color tokens, and an exact
@@ -236,10 +252,12 @@ asset version and as the local extension base `tobari-runtime:local`, then
 reconnects Gateway to the shared networks and existing registered project
 networks without creating project state or project resources, then waits for
 Gateway and OPA health. The root command only verifies the shared cluster is
-configured and ready, creates or reuses the current root's logical record,
-reconciles its labeled container and internal network, binds its XDG home,
-joins Gateway to that network, waits for the project healthcheck, and enters
-the resulting terminal session. A changed image identity, runtime contract,
+configured and ready, reads the indexed Workspace candidates, and waits for an
+explicit choice when the canonical current directory is below an ancestor.
+After the choice is revalidated under the lifecycle lock, it creates or reuses
+the selected logical record, reconciles its labeled container and internal
+network, binds its XDG home, joins Gateway to that network, waits for the
+project healthcheck, and enters the resulting terminal session. A changed image identity, runtime contract,
 mount/security/environment/health specification, or shared profile revision
 recreates only the project container and preserves its logical state and home.
 `delete` removes only that exact label-owned container,

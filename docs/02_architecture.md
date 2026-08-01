@@ -132,13 +132,16 @@ io.tobari.version=<asset revision>
 
 Explicit `cluster up` validates configuration, tests policy, reconciles OPA and
 Gateway, and reconnects Gateway to every existing registered project network.
-Root invocation only verifies that configured cluster is ready, resolves the
-canonical CWD and nearest indexed ancestor, and then, when there is no record,
-atomically creates an ID, root index, state record, and home. It ensures one
-exact project network and work container, connects Gateway with the `gateway`
-alias, binds the Gateway interface address to the host-issued project
-principal, waits for project readiness, and enters the container. The logical
-creation and deletion boundaries use durable journals so an interruption
+Root invocation only verifies that configured cluster is ready and reads the
+canonical CWD's indexed Workspace candidates. An exact current-root record is
+selected directly; when only ancestor records exist, the CLI presents every
+containing root nearest-first and the application accepts either one validated
+candidate or an explicit create-at-CWD choice. The choice is revalidated under
+the lifecycle lock before the selected logical record is created or reused. It
+then ensures one exact project network and work container, connects Gateway
+with the `gateway` alias, binds the Gateway interface address to the host-issued
+project principal, waits for project readiness, and enters the container. The
+logical creation and deletion boundaries use durable journals so an interruption
 between the home, instance, index, runtime, and deletion steps is recoverable
 without treating a partial file set as a second project. Runtime convergence
 stores a hash of the desired image identity, mounts, security, environment,
@@ -170,8 +173,12 @@ targets, inputs, outputs, failures, routing, and human/agent help. The root
 operation is represented as a catalog-owned fixed current-directory target even
 though it has no argv path words. Handlers receive parsed inputs and call one
 application service. `tobari` and `delete` declare complete fixed-target
-mutation impacts; `status` resolves the same CWD target. `list` reports IDs as
-diagnostic fields but no public lifecycle action consumes them.
+mutation impacts; `tobari` keeps its target fixed to the canonical CWD even
+when its selected Workspace root is an ancestor. `status` resolves the same CWD
+target. `list` reports IDs as diagnostic fields but no public lifecycle action
+consumes them. The dependency-free terminal capability is an infrastructure
+adapter used only by the CLI's human selector; a line-input fallback keeps
+raw-mode availability out of the public command contract.
 
 ## Gateway request flow
 

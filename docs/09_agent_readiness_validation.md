@@ -1,9 +1,10 @@
 # Agent Readiness Validation
 
 Tobari is agent-ready when a coding agent can discover the shared cluster,
-run the root command from a project directory, reuse the nearest CWD-owned
-Tobari without an ID, and recover from denied network requests without source
-inspection.
+run the root command from a project directory, enter an exact CWD-owned
+Workspace without an ID, and recover from denied network requests without
+source inspection. Human entry below ancestor roots explicitly chooses reuse
+or creation; that interaction is outside the machine help contract.
 
 ## Required scenario
 
@@ -40,14 +41,17 @@ rules exist. The transcript must prove:
   failures, and recovery commands.
 - Cluster startup mounts no work root.
 - The root command binds the canonical current directory and a compatible local
-  image selector without a name or root flag.
+  image selector without a name or root flag; an ancestor-root entry exposes all
+  containing Workspaces nearest-first and requires an explicit reuse/create
+  choice.
 - Omitted image selection resolves from the XDG default and then `builtin`
   without requiring source inspection.
 - An explicit image-based Dev Container file resolves within the selected root;
   unsupported runtime metadata returns one stable recovery fault.
 - `list` retains an explicitly exhaustive local collection, including empty,
   while preserving diagnostic IDs without making them action inputs.
-- `status` and `delete` resolve the same nearest canonical ancestor.
+- `status` and `delete` resolve the same nearest canonical ancestor; `tobari`
+  enters an exact root directly and explicitly chooses among ancestor roots.
 - A child terminal exit leaves the logical Tobari existing for reuse.
 - A denied request produces bounded typed secret-free host/method/path
   evidence, the host policy path, and the exact activation command.
@@ -115,7 +119,10 @@ interpretation inputs.
 At minimum, exercise:
 
 - invalid or inaccessible root before Docker mutation;
-- nested-root lookup selects the nearest existing ancestor;
+- nested-root entry lists all containing ancestors, reuses a chosen one, or
+  creates a new root only after an explicit create choice;
+- cancelled, unavailable, or stale Workspace selection performs no logical or
+  Docker mutation and directs the user to retry or choose again;
 - invalid, missing, incompatible, or conflicting image selection before Docker
   resource creation;
 - escaping, malformed, ambiguous, oversized, or unsupported Dev Container

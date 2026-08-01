@@ -18,8 +18,10 @@ project's learned permission or managed credential could become a confused
 deputy for another project.
 
 The current-directory workflow remains intentional: the user may run Tobari
-from any accessible project directory, and the nearest canonical root selects
-the logical record. Location is selection context, not authentication.
+from any accessible project directory. An exact canonical root selects the
+logical record directly; when only ancestors contain the directory, Tobari
+lists them nearest-first and lets the user explicitly choose reuse or creation.
+Location is selection context, not authentication.
 
 ## Decision
 
@@ -62,7 +64,8 @@ untrusted process a selector or transport escape hatch.
 - Existing credential profiles and learned rules without project IDs are
   rejected rather than silently inherited.
 - Shared Gateway and OPA resource ceilings, no-secret/no-socket mounts, and
-  current-directory selection remain unchanged.
+  the CWD-owned selection boundary remain unchanged; only ambiguous ancestor
+  entry now exposes the candidate choice explicitly.
 
 ## Mechanical enforcement
 

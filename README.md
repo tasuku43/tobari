@@ -137,19 +137,24 @@ data contracts and never receive terminal styling.
 
 Then run the primary operation from the project directory. It requires the
 cluster to be configured and ready, and creates or reuses only the project
-Tobari:
+Workspace:
 
 ```sh
 tobari
 ```
 
 The root command does not create or repair the shared cluster. It requires a
-TTY and enters the container at the mirrored host
-working directory. For example, a Tobari rooted at `/work` enters
-`/workspace/work/root` when invoked from `/work/root`; a shell exit returns to
-the host while the Tobari remains `exists`. Run `tobari` again to reuse it.
-`list` shows the stable ID only as diagnostic information, not as a routine
-action input.
+TTY and enters the container at the mirrored host working directory. If the
+current directory is below existing Workspace roots, `tobari` shows an English
+selector with the containing roots nearest-first plus `Create a new Workspace
+here`. Use the arrow keys and Enter to reuse a Workspace, `n` to create at the
+current directory, or `q`/Escape to cancel. When raw terminal mode is
+unavailable, the same experience falls back to numbered line input. For
+example, from `/work/root/app`, existing roots at `/work/root` and `/work`
+are shown as two choices before the create-here option. A selected Workspace
+root at `/work` enters `/workspace/work/root/app`; a shell exit returns to the
+host while the Workspace remains `exists`. `list` shows the stable ID only as
+diagnostic information, not as a routine action input.
 
 The former named lifecycle commands (`attach`, `lower`, `enter`, `lift`, and
 their named shell/exec forms) are rejected with a replacement message; they do
@@ -300,7 +305,7 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari policy compactions [--format text\|json]` | Discover test-backed prefix compactions and opaque IDs |
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
 | `tobari policy apply` | Test host policy, recreate only OPA, and wait for health |
-| `tobari` | Create or reuse the nearest current-directory Tobari and enter it |
+| `tobari` | Choose or create the current-directory Workspace and enter it |
 | `tobari status [--format text\|json]` | Report logical existence and runtime diagnostics for the current directory |
 | `tobari list [--format text\|json]` | List local Workspaces, runtime diagnostics, and diagnostic IDs |
 | `tobari delete [--force]` | Delete the nearest current-directory Tobari and its per-Tobari state |
@@ -501,6 +506,10 @@ Common failures:
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`.
 - `tty_required`: run the root `tobari` command from an interactive terminal.
+- `workspace_selection_stale`: the Workspace list changed during selection;
+  run `tobari` again and choose from the refreshed list.
+- cancelled or unavailable Workspace selection: choose an available candidate,
+  press `n` to create explicitly at the current directory, or run `q` to leave.
 - `already_inside`: exit the current Tobari before entering another session.
 - `image_not_found`: build or pull the selected image explicitly on the host.
 - `incompatible_image`: extend `tobari-runtime:local` without replacing its
