@@ -18,20 +18,20 @@ desired publication model into current repository behavior.
   kubectl, and TWG versions. `scripts/check-toolbox.sh` checks the Dockerfile's
   source shape and `scripts/build-toolbox.sh` validates the built image's
   runtime API, lifetime capability, user, and entrypoint.
-- The canonical base source is now `runtimes/base`; the embedded snapshot is
-  checked byte-for-byte by `tools/runtimecheck`. The minimal runtime declares
-  `io.tobari.runtime-api=1` and
-  `io.tobari.runtime-lifetime-command=sleep infinity`; derived images inherit
-  the contract when they use `FROM tobari-runtime:local`.
-- The current integration harness executes `python3` and `curl` inside the
-  minimal runtime fixture. Moving those packages to `toolbox` is therefore a
-  deliberate harness change: the runtime tests must either use a toolbox
-  fixture for tool checks or replace those probes with commands guaranteed by
-  the minimal contract.
+- The canonical base source is now `runtimes/base`; the embedded Dockerfile,
+  bootstrap, and AWS verification key are checked byte-for-byte by
+  `tools/runtimecheck`. The base declares `io.tobari.runtime-api=1`,
+  `io.tobari.runtime-lifetime-command=sleep infinity`, and the common Git,
+  HTTP, JSON, Python, SSH, GitHub, and AWS tool set; derived images inherit the
+  contract when they use `FROM tobari-runtime:local`.
+- The first base version is `0.1.0`. The official GHCR package is
+  `ghcr.io/<owner>/tobari/runtime`; its base development tags are `main` and
+  `sha-<commit>`, while future agent tags are qualified compositions such as
+  `claude.2.1.34-base.0.1.0-r1`.
 - `.github/workflows/runtime-base.yml` builds and pushes
-  `ghcr.io/<owner>/tobari-runtime:main` plus `sha-<commit>` on a main push,
-  after the base source/snapshot check. Toolbox and agent publication remain
-  deferred to later slices.
+  `ghcr.io/<owner>/tobari/runtime:main` plus `sha-<commit>` on a main push,
+  after the base source/snapshot check. Agent publication remains deferred to
+  a later slice; there is no neutral official toolbox image.
 
 ## Relevant structure
 
@@ -48,8 +48,8 @@ desired publication model into current repository behavior.
 - Existing repository gates: `scripts/check.sh`, `task check`,
   `task security`, `task public:check`, and `task runtime:test`.
 - Implemented first source tree: a root `runtimes/` directory containing
-  `base`, its JSON metadata/lock, and a family manifest. `toolbox`, `claude`,
-  and `codex` remain planned siblings. The future dependency graph must rebuild
+  `base`, its JSON metadata/lock, and a family manifest. `claude` and `codex`
+  remain planned derived siblings. The future dependency graph must rebuild
   every derived image when `base` or shared build logic changes.
 
 ## Constraints
@@ -113,11 +113,10 @@ reviewed update.
 
 ## Unknowns
 
-- [ ] Whether package names should be flat (`tobari-runtime`,
-      `tobari-claude`) or nested under one family path, and whether all
-      packages should inherit repository permissions.
-- [ ] Whether each image gets independent SemVer or the family follows a
-      lockstep release train with the CLI.
+- [x] Use one nested GHCR family package (`tobari/runtime`) with variant-
+      qualified agent tags.
+- [x] Use independent image versions from the CLI: base `<version>` and agent
+      `<agent>.<agent-version>-base.<base-version>-r<revision>`.
 - [ ] Whether `stable`/`latest` aliases are needed; immutable version tags and
       digests are the safer initial contract.
 - [ ] Which agent/tool installers and licenses permit redistribution inside a
@@ -144,16 +143,16 @@ reviewed update.
 - Repeated design decision or point of agent confusion: users want a tool-ready
   image without surrendering the Tobari runtime contract or having an agent's
   `CMD` own Workspace lifetime.
-- User outcome or friction observed in the minimal slice: a minimal runtime
-  plus derived images makes custom-image setup less constraining than asking
-  every user to install an agent manually.
+- User outcome or friction observed in the base slice: a common work runtime
+  plus derived agent images makes custom-image setup less constraining than
+  asking every user to install common CLIs manually.
 - Code workaround or exception being considered: add GHCR publication to the
   CLI release workflow, which would couple unrelated release cadences and
   widen package-write permissions.
 - Current thesis that resolves it, or proposed thesis revision: image family
-  management is a separate release boundary; the runtime foundation owns the
-  compatibility contract, while derived images own tool contents and version
-  metadata.
+  management is a separate release boundary; the base runtime owns the
+  compatibility contract and common work tools, while agent variants own only
+  their agent tool, dependencies, and composition tag.
 - Downstream product, architecture, security, Skill, catalog, and harness
   impact: add public image documentation, release workflow and permission
   checks, image metadata/lock validation, multi-architecture integration, and

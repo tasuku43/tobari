@@ -4,5 +4,15 @@
     "name": "debian",
     "tag": "bookworm-20260713-slim",
     "reference": "debian@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818"
+  },
+  "tools": {
+    "gh": {
+      "version": "2.96.0",
+      "source": "https://github.com/cli/cli/releases"
+    },
+    "aws_cli": {
+      "version": "2.36.11",
+      "source": "https://awscli.amazonaws.com/"
+    }
   }
 }

@@ -55,7 +55,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image="ghcr.io/${IMAGE_OWNER,,}/tobari-runtime"
+          image="ghcr.io/${IMAGE_OWNER,,}/tobari/runtime"
           base_image=$(go run ./tools/runtimecheck --print-base-image)
           builder="tobari-runtime-${GITHUB_RUN_ID}"
           docker buildx create --name "$builder" --driver docker-container --use

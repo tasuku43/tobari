@@ -16,14 +16,16 @@
 - [ ] Compare flat package names with a nested family path.
 - [x] Choose the `runtimes/` directory layout and the canonical-source versus
       generated-embedded-snapshot relationship for the base slice.
-- [x] Confirm the provisional `base -> toolbox -> agent` layer contract and
-      the initial neutral-tool inventory; toolbox implementation remains next.
+- [x] Confirm the `base -> agent` layer contract and the common base-tool
+      inventory; there is no neutral official toolbox image.
 - [x] Define the first base publication edge and reserve the derived-image
       fan-out behavior for the toolbox slice.
 - [x] Choose the initial typed lock/manifest shape; Dependabot versus custom
       runtime-refresh ownership for toolbox and agent dependencies remains open.
-- [ ] Choose independent image SemVer versus CLI lockstep.
-- [ ] Decide immutable version tags, digest use, and any moving aliases.
+- [x] Choose independent image versions from the CLI and a single
+      `tobari/runtime` GHCR family package.
+- [x] Decide immutable composition tags, digest use, and qualified moving
+      aliases.
 - [ ] Decide foundation/derived image support window, architectures, and update SLA.
 - [ ] Review redistribution rights for every agent/tool artifact.
 - [ ] Decide attestation/SBOM requirements and workflow permissions.
@@ -32,7 +34,7 @@
 
 ## Implement
 
-- [x] Add base image metadata/lock vocabulary and validation.
+- [x] Add base image metadata/lock vocabulary, common-tool pins, and validation.
 - [x] Add canonical-source synchronization/checks for embedded runtime assets.
 - [ ] Add PR-only image build and contract checks.
 - [ ] Add scheduled dependency/base refresh workflow.
@@ -53,7 +55,8 @@
       `contractlint: OK`.
 - [x] `task release:check` passes. Evidence: `lint-release: OK`.
 - [x] Dedicated image release gate passes. Evidence: actionlint plus
-      `runtimecheck` and local Docker build passed; GHCR push is pending main.
+      `runtimecheck` and the expanded local Docker build passed; GHCR push is
+      pending the next main push.
 - [ ] Published digest is verified on every supported architecture. Evidence:
 - [ ] Provenance/SBOM and license evidence match each digest. Evidence:
 - [ ] Generated diff and repository status are understood. Evidence:

@@ -86,12 +86,13 @@ metadata is rejected before project home, network, or container mutation. Users
 remain responsible for image contents and should prefer immutable digest
 references.
 
-The official minimal runtime and derived agent/tool images do not change this
-boundary. The base main channel is published by a protected main-branch
-workflow; derived images are separate later slices. A published Claude, Codex,
-or toolbox image is a convenience rootfs and tool bundle, not a source of
-mounts, credentials, capabilities, network routes, or lifecycle policy, and
-registry provenance does not replace local runtime compatibility validation.
+The official base runtime and derived agent images do not change this boundary.
+The base main channel is published by a protected main-branch workflow;
+derived agent variants are separate later slices in the same runtime package.
+A published Claude or Codex image is a convenience rootfs and tool bundle, not
+a source of mounts, credentials, capabilities, network routes, or lifecycle
+policy, and registry provenance does not replace local runtime compatibility
+validation.
 
 The optional toolbox recipe downloads version-pinned GitHub CLI, AWS CLI,
 kubectl, and TWG artifacts only during an explicit trusted-host build.

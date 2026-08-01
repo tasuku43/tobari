@@ -4,7 +4,7 @@
     {
       "name": "base",
       "path": "base",
-      "package": "tobari-runtime",
+      "package": "tobari/runtime",
       "parent": null
     }
   ]

@@ -7,16 +7,16 @@
 - Review/delete trigger: Delete after the release/public-boundary decision is promoted and implementation completes or is explicitly deferred.
 - Successor: None
 - Owner: Tobari maintainers
-- Target: Official minimal runtime and derived agent/tool images
+- Target: Official base runtime and derived agent runtime images
 - Related ADRs: docs/decisions/0012-own-workspace-container-lifetime.md
 
 ## Outcome
 
-Tobari has a reviewed, reproducible publication model for a minimal runtime
-image and a small family of derived agent/tool images. Each image has an owned
-package, explicit base and tool provenance, a compatibility contract, an
-immutable release identity, a documented support/update cadence, and a
-least-privilege publication workflow. The plan keeps image releases separate
+Tobari has a reviewed, reproducible publication model for a common base runtime
+and a small family of derived agent runtime images. The family uses one GHCR
+package with explicit base/agent composition tags, base and tool provenance, a
+compatibility contract, an immutable release identity, a documented
+support/update cadence, and a least-privilege publication workflow. The plan keeps image releases separate
 from the CLI release train; the base development channel is published only
 after its source, license, security, and public-boundary checks, while derived
 images remain gated on their own review.
@@ -24,10 +24,10 @@ images remain gated on their own review.
 ## Why now
 
 The compatible-base model reduces custom-image friction, but publishing
-Claude/Codex/tool images creates a new public artifact and supply-chain
-boundary. The repository initially built the runtime locally and published
-only CLI archives from `v*` tags; the first base slice now establishes the
-separate GHCR lifecycle before toolbox and agent images are added.
+Claude/Codex images creates a new public artifact and supply-chain boundary.
+The repository initially built the runtime locally and published only CLI
+archives from `v*` tags; the first base slice now establishes the separate
+GHCR lifecycle before agent variants are added.
 
 ## Non-goals
 
@@ -41,8 +41,8 @@ separate GHCR lifecycle before toolbox and agent images are added.
 
 ## Acceptance criteria
 
-- [ ] Package names and ownership are explicit for the minimal runtime and each
-      derived image.
+- [ ] The single `tobari/runtime` package and each base/agent variant are
+      explicit in source metadata and publication rules.
 - [ ] Versioning, digest identity, aliases, deprecation, retention, and
       rollback rules are explicit and do not permit silent replacement of a
       published release.

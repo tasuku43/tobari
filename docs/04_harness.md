@@ -20,14 +20,15 @@ The harness is the executable counterpart of the theses, product contract, archi
 
 The optional `task toolbox:build` workflow is not a completion profile. It
 requires Docker and the locally materialized `tobari-runtime:local` base,
-downloads the version-pinned public CLI artifacts, builds
+downloads the version-pinned specialized CLI artifacts, builds
 `tobari-toolbox:local`, validates inherited runtime metadata, and executes each
-named tool. The fast profile statically checks that its versions, official
-sources, integrity checks, final user, and inherited entrypoint contract cannot
-silently disappear.
+named tool. The base runtime check separately verifies the common Git, HTTP,
+JSON, Python, SSH, GitHub, and AWS tool contract. The fast profile statically
+checks that versions, official sources, integrity checks, final user, and the
+inherited entrypoint contract cannot silently disappear.
 
 The focused `task runtime:base:check` workflow validates the canonical
-`runtimes/base` metadata and digest lock, the Dockerfile's minimal package and
+`runtimes/base` metadata and digest lock, the Dockerfile's common tool and
 runtime contract, and byte equality with the embedded CLI snapshot. The
 main-only runtime workflow runs this check before its package-write job and
 pushes only the base image; pull-request CI has no package-write permission.

@@ -78,9 +78,9 @@ writes generated non-secret runtime configuration, including the owner-only
 project-principal registry, and invokes Docker through
 the runtime port. Compose owns only Gateway, OPA, shared networks, and CA
 volumes. The built-in image receives an asset-version tag and the stable local
-extension tag `tobari-runtime:local`; this tag is the minimal runtime foundation
-for local derivations. The runtime adapter creates each logical Tobari from the
-built-in image or an exact configured local image and
+extension tag `tobari-runtime:local`; this tag is the local base work runtime
+with the common tools shared by supported agents. The runtime adapter creates
+each logical Tobari from the built-in image or an exact configured local image and
 connects Gateway to its dedicated network, then records the Gateway interface
 address in the principal registry. No runtime asset is downloaded
 during startup. A public-only CA volume is mounted read-only into
@@ -100,19 +100,19 @@ read-only root filesystem, dropped capabilities, fixed CPU/memory/PID/log
 resource bounds, fixed mounts, proxy environment, internal network, and health
 check.
 
-`images/toolbox` is the optional reference derivation for repeated
-network-facing CLI exercises. A separate host task builds it from
-`tobari-runtime:local`, verifies pinned official artifacts, checks its runtime
-metadata and tool executability, and leaves only the local
-`tobari-toolbox:local` tag. It is not embedded runtime state, a published
-artifact, or an implicit cluster dependency.
+`images/toolbox` remains a transitional optional custom derivation for tools
+outside the common base set, such as kubectl and TWG. A separate host task
+builds it from `tobari-runtime:local`, verifies pinned official artifacts, and
+leaves only the local `tobari-toolbox:local` tag. It is not embedded runtime
+state, an official published artifact, or an implicit cluster dependency.
 
 The first published family member follows the same layering: a main-branch
 push runs `.github/workflows/runtime-base.yml` and publishes the reviewed
-multi-architecture base to `ghcr.io/<owner>/tobari-runtime:main` plus an
-immutable `sha-<commit>` tag. Pull requests and ordinary local startup do not
-push or pull images. Toolbox and agent publication remain later derived-image
-slices with their own source and license review.
+multi-architecture base to `ghcr.io/<owner>/tobari/runtime:main` plus an
+immutable `sha-<commit>` tag. Future agent variants use the same package with
+variant-qualified tags such as
+`ghcr.io/<owner>/tobari/runtime:codex.0.42.0-base.0.1.0-r1`. Pull requests and
+ordinary local startup do not push or pull images.
 
 The root resolver obtains an image from bounded project metadata or the strict
 owner-only XDG `config.json` `default_image`; absence before first initialization

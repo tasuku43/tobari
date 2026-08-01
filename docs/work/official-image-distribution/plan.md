@@ -7,11 +7,12 @@
 
 ## Chosen approach
 
-Propose independent package and version lifecycles for a small GHCR image
-family. Start with a minimal `tobari-runtime` foundation and derived
-`tobari-toolbox`, `tobari-claude`, and `tobari-codex` packages only after each
-has a reviewed source/license story. Keep immutable SemVer tags and digests as
-the supported identity; do not make `latest` part of the first contract.
+Use one GHCR runtime package with a base tag and variant-qualified agent tags.
+Start with a `tobari/runtime` foundation and derived Claude/Codex variants in
+the same package. The base carries the common work tools; each agent image adds
+only its agent-specific tool and dependencies. Keep immutable composition tags
+and digests as the supported identity; do not make `latest` part of the first
+contract.
 
 Keep image publication in a dedicated release workflow, separate from the
 CLI's `v*` archive workflow. Pull requests build and test without push. A
@@ -37,10 +38,6 @@ runtimes/
     entrypoint.sh
     runtime.json
     runtime.lock.json
-  toolbox/
-    Dockerfile
-    runtime.json
-    runtime.lock.json
   claude/
     Dockerfile
     runtime.json
@@ -52,8 +49,9 @@ runtimes/
   manifest.json
 ```
 
-`runtime.json` owns the image identity, base relationship, supported
-architectures, runtime API, source/license metadata, and publication metadata.
+`runtime.json` owns the image identity, version, base relationship, supported
+architectures, runtime API, common/agent tool inventory, source/license
+metadata, and publication metadata.
 `runtime.lock.json` should own downloaded artifact versions, source URLs,
 checksums/signature identifiers, and package-manager inputs. A short-term
 `versions.env` compatibility layer is acceptable for the existing toolbox, but
@@ -67,45 +65,31 @@ parser solely for release tooling.
 The proposed public family is intentionally a single-parent chain:
 
 ```text
-tobari-runtime (runtimes/base)
-  -> tobari-toolbox (runtimes/toolbox)
-       -> tobari-claude (runtimes/claude)
-       -> tobari-codex (runtimes/codex)
+tobari/runtime (runtimes/base)
+  -> tobari/runtime:claude.<agent-version>-base.<base-version>-r<revision>
+  -> tobari/runtime:codex.<agent-version>-base.<base-version>-r<revision>
 ```
 
-`base` is a runtime foundation, not a general developer image. It should
-contain the pinned Debian root, `bash` (plus the inherited POSIX shell and
-coreutils used by the bootstrap), `ca-certificates`, `tini`, the `tobari` user
-and home, the Tobari entrypoint, the runtime API/lifetime labels, and the
-inherited `sleep infinity` default. The current `git`, `python3`, and `curl`
-packages are convenience tools rather than lifecycle requirements; the
-provisional recommendation is to move them to `toolbox`. The base must not
-contain an agent CLI, cloud CLI, Kubernetes CLI, credentials, host config, or a
-user-owned `CMD`/`ENTRYPOINT` replacement.
+`base` is the common work runtime. It contains the pinned Debian root, `bash`,
+`ca-certificates`, `tini`, the `tobari` user and home, the Tobari entrypoint,
+the runtime API/lifetime labels, the inherited `sleep infinity` default, Git,
+curl, jq, Python, OpenSSH, GitHub CLI, and AWS CLI. It must not contain a
+particular agent CLI, credentials, host config, or a user-owned
+`CMD`/`ENTRYPOINT` replacement. Kubernetes, Atlassian, DNS, synchronization,
+language-toolchain, Docker, and browser tools remain specialized custom-image
+or future-variant candidates.
 
-`toolbox` is the neutral work-image layer. It should contain `git`, `curl`,
-`python3`, `gh`, AWS CLI, `kubectl`, TWG, `jq`, `openssh-client`, `rsync`,
-`dnsutils`, `less`, and `groff`, subject to each artifact's redistribution and
-integrity review. It inherits the base lifecycle contract and must not replace
-the entrypoint or command. The initial toolbox should remain deliberately
-small; Terraform, Helm, language toolchains, Docker CLI, and browser tooling
-are candidates for later derived images rather than an unbounded toolbox.
-The current integration suite assumes `python3` and `curl` are in the minimal
-image, so moving them is not a silent Dockerfile edit: the runtime fixture and
-its probes must be updated in the same implementation slice.
-
-Each agent image should be `FROM toolbox` and add only its agent CLI and
+Each official agent image is `FROM base` and adds only its agent CLI and
 agent-specific runtime dependencies. Claude and Codex images must not bake in
 API keys, user settings, host CLI configuration, or an agent command as the
-image `CMD`. If an agent needs Node, Python, or another runtime that is not
-already a neutral toolbox dependency, that runtime belongs in the agent layer
-and is recorded in that image's lock metadata.
+image `CMD`. If an agent needs a runtime that is not in the common base, that
+runtime belongs in the agent layer and is recorded in that image's lock
+metadata.
 
-This preserves a useful default for custom images: users who want only the
-Tobari lifecycle can start from `tobari-runtime`; users who want common work
-tools can start from `tobari-toolbox`; users who want an agent can start from
-the corresponding agent image. A smaller agent-specific image can be added
-only when image size or pull-time evidence justifies a second branch.
+The base version is a standalone image version. An agent tag records both the
+upstream agent version and the exact base version, for example
+`claude.2.1.34-base.0.1.0-r1`. A packaging revision changes when the agent
+image composition changes without changing either upstream version.
 
 The base Dockerfile and bootstrap must have one canonical source. The current
 embedded `internal/infra/runtimeassets/assets/tobari` is coupled to Go's
@@ -129,15 +113,16 @@ allowing offline/local verification.
 
 ### First implemented slice
 
-The first slice makes `runtimes/base` canonical, synchronizes its Dockerfile
-and bootstrap into the embedded CLI snapshot, and publishes only the base
-image on pushes to `main`. The workflow publishes the moving `main` channel and
-an immutable `sha-<commit>` tag for Linux amd64 and arm64 with job-scoped
+The first slice makes `runtimes/base` canonical, synchronizes its Dockerfile,
+bootstrap, and public verification key into the embedded CLI snapshot, and
+publishes only the base variant on pushes to `main`. The base is versioned as
+`0.1.0` in metadata; the workflow publishes the moving `main` channel and an
+immutable `sha-<commit>` tag for Linux amd64 and arm64 with job-scoped
 `packages: write`. It performs no pull-request or local-startup publication.
-The GHCR package must still receive its intended public visibility through the
-maintainer's package settings before users can consume it as an official public
-image. Toolbox is the next implementation slice and is not part of this
-workflow.
+The GHCR `tobari/runtime` package must still receive its intended public
+visibility through the maintainer's package settings before users can consume
+it as an official public image. Agent variants are the next implementation
+slice; there is no neutral official toolbox image.
 
 ### Update strategy
 
@@ -193,12 +178,14 @@ pinning.
 
 ### Public contract
 
-Proposed package names are `ghcr.io/tasuku43/tobari-runtime`,
-`ghcr.io/tasuku43/tobari-toolbox`, `ghcr.io/tasuku43/tobari-claude`, and
-`ghcr.io/tasuku43/tobari-codex`, subject to naming review. Each package is a
-compatible environment image, not a separate Tobari authority boundary. Users
-may select a version or digest locally; Tobari still performs the same local
-runtime validation and never pulls implicitly.
+The official package is `ghcr.io/<owner>/tobari/runtime`. The base uses a
+plain version tag such as `0.1.0`; agent variants use
+`claude.2.1.34-base.0.1.0-r1` or
+`codex.0.42.0-base.0.1.0-r1`. Moving `main` and commit tags are qualified for
+agent variants to avoid collisions inside one package. The package is a
+compatible environment image family, not a separate Tobari authority boundary.
+Users may select a version or digest locally; Tobari still performs the same
+local runtime validation and never pulls implicitly.
 
 Each published image should expose OCI metadata for package version, source
 revision, license, base image name/digest, runtime API, lifetime capability,
@@ -286,7 +273,7 @@ source and review, not additional runtime authority.
 ## Rollout and rollback
 
 Publish the foundation first, then derived images that reference its immutable
-digest. Keep the local embedded runtime and `tobari-runtime:local` workflow
+digest. Keep the local embedded runtime and `tobari-runtime:local` alias
 unchanged. A bad image is retired by marking its version affected and
 publishing a new version; pinned consumers are not silently moved. If a moving
 alias is eventually added, it points only to an already published digest and

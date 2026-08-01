@@ -18,6 +18,7 @@ import (
 const (
 	baseDockerfile   = "runtimes/base/Dockerfile"
 	baseEntrypoint   = "runtimes/base/entrypoint.sh"
+	baseAWSKey       = "runtimes/base/aws-cli-public-key.asc"
 	snapshotDir      = "internal/infra/runtimeassets/assets/tobari"
 	baseRuntimeJSON  = "runtimes/base/runtime.json"
 	baseLockJSON     = "runtimes/base/runtime.lock.json"
@@ -28,13 +29,29 @@ const (
 	canonicalUser    = "tobari"
 	canonicalRuntime = "1"
 	canonicalLife    = "sleep infinity"
+	canonicalPackage = "tobari/runtime"
 )
 
 var digestReference = regexp.MustCompile(`^debian@sha256:[0-9a-f]{64}$`)
+var versionReference = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+
+var canonicalBaseTools = []string{
+	"bash",
+	"ca-certificates",
+	"curl",
+	"git",
+	"jq",
+	"openssh-client",
+	"python3",
+	"tini",
+	"gh",
+	"aws",
+}
 
 type runtimeMetadata struct {
 	SchemaVersion          int      `json:"schema_version"`
 	Name                   string   `json:"name"`
+	Version                string   `json:"version"`
 	Package                string   `json:"package"`
 	Kind                   string   `json:"kind"`
 	Parent                 *string  `json:"parent"`
@@ -43,6 +60,7 @@ type runtimeMetadata struct {
 	Entrypoint             []string `json:"entrypoint"`
 	User                   string   `json:"user"`
 	Architectures          []string `json:"architectures"`
+	Tools                  []string `json:"tools"`
 	Source                 string   `json:"source"`
 	License                string   `json:"license"`
 }
@@ -54,6 +72,16 @@ type runtimeLock struct {
 		Tag       string `json:"tag"`
 		Reference string `json:"reference"`
 	} `json:"base_image"`
+	Tools struct {
+		GH struct {
+			Version string `json:"version"`
+			Source  string `json:"source"`
+		} `json:"gh"`
+		AWSCLI struct {
+			Version string `json:"version"`
+			Source  string `json:"source"`
+		} `json:"aws_cli"`
+	} `json:"tools"`
 }
 
 type manifest struct {
@@ -96,7 +124,7 @@ func validate(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if metadata.SchemaVersion != 1 || metadata.Name != "base" || metadata.Package != "tobari-runtime" || metadata.Kind != "base" {
+	if metadata.SchemaVersion != 1 || metadata.Name != "base" || metadata.Package != canonicalPackage || metadata.Kind != "base" || !versionReference.MatchString(metadata.Version) {
 		return "", errors.New("base runtime metadata has an invalid identity")
 	}
 	if metadata.Parent != nil || metadata.RuntimeAPI != canonicalRuntime || metadata.RuntimeLifetimeCommand != canonicalLife || metadata.User != canonicalUser {
@@ -111,6 +139,9 @@ func validate(root string) (string, error) {
 	if metadata.Source != canonicalSource || metadata.License != canonicalLicense {
 		return "", errors.New("base runtime metadata has an invalid public source or license")
 	}
+	if !sameStrings(metadata.Tools, canonicalBaseTools) {
+		return "", errors.New("base runtime metadata has an unexpected common tool set")
+	}
 
 	lock, err := readJSON[runtimeLock](root, baseLockJSON)
 	if err != nil {
@@ -118,6 +149,10 @@ func validate(root string) (string, error) {
 	}
 	if lock.SchemaVersion != 1 || lock.BaseImage.Name != "debian" || lock.BaseImage.Tag == "" || !digestReference.MatchString(lock.BaseImage.Reference) {
 		return "", errors.New("base runtime lock does not contain a digest-pinned Debian reference")
+	}
+	if !versionReference.MatchString(lock.Tools.GH.Version) || lock.Tools.GH.Source != "https://github.com/cli/cli/releases" ||
+		!versionReference.MatchString(lock.Tools.AWSCLI.Version) || lock.Tools.AWSCLI.Source != "https://awscli.amazonaws.com/" {
+		return "", errors.New("base runtime lock does not contain the approved common CLI pins")
 	}
 	versions, err := readRegularFile(filepath.Join(root, versionsEnv))
 	if err != nil {
@@ -135,11 +170,11 @@ func validate(root string) (string, error) {
 		return "", errors.New("runtime manifest must contain exactly the published base image")
 	}
 	image := rootManifest.Images[0]
-	if image.Name != "base" || image.Path != "base" || image.Package != "tobari-runtime" || image.Parent != nil {
+	if image.Name != "base" || image.Path != "base" || image.Package != canonicalPackage || image.Parent != nil {
 		return "", errors.New("runtime manifest has an invalid base image entry")
 	}
 
-	for _, relative := range []string{baseDockerfile, baseEntrypoint} {
+	for _, relative := range []string{baseDockerfile, baseEntrypoint, baseAWSKey} {
 		if err := compareCanonicalSnapshot(root, relative); err != nil {
 			return "", err
 		}
@@ -154,10 +189,19 @@ func validate(root string) (string, error) {
 	spec := string(dockerfile)
 	for _, required := range []string{
 		"ARG DEBIAN_IMAGE=",
+		"FROM ${DEBIAN_IMAGE} AS fetcher",
+		"ARG GH_VERSION=" + lock.Tools.GH.Version,
+		"ARG AWS_CLI_VERSION=" + lock.Tools.AWSCLI.Version,
+		"COPY aws-cli-public-key.asc /tmp/aws-cli-public-key.asc",
 		"io.tobari.runtime-api=\"1\"",
 		"io.tobari.runtime-lifetime-command=\"sleep infinity\"",
 		"org.opencontainers.image.source=\"" + canonicalSource + "\"",
-		"bash ca-certificates tini",
+		"COPY --from=fetcher /opt/aws-cli /opt/aws-cli",
+		"COPY --from=fetcher /out/gh /usr/local/bin/gh",
+		"https://github.com/cli/cli/releases/download/v",
+		"https://awscli.amazonaws.com/",
+		"sha256sum --check --strict",
+		"gpg --batch --verify",
 		"USER tobari",
 		"ENTRYPOINT [\"/usr/bin/tini\", \"--\", \"/usr/local/bin/tobari-entrypoint\"]",
 		"CMD [\"sleep\", \"infinity\"]",
@@ -167,16 +211,26 @@ func validate(root string) (string, error) {
 		}
 	}
 	aptPackages := spec
-	if start := strings.Index(aptPackages, "apt-get install"); start >= 0 {
+	if start := strings.LastIndex(aptPackages, "apt-get install"); start >= 0 {
 		aptPackages = aptPackages[start:]
 	}
 	if end := strings.Index(aptPackages, "&& rm -rf"); end >= 0 {
 		aptPackages = aptPackages[:end]
 	}
-	for _, forbidden := range []string{"curl", "git", "python3"} {
-		if strings.Contains(aptPackages, forbidden) {
-			return "", fmt.Errorf("base Dockerfile contains toolbox package %q", forbidden)
+	for _, required := range []string{"bash", "ca-certificates", "curl", "git", "jq", "openssh-client", "python3", "tini"} {
+		found := false
+		for _, token := range strings.Fields(aptPackages) {
+			if token == required {
+				found = true
+				break
+			}
 		}
+		if !found {
+			return "", fmt.Errorf("base Dockerfile is missing common package %q", required)
+		}
+	}
+	if !strings.Contains(spec, "ln -s /opt/aws-cli/v2/current/bin/aws /usr/local/bin/aws") {
+		return "", errors.New("base Dockerfile does not expose the AWS CLI")
 	}
 
 	return lock.BaseImage.Reference, nil

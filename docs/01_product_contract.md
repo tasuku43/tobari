@@ -129,16 +129,15 @@ undeclared Docker mutation by the CLI.
   image implicitly. Missing or incompatible images fail before project runtime
   network or container mutation; the logical Workspace remains available for
   repair and retry.
-- The repository's optional `tobari-toolbox:local` recipe is a reviewed custom
-  image workflow, not another built-in selector. Its explicit build verifies
-  pinned vendor artifacts and runtime compatibility; root runtime startup
-  neither build nor pull it.
-- The intended official image family is one minimal runtime foundation plus
-  reviewed derived agent/tool images such as Claude and Codex. Those images are
-  convenience bases, not a separate authority boundary. The base image is
-  published on reviewed main pushes as a development channel; registry
-  publication is not implied by local image selection, and Tobari never pulls
-  the published image implicitly.
+- The built-in `tobari/runtime` image is the base work runtime: it preserves the
+  lifecycle contract and carries the common Git, HTTP, JSON, Python, SSH,
+  GitHub, and AWS tools. It is published on reviewed main pushes as a
+  development channel; registry publication is not implied by local image
+  selection, and Tobari never pulls the published image implicitly.
+- Official agent images are complete compatible variants in the same runtime
+  family, with tags such as
+  `claude.2.1.34-base.0.1.0-r1`. They add the agent tool and only its
+  agent-specific dependencies; they do not create a second authority boundary.
 - An explicitly configured Dev Container file is one regular file below the
   canonical root. The supported JSONC subset requires
   one literal `image` and permits only inert `$schema`, `name`, and

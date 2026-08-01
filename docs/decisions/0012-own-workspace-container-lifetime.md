@@ -122,7 +122,7 @@ publication is a separate release and public-boundary decision.
 The public lifecycle model does not add a command or state. Existing logical
 Workspace records and homes remain reusable; a changed runtime spec recreates
 only the work container. Existing custom images must be rebuilt from the
-compatible minimal runtime or otherwise satisfy runtime API `1`. No GHCR image
+compatible base runtime or otherwise satisfy runtime API `1`. No GHCR image
 name, tag, credential, or publication workflow is introduced by this decision.
 
 ## Security and public-boundary impact

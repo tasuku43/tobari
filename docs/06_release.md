@@ -29,14 +29,14 @@ preservation of each Tobari home volume by default.
 
 ## Publication
 
-Tags use `vMAJOR.MINOR.PATCH`. Release publication is create-only and runs the
-full, security, release, public, policy, Gateway, and Docker integration gates
-from the exact tagged revision. GitHub Releases publish checksums with each CLI
-archive. A push to `main` additionally runs the base-image workflow, which
-publishes `ghcr.io/<owner>/tobari-runtime:main` and an immutable
-`sha-<commit>` tag for the exact main revision. This is a development channel,
-not a stable image release; toolbox and agent images are not published by this
-workflow. Pull requests never receive package-write permission.
+Tags use `vMAJOR.MINOR.PATCH` for CLI releases. Image releases are independent:
+the base uses `ghcr.io/<owner>/tobari/runtime:<base-version>`, while a derived
+agent uses `<agent>.<agent-version>-base.<base-version>-r<revision>`, for example
+`claude.2.1.34-base.0.1.0-r1`. A push to `main` additionally runs the base-image
+workflow, which publishes `ghcr.io/<owner>/tobari/runtime:main` and an
+immutable `sha-<commit>` tag for the exact main revision. This is a development
+channel, not a stable image release. Pull requests never receive package-write
+permission.
 
 Tobari does not yet claim code signing, notarization, SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact

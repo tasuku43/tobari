@@ -190,24 +190,23 @@ their named shell/exec forms) are rejected with a replacement message; they do
 not create a second lifecycle model. Legacy named state is not guessed or
 automatically migrated.
 
-The minimal runtime does not bundle a particular agent brand. The intended
-official image family is a minimal Tobari runtime plus a small set of derived
-agent/tool images, such as Claude and Codex variants. Those images are
-convenience starting points; they do not change Tobari's isolation or lifecycle
-boundary. The base image is currently published on main pushes as
-`ghcr.io/tasuku43/tobari-runtime:main` plus an immutable commit tag; toolbox and
-agent images are added in later slices. Tobari still validates any selected
-image locally and never pulls it implicitly.
+The base runtime bundles the common work tools shared by supported agents:
+Git, GitHub CLI, AWS CLI, curl, jq, Python, and SSH. Official agent variants
+such as Claude and Codex add only their agent-specific tool and dependencies.
+These images are convenience starting points; they do not change Tobari's
+isolation or lifecycle boundary. The base image is published on main pushes as
+`ghcr.io/tasuku43/tobari/runtime:main` plus an immutable commit tag. Tobari
+still validates any selected image locally and never pulls it implicitly.
 
 Install other agent CLIs inside a Tobari or place binaries below its selected
 root. The per-Tobari home survives shell exit and runtime recovery.
 
-### Common CLI toolbox
+### Specialized CLI toolbox
 
-Repeated policy-learning exercises can use the optional local toolbox image.
-It contains Git, GitHub CLI, AWS CLI v2, kubectl, TWG, curl, jq, SSH, rsync,
-and basic DNS tools. Build and validate the optional toolbox on the trusted
-host:
+The base runtime already contains the common GitHub and AWS tools. Repeated
+cluster or Atlassian exercises can use the optional local toolbox image for
+specialized tools such as kubectl, TWG, rsync, and DNS utilities. Build and
+validate it on the trusted host:
 
 ```sh
 task toolbox:build
@@ -239,8 +238,8 @@ and other non-HTTP transports have no direct egress route.
 
 ### Custom work images
 
-`cluster up` also builds `tobari-runtime:local`, the minimal local runtime
-foundation. Add tools without replacing its user or entrypoint:
+`cluster up` also builds `tobari-runtime:local`, the local base work runtime.
+Add agent-specific tools without replacing its user or entrypoint:
 
 ```dockerfile
 FROM tobari-runtime:local

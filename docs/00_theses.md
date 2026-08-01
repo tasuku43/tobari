@@ -161,9 +161,9 @@ directory.
 - The selected image is an environment and tool source, not the Workspace
   lifetime owner. Tobari starts the work container with its own fixed lifetime
   command; an image `CMD` such as `claude` cannot make a child-agent exit stop
-  the Workspace. The minimal runtime image is the compatibility foundation,
-  and future derived agent/tool images remain convenience bases under the same
-  contract.
+  the Workspace. The base runtime carries the common work tools required by
+  supported agents, and each published agent image adds only its agent-specific
+  tool and dependencies under the same contract.
 - `tobari delete` is the only routine operation that ends a logical Tobari;
   ending a shell or losing a runtime resource leaves it existing.
 - Every process in a Tobari may modify or delete every file below that Tobari's

@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
   "name": "base",
-  "package": "tobari-runtime",
+  "version": "0.1.0",
+  "package": "tobari/runtime",
   "kind": "base",
   "parent": null,
   "runtime_api": "1",
@@ -15,6 +16,18 @@
   "architectures": [
     "linux/amd64",
     "linux/arm64"
+  ],
+  "tools": [
+    "bash",
+    "ca-certificates",
+    "curl",
+    "git",
+    "jq",
+    "openssh-client",
+    "python3",
+    "tini",
+    "gh",
+    "aws"
   ],
   "source": "https://github.com/tasuku43/tobari",
   "license": "MIT"
