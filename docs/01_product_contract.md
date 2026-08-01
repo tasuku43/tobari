@@ -75,7 +75,7 @@ The public commands are:
 | `tobari` | act, fixed target | create | Choose or create the current directory's Workspace, reconcile runtime, enter it, and leave it reusable after `exit` |
 | `status` | utility | read | Inspect the nearest current-directory Tobari and its diagnostic runtime state |
 | `list [--format text|json]` | utility | read | List local Workspaces with runtime diagnostics and diagnostic IDs |
-| `delete [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari after destructive confirmation |
+| `delete [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari when detached; use `--force` to override an attached-session guard |
 | `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and activation command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
@@ -137,6 +137,9 @@ undeclared Docker mutation by the CLI.
   never performed by the root `tobari` operation.
 - CWD-local lifecycle operations use one command-bound `tool_local` current
   directory target and do not accept an ID, name, or root selector.
+- `delete` removes that nearest target without `--force` when no session is
+  attached. An attached session returns `project_session_attached` and leaves
+  state untouched; `--force` is the explicit override.
 
 ## Output and exit contract
 
@@ -157,15 +160,17 @@ Workspace session closed.
 Workspace remains available.
 
 Resume: tobari
-Remove: tobari delete --force
+Remove: tobari delete
+If another session is attached: tobari delete --force
 ```
 
 `exit` therefore detaches the session without deleting the Workspace. The
-Workspace remains existing until the host runs `tobari delete --force`, which
-is the explicit lifecycle-ending operation. There is no public `stop` or
-`pause` state. The choice is revalidated under the lifecycle lock before
-logical or Docker mutation, so a changed candidate set fails closed and asks
-the user to run `tobari` again.
+Workspace remains existing until the host runs `tobari delete`, which is the
+normal lifecycle-ending operation when no session is attached. If another
+session is attached, ordinary delete fails with a warning and `--force` is the
+explicit override. There is no public `stop` or `pause` state. The choice is
+revalidated under the lifecycle lock before logical or Docker mutation, so a
+changed candidate set fails closed and asks the user to run `tobari` again.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
 a small state marker, aligned detail rows, semantic color tokens, and an exact
@@ -215,14 +220,15 @@ Detached session + Workspace exists
 Attached session + Workspace exists
   -> exit
 Detached session + Workspace exists
-  -> tobari delete --force (from the host)
+  -> tobari delete (from the host)
 Workspace absent
 ```
 
 `status` and `delete` continue to resolve the nearest canonical Workspace
 containing the host current directory. When several ancestor Workspaces exist,
 run the destructive command from a directory whose nearest Workspace is the
-one intended for removal.
+one intended for removal. If that Workspace has an attached session, add
+`--force` only when terminating that session is intentional.
 
 | Exit | Meaning |
 |---:|---|
@@ -301,8 +307,9 @@ recreates only the project container and preserves its logical state and home.
 Returning from that child session, including a normal shell `exit`, performs no
 Workspace deletion: it only returns the child exit status and emits the host
 stderr guidance described above. `delete` is the separate lifecycle-ending
-operation and removes only that exact label-owned container,
-network, root index, instance state, and home.
+operation. It removes only that exact label-owned container, network, root
+index, instance state, and home after confirming that no session is attached;
+`--force` overrides that one guard.
 `cluster down` rejects while any
 Tobari remains
 and removes only exact shared resources; its `--purge` also removes shared CA

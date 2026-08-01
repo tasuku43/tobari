@@ -144,15 +144,15 @@ Detached session + Workspace exists
 Attached session + Workspace exists
   -> exit
 Detached session + Workspace exists
-  -> tobari delete --force
+  -> tobari delete
 Workspace absent
 ```
 
 The child shell's `exit` ends only the exec process; it does not stop or delete
 the work container, logical instance, root index, or per-Workspace home. There
-is no persisted stopped/paused state. `delete --force` is the explicit
-host-side boundary that removes the logical Workspace and its exact owned
-runtime resources.
+is no persisted stopped/paused state. Detached `delete` removes the logical
+Workspace; an attached exec makes ordinary deletion fail, and `delete --force`
+is the explicit host-side override.
 
 Explicit `cluster up` validates configuration, tests policy, reconciles OPA and
 Gateway, and reconnects Gateway to every existing registered project network.
@@ -180,8 +180,10 @@ it from the local interface address. `policy apply`
 provides the deterministic
 portable path: it tests the current bind, verifies the exact OPA ownership
 label, recreates only OPA, and waits for health.
-`delete` verifies owner, ID, and role labels before removing the selected
-container and network, then removes only its XDG home and records. Container
+`delete` observes active Docker exec IDs before ordinary removal, then verifies
+owner, ID, and role labels before removing the selected container and network;
+an attached exec rejects ordinary deletion and `--force` skips only that guard.
+It then removes only its XDG home and records. Container
 or network loss is reconciled by the root operation; it never deletes logical
 state. Cluster status and reconcile derive project counts and network joins
 from the indexed CWD-owned records rather than the legacy named collection.

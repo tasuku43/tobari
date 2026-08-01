@@ -232,8 +232,9 @@ The test suite has complementary levels:
   one-Workspace-per-canonical-root behavior under repeated and concurrent
   creation, profile/spec drift recreation, concurrent entry convergence, and
   exact selected deletion after partial runtime cleanup. A child `exit` is
-  verified as session detachment, not Workspace deletion; `delete --force` is
-  the explicit external cleanup path.
+  verified as session detachment, not Workspace deletion; detached `delete` is
+  the normal external cleanup path and `delete --force` is the explicit
+  attached-session override.
 - Logical lifecycle tests inject interruptions at home, instance, root-index,
   runtime, and deletion boundaries; they prove journals recover without
   duplicate IDs and diagnose orphaned one-sided records. Shared-state tests
@@ -302,6 +303,7 @@ Every strong statement should identify its enforcement path.
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
 | Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, and zero-downstream-call cancellation tests |
 | Session-versus-Workspace lifecycle | Child exit-status preservation, host stderr guidance, stdout/stderr ownership, logical-state-after-exit, and explicit delete tests |
+| Attached-session deletion guard | Docker Exec ID observation, guard-before-delete negative tests, force override, and stable structured fault/help contract |
 | One Workspace per canonical root | Domain duplicate-index validation, root-hash/index checks, repeated explicit-create rejection, and concurrent explicit-create convergence |
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
 | Shared runtime resource bounds | Fixed project create-argv, resource-aware spec hash, and Docker HostConfig integration assertions |

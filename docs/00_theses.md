@@ -143,8 +143,9 @@ directory.
 - Workspace existence and interactive session attachment are separate states:
   `tobari` attaches a session to an existing or newly created Workspace, while
   `exit` detaches only the session. The Workspace remains existing and
-  reusable until the host runs `tobari delete --force`; there is no user-facing
-  stopped or paused Workspace state.
+  reusable until the host runs `tobari delete`. A delete with an attached
+  session is rejected unless the host explicitly uses `--force`; there is no
+  user-facing stopped or paused Workspace state.
 - `status` and `delete` resolve the nearest canonical root. The interactive
   `tobari` entry path resolves an exact root directly or requires an explicit
   choice among containing ancestor roots before it can create a nested root.
@@ -200,10 +201,12 @@ name prefix or broad Docker query as authority.
   XDG state lock and atomic durable records.
 - Session attachment is transient process state, not a persisted lifecycle
   resource. The only public session transition is `exit`; the only routine
-  transition to Workspace absence is the confirmed host-side `delete` action.
+  transition to Workspace absence is the host-side `delete` action, guarded by
+  active-session detection and optionally overridden with `--force`.
 - `delete` removes one exact container, network, home directory, and instance
-  records after an explicit destructive confirmation. It can continue after
-  partial runtime cleanup and never selects by a Docker name or prefix.
+  records when no session is attached. An attached session rejects ordinary
+  deletion and `--force` explicitly overrides that guard. It can continue
+  after partial runtime cleanup and never selects by a Docker name or prefix.
 - `cluster down` refuses to remove shared enforcement while any Tobari remains;
   `--purge` affects only shared CA state after the cluster is empty.
 - Docker CLI is behind an infrastructure port so another engine can replace it
@@ -226,8 +229,10 @@ name prefix or broad Docker query as authority.
 - Domain resource specifications carry a fixed ownership label.
 - Application tests prove validation and CWD-local target resolution precede
   Docker calls, ambiguous entry requires an explicit choice, and cleanup
-  selects exact resources. CLI tests prove session-exit guidance stays on host
-  stderr, separate from child stdout.
+  selects exact resources. They also prove ordinary deletion observes attached
+  sessions before the destructive boundary and `--force` is the explicit
+  override. CLI tests prove session-exit guidance stays on host stderr,
+  separate from child stdout.
 - The catalog declares every read/create/write effect and mutation impact.
 
 ## Thesis 6: Fail closed with bounded evidence

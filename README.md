@@ -161,14 +161,17 @@ Workspace session closed.
 Workspace remains available.
 
 Resume: tobari
-Remove: tobari delete --force
+Remove: tobari delete
+If another session is attached: tobari delete --force
 ```
 
 `exit` therefore leaves the session but does not stop or delete the Workspace.
-There is no `stop` command or stopped state. To remove the Workspace, run
-`tobari delete --force` from the host; it deletes the nearest canonical
-Workspace containing the current directory. Each canonical root can have only
-one Workspace, including when explicit creation requests race.
+There is no `stop` command or stopped state. To remove a detached Workspace,
+run `tobari delete` from the host; it deletes the nearest canonical Workspace
+containing the current directory. If another terminal is attached, the command
+warns and fails; use `tobari delete --force` only when terminating that session
+is intentional. Each canonical root can have only one Workspace, including
+when explicit creation requests race.
 
 The lifecycle model is:
 
@@ -176,7 +179,7 @@ The lifecycle model is:
 Workspace absent -> tobari -> Attached session + Workspace exists
 Attached session + Workspace exists -> exit -> Detached session + Workspace exists
 Detached session + Workspace exists -> tobari -> Attached session + Workspace exists
-Detached session + Workspace exists -> tobari delete --force -> Workspace absent
+Detached session + Workspace exists -> tobari delete -> Workspace absent
 ```
 
 `list` shows the stable ID only as diagnostic information, not as a routine
@@ -303,7 +306,14 @@ Container CLI or let the definition replace its isolation boundary. See the
 [Dev Container specification](https://github.com/devcontainers/spec/blob/main/docs/specs/devcontainer-reference.md)
 for the broader format that Tobari deliberately does not claim to implement.
 
-Delete the selected Tobari and its per-Tobari home:
+Delete the selected detached Tobari and its per-Tobari home:
+
+```sh
+tobari delete
+```
+
+If another terminal is still attached to the Workspace, deletion warns and
+fails. Add `--force` only to explicitly override that guard:
 
 ```sh
 tobari delete --force
@@ -334,7 +344,7 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari` | Choose or create the current-directory Workspace, enter it, and leave it reusable after `exit` |
 | `tobari status [--format text\|json]` | Report logical existence and runtime diagnostics for the current directory |
 | `tobari list [--format text\|json]` | List local Workspaces, runtime diagnostics, and diagnostic IDs |
-| `tobari delete [--force]` | Explicitly delete the nearest current-directory Tobari and its per-Tobari state |
+| `tobari delete [--force]` | Delete the nearest detached current-directory Tobari; `--force` overrides an attached-session guard |
 | `tobari doctor [--root PATH] [--format text\|tsv\|json]` | Diagnose Docker, paths, policy, credentials, and residue |
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version` | Print build identity |
@@ -541,8 +551,9 @@ Common failures:
 - `incompatible_image`: extend `tobari-runtime:local` without replacing its
   user or entrypoint.
 - `project_not_found`: run `tobari` from the intended project directory.
-- `confirmation_required`: repeat `tobari delete --force` after reviewing the
-  selected root and home path.
+- `project_session_attached`: exit the attached session and retry `tobari
+  delete`, or use `tobari delete --force` only when terminating that session is
+  intentional.
 - intended request returns `403`: run `policy tail`, approve one exact candidate
   with `policy allow --id`, and retry; use `cluster denials` plus a tested host
   edit only when the exact learning flow cannot express the required behavior.

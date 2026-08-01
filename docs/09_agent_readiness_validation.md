@@ -26,7 +26,7 @@ go run ./cmd/tobari cluster denials --tail 100 --format json
 go run ./cmd/tobari policy candidates --tail 100 --format json
 go run ./cmd/tobari policy allow --id PCY_ID
 go run ./cmd/tobari policy compactions --format json
-go run ./cmd/tobari delete --force
+go run ./cmd/tobari delete
 go run ./cmd/tobari cluster down --purge
 ```
 
@@ -54,7 +54,8 @@ rules exist. The transcript must prove:
   enters an exact root directly and explicitly chooses among ancestor roots.
 - A child terminal exit leaves the logical Tobari existing for reuse, emits the
   host-side resume/delete guidance on stderr, and does not introduce a stopped
-  state; `tobari delete --force` is the explicit external cleanup operation.
+  state; detached `tobari delete` removes it, while `tobari delete --force`
+  explicitly overrides an attached-session warning.
 - A denied request produces bounded typed secret-free host/method/path
   evidence, the host policy path, and the exact activation command.
 - Candidate discovery deduplicates pending effects and emits opaque references

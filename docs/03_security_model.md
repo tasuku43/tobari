@@ -114,7 +114,8 @@ All resources carry `io.tobari.owner=default`; per-Tobari resources also carry
 the exact stable Tobari ID and a resource role. Destructive lifecycle code
 resolves the nearest canonical CWD root, selects exact stored names, and
 confirms owner, ID, and role labels before removal. `delete` removes that
-instance's persistent XDG home and records only after explicit confirmation.
+instance's persistent XDG home and records after the session-attachment guard;
+`--force` explicitly overrides an attached-session warning.
 Shared cluster removal is rejected while any Tobari record remains.
 
 XDG policy is mounted read-only into OPA. Host-side edits are reflected by the
@@ -196,12 +197,15 @@ Each canonical root is unique: repeated or concurrent explicit creation is
 serialized by the state lock and only one logical record can be committed.
 Entering a session and returning from the child shell are not lifecycle-ending
 mutations. `exit` only detaches the session; `delete` resolves the same target
-and is the only routine lifecycle-ending mutation.
+and is the only routine lifecycle-ending mutation. Ordinary delete observes
+active exec sessions and rejects when one is attached; `--force` is the
+explicit override.
 Neither operation accepts an ID, name, or arbitrary root selector.
 All mutations use complete intent and impact declarations before Docker
 execution. Ordinary runtime reconciliation needs no human approval;
-destructive deletion requires confirmation or `--force` and affects only the
-selected XDG home and exact owned resources. Shared CA purge remains separate
+ordinary deletion requires no attached session, while `--force` overrides that
+guard; both affect only the selected XDG home and exact owned resources. Shared
+CA purge remains separate
 and only follows an empty instance repository.
 `policy apply` is an access-changing write to the same fixed cluster target. It
 does not edit policy, but it can change outbound authority by activating the
@@ -256,6 +260,7 @@ authority; only an explicit reference-bound mutation can write a learned rule.
 | Secrets stay outside Tobari | Mount-spec tests and integration canaries |
 | Secret headers and bodies stay out of logs | Gateway unit tests and log scans |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
+| Attached sessions are not removed accidentally | Exact work-container Exec ID observation, guard-before-delete tests, and explicit force-override tests |
 | Each root and XDG home are its Tobari's only host write scopes | Mount-spec and path-containment tests |
 | Ambiguous CWD selection cannot mutate before a valid choice | Typed candidate snapshot, locked stale-choice revalidation, and zero-call cancellation tests |
 | One Tobari cannot consume unbounded CPU, memory, PIDs, or container logs | Fixed create-argv and spec-hash tests plus runtime HostConfig assertions |
