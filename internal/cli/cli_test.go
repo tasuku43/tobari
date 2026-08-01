@@ -189,14 +189,29 @@ func TestDoctorOutputContract(t *testing.T) {
 	if code := runCLI(command, []string{"doctor"}); code != ExitOK {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
 	}
-	want := "CHECK\tSTATUS\tDETAIL\n" +
-		"runtime\tpass\truntime-version\\ttest/test\\nlocal\n" +
-		"configuration\twarn\tpath\\\\value\\u001B\n"
+	want := "✓ Environment check\n" +
+		"  runtime        pass\n" +
+		"  Details        runtime-version\\ttest/test\\nlocal\n" +
+		"  configuration  warn\n" +
+		"  Details        path\\\\value\\u001B\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("doctor output = %q, want %q", got, want)
 	}
 	if stderr.Len() != 0 || inspector.calls != 1 {
 		t.Fatalf("stderr = %q, inspector calls = %d", stderr.String(), inspector.calls)
+	}
+}
+
+func TestDoctorTSVProjectionRemainsAvailable(t *testing.T) {
+	inspector := &cliInspector{report: doctor.Report{Checks: []doctor.Check{
+		{Name: "runtime", Status: doctor.CheckStatusPass, Detail: "runtime-version"},
+	}}}
+	command, stdout, stderr := newTestCLI(inspector)
+	if code := runCLI(command, []string{"doctor", "--format", "tsv"}); code != ExitOK {
+		t.Fatalf("Run(doctor --format tsv) code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "CHECK\tSTATUS\tDETAIL\nruntime\tpass\truntime-version\n" {
+		t.Fatalf("TSV doctor output = %q", stdout.String())
 	}
 }
 
@@ -208,7 +223,7 @@ func TestDoctorFailureUsesRejectedExitAndStructuredRecovery(t *testing.T) {
 	if code := runCLI(command, []string{"doctor"}); code != ExitRejected {
 		t.Fatalf("Run(doctor) code = %d, want %d", code, ExitRejected)
 	}
-	if !strings.Contains(stdout.String(), "runtime\tfail\tunsupported") || !strings.Contains(stderr.String(), "code: diagnostic_failed") {
+	if !strings.Contains(stdout.String(), "runtime        fail") || !strings.Contains(stderr.String(), "code: diagnostic_failed") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }
@@ -716,10 +731,10 @@ func TestE2EDoctorUsesProductionRuntimeAdapter(t *testing.T) {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.HasPrefix(output, "CHECK\tSTATUS\tDETAIL\ndocker_cli\t") {
+	if !strings.HasPrefix(output, "✓ Environment check\n  docker_cli     pass") {
 		t.Fatalf("doctor output = %q", output)
 	}
-	if !strings.Contains(output, "\ndocker_engine\t") || !strings.Contains(output, "\ndocker_context\t") {
+	if !strings.Contains(output, "\n  docker_engine  pass") || !strings.Contains(output, "\n  docker_context pass") {
 		t.Fatalf("doctor output does not describe Docker runtime: %q", output)
 	}
 }

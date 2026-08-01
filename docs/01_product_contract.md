@@ -67,7 +67,7 @@ The public commands are:
 |---|---|---|---|
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version` | utility | read | Print build identity |
-| `doctor [--root PATH]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
+| `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
 | `tobari` | act, fixed target | create | Resolve or create the current directory's Tobari, reconcile runtime, and enter it |
 | `status` | utility | read | Inspect the nearest current-directory Tobari and its diagnostic runtime state |
 | `list [--format text|json]` | utility | read | List local Tobari roots with runtime diagnostics and diagnostic IDs |
@@ -130,6 +130,37 @@ because their items retain the project principal. `list --format json` reports
 root, runtime diagnostic, and stable ID. Agent help uses the catalog schema.
 Successful data is stdout;
 failures are stderr.
+Human `text` output uses one shared presentation vocabulary across lifecycle,
+policy, diagnostics, help, version, and error views: an outcome-first heading,
+a small state marker, aligned detail rows, semantic color tokens, and an exact
+next action when the result has a useful recovery or continuation. Success is
+green, warnings are yellow, failures are red, active or navigational emphasis
+is cyan, and secondary labels/details are muted. Color is applied only when
+the corresponding output stream is an interactive terminal; redirected text
+has the same semantic order without ANSI control sequences. `doctor` defaults
+to this human text view; `doctor --format tsv` remains the tab-separated
+projection for scripts, and JSON/agent help remain schema contracts.
+Empty collections are explicit rather than silent. Opaque IDs remain byte-for-
+byte exact, while external evidence remains subject to the existing safe text
+projection before it is displayed. Root, namespace, and exact human help use
+the same hierarchy; `--format agent` is machine-readable JSON and never receives
+terminal styling.
+When `cluster up` runs with an interactive stderr terminal, it may also render
+bounded fixed-step startup progress on stderr. The progress uses terminal
+control sequences and color only for that terminal presentation; it carries no
+runtime diagnostics and is absent for non-interactive or machine-readable
+callers. The completed checklist remains visible, and the final human summary
+is the same summary rendered by `cluster status`; it remains the only
+successful data written to stdout. JSON output is unchanged and contains no
+terminal control sequences. The checklist presents the internal startup work
+as three user-facing phases: `prepare environment`, `start services`, and
+`verify readiness`. In a terminal, semantic colors distinguish active,
+healthy, warning, failed, and secondary information; labels and values remain
+otherwise plain. The ready summary prioritizes outcome, component health,
+attached Tobari count, and policy path; configured/running booleans, the proxy
+endpoint, and the full recent diagnostic remain available in JSON or failure
+detail. A successful `cluster up` additionally points to the next `tobari`
+command.
 
 Project runtime diagnostics may report `incomplete` when a durable root index
 survives without its instance state. This preserves logical existence for safe

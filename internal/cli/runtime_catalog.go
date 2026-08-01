@@ -818,6 +818,15 @@ func formatInput() CommandInput {
 	}
 }
 
+func doctorFormatInput() CommandInput {
+	return CommandInput{
+		Name: "--format", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description:   "Select human text, tab-separated data, or schema-versioned JSON.",
+		AllowedValues: []string{"text", "tsv", "json"}, DefaultValue: stringPointer("text"),
+	}
+}
+
 func tailInput() CommandInput {
 	return CommandInput{
 		Name: "--tail", Source: InputSourceFlag, Required: false,

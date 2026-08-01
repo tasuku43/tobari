@@ -23,7 +23,7 @@ func parseSuccessFormat(value string) (successFormat, error) {
 	case successFormatJSON:
 		return successFormatJSON, nil
 	default:
-		return successFormatTSV, fmt.Errorf("--format must be tsv or json")
+		return successFormatText, fmt.Errorf("--format must be text, tsv, or json")
 	}
 }
 

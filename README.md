@@ -120,6 +120,21 @@ Start the shared enforcement cluster explicitly:
 tobari cluster up
 ```
 
+In an interactive terminal, `cluster up` shows a compact colored three-phase
+checklist (`prepare environment`, `start services`, and `verify readiness`) on
+stderr while it prepares, starts, and verifies the shared services. Its
+completed checklist remains visible, followed by the same clean cluster
+summary shown by `cluster status` on stdout and a next-step hint for running
+`tobari`. Non-interactive or machine-readable callers receive no progress or
+color control sequences.
+
+The same human output language is used by the other commands: an outcome
+heading, aligned detail rows, semantic colors, explicit empty states, and an
+exact next action where one is useful. `doctor` defaults to this view;
+`tobari doctor --format tsv` remains available for tab-separated consumers.
+Help, JSON, agent help, logs, and `exec` keep their respective machine or raw
+data contracts and never receive terminal styling.
+
 Then run the primary operation from the project directory. It requires the
 cluster to be configured and ready, and creates or reuses only the project
 Tobari:
@@ -275,7 +290,7 @@ tobari cluster down --purge # also removes shared CA volumes
 | Command | Outcome |
 |---|---|
 | `tobari cluster up` | Test policy and reconcile shared Gateway and OPA |
-| `tobari cluster status [--format text\|json]` | Show shared health, proxy, XDG policy, and project count |
+| `tobari cluster status [--format text\|json]` | Show shared readiness, component health, policy, project count, and diagnostics |
 | `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and activation command |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
 | `tobari cluster down [--purge]` | Remove an empty cluster and optionally shared CA state |
@@ -289,7 +304,7 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari status [--format text\|json]` | Report logical existence and runtime diagnostics for the current directory |
 | `tobari list [--format text\|json]` | List local roots, runtime diagnostics, and diagnostic IDs |
 | `tobari delete [--force]` | Delete the nearest current-directory Tobari and its per-Tobari state |
-| `tobari doctor [--root PATH] [--format tsv\|json]` | Diagnose Docker, paths, policy, credentials, and residue |
+| `tobari doctor [--root PATH] [--format text\|tsv\|json]` | Diagnose Docker, paths, policy, credentials, and residue |
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version` | Print build identity |
 

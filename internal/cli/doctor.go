@@ -34,7 +34,7 @@ func runDoctor(ctx context.Context, c *CLI, command CommandSpec, intent operatio
 	if err := validateDoctorProjection(report); err != nil {
 		return c.fail(ctx, err)
 	}
-	output, err := renderDoctorReport(report, format)
+	output, err := renderDoctorReportWithColor(report, format, format == successFormatText && humanColorAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -77,6 +77,10 @@ type doctorJSONCheck struct {
 }
 
 func renderDoctorReport(report doctor.Report, format successFormat) ([]byte, error) {
+	return renderDoctorReportWithColor(report, format, false)
+}
+
+func renderDoctorReportWithColor(report doctor.Report, format successFormat, color bool) ([]byte, error) {
 	if format == successFormatJSON {
 		document := doctorJSONDocument{SchemaVersion: 1, Report: make([]doctorJSONCheck, 0, len(report.Checks))}
 		for _, check := range report.Checks {
@@ -91,6 +95,21 @@ func renderDoctorReport(report doctor.Report, format successFormat) ([]byte, err
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "The diagnostic JSON could not be encoded.", false, err)
 		}
 		return append(output, '\n'), nil
+	}
+	if format == successFormatText {
+		output := newHumanOutput(color)
+		output.heading("✓", "Environment check", colorTokenSuccess)
+		if len(report.Checks) == 0 {
+			output.empty("No checks returned", "The diagnostic provider returned an empty report.", "doctor", "Run diagnostics again after checking the local runtime.")
+			return output.bytes(), nil
+		}
+		for _, check := range report.Checks {
+			output.row(check.Name, escapeTSVCell(string(check.Status)), humanStatusToken(string(check.Status)))
+			if check.Detail != "" {
+				output.row("Details", escapeTSVCell(check.Detail), colorTokenMuted)
+			}
+		}
+		return output.bytes(), nil
 	}
 
 	var output bytes.Buffer

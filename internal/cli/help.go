@@ -163,12 +163,12 @@ func runHelp(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, inp
 		return c.emitResult(ctx, output)
 	}
 	if selector == "" {
-		return c.emitResult(ctx, c.renderRootHelp())
+		return c.emitResult(ctx, c.renderRootHelpWithColor(humanColorAllowed(ctx, c, c.Out)))
 	}
 	if exact {
-		return c.emitResult(ctx, renderCommandHelp(commands[0]))
+		return c.emitResult(ctx, renderCommandHelpWithColor(commands[0], humanColorAllowed(ctx, c, c.Out)))
 	}
-	return c.emitResult(ctx, renderNamespaceCommandIndex(selector, commands))
+	return c.emitResult(ctx, renderNamespaceCommandIndexWithColor(selector, commands, humanColorAllowed(ctx, c, c.Out)))
 }
 
 func parseHelpFormat(value string) (helpFormat, error) {
@@ -201,23 +201,34 @@ func (c Catalog) Select(selector string) ([]CommandSpec, bool) {
 }
 
 func (c *CLI) renderRootHelp() []byte {
+	return c.renderRootHelpWithColor(false)
+}
+
+func (c *CLI) renderRootHelpWithColor(color bool) []byte {
 	var output bytes.Buffer
-	fmt.Fprintln(&output, "Tobari")
+	fmt.Fprintln(&output, applyColorToken(color, colorTokenAccent, "Tobari"))
 	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, "Usage:")
-	fmt.Fprintf(&output, "  %s [--error-format text|json] <command> [arguments]\n", ProgramName)
+	fmt.Fprintln(&output, applyColorToken(color, colorTokenAccent, "Usage:"))
+	fmt.Fprintf(&output, "  %s\n", applyColorToken(color, colorTokenAccent, ProgramName+" [--error-format text|json] <command> [arguments]"))
 	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, "Global options:")
-	fmt.Fprintln(&output, "  --error-format text|json  Select structured failure presentation (default: text)")
+	fmt.Fprintln(&output, applyColorToken(color, colorTokenAccent, "Global options:"))
+	fmt.Fprintf(&output, "  %s  %s\n",
+		applyColorToken(color, colorTokenAccent, "--error-format text|json"),
+		applyColorToken(color, colorTokenMuted, "Select structured failure presentation (default: text)"),
+	)
 	fmt.Fprintln(&output)
-	output.Write(renderRootCommandIndex(c.catalog.Commands()))
+	output.Write(renderRootCommandIndexWithColor(c.catalog.Commands(), color))
 	fmt.Fprintln(&output)
-	fmt.Fprintf(&output, "Run '%s help <command-or-namespace>' for scoped details.\n", ProgramName)
-	fmt.Fprintf(&output, "Run '%s help <command-or-namespace> --format agent' for a scoped machine contract.\n", ProgramName)
+	fmt.Fprintf(&output, "%s\n", applyColorToken(color, colorTokenMuted, fmt.Sprintf("Run '%s help <command-or-namespace>' for scoped details.", ProgramName)))
+	fmt.Fprintf(&output, "%s\n", applyColorToken(color, colorTokenMuted, fmt.Sprintf("Run '%s help <command-or-namespace> --format agent' for a scoped machine contract.", ProgramName)))
 	return output.Bytes()
 }
 
 func renderRootCommandIndex(commands []CommandSpec) []byte {
+	return renderRootCommandIndexWithColor(commands, false)
+}
+
+func renderRootCommandIndexWithColor(commands []CommandSpec, color bool) []byte {
 	type namespaceEntry struct {
 		name  string
 		count int
@@ -242,7 +253,7 @@ func renderRootCommandIndex(commands []CommandSpec) []byte {
 	}
 
 	var output bytes.Buffer
-	fmt.Fprintln(&output, "Commands:")
+	fmt.Fprintln(&output, applyColorToken(color, colorTokenAccent, "Commands:"))
 	width := 0
 	for _, command := range direct {
 		if len(command.Path) > width {
@@ -255,20 +266,28 @@ func renderRootCommandIndex(commands []CommandSpec) []byte {
 		}
 	}
 	for _, command := range direct {
-		fmt.Fprintf(&output, "  %-*s  %s\n", width, command.Path, command.Summary)
+		path := applyColorToken(color, colorTokenAccent, fmt.Sprintf("%-*s", width, command.Path))
+		summary := applyColorToken(color, colorTokenMuted, command.Summary)
+		fmt.Fprintf(&output, "  %s  %s\n", path, summary)
 	}
 	for _, namespace := range namespaces {
-		fmt.Fprintf(&output, "  %-*s  Namespace with %d commands\n", width, namespace.name, namespace.count)
+		name := applyColorToken(color, colorTokenAccent, fmt.Sprintf("%-*s", width, namespace.name))
+		description := applyColorToken(color, colorTokenMuted, fmt.Sprintf("Namespace with %d commands", namespace.count))
+		fmt.Fprintf(&output, "  %s  %s\n", name, description)
 	}
 	return output.Bytes()
 }
 
 func renderNamespaceCommandIndex(selector string, commands []CommandSpec) []byte {
+	return renderNamespaceCommandIndexWithColor(selector, commands, false)
+}
+
+func renderNamespaceCommandIndexWithColor(selector string, commands []CommandSpec, color bool) []byte {
 	labels := make([]string, 0, len(commands))
 	for _, command := range commands {
 		labels = append(labels, strings.TrimPrefix(command.Path, selector+" "))
 	}
-	return renderNamedCommandIndex("Commands in namespace "+selector+":", commands, labels)
+	return renderNamedCommandIndexWithColor("Commands in namespace "+selector+":", commands, labels, color)
 }
 
 func renderCommandIndex(title string, commands []CommandSpec) []byte {
@@ -276,12 +295,16 @@ func renderCommandIndex(title string, commands []CommandSpec) []byte {
 	for _, command := range commands {
 		labels = append(labels, command.Path)
 	}
-	return renderNamedCommandIndex(title, commands, labels)
+	return renderNamedCommandIndexWithColor(title, commands, labels, false)
 }
 
 func renderNamedCommandIndex(title string, commands []CommandSpec, labels []string) []byte {
+	return renderNamedCommandIndexWithColor(title, commands, labels, false)
+}
+
+func renderNamedCommandIndexWithColor(title string, commands []CommandSpec, labels []string, color bool) []byte {
 	var output bytes.Buffer
-	fmt.Fprintln(&output, title)
+	fmt.Fprintln(&output, applyColorToken(color, colorTokenAccent, title))
 	width := 0
 	for _, label := range labels {
 		if len(label) > width {
@@ -289,38 +312,44 @@ func renderNamedCommandIndex(title string, commands []CommandSpec, labels []stri
 		}
 	}
 	for index, command := range commands {
-		fmt.Fprintf(&output, "  %-*s  %s\n", width, labels[index], command.Summary)
+		label := applyColorToken(color, colorTokenAccent, fmt.Sprintf("%-*s", width, labels[index]))
+		summary := applyColorToken(color, colorTokenMuted, command.Summary)
+		fmt.Fprintf(&output, "  %s  %s\n", label, summary)
 	}
 	return output.Bytes()
 }
 
 func renderCommandHelp(command CommandSpec) []byte {
+	return renderCommandHelpWithColor(command, false)
+}
+
+func renderCommandHelpWithColor(command CommandSpec, color bool) []byte {
 	var output bytes.Buffer
-	fmt.Fprintln(&output, "Usage:")
-	fmt.Fprintln(&output, "  "+command.Usage())
+	fmt.Fprintln(&output, applyColorToken(color, colorTokenAccent, "Usage:"))
+	fmt.Fprintln(&output, "  "+applyColorToken(color, colorTokenAccent, command.Usage()))
 	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, command.Summary+".")
+	fmt.Fprintln(&output, applyColorToken(color, colorTokenAccent, command.Summary+"."))
 	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, "Capability: "+command.Agent.CapabilityID)
-	fmt.Fprintln(&output, "Outcome: "+command.Agent.Outcome)
-	fmt.Fprintln(&output, "Effect: "+command.Effect.String())
-	fmt.Fprintln(&output, "Role: "+command.Role.String())
+	writeHelpKeyValue(&output, color, "Capability:", command.Agent.CapabilityID, colorTokenAccent)
+	writeHelpKeyValue(&output, color, "Outcome:", command.Agent.Outcome, colorTokenMuted)
+	writeHelpKeyValue(&output, color, "Effect:", command.Effect.String(), humanStatusToken(command.Effect.String()))
+	writeHelpKeyValue(&output, color, "Role:", command.Role.String(), colorTokenAccent)
 	fmt.Fprintln(&output)
-	renderHumanInvocationGrammar(&output)
+	renderHumanInvocationGrammarWithColor(&output, color)
 	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, "Inputs:")
+	fmt.Fprintln(&output, applyColorToken(color, colorTokenAccent, "Inputs:"))
 	if len(command.Agent.Inputs) == 0 {
-		fmt.Fprintln(&output, "  None")
+		fmt.Fprintln(&output, "  "+applyColorToken(color, colorTokenMuted, "None"))
 	}
 	for _, input := range command.Agent.Inputs {
-		fmt.Fprintf(&output, "  %s\n", input.Name)
-		fmt.Fprintf(&output, "    source: %s; required: %t; value: %s; cardinality: %s\n", input.Source, input.Required, input.ValueKind, input.Cardinality)
-		fmt.Fprintf(&output, "    %s\n", input.Description)
+		fmt.Fprintf(&output, "  %s\n", applyColorToken(color, colorTokenAccent, input.Name))
+		fmt.Fprintf(&output, "    %s\n", applyColorToken(color, colorTokenMuted, fmt.Sprintf("source: %s; required: %t; value: %s; cardinality: %s", input.Source, input.Required, input.ValueKind, input.Cardinality)))
+		fmt.Fprintf(&output, "    %s\n", applyColorToken(color, colorTokenMuted, input.Description))
 		if len(input.AllowedValues) != 0 {
-			fmt.Fprintf(&output, "    allowed: %s\n", strings.Join(input.AllowedValues, " | "))
+			fmt.Fprintf(&output, "    %s\n", applyColorToken(color, colorTokenAccent, "allowed: "+strings.Join(input.AllowedValues, " | ")))
 		}
 		if input.DefaultValue != nil {
-			fmt.Fprintf(&output, "    default when omitted: %q\n", *input.DefaultValue)
+			fmt.Fprintf(&output, "    %s\n", applyColorToken(color, colorTokenMuted, fmt.Sprintf("default when omitted: %q", *input.DefaultValue)))
 		}
 		if input.Minimum != nil || input.Maximum != nil {
 			minimum, maximum := "unbounded", "unbounded"
@@ -330,37 +359,45 @@ func renderCommandHelp(command CommandSpec) []byte {
 			if input.Maximum != nil {
 				maximum = fmt.Sprintf("%d", *input.Maximum)
 			}
-			fmt.Fprintf(&output, "    range: %s..%s\n", minimum, maximum)
+			fmt.Fprintf(&output, "    %s\n", applyColorToken(color, colorTokenMuted, fmt.Sprintf("range: %s..%s", minimum, maximum)))
 		}
 		if len(input.Requires) != 0 {
-			fmt.Fprintf(&output, "    requires when supplied: %s\n", strings.Join(input.Requires, ", "))
+			fmt.Fprintf(&output, "    %s\n", applyColorToken(color, colorTokenMuted, "requires when supplied: "+strings.Join(input.Requires, ", ")))
 		}
 		if len(input.ConflictsWith) != 0 {
-			fmt.Fprintf(&output, "    conflicts with: %s\n", strings.Join(input.ConflictsWith, ", "))
+			fmt.Fprintf(&output, "    %s\n", applyColorToken(color, colorTokenMuted, "conflicts with: "+strings.Join(input.ConflictsWith, ", ")))
 		}
 		if input.ReferenceKind != "" {
-			fmt.Fprintf(&output, "    opaque reference kind: %s\n", input.ReferenceKind)
+			fmt.Fprintf(&output, "    %s\n", applyColorToken(color, colorTokenAccent, "opaque reference kind: "+input.ReferenceKind))
 		}
 	}
 	if target := command.Agent.FixedTarget; target != nil {
-		fmt.Fprintf(&output, "Fixed target: %s %s (%s) - %s\n", target.Kind, target.ID, target.Scope, target.Description)
+		fmt.Fprintf(&output, "%s\n", applyColorToken(color, colorTokenMuted, fmt.Sprintf("Fixed target: %s %s (%s) - %s", target.Kind, target.ID, target.Scope, target.Description)))
 	}
 	for _, reference := range command.ProducedRefs() {
-		fmt.Fprintf(&output, "Produces reference: %s in field %s\n", reference.Kind, reference.Field)
+		fmt.Fprintf(&output, "%s\n", applyColorToken(color, colorTokenAccent, fmt.Sprintf("Produces reference: %s in field %s", reference.Kind, reference.Field)))
 	}
 	for _, reference := range command.ConsumedRefs() {
-		fmt.Fprintf(&output, "Consumes reference: %s from input %s\n", reference.Kind, reference.Argument)
+		fmt.Fprintf(&output, "%s\n", applyColorToken(color, colorTokenAccent, fmt.Sprintf("Consumes reference: %s from input %s", reference.Kind, reference.Argument)))
 	}
 	return output.Bytes()
 }
 
 func renderHumanInvocationGrammar(output *bytes.Buffer) {
+	renderHumanInvocationGrammarWithColor(output, false)
+}
+
+func renderHumanInvocationGrammarWithColor(output *bytes.Buffer, color bool) {
 	grammar := defaultAgentInvocationGrammar()
-	fmt.Fprintln(output, "Invocation grammar:")
-	fmt.Fprintf(output, "  Value flags: %s\n", strings.Join(grammar.ValueFlagForms, " or "))
-	fmt.Fprintf(output, "  Dash-prefixed flag values: %s\n", grammar.DashPrefixedFlagValueForm)
-	fmt.Fprintf(output, "  Boolean flags: %s\n", strings.Join(grammar.BooleanFlagForms, ", "))
-	fmt.Fprintf(output, "  Dash-prefixed positional values: %s\n", grammar.DashPrefixedPositionalUsage)
+	fmt.Fprintln(output, applyColorToken(color, colorTokenAccent, "Invocation grammar:"))
+	fmt.Fprintf(output, "  %s\n", applyColorToken(color, colorTokenMuted, "Value flags: "+strings.Join(grammar.ValueFlagForms, " or ")))
+	fmt.Fprintf(output, "  %s\n", applyColorToken(color, colorTokenMuted, "Dash-prefixed flag values: "+grammar.DashPrefixedFlagValueForm))
+	fmt.Fprintf(output, "  %s\n", applyColorToken(color, colorTokenMuted, "Boolean flags: "+strings.Join(grammar.BooleanFlagForms, ", ")))
+	fmt.Fprintf(output, "  %s\n", applyColorToken(color, colorTokenMuted, "Dash-prefixed positional values: "+grammar.DashPrefixedPositionalUsage))
+}
+
+func writeHelpKeyValue(output *bytes.Buffer, color bool, label, value string, token colorToken) {
+	fmt.Fprintf(output, "%s %s\n", applyColorToken(color, colorTokenMuted, label), applyColorToken(color, token, value))
 }
 
 func defaultAgentInvocationGrammar() agentInvocationGrammar {

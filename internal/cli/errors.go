@@ -129,7 +129,7 @@ func (c *CLI) fail(ctx context.Context, err error) int {
 		output, _ = json.Marshal(errorDocument{SchemaVersion: 1, Error: payload})
 		output = append(output, '\n')
 	} else {
-		output = renderTextError(payload)
+		output = renderTextErrorWithColor(payload, humanColorAllowed(ctx, c, c.Err))
 	}
 	_, _ = writeOnce(c.Err, output)
 	return exitCodeForKind(structured.Kind)
@@ -203,6 +203,32 @@ func undeclaredFaultContract(path string) *fault.Error {
 }
 
 func renderTextError(payload errorPayload) []byte {
+	return renderTextErrorWithColor(payload, false)
+}
+
+func renderTextErrorWithColor(payload errorPayload, color bool) []byte {
+	if color {
+		output := newHumanOutput(true)
+		output.heading("✗", "Command failed", colorTokenError)
+		output.row("Message", escapeTSVCell(payload.Message), colorTokenError)
+		output.row("Kind", string(payload.Kind), colorTokenMuted)
+		output.row("Code", payload.Code, colorTokenAccent)
+		output.row("Retryable", humanBool(payload.Retryable), humanBoolToken(payload.Retryable))
+		if payload.RetryAfter == nil {
+			if payload.Kind == fault.KindRateLimited {
+				output.row("Retry after", "unknown", colorTokenWarning)
+			} else {
+				output.row("Retry after", "none", colorTokenMuted)
+			}
+		} else {
+			output.row("Retry after", *payload.RetryAfter, colorTokenWarning)
+		}
+		for _, action := range payload.NextActions {
+			output.next(action.Command, action.Reason)
+		}
+		return output.bytes()
+	}
+
 	var output strings.Builder
 	fmt.Fprintf(&output, "error: %s\n", escapeTSVCell(payload.Message))
 	fmt.Fprintf(&output, "kind: %s\n", payload.Kind)

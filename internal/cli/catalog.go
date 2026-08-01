@@ -434,19 +434,14 @@ func defaultCatalog() Catalog {
 		CommandSpec{
 			Path:    "doctor",
 			Summary: "Run local, read-only diagnostics",
-			Args:    "[--root <path>] [--format tsv|json]",
+			Args:    "[--root <path>] [--format text|tsv|json]",
 			Effect:  operation.EffectRead,
 			Role:    RoleUtility,
 			Agent: AgentContract{
 				CapabilityID: "system.diagnostics",
 				Outcome:      "Inspect the local runtime and receive a validated diagnostic report",
 				Inputs: []CommandInput{
-					{
-						Name: "--format", Source: InputSourceFlag, Required: false,
-						ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-						Description: "Select the complete report representation.", AllowedValues: []string{"tsv", "json"},
-						DefaultValue: stringPointer("tsv"),
-					},
+					doctorFormatInput(),
 					{
 						Name: "--root", Source: InputSourceFlag, Required: false,
 						ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
@@ -454,8 +449,8 @@ func defaultCatalog() Catalog {
 					},
 				},
 				Output: CommandOutput{
-					Formats:       []OutputFormat{OutputFormatTSV, OutputFormatJSON},
-					DefaultFormat: OutputFormatTSV,
+					Formats:       []OutputFormat{OutputFormatText, OutputFormatTSV, OutputFormatJSON},
+					DefaultFormat: OutputFormatText,
 					Fields: []OutputField{
 						{Name: "check", Type: OutputFieldTypeString, Description: "Stable diagnostic name with unsafe structural runes rendered as visible escapes."},
 						{Name: "status", Type: OutputFieldTypeString, Description: "Diagnostic result: pass, warn, or fail."},
