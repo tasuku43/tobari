@@ -48,8 +48,19 @@ interference, and malware detection are outside the MVP guarantee.
 ## Resource and process boundary
 
 Runtime specs prohibit privileged mode, host networking, the Docker socket,
-SSH agent mounts, host home mounts, and added Linux capabilities. Tobari uses a
-non-root work user mapped to the invoking UID/GID where Docker supports it.
+SSH agent mounts, host home mounts, and added Linux capabilities. Each
+project work container also receives fixed CPU, total memory-plus-swap,
+PID-count, and container-log bounds through the infrastructure-owned Docker
+specification;
+the desired resource contract is part of the spec hash, so drift or an older
+unbounded container is recreated before reuse. These bounds do not provide a
+quota for the explicitly mounted project root or shape network bandwidth.
+The shared Gateway and OPA services use fixed JSON-file log rotation of 10 MiB
+per file and three files, plus fixed CPU, memory-plus-swap, and PID ceilings.
+Those ceilings bound shared-service exhaustion but do not provide per-project
+fairness inside one shared Gateway or OPA.
+Tobari uses a non-root work user mapped to the invoking UID/GID where Docker
+supports it.
 Only the selected root and that Tobari's exact XDG-owned home directory are
 mounted writable. The project-root resolver rejects filesystem root, the user's
 home and its ancestors, and paths overlapping XDG configuration, state, or
@@ -120,11 +131,26 @@ bounded body metadata, and an optional requested credential profile.
 Secret header values are absent from both OPA input and logs. JSON is decoded
 only when the complete body fits the inspection limit. Oversized and non-JSON
 bodies expose size, type, truncation, and SHA-256 metadata only. Gateway never
-logs raw request or response bodies.
+logs raw request or response bodies. If mitmproxy reports that the body was not
+captured, Gateway marks it unavailable and denies before OPA; it is not treated
+as an explicit empty body.
+The Gateway process also enforces an 8 MiB mitmproxy request/response body cap
+before the addon hook, so an oversized body cannot be forwarded before policy.
 
 OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
-to non-local destinations is denied by the initialized policy.
+to non-local destinations is denied by the initialized policy. The initialized
+policy also requires an explicit port for each supported scheme; learned rules
+retain the observed host/port/method/path and cannot be used on another port or
+scheme. The initialized Rego policy also requires a zero-length, non-truncated
+metadata body for routine authorization and learning; an exact learned rule
+cannot turn a non-empty body into an allow. A body-dependent exception must be
+authored and activated by the trusted host as body-aware Rego. Immediately
+before an upstream connection, Gateway resolves the
+hostname, rejects non-global addresses for dotted hostnames, and pins the
+connection to the selected resolved address. Single-label private service
+names remain an explicit policy-controlled local exception for the Docker
+integration shape.
 
 ## Credentials
 
@@ -142,10 +168,14 @@ the normalized host. The value is never returned to Tobari, OPA, CLI output,
 errors, or audit logs.
 
 OAuth, refresh tokens, provider SDKs, OS keychains, request signing, and
-process-level identity are not used. There is no application-layer
-authentication session because Tobari is not calling a provider API on behalf
-of the CLI; Gateway performs host-bound post-authorization injection inside the
-trusted infrastructure boundary.
+process-level identity are not used. The optional `session` value is caller
+metadata, not authentication, and a stable Tobari ID is not bound to the
+Gateway connection. The shared cluster therefore has one policy and credential
+namespace: it does not claim project-specific secret, network, or egress
+authority separation. Gateway performs host-bound post-authorization
+injection inside the trusted infrastructure boundary. Adding a trusted project
+principal requires a prior thesis, product, architecture, and security
+decision; it must not be introduced as a caller-controlled header.
 
 ## Mutation policy
 
@@ -168,15 +198,17 @@ recreated.
 candidate references. Discovery never mutates. An allow reference identifies
 one retained validated denial that OPA marked exact-rule learnable; a
 compaction reference identifies one current exact source-rule set. Scheme,
-cluster, and credential-binding failures never become permission candidates.
+cluster, credential-binding, unavailable-body, and body-inspection failures
+never become permission candidates.
 The mutation rejects stale or ambiguous references, unsafe policy files,
 malformed learned data, failed preflight tests, and unrecognized compaction
 shapes before the atomic policy write.
 
-Learned rules never broaden a host or method beyond the explicitly approved
-evidence. Exact approvals may override an older deny rule only for their exact
-host/method/path. Prefix compaction requires three exact sources, keeps host and
-method fixed, requires a multi-segment directory boundary, rejects percent
+Learned rules never broaden a host, port, or method beyond the explicitly
+approved evidence. Exact approvals may override an older deny rule only for
+their exact host/port/method/path. Prefix compaction requires three exact
+sources, keeps host, port, and method fixed, requires a multi-segment directory
+boundary, rejects percent
 encoding, backslashes, empty segments, and dot segments, retains positive
 examples, and tests its matcher against an adjacent outside-prefix canary.
 Host wildcards, method wildcards, user-supplied pattern text, and automatic
@@ -191,8 +223,9 @@ each resulting request is independently authorized.
 
 ## Logging
 
-Audit JSON includes timestamp, request ID, cluster, host, method, path, decision,
-reason, selected credential profile name, upstream status, and duration. A
+Audit JSON includes timestamp, request ID, cluster, host, port, method, path,
+decision, reason, selected credential profile name, upstream status, and
+duration. A
 profile name is non-secret metadata; secret values and raw bodies are excluded.
 CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
@@ -211,6 +244,7 @@ authority; only an explicit reference-bound mutation can write a learned rule.
 | Secret headers and bodies stay out of logs | Gateway unit tests and log scans |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Each root and XDG home are its Tobari's only host write scopes | Mount-spec and path-containment tests |
+| One Tobari cannot consume unbounded CPU, memory, PIDs, or container logs | Fixed create-argv and spec-hash tests plus runtime HostConfig assertions |
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
 | Optional toolbox artifacts retain reviewed identity | Pinned versions, vendor checksum or signature verification, and explicit build validation |
 | Dev Container metadata cannot become a second runtime boundary | Contained bounded parser, unsupported-property tests, and fixed runtime adapter |
@@ -218,9 +252,10 @@ authority; only an explicit reference-bound mutation can write a learned rule.
 | Tested host policy activates across Docker hosts | Fixed-target OPA recreation test and integration scenario |
 | CWD lifecycle actions use exact Tobari identity | Canonical-root, state, and label-validation tests |
 | Unknown effects fail closed | Domain and catalog validation |
-| Denials support safe policy learning | Typed denial validation, secret canaries, and integration projection |
-| Learned permissions stay explicit and minimal | Opaque candidate round trips, exact-match domain tests, preflight-before-atomic-write tests, and Docker integration |
-| Compaction preserves declared boundaries | Three-source grouping invariant, retained positive examples, outside-prefix canary, stale-reference rejection, and OPA tests |
+| Denials support safe policy learning | Typed host/port/method/path denial validation, secret canaries, and integration projection |
+| Learned permissions stay explicit and minimal | Opaque candidate round trips, exact host/port/method/path domain tests, preflight-before-atomic-write tests, and Docker integration |
+| Compaction preserves declared boundaries | Three-source same-host/port/method grouping invariant, retained positive examples, outside-prefix canary, stale-reference rejection, and OPA tests |
+| Gateway body buffering is bounded | Fixed mitmproxy body-size asset test and over-limit integration request |
 
 ## Supply chain and publication
 

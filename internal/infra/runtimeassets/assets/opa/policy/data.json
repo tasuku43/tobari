@@ -8,6 +8,10 @@
     "allowed_http_hosts": [
       "mock-upstream"
     ],
+    "allowed_ports": {
+      "https": [443],
+      "http": [8080]
+    },
     "read_methods": [
       "GET",
       "HEAD"

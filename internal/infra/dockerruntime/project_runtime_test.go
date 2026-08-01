@@ -41,6 +41,24 @@ func TestInspectProjectRuntimeClassifiesDockerUnreachable(t *testing.T) {
 	}
 }
 
+func TestInspectProjectRuntimeClassifiesIncompleteStateBeforeDocker(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	instance.Incomplete = true
+	diagnostic, err := runtime.InspectProjectRuntime(context.Background(), instance)
+	if err != nil || diagnostic != tobari.RuntimeDiagnosticIncomplete {
+		t.Fatalf("InspectProjectRuntime() = (%q, %v), want incomplete", diagnostic, err)
+	}
+	if len(runner.outputs) != 0 || len(runner.runs) != 0 {
+		t.Fatalf("InspectProjectRuntime() performed Docker calls: outputs=%v runs=%v", runner.outputs, runner.runs)
+	}
+}
+
 func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 	t.Parallel()
 	runner := &recordingRunner{}
@@ -95,6 +113,52 @@ func TestDeleteProjectRemovesLogicalStateWhenRuntimeResourcesAreMissing(t *testi
 	}
 }
 
+func TestDeleteProjectRemovesRootIndexOnlyStateWithoutRebuildingRuntime(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{outputErr: errors.New("No such object")}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	statePath, err := runtime.projectStatePath(instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(statePath); err != nil {
+		t.Fatal(err)
+	}
+	cleanupOnly, found, err := runtime.ResolveProject(context.Background(), instance.Root)
+	if err != nil || !found || !cleanupOnly.Incomplete {
+		t.Fatalf("ResolveProject() = (%+v, %t, %v), want cleanup-only record", cleanupOnly, found, err)
+	}
+	if err := runtime.DeleteProject(context.Background(), cleanupOnly); err != nil {
+		t.Fatalf("DeleteProject() = %v", err)
+	}
+	if _, found, err := runtime.ResolveProject(context.Background(), instance.Root); err != nil || found {
+		t.Fatalf("ResolveProject() after cleanup = found=%t err=%v, want absent", found, err)
+	}
+}
+
+func TestEnsureProjectRuntimeRejectsCleanupOnlyRecordBeforeDocker(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	instance.Incomplete = true
+	if _, err := runtime.EnsureProjectRuntime(context.Background(), runtimeState(root), instance); err == nil {
+		t.Fatal("EnsureProjectRuntime() rebuilt a cleanup-only record")
+	}
+	if len(runner.outputs) != 0 || len(runner.runs) != 0 {
+		t.Fatalf("Docker calls for cleanup-only record: outputs=%v runs=%v", runner.outputs, runner.runs)
+	}
+}
+
 func TestEnsureProjectAgentStateMergesSharedAndLocalSettings(t *testing.T) {
 	t.Parallel()
 	runtime := newProjectStateRuntime(t)
@@ -110,7 +174,11 @@ func TestEnsureProjectAgentStateMergesSharedAndLocalSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	settingsPath := filepath.Join(runtime.projectHomePath(instance.ID), ".claude", "settings.json")
-	if err := os.WriteFile(settingsPath, []byte(`{"theme":"light","local":true}`), 0o600); err != nil {
+	localSettingsPath := filepath.Join(runtime.projectHomePath(instance.ID), ".claude", projectLocalSettingsFile)
+	if err := os.WriteFile(localSettingsPath, []byte(`{"theme":"light","local":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "common", "settings.json"), []byte(`{"shared":false,"theme":"blue","new":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.ensureProjectAgentState(instance.ID, profile); err != nil {
@@ -124,7 +192,7 @@ func TestEnsureProjectAgentStateMergesSharedAndLocalSettings(t *testing.T) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["shared"] != true || got["theme"] != "light" || got["local"] != true {
+	if got["shared"] != false || got["theme"] != "light" || got["local"] != true || got["new"] != true {
 		t.Fatalf("merged settings = %v", got)
 	}
 }
@@ -301,6 +369,81 @@ func TestEnsureProjectContainerRecreatesOnSpecDrift(t *testing.T) {
 	if !removed || !created {
 		t.Fatalf("spec drift calls = %v, want rm followed by create", runner.calls)
 	}
+}
+
+func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
+	t.Parallel()
+	runner := &projectSpecDriftRunner{stale: true, instanceID: "01900000-0000-7000-8000-000000000002"}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), filepath.Join(t.TempDir(), "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := tobari.ProjectInstance{
+		SchemaVersion: tobari.ProjectStateSchemaVersion,
+		ID:            runner.instanceID,
+		Root:          filepath.Join(t.TempDir(), "project"),
+		Profile:       tobari.DefaultProfile,
+		Image:         tobari.BuiltinImageSelector,
+	}
+	if err := os.MkdirAll(instance.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ensureProjectContainer(
+		context.Background(),
+		runtimeState(filepath.Dir(instance.Root)),
+		instance,
+		"/profile",
+		"tobari-project",
+		"tobari-network",
+		"tobari-image",
+		"sha256:desired",
+	); err != nil {
+		t.Fatalf("ensureProjectContainer() error = %v", err)
+	}
+	var create []string
+	for _, call := range runner.calls {
+		if len(call) > 0 && call[0] == "create" {
+			create = call
+			break
+		}
+	}
+	if len(create) == 0 {
+		t.Fatalf("project create call missing from %v", runner.calls)
+	}
+	for _, want := range [][]string{
+		{"--cpus", "2.0"},
+		{"--memory", "4g"},
+		{"--memory-swap", "4g"},
+		{"--pids-limit", "512"},
+		{"--log-driver", "json-file"},
+		{"--log-opt", "max-size=10m"},
+		{"--log-opt", "max-file=3"},
+	} {
+		if !containsConsecutiveArgs(create, want...) {
+			t.Errorf("project create args = %v, missing %v", create, want)
+		}
+	}
+}
+
+func containsConsecutiveArgs(args []string, expected ...string) bool {
+	if len(expected) == 0 || len(expected) > len(args) {
+		return false
+	}
+	for start := 0; start <= len(args)-len(expected); start++ {
+		match := true
+		for offset, value := range expected {
+			if args[start+offset] != value {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }
 
 func TestWaitProjectReadyDistinguishesTerminalFailures(t *testing.T) {

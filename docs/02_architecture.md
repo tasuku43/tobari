@@ -79,8 +79,9 @@ Custom images are supported only when they preserve runtime API label
 entrypoint. The intended construction is `FROM tobari-runtime:local`; a
 runtime-API label is a compatibility assertion, not an image provenance or
 trust signature. Docker create still supplies the invoking numeric UID/GID,
-read-only root filesystem, dropped capabilities, fixed mounts, proxy
-environment, internal network, and health check.
+read-only root filesystem, dropped capabilities, fixed CPU/memory/PID/log
+resource bounds, fixed mounts, proxy environment, internal network, and health
+check.
 
 `images/toolbox` is the optional reference derivation for repeated
 network-facing CLI exercises. A separate host task builds it from
@@ -93,6 +94,11 @@ The root resolver obtains an image from bounded project metadata or the strict
 owner-only XDG `config.json` `default_image`; absence before first initialization
 falls back to `builtin`. The resolved selector, rather than the source of the
 default, is persisted on the logical Tobari.
+
+The shared Gateway and OPA Compose services use fixed CPU, memory-plus-swap,
+PID, and JSON-file log rotation bounds (`10m` per file, three files) so one
+project cannot grow shared service resources without a cap. These are shared
+service ceilings, not per-project fairness controls.
 
 An explicit Dev Container path is resolved after the root and must remain
 inside it after symlink evaluation. Infrastructure reads at most 256 KiB,
@@ -133,10 +139,13 @@ creation and deletion boundaries use durable journals so an interruption
 between the home, instance, index, runtime, and deletion steps is recoverable
 without treating a partial file set as a second project. Runtime convergence
 stores a hash of the desired image identity, mounts, security, environment,
-health contract, and profile revision on the project container; drift recreates
-only that container. OPA runs with
+health contract, fixed resource contract, and profile revision on the project
+container; drift recreates only that container. OPA runs with
 `--watch` against a read-only XDG bind, so host edits reload when Docker-host
-filesystem events propagate. `policy apply` provides the deterministic
+filesystem events propagate. The logical Tobari ID is not a trusted Gateway
+principal: the current optional session field is caller metadata, and
+policy/credential scope remains shared across the cluster. `policy apply`
+provides the deterministic
 portable path: it tests the current bind, verifies the exact OPA ownership
 label, recreates only OPA, and waits for health.
 `delete` verifies owner, ID, and role labels before removing the selected
@@ -144,6 +153,9 @@ container and network, then removes only its XDG home and records. Container
 or network loss is reconciled by the root operation; it never deletes logical
 state. Cluster status and reconcile derive project counts and network joins
 from the indexed CWD-owned records rather than the legacy named collection.
+Status and list expose an `incomplete` runtime diagnostic when an indexed root
+has lost its instance record; root entry refuses to rebuild that record and
+delete remains the exact cleanup path.
 Cluster removal is rejected until no instance record remains.
 
 ## Command catalog
@@ -163,10 +175,13 @@ client flow
   -> strip inbound secret headers
   -> buffer bounded body once
   -> normalize OPA input
+  -> reject an unavailable body as ambiguous
   -> POST decision with finite timeout
   -> deny on any invalid/unavailable decision
+  -> require the initialized empty-body boundary
   -> validate optional credential profile + exact host
   -> inject secret inside Gateway
+  -> resolve and pin the upstream address; reject unsafe dotted-host results
   -> forward once
   -> emit redacted audit JSON
 ```
@@ -176,14 +191,15 @@ only when complete and within the limit. The addon never retries.
 
 Denied audit records are also the policy-development feedback interface.
 `tobari cluster denials` parses one bounded Gateway log window, rejects
-malformed denial-shaped records, and returns typed host, method, path, reason,
-status, exact-rule learnability, request identity, timestamp, the trusted host
-policy directory, and the exact apply command. OPA computes learnability only
-when version, cluster, scheme, and credential binding already pass, so an exact
-host/method/path rule can close the request. `policy candidates`
+malformed denial-shaped records, and returns typed host, port, method, path,
+reason, status, exact-rule learnability, request identity, timestamp, the
+trusted host policy directory, and the exact apply command. OPA computes
+learnability only when version, cluster, scheme, fixed port, credential
+binding, and empty-body boundary already pass, so an exact
+host/port/method/path rule can close the request. `policy candidates`
 deterministically maps only that eligible retained evidence to opaque
 exact-rule references that remain stable across repeated denials of the same
-host/method/path, and removes effects already covered by the CLI-owned
+host/port/method/path, and removes effects already covered by the CLI-owned
 learned-rule data. `policy tail` is a human text projection over the same
 bounded task result. Raw `cluster logs` remains the component-debugging
 interface.
@@ -195,8 +211,8 @@ exact learned rule, tests a private complete policy copy, atomically replaces
 the data file, and calls the existing OPA activation boundary.
 
 Compaction discovery is pure over current learned rules. It groups at least
-three exact rules only when host, method, and a sufficiently deep directory
-prefix agree. The opaque proposal binds the exact source-rule set.
+three exact rules only when host, port, method, and a sufficiently deep
+directory prefix agree. The opaque proposal binds the exact source-rule set.
 `policy compact` resolves that current proposal, replaces only those sources
 with one prefix rule retaining the positive examples, runs rule-match boundary
 canaries and the full OPA suite, then uses the same atomic write and activation

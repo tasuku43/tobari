@@ -5,6 +5,10 @@ services:
     image: ${TOBARI_OPA_IMAGE}
     container_name: tobari-opa
     user: "${TOBARI_UID}:${TOBARI_GID}"
+    cpus: "1.0"
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 128
     command:
       - run
       - --server
@@ -18,6 +22,11 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp:size=16m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - ${TOBARI_POLICY_DIR}:/policy:ro
     networks:
@@ -46,6 +55,10 @@ services:
     image: tobari-gateway:${TOBARI_ASSET_VERSION}
     container_name: tobari-gateway
     user: "${TOBARI_UID}:${TOBARI_GID}"
+    cpus: "2.0"
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 256
     depends_on:
       opa:
         condition: service_healthy
@@ -55,6 +68,11 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp:size=64m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       HOME: /var/lib/mitmproxy
       TOBARI_OPA_URL: http://opa:8181/v1/data/tobari/http/decision

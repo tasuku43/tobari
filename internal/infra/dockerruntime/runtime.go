@@ -25,17 +25,20 @@ import (
 )
 
 const (
-	ownerLabel       = "io.tobari.owner"
-	ownerValue       = "default"
-	componentLabel   = "io.tobari.component"
-	tobariIDLabel    = "io.tobari.tobari-id"
-	maxLogBytes      = 4 * 1024 * 1024
-	defaultLogTail   = 200
-	gatewayContainer = "tobari-gateway"
-	opaContainer     = "tobari-opa"
+	ownerLabel               = "io.tobari.owner"
+	ownerValue               = "default"
+	componentLabel           = "io.tobari.component"
+	tobariIDLabel            = "io.tobari.tobari-id"
+	maxLogBytes              = 4 * 1024 * 1024
+	defaultLogTail           = 200
+	gatewayContainer         = "tobari-gateway"
+	opaContainer             = "tobari-opa"
+	policyTestFailureMessage = "OPA policy tests failed; check Rego syntax and ensure the XDG policy directory is accessible to the Docker Engine VM"
 )
 
 var clusterContainers = map[string]string{"gateway": gatewayContainer, "opa": opaContainer}
+
+var errOwnedResourceMissing = errors.New("owned Docker resource is missing")
 
 type commandRunner interface {
 	Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
@@ -362,7 +365,7 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 	}
 	if err := r.testPolicy(ctx, state); err != nil {
 		_ = r.clearClusterJournal()
-		return tobari.State{}, fault.Wrap(fault.KindRejected, "policy_test_failed", "OPA policy tests failed", false, err)
+		return tobari.State{}, fault.Wrap(fault.KindRejected, "policy_test_failed", policyTestFailureMessage, false, err)
 	}
 	if err := r.writeState(state); err != nil {
 		return tobari.State{}, fmt.Errorf("persist Tobari state: %w", err)
@@ -490,6 +493,15 @@ func tobariImage(state tobari.State) string {
 }
 
 func (r *Runtime) prepareState() (tobari.State, error) {
+	for name, path := range map[string]string{
+		"configuration": r.configDirectory,
+		"state":         r.stateDirectory,
+		"data":          r.dataDirectory,
+	} {
+		if err := r.ensurePrivateDirectory(path); err != nil {
+			return tobari.State{}, fmt.Errorf("prepare %s directory: %w", name, err)
+		}
+	}
 	version, err := runtimeassets.Version()
 	if err != nil {
 		return tobari.State{}, err
@@ -502,11 +514,8 @@ func (r *Runtime) prepareState() (tobari.State, error) {
 	credentialDirectory := filepath.Join(r.configDirectory, "credentials")
 	credentialConfig := filepath.Join(r.configDirectory, "credentials.json")
 	for _, directory := range []string{policyDirectory, credentialDirectory} {
-		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return tobari.State{}, fmt.Errorf("create configuration directory: %w", err)
-		}
-		if err := os.Chmod(directory, 0o700); err != nil { // #nosec G302 -- owner traversal requires 0700.
-			return tobari.State{}, fmt.Errorf("set configuration directory permissions: %w", err)
+		if err := r.ensurePrivateDirectory(directory); err != nil {
+			return tobari.State{}, fmt.Errorf("prepare configuration directory: %w", err)
 		}
 	}
 	for _, name := range []string{"data.json", "tobari.rego", "tobari_test.rego"} {
@@ -589,11 +598,8 @@ func (r *Runtime) writeState(state tobari.State) error {
 }
 
 func (r *Runtime) withClusterLock(action func() error) error {
-	if err := os.MkdirAll(r.stateDirectory, 0o700); err != nil {
+	if err := r.ensurePrivateDirectory(r.stateDirectory); err != nil {
 		return fmt.Errorf("prepare shared state directory: %w", err)
-	}
-	if err := os.Chmod(r.stateDirectory, 0o700); err != nil { // #nosec G302 -- shared state is owner-only.
-		return fmt.Errorf("protect shared state directory: %w", err)
 	}
 	path := filepath.Join(r.stateDirectory, "cluster.lock")
 	if info, err := os.Lstat(path); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
@@ -745,6 +751,7 @@ func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root, im
 		"--health-cmd", "test -f /tmp/tobari-ready", "--health-interval", "2s",
 		"--health-timeout", "2s", "--health-retries", "30",
 	}
+	args = append(args, projectResourceDockerArgs()...)
 	args = append(args, labels...)
 	args = append(args, image)
 	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
@@ -1079,7 +1086,7 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 		return fmt.Errorf("start cluster reconcile journal: %w", err)
 	}
 	for _, container := range clusterContainers {
-		if err := r.verifyOwned(ctx, "container", container); err != nil {
+		if err := r.verifyOwned(ctx, "container", container); err != nil && !errors.Is(err, errOwnedResourceMissing) {
 			return err
 		}
 	}
@@ -1103,7 +1110,9 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 	}
 	if purge {
 		for _, volume := range []string{"tobari-gateway-ca", "tobari-public-ca"} {
-			if err := r.verifyOwned(ctx, "volume", volume); err != nil {
+			if err := r.verifyOwned(ctx, "volume", volume); errors.Is(err, errOwnedResourceMissing) {
+				continue
+			} else if err != nil {
 				return err
 			}
 			if output, err := r.runner.Output(ctx, []string{"volume", "rm", volume}, os.Environ()); err != nil {
@@ -1133,7 +1142,10 @@ func (r *Runtime) verifyOwned(ctx context.Context, kind, name string) error {
 	}
 	output, err := r.runner.Output(ctx, args, os.Environ())
 	if err != nil {
-		return nil
+		if isMissingDockerResource(err, output) {
+			return errOwnedResourceMissing
+		}
+		return fmt.Errorf("inspect %s %s ownership: %w: %s", kind, name, err, boundedDiagnostic(output))
 	}
 	if strings.TrimSpace(string(output)) != ownerValue {
 		return fmt.Errorf("%s %s is not owned by Tobari", kind, name)
@@ -1245,7 +1257,7 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 	}
 	add("proxy_port", doctor.CheckStatusPass, "Gateway has no host-published port")
 	if root != "" {
-		if resolved, err := r.ResolveRoot(ctx, root); err != nil {
+		if resolved, err := r.ResolveProjectRoot(ctx, root); err != nil {
 			add("root", doctor.CheckStatusFail, err.Error())
 		} else {
 			add("root", doctor.CheckStatusPass, resolved)
@@ -1275,7 +1287,18 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 		}
 	} else {
 		add("state", doctor.CheckStatusWarn, "cluster is not configured")
-		add("policy", doctor.CheckStatusWarn, "policy will be initialized by cluster up")
+		policyDirectory := filepath.Join(r.configDirectory, "policy")
+		if _, err := os.Lstat(policyDirectory); errors.Is(err, os.ErrNotExist) {
+			add("policy", doctor.CheckStatusWarn, "policy will be initialized by cluster up")
+		} else if err != nil {
+			add("policy", doctor.CheckStatusFail, "the XDG policy directory could not be inspected")
+		} else if err := validateOwnerPolicyDirectory(policyDirectory); err != nil {
+			add("policy", doctor.CheckStatusFail, fmt.Sprintf("the XDG policy directory is unsafe: %s", err))
+		} else if err := r.testPolicyDirectory(ctx, policyDirectory); err != nil {
+			add("policy", doctor.CheckStatusFail, policyTestFailureMessage)
+		} else {
+			add("policy", doctor.CheckStatusPass, "OPA policy tests passed")
+		}
 	}
 	if err := r.checkCredentialPermissions(); err != nil {
 		add("credentials", doctor.CheckStatusFail, err.Error())
@@ -1357,7 +1380,18 @@ func (r *Runtime) checkCredentialConfig() (string, doctor.CheckStatus) {
 }
 
 func (r *Runtime) checkCredentialPermissions() error {
-	entries, err := os.ReadDir(filepath.Join(r.configDirectory, "credentials"))
+	directory := filepath.Join(r.configDirectory, "credentials")
+	info, err := os.Lstat(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("credential directory must be a regular owner-only directory")
+	}
+	entries, err := os.ReadDir(directory)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

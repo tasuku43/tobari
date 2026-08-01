@@ -5,7 +5,7 @@ import "testing"
 func validPolicyDenial() PolicyDenial {
 	return PolicyDenial{
 		Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		Host: "api.github.com", Method: "GET", Path: "/repos/cli/cli",
+		Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
 }
@@ -31,6 +31,7 @@ func TestPolicyDenialRejectsInterpretationSensitiveFields(t *testing.T) {
 		"timestamp":  func(value *PolicyDenial) { value.Timestamp = "recently" },
 		"request id": func(value *PolicyDenial) { value.RequestID = "GET-api.github.com" },
 		"host":       func(value *PolicyDenial) { value.Host = "api.github.com\nallow=true" },
+		"port":       func(value *PolicyDenial) { value.Port = 0 },
 		"method":     func(value *PolicyDenial) { value.Method = "GET POST" },
 		"path":       func(value *PolicyDenial) { value.Path = "repos/cli/cli" },
 		"status":     func(value *PolicyDenial) { value.StatusCode = 200 },
@@ -128,19 +129,23 @@ func TestExactLearnedRuleBindsCandidateAndDoesNotBroadenPath(t *testing.T) {
 	if err := rule.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !rule.Matches(candidate.Host, candidate.Method, candidate.Path) {
+	if !rule.Matches(candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
 		t.Fatal("exact rule did not match its approved effect")
 	}
 	for _, changed := range []struct {
 		host, method, path string
+		port               int
 	}{
-		{"uploads.github.com", candidate.Method, candidate.Path},
-		{candidate.Host, "POST", candidate.Path},
-		{candidate.Host, candidate.Method, candidate.Path + "/child"},
+		{"uploads.github.com", candidate.Method, candidate.Path, candidate.Port},
+		{candidate.Host, "POST", candidate.Path, candidate.Port},
+		{candidate.Host, candidate.Method, candidate.Path + "/child", candidate.Port},
 	} {
-		if rule.Matches(changed.host, changed.method, changed.path) {
+		if rule.Matches(changed.host, changed.port, changed.method, changed.path) {
 			t.Fatalf("exact rule broadened to %+v", changed)
 		}
+	}
+	if rule.Matches(candidate.Host, 8443, candidate.Method, candidate.Path) {
+		t.Fatal("exact rule broadened to another port")
 	}
 	rule.Path += "/changed"
 	if err := rule.Validate(); err == nil {
@@ -249,12 +254,12 @@ func TestCompactLearnedPolicyRulesPreservesExamplesAndRejectsStaleReference(t *t
 		t.Fatalf("updated=%+v selected=%+v rule=%+v", updated, selected, prefixRule)
 	}
 	for _, example := range prefixRule.Examples {
-		if !prefixRule.Matches(prefixRule.Host, prefixRule.Method, example) {
+		if !prefixRule.Matches(prefixRule.Host, prefixRule.Port, prefixRule.Method, example) {
 			t.Fatalf("prefix rule lost example %q", example)
 		}
 	}
 	if prefixRule.Matches(
-		prefixRule.Host, prefixRule.Method, selected.OutsideCanary,
+		prefixRule.Host, prefixRule.Port, prefixRule.Method, selected.OutsideCanary,
 	) {
 		t.Fatal("prefix rule matched its outside boundary canary")
 	}

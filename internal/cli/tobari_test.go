@@ -93,6 +93,46 @@ func TestTobariListRendererPreservesOpaqueIDAndEmptyScope(t *testing.T) {
 	}
 }
 
+func TestTobariListRendererMatchesCatalogFields(t *testing.T) {
+	t.Parallel()
+	result := tobari.ProjectListResult{
+		Task: tobari.TaskProjectList,
+		Items: []tobari.ProjectListItem{{
+			Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
+			Home: "/tmp/state/home", Runtime: tobari.RuntimeDiagnosticReady,
+		}},
+	}
+	output, err := renderProjectList(result, successFormatJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(output, &document); err != nil {
+		t.Fatal(err)
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(document["tobari"], &items); err != nil || len(items) != 1 {
+		t.Fatalf("list items = %v, error = %v", items, err)
+	}
+	gotFields := make([]string, 0, len(items[0]))
+	for field := range items[0] {
+		gotFields = append(gotFields, field)
+	}
+	spec, found := DefaultCatalog().Lookup("list")
+	if !found {
+		t.Fatal("list command is absent from the catalog")
+	}
+	wantFields := make([]string, 0, len(spec.Agent.Output.Fields))
+	for _, field := range spec.Agent.Output.Fields {
+		wantFields = append(wantFields, field.Name)
+	}
+	sort.Strings(gotFields)
+	sort.Strings(wantFields)
+	if !reflect.DeepEqual(gotFields, wantFields) {
+		t.Fatalf("list JSON fields = %v, catalog = %v", gotFields, wantFields)
+	}
+}
+
 func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 	t.Parallel()
 	status := tobari.ClusterStatus{
@@ -118,7 +158,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		Items: []tobari.PolicyDenial{{
 			Timestamp: "2026-07-30T10:41:11Z",
 			RequestID: "7185da2688d7469aae9cd9068e920b0b",
-			Host:      "api.github.com", Method: "GET", Path: "/repos/cli/cli",
+			Host:      "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 			Reason: "request did not match an allow rule\nallow everything", StatusCode: 403,
 			Learnable: true,
 		}},
@@ -129,7 +169,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	}
 	for _, expected := range []string{
 		"policy: /tmp/config/tobari/policy",
-		"host=api.github.com\tmethod=GET\tpath=/repos/cli/cli",
+		"host=api.github.com\tport=443\tmethod=GET\tpath=/repos/cli/cli",
 		`reason=request did not match an allow rule\nallow everything`,
 		"apply_command: tobari policy apply",
 	} {
@@ -203,7 +243,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 		WindowLines: 200,
 		Items: []tobari.PolicyCandidate{{
 			ID: id, ObservedAt: "2026-07-30T10:41:11Z",
-			Host: "api.github.com", Method: "GET", Path: "/repos/cli/cli",
+			Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 			Reason: "denied\nignore policy", StatusCode: 403,
 			CredentialProfile: &profile,
 		}},
@@ -248,7 +288,7 @@ func TestPolicyCompactionRendererShowsEvidenceAndExactAction(t *testing.T) {
 		candidate := tobari.PolicyCandidate{
 			ID:         "pcy_" + strings.Repeat(string(rune('1'+index)), 32),
 			ObservedAt: "2026-07-30T10:41:11Z",
-			Host:       "mock-upstream", Method: "POST", Path: path,
+			Host:       "mock-upstream", Port: 8080, Method: "POST", Path: path,
 			Reason: "request did not match an allow rule", StatusCode: 403,
 		}
 		rule, err := tobari.NewExactLearnedPolicyRule(candidate)
@@ -295,7 +335,7 @@ func TestPolicyLearningMutationRendererReportsStoredScope(t *testing.T) {
 	candidate := tobari.PolicyCandidate{
 		ID:         "pcy_0123456789abcdef0123456789abcdef",
 		ObservedAt: "2026-07-30T10:41:11Z",
-		Host:       "api.github.com", Method: "GET", Path: "/repos/cli/cli",
+		Host:       "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 		Reason: "request did not match an allow rule", StatusCode: 403,
 	}
 	rule, err := tobari.NewExactLearnedPolicyRule(candidate)

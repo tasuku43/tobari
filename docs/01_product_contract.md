@@ -17,13 +17,17 @@ resolution, project-runtime recovery, and interactive entry. The user normally
 manages only the directory; a Tobari either exists or does not exist.
 
 The primary operating loop is progressive policy learning: a Tobari workload is
-denied by default, Gateway records the rejected host/method/path and reason
+denied by default, Gateway records the rejected host/port/method/path and reason
 without secrets, `policy tail` presents a bounded exact proposal and opaque ID,
 the user runs `policy allow --id`, and the same workload is retried. Trusted-host
 Rego editing plus `policy apply` remains the advanced path for behavior that
 exact learned rules cannot express. OPA watch may make host edits visible when
 Docker-host filesystem events propagate. Denial evidence is a product output,
 not incidental debug noise.
+The initialized policy requires an explicitly captured empty request body for
+routine learned permissions; an unavailable body is denied before policy
+evaluation. Body-dependent APIs require a trusted-host body-aware Rego change
+and explicit policy activation rather than an observed host-only approval.
 
 ## Public vocabulary
 
@@ -44,6 +48,11 @@ not incidental debug noise.
   resource labels. It is diagnostic output, not a routine user action input.
 - **credential profile:** a Gateway-only secret and exact host binding.
 
+The stable Tobari ID is an internal host-state identity, not an authenticated
+principal supplied by a work container. The shared cluster currently has one
+policy and credential namespace; project-specific policy, credential, and
+egress separation is not a supported product claim.
+
 The public commands are:
 
 | Command | Role | Effect | Outcome |
@@ -59,7 +68,7 @@ The public commands are:
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and activation command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted |
-| `policy candidates [--tail N] [--format text|json]` | discover | read | Discover unique pending exact-rule candidates and opaque IDs |
+| `policy candidates [--tail N] [--format text|json]` | discover | read | Discover unique pending exact host/port/method/path candidates and opaque IDs |
 | `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact approval commands |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
@@ -111,6 +120,11 @@ Human output is concise text. Cluster status and cluster-denials JSON are
 schema version 1. `list --format json` reports root, runtime diagnostic, and
 stable ID. Agent help uses the catalog schema. Successful data is stdout;
 failures are stderr.
+
+Project runtime diagnostics may report `incomplete` when a durable root index
+survives without its instance state. This preserves logical existence for safe
+cleanup, prevents runtime recreation, and directs the user to delete the exact
+current-directory Tobari before creating it again.
 
 | Exit | Meaning |
 |---:|---|
@@ -184,7 +198,11 @@ recreates only the project container and preserves its logical state and home.
 network, root index, instance state, and home. `cluster down` rejects while any
 Tobari remains
 and removes only exact shared resources; its `--purge` also removes shared CA
-volumes. No command removes a mounted root or files inside it.
+volumes. No command removes a mounted root or files inside it. Each project
+work container is created with fixed CPU, memory, PID-count, and container-log
+bounds; a resource-contract change is treated as runtime drift and recreates
+only that work container. These limits do not claim a disk quota for the
+explicitly mounted root or network bandwidth shaping.
 `policy apply` runs pinned OPA tests against the read-only host bind, then
 recreates only the exact owner-labeled OPA container and waits for health.
 Gateway remains up and fails closed during that bounded activation interval.
@@ -192,8 +210,9 @@ Gateway remains up and fails closed during that bounded activation interval.
 policy in a private host temporary directory. After successful tests they
 atomically replace only `policy/data.json` and invoke the same activation
 boundary. They never write Rego source or credential files.
-OPA marks a denial learnable only when its version, cluster, scheme, and
-credential binding already satisfy the orthogonal boundary. Candidate
+OPA marks a denial learnable only when its version, cluster, scheme, fixed
+request port, and credential binding already satisfy the orthogonal boundary.
+Candidate
 discovery excludes other denials, preventing a successful no-op approval.
 
 ## Compatibility

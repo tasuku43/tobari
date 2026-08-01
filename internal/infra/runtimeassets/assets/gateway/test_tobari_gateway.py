@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from types import SimpleNamespace
 from unittest import mock
 
 from mitmproxy import http
@@ -48,6 +49,7 @@ class GatewayTests(unittest.TestCase):
         request = document["request"]
         self.assertEqual(document["version"], "v1")
         self.assertEqual(request["host"], "api.example.com")
+        self.assertEqual(request["port"], 443)
         self.assertEqual(request["method"], "POST")
         self.assertEqual(request["path_segments"], ["v1", "resources"])
         self.assertEqual(request["query"], {"key": ["value"]})
@@ -59,6 +61,66 @@ class GatewayTests(unittest.TestCase):
             request["body"]["sha256"],
             hashlib.sha256(b'{"example":true}').hexdigest(),
         )
+
+    def test_missing_streamed_body_is_not_treated_as_empty(self):
+        flow = self.flow()
+        flow.request.raw_content = None
+        document = gateway.build_policy_input(flow, "default", None, 1024, set())
+        body = document["request"]["body"]
+        self.assertEqual(body["kind"], "unavailable")
+        self.assertIsNone(body["size"])
+        self.assertIsNone(body["truncated"])
+        self.assertIsNone(body["sha256"])
+
+    def test_unavailable_body_is_denied_before_policy_can_allow(self):
+        flow = self.flow()
+        flow.request.raw_content = None
+        addon = gateway.TobariGateway()
+        output = io.StringIO()
+        with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
+            with mock.patch.object(
+                gateway,
+                "query_opa",
+                return_value=gateway.Decision(True, "allowed", None, 403, False),
+            ) as query:
+                with redirect_stdout(output):
+                    addon.request(flow)
+        query.assert_not_called()
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertEqual(json.loads(flow.response.content), {"error": "request_body_unavailable"})
+
+    def test_resolved_private_address_is_rejected_for_dotted_host(self):
+        with mock.patch.object(
+            gateway.socket,
+            "getaddrinfo",
+            return_value=[(2, 1, 6, "", ("192.168.1.10", 443))],
+        ):
+            with self.assertRaises(gateway.UpstreamAddressError):
+                gateway.resolve_upstream_address("api.example.com", 443)
+
+    def test_resolved_single_label_private_address_is_pinned(self):
+        with mock.patch.object(
+            gateway.socket,
+            "getaddrinfo",
+            return_value=[(2, 1, 6, "", ("172.20.0.4", 8080))],
+        ):
+            self.assertEqual(
+                gateway.resolve_upstream_address("mock-upstream", 8080),
+                ("172.20.0.4", 8080),
+            )
+
+    def test_server_connect_replaces_hostname_with_resolved_address(self):
+        server = SimpleNamespace(address=("api.example.com", 443), error=None)
+        data = SimpleNamespace(server=server)
+        addon = gateway.TobariGateway()
+        with mock.patch.object(
+            gateway,
+            "resolve_upstream_address",
+            return_value=("93.184.216.34", 443),
+        ):
+            addon.server_connect(data)
+        self.assertEqual(server.address, ("93.184.216.34", 443))
+        self.assertIsNone(server.error)
 
     def test_oversized_json_is_metadata_only(self):
         body = gateway._body_metadata(b'{"secret":"body"}', "application/json", 4)
@@ -150,6 +212,7 @@ class GatewayTests(unittest.TestCase):
         self.assertNotIn("realm", audit)
         self.assertEqual(audit["decision"], "deny")
         self.assertEqual(audit["host"], "api.example.com")
+        self.assertEqual(audit["port"], 443)
         self.assertEqual(audit["method"], "POST")
         self.assertEqual(audit["path"], "/v1/resources")
         self.assertEqual(audit["reason"], "denied")

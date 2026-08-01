@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -30,6 +31,7 @@ type PolicyDenial struct {
 	Timestamp         string  `json:"timestamp"`
 	RequestID         string  `json:"request_id"`
 	Host              string  `json:"host"`
+	Port              int     `json:"port"`
 	Method            string  `json:"method"`
 	Path              string  `json:"path"`
 	Reason            string  `json:"reason"`
@@ -49,6 +51,9 @@ func (d PolicyDenial) Validate() error {
 	}
 	if len(d.Host) == 0 || len(d.Host) > 253 || containsSpaceOrControl(d.Host) {
 		return fmt.Errorf("denial host is invalid")
+	}
+	if d.Port < 1 || d.Port > 65535 {
+		return fmt.Errorf("denial port is invalid")
 	}
 	if !httpMethodPattern.MatchString(d.Method) {
 		return fmt.Errorf("denial method is invalid")
@@ -136,6 +141,7 @@ type PolicyCandidate struct {
 	ID                string  `json:"id"`
 	ObservedAt        string  `json:"observed_at"`
 	Host              string  `json:"host"`
+	Port              int     `json:"port"`
 	Method            string  `json:"method"`
 	Path              string  `json:"path"`
 	Reason            string  `json:"reason"`
@@ -154,13 +160,13 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 	}
 	sum := sha256.Sum256([]byte(strings.Join(
 		[]string{
-			"tobari-policy-candidate-v1", denial.Host, denial.Method, denial.Path,
+			"tobari-policy-candidate-v1", denial.Host, strconv.Itoa(denial.Port), denial.Method, denial.Path,
 		},
 		"\x00",
 	)))
 	return PolicyCandidate{
 		ID: "pcy_" + hex.EncodeToString(sum[:16]), ObservedAt: denial.Timestamp,
-		Host: denial.Host, Method: denial.Method, Path: denial.Path,
+		Host: denial.Host, Port: denial.Port, Method: denial.Method, Path: denial.Path,
 		Reason: denial.Reason, StatusCode: denial.StatusCode,
 		CredentialProfile: cloneStringPointer(denial.CredentialProfile),
 	}, nil
@@ -190,6 +196,9 @@ func (c PolicyCandidate) Validate() error {
 	}
 	if len(c.Host) == 0 || len(c.Host) > 253 || containsSpaceOrControl(c.Host) {
 		return fmt.Errorf("policy candidate host is invalid")
+	}
+	if c.Port < 1 || c.Port > 65535 {
+		return fmt.Errorf("policy candidate port is invalid")
 	}
 	if !httpMethodPattern.MatchString(c.Method) {
 		return fmt.Errorf("policy candidate method is invalid")
@@ -250,6 +259,7 @@ type LearnedPolicyRule struct {
 	ID               string   `json:"id"`
 	Match            string   `json:"match"`
 	Host             string   `json:"host"`
+	Port             int      `json:"port"`
 	Method           string   `json:"method"`
 	Path             string   `json:"path"`
 	Examples         []string `json:"examples"`
@@ -257,11 +267,11 @@ type LearnedPolicyRule struct {
 }
 
 func learnedRuleID(
-	match, host, method, path string, examples, sourceCandidates []string,
+	match, host string, port int, method, path string, examples, sourceCandidates []string,
 ) string {
 	material := strings.Join(
 		[]string{
-			"tobari-learned-rule-v1", match, host, method, path,
+			"tobari-learned-rule-v1", match, host, strconv.Itoa(port), method, path,
 			strings.Join(examples, "\x1f"), strings.Join(sourceCandidates, "\x1f"),
 		},
 		"\x00",
@@ -275,12 +285,12 @@ func NewExactLearnedPolicyRule(candidate PolicyCandidate) (LearnedPolicyRule, er
 		return LearnedPolicyRule{}, err
 	}
 	rule := LearnedPolicyRule{
-		Match: PolicyMatchExact, Host: candidate.Host, Method: candidate.Method,
+		Match: PolicyMatchExact, Host: candidate.Host, Port: candidate.Port, Method: candidate.Method,
 		Path: candidate.Path, Examples: []string{candidate.Path},
 		SourceCandidates: []string{candidate.ID},
 	}
 	rule.ID = learnedRuleID(
-		rule.Match, rule.Host, rule.Method, rule.Path, rule.Examples, rule.SourceCandidates,
+		rule.Match, rule.Host, rule.Port, rule.Method, rule.Path, rule.Examples, rule.SourceCandidates,
 	)
 	return rule, nil
 }
@@ -294,6 +304,9 @@ func (r LearnedPolicyRule) Validate() error {
 	}
 	if len(r.Host) == 0 || len(r.Host) > 253 || containsSpaceOrControl(r.Host) {
 		return fmt.Errorf("learned rule host is invalid")
+	}
+	if r.Port < 1 || r.Port > 65535 {
+		return fmt.Errorf("learned rule port is invalid")
 	}
 	if !httpMethodPattern.MatchString(r.Method) {
 		return fmt.Errorf("learned rule method is invalid")
@@ -329,7 +342,7 @@ func (r LearnedPolicyRule) Validate() error {
 		}
 	}
 	if r.ID != learnedRuleID(
-		r.Match, r.Host, r.Method, r.Path, r.Examples, r.SourceCandidates,
+		r.Match, r.Host, r.Port, r.Method, r.Path, r.Examples, r.SourceCandidates,
 	) {
 		return fmt.Errorf("learned rule ID does not bind its content")
 	}
@@ -381,8 +394,8 @@ func ValidateLearnedPolicyRules(rules []LearnedPolicyRule) error {
 	return nil
 }
 
-func (r LearnedPolicyRule) Matches(host, method, path string) bool {
-	if r.Host != host || r.Method != method {
+func (r LearnedPolicyRule) Matches(host string, port int, method, path string) bool {
+	if r.Host != host || r.Port != port || r.Method != method {
 		return false
 	}
 	switch r.Match {
@@ -406,7 +419,7 @@ func PolicyCandidates(
 	}
 	covered := func(denial PolicyDenial) bool {
 		for _, rule := range rules {
-			if rule.Matches(denial.Host, denial.Method, denial.Path) {
+			if rule.Matches(denial.Host, denial.Port, denial.Method, denial.Path) {
 				return true
 			}
 		}
@@ -441,6 +454,7 @@ func PolicyCandidates(
 type PolicyCompaction struct {
 	ID            string   `json:"id"`
 	Host          string   `json:"host"`
+	Port          int      `json:"port"`
 	Method        string   `json:"method"`
 	PathPrefix    string   `json:"path_prefix"`
 	SourceRuleIDs []string `json:"source_rule_ids"`
@@ -455,10 +469,10 @@ func ValidatePolicyCompactionID(id string) error {
 	return nil
 }
 
-func compactionID(host, method, prefix string, sourceRuleIDs []string) string {
+func compactionID(host string, port int, method, prefix string, sourceRuleIDs []string) string {
 	material := strings.Join(
 		[]string{
-			"tobari-policy-compaction-v1", host, method, prefix,
+			"tobari-policy-compaction-v1", host, strconv.Itoa(port), method, prefix,
 			strings.Join(sourceRuleIDs, "\x1f"),
 		},
 		"\x00",
@@ -477,6 +491,9 @@ func (c PolicyCompaction) Validate() error {
 	}
 	if len(c.Host) == 0 || len(c.Host) > 253 || containsSpaceOrControl(c.Host) {
 		return fmt.Errorf("policy compaction host is invalid")
+	}
+	if c.Port < 1 || c.Port > 65535 {
+		return fmt.Errorf("policy compaction port is invalid")
 	}
 	if !httpMethodPattern.MatchString(c.Method) {
 		return fmt.Errorf("policy compaction method is invalid")
@@ -505,7 +522,7 @@ func (c PolicyCompaction) Validate() error {
 	if c.OutsideCanary != outsidePrefixCanary(c.PathPrefix) {
 		return fmt.Errorf("policy compaction boundary canary is invalid")
 	}
-	if c.ID != compactionID(c.Host, c.Method, c.PathPrefix, c.SourceRuleIDs) {
+	if c.ID != compactionID(c.Host, c.Port, c.Method, c.PathPrefix, c.SourceRuleIDs) {
 		return fmt.Errorf("policy compaction ID does not bind its source rules")
 	}
 	return nil
@@ -583,7 +600,7 @@ func PolicyCompactions(rules []LearnedPolicyRule) ([]PolicyCompaction, error) {
 		if !validCompactionPrefix(prefix) {
 			continue
 		}
-		key := rule.Host + "\x00" + rule.Method + "\x00" + prefix
+		key := rule.Host + "\x00" + strconv.Itoa(rule.Port) + "\x00" + rule.Method + "\x00" + prefix
 		groups[key] = append(groups[key], rule)
 	}
 	items := make([]PolicyCompaction, 0)
@@ -605,11 +622,11 @@ func PolicyCompactions(rules []LearnedPolicyRule) ([]PolicyCompaction, error) {
 		}
 		prefix := exactRuleDirectory(group[0].Path)
 		item := PolicyCompaction{
-			Host: group[0].Host, Method: group[0].Method, PathPrefix: prefix,
+			Host: group[0].Host, Port: group[0].Port, Method: group[0].Method, PathPrefix: prefix,
 			SourceRuleIDs: sourceRuleIDs, Examples: examples,
 			OutsideCanary: outsidePrefixCanary(prefix),
 		}
-		item.ID = compactionID(item.Host, item.Method, item.PathPrefix, item.SourceRuleIDs)
+		item.ID = compactionID(item.Host, item.Port, item.Method, item.PathPrefix, item.SourceRuleIDs)
 		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -666,12 +683,12 @@ func CompactLearnedPolicyRules(
 	sort.Strings(sourceCandidates)
 	sourceCandidates = uniqueStrings(sourceCandidates)
 	prefixRule := LearnedPolicyRule{
-		Match: PolicyMatchPrefix, Host: selected.Host, Method: selected.Method,
+		Match: PolicyMatchPrefix, Host: selected.Host, Port: selected.Port, Method: selected.Method,
 		Path: selected.PathPrefix, Examples: append([]string{}, selected.Examples...),
 		SourceCandidates: sourceCandidates,
 	}
 	prefixRule.ID = learnedRuleID(
-		prefixRule.Match, prefixRule.Host, prefixRule.Method, prefixRule.Path,
+		prefixRule.Match, prefixRule.Host, prefixRule.Port, prefixRule.Method, prefixRule.Path,
 		prefixRule.Examples, prefixRule.SourceCandidates,
 	)
 	if err := prefixRule.Validate(); err != nil {

@@ -229,12 +229,29 @@ The test suite has complementary levels:
 - Custom-image tests build from the stable local Tobari base, select it through
   bounded configuration, and prove compatibility is checked before per-Tobari
   resources exist.
+- Runtime-spec tests assert fixed CPU, memory, PID-count, and container-log
+  options, include the resource contract in drift hashing, and the Docker
+  integration scenario inspects those limits after creation and recovery.
 - Dev Container tests cover comments, trailing commas, duplicate keys, size and
   symlink escape, unsupported runtime properties, input conflicts, and one
   image-based Docker integration path.
 - Policy-learning integration projects a denial, edits the host XDG policy and
   its test, activates it through the fixed-target command, and observes the
   changed decision without restarting any Tobari.
+- Policy-boundary tests prove the normalized request port is required by the
+  initialized scheme-port allowlist, rejected non-default ports are not
+  learnable, and learned rules do not cross ports.
+- Gateway boundary tests resolve and pin an upstream address, reject unsafe
+  resolved addresses for dotted hosts, and preserve the explicit single-label
+  private-service exception used by the local integration shape.
+- Gateway boundary tests distinguish an explicitly empty body from an
+  unavailable streamed body and deny the latter before OPA can allow it.
+- Runtime-asset and integration tests enforce the fixed 8 MiB mitmproxy body
+  cap before request/response forwarding.
+- Runtime-asset and integration tests enforce fixed JSON log rotation for both
+  shared Gateway and OPA services.
+- Runtime-asset and integration tests inspect the fixed shared-service CPU,
+  memory-plus-swap, and PID ceilings.
 - Learned-policy integration also passes an opaque denial candidate unchanged
   into exact approval, verifies a neighboring request remains denied, creates
   three exact siblings, passes one opaque compaction candidate unchanged into
@@ -267,11 +284,12 @@ Every strong statement should identify its enforcement path.
 | Action target composition | Reachable reference-graph validation and byte-preserving round trips for reference-bound acts; complete, exclusive, reference-free declarations for command-bound fixed targets |
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
+| Shared runtime resource bounds | Fixed project create-argv, resource-aware spec hash, and Docker HostConfig integration assertions |
 | Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
-| Typed denial recovery | Strict audit projection, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
-| Explicit policy learning | OPA learnability classification, candidate/reference domain validation, discover-act graph and round trip, strict atomic XDG writer, preflight ordering, and Docker retry |
-| Bounded policy compaction | Pure deterministic grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |
+| Typed denial recovery | Strict host/port audit projection, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
+| Explicit policy learning | OPA scheme/port learnability classification, host/port/method/path candidate/reference domain validation, discover-act graph and round trip, strict atomic XDG writer, preflight ordering, and Docker retry |
+| Bounded policy compaction | Pure deterministic same-host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |

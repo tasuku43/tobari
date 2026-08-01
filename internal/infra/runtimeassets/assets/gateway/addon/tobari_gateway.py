@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -35,6 +37,55 @@ class PolicyUnavailable(Exception):
 
 class CredentialError(Exception):
     """A selected credential could not be injected safely."""
+
+
+class UpstreamAddressError(Exception):
+    """The upstream hostname cannot be bound to a safe resolved address."""
+
+
+def resolve_upstream_address(host: str, port: int) -> tuple[str, int]:
+    """Resolve and pin one upstream address before mitmproxy connects."""
+    try:
+        records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as error:
+        raise UpstreamAddressError("upstream address could not be resolved") from error
+
+    hostname = host.rstrip(".").lower()
+    literal = False
+    try:
+        ipaddress.ip_address(hostname)
+        literal = True
+    except ValueError:
+        pass
+
+    addresses: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for _, _, _, _, sockaddr in records:
+        if not sockaddr:
+            continue
+        candidate = sockaddr[0]
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            address = ipaddress.ip_address(candidate)
+        except ValueError:
+            continue
+        non_routable = not address.is_global
+        single_label_private = "." not in hostname and not literal
+        if non_routable and (
+            not single_label_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_multicast
+            or address.is_unspecified
+            or address.is_reserved
+        ):
+            raise UpstreamAddressError("upstream resolved to a non-public address")
+        addresses.append((candidate, port))
+    if not addresses:
+        raise UpstreamAddressError("upstream address resolution returned no usable address")
+    return addresses[0]
 
 
 class Decision:
@@ -78,7 +129,17 @@ def _headers_for_policy(headers: http.Headers, secret_names: set[str]) -> dict[s
     return {name: ", ".join(values) for name, values in sorted(safe.items())}
 
 
-def _body_metadata(raw: bytes, content_type: str, inspection_bytes: int) -> dict[str, Any]:
+def _body_metadata(
+    raw: bytes | None, content_type: str, inspection_bytes: int
+) -> dict[str, Any]:
+    if raw is None:
+        return {
+            "kind": "unavailable",
+            "size": None,
+            "truncated": None,
+            "sha256": None,
+            "content_type": content_type,
+        }
     metadata: dict[str, Any] = {
         "kind": "metadata",
         "size": len(raw),
@@ -109,7 +170,7 @@ def build_policy_input(
     path = split.path or "/"
     requested_profile = request.headers.get(PROFILE_HEADER)
     secret_names = set(DEFAULT_SECRET_HEADERS) | extra_secret_names
-    raw = request.raw_content or b""
+    raw = request.raw_content
     return {
         "version": "v1",
         "principal": {"cluster": cluster, "session": session},
@@ -286,10 +347,21 @@ class TobariGateway:
             "/run/tobari/config/credentials.json",
         )
 
+    def server_connect(self, data: Any) -> None:
+        address = data.server.address
+        if not address:
+            data.server.error = "upstream address is missing"
+            return
+        try:
+            data.server.address = resolve_upstream_address(address[0], address[1])
+        except UpstreamAddressError as error:
+            data.server.error = str(error)
+
     def request(self, flow: http.HTTPFlow) -> None:
         started = time.monotonic()
         request_id = uuid.uuid4().hex
         host = flow.request.host.rstrip(".").lower()
+        port = flow.request.port
         profile_name: str | None = None
         upstream_status: int | None = None
         decision_name = "deny"
@@ -308,6 +380,11 @@ class TobariGateway:
             for name in set(DEFAULT_SECRET_HEADERS) | secret_names | {PROFILE_HEADER}:
                 if name not in {"cookie", "set-cookie"}:
                     flow.request.headers.pop(name, None)
+            if policy_input["request"]["body"]["kind"] == "unavailable":
+                reason = "request body is unavailable"
+                _deny(flow, 403, "request_body_unavailable")
+                upstream_status = 403
+                return
             decision = query_opa(self.opa_url, policy_input, self.opa_timeout)
             reason = decision.reason
             profile_name = decision.credential_profile
@@ -324,6 +401,7 @@ class TobariGateway:
                 "request_id": request_id,
                 "cluster": self.cluster,
                 "host": host,
+                "port": port,
                 "method": flow.request.method.upper(),
                 "path": urlsplit(flow.request.url).path or "/",
                 "decision": decision_name,
@@ -355,6 +433,7 @@ class TobariGateway:
                     request_id=request_id,
                     cluster=self.cluster,
                     host=host,
+                    port=port,
                     method=flow.request.method.upper(),
                     path=urlsplit(flow.request.url).path or "/",
                     decision=decision_name,

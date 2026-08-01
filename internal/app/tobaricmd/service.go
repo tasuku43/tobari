@@ -61,6 +61,14 @@ type ProjectRuntimePort interface {
 	DeleteProject(context.Context, tobari.ProjectInstance) error
 }
 
+// lifecycleRuntimePort serializes shared-cluster and CWD-owned project
+// lifecycle operations. It is intentionally separate from the broader
+// RuntimePort so observation and legacy compatibility ports cannot acquire a
+// lock they do not need.
+type lifecycleRuntimePort interface {
+	WithLifecycleLock(context.Context, func(context.Context) error) error
+}
+
 type ownedPolicy struct{}
 
 func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
@@ -116,6 +124,20 @@ func (s *Service) projectRuntime() (ProjectRuntimePort, error) {
 		)
 	}
 	return project, nil
+}
+
+func (s *Service) withLifecycleLock(ctx context.Context, action func(context.Context) error) error {
+	if err := s.requireRuntime(); err != nil {
+		return err
+	}
+	lifecycle, ok := s.runtime.(lifecycleRuntimePort)
+	if !ok || portcheck.IsNil(lifecycle) {
+		return fault.New(
+			fault.KindInternal, "missing_runtime",
+			"Tobari lifecycle lock is not configured", false,
+		)
+	}
+	return lifecycle.WithLifecycleLock(ctx, action)
 }
 
 func (s *Service) legacyNamedRuntime() (legacyNamedRuntimePort, error) {
@@ -178,46 +200,57 @@ func (s *Service) EnterProject(
 	if err != nil {
 		return 0, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
-	state, configured, stateErr := s.runtime.LoadState(ctx)
-	if stateErr != nil {
-		return 0, fault.Wrap(fault.KindInternal, "state_read_failed", "shared cluster state could not be read", false, stateErr,
-			fault.NextAction{Command: "cluster status", Reason: "Inspect the configured shared cluster."})
-	}
-	if !configured {
-		return 0, fault.New(
-			fault.KindUnavailable, "cluster_not_configured",
-			"the shared cluster is not configured; run cluster up before entering a Tobari", false,
-			fault.NextAction{Command: "cluster up", Reason: "Create the shared Gateway and OPA cluster explicitly."},
-		)
-	}
-	clusterStatus, statusErr := s.runtime.InspectCluster(ctx, state)
-	if statusErr != nil {
-		return 0, fault.Wrap(fault.KindUnavailable, "cluster_status_failed", "the shared cluster could not be inspected", false, statusErr,
-			fault.NextAction{Command: "cluster status", Reason: "Inspect the shared cluster before entering a Tobari."})
-	}
-	if !clusterStatus.Running {
-		return 0, fault.New(
-			fault.KindUnavailable, "cluster_not_ready",
-			"the shared cluster is not ready; repair it with an explicit cluster operation", false,
-			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster explicitly."},
-		)
-	}
-
+	var state tobari.State
 	var instance tobari.ProjectInstance
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
-	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		resolved, _, actionErr := project.ResolveOrCreateProject(actionContext, cwd)
-		if actionErr != nil {
-			return classifyProjectMutationError(actionErr, "tobari", "status", "logical state may need reconciliation")
+	err = s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		var configured bool
+		var stateErr error
+		state, configured, stateErr = s.runtime.LoadState(lifecycleContext)
+		if stateErr != nil {
+			return fault.Wrap(fault.KindInternal, "state_read_failed", "shared cluster state could not be read", false, stateErr,
+				fault.NextAction{Command: "cluster status", Reason: "Inspect the configured shared cluster."})
 		}
-		instance, actionErr = project.EnsureProjectRuntime(actionContext, state, resolved)
-		if actionErr != nil {
-			return classifyProjectMutationError(actionErr, "tobari", "status", "inspect the selected project before retrying")
+		if !configured {
+			return fault.New(
+				fault.KindUnavailable, "cluster_not_configured",
+				"the shared cluster is not configured; run cluster up before entering a Tobari", false,
+				fault.NextAction{Command: "cluster up", Reason: "Create the shared Gateway and OPA cluster explicitly."},
+			)
 		}
-		return nil
+		clusterStatus, statusErr := s.runtime.InspectCluster(lifecycleContext, state)
+		if statusErr != nil {
+			return fault.Wrap(fault.KindUnavailable, "cluster_status_failed", "the shared cluster could not be inspected", false, statusErr,
+				fault.NextAction{Command: "cluster status", Reason: "Inspect the shared cluster before entering a Tobari."})
+		}
+		if !clusterStatus.Running {
+			return fault.New(
+				fault.KindUnavailable, "cluster_not_ready",
+				"the shared cluster is not ready; repair it with an explicit cluster operation", false,
+				fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster explicitly."},
+			)
+		}
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			resolved, _, actionErr := project.ResolveOrCreateProject(actionContext, cwd)
+			if actionErr != nil {
+				return classifyProjectMutationError(actionErr, "tobari", "status", "logical state may need reconciliation")
+			}
+			if resolved.Incomplete {
+				return fault.New(
+					fault.KindRejected, "project_state_incomplete",
+					"the current Tobari has incomplete logical state and cannot be recreated safely", false,
+					fault.NextAction{Command: "delete", Reason: "Review the exact delete command and confirm removal of the incomplete current-directory Tobari."},
+				)
+			}
+			instance, actionErr = project.EnsureProjectRuntime(actionContext, state, resolved)
+			if actionErr != nil {
+				return classifyProjectMutationError(actionErr, "tobari", "status", "inspect the selected project before retrying")
+			}
+			return nil
+		})
 	})
 	if err != nil {
 		return 0, err
@@ -329,27 +362,33 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 	if err != nil {
 		return tobari.ProjectDeleteResult{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
-	instance, found, err := project.ResolveProject(ctx, cwd)
-	if err != nil {
-		return tobari.ProjectDeleteResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
-	}
-	if !found {
-		return tobari.ProjectDeleteResult{}, fault.New(fault.KindNotFound, "project_not_found", "no Tobari exists for the current directory", false,
-			fault.NextAction{Command: "tobari", Reason: "Create a Tobari from the current project directory."})
-	}
-	home, err := project.ProjectHome(ctx, instance)
-	if err != nil {
-		return tobari.ProjectDeleteResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project home path could not be resolved", false, err)
-	}
+	var instance tobari.ProjectInstance
+	var home string
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
-	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		if actionErr := project.DeleteProject(actionContext, instance); actionErr != nil {
-			return classifyProjectMutationError(actionErr, "delete", "status", "deletion did not complete; retry delete after inspecting status")
+	err = s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		var found bool
+		var resolveErr error
+		instance, found, resolveErr = project.ResolveProject(lifecycleContext, cwd)
+		if resolveErr != nil {
+			return fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, resolveErr)
 		}
-		return nil
+		if !found {
+			return fault.New(fault.KindNotFound, "project_not_found", "no Tobari exists for the current directory", false,
+				fault.NextAction{Command: "tobari", Reason: "Create a Tobari from the current project directory."})
+		}
+		home, err = project.ProjectHome(lifecycleContext, instance)
+		if err != nil {
+			return fault.Wrap(fault.KindInternal, "state_read_failed", "project home path could not be resolved", false, err)
+		}
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			if actionErr := project.DeleteProject(actionContext, instance); actionErr != nil {
+				return classifyProjectMutationError(actionErr, "delete", "status", "deletion did not complete; retry delete after inspecting status")
+			}
+			return nil
+		})
 	})
 	if err != nil {
 		return tobari.ProjectDeleteResult{}, err
@@ -371,26 +410,31 @@ func (s *Service) ClusterUp(ctx context.Context, intent operation.Intent) (tobar
 		Intent: intent, ExpectedCommand: "cluster up", ExpectedEffect: operation.EffectCreate,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
-	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		created, actionErr := s.runtime.ClusterUp(actionContext)
-		state = created
-		if actionErr == nil {
-			return nil
-		}
-		if _, structured := fault.PublicCopy(actionErr); structured {
-			return actionErr
-		}
-		return fault.Wrap(
-			fault.KindUnavailable, "cluster_start_failed",
-			"Cluster startup did not complete; inspect status before retrying", false, actionErr,
-			fault.NextAction{Command: "cluster status", Reason: "Reconcile partial Docker state before another startup."},
-		)
+	err := s.withLifecycleLock(ctx, func(actionContext context.Context) error {
+		return s.mutator.Invoke(actionContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			created, actionErr := s.runtime.ClusterUp(actionContext)
+			state = created
+			if actionErr == nil {
+				return nil
+			}
+			if _, structured := fault.PublicCopy(actionErr); structured {
+				return actionErr
+			}
+			return fault.Wrap(
+				fault.KindUnavailable, "cluster_start_failed",
+				"Cluster startup did not complete; inspect status before retrying", false, actionErr,
+				fault.NextAction{Command: "cluster status", Reason: "Reconcile partial Docker state before another startup."},
+			)
+		})
 	})
 	if err != nil {
 		return tobari.ClusterStatus{}, err
 	}
 	status, err := s.runtime.InspectCluster(ctx, state)
 	if err != nil {
+		if structured, ok := fault.PublicCopy(err); ok {
+			return tobari.ClusterStatus{}, structured
+		}
 		return tobari.ClusterStatus{}, fault.Wrap(fault.KindInternal, "status_failed", "cluster started but status could not be read", false, err)
 	}
 	status.Task = tobari.TaskClusterUp
@@ -414,6 +458,9 @@ func (s *Service) ClusterStatus(ctx context.Context) (tobari.ClusterStatus, erro
 	}
 	status, err := s.runtime.InspectCluster(ctx, state)
 	if err != nil {
+		if structured, ok := fault.PublicCopy(err); ok {
+			return tobari.ClusterStatus{}, structured
+		}
 		return tobari.ClusterStatus{}, fault.Wrap(fault.KindInternal, "status_failed", "cluster status could not be read", false, err)
 	}
 	status.Task = tobari.TaskClusterStatus
@@ -1069,49 +1116,54 @@ func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purg
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ClusterStatus{}, err
 	}
-	if project, ok := s.runtime.(ProjectRuntimePort); ok && !portcheck.IsNil(project) {
-		projects, projectErr := project.ListProjects(ctx)
-		if projectErr != nil {
-			return tobari.ClusterStatus{}, fault.Wrap(
-				fault.KindInternal, "state_read_failed", "CWD-owned Tobari state could not be read", false, projectErr,
-			)
-		}
-		if len(projects) != 0 {
-			return tobari.ClusterStatus{}, fault.New(
-				fault.KindRejected, "cluster_not_empty", "delete every CWD-owned Tobari before removing the cluster", false,
-			)
-		}
-	}
-	state, exists, err := s.runtime.LoadState(ctx)
-	if err != nil {
-		return tobari.ClusterStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err)
-	}
-	if !exists {
-		return tobari.ClusterStatus{Task: tobari.TaskClusterDown, Components: []tobari.ComponentStatus{}}, nil
-	}
-	if len(state.Tobari) != 0 {
-		return tobari.ClusterStatus{}, fault.New(
-			fault.KindRejected, "legacy_named_state",
-			"the shared state contains legacy named Tobari records; remove them with the older binary before continuing", false,
-		)
-	}
+	var state tobari.State
+	var exists bool
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: "cluster down", ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
-	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		actionErr := s.runtime.ClusterDown(actionContext, state, purge)
-		if actionErr == nil {
+	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		if project, ok := s.runtime.(ProjectRuntimePort); ok && !portcheck.IsNil(project) {
+			projects, projectErr := project.ListProjects(lifecycleContext)
+			if projectErr != nil {
+				return fault.Wrap(
+					fault.KindInternal, "state_read_failed", "CWD-owned Tobari state could not be read", false, projectErr,
+				)
+			}
+			if len(projects) != 0 {
+				return fault.New(
+					fault.KindRejected, "cluster_not_empty", "delete every CWD-owned Tobari before removing the cluster", false,
+				)
+			}
+		}
+		var loadErr error
+		state, exists, loadErr = s.runtime.LoadState(lifecycleContext)
+		if loadErr != nil {
+			return fault.Wrap(fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, loadErr)
+		}
+		if !exists {
 			return nil
 		}
-		if _, structured := fault.PublicCopy(actionErr); structured {
-			return actionErr
+		if len(state.Tobari) != 0 {
+			return fault.New(
+				fault.KindRejected, "legacy_named_state",
+				"the shared state contains legacy named Tobari records; remove them with the older binary before continuing", false,
+			)
 		}
-		return fault.Wrap(
-			fault.KindUnavailable, "cluster_stop_failed",
-			"Cluster cleanup did not complete; inspect status before retrying", false, actionErr,
-			fault.NextAction{Command: "cluster status", Reason: "Reconcile remaining Docker state before another cleanup."},
-		)
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			actionErr := s.runtime.ClusterDown(actionContext, state, purge)
+			if actionErr == nil {
+				return nil
+			}
+			if _, structured := fault.PublicCopy(actionErr); structured {
+				return actionErr
+			}
+			return fault.Wrap(
+				fault.KindUnavailable, "cluster_stop_failed",
+				"Cluster cleanup did not complete; inspect status before retrying", false, actionErr,
+				fault.NextAction{Command: "cluster status", Reason: "Reconcile remaining Docker state before another cleanup."},
+			)
+		})
 	})
 	if err != nil {
 		return tobari.ClusterStatus{}, err

@@ -56,6 +56,18 @@ func TestProjectStatusKeepsLogicalExistenceSeparateFromRuntimeDiagnostic(t *test
 	}
 }
 
+func TestProjectStatusAcceptsIncompleteLogicalStateDiagnostic(t *testing.T) {
+	t.Parallel()
+	status := ProjectStatus{
+		Task: TaskStatus, Exists: true, Root: "/tmp/project",
+		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/home",
+		Runtime: RuntimeDiagnosticIncomplete,
+	}
+	if err := status.Validate(); err != nil {
+		t.Fatalf("ProjectStatus.Validate() error = %v", err)
+	}
+}
+
 func TestProjectListResultAcceptsKnownEmptyScope(t *testing.T) {
 	t.Parallel()
 	result := ProjectListResult{Task: TaskProjectList, Items: []ProjectListItem{}}

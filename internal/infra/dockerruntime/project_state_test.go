@@ -316,10 +316,59 @@ func TestResolveProjectFindsOneSidedLogicalRecordsForRecovery(t *testing.T) {
 			}
 			breakRecord(t, runtime, instance)
 			resolved, found, err := runtime.ResolveProject(context.Background(), root)
-			if err != nil || !found || resolved.ID != instance.ID || resolved.Root != instance.Root {
+			wantIncomplete := name == "root index only"
+			if err != nil || !found || resolved.ID != instance.ID || resolved.Root != instance.Root || resolved.Incomplete != wantIncomplete {
 				t.Fatalf("ResolveProject() = (%+v, %t, %v), want recoverable %s record", resolved, found, err, name)
 			}
 		})
+	}
+}
+
+func TestResolveOrCreateProjectReturnsCleanupOnlyRecordForMissingInstanceState(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statePath, err := runtime.projectStatePath(instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(statePath); err != nil {
+		t.Fatal(err)
+	}
+	recovered, created, err := runtime.ResolveOrCreateProject(context.Background(), root)
+	if err != nil || created || !recovered.Incomplete || recovered.ID != instance.ID {
+		t.Fatalf("ResolveOrCreateProject() = (%+v, %t, %v), want cleanup-only existing record", recovered, created, err)
+	}
+}
+
+func TestListProjectsIncludesRootIndexOnlyAsCleanupOnlyLogicalState(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statePath, err := runtime.projectStatePath(instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(statePath); err != nil {
+		t.Fatal(err)
+	}
+	projects, err := runtime.ListProjects(context.Background())
+	if err != nil || len(projects) != 1 || !projects[0].Incomplete || projects[0].ID != instance.ID {
+		t.Fatalf("ListProjects() = (%+v, %v), want one cleanup-only project", projects, err)
 	}
 }
 

@@ -112,13 +112,18 @@ func (r *Runtime) resolveProjectUnlocked(cwd string) (tobari.ProjectInstance, bo
 	// recoverable even when the instance file was lost after the index write.
 	// The caller must still use the normal ownership checks before removing
 	// Docker resources.
+	return cleanupOnlyProjectInstance(index), true, nil
+}
+
+func cleanupOnlyProjectInstance(index tobari.RootIndex) tobari.ProjectInstance {
 	return tobari.ProjectInstance{
 		SchemaVersion: tobari.ProjectStateSchemaVersion,
 		ID:            index.InstanceID,
 		Root:          index.Root,
 		Profile:       tobari.DefaultProfile,
 		Image:         tobari.BuiltinImageSelector,
-	}, true, nil
+		Incomplete:    true,
+	}
 }
 
 func (r *Runtime) resolveOrphanInstance(cwd string) (tobari.ProjectInstance, bool, error) {
@@ -188,6 +193,10 @@ func (r *Runtime) ResolveOrCreateProject(
 		}
 		if found {
 			loaded, readErr := r.readProjectInstance(index.InstanceID)
+			if errors.Is(readErr, os.ErrNotExist) {
+				instance = cleanupOnlyProjectInstance(index)
+				return nil
+			}
 			if readErr != nil {
 				return readErr
 			}
@@ -383,43 +392,57 @@ func (r *Runtime) ListProjects(ctx context.Context) ([]tobari.ProjectInstance, e
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	indexes, err := r.listRootIndexes()
+	var instances []tobari.ProjectInstance
+	err := r.withProjectLock(ctx, func() error {
+		if err := r.reconcileProjectJournal(); err != nil {
+			return err
+		}
+		indexes, err := r.listRootIndexes()
+		if err != nil {
+			return err
+		}
+		instances = make([]tobari.ProjectInstance, 0, len(indexes))
+		indexedIDs := make(map[string]bool, len(indexes))
+		for _, index := range indexes {
+			indexedIDs[index.InstanceID] = true
+			instance, readErr := r.readProjectInstance(index.InstanceID)
+			if errors.Is(readErr, os.ErrNotExist) {
+				instances = append(instances, cleanupOnlyProjectInstance(index))
+				continue
+			}
+			if readErr != nil {
+				return readErr
+			}
+			if instance.Root != index.Root {
+				return fmt.Errorf("root index and instance root disagree")
+			}
+			instances = append(instances, instance)
+		}
+		entries, err := os.ReadDir(r.instancesDirectory())
+		if errors.Is(err, os.ErrNotExist) {
+			entries = nil
+		} else if err != nil {
+			return fmt.Errorf("read project instances for orphan diagnosis: %w", err)
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+				return fmt.Errorf("project instance directory contains an unsafe entry")
+			}
+			if indexedIDs[entry.Name()] {
+				continue
+			}
+			instance, readErr := r.readProjectInstance(entry.Name())
+			if readErr != nil {
+				return fmt.Errorf("diagnose orphan project instance: %w", readErr)
+			}
+			return fmt.Errorf("project instance %s has no root index", instance.ID)
+		}
+		sort.Slice(instances, func(left, right int) bool { return instances[left].Root < instances[right].Root })
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	instances := make([]tobari.ProjectInstance, 0, len(indexes))
-	indexedIDs := make(map[string]bool, len(indexes))
-	for _, index := range indexes {
-		indexedIDs[index.InstanceID] = true
-		instance, readErr := r.readProjectInstance(index.InstanceID)
-		if readErr != nil {
-			return nil, readErr
-		}
-		if instance.Root != index.Root {
-			return nil, fmt.Errorf("root index and instance root disagree")
-		}
-		instances = append(instances, instance)
-	}
-	entries, err := os.ReadDir(r.instancesDirectory())
-	if errors.Is(err, os.ErrNotExist) {
-		entries = nil
-	} else if err != nil {
-		return nil, fmt.Errorf("read project instances for orphan diagnosis: %w", err)
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-			return nil, fmt.Errorf("project instance directory contains an unsafe entry")
-		}
-		if indexedIDs[entry.Name()] {
-			continue
-		}
-		instance, readErr := r.readProjectInstance(entry.Name())
-		if readErr != nil {
-			return nil, fmt.Errorf("diagnose orphan project instance: %w", readErr)
-		}
-		return nil, fmt.Errorf("project instance %s has no root index", instance.ID)
-	}
-	sort.Slice(instances, func(left, right int) bool { return instances[left].Root < instances[right].Root })
 	return instances, nil
 }
 
@@ -593,9 +616,26 @@ func (r *Runtime) ensurePrivateDirectory(path string) error {
 		return err
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("path is not a directory")
+		return fmt.Errorf("path is not a regular directory")
 	}
-	return os.Chmod(path, 0o700) // #nosec G302 -- project state is owner-only.
+	if err := os.Chmod(path, 0o700); err != nil { // #nosec G302 -- runtime-owned directories are owner-only.
+		return err
+	}
+	return requirePrivateDirectory(path)
+}
+
+func requirePrivateDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("path is not a regular directory")
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("path is not owner-only")
+	}
+	return nil
 }
 
 func readStrictJSON(path string, value any) error {

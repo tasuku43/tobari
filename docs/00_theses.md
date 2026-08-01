@@ -40,13 +40,19 @@ brand.
 - Any process that honors the explicit proxy receives the same enforcement.
 - Gateway sends generic HTTP attributes to OPA rather than service-specific
   operations.
+- The initialized policy denies non-empty request bodies unless a trusted host
+  authors a body-aware Rego rule; body-bearing observations never become
+  host-only approval candidates.
+- A body that is unavailable because it was not captured is denied before OPA;
+  it is never treated as an explicit empty body or a learning candidate.
 - GitHub, AWS, and other provider adapters are not part of the MVP.
 - HTTP methods are evidence supplied to policy, not a CLI effect classifier.
 
 ### Mechanical enforcement
 
 - Gateway unit tests fix the OPA input schema and secret-header redaction.
-- Rego tests exercise host, method, path, scheme, and credential bindings.
+- Rego tests exercise host, port, method, path, scheme, body-empty, and
+  credential bindings.
 - Docker integration tests use curl and Python rather than a named coding agent.
 
 ## Thesis 2: Network topology is an enforcement mechanism
@@ -60,6 +66,11 @@ egress networks; OPA joins only control.
 - Proxy bypass has no route to an external upstream.
 - Tobari cannot reach OPA, Gateway management interfaces, or another Tobari.
 - Gateway or OPA failure denies outbound traffic.
+- Each work container receives fixed CPU, memory (including total memory plus
+  swap), process-count, and
+  container-log bounds so one untrusted workload cannot consume those shared
+  resources without limit. Disk quota and network bandwidth remain separate
+  unclaimed controls.
 - Host networking, privileged mode, Docker socket mounts, and added
   capabilities are forbidden.
 
@@ -70,7 +81,9 @@ egress networks; OPA joins only control.
 - Integration tests prove direct egress, direct OPA access, and traffic during
   Gateway or OPA failure do not succeed.
 - Runtime specification tests reject privileged mode, host networking, Docker
-  socket mounts, and broad host-home mounts.
+  socket mounts, broad host-home mounts, and missing fixed resource bounds.
+- Runtime integration inspects CPU, memory, PID, and log limits after creation
+  and after recovery.
 - Image-selection tests require a locally available runtime-API-compatible
   image before any per-Tobari resource is created; image configuration cannot
   replace the CLI-owned isolation arguments.
@@ -101,7 +114,11 @@ profile is configured for the normalized destination host.
 ## Thesis 4: One shared cluster hosts multiple CWD-owned Tobari
 
 MVP manages one installation-local enforcement cluster and multiple logical
-Tobari. A Tobari is selected by the nearest indexed canonical ancestor of the
+Tobari. The shared cluster is one host trust domain, not a multi-tenant
+authority service: a stable Tobari ID is host-side bookkeeping, not a
+Gateway-authenticated project principal. The MVP does not claim
+project-specific policy, credential, or egress authority separation. A Tobari
+is selected by the nearest indexed canonical ancestor of the
 current directory, binds exactly one read-write root, one dedicated internal
 network, and one persistent XDG-owned home directory.
 
@@ -160,6 +177,13 @@ name prefix or broad Docker query as authority.
   `--purge` affects only shared CA state after the cluster is empty.
 - Docker CLI is behind an infrastructure port so another engine can replace it
   later without changing application outcomes.
+- The project runtime spec hash includes the fixed resource contract, so an old
+  or drifted container is recreated before reuse.
+- Shared Gateway and OPA services use the same fixed JSON log rotation bounds;
+  a project cannot fill their host-side Docker logs without a cap.
+- Shared Gateway and OPA services also carry fixed CPU, memory-plus-swap, and
+  PID bounds; those limits protect the Docker VM but do not promise per-project
+  fairness inside the shared service.
 - `status`, `list`, and `doctor` never reconcile Docker or create/delete
   runtime resources. They may perform bounded journal cleanup before selecting
   logical state so an interrupted multi-file write cannot remain authoritative.
@@ -182,15 +206,18 @@ overflow, and unclassified Gateway errors do not authorize traffic.
 
 - Default policy denies.
 - OPA and upstream calls have finite timeouts and body inspection has a fixed
-  maximum.
+  maximum; mitmproxy rejects request and response bodies above the fixed 8 MiB
+  transport cap before the Gateway addon can forward them.
 - JSON bodies are inspected only when fully captured within the limit;
   non-JSON bodies expose metadata only.
 - Audit logs contain metadata and hashes, never raw bodies or secret values.
 
 ### Mechanical enforcement
 
-- Gateway unit tests cover timeout, invalid decision, truncation, and body-type
-  cases.
+- Gateway unit tests cover timeout, invalid decision, unavailable bodies,
+  truncation, and body-type cases. Runtime-asset tests keep the transport body
+  cap present, and integration sends an over-limit body to prove it stops at
+  Gateway.
 - Rego tests start from deny and add explicit allow rules.
 - Structured logs are scanned for secret and body canaries.
 
@@ -223,20 +250,20 @@ rule from the trusted host.
 
 ### Consequences
 
-- Every HTTP denial emits bounded structured audit metadata including host,
+- Every HTTP denial emits bounded structured audit metadata including host, port,
   method, path, decision, reason, and whether an exact learned rule can resolve
   the denial without weakening orthogonal invariants.
 - `tobari cluster denials` is the first diagnostic step: it projects only
   validated denial records, reports the editable host-side policy directory,
   and names the exact activation command. Raw component logs remain available.
 - `policy candidates` turns only learnable retained denials into unique exact
-  host/method/path proposals with stable opaque IDs. `policy tail` is the
+  host/port/method/path proposals with stable opaque IDs. `policy tail` is the
   bounded human review of that same queue. Neither command changes authority.
 - `policy allow --id` is the explicit trusted-host action that consumes one
   candidate ID unchanged, preflights and atomically records one exact learned
   rule, then activates it through the same portable OPA boundary.
 - Repeated exact learned rules may produce a `policy compactions` proposal only
-  for a fixed host and method beneath a sufficiently specific path prefix.
+  for a fixed host, port, and method beneath a sufficiently specific path prefix.
   `policy compact --id` is a separate explicit action whose positive examples
   and boundary canaries must pass before the source rules are replaced.
 - OPA watches the policy directory mounted read-only from XDG; `policy apply`
@@ -263,7 +290,8 @@ rule from the trusted host.
 
 ## Deliberate non-goals
 
-MVP does not support multiple clusters, process-level identity, transparent
-proxying, non-HTTP protocols, Git SSH, provider-specific semantic adapters,
+MVP does not support multiple clusters, process-level identity, project-bound
+policy or credential authority, transparent proxying, non-HTTP protocols, Git
+SSH, provider-specific semantic adapters,
 OAuth refresh, SigV4, Keychain integration, approval workflows, Kubernetes,
 filesystem overlays, GUIs, remote execution, or multi-tenant production use.

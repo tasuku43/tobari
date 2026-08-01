@@ -21,6 +21,7 @@ type gatewayAuditRecord struct {
 	RequestID         string  `json:"request_id"`
 	Cluster           string  `json:"cluster"`
 	Host              string  `json:"host"`
+	Port              int     `json:"port"`
 	Method            string  `json:"method"`
 	Path              string  `json:"path"`
 	Decision          string  `json:"decision"`
@@ -83,7 +84,7 @@ func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
 		}
 		item := tobari.PolicyDenial{
 			Timestamp: record.Timestamp, RequestID: record.RequestID,
-			Host: record.Host, Method: record.Method, Path: record.Path,
+			Host: record.Host, Port: record.Port, Method: record.Method, Path: record.Path,
 			Reason: record.Reason, StatusCode: record.UpstreamStatus,
 			Learnable: record.Learnable, CredentialProfile: record.CredentialProfile,
 		}
@@ -104,7 +105,7 @@ func (r *Runtime) ApplyPolicy(ctx context.Context, state tobari.State) error {
 	}
 	if err := r.testPolicy(ctx, state); err != nil {
 		return fault.Wrap(
-			fault.KindRejected, "policy_test_failed", "OPA policy tests failed", false, err,
+			fault.KindRejected, "policy_test_failed", policyTestFailureMessage, false, err,
 		)
 	}
 	label, err := r.runner.Output(

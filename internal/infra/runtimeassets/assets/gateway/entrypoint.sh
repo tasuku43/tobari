@@ -48,6 +48,7 @@ exec mitmdump \
   --set "confdir=$confdir" \
   --set block_global=false \
   --set connection_strategy=lazy \
+  --set body_size_limit=8m \
   --set flow_detail=0 \
   --set termlog_verbosity=warn \
   --set "connect_timeout=${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}" \

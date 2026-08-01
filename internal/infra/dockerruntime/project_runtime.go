@@ -19,12 +19,43 @@ import (
 )
 
 const (
-	projectIDLabel   = "io.tobari.id"
-	projectRoleLabel = "io.tobari.role"
-	projectSpecLabel = "io.tobari.spec-hash"
-	projectWorkRole  = "work"
-	projectNetRole   = "network"
+	projectIDLabel           = "io.tobari.id"
+	projectRoleLabel         = "io.tobari.role"
+	projectSpecLabel         = "io.tobari.spec-hash"
+	projectWorkRole          = "work"
+	projectNetRole           = "network"
+	projectLocalSettingsFile = "settings.local.json"
+	projectCPULimit          = "2.0"
+	projectMemoryLimit       = "4g"
+	projectPIDsLimit         = "512"
+	projectLogDriver         = "json-file"
+	projectLogMaxSize        = "10m"
+	projectLogMaxFiles       = "3"
 )
+
+func projectResourceDockerArgs() []string {
+	return []string{
+		"--cpus", projectCPULimit,
+		"--memory", projectMemoryLimit,
+		"--memory-swap", projectMemoryLimit,
+		"--pids-limit", projectPIDsLimit,
+		"--log-driver", projectLogDriver,
+		"--log-opt", "max-size=" + projectLogMaxSize,
+		"--log-opt", "max-file=" + projectLogMaxFiles,
+	}
+}
+
+func projectResourceHashFields() []string {
+	return []string{
+		"cpus=" + projectCPULimit,
+		"memory=" + projectMemoryLimit,
+		"memory-swap=" + projectMemoryLimit,
+		"pids-limit=" + projectPIDsLimit,
+		"log-driver=" + projectLogDriver,
+		"log-max-size=" + projectLogMaxSize,
+		"log-max-files=" + projectLogMaxFiles,
+	}
+}
 
 // EnsureProjectRuntime converges the exact runtime resources of a durable
 // logical Tobari. It never removes logical state when Docker is missing or
@@ -38,21 +69,17 @@ func (r *Runtime) EnsureProjectRuntime(
 	if err := instance.Validate(); err != nil {
 		return tobari.ProjectInstance{}, err
 	}
+	if instance.Incomplete {
+		return tobari.ProjectInstance{}, fmt.Errorf("project instance state is incomplete; delete the selected Tobari before recreating it")
+	}
 	var updated tobari.ProjectInstance
 	err := r.withProjectLock(ctx, func() error {
 		if err := r.reconcileProjectJournal(); err != nil {
 			return err
 		}
 		stored, err := r.readProjectInstance(instance.ID)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err != nil {
 			return err
-		}
-		if errors.Is(err, os.ErrNotExist) {
-			// ResolveProject can return a validated synthetic record when the
-			// root index survived but the instance file did not. The immutable
-			// ID and root are sufficient to derive and safely remove owned
-			// runtime resources; no mutable instance data is reconstructed.
-			stored = instance
 		}
 		if stored.ID != instance.ID || stored.Root != instance.Root || stored.Profile != instance.Profile || stored.Image != instance.Image {
 			return fmt.Errorf("project logical state changed before runtime reconciliation")
@@ -126,6 +153,9 @@ func (r *Runtime) InspectProjectRuntime(
 ) (tobari.RuntimeDiagnostic, error) {
 	if err := instance.Validate(); err != nil {
 		return tobari.RuntimeDiagnosticUnknown, err
+	}
+	if instance.Incomplete {
+		return tobari.RuntimeDiagnosticIncomplete, nil
 	}
 	container, network, err := tobari.ProjectResourceNames(instance.ID)
 	if err != nil {
@@ -230,8 +260,11 @@ func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.ProjectInst
 			return err
 		}
 		stored, err := r.readProjectInstance(instance.ID)
-		if err != nil {
+		if err != nil && !(instance.Incomplete && errors.Is(err, os.ErrNotExist)) {
 			return err
+		}
+		if instance.Incomplete && errors.Is(err, os.ErrNotExist) {
+			stored = instance
 		}
 		if stored.ID != instance.ID || stored.Root != instance.Root || stored.Profile != instance.Profile || stored.Image != instance.Image {
 			return fmt.Errorf("project logical state changed before deletion")
@@ -387,8 +420,9 @@ func (r *Runtime) ensureProjectContainer(
 		"--label", projectIDLabel + "=" + instance.ID,
 		"--label", projectRoleLabel + "=" + projectWorkRole,
 		"--label", projectSpecLabel + "=" + specHash,
-		image,
 	}
+	args = append(args, projectResourceDockerArgs()...)
+	args = append(args, image)
 	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
 		return fmt.Errorf("create project container: %w: %s", err, boundedDiagnostic(output))
 	}
@@ -462,6 +496,7 @@ type projectRuntimeSpec struct {
 	ReadOnly       bool     `json:"read_only"`
 	Capabilities   string   `json:"capabilities"`
 	Security       string   `json:"security"`
+	Resources      []string `json:"resources"`
 	HealthCommand  string   `json:"health_command"`
 	HealthInterval string   `json:"health_interval"`
 	ProfileDigest  string   `json:"profile_digest"`
@@ -502,6 +537,7 @@ func (r *Runtime) projectSpecHash(
 			"volume:tobari-public-ca->/run/tobari/ca-public:ro",
 		},
 		ReadOnly: true, Capabilities: "ALL", Security: "no-new-privileges:true",
+		Resources:     projectResourceHashFields(),
 		HealthCommand: "test -f /tmp/tobari-ready", HealthInterval: "2s", ProfileDigest: profileDigest,
 	}
 	encoded, err := json.Marshal(spec)
@@ -646,6 +682,9 @@ func (r *Runtime) ensureSharedProfile(profile string) (string, error) {
 	if profile != tobari.DefaultProfile {
 		return "", fmt.Errorf("unsupported project profile")
 	}
+	if err := r.ensurePrivateDirectory(r.dataDirectory); err != nil {
+		return "", fmt.Errorf("prepare shared profile data directory: %w", err)
+	}
 	directory := filepath.Join(r.dataDirectory, "profiles", profile)
 	for _, child := range []string{
 		directory,
@@ -690,26 +729,60 @@ func (r *Runtime) ensureProjectAgentState(id, profile string) error {
 		return fmt.Errorf("shared agent settings are invalid: %w", err)
 	}
 	settingsPath := filepath.Join(claude, "settings.json")
-	local := map[string]json.RawMessage{}
-	if info, statErr := os.Lstat(settingsPath); statErr == nil {
-		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("per-project agent settings path is unsafe")
+	localPath := filepath.Join(claude, projectLocalSettingsFile)
+	local, localFound, err := readProjectSettings(localPath, "per-project local agent settings")
+	if err != nil {
+		return err
+	}
+	if !localFound {
+		// Older Tobari versions used settings.json for both local input and
+		// generated effective settings. Preserve only values that differ from
+		// the shared source as local overrides, then keep the effective file
+		// generated from the current shared source on every reconciliation.
+		legacy, legacyFound, legacyErr := readProjectSettings(settingsPath, "per-project agent settings")
+		if legacyErr != nil {
+			return legacyErr
 		}
-		data, readErr := os.ReadFile(settingsPath) // #nosec G304 -- exact per-project state path.
-		if readErr != nil {
-			return readErr
+		if legacyFound {
+			for key, value := range legacy {
+				shared, sharedFound := base[key]
+				if !sharedFound || !bytes.Equal(shared, value) {
+					local[key] = value
+				}
+			}
+			if len(local) != 0 {
+				if err := writeAtomicJSON(localPath, local); err != nil {
+					return fmt.Errorf("persist migrated local agent settings: %w", err)
+				}
+			}
 		}
-		local, err = decodeSettingsObject(data)
-		if err != nil {
-			return fmt.Errorf("per-project agent settings are invalid: %w", err)
-		}
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return statErr
 	}
 	for key, value := range local {
 		base[key] = value
 	}
 	return writeAtomicJSON(settingsPath, base)
+}
+
+func readProjectSettings(path, description string) (map[string]json.RawMessage, bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]json.RawMessage{}, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+		return nil, false, fmt.Errorf("%s path is unsafe", description)
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- caller supplies only runtime-owned settings paths.
+	if err != nil {
+		return nil, false, err
+	}
+	settings, err := decodeSettingsObject(data)
+	if err != nil {
+		return nil, false, fmt.Errorf("%s are invalid: %w", description, err)
+	}
+	return settings, true, nil
 }
 
 func decodeSettingsObject(data []byte) (map[string]json.RawMessage, error) {

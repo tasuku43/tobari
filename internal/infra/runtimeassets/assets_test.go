@@ -70,6 +70,61 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 	}
 }
 
+func TestComposeSpecCapsSharedServiceLogs(t *testing.T) {
+	data, err := Read("compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := string(data)
+	fragment := "    logging:\n" +
+		"      driver: json-file\n" +
+		"      options:\n" +
+		"        max-size: \"10m\"\n" +
+		"        max-file: \"3\"\n"
+	if count := strings.Count(spec, fragment); count != 2 {
+		t.Fatalf("compose spec has %d fixed shared log blocks, want 2", count)
+	}
+}
+
+func TestComposeSpecCapsSharedServiceResources(t *testing.T) {
+	data, err := Read("compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := string(data)
+	for _, service := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "opa",
+			body: "    cpus: \"1.0\"\n    mem_limit: 512m\n    memswap_limit: 512m\n    pids_limit: 128\n",
+		},
+		{
+			name: "gateway",
+			body: "    cpus: \"2.0\"\n    mem_limit: 1g\n    memswap_limit: 1g\n    pids_limit: 256\n",
+		},
+	} {
+		serviceIndex := strings.Index(spec, "  "+service.name+":\n")
+		if serviceIndex < 0 {
+			t.Fatalf("compose spec is missing %s", service.name)
+		}
+		if !strings.Contains(spec[serviceIndex:], service.body) {
+			t.Errorf("%s is missing fixed shared resource bounds", service.name)
+		}
+	}
+}
+
+func TestGatewayEntrypointCapsBufferedHTTPBodies(t *testing.T) {
+	data, err := Read("gateway/entrypoint.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "--set body_size_limit=8m") {
+		t.Fatal("Gateway entrypoint does not set a fixed mitmproxy body_size_limit")
+	}
+}
+
 func TestVersionsAreDigestPinned(t *testing.T) {
 	t.Parallel()
 	versions, err := Versions()

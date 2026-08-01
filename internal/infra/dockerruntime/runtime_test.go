@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -26,6 +27,37 @@ type recordingRunner struct {
 	outputErr   error
 	outputQueue [][]byte
 	onOutput    func(int)
+}
+
+type ownershipInspectFailureRunner struct {
+	outputs []runnerCall
+	runs    []runnerCall
+}
+
+type policyProbeRunner struct {
+	outputs []runnerCall
+}
+
+func (r *ownershipInspectFailureRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
+	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
+	return nil
+}
+
+func (r *ownershipInspectFailureRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+	return []byte("Docker daemon unavailable"), errors.New("Docker daemon unavailable")
+}
+
+func (r *policyProbeRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+	return nil
+}
+
+func (r *policyProbeRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+	if len(args) > 0 && args[0] == "run" {
+		return []byte("invalid mount config for type bind"), errors.New("policy bind is not accessible")
+	}
+	return nil, nil
 }
 
 func (r *recordingRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
@@ -156,6 +188,96 @@ func TestResolveProjectRootRejectsProtectedManagementPaths(t *testing.T) {
 	}
 }
 
+func TestDoctorRejectsProtectedProspectiveRootsAfterSymlinkResolution(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.Mkdir(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dockerPath := filepath.Join(binDir, "docker")
+	if err := os.WriteFile(dockerPath, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootAlias := filepath.Join(root, "root-alias")
+	if err := os.Symlink(string(filepath.Separator), rootAlias); err != nil {
+		t.Fatal(err)
+	}
+	for name, candidate := range map[string]string{
+		"filesystem root":            string(filepath.Separator),
+		"symlink to filesystem root": rootAlias,
+	} {
+		t.Run(name, func(t *testing.T) {
+			report, err := runtime.Doctor(context.Background(), candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, check := range report.Checks {
+				if check.Name != "root" {
+					continue
+				}
+				if check.Status != doctor.CheckStatusFail {
+					t.Fatalf("root check = %+v, want fail", check)
+				}
+				if !strings.Contains(check.Detail, "cannot be a Tobari project root") {
+					t.Fatalf("root failure detail = %q", check.Detail)
+				}
+				return
+			}
+			t.Fatal("doctor report did not contain a root check")
+		})
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("doctor performed Docker mutations: %v", runner.runs)
+	}
+}
+
+func TestDoctorDiagnosesExistingPolicyBeforeClusterIsConfigured(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &policyProbeRunner{}
+	runtime, err := newRuntime(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyDirectory := filepath.Join(runtime.configDirectory, "policy")
+	if err := os.MkdirAll(policyDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	report, err := runtime.Doctor(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range report.Checks {
+		if check.Name != "policy" {
+			continue
+		}
+		if check.Status != doctor.CheckStatusFail {
+			t.Fatalf("policy check = %+v, want fail", check)
+		}
+		if !strings.Contains(check.Detail, "Docker Engine VM") {
+			t.Fatalf("policy detail = %q, want Docker bind guidance", check.Detail)
+		}
+		for _, call := range runner.outputs {
+			if len(call.args) > 0 && call.args[0] == "run" {
+				return
+			}
+		}
+		t.Fatal("doctor did not probe the existing policy directory")
+	}
+	t.Fatal("doctor report did not contain a policy check")
+}
+
 func TestLoadStateRejectsLegacyAndTrailingDocuments(t *testing.T) {
 	t.Parallel()
 	for name, data := range map[string][]byte{
@@ -229,6 +351,40 @@ func TestPolicyValidationUsesReadOnlyMountAndPolicyOwner(t *testing.T) {
 	}
 }
 
+func TestClusterDownStopsBeforeCleanupWhenOwnershipInspectionFails(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &ownershipInspectFailureRunner{}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ClusterDown(context.Background(), runtimeState(root), false); err == nil {
+		t.Fatal("ClusterDown() ignored an ownership inspection failure")
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("cleanup ran after ownership inspection failure: %v", runner.runs)
+	}
+}
+
+func TestClusterDownPurgesMissingVolumesIdempotently(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{outputErr: errors.New("No such object")}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ClusterDown(context.Background(), runtimeState(root), true); err != nil {
+		t.Fatalf("ClusterDown() = %v, want idempotent success for missing resources", err)
+	}
+	for _, call := range runner.outputs {
+		if len(call.args) > 0 && call.args[0] == "volume" && slices.Contains(call.args, "rm") {
+			t.Fatalf("missing volume was sent to rm: %v", call.args)
+		}
+	}
+}
+
 func TestPrepareStateUsesXDGPolicyAndEmptySchemaTwoCollection(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -249,6 +405,91 @@ func TestPrepareStateUsesXDGPolicyAndEmptySchemaTwoCollection(t *testing.T) {
 		if err != nil || info.Mode().Perm() != want {
 			t.Fatalf("%s mode=%v err=%v want=%o", path, info.Mode().Perm(), err, want)
 		}
+	}
+}
+
+func TestPrepareStateRejectsSymlinkedManagementDirectoriesBeforeDocker(t *testing.T) {
+	t.Parallel()
+	for name, target := range map[string]string{
+		"configuration": "config",
+		"state":         "state",
+		"data":          "data",
+	} {
+		name, target := name, target
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			config := filepath.Join(root, "config")
+			state := filepath.Join(root, "state")
+			data := filepath.Join(root, "data")
+			for _, path := range []string{config, state, data} {
+				if path == filepath.Join(root, target) {
+					continue
+				}
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			outside := filepath.Join(root, "outside-"+target)
+			if err := os.Mkdir(outside, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, filepath.Join(root, target)); err != nil {
+				t.Fatal(err)
+			}
+			runner := &recordingRunner{}
+			runtime, err := newRuntimeWithData(config, state, data, runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runtime.prepareState(); err == nil {
+				t.Fatal("prepareState() accepted a symlinked management directory")
+			}
+			if len(runner.outputs) != 0 || len(runner.runs) != 0 {
+				t.Fatalf("Docker calls after unsafe directory = outputs %v runs %v", runner.outputs, runner.runs)
+			}
+		})
+	}
+}
+
+func TestEnsurePrivateDirectoryTightensExistingDirectory(t *testing.T) {
+	t.Parallel()
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(t.TempDir(), "existing")
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ensurePrivateDirectory(directory); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(directory)
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("directory mode = %v, %v; want 0700", info.Mode().Perm(), err)
+	}
+}
+
+func TestCredentialPermissionsRejectSymlinkedDirectory(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	config := filepath.Join(root, "config")
+	if err := os.MkdirAll(config, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(root, "outside-credentials")
+	if err := os.Mkdir(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(config, "credentials")); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.checkCredentialPermissions(); err == nil {
+		t.Fatal("checkCredentialPermissions() accepted a symlinked credentials directory")
 	}
 }
 
@@ -306,6 +547,27 @@ func TestInterruptedClusterReconcileFailsClosedInStatus(t *testing.T) {
 	}
 	if _, err := runtime.InspectCluster(context.Background(), state); err == nil {
 		t.Fatal("InspectCluster() succeeded with an interrupted reconcile journal")
+	}
+	if err := runtime.clearClusterJournal(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInterruptedClusterReconcilePublishesExplicitRecoveryActions(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.startClusterReconcile(clusterOperationDown); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.InspectCluster(context.Background(), runtimeState(root))
+	structured, ok := fault.PublicCopy(err)
+	if !ok || structured.Code != "cluster_reconcile_interrupted" || len(structured.NextActions) != 2 ||
+		structured.NextActions[0].Command != "cluster up" || structured.NextActions[1].Command != "cluster down" {
+		t.Fatalf("InspectCluster() fault = %+v, %v; want explicit cluster recovery actions", structured, err)
 	}
 	if err := runtime.clearClusterJournal(); err != nil {
 		t.Fatal(err)

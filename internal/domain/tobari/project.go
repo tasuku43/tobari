@@ -34,12 +34,13 @@ const (
 	RuntimeDiagnosticMissing     RuntimeDiagnostic = "missing"
 	RuntimeDiagnosticDegraded    RuntimeDiagnostic = "degraded"
 	RuntimeDiagnosticUnreachable RuntimeDiagnostic = "unreachable"
+	RuntimeDiagnosticIncomplete  RuntimeDiagnostic = "incomplete"
 )
 
 func (d RuntimeDiagnostic) Validate() error {
 	switch d {
 	case RuntimeDiagnosticUnknown, RuntimeDiagnosticReady, RuntimeDiagnosticMissing,
-		RuntimeDiagnosticDegraded, RuntimeDiagnosticUnreachable:
+		RuntimeDiagnosticDegraded, RuntimeDiagnosticUnreachable, RuntimeDiagnosticIncomplete:
 		return nil
 	default:
 		return fmt.Errorf("runtime diagnostic is invalid: %q", d)
@@ -204,6 +205,10 @@ type ProjectInstance struct {
 	Profile       string         `json:"profile"`
 	Image         string         `json:"image"`
 	Runtime       ProjectRuntime `json:"runtime"`
+	// Incomplete is an in-memory cleanup-only marker for a root index whose
+	// instance record is missing. It is never persisted or used to rebuild a
+	// runtime with guessed mutable fields.
+	Incomplete bool `json:"-"`
 }
 
 // Validate rejects invalid durable logical state before runtime reconciliation.

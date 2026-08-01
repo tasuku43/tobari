@@ -143,6 +143,30 @@ func TestRetiredLifecycleCommandExplainsCWDReplacement(t *testing.T) {
 	}
 }
 
+func TestHumanRootRecoveryActionIsExecutable(t *testing.T) {
+	command, stdout, stderr := newTestCLI(passingInspector("unused"))
+	ctx := withCommandPath(context.Background(), "delete")
+	err := fault.New(
+		fault.KindNotFound,
+		"project_not_found",
+		"no Tobari exists for the current directory",
+		false,
+		fault.NextAction{Command: "tobari", Reason: "Create a Tobari from the current project directory."},
+	)
+	if code := command.fail(ctx, err); code != ExitNotFound {
+		t.Fatalf("fail() code = %d, want %d", code, ExitNotFound)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "next_action: tobari — Create a Tobari from the current project directory.") {
+		t.Fatalf("stderr = %q, want executable root recovery", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "next_action: tobari tobari") {
+		t.Fatalf("stderr duplicated executable name: %q", stderr.String())
+	}
+}
+
 func TestVersionOutputContract(t *testing.T) {
 	command, stdout, stderr := newTestCLI(passingInspector("unused"))
 	command.Version = "v1.2.3"

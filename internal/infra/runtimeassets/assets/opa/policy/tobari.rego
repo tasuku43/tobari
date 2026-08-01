@@ -39,16 +39,23 @@ candidate_eligible if {
 	input.version == "v1"
 	input.principal.cluster == "default"
 	allowed_scheme
+	allowed_port
+	body_is_empty
 	credential_binding_valid
 }
 
 request_allowed if {
 	allowed_host
+	allowed_port
+	body_is_empty
 	allowed_method
 	not explicitly_denied
 }
 
 request_allowed if {
+	allowed_scheme
+	allowed_port
+	body_is_empty
 	learned_rule_allowed
 }
 
@@ -63,6 +70,17 @@ allowed_scheme if {
 allowed_scheme if {
 	input.request.scheme == "http"
 	input.request.host in data.tobari.allowed_http_hosts
+}
+
+allowed_port if {
+	ports := data.tobari.allowed_ports[input.request.scheme]
+	input.request.port in ports
+}
+
+body_is_empty if {
+	input.request.body.kind == "metadata"
+	input.request.body.size == 0
+	input.request.body.truncated == false
 }
 
 allowed_method if {
@@ -94,6 +112,7 @@ learned_rule_allowed if {
 learned_rule_matches_request(rule, request) if {
 	rule.match == "exact"
 	rule.host == request.host
+	rule.port == request.port
 	rule.method == request.method
 	rule.path == request.path
 }
@@ -101,6 +120,7 @@ learned_rule_matches_request(rule, request) if {
 learned_rule_matches_request(rule, request) if {
 	rule.match == "prefix"
 	rule.host == request.host
+	rule.port == request.port
 	rule.method == request.method
 	prefix_request_path_safe(request.path)
 	startswith(request.path, rule.path)
@@ -123,6 +143,9 @@ learned_rule_valid(rule) if {
 	regex.match("^plr_[0-9a-f]{32}$", rule.id)
 	is_string(rule.host)
 	rule.host != ""
+	is_number(rule.port)
+	rule.port >= 1
+	rule.port <= 65535
 	is_string(rule.method)
 	regex.match("^[A-Z][A-Z0-9!#$%&'*+.^_`|~-]{0,31}$", rule.method)
 	is_string(rule.path)

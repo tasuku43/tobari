@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/tasuku43/tobari/internal/domain/fault"
 )
 
 const (
@@ -77,7 +79,12 @@ func (r *Runtime) requireNoInterruptedClusterReconcile(ctx context.Context) erro
 	if _, exists, err := r.readClusterJournal(); err != nil {
 		return fmt.Errorf("read interrupted cluster reconcile journal: %w", err)
 	} else if exists {
-		return fmt.Errorf("cluster reconcile was interrupted; run cluster up or cluster down again")
+		return fault.New(
+			fault.KindUnavailable, "cluster_reconcile_interrupted",
+			"the shared cluster reconcile was interrupted; rerun an explicit cluster operation", false,
+			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster."},
+			fault.NextAction{Command: "cluster down", Reason: "Explicitly clean up the shared cluster instead."},
+		)
 	}
 	return nil
 }

@@ -36,6 +36,35 @@ test_allow_https_get if {
 	result.allow
 }
 
+test_deny_nonempty_body_without_body_policy if {
+	request := object.union(base_input.request, {"body": object.union(base_input.request.body, {
+		"size": 1,
+		"kind": "metadata",
+		"sha256": "2bb80d537b1da3e38bd30361aa855686bde0ba3d6190a9f3f5f4f5f5f5f5f5f5",
+	})})
+	result := decision with input as object.union(base_input, {"request": request})
+	not result.allow
+	not result.learnable
+}
+
+test_deny_unavailable_body if {
+	request := object.union(base_input.request, {"body": {
+		"kind": "unavailable",
+		"size": null,
+		"truncated": null,
+		"sha256": null,
+	}})
+	result := decision with input as object.union(base_input, {"request": request})
+	not result.allow
+	not result.learnable
+}
+
+test_deny_https_non_default_port if {
+	result := decision with input as object.union(base_input, {"request": object.union(base_input.request, {"port": 8443})})
+	not result.allow
+	not result.learnable
+}
+
 test_deny_plain_http_external if {
 	result := decision with input as object.union(base_input, {"request": object.union(base_input.request, {"scheme": "http"})})
 	not result.allow
@@ -92,6 +121,7 @@ learned_exact_fixture := {
 	"id": "plr_0123456789abcdef0123456789abcdef",
 	"match": "exact",
 	"host": "api.github.com",
+	"port": 443,
 	"method": "POST",
 	"path": "/repos/example/repository/issues",
 	"examples": ["/repos/example/repository/issues"],
@@ -102,6 +132,7 @@ learned_prefix_fixture := {
 	"id": "plr_abcdef0123456789abcdef0123456789",
 	"match": "prefix",
 	"host": "mock-upstream",
+	"port": 8080,
 	"method": "POST",
 	"path": "/api/v1/items/",
 	"examples": [
@@ -114,6 +145,14 @@ learned_prefix_fixture := {
 		"pcy_1123456789abcdef0123456789abcdef",
 		"pcy_2123456789abcdef0123456789abcdef",
 	],
+}
+
+learned_scheme(port) := "https" if {
+	port == 443
+}
+
+learned_scheme(port) := "http" if {
+	port == 8080
 }
 
 test_exact_learned_rule_overrides_matching_legacy_deny if {
@@ -130,6 +169,29 @@ test_exact_learned_rule_does_not_allow_child_path if {
 	request := object.union(base_input.request, {
 		"method": learned_exact_fixture.method,
 		"path": sprintf("%s/child", [learned_exact_fixture.path]),
+	})
+	result := decision with input as object.union(base_input, {"request": request})
+		with data.tobari.learned_allow_rules as [learned_exact_fixture]
+	not result.allow
+}
+
+test_learned_rule_does_not_cross_port if {
+	request := object.union(base_input.request, {
+		"port": 8443,
+		"method": learned_exact_fixture.method,
+		"path": learned_exact_fixture.path,
+	})
+	result := decision with input as object.union(base_input, {"request": request})
+		with data.tobari.learned_allow_rules as [learned_exact_fixture]
+	not result.allow
+}
+
+test_learned_rule_does_not_cross_scheme if {
+	request := object.union(base_input.request, {
+		"scheme": "http",
+		"port": 8080,
+		"method": learned_exact_fixture.method,
+		"path": learned_exact_fixture.path,
 	})
 	result := decision with input as object.union(base_input, {"request": request})
 		with data.tobari.learned_allow_rules as [learned_exact_fixture]
@@ -207,7 +269,9 @@ test_every_learned_example_matches_and_is_allowed if {
 	every rule in learned_rules {
 		every example in rule.examples {
 			request := object.union(base_input.request, {
+				"scheme": learned_scheme(rule.port),
 				"host": rule.host,
+				"port": rule.port,
 				"method": rule.method,
 				"path": example,
 			})

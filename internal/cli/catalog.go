@@ -381,7 +381,10 @@ type CommandSpec struct {
 
 // Usage returns the complete command invocation without optional prose.
 func (s CommandSpec) Usage() string {
-	usage := ProgramName + " " + s.Path
+	usage := ProgramName
+	if s.Path != ProgramName {
+		usage += " " + s.Path
+	}
 	if s.Args != "" {
 		usage += " " + s.Args
 	}
@@ -408,6 +411,13 @@ func declaredCommandError(kind fault.Kind, code string, retryable bool, command,
 		Code:        code,
 		Retryable:   retryable,
 		NextActions: []fault.NextAction{{Command: command, Reason: reason}},
+	}
+}
+
+func declaredCommandErrorWithActions(kind fault.Kind, code string, retryable bool, actions ...fault.NextAction) CommandError {
+	return CommandError{
+		Kind: kind, Code: code, Retryable: retryable,
+		NextActions: append([]fault.NextAction{}, actions...),
 	}
 }
 

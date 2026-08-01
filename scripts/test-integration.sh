@@ -145,6 +145,49 @@ run_project_shell() {
   docker exec -i "$work_container" /bin/bash
 }
 
+assert_resource_bounds() {
+  local container=$1
+  [[ $(docker inspect --format '{{.HostConfig.NanoCpus}}' "$container") == 2000000000 ]] ||
+    fail "$container does not have the fixed CPU limit"
+  [[ $(docker inspect --format '{{.HostConfig.Memory}}' "$container") == 4294967296 ]] ||
+    fail "$container does not have the fixed memory limit"
+  [[ $(docker inspect --format '{{.HostConfig.MemorySwap}}' "$container") == 4294967296 ]] ||
+    fail "$container does not have the fixed total memory limit"
+  [[ $(docker inspect --format '{{.HostConfig.PidsLimit}}' "$container") == 512 ]] ||
+    fail "$container does not have the fixed PID limit"
+  [[ $(docker inspect --format '{{.HostConfig.LogConfig.Type}}' "$container") == json-file ]] ||
+    fail "$container does not use the bounded JSON log driver"
+  [[ $(docker inspect --format '{{index .HostConfig.LogConfig.Config "max-size"}}' "$container") == 10m ]] ||
+    fail "$container does not have the fixed log-size limit"
+  [[ $(docker inspect --format '{{index .HostConfig.LogConfig.Config "max-file"}}' "$container") == 3 ]] ||
+    fail "$container does not have the fixed log-file count"
+}
+
+assert_component_log_bounds() {
+  local container=$1
+  [[ $(docker inspect --format '{{.HostConfig.LogConfig.Type}}' "$container") == json-file ]] ||
+    fail "$container does not use the bounded JSON log driver"
+  [[ $(docker inspect --format '{{index .HostConfig.LogConfig.Config "max-size"}}' "$container") == 10m ]] ||
+    fail "$container does not have the fixed log-size limit"
+  [[ $(docker inspect --format '{{index .HostConfig.LogConfig.Config "max-file"}}' "$container") == 3 ]] ||
+    fail "$container does not have the fixed log-file count"
+}
+
+assert_component_resource_bounds() {
+  local container=$1
+  local cpus=$2
+  local memory=$3
+  local pids=$4
+  [[ $(docker inspect --format '{{.HostConfig.NanoCpus}}' "$container") == "$cpus" ]] ||
+    fail "$container does not have the fixed CPU limit"
+  [[ $(docker inspect --format '{{.HostConfig.Memory}}' "$container") == "$memory" ]] ||
+    fail "$container does not have the fixed memory limit"
+  [[ $(docker inspect --format '{{.HostConfig.MemorySwap}}' "$container") == "$memory" ]] ||
+    fail "$container does not have the fixed total memory limit"
+  [[ $(docker inspect --format '{{.HostConfig.PidsLimit}}' "$container") == "$pids" ]] ||
+    fail "$container does not have the fixed PID limit"
+}
+
 candidate_id_for_effect() {
   local host=$1
   local method=$2
@@ -236,6 +279,10 @@ chmod 0600 "$credential_config"
 
 go build -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
 run_tobari cluster up >/dev/null
+assert_component_log_bounds tobari-opa
+assert_component_log_bounds tobari-gateway
+assert_component_resource_bounds tobari-opa 1000000000 536870912 128
+assert_component_resource_bounds tobari-gateway 2000000000 1073741824 256
 docker build --tag "$custom_image" \
   --file test/integration/custom-image.Dockerfile . >/dev/null
 mkdir -p "$test_root/workspace/.devcontainer"
@@ -277,6 +324,8 @@ work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["h
 other_status=$(run_tobari_at "$other_root" status --format json)
 other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$other_status")
 [[ $work_home != "$other_home" ]] || fail "CWD projects share a home directory"
+assert_resource_bounds "$work_container"
+assert_resource_bounds "$other_container"
 
 profile_directory=$test_root/data/tobari/profiles/default
 profile_skill=$profile_directory/claude/skills/shared.md
@@ -326,6 +375,7 @@ docker network rm "$work_network" >/dev/null
 enter_tobari_at "$work_root"
 status_after_reconcile=$(run_tobari_at "$work_root" status --format json)
 assert_contains "$status_after_reconcile" '"runtime":"ready"' "runtime recovery"
+assert_resource_bounds "$work_container"
 
 if run_project test -e "/workspace${work_root}/credentials"; then
   fail "Tobari unexpectedly contains the host credential directory"
@@ -359,6 +409,31 @@ wait_network_connection tobari-gateway mock-upstream 8080
 
 plain_response=$(run_project curl -fsS http://mock-upstream:8080/allowed)
 assert_contains "$plain_response" '"authorization_present":false' "allowed HTTP response"
+
+wrong_port_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  http://mock-upstream:8081/wrong-port)
+[[ $wrong_port_status == 403 ]] || fail "non-policy HTTP port returned $wrong_port_status instead of 403"
+if docker logs "$mock_name" 2>&1 | grep -F '"/wrong-port"' >/dev/null; then
+  fail "wrong-port request reached mock upstream"
+fi
+
+body_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST -H 'content-type: application/json' --data '{"value":true}' \
+  http://mock-upstream:8080/body)
+[[ $body_status == 403 ]] || fail "nonempty-body request returned $body_status instead of 403"
+if docker logs "$mock_name" 2>&1 | grep -F '"/body"' >/dev/null; then
+  fail "nonempty-body request reached mock upstream"
+fi
+
+oversized_body_status=$(dd if=/dev/zero bs=1048576 count=9 2>/dev/null | \
+  docker exec -i "$work_container" curl -sS -o /dev/null -w '%{http_code}' \
+    --max-time 15 -X POST -H 'content-type: application/octet-stream' \
+    --data-binary @- http://mock-upstream:8080/oversized-body || true)
+[[ $oversized_body_status == 413 ]] ||
+  fail "oversized request returned $oversized_body_status instead of 413"
+if docker logs "$mock_name" 2>&1 | grep -F '"/oversized-body"' >/dev/null; then
+  fail "oversized request reached mock upstream"
+fi
 
 gateway_uid=$(docker exec tobari-gateway sh -c "awk '/^Uid:/{print \$2}' /proc/1/status")
 gateway_gid=$(docker exec tobari-gateway sh -c "awk '/^Gid:/{print \$2}' /proc/1/status")

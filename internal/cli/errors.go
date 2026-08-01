@@ -218,15 +218,16 @@ func renderTextError(payload errorPayload) []byte {
 		fmt.Fprintf(&output, "retry_after: %s\n", *payload.RetryAfter)
 	}
 	for _, action := range payload.NextActions {
-		fmt.Fprintf(
-			&output,
-			"next_action: %s %s — %s\n",
-			ProgramName,
-			escapeTSVCell(action.Command),
-			escapeTSVCell(action.Reason),
-		)
+		fmt.Fprintf(&output, "next_action: %s — %s\n", recoveryCommand(action.Command), escapeTSVCell(action.Reason))
 	}
 	return []byte(output.String())
+}
+
+func recoveryCommand(command string) string {
+	if command == ProgramName {
+		return ProgramName
+	}
+	return ProgramName + " " + escapeTSVCell(command)
 }
 
 func exitCodeForKind(kind fault.Kind) int {

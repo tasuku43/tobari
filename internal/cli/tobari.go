@@ -442,6 +442,7 @@ type policyCandidateOutput struct {
 	ID                string  `json:"id"`
 	ObservedAt        string  `json:"observed_at"`
 	Host              string  `json:"host"`
+	Port              int     `json:"port"`
 	Method            string  `json:"method"`
 	Path              string  `json:"path"`
 	Reason            string  `json:"reason"`
@@ -462,7 +463,7 @@ func renderPolicyCandidates(
 	for _, item := range result.Items {
 		items = append(items, policyCandidateOutput{
 			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt),
-			Host: safeExternalText(item.Host), Method: safeExternalText(item.Method),
+			Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			Path: safeExternalText(item.Path), Reason: safeExternalText(item.Reason),
 			StatusCode:        item.StatusCode,
 			CredentialProfile: safeOptionalExternalText(item.CredentialProfile),
@@ -490,9 +491,9 @@ func renderPolicyCandidates(
 		}
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\thost=%s\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\n",
+			"id=%s\tobserved_at=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\n",
 			item.ID, escapeTSVCell(item.ObservedAt), escapeTSVCell(item.Host),
-			escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
+			item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
 			item.StatusCode, escapeTSVCell(profile), escapeTSVCell(action),
 		)
 	}
@@ -502,6 +503,7 @@ func renderPolicyCandidates(
 type policyCompactionOutput struct {
 	ID              string   `json:"id"`
 	Host            string   `json:"host"`
+	Port            int      `json:"port"`
 	Method          string   `json:"method"`
 	PathPrefix      string   `json:"path_prefix"`
 	SourceRuleCount int      `json:"source_rule_count"`
@@ -525,7 +527,7 @@ func renderPolicyCompactions(
 			examples[index] = safeExternalText(example)
 		}
 		items = append(items, policyCompactionOutput{
-			ID: item.ID, Host: safeExternalText(item.Host), Method: safeExternalText(item.Method),
+			ID: item.ID, Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			PathPrefix: safeExternalText(item.PathPrefix), SourceRuleCount: len(item.SourceRuleIDs),
 			Examples: examples, OutsideCanary: safeExternalText(item.OutsideCanary),
 			CompactCommand: compactCommand + " --id " + item.ID,
@@ -548,8 +550,8 @@ func renderPolicyCompactions(
 		action := compactCommand + " --id " + item.ID
 		fmt.Fprintf(
 			&output,
-			"id=%s\thost=%s\tmethod=%s\tpath_prefix=%s\tsource_rule_count=%d\texamples=%s\toutside_canary=%s\tcompact_command=%s\n",
-			item.ID, escapeTSVCell(item.Host), escapeTSVCell(item.Method),
+			"id=%s\thost=%s\tport=%d\tmethod=%s\tpath_prefix=%s\tsource_rule_count=%d\texamples=%s\toutside_canary=%s\tcompact_command=%s\n",
+			item.ID, escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.PathPrefix), len(item.SourceRuleIDs),
 			escapeTSVCell(strings.Join(item.Examples, ",")), escapeTSVCell(item.OutsideCanary),
 			escapeTSVCell(action),
@@ -565,6 +567,7 @@ func renderPolicyLearningChange(result tobari.PolicyLearningChange) []byte {
 	fmt.Fprintf(&output, "rule_id: %s\n", result.Rule.ID)
 	fmt.Fprintf(&output, "match: %s\n", escapeTSVCell(result.Rule.Match))
 	fmt.Fprintf(&output, "host: %s\n", escapeTSVCell(result.Rule.Host))
+	fmt.Fprintf(&output, "port: %d\n", result.Rule.Port)
 	fmt.Fprintf(&output, "method: %s\n", escapeTSVCell(result.Rule.Method))
 	fmt.Fprintf(&output, "path: %s\n", escapeTSVCell(result.Rule.Path))
 	fmt.Fprintf(&output, "source_rule_count: %d\n", result.SourceRuleCount)
@@ -607,9 +610,9 @@ func renderClusterDenials(
 	for _, item := range result.Items {
 		fmt.Fprintf(
 			&output,
-			"denial: timestamp=%s\trequest_id=%s\thost=%s\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\n",
+			"denial: timestamp=%s\trequest_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\n",
 			escapeTSVCell(item.Timestamp), escapeTSVCell(item.RequestID),
-			escapeTSVCell(item.Host), escapeTSVCell(item.Method),
+			escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.Path), item.StatusCode, escapeTSVCell(item.Reason),
 		)
 	}

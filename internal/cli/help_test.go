@@ -31,6 +31,20 @@ func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 	}
 }
 
+func TestRootCommandHelpUsesExecutableInvocation(t *testing.T) {
+	command, found := DefaultCatalog().Lookup(ProgramName)
+	if !found {
+		t.Fatal("default catalog lacks the root command")
+	}
+
+	if got, want := command.Usage(), ProgramName; got != want {
+		t.Fatalf("root command usage = %q, want %q", got, want)
+	}
+	if strings.Contains(string(renderCommandHelp(command)), ProgramName+" "+ProgramName) {
+		t.Fatal("root command help repeats the executable name")
+	}
+}
+
 func TestCommandHelpUsesCatalogMetadataAndDerivedReferences(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)

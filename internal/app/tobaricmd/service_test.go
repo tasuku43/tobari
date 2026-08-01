@@ -155,6 +155,9 @@ func (f *fakeRuntime) Detach(_ context.Context, state tobari.State, instance tob
 	return state, nil
 }
 func (f *fakeRuntime) ClusterDown(context.Context, tobari.State, bool) error { return nil }
+func (f *fakeRuntime) WithLifecycleLock(ctx context.Context, action func(context.Context) error) error {
+	return action(ctx)
+}
 func (f *fakeRuntime) Doctor(context.Context, string) (doctor.Report, error) {
 	return doctor.Report{Checks: []doctor.Check{{Name: "docker", Status: doctor.CheckStatusPass, Detail: "available"}}}, nil
 }
@@ -489,7 +492,7 @@ func TestPolicyCandidatesProduceExactOpaqueReferenceAndTailTask(t *testing.T) {
 func validServiceDenial() tobari.PolicyDenial {
 	return tobari.PolicyDenial{
 		Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		Host: "api.example.com", Method: "GET", Path: "/api/v1/items/one",
+		Host: "api.example.com", Port: 443, Method: "GET", Path: "/api/v1/items/one",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
 }
