@@ -44,6 +44,16 @@ tasks:
     cmds:
       - ./scripts/build-toolbox.sh
 
+  runtime:base:check:
+    desc: Validate the canonical base image and embedded runtime snapshot.
+    cmds:
+      - ./scripts/check-runtime-base.sh
+
+  runtime:base:sync:
+    desc: Synchronize the canonical base image into the embedded runtime snapshot.
+    cmds:
+      - ./scripts/sync-runtime-base.sh
+
   runtime:test:
     desc: Run all container runtime tests.
     cmds:

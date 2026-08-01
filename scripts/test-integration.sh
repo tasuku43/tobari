@@ -495,13 +495,13 @@ credential_response=$(run_project curl -fsS \
   http://mock-upstream:8080/credential)
 assert_contains "$credential_response" '"authorization_present":true' "credential response"
 assert_contains "$credential_response" "\"authorization_sha256\":\"$expected_digest\"" "credential digest"
-credential_log_count=$(docker logs "$mock_name" 2>&1 | grep -F '"/credential"' | wc -l | tr -d ' ')
+credential_log_count=$(docker logs "$mock_name" 2>&1 | grep -F -c '"/credential"' || true)
 other_credential_status=$(run_other_project curl -sS -o /dev/null -w '%{http_code}' \
   -H 'X-Tobari-Credential-Profile: integration' \
   http://mock-upstream:8080/credential)
 [[ $other_credential_status == 403 ]] ||
   fail "credential profile crossed the project boundary with status $other_credential_status"
-other_credential_log_count=$(docker logs "$mock_name" 2>&1 | grep -F '"/credential"' | wc -l | tr -d ' ')
+other_credential_log_count=$(docker logs "$mock_name" 2>&1 | grep -F -c '"/credential"' || true)
 [[ $other_credential_log_count == "$credential_log_count" ]] ||
   fail "cross-project credential request reached mock upstream"
 

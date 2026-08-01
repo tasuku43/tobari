@@ -26,6 +26,12 @@ named tool. The fast profile statically checks that its versions, official
 sources, integrity checks, final user, and inherited entrypoint contract cannot
 silently disappear.
 
+The focused `task runtime:base:check` workflow validates the canonical
+`runtimes/base` metadata and digest lock, the Dockerfile's minimal package and
+runtime contract, and byte equality with the embedded CLI snapshot. The
+main-only runtime workflow runs this check before its package-write job and
+pushes only the base image; pull-request CI has no package-write permission.
+
 Direct invocation is supported for automation:
 
 ```sh

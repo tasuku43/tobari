@@ -135,9 +135,10 @@ undeclared Docker mutation by the CLI.
   neither build nor pull it.
 - The intended official image family is one minimal runtime foundation plus
   reviewed derived agent/tool images such as Claude and Codex. Those images are
-  convenience bases, not a separate authority boundary; registry publication
-  is governed by the release/publication contract and is not implied by local
-  image selection.
+  convenience bases, not a separate authority boundary. The base image is
+  published on reviewed main pushes as a development channel; registry
+  publication is not implied by local image selection, and Tobari never pulls
+  the published image implicitly.
 - An explicitly configured Dev Container file is one regular file below the
   canonical root. The supported JSONC subset requires
   one literal `image` and permits only inert `$schema`, `name`, and

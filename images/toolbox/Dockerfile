@@ -71,7 +71,7 @@ LABEL org.opencontainers.image.title="Tobari toolbox" \
 USER root
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
-      dnsutils groff jq less openssh-client rsync \
+      curl dnsutils git groff jq less openssh-client python3 rsync \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=fetcher /opt/aws-cli /opt/aws-cli

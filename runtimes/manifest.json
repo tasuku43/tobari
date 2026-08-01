@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "images": [
+    {
+      "name": "base",
+      "path": "base",
+      "package": "tobari-runtime",
+      "parent": null
+    }
+  ]
+}

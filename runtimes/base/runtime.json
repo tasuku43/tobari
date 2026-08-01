@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "name": "base",
+  "package": "tobari-runtime",
+  "kind": "base",
+  "parent": null,
+  "runtime_api": "1",
+  "runtime_lifetime_command": "sleep infinity",
+  "entrypoint": [
+    "/usr/bin/tini",
+    "--",
+    "/usr/local/bin/tobari-entrypoint"
+  ],
+  "user": "tobari",
+  "architectures": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "source": "https://github.com/tasuku43/tobari",
+  "license": "MIT"
+}

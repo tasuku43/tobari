@@ -194,7 +194,10 @@ The minimal runtime does not bundle a particular agent brand. The intended
 official image family is a minimal Tobari runtime plus a small set of derived
 agent/tool images, such as Claude and Codex variants. Those images are
 convenience starting points; they do not change Tobari's isolation or lifecycle
-boundary, and registry publication is a separate release step.
+boundary. The base image is currently published on main pushes as
+`ghcr.io/tasuku43/tobari-runtime:main` plus an immutable commit tag; toolbox and
+agent images are added in later slices. Tobari still validates any selected
+image locally and never pulls it implicitly.
 
 Install other agent CLIs inside a Tobari or place binaries below its selected
 root. The per-Tobari home survives shell exit and runtime recovery.

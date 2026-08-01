@@ -1,0 +1,76 @@
+name: Runtime base
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - runtimes/base/**
+      - runtimes/manifest.json
+      - internal/infra/runtimeassets/assets/tobari/**
+      - internal/infra/runtimeassets/assets/versions.env
+      - scripts/check-runtime-base.sh
+      - scripts/sync-runtime-base.sh
+      - tools/runtimecheck/**
+      - .github/workflows/runtime-base.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-base-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and push base image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate base source and embedded snapshot
+        run: ./scripts/check-runtime-base.sh
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" |
+            docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and push multi-architecture base image
+        env:
+          IMAGE_OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${IMAGE_OWNER,,}/tobari-runtime"
+          base_image=$(go run ./tools/runtimecheck --print-base-image)
+          builder="tobari-runtime-${GITHUB_RUN_ID}"
+          docker buildx create --name "$builder" --driver docker-container --use
+          trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
+          docker buildx inspect --bootstrap
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file runtimes/base/Dockerfile \
+            --build-arg "DEBIAN_IMAGE=$base_image" \
+            --build-arg TOBARI_UID=1000 \
+            --build-arg TOBARI_GID=1000 \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.version=main-${GITHUB_SHA:0:12}" \
+            --tag "$image:main" \
+            --tag "$image:sha-$GITHUB_SHA" \
+            --push \
+            runtimes/base
+          docker buildx imagetools inspect "$image:sha-$GITHUB_SHA"

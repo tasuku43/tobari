@@ -64,6 +64,15 @@ runtime/
   opa/policy/tobari_test.rego
 ```
 
+The canonical Tobari base-image source now lives under `runtimes/base`. Its
+Dockerfile and bootstrap are copied into the embedded
+`internal/infra/runtimeassets/assets/tobari` snapshot by the explicit
+`scripts/sync-runtime-base.sh` maintainer operation, and
+`task runtime:base:check` fails if the snapshot drifts. The base metadata,
+digest lock, and family manifest are kept beside the source image. This keeps
+the distributed CLI self-contained while avoiding two independently edited
+base definitions.
+
 The root ensure operation materializes exact embedded bytes under the Tobari state directory,
 writes generated non-secret runtime configuration, including the owner-only
 project-principal registry, and invokes Docker through
@@ -98,10 +107,12 @@ metadata and tool executability, and leaves only the local
 `tobari-toolbox:local` tag. It is not embedded runtime state, a published
 artifact, or an implicit cluster dependency.
 
-The intended published family follows the same layering: publish the minimal
-runtime foundation and a small set of reviewed derived agent/tool images. Image
-publication, package naming, provenance, licensing, and registry permissions
-remain a separate public-boundary and release decision.
+The first published family member follows the same layering: a main-branch
+push runs `.github/workflows/runtime-base.yml` and publishes the reviewed
+multi-architecture base to `ghcr.io/<owner>/tobari-runtime:main` plus an
+immutable `sha-<commit>` tag. Pull requests and ordinary local startup do not
+push or pull images. Toolbox and agent publication remain later derived-image
+slices with their own source and license review.
 
 The root resolver obtains an image from bounded project metadata or the strict
 owner-only XDG `config.json` `default_image`; absence before first initialization

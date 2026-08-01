@@ -16,6 +16,10 @@ before Docker builds. The embedded Tobari, Gateway, OPA policy, and compose
 inputs are therefore bound to the CLI source revision. Container base images
 are pinned to reviewed immutable versions or digests.
 
+The canonical base image definition is maintained under `runtimes/base` and
+its Dockerfile/bootstrap snapshot is checked against the embedded runtime
+assets. The first official image workflow supports Linux amd64 and arm64.
+
 ## Compatibility
 
 Before v1.0, breaking changes require release notes but not a deprecation
@@ -28,8 +32,11 @@ preservation of each Tobari home volume by default.
 Tags use `vMAJOR.MINOR.PATCH`. Release publication is create-only and runs the
 full, security, release, public, policy, Gateway, and Docker integration gates
 from the exact tagged revision. GitHub Releases publish checksums with each CLI
-archive. Container images are built locally by `tobari cluster up` in the MVP; no
-registry publication is promised.
+archive. A push to `main` additionally runs the base-image workflow, which
+publishes `ghcr.io/<owner>/tobari-runtime:main` and an immutable
+`sha-<commit>` tag for the exact main revision. This is a development channel,
+not a stable image release; toolbox and agent images are not published by this
+workflow. Pull requests never receive package-write permission.
 
 Tobari does not yet claim code signing, notarization, SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact

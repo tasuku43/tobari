@@ -112,6 +112,13 @@ Before each public release, verify:
 - release notes disclose compatibility, security, and migration impact;
 - no artifact, Formula, URL, log, or metadata contains a forbidden identifier.
 
+For an official OCI image publication, also verify the canonical image source,
+parent/base digest lock, supported architectures, runtime labels, license
+metadata, downloaded-artifact notices, and the exact moving-versus-immutable
+tag behavior. The main-channel base workflow is a continuous development
+publication; it must not be described as a stable SemVer release or grant the
+image any authority beyond its declared root filesystem.
+
 See [Release](06_release.md) for the artifact workflow.
 
 ## Automated and manual gates
