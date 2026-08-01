@@ -587,24 +587,25 @@ func attachSpec() CommandSpec {
 
 func listSpec() CommandSpec {
 	return CommandSpec{
-		Path: "list", Summary: "List local CWD-owned Tobari roots",
+		Path: "list", Summary: "List local Workspaces",
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Return every configured CWD-owned Tobari root with diagnostic runtime state",
+			Outcome:      "Return every configured Workspace root with diagnostic runtime state",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
 				Fields: []OutputField{
-					{Name: "root", Type: OutputFieldTypeString, Description: "Canonical project root."},
+					{Name: "root", Type: OutputFieldTypeString, Description: "Canonical Workspace root."},
 					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic; incomplete means the logical state record is missing and must be deleted before recreation."},
-					{Name: "id", Type: OutputFieldTypeString, Description: "Diagnostic stable logical ID; not a routine action input."},
+					{Name: "id", Type: OutputFieldTypeString, Description: "Diagnostic stable Workspace ID; not a routine action input."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
 				JSONEnvelope: "tobari", JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("list", true,
+				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Validate the current directory."),
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
 				declaredCommandError(fault.KindInternal, "runtime_status_failed", false, "status", "Inspect the selected project's runtime."),
 				declaredCommandError(fault.KindContract, "invalid_list_contract", false, "doctor", "Repair list semantics."),

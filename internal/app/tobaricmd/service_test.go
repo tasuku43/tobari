@@ -410,6 +410,21 @@ func TestProjectStatusPreservesExistsWhenRuntimeIsMissing(t *testing.T) {
 	}
 }
 
+func TestProjectListMarksNearestWorkspaceFromCurrentDirectory(t *testing.T) {
+	t.Parallel()
+	project := testProjectInstance()
+	fake := &projectRuntimeFake{
+		cwd: "/tmp/project/nested", found: true, project: project,
+	}
+	result, err := New(fake).ProjectList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CurrentID != project.ID {
+		t.Fatalf("list current ID = %q, want %q", result.CurrentID, project.ID)
+	}
+}
+
 func applyPolicyIntent() operation.Intent {
 	return operation.Intent{
 		Command: "policy apply", Effect: operation.EffectWrite,

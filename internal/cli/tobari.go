@@ -1065,16 +1065,19 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 	if color && format == successFormatText {
 		if len(items) == 0 {
 			empty := newHumanOutput(true)
-			empty.empty("No Tobari projects", "No CWD-owned Tobari state is configured.", "tobari", "Create or enter a Tobari from the current project directory.")
+			empty.empty("No Workspaces", "No Workspace state is configured.", "tobari", "Create or enter a Workspace from the current directory.")
 			return empty.bytes(), nil
 		}
 		output := newHumanOutput(true)
-		output.heading("✓", fmt.Sprintf("Tobari projects (%d)", len(items)), colorTokenSuccess)
-		for index, item := range items {
-			output.section(fmt.Sprintf("Project %d", index+1))
-			output.row("Root", item.Root, colorTokenMuted)
+		output.heading("✓", fmt.Sprintf("Workspaces (%d)", len(items)), colorTokenSuccess)
+		for _, item := range items {
+			marker := "  "
+			if item.ID == result.CurrentID {
+				marker = "▸ "
+			}
+			output.section(marker + item.Root)
 			output.row("Runtime", item.Runtime, humanStatusToken(item.Runtime))
-			output.row("ID", item.ID, colorTokenAccent)
+			output.row("ID", item.ID, colorTokenMuted)
 		}
 		return output.bytes(), nil
 	}

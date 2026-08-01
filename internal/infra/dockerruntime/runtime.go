@@ -278,7 +278,11 @@ func (r *Runtime) CurrentDirectory(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return r.ResolveProjectRoot(ctx, current)
+	// This port reports the canonical working directory. Operations that create
+	// or select a project root enforce the stricter project-root policy at their
+	// own boundary; read-only list presentation must also work outside a valid
+	// project root.
+	return r.resolveCanonicalRoot(ctx, current)
 }
 
 func (r *Runtime) IsTerminal(writer io.Writer) bool {

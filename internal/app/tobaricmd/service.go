@@ -335,11 +335,30 @@ func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, er
 	if err != nil {
 		return tobari.ProjectListResult{}, err
 	}
+	cwd, err := s.runtime.CurrentDirectory(ctx)
+	if err != nil {
+		return tobari.ProjectListResult{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
+	}
 	instances, err := project.ListProjects(ctx)
 	if err != nil {
 		return tobari.ProjectListResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
 	}
+	indexes := make([]tobari.RootIndex, 0, len(instances))
+	for _, instance := range instances {
+		indexes = append(indexes, tobari.RootIndex{
+			SchemaVersion: tobari.ProjectStateSchemaVersion,
+			Root:          instance.Root,
+			InstanceID:    instance.ID,
+		})
+	}
+	current, found, err := tobari.NearestRoot(cwd, indexes)
+	if err != nil {
+		return tobari.ProjectListResult{}, fault.Wrap(fault.KindContract, "invalid_list_contract", "project list selection is invalid", false, err)
+	}
 	result := tobari.ProjectListResult{Task: tobari.TaskProjectList, Items: make([]tobari.ProjectListItem, 0, len(instances))}
+	if found {
+		result.CurrentID = current.InstanceID
+	}
 	for _, instance := range instances {
 		diagnostic, diagnosticErr := project.InspectProjectRuntime(ctx, instance)
 		if diagnosticErr != nil {

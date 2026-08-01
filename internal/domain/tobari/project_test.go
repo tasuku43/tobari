@@ -76,6 +76,25 @@ func TestProjectListResultAcceptsKnownEmptyScope(t *testing.T) {
 	}
 }
 
+func TestProjectListResultValidatesCurrentIDAgainstItems(t *testing.T) {
+	t.Parallel()
+	item := ProjectListItem{
+		Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
+		Home: "/tmp/state/home", Runtime: RuntimeDiagnosticReady,
+	}
+	valid := ProjectListResult{
+		Task: TaskProjectList, CurrentID: item.ID, Items: []ProjectListItem{item},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid ProjectListResult.Validate() error = %v", err)
+	}
+	invalid := valid
+	invalid.CurrentID = "01912345-6789-7abc-8def-0123456789ac"
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("ProjectListResult.Validate() accepted a current ID absent from items")
+	}
+}
+
 func TestNearestRootSelectsNearestAncestor(t *testing.T) {
 	t.Parallel()
 	indexes := []RootIndex{

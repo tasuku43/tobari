@@ -107,8 +107,12 @@ func (i ProjectListItem) Validate() error {
 // ProjectListResult preserves the complete local logical-state observation,
 // including a known empty result.
 type ProjectListResult struct {
-	Task  string            `json:"task"`
-	Items []ProjectListItem `json:"items"`
+	Task string `json:"task"`
+	// CurrentID identifies the nearest Workspace selected by the caller's
+	// canonical current directory. It is presentation metadata and is not
+	// part of the machine-readable list envelope.
+	CurrentID string            `json:"-"`
+	Items     []ProjectListItem `json:"items"`
 }
 
 func (r ProjectListResult) Validate() error {
@@ -124,6 +128,14 @@ func (r ProjectListResult) Validate() error {
 			return fmt.Errorf("project list IDs must be unique")
 		}
 		seen[item.ID] = true
+	}
+	if r.CurrentID != "" {
+		if err := ValidateProjectID(r.CurrentID); err != nil {
+			return fmt.Errorf("project list current ID is invalid: %w", err)
+		}
+		if !seen[r.CurrentID] {
+			return fmt.Errorf("project list current ID is not present in items")
+		}
 	}
 	return nil
 }

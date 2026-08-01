@@ -96,7 +96,7 @@ func TestTobariListRendererPreservesOpaqueIDAndEmptyScope(t *testing.T) {
 func TestTobariListRendererMatchesCatalogFields(t *testing.T) {
 	t.Parallel()
 	result := tobari.ProjectListResult{
-		Task: tobari.TaskProjectList,
+		Task: tobari.TaskProjectList, CurrentID: "01912345-6789-7abc-8def-0123456789ab",
 		Items: []tobari.ProjectListItem{{
 			Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
 			Home: "/tmp/state/home", Runtime: tobari.RuntimeDiagnosticReady,
@@ -130,6 +130,50 @@ func TestTobariListRendererMatchesCatalogFields(t *testing.T) {
 	sort.Strings(wantFields)
 	if !reflect.DeepEqual(gotFields, wantFields) {
 		t.Fatalf("list JSON fields = %v, catalog = %v", gotFields, wantFields)
+	}
+	if strings.Contains(string(output), "current") {
+		t.Fatalf("list JSON leaked presentation-only selection metadata: %q", output)
+	}
+}
+
+func TestProjectListHumanRendererUsesWorkspaceLayoutAndMutedID(t *testing.T) {
+	t.Parallel()
+	result := tobari.ProjectListResult{
+		Task: tobari.TaskProjectList, CurrentID: "01912345-6789-7abc-8def-0123456789ab",
+		Items: []tobari.ProjectListItem{
+			{
+				Root: "/tmp/parent", ID: "01912345-6789-7abc-8def-0123456789aa",
+				Home: "/tmp/state/parent", Runtime: tobari.RuntimeDiagnosticMissing,
+			},
+			{
+				Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
+				Home: "/tmp/state/project", Runtime: tobari.RuntimeDiagnosticReady,
+			},
+		},
+	}
+	output, err := renderProjectListWithColor(result, successFormatText, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := string(output)
+	for _, want := range []string{
+		applyColorToken(true, colorTokenSuccess, "✓"),
+		applyColorToken(true, colorTokenAccent, "Workspaces (2)"),
+		applyColorToken(true, colorTokenAccent, "  /tmp/parent"),
+		applyColorToken(true, colorTokenAccent, "▸ /tmp/project"),
+		applyColorToken(true, colorTokenSuccess, "ready"),
+		applyColorToken(true, colorTokenWarning, "missing"),
+		applyColorToken(true, colorTokenMuted, "01912345-6789-7abc-8def-0123456789ab"),
+	} {
+		if !strings.Contains(value, want) {
+			t.Fatalf("workspace list output %q lacks %q", value, want)
+		}
+	}
+	if strings.Contains(value, "Project 1") || strings.Contains(value, "current") {
+		t.Fatalf("workspace list output retained retired labels: %q", value)
+	}
+	if strings.Contains(value, applyColorToken(true, colorTokenAccent, "01912345-6789-7abc-8def-0123456789ab")) {
+		t.Fatalf("workspace ID used accent instead of muted: %q", value)
 	}
 }
 
