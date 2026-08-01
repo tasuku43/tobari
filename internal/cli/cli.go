@@ -33,7 +33,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
 	runtime, err := dockerruntime.New()
 	if err == nil {
-		command.tobari = tobaricmd.New(runtime)
+		command.tobari = tobaricmd.NewWithWorkspaceSelector(runtime, newWorkspaceSelector())
 	}
 	return command
 }

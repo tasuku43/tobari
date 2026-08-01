@@ -1,0 +1,523 @@
+package cli
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/terminal"
+)
+
+const (
+	selectorMaxVisibleOptions = 6
+	selectorPathWidth         = 72
+)
+
+var errSelectorTimeout = errors.New("selector input timeout")
+
+type workspaceSelector struct {
+	mode terminal.Mode
+}
+
+func newWorkspaceSelector() *workspaceSelector {
+	return &workspaceSelector{mode: terminal.New()}
+}
+
+func (s *workspaceSelector) Select(
+	ctx context.Context, selection tobari.ProjectSelection, in io.Reader, out io.Writer,
+) (tobari.ProjectSelectionChoice, error) {
+	if err := selection.Validate(); err != nil {
+		return tobari.ProjectSelectionChoice{}, err
+	}
+	if !selection.RequiresChoice() {
+		if len(selection.Candidates) == 0 {
+			return tobari.ProjectSelectionChoice{Kind: tobari.ProjectSelectionCreate}, nil
+		}
+		return tobari.ProjectSelectionChoice{
+			Kind: tobari.ProjectSelectionUse, ID: selection.Candidates[0].ID,
+		}, nil
+	}
+
+	if s != nil && s.mode != nil {
+		restore, rawErr := s.mode.Enter(in)
+		if rawErr == nil {
+			choice, selectErr := selectWorkspaceRaw(ctx, selection, in, out)
+			restoreErr := restore()
+			if selectErr != nil {
+				return tobari.ProjectSelectionChoice{}, selectErr
+			}
+			if restoreErr != nil {
+				return tobari.ProjectSelectionChoice{}, restoreErr
+			}
+			if err := writeWorkspaceSelectionSummary(out, selection, choice); err != nil {
+				return tobari.ProjectSelectionChoice{}, err
+			}
+			return choice, nil
+		}
+	}
+
+	choice, err := selectWorkspaceLine(ctx, selection, in, out)
+	if err != nil {
+		return tobari.ProjectSelectionChoice{}, err
+	}
+	if err := writeWorkspaceSelectionSummary(out, selection, choice); err != nil {
+		return tobari.ProjectSelectionChoice{}, err
+	}
+	return choice, nil
+}
+
+type selectorKeyKind uint8
+
+const (
+	selectorKeyNone selectorKeyKind = iota
+	selectorKeyUp
+	selectorKeyDown
+	selectorKeyHome
+	selectorKeyEnd
+	selectorKeyEnter
+	selectorKeyCreate
+	selectorKeyCancel
+	selectorKeyNumber
+	selectorKeyInvalid
+)
+
+type selectorKey struct {
+	kind  selectorKeyKind
+	index int
+}
+
+func selectWorkspaceRaw(
+	ctx context.Context, selection tobari.ProjectSelection, in io.Reader, out io.Writer,
+) (tobari.ProjectSelectionChoice, error) {
+	options := workspaceSelectorOptions(selection)
+	selected := firstSelectableOption(options)
+	message := ""
+	lineCount := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			finishWorkspaceSelector(out, lineCount)
+			return tobari.ProjectSelectionChoice{}, err
+		}
+		top := selectorWindowTop(selected, len(options), selectorMaxVisibleOptions)
+		currentLines := renderWorkspaceSelector(out, selection, options, selected, top, message, lineCount)
+		if currentLines < 0 {
+			finishWorkspaceSelector(out, lineCount)
+			return tobari.ProjectSelectionChoice{}, fmt.Errorf("render Workspace selector")
+		}
+		lineCount = currentLines
+		key, err := readSelectorKey(ctx, in)
+		if err != nil {
+			finishWorkspaceSelector(out, lineCount)
+			return tobari.ProjectSelectionChoice{}, err
+		}
+		switch key.kind {
+		case selectorKeyNone:
+			continue
+		case selectorKeyUp:
+			selected = moveSelectableOption(options, selected, -1)
+			message = ""
+		case selectorKeyDown:
+			selected = moveSelectableOption(options, selected, 1)
+			message = ""
+		case selectorKeyHome:
+			selected = firstSelectableOption(options)
+			message = ""
+		case selectorKeyEnd:
+			selected = lastSelectableOption(options)
+			message = ""
+		case selectorKeyCreate:
+			if !selection.CanCreate {
+				message = "A Workspace already exists at the current directory."
+				continue
+			}
+			finishWorkspaceSelector(out, lineCount)
+			return tobari.ProjectSelectionChoice{Kind: tobari.ProjectSelectionCreate}, nil
+		case selectorKeyNumber:
+			if key.index < 0 || key.index >= len(options) {
+				message = "That Workspace option does not exist."
+				continue
+			}
+			selected = key.index
+			message = ""
+			if !options[selected].selectable {
+				message = "That Workspace is unavailable."
+				continue
+			}
+			finishWorkspaceSelector(out, lineCount)
+			return workspaceChoice(options[selected]), nil
+		case selectorKeyEnter:
+			if !options[selected].selectable {
+				message = "That Workspace is unavailable."
+				continue
+			}
+			finishWorkspaceSelector(out, lineCount)
+			return workspaceChoice(options[selected]), nil
+		case selectorKeyCancel:
+			finishWorkspaceSelector(out, lineCount)
+			return tobari.ProjectSelectionChoice{}, context.Canceled
+		default:
+			message = "Use ↑/↓ to move, Enter to select, n to create, or q to cancel."
+		}
+	}
+}
+
+func selectWorkspaceLine(
+	ctx context.Context, selection tobari.ProjectSelection, in io.Reader, out io.Writer,
+) (tobari.ProjectSelectionChoice, error) {
+	options := workspaceSelectorOptions(selection)
+	if _, err := fmt.Fprintf(out, "Select a Workspace for %s\n\n", safeExternalText(selection.CWD)); err != nil {
+		return tobari.ProjectSelectionChoice{}, err
+	}
+	for index, option := range options {
+		if _, err := fmt.Fprintf(out, "  %d. %s\n", index+1, lineWorkspaceOption(option)); err != nil {
+			return tobari.ProjectSelectionChoice{}, err
+		}
+	}
+	if _, err := fmt.Fprintln(out, "\nChoose [1], n to create, or q to cancel:"); err != nil {
+		return tobari.ProjectSelectionChoice{}, err
+	}
+	reader := bufio.NewReader(in)
+	for {
+		if err := ctx.Err(); err != nil {
+			return tobari.ProjectSelectionChoice{}, err
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return tobari.ProjectSelectionChoice{}, err
+		}
+		value := strings.ToLower(strings.TrimSpace(line))
+		if value == "" {
+			value = "1"
+		}
+		if value == "q" || value == "quit" || value == "esc" {
+			return tobari.ProjectSelectionChoice{}, context.Canceled
+		}
+		if value == "n" || value == "new" {
+			if selection.CanCreate {
+				return tobari.ProjectSelectionChoice{Kind: tobari.ProjectSelectionCreate}, nil
+			}
+			if _, writeErr := fmt.Fprintln(out, "A Workspace already exists at the current directory. Choose an existing Workspace or q to cancel."); writeErr != nil {
+				return tobari.ProjectSelectionChoice{}, writeErr
+			}
+			if errors.Is(err, io.EOF) {
+				return tobari.ProjectSelectionChoice{}, context.Canceled
+			}
+			continue
+		}
+		index, parseErr := strconv.Atoi(value)
+		if parseErr == nil && index >= 1 && index <= len(options) {
+			option := options[index-1]
+			if option.selectable {
+				return workspaceChoice(option), nil
+			}
+			if _, writeErr := fmt.Fprintln(out, "That Workspace is unavailable. Choose another option or q to cancel."); writeErr != nil {
+				return tobari.ProjectSelectionChoice{}, writeErr
+			}
+		} else if writeErr := writeSelectorLine(out, "Enter a listed number, n, or q."); writeErr != nil {
+			return tobari.ProjectSelectionChoice{}, writeErr
+		}
+		if errors.Is(err, io.EOF) {
+			return tobari.ProjectSelectionChoice{}, context.Canceled
+		}
+	}
+}
+
+type workspaceSelectorOption struct {
+	candidate  *tobari.ProjectSelectionCandidate
+	create     bool
+	selectable bool
+	nearest    bool
+}
+
+func workspaceSelectorOptions(selection tobari.ProjectSelection) []workspaceSelectorOption {
+	options := make([]workspaceSelectorOption, 0, len(selection.Candidates)+1)
+	for index := range selection.Candidates {
+		candidate := &selection.Candidates[index]
+		options = append(options, workspaceSelectorOption{
+			candidate: candidate, selectable: candidate.Runtime != tobari.RuntimeDiagnosticIncomplete,
+			nearest: index == 0,
+		})
+	}
+	if selection.CanCreate {
+		options = append(options, workspaceSelectorOption{create: true, selectable: true})
+	}
+	return options
+}
+
+func workspaceChoice(option workspaceSelectorOption) tobari.ProjectSelectionChoice {
+	if option.create {
+		return tobari.ProjectSelectionChoice{Kind: tobari.ProjectSelectionCreate}
+	}
+	return tobari.ProjectSelectionChoice{Kind: tobari.ProjectSelectionUse, ID: option.candidate.ID}
+}
+
+func firstSelectableOption(options []workspaceSelectorOption) int {
+	for index, option := range options {
+		if option.selectable {
+			return index
+		}
+	}
+	return 0
+}
+
+func lastSelectableOption(options []workspaceSelectorOption) int {
+	for index := len(options) - 1; index >= 0; index-- {
+		if options[index].selectable {
+			return index
+		}
+	}
+	return 0
+}
+
+func moveSelectableOption(options []workspaceSelectorOption, selected, delta int) int {
+	if len(options) == 0 {
+		return 0
+	}
+	for attempts := 0; attempts < len(options); attempts++ {
+		selected = (selected + delta + len(options)) % len(options)
+		if options[selected].selectable {
+			return selected
+		}
+	}
+	return selected
+}
+
+func selectorWindowTop(selected, optionCount, window int) int {
+	if optionCount <= window {
+		return 0
+	}
+	top := selected - window/2
+	if top < 0 {
+		top = 0
+	}
+	if top > optionCount-window {
+		top = optionCount - window
+	}
+	return top
+}
+
+func renderWorkspaceSelector(
+	out io.Writer, selection tobari.ProjectSelection, options []workspaceSelectorOption,
+	selected, top int, message string, previousLines int,
+) int {
+	lines := []string{
+		"Select a Workspace for " + safeExternalText(selection.CWD),
+		"",
+		"Use ↑/↓ to move, Enter to select, n to create, q/Esc to cancel.",
+		"",
+	}
+	end := top + selectorMaxVisibleOptions
+	if end > len(options) {
+		end = len(options)
+	}
+	for index := top; index < end; index++ {
+		lines = append(lines, ansiWorkspaceOption(options[index], index == selected))
+	}
+	if top > 0 || end < len(options) {
+		lines = append(lines, fmt.Sprintf("  Showing %d-%d of %d options", top+1, end, len(options)))
+	}
+	if message == "" {
+		lines = append(lines, "")
+	} else {
+		lines = append(lines, applyColorToken(true, colorTokenWarning, "! "+message))
+	}
+	for index, line := range lines {
+		if index == 0 && previousLines > 0 {
+			if _, err := fmt.Fprintf(out, "\x1b[%dA", previousLines); err != nil {
+				return -1
+			}
+		} else if index == 0 {
+			if _, err := io.WriteString(out, "\x1b[?25l"); err != nil {
+				return -1
+			}
+		}
+		if _, err := fmt.Fprintf(out, "\x1b[2K\r%s\n", line); err != nil {
+			return -1
+		}
+	}
+	return len(lines)
+}
+
+func ansiWorkspaceOption(option workspaceSelectorOption, selected bool) string {
+	marker := "●"
+	if option.create {
+		marker = "＋"
+	}
+	prefix := "  "
+	if selected {
+		prefix = applyColorToken(true, colorTokenAccent, "❯ ")
+	}
+	if option.create {
+		return prefix + applyColorToken(true, colorTokenAccent, marker+" Create a new Workspace here")
+	}
+	path := truncateSelectorPath(option.candidate.Root, selectorPathWidth)
+	status := string(option.candidate.Runtime)
+	detail := status + " · ancestor"
+	if option.nearest {
+		detail = status + " · nearest ancestor"
+	}
+	if option.candidate.Runtime == tobari.RuntimeDiagnosticIncomplete {
+		detail += " · unavailable"
+	}
+	pathText := applyColorToken(true, colorTokenMuted, path)
+	statusText := applyColorToken(true, humanStatusToken(status), detail)
+	line := prefix + applyColorToken(true, colorTokenMuted, marker) + " " + pathText + "  " + statusText
+	if !option.selectable {
+		line = applyColorToken(true, colorTokenMuted, line)
+	}
+	return line
+}
+
+func lineWorkspaceOption(option workspaceSelectorOption) string {
+	if option.create {
+		return "Create a new Workspace here"
+	}
+	detail := string(option.candidate.Runtime) + " · ancestor"
+	if option.nearest {
+		detail = string(option.candidate.Runtime) + " · nearest ancestor"
+	}
+	if !option.selectable {
+		detail += " · unavailable"
+	}
+	return truncateSelectorPath(option.candidate.Root, selectorPathWidth) + "  " + detail
+}
+
+func truncateSelectorPath(value string, width int) string {
+	value = safeExternalText(value)
+	if width <= 0 || utf8.RuneCountInString(value) <= width {
+		return value
+	}
+	runes := []rune(value)
+	left := width / 2
+	right := width - left - 1
+	return string(runes[:left]) + "…" + string(runes[len(runes)-right:])
+}
+
+func writeWorkspaceSelectionSummary(out io.Writer, selection tobari.ProjectSelection, choice tobari.ProjectSelectionChoice) error {
+	if choice.Kind == tobari.ProjectSelectionCreate {
+		return writeSelectorLines(out,
+			"Creating a new Workspace here",
+			"  Root              "+safeExternalText(selection.CWD),
+		)
+	}
+	candidate, found := selection.Candidate(choice.ID)
+	if !found {
+		return fmt.Errorf("selected Workspace is absent from the snapshot")
+	}
+	return writeSelectorLines(out,
+		"Using existing Workspace",
+		"  Root              "+safeExternalText(candidate.Root),
+		"  Working directory "+safeExternalText(selection.CWD),
+	)
+}
+
+func writeSelectorLines(out io.Writer, lines ...string) error {
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(out, line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeSelectorLine(out io.Writer, line string) error {
+	_, err := fmt.Fprintln(out, line)
+	return err
+}
+
+func finishWorkspaceSelector(out io.Writer, lines int) {
+	if lines > 0 {
+		_, _ = fmt.Fprintf(out, "\x1b[%dA", lines)
+		for index := 0; index < lines; index++ {
+			_, _ = io.WriteString(out, "\x1b[2K\r")
+			if index < lines-1 {
+				_, _ = io.WriteString(out, "\n")
+			}
+		}
+		_, _ = io.WriteString(out, "\n")
+	}
+	_, _ = io.WriteString(out, "\x1b[?25h")
+}
+
+func readSelectorKey(ctx context.Context, in io.Reader) (selectorKey, error) {
+	value, err := readSelectorByte(ctx, in)
+	if errors.Is(err, errSelectorTimeout) {
+		return selectorKey{kind: selectorKeyNone}, nil
+	}
+	if err != nil {
+		return selectorKey{}, err
+	}
+	switch value {
+	case 0:
+		return selectorKey{kind: selectorKeyNone}, nil
+	case '\r', '\n':
+		return selectorKey{kind: selectorKeyEnter}, nil
+	case 'n', 'N':
+		return selectorKey{kind: selectorKeyCreate}, nil
+	case 'q', 'Q', 3, 4:
+		return selectorKey{kind: selectorKeyCancel}, nil
+	case '\x1b':
+		next, nextErr := readSelectorByte(ctx, in)
+		if errors.Is(nextErr, errSelectorTimeout) {
+			return selectorKey{kind: selectorKeyCancel}, nil
+		}
+		if nextErr != nil {
+			return selectorKey{}, nextErr
+		}
+		if next != '[' && next != 'O' {
+			return selectorKey{kind: selectorKeyCancel}, nil
+		}
+		code, codeErr := readSelectorByte(ctx, in)
+		if errors.Is(codeErr, errSelectorTimeout) {
+			return selectorKey{kind: selectorKeyCancel}, nil
+		}
+		if codeErr != nil {
+			return selectorKey{}, codeErr
+		}
+		switch code {
+		case 'A':
+			return selectorKey{kind: selectorKeyUp}, nil
+		case 'B':
+			return selectorKey{kind: selectorKeyDown}, nil
+		case 'H':
+			return selectorKey{kind: selectorKeyHome}, nil
+		case 'F':
+			return selectorKey{kind: selectorKeyEnd}, nil
+		default:
+			return selectorKey{kind: selectorKeyInvalid}, nil
+		}
+	default:
+		if value >= '1' && value <= '9' {
+			return selectorKey{kind: selectorKeyNumber, index: int(value - '1')}, nil
+		}
+		return selectorKey{kind: selectorKeyInvalid}, nil
+	}
+}
+
+func readSelectorByte(ctx context.Context, in io.Reader) (byte, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		var value [1]byte
+		n, err := in.Read(value[:])
+		if n > 0 {
+			return value[0], nil
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return 0, context.Canceled
+			}
+			return 0, err
+		}
+		if n == 0 {
+			return 0, errSelectorTimeout
+		}
+	}
+}

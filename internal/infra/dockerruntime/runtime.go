@@ -286,7 +286,15 @@ func (r *Runtime) CurrentDirectory(ctx context.Context) (string, error) {
 }
 
 func (r *Runtime) IsTerminal(writer io.Writer) bool {
-	file, ok := writer.(*os.File)
+	return isTerminalFile(writer)
+}
+
+func (r *Runtime) IsInputTerminal(reader io.Reader) bool {
+	return isTerminalFile(reader)
+}
+
+func isTerminalFile(value interface{}) bool {
+	file, ok := value.(*os.File)
 	if !ok {
 		return false
 	}

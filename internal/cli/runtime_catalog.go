@@ -28,11 +28,11 @@ func runtimeCommandSpecs() []CommandSpec {
 
 func projectEnterSpec() CommandSpec {
 	return CommandSpec{
-		Path: "tobari", Summary: "Create or reuse the current directory's Tobari and enter it",
+		Path: "tobari", Summary: "Choose or create the current directory's Workspace and enter it",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Resolve or create the nearest CWD-owned Tobari, recover its runtime, and enter an interactive session",
+			Outcome:      "Choose an ancestor Workspace or explicitly create one at the current directory, recover its runtime, and enter an interactive session",
 			Inputs:       []CommandInput{}, Output: noOutput(),
 			Prerequisites: []string{
 				"The current directory is an accessible project directory.",
@@ -729,7 +729,7 @@ func fixedClusterTarget() *FixedTarget {
 func fixedCurrentDirectoryTarget() *FixedTarget {
 	return &FixedTarget{
 		Kind: tobari.CurrentDirectoryTargetKind, ID: tobari.CurrentDirectoryTargetID,
-		Description: "The nearest logical Tobari selected from this process's canonical current directory.",
+		Description: "The CWD-owned Workspace associated with this process's canonical current directory.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
@@ -749,6 +749,10 @@ func projectEnterErrors() []CommandError {
 		declaredCommandError(fault.KindUnavailable, "cluster_status_failed", false, "cluster status", "Inspect the shared cluster before entering a Tobari."),
 		declaredCommandError(fault.KindUnavailable, "cluster_not_ready", false, "cluster up", "Reconcile the shared cluster explicitly before entering a Tobari."),
 		declaredCommandError(fault.KindRejected, "project_state_incomplete", false, "delete", "Review the exact delete command and confirm removal of the incomplete current-directory Tobari."),
+		declaredCommandError(fault.KindInternal, "missing_workspace_selector", false, "doctor", "Configure the Tobari terminal selector."),
+		declaredCommandError(fault.KindContract, "invalid_workspace_selection", false, "doctor", "Inspect local Workspace state."),
+		declaredCommandError(fault.KindContract, "workspace_selection_invalid", false, "tobari", "Choose a current Workspace or explicitly create one again."),
+		declaredCommandError(fault.KindRejected, "workspace_selection_stale", true, "tobari", "Refresh the Workspace choices and select again."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
 		declaredCommandError(fault.KindUnavailable, "runtime_reconcile_failed", false, "status", "Inspect the selected project's runtime."),
 		declaredCommandError(fault.KindInternal, "enter_failed", false, "status", "Inspect the selected project's runtime."),
