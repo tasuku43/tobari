@@ -3,6 +3,7 @@ package tobaricmd
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/tasuku43/tobari/internal/app/execution"
@@ -58,15 +59,23 @@ type legacyNamedRuntimePort interface {
 // without making their test doubles implement unrelated project operations.
 type ProjectRuntimePort interface {
 	ResolveProject(context.Context, string) (tobari.ProjectInstance, bool, error)
-	ResolveOrCreateProject(context.Context, string) (tobari.ProjectInstance, bool, error)
+	CreateProject(context.Context, string) (tobari.ProjectInstance, error)
 	ListProjects(context.Context) ([]tobari.ProjectInstance, error)
 	ProjectHome(context.Context, tobari.ProjectInstance) (string, error)
 	IsTerminal(io.Writer) bool
+	IsInputTerminal(io.Reader) bool
 	EnsureProjectRuntime(context.Context, tobari.State, tobari.ProjectInstance) (tobari.ProjectInstance, error)
 	InspectProjectRuntime(context.Context, tobari.ProjectInstance) (tobari.RuntimeDiagnostic, error)
 	EnterProjectRuntime(context.Context, tobari.ProjectInstance, string, io.Reader, io.Writer, io.Writer) (int, error)
 	InsideProject(context.Context) bool
 	DeleteProject(context.Context, tobari.ProjectInstance) error
+}
+
+// WorkspaceSelector is the presentation boundary for an ambiguous CWD
+// selection. Application code owns the typed snapshot and validates the
+// returned choice; CLI owns the human interaction implementation.
+type WorkspaceSelector interface {
+	Select(context.Context, tobari.ProjectSelection, io.Reader, io.Writer) (tobari.ProjectSelectionChoice, error)
 }
 
 // lifecycleRuntimePort serializes shared-cluster and CWD-owned project
@@ -105,12 +114,17 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 
 // Service coordinates validated tasks without depending on Docker.
 type Service struct {
-	runtime RuntimePort
-	mutator *execution.Invoker
+	runtime  RuntimePort
+	mutator  *execution.Invoker
+	selector WorkspaceSelector
 }
 
 func New(runtime RuntimePort) *Service {
-	return &Service{runtime: runtime, mutator: execution.New(ownedPolicy{})}
+	return NewWithWorkspaceSelector(runtime, nil)
+}
+
+func NewWithWorkspaceSelector(runtime RuntimePort, selector WorkspaceSelector) *Service {
+	return &Service{runtime: runtime, mutator: execution.New(ownedPolicy{}), selector: selector}
 }
 
 func (s *Service) requireRuntime() error {
@@ -184,6 +198,139 @@ func (s *Service) validateProjectIntent(intent operation.Intent, effect operatio
 	return nil
 }
 
+func (s *Service) readyCluster(ctx context.Context) (tobari.State, error) {
+	state, configured, stateErr := s.runtime.LoadState(ctx)
+	if stateErr != nil {
+		return tobari.State{}, fault.Wrap(fault.KindInternal, "state_read_failed", "shared cluster state could not be read", false, stateErr,
+			fault.NextAction{Command: "cluster status", Reason: "Inspect the configured shared cluster."})
+	}
+	if !configured {
+		return tobari.State{}, fault.New(
+			fault.KindUnavailable, "cluster_not_configured",
+			"the shared cluster is not configured; run cluster up before entering a Tobari", false,
+			fault.NextAction{Command: "cluster up", Reason: "Create the shared Gateway and OPA cluster explicitly."},
+		)
+	}
+	clusterStatus, statusErr := s.runtime.InspectCluster(ctx, state)
+	if statusErr != nil {
+		return tobari.State{}, fault.Wrap(fault.KindUnavailable, "cluster_status_failed", "the shared cluster could not be inspected", false, statusErr,
+			fault.NextAction{Command: "cluster status", Reason: "Inspect the shared cluster before entering a Tobari."})
+	}
+	if !clusterStatus.Running {
+		return tobari.State{}, fault.New(
+			fault.KindUnavailable, "cluster_not_ready",
+			"the shared cluster is not ready; repair it with an explicit cluster operation", false,
+			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster explicitly."},
+		)
+	}
+	return state, nil
+}
+
+func (s *Service) projectSelection(
+	ctx context.Context, project ProjectRuntimePort, cwd string,
+) (tobari.ProjectSelection, error) {
+	instances, err := project.ListProjects(ctx)
+	if err != nil {
+		return tobari.ProjectSelection{}, fault.Wrap(fault.KindInternal, "state_read_failed", "Workspace state could not be read", false, err)
+	}
+	byID := make(map[string]tobari.ProjectInstance, len(instances))
+	indexes := make([]tobari.RootIndex, 0, len(instances))
+	for _, instance := range instances {
+		if err := instance.Validate(); err != nil {
+			return tobari.ProjectSelection{}, fault.Wrap(fault.KindContract, "invalid_workspace_selection", "Workspace selection state is invalid", false, err,
+				fault.NextAction{Command: "doctor", Reason: "Inspect local Workspace state."})
+		}
+		if _, exists := byID[instance.ID]; exists {
+			return tobari.ProjectSelection{}, fault.New(fault.KindContract, "invalid_workspace_selection", "Workspace selection contains duplicate IDs", false,
+				fault.NextAction{Command: "doctor", Reason: "Inspect local Workspace state."})
+		}
+		byID[instance.ID] = instance
+		indexes = append(indexes, tobari.RootIndex{
+			SchemaVersion: tobari.ProjectStateSchemaVersion,
+			Root:          instance.Root,
+			InstanceID:    instance.ID,
+		})
+	}
+	containing, err := tobari.ContainingRoots(cwd, indexes)
+	if err != nil {
+		return tobari.ProjectSelection{}, fault.Wrap(fault.KindContract, "invalid_workspace_selection", "Workspace selection scope is invalid", false, err,
+			fault.NextAction{Command: "doctor", Reason: "Inspect the current directory and local Workspace state."})
+	}
+	candidates := make([]tobari.ProjectSelectionCandidate, 0, len(containing))
+	for _, index := range containing {
+		instance, exists := byID[index.InstanceID]
+		if !exists || instance.Root != index.Root {
+			return tobari.ProjectSelection{}, fault.New(fault.KindContract, "invalid_workspace_selection", "Workspace index and state disagree", false,
+				fault.NextAction{Command: "doctor", Reason: "Inspect local Workspace state."})
+		}
+		diagnostic, diagnosticErr := project.InspectProjectRuntime(ctx, instance)
+		if diagnosticErr != nil {
+			return tobari.ProjectSelection{}, fault.Wrap(fault.KindInternal, "runtime_status_failed", "Workspace runtime status could not be read", false, diagnosticErr,
+				fault.NextAction{Command: "status", Reason: "Inspect the selected Workspace runtime."})
+		}
+		candidates = append(candidates, tobari.ProjectSelectionCandidate{
+			ID: instance.ID, Root: instance.Root, Runtime: diagnostic,
+		})
+	}
+	selection := tobari.ProjectSelection{
+		CWD: cwd, Candidates: candidates, CanCreate: true,
+	}
+	for _, candidate := range candidates {
+		if candidate.Root == cwd {
+			selection.CanCreate = false
+			break
+		}
+	}
+	if err := selection.Validate(); err != nil {
+		return tobari.ProjectSelection{}, fault.Wrap(fault.KindContract, "invalid_workspace_selection", "Workspace selection is invalid", false, err,
+			fault.NextAction{Command: "doctor", Reason: "Inspect local Workspace state."})
+	}
+	return selection, nil
+}
+
+func (s *Service) chooseWorkspace(
+	ctx context.Context, project ProjectRuntimePort, cwd string, in io.Reader, errOut io.Writer,
+) (tobari.ProjectSelection, tobari.ProjectSelectionChoice, error) {
+	selection, err := s.projectSelection(ctx, project, cwd)
+	if err != nil {
+		return tobari.ProjectSelection{}, tobari.ProjectSelectionChoice{}, err
+	}
+	if !selection.RequiresChoice() {
+		if len(selection.Candidates) == 0 {
+			return selection, tobari.ProjectSelectionChoice{Kind: tobari.ProjectSelectionCreate}, nil
+		}
+		return selection, tobari.ProjectSelectionChoice{
+			Kind: tobari.ProjectSelectionUse, ID: selection.Candidates[0].ID,
+		}, nil
+	}
+	if s.selector == nil || portcheck.IsNil(s.selector) {
+		return tobari.ProjectSelection{}, tobari.ProjectSelectionChoice{}, fault.New(
+			fault.KindInternal, "missing_workspace_selector",
+			"Workspace selection is not configured", false,
+			fault.NextAction{Command: "doctor", Reason: "Configure the Tobari terminal selector."},
+		)
+	}
+	choice, selectErr := s.selector.Select(ctx, selection, in, errOut)
+	if selectErr != nil {
+		return tobari.ProjectSelection{}, tobari.ProjectSelectionChoice{}, selectErr
+	}
+	if err := selection.ValidateChoice(choice); err != nil {
+		return tobari.ProjectSelection{}, tobari.ProjectSelectionChoice{}, fault.Wrap(
+			fault.KindContract, "workspace_selection_invalid", "Workspace selection was invalid", false, err,
+			fault.NextAction{Command: "tobari", Reason: "Choose a current Workspace or explicitly create one again."},
+		)
+	}
+	return selection, choice, nil
+}
+
+func workspaceSelectionStaleFault() error {
+	return fault.New(
+		fault.KindRejected, "workspace_selection_stale",
+		"Workspace choices changed before entry; no Workspace was modified", true,
+		fault.NextAction{Command: "tobari", Reason: "Refresh the Workspace choices and select again."},
+	)
+}
+
 // EnterProject resolves the current directory, ensures the shared runtime and
 // project runtime, then attaches the caller's terminal. It never creates a
 // project when the caller has no TTY.
@@ -204,7 +351,7 @@ func (s *Service) EnterProject(
 			fault.NextAction{Command: "exit", Reason: "Leave the current Tobari before entering another session."},
 		)
 	}
-	if !project.IsTerminal(out) {
+	if !project.IsTerminal(out) || !project.IsTerminal(errOut) || !project.IsInputTerminal(in) {
 		return 0, fault.New(
 			fault.KindInvalidInput, "tty_required",
 			"tobari requires an interactive terminal", false,
@@ -218,6 +365,13 @@ func (s *Service) EnterProject(
 	if err != nil {
 		return 0, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
+	if _, err := s.readyCluster(ctx); err != nil {
+		return 0, err
+	}
+	selection, choice, err := s.chooseWorkspace(ctx, project, cwd, in, errOut)
+	if err != nil {
+		return 0, err
+	}
 	var state tobari.State
 	var instance tobari.ProjectInstance
 	request := execution.Request{
@@ -225,45 +379,46 @@ func (s *Service) EnterProject(
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
 	err = s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
-		var configured bool
-		var stateErr error
-		state, configured, stateErr = s.runtime.LoadState(lifecycleContext)
-		if stateErr != nil {
-			return fault.Wrap(fault.KindInternal, "state_read_failed", "shared cluster state could not be read", false, stateErr,
-				fault.NextAction{Command: "cluster status", Reason: "Inspect the configured shared cluster."})
-		}
-		if !configured {
-			return fault.New(
-				fault.KindUnavailable, "cluster_not_configured",
-				"the shared cluster is not configured; run cluster up before entering a Tobari", false,
-				fault.NextAction{Command: "cluster up", Reason: "Create the shared Gateway and OPA cluster explicitly."},
-			)
-		}
-		clusterStatus, statusErr := s.runtime.InspectCluster(lifecycleContext, state)
-		if statusErr != nil {
-			return fault.Wrap(fault.KindUnavailable, "cluster_status_failed", "the shared cluster could not be inspected", false, statusErr,
-				fault.NextAction{Command: "cluster status", Reason: "Inspect the shared cluster before entering a Tobari."})
-		}
-		if !clusterStatus.Running {
-			return fault.New(
-				fault.KindUnavailable, "cluster_not_ready",
-				"the shared cluster is not ready; repair it with an explicit cluster operation", false,
-				fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster explicitly."},
-			)
+		var readyErr error
+		state, readyErr = s.readyCluster(lifecycleContext)
+		if readyErr != nil {
+			return readyErr
 		}
 		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
-			resolved, _, actionErr := project.ResolveOrCreateProject(actionContext, cwd)
+			var actionErr error
+			switch choice.Kind {
+			case tobari.ProjectSelectionCreate:
+				instance, actionErr = project.CreateProject(actionContext, cwd)
+				if errors.Is(actionErr, tobari.ErrProjectExists) {
+					return workspaceSelectionStaleFault()
+				}
+			case tobari.ProjectSelectionUse:
+				candidate, found := selection.Candidate(choice.ID)
+				if !found {
+					return workspaceSelectionStaleFault()
+				}
+				var resolved tobari.ProjectInstance
+				var resolvedFound bool
+				resolved, resolvedFound, actionErr = project.ResolveProject(actionContext, candidate.Root)
+				if actionErr == nil && (!resolvedFound || resolved.ID != candidate.ID || resolved.Root != candidate.Root) {
+					return workspaceSelectionStaleFault()
+				}
+				instance = resolved
+			default:
+				return fault.New(fault.KindContract, "workspace_selection_invalid", "Workspace selection choice is invalid", false,
+					fault.NextAction{Command: "tobari", Reason: "Choose a current Workspace or explicitly create one again."})
+			}
 			if actionErr != nil {
 				return classifyProjectMutationError(actionErr, "tobari", "status", "logical state may need reconciliation")
 			}
-			if resolved.Incomplete {
+			if instance.Incomplete {
 				return fault.New(
 					fault.KindRejected, "project_state_incomplete",
 					"the current Tobari has incomplete logical state and cannot be recreated safely", false,
 					fault.NextAction{Command: "delete", Reason: "Review the exact delete command and confirm removal of the incomplete current-directory Tobari."},
 				)
 			}
-			instance, actionErr = project.EnsureProjectRuntime(actionContext, state, resolved)
+			instance, actionErr = project.EnsureProjectRuntime(actionContext, state, instance)
 			if actionErr != nil {
 				return classifyProjectMutationError(actionErr, "tobari", "status", "inspect the selected project before retrying")
 			}

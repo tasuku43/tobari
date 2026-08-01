@@ -3,6 +3,7 @@ package tobaricmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"path/filepath"
 	"testing"
@@ -228,8 +229,12 @@ type projectRuntimeFake struct {
 	terminal     bool
 	inside       bool
 	project      tobari.ProjectInstance
+	created      tobari.ProjectInstance
+	resolved     tobari.ProjectInstance
+	projects     []tobari.ProjectInstance
 	found        bool
 	resolveCalls int
+	createCalls  int
 	ensureCalls  int
 	enterCalls   int
 	deleteCalls  int
@@ -237,16 +242,26 @@ type projectRuntimeFake struct {
 
 func (f *projectRuntimeFake) CurrentDirectory(context.Context) (string, error) { return f.cwd, nil }
 func (f *projectRuntimeFake) IsTerminal(io.Writer) bool                        { return f.terminal }
+func (f *projectRuntimeFake) IsInputTerminal(io.Reader) bool                   { return f.terminal }
 func (f *projectRuntimeFake) InsideProject(context.Context) bool               { return f.inside }
 func (f *projectRuntimeFake) ResolveProject(context.Context, string) (tobari.ProjectInstance, bool, error) {
 	f.resolveCalls++
+	if f.resolved.ID != "" {
+		return f.resolved, f.found, nil
+	}
 	return f.project, f.found, nil
 }
-func (f *projectRuntimeFake) ResolveOrCreateProject(context.Context, string) (tobari.ProjectInstance, bool, error) {
-	f.resolveCalls++
-	return f.project, true, nil
+func (f *projectRuntimeFake) CreateProject(context.Context, string) (tobari.ProjectInstance, error) {
+	f.createCalls++
+	if f.created.ID != "" {
+		return f.created, nil
+	}
+	return f.project, nil
 }
 func (f *projectRuntimeFake) ListProjects(context.Context) ([]tobari.ProjectInstance, error) {
+	if f.projects != nil {
+		return append([]tobari.ProjectInstance{}, f.projects...), nil
+	}
 	if !f.found {
 		return []tobari.ProjectInstance{}, nil
 	}
@@ -269,6 +284,22 @@ func (f *projectRuntimeFake) EnterProjectRuntime(context.Context, tobari.Project
 func (f *projectRuntimeFake) DeleteProject(context.Context, tobari.ProjectInstance) error {
 	f.deleteCalls++
 	return nil
+}
+
+type workspaceSelectorFake struct {
+	choice tobari.ProjectSelectionChoice
+	err    error
+	calls  int
+	seen   tobari.ProjectSelection
+}
+
+func (f *workspaceSelectorFake) Select(_ context.Context, selection tobari.ProjectSelection, _ io.Reader, _ io.Writer) (tobari.ProjectSelectionChoice, error) {
+	f.calls++
+	f.seen = selection
+	if f.err != nil {
+		return tobari.ProjectSelectionChoice{}, f.err
+	}
+	return f.choice, nil
 }
 
 func testState(root string) tobari.State {
@@ -352,7 +383,10 @@ func TestEnterProjectAcceptsCurrentDirectoryMutationAndNestedCWD(t *testing.T) {
 		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
 		cwd:         "/tmp/project/root", terminal: true, found: true, project: testProjectInstance(),
 	}
-	code, err := New(fake).EnterProject(
+	selector := &workspaceSelectorFake{choice: tobari.ProjectSelectionChoice{
+		Kind: tobari.ProjectSelectionUse, ID: testProjectInstance().ID,
+	}}
+	code, err := NewWithWorkspaceSelector(fake, selector).EnterProject(
 		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
 	)
 	if err != nil || code != 0 {
@@ -360,6 +394,131 @@ func TestEnterProjectAcceptsCurrentDirectoryMutationAndNestedCWD(t *testing.T) {
 	}
 	if fake.clusterCalls != 0 || fake.resolveCalls != 1 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
 		t.Fatalf("calls = cluster:%d resolve:%d ensure:%d enter:%d", fake.clusterCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
+	}
+	if selector.calls != 1 || selector.seen.CWD != fake.cwd || len(selector.seen.Candidates) != 1 {
+		t.Fatalf("selection = calls:%d value:%+v", selector.calls, selector.seen)
+	}
+}
+
+func TestEnterProjectWithoutAncestorCreatesDirectly(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project", terminal: true, found: false, project: testProjectInstance(),
+	}
+	code, err := New(fake).EnterProject(
+		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	if err != nil || code != 0 {
+		t.Fatalf("EnterProject() = (%d, %v)", code, err)
+	}
+	if fake.createCalls != 1 || fake.resolveCalls != 0 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
+		t.Fatalf("calls = create:%d resolve:%d ensure:%d enter:%d", fake.createCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
+	}
+}
+
+func TestEnterProjectExactCurrentRootReusesDirectly(t *testing.T) {
+	t.Parallel()
+	project := testProjectInstance()
+	project.Root = "/tmp/project"
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project", terminal: true, found: true, project: project,
+	}
+	code, err := New(fake).EnterProject(
+		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	if err != nil || code != 0 {
+		t.Fatalf("EnterProject() = (%d, %v)", code, err)
+	}
+	if fake.createCalls != 0 || fake.resolveCalls != 1 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
+		t.Fatalf("calls = create:%d resolve:%d ensure:%d enter:%d", fake.createCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
+	}
+}
+
+func TestEnterProjectRequiresSelectorOnlyForAncestorChoice(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project/root", terminal: true, found: true, project: testProjectInstance(),
+	}
+	_, err := New(fake).EnterProject(
+		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "missing_workspace_selector" {
+		t.Fatalf("error=%v public=%+v", err, public)
+	}
+	if fake.resolveCalls != 0 || fake.createCalls != 0 || fake.ensureCalls != 0 || fake.enterCalls != 0 {
+		t.Fatalf("missing selector caused mutation calls: resolve=%d create=%d ensure=%d enter=%d", fake.resolveCalls, fake.createCalls, fake.ensureCalls, fake.enterCalls)
+	}
+}
+
+func TestEnterProjectExplicitCreateUsesCurrentDirectoryWithoutNearestReuse(t *testing.T) {
+	t.Parallel()
+	parent := testProjectInstance()
+	created := parent
+	created.ID = "01912345-6789-7abc-8def-0123456789ac"
+	created.Root = "/tmp/project/root"
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project/root", terminal: true, found: true, project: parent,
+		projects: []tobari.ProjectInstance{parent}, created: created,
+	}
+	selector := &workspaceSelectorFake{choice: tobari.ProjectSelectionChoice{Kind: tobari.ProjectSelectionCreate}}
+	code, err := NewWithWorkspaceSelector(fake, selector).EnterProject(
+		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	if err != nil || code != 0 {
+		t.Fatalf("EnterProject() = (%d, %v)", code, err)
+	}
+	if fake.createCalls != 1 || fake.resolveCalls != 0 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
+		t.Fatalf("calls = create:%d resolve:%d ensure:%d enter:%d", fake.createCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
+	}
+	if selector.calls != 1 || !selector.seen.CanCreate {
+		t.Fatalf("selection = calls:%d value:%+v", selector.calls, selector.seen)
+	}
+}
+
+func TestEnterProjectRejectsStaleWorkspaceChoiceBeforeRuntime(t *testing.T) {
+	t.Parallel()
+	parent := testProjectInstance()
+	changed := parent
+	changed.ID = "01912345-6789-7abc-8def-0123456789ac"
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project/root", terminal: true, found: true, project: parent, resolved: changed,
+	}
+	selector := &workspaceSelectorFake{choice: tobari.ProjectSelectionChoice{
+		Kind: tobari.ProjectSelectionUse, ID: parent.ID,
+	}}
+	_, err := NewWithWorkspaceSelector(fake, selector).EnterProject(
+		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "workspace_selection_stale" {
+		t.Fatalf("error=%v public=%+v", err, public)
+	}
+	if fake.ensureCalls != 0 || fake.enterCalls != 0 || fake.createCalls != 0 {
+		t.Fatalf("stale choice caused calls: create=%d ensure=%d enter=%d", fake.createCalls, fake.ensureCalls, fake.enterCalls)
+	}
+}
+
+func TestEnterProjectCancellationBeforeMutation(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project/root", terminal: true, found: true, project: testProjectInstance(),
+	}
+	selector := &workspaceSelectorFake{err: context.Canceled}
+	_, err := NewWithWorkspaceSelector(fake, selector).EnterProject(
+		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("EnterProject() error = %v, want context.Canceled", err)
+	}
+	if fake.ensureCalls != 0 || fake.enterCalls != 0 || fake.createCalls != 0 || fake.resolveCalls != 0 {
+		t.Fatalf("cancelled selection caused calls: resolve=%d create=%d ensure=%d enter=%d", fake.resolveCalls, fake.createCalls, fake.ensureCalls, fake.enterCalls)
 	}
 }
 
