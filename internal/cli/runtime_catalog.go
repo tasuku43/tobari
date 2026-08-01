@@ -28,11 +28,11 @@ func runtimeCommandSpecs() []CommandSpec {
 
 func projectEnterSpec() CommandSpec {
 	return CommandSpec{
-		Path: "tobari", Summary: "Choose or create the current directory's Workspace and enter it",
+		Path: "tobari", Summary: "Choose or create the current directory's Workspace and enter a reusable session",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Choose an ancestor Workspace or explicitly create one at the current directory, recover its runtime, and enter an interactive session",
+			Outcome:      "Choose an ancestor Workspace or explicitly create one at the current directory, recover its runtime, and enter an interactive session; exit leaves the Workspace existing for reuse and delete removes it explicitly",
 			Inputs:       []CommandInput{}, Output: noOutput(),
 			Prerequisites: []string{
 				"The current directory is an accessible project directory.",

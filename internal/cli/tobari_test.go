@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
 	"sort"
@@ -60,6 +61,21 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 		compact.Agent.Mutation.TargetKind != tobari.PolicyCompactionKind ||
 		compact.Agent.Mutation.TargetIDInput != "--id" {
 		t.Fatalf("policy compact reference contract = %+v", compact)
+	}
+}
+
+func TestProjectSessionClosedSummaryStaysOnHostLifecycleStream(t *testing.T) {
+	t.Parallel()
+	var hostStderr bytes.Buffer
+	childStdout := &bytes.Buffer{}
+	if _, err := writeOnce(&hostStderr, renderProjectSessionClosed()); err != nil {
+		t.Fatalf("writeOnce() error = %v", err)
+	}
+	if childStdout.Len() != 0 {
+		t.Fatalf("child stdout received host lifecycle guidance: %q", childStdout.String())
+	}
+	if got, want := hostStderr.String(), "Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete --force\n"; got != want {
+		t.Fatalf("host lifecycle guidance = %q, want %q", got, want)
 	}
 }
 

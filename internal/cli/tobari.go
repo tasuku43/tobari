@@ -277,7 +277,14 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	if err != nil {
 		return c.fail(ctx, err)
 	}
+	// The child interactive process owns stdout. Keep the host-side lifecycle
+	// guidance on stderr so shell output from the session remains untouched.
+	_, _ = writeOnce(c.Err, renderProjectSessionClosed())
 	return code
+}
+
+func renderProjectSessionClosed() []byte {
+	return []byte("Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete --force\n")
 }
 
 func runProjectStatus(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
