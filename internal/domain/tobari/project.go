@@ -125,21 +125,26 @@ func (r ProjectListResult) Validate() error {
 	if r.Task != TaskProjectList || r.Items == nil {
 		return fmt.Errorf("project list task or scope is invalid")
 	}
-	seen := make(map[string]bool, len(r.Items))
+	seenIDs := make(map[string]bool, len(r.Items))
+	seenRoots := make(map[string]bool, len(r.Items))
 	for _, item := range r.Items {
 		if err := item.Validate(); err != nil {
 			return err
 		}
-		if seen[item.ID] {
+		if seenIDs[item.ID] {
 			return fmt.Errorf("project list IDs must be unique")
 		}
-		seen[item.ID] = true
+		if seenRoots[item.Root] {
+			return fmt.Errorf("project list roots must be unique")
+		}
+		seenIDs[item.ID] = true
+		seenRoots[item.Root] = true
 	}
 	if r.CurrentID != "" {
 		if err := ValidateProjectID(r.CurrentID); err != nil {
 			return fmt.Errorf("project list current ID is invalid: %w", err)
 		}
-		if !seen[r.CurrentID] {
+		if !seenIDs[r.CurrentID] {
 			return fmt.Errorf("project list current ID is not present in items")
 		}
 	}
@@ -193,6 +198,29 @@ func (r RootIndex) Validate() error {
 		return err
 	}
 	return ValidateProjectID(r.InstanceID)
+}
+
+// ValidateRootIndexes rejects a root-index collection that could make a
+// canonical root resolve to more than one logical Workspace. The filesystem
+// adapter normally enforces this with the root-hash filename, but the domain
+// invariant also protects selection and recovery from malformed collections.
+func ValidateRootIndexes(indexes []RootIndex) error {
+	seenRoots := make(map[string]struct{}, len(indexes))
+	seenIDs := make(map[string]struct{}, len(indexes))
+	for _, index := range indexes {
+		if err := index.Validate(); err != nil {
+			return err
+		}
+		if _, exists := seenRoots[index.Root]; exists {
+			return fmt.Errorf("root indexes must contain one Workspace per canonical root")
+		}
+		if _, exists := seenIDs[index.InstanceID]; exists {
+			return fmt.Errorf("root indexes must contain unique Workspace IDs")
+		}
+		seenRoots[index.Root] = struct{}{}
+		seenIDs[index.InstanceID] = struct{}{}
+	}
+	return nil
 }
 
 // ProjectRuntime is recoverable diagnostic state. Empty values mean that the
@@ -502,11 +530,11 @@ func ContainingRoots(cwd string, indexes []RootIndex) ([]RootIndex, error) {
 	if err := ValidateCanonicalRoot(cwd); err != nil {
 		return nil, err
 	}
+	if err := ValidateRootIndexes(indexes); err != nil {
+		return nil, err
+	}
 	containing := make([]RootIndex, 0, len(indexes))
 	for _, index := range indexes {
-		if err := index.Validate(); err != nil {
-			return nil, err
-		}
 		if !containsRoot(index.Root, cwd) {
 			continue
 		}

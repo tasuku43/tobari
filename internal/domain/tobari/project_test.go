@@ -95,6 +95,20 @@ func TestProjectListResultValidatesCurrentIDAgainstItems(t *testing.T) {
 	}
 }
 
+func TestProjectListResultRejectsDuplicateWorkspaceRoots(t *testing.T) {
+	t.Parallel()
+	item := ProjectListItem{
+		Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
+		Home: "/tmp/state/home", Runtime: RuntimeDiagnosticReady,
+	}
+	duplicate := item
+	duplicate.ID = "01912345-6789-7abc-8def-0123456789ac"
+	result := ProjectListResult{Task: TaskProjectList, Items: []ProjectListItem{item, duplicate}}
+	if err := result.Validate(); err == nil {
+		t.Fatal("ProjectListResult.Validate() accepted duplicate canonical Workspace roots")
+	}
+}
+
 func TestNearestRootSelectsNearestAncestor(t *testing.T) {
 	t.Parallel()
 	indexes := []RootIndex{
@@ -129,6 +143,31 @@ func TestContainingRootsReturnsEveryAncestorNearestFirst(t *testing.T) {
 		if got[index].Root != root {
 			t.Fatalf("ContainingRoots()[%d] = %q, want %q", index, got[index].Root, root)
 		}
+	}
+}
+
+func TestValidateRootIndexesRejectsDuplicateCanonicalRoots(t *testing.T) {
+	t.Parallel()
+	indexes := []RootIndex{
+		{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000000"},
+		{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000001"},
+	}
+	if err := ValidateRootIndexes(indexes); err == nil {
+		t.Fatal("ValidateRootIndexes() accepted duplicate canonical roots")
+	}
+	if _, err := ContainingRoots("/src/project/internal", indexes); err == nil {
+		t.Fatal("ContainingRoots() accepted duplicate canonical roots")
+	}
+}
+
+func TestValidateRootIndexesRejectsDuplicateWorkspaceIDs(t *testing.T) {
+	t.Parallel()
+	indexes := []RootIndex{
+		{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000000"},
+		{SchemaVersion: 1, Root: "/src/project/internal", InstanceID: "018bcfe5-687b-7000-8000-000000000000"},
+	}
+	if err := ValidateRootIndexes(indexes); err == nil {
+		t.Fatal("ValidateRootIndexes() accepted duplicate Workspace IDs")
 	}
 }
 

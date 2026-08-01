@@ -568,6 +568,9 @@ func (r *Runtime) listRootIndexes() ([]tobari.RootIndex, error) {
 		}
 		indexes = append(indexes, index)
 	}
+	if err := tobari.ValidateRootIndexes(indexes); err != nil {
+		return nil, fmt.Errorf("validate root index set: %w", err)
+	}
 	return indexes, nil
 }
 

@@ -89,6 +89,63 @@ func TestCreateProjectAllowsExplicitNestedWorkspaceCreation(t *testing.T) {
 	}
 }
 
+func TestCreateProjectSerializesConcurrentSameRootCreation(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	canonicalRoot, err := runtime.ResolveRoot(context.Background(), root)
+	if err != nil {
+		t.Fatalf("ResolveRoot() error = %v", err)
+	}
+	const callers = 12
+	ids := make(chan string, callers)
+	errs := make(chan error, callers)
+	var group sync.WaitGroup
+	for range callers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			instance, err := runtime.CreateProject(context.Background(), root)
+			if err != nil {
+				errs <- err
+				return
+			}
+			ids <- instance.ID
+		}()
+	}
+	group.Wait()
+	close(ids)
+	close(errs)
+
+	var createdID string
+	for id := range ids {
+		if createdID != "" {
+			t.Fatalf("concurrent explicit creation produced Workspace IDs %q and %q", createdID, id)
+		}
+		createdID = id
+	}
+	var duplicateErrors int
+	for err := range errs {
+		if !errors.Is(err, tobari.ErrProjectExists) {
+			t.Fatalf("CreateProject() error = %v, want ErrProjectExists for the losing caller", err)
+		}
+		duplicateErrors++
+	}
+	if createdID == "" || duplicateErrors != callers-1 {
+		t.Fatalf("concurrent explicit creation = created %q, duplicate errors %d; want one creation and %d duplicate errors", createdID, duplicateErrors, callers-1)
+	}
+	instances, err := runtime.ListProjects(context.Background())
+	if err != nil {
+		t.Fatalf("ListProjects() error = %v", err)
+	}
+	if len(instances) != 1 || instances[0].ID != createdID || instances[0].Root != canonicalRoot {
+		t.Fatalf("ListProjects() = %+v, want one Workspace %q at %q", instances, createdID, canonicalRoot)
+	}
+}
+
 func TestResolveProjectFollowsCanonicalSymlink(t *testing.T) {
 	t.Parallel()
 	runtime := newProjectStateRuntime(t)
