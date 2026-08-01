@@ -33,6 +33,10 @@ const (
 	projectLogMaxFiles       = "3"
 )
 
+func projectLifetimeCommand() []string {
+	return strings.Fields(tobari.RuntimeImageLifetimeCommand)
+}
+
 func projectResourceDockerArgs() []string {
 	return []string{
 		"--cpus", projectCPULimit,
@@ -87,6 +91,17 @@ func (r *Runtime) EnsureProjectRuntime(
 		if resolved, resolveErr := r.ResolveProjectRoot(ctx, stored.Root); resolveErr != nil || resolved != stored.Root {
 			return fmt.Errorf("project root is no longer accessible at its canonical path")
 		}
+		image := stored.Image
+		if image == tobari.BuiltinImageSelector {
+			image = tobariImage(state)
+		}
+		if err := r.validateCompatibleImage(ctx, image); err != nil {
+			return err
+		}
+		imageID, err := r.compatibleImageID(ctx, image)
+		if err != nil {
+			return err
+		}
 		if err := r.ensurePrivateDirectory(r.projectHomePath(stored.ID)); err != nil {
 			return fmt.Errorf("prepare project home: %w", err)
 		}
@@ -98,17 +113,6 @@ func (r *Runtime) EnsureProjectRuntime(
 			return err
 		}
 		container, network, err := tobari.ProjectResourceNames(stored.ID)
-		if err != nil {
-			return err
-		}
-		image := stored.Image
-		if image == tobari.BuiltinImageSelector {
-			image = tobariImage(state)
-		}
-		if err := r.validateCompatibleImage(ctx, image); err != nil {
-			return err
-		}
-		imageID, err := r.compatibleImageID(ctx, image)
 		if err != nil {
 			return err
 		}
@@ -460,6 +464,7 @@ func (r *Runtime) ensureProjectContainer(
 	}
 	args = append(args, projectResourceDockerArgs()...)
 	args = append(args, image)
+	args = append(args, projectLifetimeCommand()...)
 	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
 		return fmt.Errorf("create project container: %w: %s", err, boundedDiagnostic(output))
 	}
@@ -520,27 +525,35 @@ func (r *Runtime) compatibleImageID(ctx context.Context, image string) (string, 
 }
 
 type projectRuntimeSpec struct {
-	Image          string   `json:"image"`
-	ImageID        string   `json:"image_id"`
-	RuntimeAPI     string   `json:"runtime_api"`
-	AssetVersion   string   `json:"asset_version"`
-	WorkspaceRoot  string   `json:"workspace_root"`
-	Root           string   `json:"root"`
-	Network        string   `json:"network"`
-	User           string   `json:"user"`
-	Environment    []string `json:"environment"`
-	Mounts         []string `json:"mounts"`
-	ReadOnly       bool     `json:"read_only"`
-	Capabilities   string   `json:"capabilities"`
-	Security       string   `json:"security"`
-	Resources      []string `json:"resources"`
-	HealthCommand  string   `json:"health_command"`
-	HealthInterval string   `json:"health_interval"`
-	ProfileDigest  string   `json:"profile_digest"`
+	Image           string   `json:"image"`
+	ImageID         string   `json:"image_id"`
+	RuntimeAPI      string   `json:"runtime_api"`
+	AssetVersion    string   `json:"asset_version"`
+	WorkspaceRoot   string   `json:"workspace_root"`
+	Root            string   `json:"root"`
+	Network         string   `json:"network"`
+	User            string   `json:"user"`
+	Environment     []string `json:"environment"`
+	Mounts          []string `json:"mounts"`
+	ReadOnly        bool     `json:"read_only"`
+	Capabilities    string   `json:"capabilities"`
+	Security        string   `json:"security"`
+	Resources       []string `json:"resources"`
+	LifetimeCommand []string `json:"lifetime_command"`
+	HealthCommand   string   `json:"health_command"`
+	HealthInterval  string   `json:"health_interval"`
+	ProfileDigest   string   `json:"profile_digest"`
 }
 
 func (r *Runtime) projectSpecHash(
 	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+) (string, error) {
+	return r.projectSpecHashWithCommand(state, instance, profile, network, image, imageID, projectLifetimeCommand())
+}
+
+func (r *Runtime) projectSpecHashWithCommand(
+	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	command []string,
 ) (string, error) {
 	workspaceRoot, err := tobari.ProjectWorkspaceRoot(instance.Root)
 	if err != nil {
@@ -574,8 +587,9 @@ func (r *Runtime) projectSpecHash(
 			"volume:tobari-public-ca->/run/tobari/ca-public:ro",
 		},
 		ReadOnly: true, Capabilities: "ALL", Security: "no-new-privileges:true",
-		Resources:     projectResourceHashFields(),
-		HealthCommand: "test -f /tmp/tobari-ready", HealthInterval: "2s", ProfileDigest: profileDigest,
+		Resources:       projectResourceHashFields(),
+		LifetimeCommand: append([]string(nil), command...),
+		HealthCommand:   "test -f /tmp/tobari-ready", HealthInterval: "2s", ProfileDigest: profileDigest,
 	}
 	encoded, err := json.Marshal(spec)
 	if err != nil {

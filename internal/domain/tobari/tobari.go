@@ -32,9 +32,11 @@ const (
 	PolicyCandidateKind  = "policy-candidate"
 	PolicyCompactionKind = "policy-compaction"
 
-	BuiltinImageSelector = "builtin"
-	RuntimeImageAPILabel = "io.tobari.runtime-api"
-	RuntimeImageAPI      = "1"
+	BuiltinImageSelector        = "builtin"
+	RuntimeImageAPILabel        = "io.tobari.runtime-api"
+	RuntimeImageAPI             = "1"
+	RuntimeImageLifetimeLabel   = "io.tobari.runtime-lifetime-command"
+	RuntimeImageLifetimeCommand = "sleep infinity"
 )
 
 var (

@@ -88,7 +88,8 @@ egress networks; OPA joins only control.
   and after recovery.
 - Image-selection tests require a locally available runtime-API-compatible
   image before any per-Tobari resource is created; image configuration cannot
-  replace the CLI-owned isolation arguments.
+  replace the CLI-owned isolation arguments. Runtime API compatibility includes
+  the bootstrap needed to execute Tobari's fixed Workspace lifetime command.
 
 ## Thesis 3: Secrets enter only after authorization
 
@@ -157,6 +158,12 @@ directory.
 - An explicit in-root image-based `devcontainer.json` may select that image,
   but cannot delegate mounts, privileges, environment, lifecycle, or
   orchestration to another tool.
+- The selected image is an environment and tool source, not the Workspace
+  lifetime owner. Tobari starts the work container with its own fixed lifetime
+  command; an image `CMD` such as `claude` cannot make a child-agent exit stop
+  the Workspace. The minimal runtime image is the compatibility foundation,
+  and future derived agent/tool images remain convenience bases under the same
+  contract.
 - `tobari delete` is the only routine operation that ends a logical Tobari;
   ending a shell or losing a runtime resource leaves it existing.
 - Every process in a Tobari may modify or delete every file below that Tobari's
@@ -213,6 +220,9 @@ name prefix or broad Docker query as authority.
   later without changing application outcomes.
 - The project runtime spec hash includes the fixed resource contract, so an old
   or drifted container is recreated before reuse.
+- The project runtime spec hash includes the fixed Workspace lifetime command,
+  and image compatibility is rejected before project runtime resources are
+  mutated.
 - Shared Gateway and OPA services use the same fixed JSON log rotation bounds;
   a project cannot fill their host-side Docker logs without a cap.
 - Shared Gateway and OPA services also carry fixed CPU, memory-plus-swap, and

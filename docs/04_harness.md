@@ -240,12 +240,14 @@ The test suite has complementary levels:
   duplicate IDs and diagnose orphaned one-sided records. Shared-state tests
   prove locked atomic writes, interrupted cluster reconcile diagnosis, and
   explicit cluster network reconnects.
-- Custom-image tests build from the stable local Tobari base, select it through
-  bounded configuration, and prove compatibility is checked before per-Tobari
-  resources exist.
+- Custom-image tests build from the stable local Tobari base, include a fixture
+  with a terminating image `CMD`, select it through bounded configuration, and
+  prove the image `CMD` cannot own Workspace lifetime. They also prove
+  compatibility is checked before per-Tobari resources exist.
 - Runtime-spec tests assert fixed CPU, memory, PID-count, and container-log
-  options, include the resource contract in drift hashing, and the Docker
-  integration scenario inspects those limits after creation and recovery.
+  options and the Tobari-owned lifetime command, include that contract in drift
+  hashing, and the Docker integration scenario inspects those limits after
+  creation and recovery.
 - Dev Container tests cover comments, trailing commas, duplicate keys, size and
   symlink escape, unsupported runtime properties, input conflicts, and one
   image-based Docker integration path.

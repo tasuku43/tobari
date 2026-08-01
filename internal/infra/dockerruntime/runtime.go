@@ -860,6 +860,7 @@ func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root, im
 	args = append(args, projectResourceDockerArgs()...)
 	args = append(args, labels...)
 	args = append(args, image)
+	args = append(args, projectLifetimeCommand()...)
 	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
 		return tobari.State{}, fmt.Errorf("create Tobari container: %w: %s", err, boundedDiagnostic(output))
 	}
@@ -879,7 +880,7 @@ func (r *Runtime) validateCompatibleImage(ctx context.Context, image string) err
 		ctx,
 		[]string{
 			"image", "inspect", "--format",
-			`{"api":{{json (index .Config.Labels "` + tobari.RuntimeImageAPILabel + `")}},"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}}}`,
+			`{"api":{{json (index .Config.Labels "` + tobari.RuntimeImageAPILabel + `")}},"lifetime":{{json (index .Config.Labels "` + tobari.RuntimeImageLifetimeLabel + `")}},"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}}}`,
 			image,
 		},
 		os.Environ(),
@@ -893,17 +894,19 @@ func (r *Runtime) validateCompatibleImage(ctx context.Context, image string) err
 	}
 	var configuration struct {
 		API        string   `json:"api"`
+		Lifetime   string   `json:"lifetime"`
 		User       string   `json:"user"`
 		Entrypoint []string `json:"entrypoint"`
 	}
 	expectedEntrypoint := []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}
 	if err := json.Unmarshal(bytes.TrimSpace(output), &configuration); err != nil ||
 		configuration.API != tobari.RuntimeImageAPI ||
+		configuration.Lifetime != tobari.RuntimeImageLifetimeCommand ||
 		configuration.User != "tobari" ||
 		!equalStrings(configuration.Entrypoint, expectedEntrypoint) {
 		return fault.New(
 			fault.KindRejected, "incompatible_image",
-			"selected image does not preserve the supported Tobari runtime API, user, and entrypoint", false,
+			"selected image does not preserve the supported Tobari runtime API, lifetime command, user, and entrypoint", false,
 			fault.NextAction{Command: "help tobari", Reason: "Extend the documented Tobari runtime base."},
 		)
 	}

@@ -29,10 +29,15 @@ docker build \
   .
 
 runtime_api=$(docker image inspect --format '{{index .Config.Labels "io.tobari.runtime-api"}}' "$tag")
+runtime_lifetime=$(docker image inspect --format '{{index .Config.Labels "io.tobari.runtime-lifetime-command"}}' "$tag")
 image_user=$(docker image inspect --format '{{.Config.User}}' "$tag")
 entrypoint=$(docker image inspect --format '{{json .Config.Entrypoint}}' "$tag")
 [[ $runtime_api == 1 ]] || {
   echo "toolbox image does not preserve Tobari runtime API 1" >&2
+  exit 1
+}
+[[ $runtime_lifetime == 'sleep infinity' ]] || {
+  echo "toolbox image does not preserve Tobari lifetime command" >&2
   exit 1
 }
 [[ $image_user == tobari ]] || {

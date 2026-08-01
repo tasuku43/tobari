@@ -49,8 +49,10 @@ and explicit policy activation rather than an observed host-only approval.
   directory and mounted read-write into one Tobari at `/workspace`.
 - **Tobari home:** a per-Tobari persistent owner-only XDG state directory
   mounted as the work user's home.
-- **Tobari image:** the built-in runtime or one locally available compatible
-  OCI image selected when a Tobari is first created.
+- **Tobari image:** the minimal built-in runtime or one locally available
+  compatible OCI environment image selected when a Tobari is first created.
+  Its tools and bootstrap are part of the environment; its image `CMD` is not
+  the Workspace lifetime command.
 - **Tobari ID:** a generated stable internal identity used for state, exact
   resource labels, and host-issued project-principal bindings. It is diagnostic
   output, not a routine user action input.
@@ -121,12 +123,21 @@ undeclared Docker mutation by the CLI.
   at `/work` and a host CWD of `/work/root` enter at `/workspace/work/root`.
 - The configured image accepts `builtin` or a portable OCI image reference. A
   custom image must already exist locally and preserve runtime API `1`, the
-  `tobari` image user, and the Tobari entrypoint. Tobari never pulls an image
-  implicitly.
+  `tobari` image user, the `io.tobari.runtime-lifetime-command` capability, and
+  the Tobari entrypoint. That capability is currently `sleep infinity`, which
+  is required by Tobari's fixed Workspace lifetime command. Tobari never pulls an
+  image implicitly. Missing or incompatible images fail before project runtime
+  network or container mutation; the logical Workspace remains available for
+  repair and retry.
 - The repository's optional `tobari-toolbox:local` recipe is a reviewed custom
   image workflow, not another built-in selector. Its explicit build verifies
   pinned vendor artifacts and runtime compatibility; root runtime startup
   neither build nor pull it.
+- The intended official image family is one minimal runtime foundation plus
+  reviewed derived agent/tool images such as Claude and Codex. Those images are
+  convenience bases, not a separate authority boundary; registry publication
+  is governed by the release/publication contract and is not implied by local
+  image selection.
 - An explicitly configured Dev Container file is one regular file below the
   canonical root. The supported JSONC subset requires
   one literal `image` and permits only inert `$schema`, `name`, and
@@ -299,9 +310,14 @@ Gateway and OPA health. The root command only verifies the shared cluster is
 configured and ready, reads the indexed Workspace candidates, and waits for an
 explicit choice when the canonical current directory is below an ancestor.
 After the choice is revalidated under the lifecycle lock, it creates or reuses
-the selected logical record, reconciles its labeled container and internal
-network, binds its XDG home, joins Gateway to that network, waits for the
-project healthcheck, and enters the resulting terminal session. A changed image identity, runtime contract,
+the selected logical record, validates the selected image before project
+runtime mutation, reconciles its labeled container and internal network, binds
+its XDG home, joins Gateway to that network, waits for the project healthcheck,
+and enters the resulting terminal session. Docker create appends Tobari's
+fixed `sleep infinity` lifetime command after the image; the image `CMD` is
+not used to own Workspace lifetime. Shells and exact agent commands run through
+child exec sessions, so a child command's nonzero exit is returned without
+stopping the reusable Workspace. A changed image identity, runtime contract,
 mount/security/environment/health specification, or shared profile revision
 recreates only the project container and preserves its logical state and home.
 Returning from that child session, including a normal shell `exit`, performs no

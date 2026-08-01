@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -261,8 +262,10 @@ func TestEnsureProjectAgentStateMergesSharedAndLocalSettings(t *testing.T) {
 
 type projectReconcileRunner struct {
 	failOn          func([]string) bool
+	imageData       []byte
 	networkExists   bool
 	containerExists bool
+	calls           [][]string
 }
 
 type projectSpecDriftRunner struct {
@@ -346,6 +349,7 @@ func (r *projectReconcileRunner) Run(context.Context, []string, []string, io.Rea
 }
 
 func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	r.calls = append(r.calls, append([]string{}, args...))
 	if r.failOn != nil && r.failOn(args) {
 		return []byte("injected failure"), errors.New("injected failure")
 	}
@@ -354,7 +358,10 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 	}
 	switch args[0] {
 	case "image":
-		return []byte(`{"api":"1","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`), nil
+		if r.imageData != nil {
+			return append([]byte{}, r.imageData...), nil
+		}
+		return []byte(`{"api":"1","lifetime":"sleep infinity","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`), nil
 	case "network":
 		if len(args) > 1 && args[1] == "inspect" {
 			if !r.networkExists {
@@ -385,6 +392,48 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 		return nil, nil
 	default:
 		return nil, nil
+	}
+}
+
+func TestEnsureProjectRuntimeRejectsIncompatibleImageBeforeProjectMutation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &projectReconcileRunner{
+		imageData: []byte(`{"api":"0","user":"root","entrypoint":["/bin/sh"]}`),
+	}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectRoot := filepath.Join(root, "project")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(runtime.projectHomePath(instance.ID), "marker")
+	if err := os.WriteFile(marker, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.EnsureProjectRuntime(context.Background(), runtimeState(root), instance)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "incompatible_image" {
+		t.Fatalf("EnsureProjectRuntime() error = %v, want incompatible_image", err)
+	}
+	for _, call := range runner.calls {
+		if len(call) == 0 {
+			continue
+		}
+		if call[0] == "network" || call[0] == "create" || call[0] == "start" {
+			t.Fatalf("incompatible image reached project mutation: %v", runner.calls)
+		}
+	}
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "preserve" {
+		t.Fatalf("logical home marker after incompatible image = %q, err=%v", data, err)
 	}
 }
 
@@ -475,6 +524,7 @@ func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
 		t.Fatalf("project create call missing from %v", runner.calls)
 	}
 	for _, want := range [][]string{
+		{"tobari-image", "sleep", "infinity"},
 		{"--cpus", "2.0"},
 		{"--memory", "4g"},
 		{"--memory-swap", "4g"},
@@ -486,6 +536,38 @@ func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
 		if !containsConsecutiveArgs(create, want...) {
 			t.Errorf("project create args = %v, missing %v", create, want)
 		}
+	}
+}
+
+func TestProjectSpecHashIncludesLifetimeCommand(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &recordingRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	profile, err := runtime.ensureSharedProfile(tobari.DefaultProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(root)
+	standard, err := runtime.projectSpecHashWithCommand(
+		state, instance, profile, "tobari-network", "tobari-image", "sha256:image", []string{"sleep", "infinity"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminating, err := runtime.projectSpecHashWithCommand(
+		state, instance, profile, "tobari-network", "tobari-image", "sha256:image", []string{"sh", "-c", "exit 23"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if standard == terminating {
+		t.Fatal("project spec hash ignored the lifetime command")
 	}
 }
 

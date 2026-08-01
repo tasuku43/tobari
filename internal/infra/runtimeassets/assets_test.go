@@ -32,6 +32,26 @@ func TestMaterializeAndVersion(t *testing.T) {
 	}
 }
 
+func TestTobariDockerfileDeclaresRuntimeContract(t *testing.T) {
+	t.Parallel()
+	data, err := Read("tobari/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := string(data)
+	for _, required := range []string{
+		`io.tobari.runtime-api="1"`,
+		`io.tobari.runtime-lifetime-command="sleep infinity"`,
+		`USER tobari`,
+		`ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"]`,
+		`CMD ["sleep", "infinity"]`,
+	} {
+		if !strings.Contains(spec, required) {
+			t.Errorf("Tobari Dockerfile is missing %q", required)
+		}
+	}
+}
+
 func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 	t.Parallel()
 	data, err := Read("compose.yaml")

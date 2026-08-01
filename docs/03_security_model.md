@@ -73,12 +73,23 @@ project roots. Publishing or applying a source to active policy is an explicit
 trusted-host operation; entering that source repository never changes policy.
 
 A custom Tobari image is untrusted input and receives no additional authority.
-The CWD-owned runtime accepts only a locally available image that asserts runtime API `1` and
-preserves the built-in image user and entrypoint, then independently fixes the
-numeric runtime user, read-only root, capabilities, security options, mounts,
-network, proxy environment, and health check. Compatibility metadata is not a
-signature or provenance claim. Users remain responsible for image contents and
-should prefer immutable digest references.
+The CWD-owned runtime accepts only a locally available image that asserts
+runtime API `1` and preserves the built-in image user, entrypoint, and
+`io.tobari.runtime-lifetime-command=sleep infinity` capability needed for the
+fixed Workspace lifetime command, then independently fixes the numeric runtime
+user, read-only root, capabilities, security options,
+mounts, network, proxy environment, and health check. Compatibility metadata is
+not a signature or provenance claim. Tobari does not grant the image's `CMD`
+lifecycle authority: the infrastructure supplies the long-lived command and
+runs user commands through child exec sessions. Missing or incompatible image
+metadata is rejected before project home, network, or container mutation. Users
+remain responsible for image contents and should prefer immutable digest
+references.
+
+The planned minimal runtime and derived agent/tool images do not change this
+boundary. A published Claude, Codex, or toolbox image is a convenience rootfs
+and tool bundle, not a source of mounts, credentials, capabilities, network
+routes, or lifecycle policy.
 
 The optional toolbox recipe downloads version-pinned GitHub CLI, AWS CLI,
 kubectl, and TWG artifacts only during an explicit trusted-host build.

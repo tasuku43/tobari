@@ -814,25 +814,29 @@ func TestAttachRejectsMissingImageBeforeCreatingResources(t *testing.T) {
 	}
 }
 
-func TestValidateCompatibleImageRequiresRuntimeAPILabel(t *testing.T) {
+func TestValidateCompatibleImageRequiresRuntimeContract(t *testing.T) {
 	t.Parallel()
 	for name, test := range map[string]struct {
 		configuration string
 		wantErr       bool
 	}{
 		"compatible": {
-			configuration: `{"api":"1","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
+			configuration: `{"api":"1","lifetime":"sleep infinity","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
 		},
 		"unlabeled": {
-			configuration: `{"api":"","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
+			configuration: `{"api":"","lifetime":"sleep infinity","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
+			wantErr:       true,
+		},
+		"missing lifetime command": {
+			configuration: `{"api":"1","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
 			wantErr:       true,
 		},
 		"overridden entrypoint": {
-			configuration: `{"api":"1","user":"tobari","entrypoint":["/bin/sh"]}`,
+			configuration: `{"api":"1","lifetime":"sleep infinity","user":"tobari","entrypoint":["/bin/sh"]}`,
 			wantErr:       true,
 		},
 		"overridden user": {
-			configuration: `{"api":"1","user":"root","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
+			configuration: `{"api":"1","lifetime":"sleep infinity","user":"root","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`,
 			wantErr:       true,
 		},
 	} {

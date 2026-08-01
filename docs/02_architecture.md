@@ -69,8 +69,9 @@ writes generated non-secret runtime configuration, including the owner-only
 project-principal registry, and invokes Docker through
 the runtime port. Compose owns only Gateway, OPA, shared networks, and CA
 volumes. The built-in image receives an asset-version tag and the stable local
-extension tag `tobari-runtime:local`. The runtime adapter creates each logical
-Tobari from the built-in image or an exact configured local image and
+extension tag `tobari-runtime:local`; this tag is the minimal runtime foundation
+for local derivations. The runtime adapter creates each logical Tobari from the
+built-in image or an exact configured local image and
 connects Gateway to its dedicated network, then records the Gateway interface
 address in the principal registry. No runtime asset is downloaded
 during startup. A public-only CA volume is mounted read-only into
@@ -78,9 +79,14 @@ each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
 Custom images are supported only when they preserve runtime API label
 `io.tobari.runtime-api=1`, the `tobari` image user, and the exact built-in
-entrypoint. The intended construction is `FROM tobari-runtime:local`; a
-runtime-API label is a compatibility assertion, not an image provenance or
-trust signature. Docker create still supplies the invoking numeric UID/GID,
+entrypoint, including the `io.tobari.runtime-lifetime-command=sleep infinity`
+capability needed for Tobari's fixed Workspace lifetime command. The intended
+construction is `FROM tobari-runtime:local`; a runtime-API label is a
+compatibility assertion, not an image provenance or trust signature. The
+selected image's `CMD` is ignored for Workspace lifetime: Docker create receives
+the explicit `sleep infinity` command after the image. Tobari validates
+compatibility before creating the project home, network, or container. Docker
+create still supplies the invoking numeric UID/GID,
 read-only root filesystem, dropped capabilities, fixed CPU/memory/PID/log
 resource bounds, fixed mounts, proxy environment, internal network, and health
 check.
@@ -91,6 +97,11 @@ network-facing CLI exercises. A separate host task builds it from
 metadata and tool executability, and leaves only the local
 `tobari-toolbox:local` tag. It is not embedded runtime state, a published
 artifact, or an implicit cluster dependency.
+
+The intended published family follows the same layering: publish the minimal
+runtime foundation and a small set of reviewed derived agent/tool images. Image
+publication, package naming, provenance, licensing, and registry permissions
+remain a separate public-boundary and release decision.
 
 The root resolver obtains an image from bounded project metadata or the strict
 owner-only XDG `config.json` `default_image`; absence before first initialization
@@ -131,8 +142,10 @@ io.tobari.version=<asset revision>
 ```
 
 Interactive session attachment is a separate, transient process state. The
-runtime adapter starts the work container independently and enters it through
-one `docker exec -i -t ... /bin/bash` child session. The state model is:
+runtime adapter starts the work container with the infrastructure-owned
+`sleep infinity` lifetime process independently of the selected image `CMD`,
+then enters it through one `docker exec -i -t ... /bin/bash` child session.
+Exact commands use the same child-exec boundary. The state model is:
 
 ```text
 Workspace absent
@@ -148,9 +161,10 @@ Detached session + Workspace exists
 Workspace absent
 ```
 
-The child shell's `exit` ends only the exec process; it does not stop or delete
-the work container, logical instance, root index, or per-Workspace home. There
-is no persisted stopped/paused state. Detached `delete` removes the logical
+The child shell's `exit`, or a nonzero exit from an exact agent command, ends
+only the exec process; it does not stop or delete the work container, logical
+instance, root index, or per-Workspace home. There is no persisted stopped or
+paused state. Detached `delete` removes the logical
 Workspace; an attached exec makes ordinary deletion fail, and `delete --force`
 is the explicit host-side override.
 

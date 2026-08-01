@@ -190,8 +190,14 @@ their named shell/exec forms) are rejected with a replacement message; they do
 not create a second lifecycle model. Legacy named state is not guessed or
 automatically migrated.
 
-Agent CLIs are not bundled. Install them inside a Tobari or place binaries below
-its selected root. The per-Tobari home survives shell exit and runtime recovery.
+The minimal runtime does not bundle a particular agent brand. The intended
+official image family is a minimal Tobari runtime plus a small set of derived
+agent/tool images, such as Claude and Codex variants. Those images are
+convenience starting points; they do not change Tobari's isolation or lifecycle
+boundary, and registry publication is a separate release step.
+
+Install other agent CLIs inside a Tobari or place binaries below its selected
+root. The per-Tobari home survives shell exit and runtime recovery.
 
 ### Common CLI toolbox
 
@@ -230,8 +236,8 @@ and other non-HTTP transports have no direct egress route.
 
 ### Custom work images
 
-`cluster up` also builds `tobari-runtime:local`, a stable local extension base.
-Add tools without replacing its user or entrypoint:
+`cluster up` also builds `tobari-runtime:local`, the minimal local runtime
+foundation. Add tools without replacing its user or entrypoint:
 
 ```dockerfile
 FROM tobari-runtime:local
@@ -268,14 +274,28 @@ tobari
 Image selection uses `config.json.default_image`, then `builtin` before
 configuration is initialized.
 
-Tobari never pulls a configured image implicitly. The image must be available locally
-and preserve runtime API `1`, the `tobari` image user, and the inherited
-entrypoint. Prefer a digest selector when reproducibility matters. The
-compatibility check is not a signature or trust decision: image contents remain
-untrusted and run under the same fixed non-root user, read-only root filesystem,
-dropped capabilities, mounts, proxy, and internal network as the built-in
-image. To change an existing Tobari's image, delete it and run `tobari` again;
-the new logical environment receives a new home.
+Tobari never pulls a configured image implicitly. The image must be available
+locally and preserve runtime API `1`, the `tobari` image user, the inherited
+entrypoint, and `io.tobari.runtime-lifetime-command=sleep infinity` required by
+Tobari's fixed lifetime command.
+Prefer a digest selector when reproducibility matters. The compatibility check
+is not a signature or trust decision: image contents remain untrusted and run
+under the same fixed non-root user, read-only root filesystem, dropped
+capabilities, mounts, proxy, and internal network as the built-in image. If the
+image is missing or incompatible, `tobari` refuses to bring up the Workspace
+before creating its project network or work container.
+
+The selected image's `CMD` does not own Workspace lifetime. Tobari starts the
+work container with its own long-lived `sleep infinity` command, then runs an
+interactive shell or an agent as a child exec session. For example, a child
+`claude` exit returns its status while the Workspace remains reusable:
+
+```sh
+tobari exec --id <id-from-list> -- claude
+```
+
+To change an existing Tobari's image, delete it and run `tobari` again; the new
+logical environment receives a new home.
 
 ### Dev Container image definitions
 
@@ -549,7 +569,7 @@ Common failures:
 - `already_inside`: exit the current Tobari before entering another session.
 - `image_not_found`: build or pull the selected image explicitly on the host.
 - `incompatible_image`: extend `tobari-runtime:local` without replacing its
-  user or entrypoint.
+  user, lifetime-command capability, or entrypoint.
 - `project_not_found`: run `tobari` from the intended project directory.
 - `project_session_attached`: exit the attached session and retry `tobari
   delete`, or use `tobari delete --force` only when terminating that session is

@@ -427,6 +427,12 @@ fi
 tobari_image=$(docker inspect --format '{{.Config.Image}}' "$work_container")
 [[ $tobari_image == "$custom_image" ]] ||
   fail "custom Tobari image selector was not preserved"
+custom_image_cmd=$(docker image inspect --format '{{json .Config.Cmd}}' "$custom_image")
+[[ $custom_image_cmd == '["sh","-c","exit 23"]' ]] ||
+  fail "custom image fixture does not have a terminating default command: $custom_image_cmd"
+work_image_cmd=$(docker inspect --format '{{json .Config.Cmd}}' "$work_container")
+[[ $work_image_cmd == '["sleep","infinity"]' ]] ||
+  fail "Tobari did not override the custom image command: $work_image_cmd"
 work_uid=$(docker exec "$work_container" sh -c "awk '/^Uid:/{print \$2}' /proc/1/status")
 [[ $work_uid == "$(id -u)" ]] ||
   fail "custom-image Tobari runs as uid $work_uid instead of the host uid"
@@ -664,6 +670,8 @@ run_project sh -c 'exit 37'
 exec_status=$?
 set -e
 [[ $exec_status == 37 ]] || fail "exec returned $exec_status instead of child status 37"
+status_after_exec=$(run_tobari_at "$work_root" status --format json)
+assert_contains "$status_after_exec" '"runtime":"ready"' "runtime remains ready after child exit"
 
 run_project sh -c 'sleep 1' &
 first_pid=$!
