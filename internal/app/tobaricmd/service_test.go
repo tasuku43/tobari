@@ -225,19 +225,22 @@ func (f *fakeRuntime) Doctor(context.Context, string) (doctor.Report, error) {
 
 type projectRuntimeFake struct {
 	*fakeRuntime
-	cwd          string
-	terminal     bool
-	inside       bool
-	project      tobari.ProjectInstance
-	created      tobari.ProjectInstance
-	resolved     tobari.ProjectInstance
-	projects     []tobari.ProjectInstance
-	found        bool
-	resolveCalls int
-	createCalls  int
-	ensureCalls  int
-	enterCalls   int
-	deleteCalls  int
+	cwd             string
+	terminal        bool
+	inside          bool
+	project         tobari.ProjectInstance
+	created         tobari.ProjectInstance
+	resolved        tobari.ProjectInstance
+	projects        []tobari.ProjectInstance
+	found           bool
+	resolveCalls    int
+	createCalls     int
+	ensureCalls     int
+	enterCalls      int
+	deleteCalls     int
+	sessionCalls    int
+	sessionAttached bool
+	sessionErr      error
 }
 
 func (f *projectRuntimeFake) CurrentDirectory(context.Context) (string, error) { return f.cwd, nil }
@@ -276,6 +279,10 @@ func (f *projectRuntimeFake) EnsureProjectRuntime(_ context.Context, _ tobari.St
 }
 func (f *projectRuntimeFake) InspectProjectRuntime(context.Context, tobari.ProjectInstance) (tobari.RuntimeDiagnostic, error) {
 	return tobari.RuntimeDiagnosticMissing, nil
+}
+func (f *projectRuntimeFake) ProjectSessionAttached(context.Context, tobari.ProjectInstance) (bool, error) {
+	f.sessionCalls++
+	return f.sessionAttached, f.sessionErr
 }
 func (f *projectRuntimeFake) EnterProjectRuntime(context.Context, tobari.ProjectInstance, string, io.Reader, io.Writer, io.Writer) (int, error) {
 	f.enterCalls++
@@ -581,6 +588,67 @@ func TestProjectListMarksNearestWorkspaceFromCurrentDirectory(t *testing.T) {
 	}
 	if result.CurrentID != project.ID {
 		t.Fatalf("list current ID = %q, want %q", result.CurrentID, project.ID)
+	}
+}
+
+func TestDeleteProjectDeletesDetachedWorkspaceWithoutForce(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", found: true, project: testProjectInstance(),
+	}
+	result, err := New(fake).DeleteProject(context.Background(), projectWriteIntent("delete"), false)
+	if err != nil {
+		t.Fatalf("DeleteProject() error = %v", err)
+	}
+	if !result.Deleted || fake.sessionCalls != 1 || fake.deleteCalls != 1 {
+		t.Fatalf("result=%+v session calls=%d delete calls=%d", result, fake.sessionCalls, fake.deleteCalls)
+	}
+}
+
+func TestDeleteProjectRejectsAttachedWorkspaceWithoutForce(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", found: true, project: testProjectInstance(),
+		sessionAttached: true,
+	}
+	_, err := New(fake).DeleteProject(context.Background(), projectWriteIntent("delete"), false)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindRejected || public.Code != "project_session_attached" {
+		t.Fatalf("DeleteProject() error=%v public=%+v", err, public)
+	}
+	if fake.sessionCalls != 1 || fake.deleteCalls != 0 {
+		t.Fatalf("session calls=%d delete calls=%d, want guard before deletion", fake.sessionCalls, fake.deleteCalls)
+	}
+}
+
+func TestDeleteProjectForceOverridesAttachedWorkspaceGuard(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", found: true, project: testProjectInstance(),
+		sessionAttached: true,
+	}
+	result, err := New(fake).DeleteProject(context.Background(), projectWriteIntent("delete"), true)
+	if err != nil {
+		t.Fatalf("DeleteProject(force) error = %v", err)
+	}
+	if !result.Deleted || fake.sessionCalls != 0 || fake.deleteCalls != 1 {
+		t.Fatalf("result=%+v session calls=%d delete calls=%d", result, fake.sessionCalls, fake.deleteCalls)
+	}
+}
+
+func TestDeleteProjectFailsClosedWhenSessionStatusIsUnavailable(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", found: true, project: testProjectInstance(),
+		sessionErr: errors.New("Docker daemon unavailable"),
+	}
+	_, err := New(fake).DeleteProject(context.Background(), projectWriteIntent("delete"), false)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindInternal || public.Code != "session_status_failed" {
+		t.Fatalf("DeleteProject() error=%v public=%+v", err, public)
+	}
+	if fake.sessionCalls != 1 || fake.deleteCalls != 0 {
+		t.Fatalf("session calls=%d delete calls=%d, want no deletion after observation failure", fake.sessionCalls, fake.deleteCalls)
 	}
 }
 

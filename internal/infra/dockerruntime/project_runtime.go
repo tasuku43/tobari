@@ -185,6 +185,40 @@ func (r *Runtime) InspectProjectRuntime(
 	return tobari.RuntimeDiagnosticReady, nil
 }
 
+// ProjectSessionAttached observes active Docker exec sessions for the exact
+// work container. Attachment is transient runtime state; it is never persisted
+// in the logical Workspace record.
+func (r *Runtime) ProjectSessionAttached(ctx context.Context, instance tobari.ProjectInstance) (bool, error) {
+	if err := instance.Validate(); err != nil {
+		return false, err
+	}
+	container, _, err := tobari.ProjectResourceNames(instance.ID)
+	if err != nil {
+		return false, err
+	}
+	output, err := r.runner.Output(
+		ctx,
+		[]string{"inspect", "--format", "{{json .ExecIDs}}", container},
+		os.Environ(),
+	)
+	if err != nil {
+		if isMissingDockerResource(err, output) {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect project session: %w: %s", err, boundedDiagnostic(output))
+	}
+	var execIDs []string
+	if err := json.Unmarshal(bytes.TrimSpace(output), &execIDs); err != nil {
+		return false, fmt.Errorf("decode project session IDs: %w", err)
+	}
+	for _, execID := range execIDs {
+		if strings.TrimSpace(execID) != "" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // EnterProjectRuntime attaches the caller's streams to the ready work
 // container, maps the host directory below its root, and preserves child exit
 // status.

@@ -66,6 +66,7 @@ type ProjectRuntimePort interface {
 	IsInputTerminal(io.Reader) bool
 	EnsureProjectRuntime(context.Context, tobari.State, tobari.ProjectInstance) (tobari.ProjectInstance, error)
 	InspectProjectRuntime(context.Context, tobari.ProjectInstance) (tobari.RuntimeDiagnostic, error)
+	ProjectSessionAttached(context.Context, tobari.ProjectInstance) (bool, error)
 	EnterProjectRuntime(context.Context, tobari.ProjectInstance, string, io.Reader, io.Writer, io.Writer) (int, error)
 	InsideProject(context.Context) bool
 	DeleteProject(context.Context, tobari.ProjectInstance) error
@@ -533,8 +534,8 @@ func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, er
 	return result, nil
 }
 
-// DeleteProject removes only the nearest CWD-owned logical Tobari after the
-// caller has completed the explicit destructive confirmation.
+// DeleteProject removes only the nearest CWD-owned logical Tobari. A detached
+// Workspace can be removed normally; an attached session requires force.
 func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, force bool) (tobari.ProjectDeleteResult, error) {
 	project, err := s.projectRuntime()
 	if err != nil {
@@ -542,13 +543,6 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 	}
 	if err := s.validateProjectIntent(intent, operation.EffectWrite); err != nil {
 		return tobari.ProjectDeleteResult{}, err
-	}
-	if !force {
-		return tobari.ProjectDeleteResult{}, fault.New(
-			fault.KindRejected, "confirmation_required",
-			"deleting a Tobari requires explicit confirmation; use --force", false,
-			fault.NextAction{Command: "delete --force", Reason: "Confirm removal of the current directory's Tobari."},
-		)
 	}
 	cwd, err := s.runtime.CurrentDirectory(ctx)
 	if err != nil {
@@ -574,6 +568,23 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 		home, err = project.ProjectHome(lifecycleContext, instance)
 		if err != nil {
 			return fault.Wrap(fault.KindInternal, "state_read_failed", "project home path could not be resolved", false, err)
+		}
+		if !force {
+			attached, attachErr := project.ProjectSessionAttached(lifecycleContext, instance)
+			if attachErr != nil {
+				return fault.Wrap(
+					fault.KindInternal, "session_status_failed",
+					"could not determine whether a Workspace session is attached", false, attachErr,
+					fault.NextAction{Command: "status", Reason: "Inspect the Workspace runtime before retrying deletion."},
+				)
+			}
+			if attached {
+				return fault.New(
+					fault.KindRejected, "project_session_attached",
+					"an interactive session is attached to this Workspace; exit it before deleting or use --force", false,
+					fault.NextAction{Command: "help delete", Reason: "Review the attachment guard and use --force only when intentional."},
+				)
+			}
 		}
 		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
 			if actionErr := project.DeleteProject(actionContext, instance); actionErr != nil {

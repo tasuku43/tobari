@@ -59,6 +59,68 @@ func TestInspectProjectRuntimeClassifiesIncompleteStateBeforeDocker(t *testing.T
 	}
 }
 
+func TestProjectSessionAttachedReadsActiveExecIDs(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{outputData: []byte(`["exec-id"]`)}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	attached, err := runtime.ProjectSessionAttached(context.Background(), instance)
+	if err != nil || !attached {
+		t.Fatalf("ProjectSessionAttached() = (%t, %v), want attached", attached, err)
+	}
+	container, _, err := tobari.ProjectResourceNames(instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.outputs) != 1 || strings.Join(runner.outputs[0].args, " ") != strings.Join([]string{"inspect", "--format", "{{json .ExecIDs}}", container}, " ") {
+		t.Fatalf("Docker inspect calls = %+v", runner.outputs)
+	}
+}
+
+func TestProjectSessionAttachedAcceptsEmptyExecIDs(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{outputData: []byte(`[]`)}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	attached, err := runtime.ProjectSessionAttached(context.Background(), instance)
+	if err != nil || attached {
+		t.Fatalf("ProjectSessionAttached() = (%t, %v), want detached", attached, err)
+	}
+}
+
+func TestProjectSessionAttachedTreatsMissingContainerAsDetached(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{outputErr: errors.New("No such object")}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	attached, err := runtime.ProjectSessionAttached(context.Background(), instance)
+	if err != nil || attached {
+		t.Fatalf("ProjectSessionAttached() = (%t, %v), want detached missing resource", attached, err)
+	}
+}
+
+func TestProjectSessionAttachedRejectsMalformedExecIDs(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{outputData: []byte(`{"exec_id":"exec-id"}`)}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	if _, err := runtime.ProjectSessionAttached(context.Background(), instance); err == nil {
+		t.Fatal("ProjectSessionAttached() accepted malformed ExecIDs output")
+	}
+}
+
 func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 	t.Parallel()
 	runner := &recordingRunner{}
