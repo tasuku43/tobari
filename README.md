@@ -153,8 +153,34 @@ unavailable, the same experience falls back to numbered line input. For
 example, from `/work/root/app`, existing roots at `/work/root` and `/work`
 are shown as two choices before the create-here option. A selected Workspace
 root at `/work` enters `/workspace/work/root/app`; a shell exit returns to the
-host while the Workspace remains `exists`. `list` shows the stable ID only as
-diagnostic information, not as a routine action input.
+host while the Workspace remains existing. Tobari prints the following host
+guidance on stderr after the child session returns:
+
+```text
+Workspace session closed.
+Workspace remains available.
+
+Resume: tobari
+Remove: tobari delete --force
+```
+
+`exit` therefore leaves the session but does not stop or delete the Workspace.
+There is no `stop` command or stopped state. To remove the Workspace, run
+`tobari delete --force` from the host; it deletes the nearest canonical
+Workspace containing the current directory. Each canonical root can have only
+one Workspace, including when explicit creation requests race.
+
+The lifecycle model is:
+
+```text
+Workspace absent -> tobari -> Attached session + Workspace exists
+Attached session + Workspace exists -> exit -> Detached session + Workspace exists
+Detached session + Workspace exists -> tobari -> Attached session + Workspace exists
+Detached session + Workspace exists -> tobari delete --force -> Workspace absent
+```
+
+`list` shows the stable ID only as diagnostic information, not as a routine
+action input.
 
 The former named lifecycle commands (`attach`, `lower`, `enter`, `lift`, and
 their named shell/exec forms) are rejected with a replacement message; they do
@@ -305,10 +331,10 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari policy compactions [--format text\|json]` | Discover test-backed prefix compactions and opaque IDs |
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
 | `tobari policy apply` | Test host policy, recreate only OPA, and wait for health |
-| `tobari` | Choose or create the current-directory Workspace and enter it |
+| `tobari` | Choose or create the current-directory Workspace, enter it, and leave it reusable after `exit` |
 | `tobari status [--format text\|json]` | Report logical existence and runtime diagnostics for the current directory |
 | `tobari list [--format text\|json]` | List local Workspaces, runtime diagnostics, and diagnostic IDs |
-| `tobari delete [--force]` | Delete the nearest current-directory Tobari and its per-Tobari state |
+| `tobari delete [--force]` | Explicitly delete the nearest current-directory Tobari and its per-Tobari state |
 | `tobari doctor [--root PATH] [--format text\|tsv\|json]` | Diagnose Docker, paths, policy, credentials, and residue |
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version` | Print build identity |

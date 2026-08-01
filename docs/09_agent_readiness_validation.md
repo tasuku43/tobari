@@ -52,7 +52,9 @@ rules exist. The transcript must prove:
   while preserving diagnostic IDs without making them action inputs.
 - `status` and `delete` resolve the same nearest canonical ancestor; `tobari`
   enters an exact root directly and explicitly chooses among ancestor roots.
-- A child terminal exit leaves the logical Tobari existing for reuse.
+- A child terminal exit leaves the logical Tobari existing for reuse, emits the
+  host-side resume/delete guidance on stderr, and does not introduce a stopped
+  state; `tobari delete --force` is the explicit external cleanup operation.
 - A denied request produces bounded typed secret-free host/method/path
   evidence, the host policy path, and the exact activation command.
 - Candidate discovery deduplicates pending effects and emits opaque references

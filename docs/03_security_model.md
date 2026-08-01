@@ -192,7 +192,11 @@ read and present containing Workspace candidates, then creates or reconciles
 one logical Tobari only after an explicit choice and a fresh locked check. An
 exact current-root record is reused directly; a nested root requires the
 explicit create-here choice. The command never creates shared resources.
-`delete` resolves the same target and is its only lifecycle-ending mutation.
+Each canonical root is unique: repeated or concurrent explicit creation is
+serialized by the state lock and only one logical record can be committed.
+Entering a session and returning from the child shell are not lifecycle-ending
+mutations. `exit` only detaches the session; `delete` resolves the same target
+and is the only routine lifecycle-ending mutation.
 Neither operation accepts an ID, name, or arbitrary root selector.
 All mutations use complete intent and impact declarations before Docker
 execution. Ordinary runtime reconciliation needs no human approval;
@@ -261,6 +265,8 @@ authority; only an explicit reference-bound mutation can write a learned rule.
 | OPA cannot rewrite host policy | Read-only mount-spec test |
 | Tested host policy activates across Docker hosts | Fixed-target OPA recreation test and integration scenario |
 | CWD lifecycle actions use exact Tobari identity | Canonical-root, state, and label-validation tests |
+| One canonical root has one Workspace | Root-index hash naming, locked exact-root checks, domain duplicate-index validation, and concurrent explicit-creation tests |
+| Session exit cannot delete a Workspace | Child exit-status tests, host-stderr summary tests, and logical-state preservation after entry |
 | Gateway cannot accept a caller-selected project principal | Owner-only atomic principal registry, local-interface derivation, malformed/unknown denial tests, and two-project integration |
 | Managed credentials cannot cross project principals | Explicit profile project bindings, pre-OPA Gateway rejection, repeated injection check, and two-project integration |
 | Unknown effects fail closed | Domain and catalog validation |

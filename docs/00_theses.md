@@ -140,11 +140,19 @@ directory.
 - The logical record owns a generated stable internal ID, canonical root,
   selected compatible runtime image, profile, XDG home, and diagnostic runtime
   identifiers. Container or network loss never changes logical existence.
+- Workspace existence and interactive session attachment are separate states:
+  `tobari` attaches a session to an existing or newly created Workspace, while
+  `exit` detaches only the session. The Workspace remains existing and
+  reusable until the host runs `tobari delete --force`; there is no user-facing
+  stopped or paused Workspace state.
 - `status` and `delete` resolve the nearest canonical root. The interactive
   `tobari` entry path resolves an exact root directly or requires an explicit
   choice among containing ancestor roots before it can create a nested root.
   `list` shows local roots and diagnostics without turning an ID into a normal
   user input.
+- A canonical root is a unique Workspace key. Repeated or concurrent explicit
+  creation at the same canonical root must yield one logical record and a
+  typed already-exists outcome for losing callers.
 - An explicit in-root image-based `devcontainer.json` may select that image,
   but cannot delegate mounts, privileges, environment, lifecycle, or
   orchestration to another tool.
@@ -167,13 +175,15 @@ directory.
 
 - Root-index and instance-state tests prove canonical path resolution, ordered
   ancestor-candidate selection, explicit nested-root creation, stable IDs,
-  atomic state updates, journal recovery at multi-file boundaries, and explicit
-  handling of corrupt or legacy state.
+  one-Workspace-per-canonical-root enforcement, atomic state updates, journal
+  recovery at multi-file boundaries, and explicit handling of corrupt or legacy
+  state.
 - State and Docker labels identify the one installation-owned cluster and each
   exact logical Tobari resource.
 - Lifecycle integration tests create multiple roots, prove network separation,
-  enter and recover the same root repeatedly, and delete only the selected
-  instance without growing owned resources.
+  enter and recover the same root repeatedly, preserve the Workspace after
+  session exit, and delete only the selected instance without growing owned
+  resources.
 - Dev Container tests accept bounded JSONC image metadata and reject every
   unsupported runtime property before Docker mutation.
 
@@ -188,6 +198,9 @@ name prefix or broad Docker query as authority.
 - Root resolution, logical creation, runtime reconciliation, and deletion are
   idempotent within declared state. Concurrent mutations serialize through the
   XDG state lock and atomic durable records.
+- Session attachment is transient process state, not a persisted lifecycle
+  resource. The only public session transition is `exit`; the only routine
+  transition to Workspace absence is the confirmed host-side `delete` action.
 - `delete` removes one exact container, network, home directory, and instance
   records after an explicit destructive confirmation. It can continue after
   partial runtime cleanup and never selects by a Docker name or prefix.
@@ -213,7 +226,8 @@ name prefix or broad Docker query as authority.
 - Domain resource specifications carry a fixed ownership label.
 - Application tests prove validation and CWD-local target resolution precede
   Docker calls, ambiguous entry requires an explicit choice, and cleanup
-  selects exact resources.
+  selects exact resources. CLI tests prove session-exit guidance stays on host
+  stderr, separate from child stdout.
 - The catalog declares every read/create/write effect and mutation impact.
 
 ## Thesis 6: Fail closed with bounded evidence

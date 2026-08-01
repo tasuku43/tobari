@@ -72,7 +72,7 @@ The public commands are:
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version` | utility | read | Print build identity |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
-| `tobari` | act, fixed target | create | Choose or create the current directory's Workspace, reconcile runtime, and enter it |
+| `tobari` | act, fixed target | create | Choose or create the current directory's Workspace, reconcile runtime, enter it, and leave it reusable after `exit` |
 | `status` | utility | read | Inspect the nearest current-directory Tobari and its diagnostic runtime state |
 | `list [--format text|json]` | utility | read | List local Workspaces with runtime diagnostics and diagnostic IDs |
 | `delete [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari after destructive confirmation |
@@ -106,6 +106,9 @@ undeclared Docker mutation by the CLI.
   only containing ancestor roots exist, `tobari` lists every valid root
   nearest-first and offers explicit creation at the current directory; it never
   creates a nested Tobari implicitly.
+- Each canonical root identifies at most one Workspace. Repeated or concurrent
+  explicit creation at an already indexed root is rejected as already existing;
+  it never creates a second logical record for that directory.
 - Project-root selection rejects the filesystem root, the user's home and its
   ancestors, and any path overlapping XDG Tobari configuration, state, or
   shared-profile management directories, Docker sockets, or Docker management
@@ -146,9 +149,23 @@ failures are stderr.
 The Workspace selector is a human stderr interaction; it produces no JSON or
 stdout selection protocol. A successful choice prints an English summary before
 the child session, and cancellation or stale selection prints no success
-summary. The choice is revalidated under the lifecycle lock before logical or
-Docker mutation, so a changed candidate set fails closed and asks the user to
-run `tobari` again.
+summary. The interactive child owns stdout. When it returns, the host command
+writes this lifecycle guidance to stderr:
+
+```text
+Workspace session closed.
+Workspace remains available.
+
+Resume: tobari
+Remove: tobari delete --force
+```
+
+`exit` therefore detaches the session without deleting the Workspace. The
+Workspace remains existing until the host runs `tobari delete --force`, which
+is the explicit lifecycle-ending operation. There is no public `stop` or
+`pause` state. The choice is revalidated under the lifecycle lock before
+logical or Docker mutation, so a changed candidate set fails closed and asks
+the user to run `tobari` again.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
 a small state marker, aligned detail rows, semantic color tokens, and an exact
@@ -185,6 +202,27 @@ Project runtime diagnostics may report `incomplete` when a durable root index
 survives without its instance state. This preserves logical existence for safe
 cleanup, prevents runtime recreation, and directs the user to delete the exact
 current-directory Tobari before creating it again.
+
+The lifecycle state model has two dimensions:
+
+```text
+Workspace absent
+  -> tobari
+Attached session + Workspace exists
+  -> exit
+Detached session + Workspace exists
+  -> tobari
+Attached session + Workspace exists
+  -> exit
+Detached session + Workspace exists
+  -> tobari delete --force (from the host)
+Workspace absent
+```
+
+`status` and `delete` continue to resolve the nearest canonical Workspace
+containing the host current directory. When several ancestor Workspaces exist,
+run the destructive command from a directory whose nearest Workspace is the
+one intended for removal.
 
 | Exit | Meaning |
 |---:|---|
@@ -260,8 +298,12 @@ network, binds its XDG home, joins Gateway to that network, waits for the
 project healthcheck, and enters the resulting terminal session. A changed image identity, runtime contract,
 mount/security/environment/health specification, or shared profile revision
 recreates only the project container and preserves its logical state and home.
-`delete` removes only that exact label-owned container,
-network, root index, instance state, and home. `cluster down` rejects while any
+Returning from that child session, including a normal shell `exit`, performs no
+Workspace deletion: it only returns the child exit status and emits the host
+stderr guidance described above. `delete` is the separate lifecycle-ending
+operation and removes only that exact label-owned container,
+network, root index, instance state, and home.
+`cluster down` rejects while any
 Tobari remains
 and removes only exact shared resources; its `--purge` also removes shared CA
 volumes. No command removes a mounted root or files inside it. Each project

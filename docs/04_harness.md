@@ -204,7 +204,10 @@ The test suite has complementary levels:
   repeatability, dependency/conflict, duplicate scalar, and syntax drift. The
   Workspace selector tests cover the dependency-free raw key state machine,
   bounded scrolling, terminal restoration, English status rendering, and
-  ANSI-free numbered-input fallback.
+  ANSI-free numbered-input fallback. Interactive entry tests preserve the
+  child exit status, assert that the Workspace remains logically existing
+  after the child returns, and keep the resume/delete summary on host stderr
+  rather than child stdout.
 - Agent-help shape, edge-equivalence, and derived-scale size tests keep root
   discovery index-only while grouped scoped workflows retain the complete
   invocation, reference, and recovery contract without producer/consumer
@@ -226,8 +229,11 @@ The test suite has complementary levels:
   containers, networks, and XDG homes while sharing only Gateway, OPA, and
   public CA state. They also prove canonical ancestor lookup, container/network
   recovery, explicit ancestor Workspace selection and current-CWD creation,
-  profile/spec drift recreation, concurrent entry convergence, and exact
-  selected deletion after partial runtime cleanup.
+  one-Workspace-per-canonical-root behavior under repeated and concurrent
+  creation, profile/spec drift recreation, concurrent entry convergence, and
+  exact selected deletion after partial runtime cleanup. A child `exit` is
+  verified as session detachment, not Workspace deletion; `delete --force` is
+  the explicit external cleanup path.
 - Logical lifecycle tests inject interruptions at home, instance, root-index,
   runtime, and deletion boundaries; they prove journals recover without
   duplicate IDs and diagnose orphaned one-sided records. Shared-state tests
@@ -295,6 +301,8 @@ Every strong statement should identify its enforcement path.
 | Action target composition | Reachable reference-graph validation and byte-preserving round trips for reference-bound acts; complete, exclusive, reference-free declarations for command-bound fixed targets |
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
 | Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, and zero-downstream-call cancellation tests |
+| Session-versus-Workspace lifecycle | Child exit-status preservation, host stderr guidance, stdout/stderr ownership, logical-state-after-exit, and explicit delete tests |
+| One Workspace per canonical root | Domain duplicate-index validation, root-hash/index checks, repeated explicit-create rejection, and concurrent explicit-create convergence |
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
 | Shared runtime resource bounds | Fixed project create-argv, resource-aware spec hash, and Docker HostConfig integration assertions |
 | Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |

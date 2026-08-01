@@ -130,6 +130,30 @@ io.tobari.role=work|network
 io.tobari.version=<asset revision>
 ```
 
+Interactive session attachment is a separate, transient process state. The
+runtime adapter starts the work container independently and enters it through
+one `docker exec -i -t ... /bin/bash` child session. The state model is:
+
+```text
+Workspace absent
+  -> tobari
+Attached session + Workspace exists
+  -> exit
+Detached session + Workspace exists
+  -> tobari
+Attached session + Workspace exists
+  -> exit
+Detached session + Workspace exists
+  -> tobari delete --force
+Workspace absent
+```
+
+The child shell's `exit` ends only the exec process; it does not stop or delete
+the work container, logical instance, root index, or per-Workspace home. There
+is no persisted stopped/paused state. `delete --force` is the explicit
+host-side boundary that removes the logical Workspace and its exact owned
+runtime resources.
+
 Explicit `cluster up` validates configuration, tests policy, reconciles OPA and
 Gateway, and reconnects Gateway to every existing registered project network.
 Root invocation only verifies that configured cluster is ready and reads the
@@ -165,6 +189,12 @@ Status and list expose an `incomplete` runtime diagnostic when an indexed root
 has lost its instance record; root entry refuses to rebuild that record and
 delete remains the exact cleanup path.
 Cluster removal is rejected until no instance record remains.
+
+The root-index collection enforces one logical Workspace per canonical root.
+The root hash names the index file, and the project lock performs the exact-root
+check again immediately before explicit creation. A repeated or concurrent
+creation therefore has one winner and returns `already exists` to the other
+callers rather than creating duplicate state.
 
 ## Command catalog
 
@@ -236,17 +266,19 @@ rather than silently recomputing its meaning.
 ## Docker abstraction
 
 Application code owns narrow ports such as `ResolveOrCreate`, `EnsureRuntime`,
-`EnterRuntime`, `Inspect`, and `Delete`. The MVP infrastructure implementation invokes the Docker
-CLI with fixed command structures and caller context. This keeps Docker Engine
-API or Podman replacement possible without promising either today. Arbitrary
-shell strings are never constructed; user commands are passed as argv after
-Docker's `--`.
+`EnterRuntime`, `Inspect`, and `Delete`. The MVP infrastructure implementation
+invokes the Docker CLI with fixed command structures and caller context. This
+keeps Docker Engine API or Podman replacement possible without promising either
+today. Arbitrary shell strings are never constructed; user commands are passed
+as argv after Docker's `--`.
 
 ## Cancellation and errors
 
 The command root installs signal-aware cancellation and propagates one context.
 Pre-execution cancellation makes zero Docker calls. A child interactive session
-exit status is preserved. Lifecycle operations return structured state after
+exit status is preserved, and the CLI emits the session-closed/resume/delete
+guidance on host stderr after the child returns. Child stdout remains owned by
+the interactive process. Lifecycle operations return structured state after
 confirmed completion; unclassified post-mutation errors are non-retryable and
 direct the user to `status` for reconciliation.
 
