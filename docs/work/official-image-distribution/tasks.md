@@ -52,6 +52,8 @@
 - [x] Add the Codex standalone-package Dockerfile, metadata/lock,
       inherited-contract checker, and local build fixture.
 - [x] Add a no-push Codex pull-request/main build workflow.
+- [x] Keep agent executables and Codex package resources outside the persistent
+      Tobari home, with home-overlay checks in the local image fixtures.
 
 ## Verify
 

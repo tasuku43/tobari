@@ -17,16 +17,17 @@ LABEL io.tobari.runtime-api="1" \
 
 ENV HOME=/var/lib/tobari
 ENV CODEX_HOME=/var/lib/tobari/.codex
-ENV PATH="/var/lib/tobari/.local/bin:${PATH}"
+ENV PATH="/usr/local/bin:${PATH}"
 
+USER root
 RUN set -eu; \
     case "${TARGETARCH}" in \
       arm64) target=aarch64-unknown-linux-musl; package="codex-package-aarch64-unknown-linux-musl.tar.gz"; expected_checksum="${CODEX_PACKAGE_SHA256_ARM64}" ;; \
       amd64) target=x86_64-unknown-linux-musl; package="codex-package-x86_64-unknown-linux-musl.tar.gz"; expected_checksum="${CODEX_PACKAGE_SHA256_X64}" ;; \
       *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    release_dir="/var/lib/tobari/.codex/packages/standalone/releases/${CODEX_VERSION}-${target}"; \
-    mkdir -p "${release_dir}" /var/lib/tobari/.local/bin /tmp/codex-package; \
+    release_dir="/opt/tobari/codex/${CODEX_VERSION}-${target}"; \
+    mkdir -p "${release_dir}" /usr/local/bin /tmp/codex-package; \
     curl --fail --show-error --location --retry 3 \
       "https://releases.openai.com/codex/releases/${CODEX_VERSION}/${package}" \
       --output "/tmp/codex-package/${package}"; \
@@ -41,9 +42,9 @@ RUN set -eu; \
     test -x "${release_dir}/codex-path/rg"; \
     test -x "${release_dir}/codex-resources/bwrap"; \
     test -x "${release_dir}/codex-resources/zsh/bin/zsh"; \
-    ln -s "${release_dir}/bin/codex" /var/lib/tobari/.local/bin/codex; \
-    ln -s "${release_dir}/bin/codex-code-mode-host" /var/lib/tobari/.local/bin/codex-code-mode-host; \
-    ln -s "${release_dir}/codex-path/rg" /var/lib/tobari/.local/bin/rg; \
+    ln -s "${release_dir}/bin/codex" /usr/local/bin/codex; \
+    ln -s "${release_dir}/bin/codex-code-mode-host" /usr/local/bin/codex-code-mode-host; \
+    ln -s "${release_dir}/codex-path/rg" /usr/local/bin/rg; \
     rm -rf /tmp/codex-package
 
 USER tobari

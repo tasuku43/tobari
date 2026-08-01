@@ -33,6 +33,11 @@ runtime contract, and byte equality with the embedded CLI snapshot. The
 main-only runtime workflow runs this check before its package-write job and
 pushes only the base image; pull-request CI has no package-write permission.
 
+The focused Claude and Codex runtime checks validate their pinned agent
+artifacts and inherited contract. Their local build fixtures also replace
+`/var/lib/tobari` with a temporary home mount and execute the agent commands,
+so an image-layer executable cannot silently depend on the persistent home.
+
 Direct invocation is supported for automation:
 
 ```sh
@@ -315,6 +320,7 @@ Every strong statement should identify its enforcement path.
 | Attached-session deletion guard | Docker Exec ID observation, guard-before-delete negative tests, force override, and stable structured fault/help contract |
 | One Workspace per canonical root | Domain duplicate-index validation, root-hash/index checks, repeated explicit-create rejection, and concurrent explicit-create convergence |
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
+| Agent executable/home separation | Runtimechecker path assertions, local image builds with a home overlay, and Tobari smoke tests for each agent command |
 | Shared runtime resource bounds | Fixed project create-argv, resource-aware spec hash, and Docker HostConfig integration assertions |
 | Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |

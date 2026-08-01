@@ -119,8 +119,10 @@ The first Claude and Codex variants are build-only children under
 release, verifies its per-architecture checksum, and inherits the base user,
 entrypoint, and lifetime command. Codex uses the official standalone package,
 which keeps its CLI companion binaries and Linux sandbox resources together.
-Their workflows do not publish agent tags until redistribution and license
-review is complete.
+Agent executables and package resources live in image-owned `/usr/local/bin`
+and `/opt/tobari` paths; `/var/lib/tobari` contains only per-Tobari home state
+and is safe to replace with the persistent home bind. Their workflows do not
+publish agent tags until redistribution and license review is complete.
 
 The root resolver obtains an image from bounded project metadata or the strict
 owner-only XDG `config.json` `default_image`; absence before first initialization

@@ -32,13 +32,23 @@ test "$command" = '["sleep","infinity"]'
 docker run --rm --entrypoint /bin/bash "$tag" -ceu '
   test "${HOME}" = /var/lib/tobari
   test "${CODEX_HOME}" = /var/lib/tobari/.codex
+  test "$(command -v codex)" = /usr/local/bin/codex
+  test "$(command -v codex-code-mode-host)" = /usr/local/bin/codex-code-mode-host
+  test "$(command -v rg)" = /usr/local/bin/rg
+  test -x /usr/local/bin/codex
+  test ! -e /var/lib/tobari/.codex/packages/standalone/releases
   codex --version
   codex --help >/dev/null
-  test "$(command -v codex-code-mode-host)" = /var/lib/tobari/.local/bin/codex-code-mode-host
-  test "$(command -v rg)" = /var/lib/tobari/.local/bin/rg
   git --version
   gh --version | head -n 1
   aws --version
+'
+
+docker run --rm --mount type=tmpfs,dst=/var/lib/tobari --entrypoint /bin/bash "$tag" -ceu '
+  test "$(command -v codex)" = /usr/local/bin/codex
+  test "$(command -v codex-code-mode-host)" = /usr/local/bin/codex-code-mode-host
+  test "$(command -v rg)" = /usr/local/bin/rg
+  codex --version
 '
 
 printf 'Codex runtime image ready: %s\n' "$tag"

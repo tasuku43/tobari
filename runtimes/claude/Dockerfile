@@ -16,16 +16,17 @@ LABEL io.tobari.runtime-api="1" \
       org.opencontainers.image.version="claude.${CLAUDE_CODE_VERSION}-base.${CLAUDE_BASE_VERSION}-r1"
 
 ENV HOME=/var/lib/tobari
-ENV PATH="/var/lib/tobari/.local/bin:${PATH}"
+ENV PATH="/usr/local/bin:${PATH}"
 ENV DISABLE_AUTOUPDATER=1
 
+USER root
 RUN set -eu; \
     case "${TARGETARCH}" in \
       arm64) platform=linux-arm64; expected_checksum="${CLAUDE_CODE_SHA256_ARM64}" ;; \
       amd64) platform=linux-x64; expected_checksum="${CLAUDE_CODE_SHA256_X64}" ;; \
       *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    mkdir -p /var/lib/tobari/.local/bin /tmp/claude-code; \
+    mkdir -p /tmp/claude-code; \
     curl --fail --show-error --location --retry 3 \
       "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/manifest.json" \
       --output /tmp/claude-code/manifest.json; \
@@ -36,7 +37,7 @@ RUN set -eu; \
       --output /tmp/claude-code/claude; \
     printf '%s  %s\n' "${expected_checksum}" /tmp/claude-code/claude \
       | sha256sum --check --strict; \
-    install -m 0755 /tmp/claude-code/claude /var/lib/tobari/.local/bin/claude; \
+    install -m 0755 /tmp/claude-code/claude /usr/local/bin/claude; \
     rm -rf /tmp/claude-code
 
 USER tobari

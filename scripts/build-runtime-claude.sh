@@ -45,10 +45,18 @@ command=$(docker image inspect --format '{{json .Config.Cmd}}' "$tag")
 docker run --rm --entrypoint /bin/bash "$tag" -ceu '
   test "${HOME}" = /var/lib/tobari
   test "${DISABLE_AUTOUPDATER}" = 1
+  test "$(command -v claude)" = /usr/local/bin/claude
+  test -x /usr/local/bin/claude
+  test ! -e /var/lib/tobari/.local/bin/claude
   claude --version
   git --version
   gh --version | head -n 1
   aws --version
+'
+
+docker run --rm --mount type=tmpfs,dst=/var/lib/tobari --entrypoint /bin/bash "$tag" -ceu '
+  test "$(command -v claude)" = /usr/local/bin/claude
+  claude --version
 '
 
 printf 'Claude runtime image ready: %s\n' "$tag"

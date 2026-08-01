@@ -42,6 +42,11 @@ desired publication model into current repository behavior.
   to Codex CLI `0.146.0`, the official Linux amd64/arm64 standalone package
   checksums, and the same published base index digest. Its workflow builds and
   verifies the multi-architecture image without pushing it.
+- Agent executables are image-owned: Claude is installed at
+  `/usr/local/bin/claude`, while the Codex standalone package lives under
+  `/opt/tobari` and exposes its commands from `/usr/local/bin`. The per-Tobari
+  home at `/var/lib/tobari` is reserved for configuration, cache, and state so
+  its bind mount cannot hide an agent executable.
 
 ## Relevant structure
 

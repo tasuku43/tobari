@@ -442,10 +442,11 @@ func validateClaude(root string) (string, error) {
 		"https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/${platform}/claude",
 		"jq -er",
 		"sha256sum --check --strict",
+		"install -m 0755 /tmp/claude-code/claude /usr/local/bin/claude",
 		"io.tobari.runtime-api=\"1\"",
 		"io.tobari.runtime-lifetime-command=\"sleep infinity\"",
 		"ENV HOME=/var/lib/tobari",
-		"ENV PATH=\"/var/lib/tobari/.local/bin:${PATH}\"",
+		"ENV PATH=\"/usr/local/bin:${PATH}\"",
 		"ENV DISABLE_AUTOUPDATER=1",
 		"USER tobari",
 		"RUN claude --version",
@@ -453,6 +454,9 @@ func validateClaude(root string) (string, error) {
 		if !strings.Contains(spec, required) {
 			return "", fmt.Errorf("Claude Dockerfile is missing %q", required)
 		}
+	}
+	if strings.Contains(spec, "/var/lib/tobari/.local/bin") {
+		return "", errors.New("Claude Dockerfile must keep the agent executable outside the Tobari home")
 	}
 	for _, line := range strings.Split(spec, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -565,22 +569,25 @@ func validateCodex(root string) (string, error) {
 		"io.tobari.runtime-lifetime-command=\"sleep infinity\"",
 		"ENV HOME=/var/lib/tobari",
 		"ENV CODEX_HOME=/var/lib/tobari/.codex",
-		"ENV PATH=\"/var/lib/tobari/.local/bin:${PATH}\"",
-		"release_dir=\"/var/lib/tobari/.codex/packages/standalone/releases/${CODEX_VERSION}-${target}\"",
+		"ENV PATH=\"/usr/local/bin:${PATH}\"",
+		"release_dir=\"/opt/tobari/codex/${CODEX_VERSION}-${target}\"",
 		"test -x \"${release_dir}/bin/codex\"",
 		"test -x \"${release_dir}/bin/codex-code-mode-host\"",
 		"test -x \"${release_dir}/codex-path/rg\"",
 		"test -x \"${release_dir}/codex-resources/bwrap\"",
 		"test -x \"${release_dir}/codex-resources/zsh/bin/zsh\"",
-		"ln -s \"${release_dir}/bin/codex\" /var/lib/tobari/.local/bin/codex",
-		"ln -s \"${release_dir}/bin/codex-code-mode-host\" /var/lib/tobari/.local/bin/codex-code-mode-host",
-		"ln -s \"${release_dir}/codex-path/rg\" /var/lib/tobari/.local/bin/rg",
+		"ln -s \"${release_dir}/bin/codex\" /usr/local/bin/codex",
+		"ln -s \"${release_dir}/bin/codex-code-mode-host\" /usr/local/bin/codex-code-mode-host",
+		"ln -s \"${release_dir}/codex-path/rg\" /usr/local/bin/rg",
 		"USER tobari",
 		"RUN codex --version",
 	} {
 		if !strings.Contains(spec, required) {
 			return "", fmt.Errorf("Codex Dockerfile is missing %q", required)
 		}
+	}
+	if strings.Contains(spec, "/var/lib/tobari/.local/bin") || strings.Contains(spec, "/var/lib/tobari/.codex/packages") {
+		return "", errors.New("Codex Dockerfile must keep the standalone package outside the Tobari home")
 	}
 	for _, line := range strings.Split(spec, "\n") {
 		trimmed := strings.TrimSpace(line)

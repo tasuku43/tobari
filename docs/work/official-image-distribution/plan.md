@@ -132,8 +132,9 @@ the successful base workflow and a variant tag identity such as
 `claude.2.1.220-base.0.1.0-r1`. The Dockerfile downloads the official
 versioned Claude binary for the build architecture, checks that the upstream
 manifest checksum matches the checked-in per-architecture lock, and verifies
-the binary before installing it under `tobari`'s home. It inherits the
-entrypoint, lifetime command, user, and command from the base.
+the binary before installing it under `/usr/local/bin`. It inherits the
+entrypoint, lifetime command, user, and command from the base; its configuration
+and state remain under the mounted Tobari home.
 
 The Claude workflow is intentionally no-push while redistribution terms and
 third-party license evidence remain open. It still runs on pull requests and
@@ -145,8 +146,10 @@ of the published base. It uses Codex CLI `0.146.0`'s official standalone
 package for each Linux architecture, rather than requiring Node/npm in the
 runtime. The package includes Codex's code-mode host, ripgrep, bubblewrap, and
 zsh resources; the checked-in lock records the package archive and checksum.
-The image sets `CODEX_HOME` under the Tobari user's home and preserves the
-inherited entrypoint, lifetime command, user, and command.
+The image installs the package resources under `/opt/tobari` and exposes its
+commands through `/usr/local/bin`; `CODEX_HOME` remains under the Tobari user's
+home for configuration and state. It preserves the inherited entrypoint,
+lifetime command, user, and command.
 
 The Codex workflow is also intentionally no-push while redistribution terms
 and release-package license evidence remain open. It validates the pinned
