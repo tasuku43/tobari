@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -64,6 +65,41 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 	}
 }
 
+func TestDeleteCatalogDescribesDetachedDefaultAndAttachedForceGuard(t *testing.T) {
+	t.Parallel()
+	command, found := DefaultCatalog().Lookup("delete")
+	if !found {
+		t.Fatal("delete command is absent from the catalog")
+	}
+	if !strings.Contains(command.Summary, "no session is attached") ||
+		!strings.Contains(command.Agent.Outcome, "--force") {
+		t.Fatalf("delete contract does not describe detached default and force override: %+v", command)
+	}
+	var force CommandInput
+	var forceFound bool
+	for _, input := range command.Agent.Inputs {
+		if input.Name == "--force" {
+			force, forceFound = input, true
+			break
+		}
+	}
+	if !forceFound || !strings.Contains(force.Description, "attached-session") {
+		t.Fatalf("delete --force input = %+v", force)
+	}
+	var attached, confirmation bool
+	for _, declared := range command.Agent.Errors {
+		switch declared.Code {
+		case "project_session_attached":
+			attached = declared.Kind == fault.KindRejected && !declared.Retryable
+		case "confirmation_required":
+			confirmation = true
+		}
+	}
+	if !attached || confirmation {
+		t.Fatalf("delete faults attached=%t confirmation=%t", attached, confirmation)
+	}
+}
+
 func TestProjectSessionClosedSummaryStaysOnHostLifecycleStream(t *testing.T) {
 	t.Parallel()
 	var hostStderr bytes.Buffer
@@ -74,7 +110,7 @@ func TestProjectSessionClosedSummaryStaysOnHostLifecycleStream(t *testing.T) {
 	if childStdout.Len() != 0 {
 		t.Fatalf("child stdout received host lifecycle guidance: %q", childStdout.String())
 	}
-	if got, want := hostStderr.String(), "Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete --force\n"; got != want {
+	if got, want := hostStderr.String(), "Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete\nIf another session is attached: tobari delete --force\n"; got != want {
 		t.Fatalf("host lifecycle guidance = %q, want %q", got, want)
 	}
 }

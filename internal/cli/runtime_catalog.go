@@ -88,15 +88,15 @@ func statusSpec() CommandSpec {
 
 func deleteSpec() CommandSpec {
 	return CommandSpec{
-		Path: "delete", Summary: "Delete the nearest current-directory Tobari",
+		Path: "delete", Summary: "Delete the nearest current-directory Tobari when no session is attached",
 		Args: "[--force]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Delete one nearest CWD-owned Tobari, its runtime resources, and its per-Tobari state",
+			Outcome:      "Delete one nearest CWD-owned Tobari when detached; reject attached sessions unless --force overrides the guard",
 			Inputs: []CommandInput{{
 				Name: "--force", Source: InputSourceFlag, Required: false,
 				ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
-				Description: "Confirm destructive deletion without an interactive prompt.", AllowedValues: []string{}, DefaultValue: stringPointer("false"),
+				Description: "Override the attached-session safety guard and delete anyway.", AllowedValues: []string{}, DefaultValue: stringPointer("false"),
 			}},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
@@ -108,13 +108,14 @@ func deleteSpec() CommandSpec {
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 			},
-			Prerequisites: []string{"The target is the nearest CWD-owned Tobari."},
+			Prerequisites: []string{"The target is the nearest CWD-owned Tobari; without --force, no session is attached."},
 			FixedTarget:   fixedCurrentDirectoryTarget(),
 			Errors: mutationCommandErrors("delete", "status",
-				declaredCommandError(fault.KindRejected, "confirmation_required", false, "help delete", "Review the delete contract and confirm with --force."),
+				declaredCommandError(fault.KindRejected, "project_session_attached", false, "help delete", "Exit the attached session or deliberately use --force."),
 				declaredCommandError(fault.KindNotFound, "project_not_found", false, "tobari", "Create a Tobari from the current project directory."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local CWD-owned state."),
+				declaredCommandError(fault.KindInternal, "session_status_failed", false, "status", "Inspect the Workspace runtime before retrying deletion."),
 				declaredCommandError(fault.KindUnavailable, "runtime_reconcile_failed", false, "status", "Retry deletion after inspecting remaining runtime state."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),

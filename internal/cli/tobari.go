@@ -284,7 +284,7 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 }
 
 func renderProjectSessionClosed() []byte {
-	return []byte("Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete --force\n")
+	return []byte("Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete\nIf another session is attached: tobari delete --force\n")
 }
 
 func runProjectStatus(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
