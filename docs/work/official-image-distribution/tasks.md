@@ -26,6 +26,9 @@
       `tobari/runtime` GHCR family package.
 - [x] Decide immutable composition tags, digest use, and qualified moving
       aliases.
+- [x] Select the Claude and Codex official versioned release sources and
+      per-architecture checksum locks; keep redistribution/license review
+      explicitly pending.
 - [ ] Decide foundation/derived image support window, architectures, and update SLA.
 - [ ] Review redistribution rights for every agent/tool artifact.
 - [ ] Decide attestation/SBOM requirements and workflow permissions.
@@ -43,6 +46,12 @@
 - [x] Update release/public/security/architecture documentation for the base
       publication boundary.
 - [x] Add public-safe base fixtures and local image contract verification.
+- [x] Add the Claude agent Dockerfile, metadata/lock, inherited-contract
+      checker, and local build fixture.
+- [x] Add a no-push Claude pull-request/main build workflow.
+- [x] Add the Codex standalone-package Dockerfile, metadata/lock,
+      inherited-contract checker, and local build fixture.
+- [x] Add a no-push Codex pull-request/main build workflow.
 
 ## Verify
 
@@ -57,6 +66,12 @@
 - [x] Dedicated image release gate passes. Evidence: actionlint plus
       `runtimecheck` and the expanded local Docker build passed; GHCR push is
       pending the next main push.
+- [x] Claude focused checker and local image build pass. Evidence:
+      `runtimecheck: Claude OK`, Claude binary checksum verification, and
+      `tobari-claude-runtime:local` contract/tool inspection pass.
+- [x] Codex focused checker and local image build pass. Evidence:
+      `runtimecheck: Codex OK`, Codex package checksum verification, and
+      `tobari-codex-runtime:local` contract/tool inspection pass.
 - [ ] Published digest is verified on every supported architecture. Evidence:
 - [ ] Provenance/SBOM and license evidence match each digest. Evidence:
 - [ ] Generated diff and repository status are understood. Evidence:

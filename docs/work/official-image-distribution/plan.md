@@ -124,6 +124,35 @@ visibility through the maintainer's package settings before users can consume
 it as an official public image. Agent variants are the next implementation
 slice; there is no neutral official toolbox image.
 
+### Claude and Codex validation slices
+
+The first agent implementation adds `runtimes/claude` as a buildable
+one-level child of the published base. It uses the exact base index digest from
+the successful base workflow and a variant tag identity such as
+`claude.2.1.220-base.0.1.0-r1`. The Dockerfile downloads the official
+versioned Claude binary for the build architecture, checks that the upstream
+manifest checksum matches the checked-in per-architecture lock, and verifies
+the binary before installing it under `tobari`'s home. It inherits the
+entrypoint, lifetime command, user, and command from the base.
+
+The Claude workflow is intentionally no-push while redistribution terms and
+third-party license evidence remain open. It still runs on pull requests and
+main pushes, validates the parent/agent metadata, and performs a
+multi-architecture build. Public publication is a separate follow-up decision.
+
+The Codex implementation adds `runtimes/codex` as the matching one-level child
+of the published base. It uses Codex CLI `0.146.0`'s official standalone
+package for each Linux architecture, rather than requiring Node/npm in the
+runtime. The package includes Codex's code-mode host, ripgrep, bubblewrap, and
+zsh resources; the checked-in lock records the package archive and checksum.
+The image sets `CODEX_HOME` under the Tobari user's home and preserves the
+inherited entrypoint, lifetime command, user, and command.
+
+The Codex workflow is also intentionally no-push while redistribution terms
+and release-package license evidence remain open. It validates the pinned
+parent, package layout, checksums, and multi-architecture build on pull
+requests and main pushes.
+
 ### Update strategy
 
 Use a hybrid update path with one review and CI contract:

@@ -6,6 +6,18 @@
       "path": "base",
       "package": "tobari/runtime",
       "parent": null
+    },
+    {
+      "name": "claude",
+      "path": "claude",
+      "package": "tobari/runtime",
+      "parent": "base"
+    },
+    {
+      "name": "codex",
+      "path": "codex",
+      "package": "tobari/runtime",
+      "parent": "base"
     }
   ]
 }

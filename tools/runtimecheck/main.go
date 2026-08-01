@@ -16,24 +16,34 @@ import (
 )
 
 const (
-	baseDockerfile   = "runtimes/base/Dockerfile"
-	baseEntrypoint   = "runtimes/base/entrypoint.sh"
-	baseAWSKey       = "runtimes/base/aws-cli-public-key.asc"
-	snapshotDir      = "internal/infra/runtimeassets/assets/tobari"
-	baseRuntimeJSON  = "runtimes/base/runtime.json"
-	baseLockJSON     = "runtimes/base/runtime.lock.json"
-	manifestJSON     = "runtimes/manifest.json"
-	versionsEnv      = "internal/infra/runtimeassets/assets/versions.env"
-	canonicalSource  = "https://github.com/tasuku43/tobari"
-	canonicalLicense = "MIT"
-	canonicalUser    = "tobari"
-	canonicalRuntime = "1"
-	canonicalLife    = "sleep infinity"
-	canonicalPackage = "tobari/runtime"
+	baseDockerfile    = "runtimes/base/Dockerfile"
+	baseEntrypoint    = "runtimes/base/entrypoint.sh"
+	baseAWSKey        = "runtimes/base/aws-cli-public-key.asc"
+	claudeDockerfile  = "runtimes/claude/Dockerfile"
+	claudeRuntimeJSON = "runtimes/claude/runtime.json"
+	claudeLockJSON    = "runtimes/claude/runtime.lock.json"
+	codexDockerfile   = "runtimes/codex/Dockerfile"
+	codexRuntimeJSON  = "runtimes/codex/runtime.json"
+	codexLockJSON     = "runtimes/codex/runtime.lock.json"
+	snapshotDir       = "internal/infra/runtimeassets/assets/tobari"
+	baseRuntimeJSON   = "runtimes/base/runtime.json"
+	baseLockJSON      = "runtimes/base/runtime.lock.json"
+	manifestJSON      = "runtimes/manifest.json"
+	versionsEnv       = "internal/infra/runtimeassets/assets/versions.env"
+	canonicalSource   = "https://github.com/tasuku43/tobari"
+	canonicalLicense  = "MIT"
+	canonicalUser     = "tobari"
+	canonicalRuntime  = "1"
+	canonicalLife     = "sleep infinity"
+	canonicalPackage  = "tobari/runtime"
 )
 
 var digestReference = regexp.MustCompile(`^debian@sha256:[0-9a-f]{64}$`)
 var versionReference = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+var agentTagReference = regexp.MustCompile(`^claude\.[0-9]+\.[0-9]+\.[0-9]+-base\.[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+$`)
+var codexTagReference = regexp.MustCompile(`^codex\.[0-9]+\.[0-9]+\.[0-9]+-base\.[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+$`)
+var imageDigestReference = regexp.MustCompile(`^ghcr\.io/[^@\s]+@sha256:[0-9a-f]{64}$`)
+var checksumReference = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 var canonicalBaseTools = []string{
 	"bash",
@@ -84,6 +94,52 @@ type runtimeLock struct {
 	} `json:"tools"`
 }
 
+type agentRuntimeMetadata struct {
+	SchemaVersion int    `json:"schema_version"`
+	Name          string `json:"name"`
+	Version       string `json:"version"`
+	Package       string `json:"package"`
+	Kind          string `json:"kind"`
+	Parent        string `json:"parent"`
+	Agent         struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	} `json:"agent"`
+	Base struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	} `json:"base"`
+	Revision               int      `json:"revision"`
+	RuntimeAPI             string   `json:"runtime_api"`
+	RuntimeLifetimeCommand string   `json:"runtime_lifetime_command"`
+	Entrypoint             []string `json:"entrypoint"`
+	User                   string   `json:"user"`
+	Architectures          []string `json:"architectures"`
+	Tools                  []string `json:"tools"`
+	Source                 string   `json:"source"`
+	License                string   `json:"license"`
+}
+
+type agentRuntimeLock struct {
+	SchemaVersion int `json:"schema_version"`
+	Parent        struct {
+		Package   string `json:"package"`
+		Version   string `json:"version"`
+		Reference string `json:"reference"`
+	} `json:"parent"`
+	Agent struct {
+		Name          string `json:"name"`
+		Version       string `json:"version"`
+		Source        string `json:"source"`
+		LicenseReview string `json:"license_review"`
+		Platforms     map[string]struct {
+			Asset  string `json:"asset"`
+			SHA256 string `json:"sha256"`
+			Size   int    `json:"size"`
+		} `json:"platforms"`
+	} `json:"agent"`
+}
+
 type manifest struct {
 	SchemaVersion int `json:"schema_version"`
 	Images        []struct {
@@ -97,6 +153,12 @@ type manifest struct {
 func main() {
 	rootFlag := flag.String("root", ".", "repository root")
 	printBaseImage := flag.Bool("print-base-image", false, "print the validated Debian image reference")
+	claude := flag.Bool("claude", false, "validate the Claude agent image")
+	printClaudeParent := flag.Bool("print-claude-parent", false, "print the validated Claude parent image reference")
+	printClaudeVersion := flag.Bool("print-claude-version", false, "print the validated Claude agent version")
+	codex := flag.Bool("codex", false, "validate the Codex agent image")
+	printCodexParent := flag.Bool("print-codex-parent", false, "print the validated Codex parent image reference")
+	printCodexVersion := flag.Bool("print-codex-version", false, "print the validated Codex agent version")
 	flag.Parse()
 	root, err := filepath.Abs(*rootFlag)
 	if err != nil {
@@ -109,6 +171,46 @@ func main() {
 	}
 	if *printBaseImage {
 		fmt.Println(baseImage)
+		return
+	}
+	if *claude || *printClaudeParent || *printClaudeVersion {
+		parent, err := validateClaude(root)
+		if err != nil {
+			fatal(err)
+		}
+		if *printClaudeParent {
+			fmt.Println(parent)
+			return
+		}
+		if *printClaudeVersion {
+			metadata, err := readJSON[agentRuntimeMetadata](root, claudeRuntimeJSON)
+			if err != nil {
+				fatal(err)
+			}
+			fmt.Println(metadata.Agent.Version)
+			return
+		}
+		fmt.Println("runtimecheck: Claude OK")
+		return
+	}
+	if *codex || *printCodexParent || *printCodexVersion {
+		parent, err := validateCodex(root)
+		if err != nil {
+			fatal(err)
+		}
+		if *printCodexParent {
+			fmt.Println(parent)
+			return
+		}
+		if *printCodexVersion {
+			metadata, err := readJSON[agentRuntimeMetadata](root, codexRuntimeJSON)
+			if err != nil {
+				fatal(err)
+			}
+			fmt.Println(metadata.Agent.Version)
+			return
+		}
+		fmt.Println("runtimecheck: Codex OK")
 		return
 	}
 	fmt.Println("runtimecheck: OK")
@@ -166,12 +268,21 @@ func validate(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if rootManifest.SchemaVersion != 1 || len(rootManifest.Images) != 1 {
-		return "", errors.New("runtime manifest must contain exactly the published base image")
+	if rootManifest.SchemaVersion != 1 || len(rootManifest.Images) == 0 {
+		return "", errors.New("runtime manifest must contain the published base image")
 	}
-	image := rootManifest.Images[0]
-	if image.Name != "base" || image.Path != "base" || image.Package != canonicalPackage || image.Parent != nil {
-		return "", errors.New("runtime manifest has an invalid base image entry")
+	baseFound := false
+	for _, image := range rootManifest.Images {
+		if image.Name != "base" {
+			continue
+		}
+		if baseFound || image.Path != "base" || image.Package != canonicalPackage || image.Parent != nil {
+			return "", errors.New("runtime manifest has an invalid base image entry")
+		}
+		baseFound = true
+	}
+	if !baseFound {
+		return "", errors.New("runtime manifest is missing the base image entry")
 	}
 
 	for _, relative := range []string{baseDockerfile, baseEntrypoint, baseAWSKey} {
@@ -236,6 +347,251 @@ func validate(root string) (string, error) {
 	return lock.BaseImage.Reference, nil
 }
 
+func validateClaude(root string) (string, error) {
+	if _, err := validate(root); err != nil {
+		return "", fmt.Errorf("validate base for Claude: %w", err)
+	}
+	metadata, err := readJSON[agentRuntimeMetadata](root, claudeRuntimeJSON)
+	if err != nil {
+		return "", err
+	}
+	if metadata.SchemaVersion != 1 || metadata.Name != "claude" || metadata.Package != canonicalPackage || metadata.Kind != "agent" || !agentTagReference.MatchString(metadata.Version) {
+		return "", errors.New("Claude runtime metadata has an invalid identity")
+	}
+	if metadata.Parent == "" || metadata.Agent.Name != "claude-code" || !versionReference.MatchString(metadata.Agent.Version) ||
+		metadata.Base.Name != "base" || !versionReference.MatchString(metadata.Base.Version) || metadata.Revision != 1 {
+		return "", errors.New("Claude runtime metadata has an invalid composition")
+	}
+	expectedTag := fmt.Sprintf("claude.%s-base.%s-r%d", metadata.Agent.Version, metadata.Base.Version, metadata.Revision)
+	if metadata.Version != expectedTag {
+		return "", errors.New("Claude runtime metadata tag does not match its composition")
+	}
+	if metadata.RuntimeAPI != canonicalRuntime || metadata.RuntimeLifetimeCommand != canonicalLife || metadata.User != canonicalUser {
+		return "", errors.New("Claude runtime metadata does not preserve the Tobari runtime contract")
+	}
+	if !sameStrings(metadata.Entrypoint, []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}) {
+		return "", errors.New("Claude runtime metadata has an unexpected entrypoint")
+	}
+	if !sameStrings(metadata.Architectures, []string{"linux/amd64", "linux/arm64"}) || !sameStrings(metadata.Tools, []string{"claude"}) {
+		return "", errors.New("Claude runtime metadata has an unexpected architecture or tool set")
+	}
+	if metadata.Source != canonicalSource || metadata.License != canonicalLicense {
+		return "", errors.New("Claude runtime metadata has an invalid public source or license")
+	}
+
+	lock, err := readJSON[agentRuntimeLock](root, claudeLockJSON)
+	if err != nil {
+		return "", err
+	}
+	if lock.SchemaVersion != 1 || lock.Parent.Package != canonicalPackage || lock.Parent.Version != metadata.Base.Version || !imageDigestReference.MatchString(lock.Parent.Reference) || lock.Parent.Reference != metadata.Parent {
+		return "", errors.New("Claude runtime lock does not contain the pinned Tobari parent")
+	}
+	if lock.Agent.Name != metadata.Agent.Name || lock.Agent.Version != metadata.Agent.Version || lock.Agent.Source != "https://downloads.claude.ai/claude-code-releases" || lock.Agent.LicenseReview != "pending" {
+		return "", errors.New("Claude runtime lock does not contain the reviewed Claude source metadata")
+	}
+	expectedPlatforms := map[string]string{
+		"linux/amd64": "linux-x64/claude",
+		"linux/arm64": "linux-arm64/claude",
+	}
+	if len(lock.Agent.Platforms) != len(expectedPlatforms) {
+		return "", errors.New("Claude runtime lock has an unexpected architecture matrix")
+	}
+	for platform, asset := range expectedPlatforms {
+		entry, ok := lock.Agent.Platforms[platform]
+		if !ok || entry.Asset != asset || !checksumReference.MatchString(entry.SHA256) || entry.Size <= 0 {
+			return "", fmt.Errorf("Claude runtime lock has an invalid %s artifact", platform)
+		}
+	}
+
+	rootManifest, err := readJSON[manifest](root, manifestJSON)
+	if err != nil {
+		return "", err
+	}
+	claudeFound := false
+	for _, image := range rootManifest.Images {
+		if image.Name != "claude" {
+			continue
+		}
+		if claudeFound || image.Path != "claude" || image.Package != canonicalPackage || image.Parent == nil || *image.Parent != "base" {
+			return "", errors.New("runtime manifest has an invalid Claude image entry")
+		}
+		claudeFound = true
+	}
+	if !claudeFound {
+		return "", errors.New("runtime manifest is missing the Claude image entry")
+	}
+
+	dockerfile, err := readRegularFile(filepath.Join(root, claudeDockerfile))
+	if err != nil {
+		return "", err
+	}
+	spec := string(dockerfile)
+	if !strings.Contains(spec, "ARG BASE_IMAGE="+lock.Parent.Reference) {
+		return "", errors.New("Claude Dockerfile default does not match the parent digest lock")
+	}
+	platforms := lock.Agent.Platforms
+	for _, required := range []string{
+		"FROM ${BASE_IMAGE}",
+		"ARG CLAUDE_CODE_VERSION=" + lock.Agent.Version,
+		"ARG CLAUDE_BASE_VERSION=" + lock.Parent.Version,
+		"ARG CLAUDE_CODE_SHA256_X64=" + platforms["linux/amd64"].SHA256,
+		"ARG CLAUDE_CODE_SHA256_ARM64=" + platforms["linux/arm64"].SHA256,
+		"arm64) platform=linux-arm64;",
+		"amd64) platform=linux-x64;",
+		"https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/manifest.json",
+		"https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/${platform}/claude",
+		"jq -er",
+		"sha256sum --check --strict",
+		"io.tobari.runtime-api=\"1\"",
+		"io.tobari.runtime-lifetime-command=\"sleep infinity\"",
+		"ENV HOME=/var/lib/tobari",
+		"ENV PATH=\"/var/lib/tobari/.local/bin:${PATH}\"",
+		"ENV DISABLE_AUTOUPDATER=1",
+		"USER tobari",
+		"RUN claude --version",
+	} {
+		if !strings.Contains(spec, required) {
+			return "", fmt.Errorf("Claude Dockerfile is missing %q", required)
+		}
+	}
+	for _, line := range strings.Split(spec, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "CMD ") || strings.HasPrefix(trimmed, "ENTRYPOINT ") {
+			return "", errors.New("Claude Dockerfile must inherit the Tobari command and entrypoint")
+		}
+	}
+
+	return lock.Parent.Reference, nil
+}
+
+func validateCodex(root string) (string, error) {
+	if _, err := validate(root); err != nil {
+		return "", fmt.Errorf("validate base for Codex: %w", err)
+	}
+	metadata, err := readJSON[agentRuntimeMetadata](root, codexRuntimeJSON)
+	if err != nil {
+		return "", err
+	}
+	if metadata.SchemaVersion != 1 || metadata.Name != "codex" || metadata.Package != canonicalPackage || metadata.Kind != "agent" || !codexTagReference.MatchString(metadata.Version) {
+		return "", errors.New("Codex runtime metadata has an invalid identity")
+	}
+	if metadata.Parent == "" || metadata.Agent.Name != "codex-cli" || !versionReference.MatchString(metadata.Agent.Version) ||
+		metadata.Base.Name != "base" || !versionReference.MatchString(metadata.Base.Version) || metadata.Revision != 1 {
+		return "", errors.New("Codex runtime metadata has an invalid composition")
+	}
+	expectedTag := fmt.Sprintf("codex.%s-base.%s-r%d", metadata.Agent.Version, metadata.Base.Version, metadata.Revision)
+	if metadata.Version != expectedTag {
+		return "", errors.New("Codex runtime metadata tag does not match its composition")
+	}
+	if metadata.RuntimeAPI != canonicalRuntime || metadata.RuntimeLifetimeCommand != canonicalLife || metadata.User != canonicalUser {
+		return "", errors.New("Codex runtime metadata does not preserve the Tobari runtime contract")
+	}
+	if !sameStrings(metadata.Entrypoint, []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}) {
+		return "", errors.New("Codex runtime metadata has an unexpected entrypoint")
+	}
+	if !sameStrings(metadata.Architectures, []string{"linux/amd64", "linux/arm64"}) || !sameStrings(metadata.Tools, []string{"codex"}) {
+		return "", errors.New("Codex runtime metadata has an unexpected architecture or tool set")
+	}
+	if metadata.Source != canonicalSource || metadata.License != canonicalLicense {
+		return "", errors.New("Codex runtime metadata has an invalid public source or license")
+	}
+
+	lock, err := readJSON[agentRuntimeLock](root, codexLockJSON)
+	if err != nil {
+		return "", err
+	}
+	if lock.SchemaVersion != 1 || lock.Parent.Package != canonicalPackage || lock.Parent.Version != metadata.Base.Version || !imageDigestReference.MatchString(lock.Parent.Reference) || lock.Parent.Reference != metadata.Parent {
+		return "", errors.New("Codex runtime lock does not contain the pinned Tobari parent")
+	}
+	if lock.Agent.Name != metadata.Agent.Name || lock.Agent.Version != metadata.Agent.Version || lock.Agent.Source != "https://releases.openai.com/codex" || lock.Agent.LicenseReview != "pending" {
+		return "", errors.New("Codex runtime lock does not contain the reviewed Codex source metadata")
+	}
+	expectedPlatforms := map[string]string{
+		"linux/amd64": "codex-package-x86_64-unknown-linux-musl.tar.gz",
+		"linux/arm64": "codex-package-aarch64-unknown-linux-musl.tar.gz",
+	}
+	if len(lock.Agent.Platforms) != len(expectedPlatforms) {
+		return "", errors.New("Codex runtime lock has an unexpected architecture matrix")
+	}
+	for platform, asset := range expectedPlatforms {
+		entry, ok := lock.Agent.Platforms[platform]
+		if !ok || entry.Asset != asset || !checksumReference.MatchString(entry.SHA256) || entry.Size <= 0 {
+			return "", fmt.Errorf("Codex runtime lock has an invalid %s artifact", platform)
+		}
+	}
+
+	rootManifest, err := readJSON[manifest](root, manifestJSON)
+	if err != nil {
+		return "", err
+	}
+	codexFound := false
+	for _, image := range rootManifest.Images {
+		if image.Name != "codex" {
+			continue
+		}
+		if codexFound || image.Path != "codex" || image.Package != canonicalPackage || image.Parent == nil || *image.Parent != "base" {
+			return "", errors.New("runtime manifest has an invalid Codex image entry")
+		}
+		codexFound = true
+	}
+	if !codexFound {
+		return "", errors.New("runtime manifest is missing the Codex image entry")
+	}
+
+	dockerfile, err := readRegularFile(filepath.Join(root, codexDockerfile))
+	if err != nil {
+		return "", err
+	}
+	spec := string(dockerfile)
+	if !strings.Contains(spec, "ARG BASE_IMAGE="+lock.Parent.Reference) {
+		return "", errors.New("Codex Dockerfile default does not match the parent digest lock")
+	}
+	platforms := lock.Agent.Platforms
+	for _, required := range []string{
+		"FROM ${BASE_IMAGE}",
+		"ARG CODEX_VERSION=" + lock.Agent.Version,
+		"ARG CODEX_BASE_VERSION=" + lock.Parent.Version,
+		"ARG CODEX_PACKAGE_SHA256_X64=" + platforms["linux/amd64"].SHA256,
+		"ARG CODEX_PACKAGE_SHA256_ARM64=" + platforms["linux/arm64"].SHA256,
+		"arm64) target=aarch64-unknown-linux-musl; package=\"codex-package-aarch64-unknown-linux-musl.tar.gz\";",
+		"amd64) target=x86_64-unknown-linux-musl; package=\"codex-package-x86_64-unknown-linux-musl.tar.gz\";",
+		"https://releases.openai.com/codex/releases/${CODEX_VERSION}/${package}",
+		"sha256sum --check --strict",
+		"tar -xzf",
+		"jq -er '.version' \"${release_dir}/codex-package.json\"",
+		"jq -er '.target' \"${release_dir}/codex-package.json\"",
+		"jq -er '.entrypoint' \"${release_dir}/codex-package.json\"",
+		"io.tobari.runtime-api=\"1\"",
+		"io.tobari.runtime-lifetime-command=\"sleep infinity\"",
+		"ENV HOME=/var/lib/tobari",
+		"ENV CODEX_HOME=/var/lib/tobari/.codex",
+		"ENV PATH=\"/var/lib/tobari/.local/bin:${PATH}\"",
+		"release_dir=\"/var/lib/tobari/.codex/packages/standalone/releases/${CODEX_VERSION}-${target}\"",
+		"test -x \"${release_dir}/bin/codex\"",
+		"test -x \"${release_dir}/bin/codex-code-mode-host\"",
+		"test -x \"${release_dir}/codex-path/rg\"",
+		"test -x \"${release_dir}/codex-resources/bwrap\"",
+		"test -x \"${release_dir}/codex-resources/zsh/bin/zsh\"",
+		"ln -s \"${release_dir}/bin/codex\" /var/lib/tobari/.local/bin/codex",
+		"ln -s \"${release_dir}/bin/codex-code-mode-host\" /var/lib/tobari/.local/bin/codex-code-mode-host",
+		"ln -s \"${release_dir}/codex-path/rg\" /var/lib/tobari/.local/bin/rg",
+		"USER tobari",
+		"RUN codex --version",
+	} {
+		if !strings.Contains(spec, required) {
+			return "", fmt.Errorf("Codex Dockerfile is missing %q", required)
+		}
+	}
+	for _, line := range strings.Split(spec, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "CMD ") || strings.HasPrefix(trimmed, "ENTRYPOINT ") {
+			return "", errors.New("Codex Dockerfile must inherit the Tobari command and entrypoint")
+		}
+	}
+
+	return lock.Parent.Reference, nil
+}
+
 func readJSON[T any](root, relative string) (T, error) {
 	var value T
 	data, err := readRegularFile(filepath.Join(root, relative))
@@ -289,7 +645,7 @@ func sameStrings(left, right []string) bool {
 		return false
 	}
 	for index := range left {
-		if left[index] != right[index] {
+		if left[index] != right[index] { // #nosec G602 -- lengths are checked before paired indexing.
 			return false
 		}
 	}

@@ -114,6 +114,14 @@ variant-qualified tags such as
 `ghcr.io/<owner>/tobari/runtime:codex.0.42.0-base.0.1.0-r1`. Pull requests and
 ordinary local startup do not push or pull images.
 
+The first Claude and Codex variants are build-only children under
+`runtimes/claude` and `runtimes/codex`. Each downloads a pinned official agent
+release, verifies its per-architecture checksum, and inherits the base user,
+entrypoint, and lifetime command. Codex uses the official standalone package,
+which keeps its CLI companion binaries and Linux sandbox resources together.
+Their workflows do not publish agent tags until redistribution and license
+review is complete.
+
 The root resolver obtains an image from bounded project metadata or the strict
 owner-only XDG `config.json` `default_image`; absence before first initialization
 falls back to `builtin`. The resolved selector, rather than the source of the

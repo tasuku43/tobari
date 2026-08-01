@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "parent": {
+    "package": "tobari/runtime",
+    "version": "0.1.0",
+    "reference": "ghcr.io/tasuku43/tobari/runtime@sha256:0735ac7322dcf5964d64242b1c64d4c0e64507a5c994a942e3d2a314af2b3244"
+  },
+  "agent": {
+    "name": "codex-cli",
+    "version": "0.146.0",
+    "source": "https://releases.openai.com/codex",
+    "license_review": "pending",
+    "platforms": {
+      "linux/amd64": {
+        "asset": "codex-package-x86_64-unknown-linux-musl.tar.gz",
+        "sha256": "3c89125af1d7c98abec8beb551292ef99daca52e204e5852a9139feae2c467e5",
+        "size": 133804522
+      },
+      "linux/arm64": {
+        "asset": "codex-package-aarch64-unknown-linux-musl.tar.gz",
+        "sha256": "c6eb28ec19bb5615b60e6787165ef28482481c2ce2617da565b83e591bc44c13",
+        "size": 124396444
+      }
+    }
+  }
+}

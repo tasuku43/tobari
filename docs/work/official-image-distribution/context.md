@@ -30,8 +30,18 @@ desired publication model into current repository behavior.
   `claude.2.1.34-base.0.1.0-r1`.
 - `.github/workflows/runtime-base.yml` builds and pushes
   `ghcr.io/<owner>/tobari/runtime:main` plus `sha-<commit>` on a main push,
-  after the base source/snapshot check. Agent publication remains deferred to
-  a later slice; there is no neutral official toolbox image.
+  after the base source/snapshot check. Claude and Codex agent publication is
+  deferred pending redistribution review; there is no neutral official
+  toolbox image.
+- The first Claude agent source now lives under `runtimes/claude`. It is
+  pinned to Claude Code `2.1.220`, its exact Linux amd64/arm64 binary
+  checksums, and the published base index digest
+  `sha256:0735ac7322dcf5964d64242b1c64d4c0e64507a5c994a942e3d2a314af2b3244`.
+  The agent workflow builds and verifies the image without pushing it.
+- The first Codex agent source now lives under `runtimes/codex`. It is pinned
+  to Codex CLI `0.146.0`, the official Linux amd64/arm64 standalone package
+  checksums, and the same published base index digest. Its workflow builds and
+  verifies the multi-architecture image without pushing it.
 
 ## Relevant structure
 
@@ -47,10 +57,10 @@ desired publication model into current repository behavior.
   `tools/releaseversion`.
 - Existing repository gates: `scripts/check.sh`, `task check`,
   `task security`, `task public:check`, and `task runtime:test`.
-- Implemented first source tree: a root `runtimes/` directory containing
-  `base`, its JSON metadata/lock, and a family manifest. `claude` and `codex`
-  remain planned derived siblings. The future dependency graph must rebuild
-  every derived image when `base` or shared build logic changes.
+- Implemented source tree: a root `runtimes/` directory containing `base`,
+  `claude`, `codex`, their JSON metadata/locks, and a family manifest. The
+  dependency graph must rebuild every derived image when `base` or shared build
+  logic changes.
 
 ## Constraints
 
@@ -110,6 +120,25 @@ release-asset checksum shell should not be assumed to be maintained by the
 Docker Dependabot manager. They need either a standard package manifest or a
 Tobari-owned refresh step that changes the version and integrity data as one
 reviewed update.
+- **Anthropic, “Set up Claude Code,”**
+  https://docs.anthropic.com/en/docs/claude-code/getting-started, checked
+  2026-08-01: npm is the standard installation method; the native
+  `claude.ai/install.sh` installer is documented as an alpha alternative and
+  supports Linux x64 and arm64 through the versioned release service.
+- **Chatwork dockerfiles, `claude-code`,**
+  https://github.com/chatwork/dockerfiles/tree/master/claude-code, checked
+  2026-08-01: the reference image contains only the Claude CLI and minimal
+  TLS runtime, keeps a version lock, and leaves plugin-specific tools to
+  extension images. Its installer pipes `claude.ai/install.sh` to Bash; the
+  Tobari image instead downloads the versioned official binary and verifies
+  the manifest checksum before installation.
+- **OpenAI Codex CLI manual and standalone installer,**
+  https://learn.chatgpt.com/docs/codex/cli and
+  https://chatgpt.com/codex/install.sh, checked 2026-08-01: the CLI can be
+  installed globally as `@openai/codex`, while the standalone installer uses
+  versioned release packages. The Codex `0.146.0` Linux packages contain the
+  CLI, code-mode host, ripgrep, bubblewrap, and zsh resources; Tobari uses that
+  package layout directly and verifies its release checksum.
 
 ## Unknowns
 
@@ -137,6 +166,9 @@ reviewed update.
       generated snapshot.
 - [x] Main pushes publish a moving `main` development tag and an immutable
       commit-addressed base tag; pull requests remain no-push.
+- [x] Claude and Codex sources use one level of `FROM` inheritance, the base runtime
+      user/entrypoint/lifetime contract, and no image `CMD` or `ENTRYPOINT`
+      override.
 
 ## Thesis evidence
 

@@ -16,3 +16,25 @@ func TestValidateRepositoryBase(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestValidateRepositoryClaude(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
+	if _, err := validateClaude(root); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateRepositoryCodex(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
+	if _, err := validateCodex(root); err != nil {
+		t.Fatal(err)
+	}
+}

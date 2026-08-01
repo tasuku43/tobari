@@ -135,6 +135,8 @@ run_fast() {
   go run ./tools/archlint
   go run ./tools/contractlint
   ./scripts/check-runtime-base.sh
+  ./scripts/check-runtime-claude.sh
+  ./scripts/check-runtime-codex.sh
   ./scripts/check-toolbox.sh
   go test ./...
 }

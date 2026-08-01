@@ -94,6 +94,12 @@ a source of mounts, credentials, capabilities, network routes, or lifecycle
 policy, and registry provenance does not replace local runtime compatibility
 validation.
 
+The current Claude and Codex image slices are build-only and contain no
+credentials or agent configuration. Their workflows verify the versioned
+release packages against the checked-in per-architecture checksums and have no
+package-write permission; public publication remains gated on third-party
+redistribution and license review.
+
 The optional toolbox recipe downloads version-pinned GitHub CLI, AWS CLI,
 kubectl, and TWG artifacts only during an explicit trusted-host build.
 Checksums verify GitHub, Kubernetes, and Atlassian artifacts; the AWS package is

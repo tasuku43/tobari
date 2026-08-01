@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "name": "claude",
+  "version": "claude.2.1.220-base.0.1.0-r1",
+  "package": "tobari/runtime",
+  "kind": "agent",
+  "parent": "ghcr.io/tasuku43/tobari/runtime@sha256:0735ac7322dcf5964d64242b1c64d4c0e64507a5c994a942e3d2a314af2b3244",
+  "agent": {
+    "name": "claude-code",
+    "version": "2.1.220"
+  },
+  "base": {
+    "name": "base",
+    "version": "0.1.0"
+  },
+  "revision": 1,
+  "runtime_api": "1",
+  "runtime_lifetime_command": "sleep infinity",
+  "entrypoint": [
+    "/usr/bin/tini",
+    "--",
+    "/usr/local/bin/tobari-entrypoint"
+  ],
+  "user": "tobari",
+  "architectures": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "tools": [
+    "claude"
+  ],
+  "source": "https://github.com/tasuku43/tobari",
+  "license": "MIT"
+}

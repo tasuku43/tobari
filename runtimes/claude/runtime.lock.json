@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "parent": {
+    "package": "tobari/runtime",
+    "version": "0.1.0",
+    "reference": "ghcr.io/tasuku43/tobari/runtime@sha256:0735ac7322dcf5964d64242b1c64d4c0e64507a5c994a942e3d2a314af2b3244"
+  },
+  "agent": {
+    "name": "claude-code",
+    "version": "2.1.220",
+    "source": "https://downloads.claude.ai/claude-code-releases",
+    "license_review": "pending",
+    "platforms": {
+      "linux/amd64": {
+        "asset": "linux-x64/claude",
+        "sha256": "674f61f20ff306f3100cf9200e4c36c4b70278b5bef2884549819b942a89c863",
+        "size": 275012592
+      },
+      "linux/arm64": {
+        "asset": "linux-arm64/claude",
+        "sha256": "159e4a51d796f3bf14677577100f7efb845611b1ceaf0c30cbd8d4650d942185",
+        "size": 271825824
+      }
+    }
+  }
+}

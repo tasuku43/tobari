@@ -54,6 +54,26 @@ tasks:
     cmds:
       - ./scripts/sync-runtime-base.sh
 
+  runtime:claude:check:
+    desc: Validate the Claude agent image metadata, lock, and inherited contract.
+    cmds:
+      - ./scripts/check-runtime-claude.sh
+
+  runtime:claude:build:
+    desc: Build and validate the local Claude agent runtime image.
+    cmds:
+      - ./scripts/build-runtime-claude.sh
+
+  runtime:codex:check:
+    desc: Validate the Codex agent image metadata, lock, and inherited contract.
+    cmds:
+      - ./scripts/check-runtime-codex.sh
+
+  runtime:codex:build:
+    desc: Build and validate the local Codex agent runtime image.
+    cmds:
+      - ./scripts/build-runtime-codex.sh
+
   runtime:test:
     desc: Run all container runtime tests.
     cmds:

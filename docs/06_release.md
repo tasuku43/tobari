@@ -38,6 +38,12 @@ immutable `sha-<commit>` tag for the exact main revision. This is a development
 channel, not a stable image release. Pull requests never receive package-write
 permission.
 
+The first Claude and Codex agent-image slices are build-only: their
+pull-request and main-push workflows validate the pinned parent, agent release
+checksums, multi-architecture build, and inherited runtime contract without
+publishing an agent tag. Public agent publication remains blocked until the
+agent redistribution terms and image-layer license review are recorded.
+
 Tobari does not yet claim code signing, notarization, SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact
 integrity but do not identify the builder.

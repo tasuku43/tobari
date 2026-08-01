@@ -1,0 +1,64 @@
+name: Runtime Codex
+
+on:
+  pull_request:
+    paths:
+      - runtimes/base/**
+      - runtimes/codex/**
+      - runtimes/manifest.json
+      - scripts/check-runtime-base.sh
+      - scripts/check-runtime-codex.sh
+      - tools/runtimecheck/**
+      - .github/workflows/runtime-codex.yml
+  push:
+    branches: [main]
+    paths:
+      - runtimes/base/**
+      - runtimes/codex/**
+      - runtimes/manifest.json
+      - scripts/check-runtime-base.sh
+      - scripts/check-runtime-codex.sh
+      - tools/runtimecheck/**
+      - .github/workflows/runtime-codex.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-codex-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and verify Codex image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate Codex source and parent lock
+        run: ./scripts/check-runtime-codex.sh
+
+      - name: Build multi-architecture Codex image without pushing
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent_image=$(go run ./tools/runtimecheck --print-codex-parent)
+          codex_version=$(go run ./tools/runtimecheck --print-codex-version)
+          builder="tobari-runtime-codex-${GITHUB_RUN_ID}"
+          docker buildx create --name "$builder" --driver docker-container --use
+          trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
+          docker buildx inspect --bootstrap
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file runtimes/codex/Dockerfile \
+            --build-arg "BASE_IMAGE=$parent_image" \
+            --build-arg "CODEX_VERSION=$codex_version" \
+            --output type=cacheonly \
+            runtimes/codex
