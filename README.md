@@ -302,7 +302,7 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari policy apply` | Test host policy, recreate only OPA, and wait for health |
 | `tobari` | Create or reuse the nearest current-directory Tobari and enter it |
 | `tobari status [--format text\|json]` | Report logical existence and runtime diagnostics for the current directory |
-| `tobari list [--format text\|json]` | List local roots, runtime diagnostics, and diagnostic IDs |
+| `tobari list [--format text\|json]` | List local Workspaces, runtime diagnostics, and diagnostic IDs |
 | `tobari delete [--force]` | Delete the nearest current-directory Tobari and its per-Tobari state |
 | `tobari doctor [--root PATH] [--format text\|tsv\|json]` | Diagnose Docker, paths, policy, credentials, and residue |
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |

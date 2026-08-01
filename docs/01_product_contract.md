@@ -37,6 +37,9 @@ and explicit policy activation rather than an observed host-only approval.
 - **Tobari:** one long-lived logical untrusted execution environment selected
   by a canonical project root. Its work container is recoverable runtime
   implementation detail.
+- **Workspace:** the human-facing name for one directory-bound Tobari in
+  lifecycle and list output. It is not a second runtime resource; its identity
+  remains the canonical root and its stable Tobari ID remains diagnostic.
 - **cluster:** the one installation-local Gateway, OPA, policy, credential, and
   CA lifecycle.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
@@ -70,7 +73,7 @@ The public commands are:
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
 | `tobari` | act, fixed target | create | Resolve or create the current directory's Tobari, reconcile runtime, and enter it |
 | `status` | utility | read | Inspect the nearest current-directory Tobari and its diagnostic runtime state |
-| `list [--format text|json]` | utility | read | List local Tobari roots with runtime diagnostics and diagnostic IDs |
+| `list [--format text|json]` | utility | read | List local Workspaces with runtime diagnostics and diagnostic IDs |
 | `delete [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari after destructive confirmation |
 | `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and activation command |
