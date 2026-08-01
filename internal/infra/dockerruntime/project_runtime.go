@@ -119,7 +119,7 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err := r.ensureProjectNetwork(ctx, network, stored.ID); err != nil {
 			return err
 		}
-		if err := r.ensureGatewayNetwork(ctx, network); err != nil {
+		if err := r.ensureGatewayProjectNetwork(ctx, network, stored.ID); err != nil {
 			return err
 		}
 		if err := r.ensureProjectContainer(ctx, state, stored, profile, container, network, image, specHash); err != nil {
@@ -306,6 +306,9 @@ func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.ProjectInst
 			if output, removeErr := r.runner.Output(ctx, []string{"network", "rm", network}, os.Environ()); removeErr != nil {
 				return fmt.Errorf("remove project network: %w: %s", removeErr, boundedDiagnostic(output))
 			}
+		}
+		if err := r.removeProjectPrincipal(ctx, stored.ID); err != nil {
+			return fmt.Errorf("remove project principal: %w", err)
 		}
 		journal.Phase = projectPhaseRuntime
 		if err := r.writeProjectJournal(journal); err != nil {

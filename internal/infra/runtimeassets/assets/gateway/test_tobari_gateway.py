@@ -15,6 +15,9 @@ import tobari_gateway as gateway
 
 
 class GatewayTests(unittest.TestCase):
+    project_a = "01912345-6789-7abc-8def-0123456789ab"
+    project_b = "01912345-6789-7abc-8def-0123456789ac"
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -27,10 +30,35 @@ class GatewayTests(unittest.TestCase):
                 "example": {
                     "type": "bearer",
                     "hosts": ["api.example.com"],
+                    "projects": [self.project_a],
                     "secret_file": "/run/tobari/credentials/example",
                 }
             },
         }
+        self.principal_path = os.path.join(self.temp.name, "principals.json")
+        with open(self.principal_path, "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "schema_version": 1,
+                    "bindings": [
+                        {
+                            "project_id": self.project_a,
+                            "gateway_ip": "172.29.0.2",
+                            "network": "tobari-project-a-net",
+                        }
+                    ],
+                },
+                handle,
+            )
+        self.previous_principal_path = os.environ.get("TOBARI_PRINCIPAL_REGISTRY")
+        os.environ["TOBARI_PRINCIPAL_REGISTRY"] = self.principal_path
+        self.addCleanup(self.restore_principal_path)
+
+    def restore_principal_path(self):
+        if self.previous_principal_path is None:
+            os.environ.pop("TOBARI_PRINCIPAL_REGISTRY", None)
+        else:
+            os.environ["TOBARI_PRINCIPAL_REGISTRY"] = self.previous_principal_path
 
     def flow(self, url="https://api.example.com/v1/resources?key=value", method="POST"):
         flow = tflow.tflow()
@@ -40,12 +68,49 @@ class GatewayTests(unittest.TestCase):
             "cookie": "session=secret",
             "x-safe": "visible",
         })
+        flow.client_conn = SimpleNamespace(sockname=("172.29.0.2", 8080))
         return flow
+
+    def test_project_principal_comes_from_gateway_local_network_address(self):
+        flow = self.flow()
+        flow.client_conn = SimpleNamespace(sockname=("172.29.0.2", 8080))
+        principals = {"172.29.0.2": self.project_a}
+        self.assertEqual(
+            gateway.resolve_project_principal(flow, principals), self.project_a
+        )
+
+    def test_project_principal_does_not_follow_forged_session_header(self):
+        flow = self.flow()
+        flow.request.headers["x-tobari-session"] = self.project_a
+        flow.client_conn = SimpleNamespace(sockname=("172.29.1.2", 8080))
+        principals = {"172.29.1.2": self.project_b}
+        self.assertEqual(
+            gateway.resolve_project_principal(flow, principals), self.project_b
+        )
+
+    def test_unknown_project_principal_is_denied_before_opa(self):
+        flow = self.flow()
+        flow.client_conn = SimpleNamespace(sockname=("172.29.9.2", 8080))
+        addon = gateway.TobariGateway()
+        output = io.StringIO()
+        with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
+            with mock.patch.object(gateway, "load_project_principals", return_value={}):
+                with mock.patch.object(gateway, "query_opa") as query:
+                    with redirect_stdout(output):
+                        addon.request(flow)
+        query.assert_not_called()
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertEqual(
+            json.loads(flow.response.content), {"error": "project_principal_unavailable"}
+        )
 
     def test_policy_input_is_generic_and_redacted(self):
         flow = self.flow()
-        document = gateway.build_policy_input(flow, "default", None, 1024, set())
+        document = gateway.build_policy_input(
+            flow, "default", None, self.project_a, 1024, set()
+        )
         self.assertEqual(document["principal"]["cluster"], "default")
+        self.assertEqual(document["principal"]["project_id"], self.project_a)
         request = document["request"]
         self.assertEqual(document["version"], "v1")
         self.assertEqual(request["host"], "api.example.com")
@@ -65,7 +130,9 @@ class GatewayTests(unittest.TestCase):
     def test_missing_streamed_body_is_not_treated_as_empty(self):
         flow = self.flow()
         flow.request.raw_content = None
-        document = gateway.build_policy_input(flow, "default", None, 1024, set())
+        document = gateway.build_policy_input(
+            flow, "default", None, self.project_a, 1024, set()
+        )
         body = document["request"]["body"]
         self.assertEqual(body["kind"], "unavailable")
         self.assertIsNone(body["size"])
@@ -173,10 +240,14 @@ class GatewayTests(unittest.TestCase):
     def test_credential_is_host_bound(self):
         request = self.flow().request
         with mock.patch("builtins.open", return_value=io.BytesIO(b"example-token\n")):
-            gateway.inject_credential(request, self.config, "example", "api.example.com")
+            gateway.inject_credential(
+                request, self.config, "example", "api.example.com", self.project_a
+            )
         self.assertEqual(request.headers["authorization"], "Bearer example-token")
         with self.assertRaises(gateway.CredentialError):
-            gateway.inject_credential(request, self.config, "example", "other.example.com")
+            gateway.inject_credential(
+                request, self.config, "example", "other.example.com", self.project_a
+            )
 
     def test_credential_path_cannot_escape_gateway_directory(self):
         request = self.flow().request
@@ -185,7 +256,35 @@ class GatewayTests(unittest.TestCase):
             "/run/tobari/credentials/../config/credentials.json"
         )
         with self.assertRaises(gateway.CredentialError):
-            gateway.inject_credential(request, escaped, "example", "api.example.com")
+            gateway.inject_credential(
+                request, escaped, "example", "api.example.com", self.project_a
+            )
+
+    def test_credential_profile_does_not_cross_project(self):
+        flow = self.flow()
+        flow.client_conn = SimpleNamespace(sockname=("172.29.1.2", 8080))
+        flow.request.headers["x-tobari-credential-profile"] = "example"
+        addon = gateway.TobariGateway()
+        output = io.StringIO()
+        with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
+            with mock.patch.object(
+                gateway, "load_project_principals", return_value={"172.29.1.2": self.project_b}
+            ):
+                with mock.patch.object(gateway, "query_opa") as query:
+                    with redirect_stdout(output):
+                        addon.request(flow)
+        query.assert_not_called()
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertEqual(
+            json.loads(flow.response.content), {"error": "credential_profile_not_bound"}
+        )
+
+    def test_credential_config_requires_project_bindings(self):
+        config = json.loads(json.dumps(self.config))
+        del config["profiles"]["example"]["projects"]
+        with self.assertRaises(gateway.CredentialError):
+            with mock.patch("builtins.open", return_value=io.BytesIO(json.dumps(config).encode())):
+                gateway.load_credential_config("ignored")
 
     def test_deny_and_audit_never_include_secrets_or_body(self):
         flow = self.flow()

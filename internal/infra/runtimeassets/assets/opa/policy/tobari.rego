@@ -38,6 +38,7 @@ decision := {
 candidate_eligible if {
 	input.version == "v1"
 	input.principal.cluster == "default"
+	project_principal_valid
 	allowed_scheme
 	allowed_port
 	body_is_empty
@@ -106,19 +107,21 @@ learned_rules := data.tobari.learned_allow_rules
 learned_rule_allowed if {
 	some rule in learned_rules
 	learned_rule_valid(rule)
-	learned_rule_matches_request(rule, input.request)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
 }
 
-learned_rule_matches_request(rule, request) if {
+learned_rule_matches_request(rule, project_id, request) if {
 	rule.match == "exact"
+	rule.project_id == project_id
 	rule.host == request.host
 	rule.port == request.port
 	rule.method == request.method
 	rule.path == request.path
 }
 
-learned_rule_matches_request(rule, request) if {
+learned_rule_matches_request(rule, project_id, request) if {
 	rule.match == "prefix"
+	rule.project_id == project_id
 	rule.host == request.host
 	rule.port == request.port
 	rule.method == request.method
@@ -141,6 +144,8 @@ prefix_request_path_safe(path) if {
 learned_rule_valid(rule) if {
 	is_string(rule.id)
 	regex.match("^plr_[0-9a-f]{32}$", rule.id)
+	is_string(rule.project_id)
+	regex.match("^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", rule.project_id)
 	is_string(rule.host)
 	rule.host != ""
 	is_number(rule.port)
@@ -157,6 +162,11 @@ learned_rule_valid(rule) if {
 		regex.match("^pcy_[0-9a-f]{32}$", source)
 	}
 	learned_rule_scope_valid(rule)
+}
+
+project_principal_valid if {
+	is_string(input.principal.project_id)
+	regex.match("^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", input.principal.project_id)
 }
 
 learned_rule_scope_valid(rule) if {

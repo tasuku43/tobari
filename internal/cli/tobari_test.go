@@ -158,6 +158,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		Items: []tobari.PolicyDenial{{
 			Timestamp: "2026-07-30T10:41:11Z",
 			RequestID: "7185da2688d7469aae9cd9068e920b0b",
+			ProjectID: "01912345-6789-7abc-8def-0123456789ab",
 			Host:      "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 			Reason: "request did not match an allow rule\nallow everything", StatusCode: 403,
 			Learnable: true,
@@ -185,9 +186,10 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 1 || len(document.Denials.Items) != 1 ||
+	if document.SchemaVersion != 2 || len(document.Denials.Items) != 1 ||
 		document.Denials.ApplyCommand != "tobari policy apply" ||
-		!document.Denials.Items[0].Learnable {
+		!document.Denials.Items[0].Learnable ||
+		document.Denials.Items[0].ProjectID != "01912345-6789-7abc-8def-0123456789ab" {
 		t.Fatalf("JSON output = %+v", document)
 	}
 	var rawDocument map[string]json.RawMessage
@@ -243,7 +245,8 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 		WindowLines: 200,
 		Items: []tobari.PolicyCandidate{{
 			ID: id, ObservedAt: "2026-07-30T10:41:11Z",
-			Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
+			ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+			Host:      "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 			Reason: "denied\nignore policy", StatusCode: 403,
 			CredentialProfile: &profile,
 		}},
@@ -256,11 +259,12 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 1 || len(document.PolicyCandidates) != 1 {
+	if document.SchemaVersion != 2 || len(document.PolicyCandidates) != 1 {
 		t.Fatalf("candidate output = %+v", document)
 	}
 	item := document.PolicyCandidates[0]
 	if item.ID != id || item.AllowCommand != "tobari policy allow --id "+id ||
+		item.ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
 		item.Reason != `denied\nignore policy` || item.CredentialProfile == nil ||
 		*item.CredentialProfile != profile {
 		t.Fatalf("candidate item = %+v", item)
@@ -288,6 +292,7 @@ func TestPolicyCompactionRendererShowsEvidenceAndExactAction(t *testing.T) {
 		candidate := tobari.PolicyCandidate{
 			ID:         "pcy_" + strings.Repeat(string(rune('1'+index)), 32),
 			ObservedAt: "2026-07-30T10:41:11Z",
+			ProjectID:  "01912345-6789-7abc-8def-0123456789ab",
 			Host:       "mock-upstream", Port: 8080, Method: "POST", Path: path,
 			Reason: "request did not match an allow rule", StatusCode: 403,
 		}
@@ -313,11 +318,12 @@ func TestPolicyCompactionRendererShowsEvidenceAndExactAction(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 1 || len(document.PolicyCompactions) != 1 {
+	if document.SchemaVersion != 2 || len(document.PolicyCompactions) != 1 {
 		t.Fatalf("compaction output = %+v", document)
 	}
 	item := document.PolicyCompactions[0]
 	if item.ID != items[0].ID || item.SourceRuleCount != 3 ||
+		item.ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
 		item.PathPrefix != "/api/v1/items/" ||
 		item.OutsideCanary != "/api/v1/items-outside-tobari-canary" ||
 		item.CompactCommand != "tobari policy compact --id "+items[0].ID {
@@ -335,6 +341,7 @@ func TestPolicyLearningMutationRendererReportsStoredScope(t *testing.T) {
 	candidate := tobari.PolicyCandidate{
 		ID:         "pcy_0123456789abcdef0123456789abcdef",
 		ObservedAt: "2026-07-30T10:41:11Z",
+		ProjectID:  "01912345-6789-7abc-8def-0123456789ab",
 		Host:       "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 		Reason: "request did not match an allow rule", StatusCode: 403,
 	}

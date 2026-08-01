@@ -15,7 +15,7 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, and public-boundary checks |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Pinned mitmproxy addon unit tests |
-| `integration` | `task integration:test` | Real runtime boundary | Shared-cluster lifecycle, multiple CWD-owned Tobari, network separation, TLS, fail-closed, credential, typed denial, tested host-policy activation, entry, recovery, and cleanup scenarios |
+| `integration` | `task integration:test` | Real runtime boundary | Shared-cluster lifecycle, multiple CWD-owned Tobari, host-issued project principal separation, network separation, TLS, fail-closed, credential, typed denial, tested host-policy activation, entry, recovery, and cleanup scenarios |
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, and integration profiles |
 
 The optional `task toolbox:build` workflow is not a completion profile. It
@@ -238,6 +238,10 @@ The test suite has complementary levels:
 - Policy-learning integration projects a denial, edits the host XDG policy and
   its test, activates it through the fixed-target command, and observes the
   changed decision without restarting any Tobari.
+- Project-principal integration creates two current-directory Tobari, checks
+  distinct Gateway network addresses, denies a credential profile and learned
+  permission when requested by the other project, and checks registry cleanup
+  after network recovery and deletion.
 - Policy-boundary tests prove the normalized request port is required by the
   initialized scheme-port allowlist, rejected non-default ports are not
   learnable, and learned rules do not cross ports.
@@ -288,8 +292,9 @@ Every strong statement should identify its enforcement path.
 | Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
 | Typed denial recovery | Strict host/port audit projection, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
-| Explicit policy learning | OPA scheme/port learnability classification, host/port/method/path candidate/reference domain validation, discover-act graph and round trip, strict atomic XDG writer, preflight ordering, and Docker retry |
-| Bounded policy compaction | Pure deterministic same-host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |
+| Explicit policy learning | OPA scheme/port learnability classification, project/host/port/method/path candidate/reference domain validation, discover-act graph and round trip, strict atomic XDG writer, preflight ordering, and Docker retry |
+| Bounded policy compaction | Pure deterministic same-project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |
+| Project principal and credential scope | Owner-only atomic registry schema, local-interface derivation, forged-session and unknown-principal denial, profile project binding, cross-project Rego canary, and two-project Docker integration |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |

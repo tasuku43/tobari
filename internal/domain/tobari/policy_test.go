@@ -2,10 +2,16 @@ package tobari
 
 import "testing"
 
+const (
+	policyProjectA = "01912345-6789-7abc-8def-0123456789ab"
+	policyProjectB = "01912345-6789-7abc-8def-0123456789ac"
+)
+
 func validPolicyDenial() PolicyDenial {
 	return PolicyDenial{
 		Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
+		ProjectID: policyProjectA,
+		Host:      "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
 }
@@ -129,7 +135,7 @@ func TestExactLearnedRuleBindsCandidateAndDoesNotBroadenPath(t *testing.T) {
 	if err := rule.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !rule.Matches(candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+	if !rule.Matches(candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
 		t.Fatal("exact rule did not match its approved effect")
 	}
 	for _, changed := range []struct {
@@ -140,16 +146,37 @@ func TestExactLearnedRuleBindsCandidateAndDoesNotBroadenPath(t *testing.T) {
 		{candidate.Host, "POST", candidate.Path, candidate.Port},
 		{candidate.Host, candidate.Method, candidate.Path + "/child", candidate.Port},
 	} {
-		if rule.Matches(changed.host, changed.port, changed.method, changed.path) {
+		if rule.Matches(candidate.ProjectID, changed.host, changed.port, changed.method, changed.path) {
 			t.Fatalf("exact rule broadened to %+v", changed)
 		}
 	}
-	if rule.Matches(candidate.Host, 8443, candidate.Method, candidate.Path) {
+	if rule.Matches(candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path) {
 		t.Fatal("exact rule broadened to another port")
+	}
+	if rule.Matches(policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+		t.Fatal("exact rule crossed the project boundary")
 	}
 	rule.Path += "/changed"
 	if err := rule.Validate(); err == nil {
 		t.Fatal("content-mismatched learned rule ID was accepted")
+	}
+}
+
+func TestPolicyCandidateIdentityIncludesProjectPrincipal(t *testing.T) {
+	t.Parallel()
+	first := validPolicyDenial()
+	second := first
+	second.ProjectID = policyProjectB
+	firstCandidate, err := NewPolicyCandidate(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCandidate, err := NewPolicyCandidate(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstCandidate.ID == secondCandidate.ID {
+		t.Fatal("project-scoped candidates share an opaque ID")
 	}
 }
 
@@ -254,12 +281,12 @@ func TestCompactLearnedPolicyRulesPreservesExamplesAndRejectsStaleReference(t *t
 		t.Fatalf("updated=%+v selected=%+v rule=%+v", updated, selected, prefixRule)
 	}
 	for _, example := range prefixRule.Examples {
-		if !prefixRule.Matches(prefixRule.Host, prefixRule.Port, prefixRule.Method, example) {
+		if !prefixRule.Matches(prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, example) {
 			t.Fatalf("prefix rule lost example %q", example)
 		}
 	}
 	if prefixRule.Matches(
-		prefixRule.Host, prefixRule.Port, prefixRule.Method, selected.OutsideCanary,
+		prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, selected.OutsideCanary,
 	) {
 		t.Fatal("prefix rule matched its outside boundary canary")
 	}

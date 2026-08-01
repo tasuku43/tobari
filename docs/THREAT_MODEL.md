@@ -37,7 +37,7 @@ Untrusted:
 | Gateway buffering | One Tobari sends an oversized body to exhaust shared Gateway memory or reach upstream before policy | mitmproxy transport boundary | Fixed 8 MiB request/response cap before the addon hook; over-limit integration canary |
 | Audit confidentiality | Token or body leaks | Logger | Metadata-only schema and secret-canary tests |
 | Shared runtime capacity | One Tobari exhausts work-container or shared-service CPU, memory, PIDs, or logs | Docker resource contract | Fixed work-container limits plus fixed Gateway/OPA CPU/memory/PID ceilings, JSON log rotation, and runtime inspection |
-| Project authority | One Tobari claims another project's policy or credential scope | Shared Gateway/OPA principal boundary | Not provided in the MVP: session is caller metadata and the stable ID is not a trusted Gateway principal; shared policy/credential scope is an explicit deferred risk |
+| Project authority | One Tobari claims another project's learned policy or credential scope | Shared Gateway/OPA principal boundary | Host-owned atomic principal registry maps each exact Gateway project-network address to one UUIDv7 project ID; Gateway derives the principal from the local interface, and project-bound credentials/rules reject mismatches before upstream I/O |
 | Other Docker resources | Cleanup removes unrelated state | Labels/state | Exact names plus owner and opaque-ID verification |
 
 ## Credible abuse cases
@@ -76,20 +76,28 @@ state is unchanged.
 Tobari supplies authorization, cookies, API keys, or another configured secret
 header. Gateway excludes secret values from OPA and audit output. It strips
 managed headers before forwarding; application cookies may pass only after
-allow. Only an OPA-selected, exact-host-bound profile can add a managed value.
+allow. Only an OPA-selected profile bound to the established project and
+normalized host can add a managed value.
 
 ### Project identity and credential scope
 
 A process can supply another-looking `x-tobari-session` value or request a
-known credential profile name. The session is caller metadata and the shared
-OPA/credential namespace is not bound to the source project, so the Gateway
-does not claim to distinguish one CWD-owned Tobari from another for policy or
-managed-secret authority. Dedicated Docker networks still prevent direct
-cross-project routes and work containers still cannot read Gateway secret
-files, but those facts do not provide per-project egress or credential
-separation. Treat this as a release-blocking design gap for multi-tenant use;
-adding identity requires a reviewed trust-boundary decision rather than a
-header convention.
+known credential profile name. The session and profile name are untrusted
+inputs. Gateway instead observes the local address on which the proxy
+connection arrived and looks it up in the host-owned, owner-only principal
+registry. Docker network ownership and the exact project ID are checked before
+the registry binding is written. An unknown, duplicate, malformed, or stale
+binding denies before OPA and upstream I/O.
+
+Credential profiles list the project IDs they serve, and Gateway checks that
+binding before OPA and again immediately before reading the secret. Learned
+denials, candidate IDs, rules, and compaction groups include the project ID, so
+an approval for project A does not match project B even when host, port, method,
+and path are identical. The initialized host policy remains an explicit
+installation-wide baseline; this change does not claim that baseline is a
+per-project allowlist. Direct network routes and secret-file mounts remain
+separate boundaries. Network recreation and deletion reconcile the registry;
+until reconciliation succeeds, requests fail closed.
 
 ### Policy outage or ambiguity
 
@@ -170,10 +178,10 @@ authorized network capacity remains outside this control.
 - A permitted destination can receive any data that Tobari can read.
 - An injected credential can perform any operation allowed by both Rego and its
   upstream authority.
-- The shared local MVP does not authenticate a project principal to Gateway;
-  all projects in one cluster share the policy and credential namespace. It is
-  not suitable for mutually untrusted tenants until that boundary is designed
-  and enforced.
+- The initialized host policy is an installation-wide baseline rather than a
+  per-project allowlist. Project-bound learned permissions and managed
+  credentials are separated, but mutually untrusted tenants still require a
+  stronger execution and resource boundary than this local shared cluster.
 - Container, VM, kernel, Docker Engine, Gateway, OPA, or host compromise is
   outside this boundary.
 - Certificate-pinned applications may fail because Tobari does not bypass
@@ -185,7 +193,7 @@ authorized network capacity remains outside this control.
 ## Reconsideration triggers
 
 Revisit the architecture before adding transparent proxying, non-HTTP
-protocols, multiple clusters or tenants, project-bound identity or credentials,
+protocols, multiple clusters or tenants, a per-project static policy baseline,
 remote execution, dynamic credentials,
 provider-specific semantics, or filesystem overlays. A demonstrated route from
 one Tobari to another, OPA, or an external destination without Gateway is a

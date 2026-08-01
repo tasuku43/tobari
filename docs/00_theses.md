@@ -15,8 +15,10 @@ other arbitrary programs against project roots. Success means each Tobari can
 host concurrent processes, cannot reach the Internet or another Tobari directly,
 never receives managed credentials, and is selected from the canonical current
 directory rather than a user-managed name, root flag, or container identifier.
-One installation-local cluster shares Gateway, OPA, policy, credentials, and CA
-state without sharing Tobari roots or homes.
+One installation-local cluster shares Gateway, OPA, an installation-wide
+baseline policy, and CA state without sharing Tobari roots or homes. Host-issued
+project principals bind mutable learned permissions and managed credential
+profiles to the exact current-directory network that originated a request.
 
 The first testable slice is one local mock upstream reached through the
 Gateway: an allowed request succeeds, a denied request does not reach upstream,
@@ -92,7 +94,8 @@ egress networks; OPA joins only control.
 
 Tobari never receives a Gateway-managed secret. OPA may select a credential
 profile only after allowing a request, and Gateway injects it only when the
-profile is configured for the normalized destination host.
+profile is configured for both the host-issued project principal and the
+normalized destination host.
 
 ### Consequences
 
@@ -106,19 +109,22 @@ profile is configured for the normalized destination host.
 
 ### Mechanical enforcement
 
-- Credential configuration validation binds every profile to explicit hosts.
+- Credential configuration validation binds every profile to explicit hosts
+  and an explicit set of project IDs.
 - Gateway tests use canary secrets and scan decisions and audit logs.
-- Integration tests prove injection at an allowed host and non-disclosure to
-  Tobari or another host.
+- Integration tests prove injection at an allowed host and project, and
+  non-disclosure to Tobari, another host, or another project.
 
 ## Thesis 4: One shared cluster hosts multiple CWD-owned Tobari
 
 MVP manages one installation-local enforcement cluster and multiple logical
-Tobari. The shared cluster is one host trust domain, not a multi-tenant
-authority service: a stable Tobari ID is host-side bookkeeping, not a
-Gateway-authenticated project principal. The MVP does not claim
-project-specific policy, credential, or egress authority separation. A Tobari
-is selected by the nearest indexed canonical ancestor of the
+Tobari. The shared cluster is one host trust domain with a host-issued
+project-principal boundary: a stable Tobari ID is not trusted merely because
+it appears in caller data, but the host binds it to the exact Gateway network
+interface that received the request. The initialized policy is an
+installation-wide baseline; learned permissions and managed credentials are
+project-bound and cannot be selected by another project. A Tobari is selected
+by the nearest indexed canonical ancestor of the
 current directory, binds exactly one read-write root, one dedicated internal
 network, and one persistent XDG-owned home directory.
 
@@ -140,6 +146,11 @@ network, and one persistent XDG-owned home directory.
   ending a shell or losing a runtime resource leaves it existing.
 - Every process in a Tobari may modify or delete every file below that Tobari's
   mounted root.
+- The host-owned principal registry is the only source of project authority at
+  Gateway; session headers and profile names cannot select a project.
+- A missing, malformed, ambiguous, or stale principal binding denies before
+  policy evaluation and upstream I/O. Network recreation reconciles the
+  binding before the project can use the proxy.
 - Multiple clusters, overlays, clone modes, and change approval are non-goals.
 - A project root cannot be the filesystem root, the user's home or its
   ancestor, or any XDG configuration, state, or shared-profile management
@@ -290,8 +301,8 @@ rule from the trusted host.
 
 ## Deliberate non-goals
 
-MVP does not support multiple clusters, process-level identity, project-bound
-policy or credential authority, transparent proxying, non-HTTP protocols, Git
+MVP does not support multiple clusters, process-level identity, a per-project
+static baseline policy, transparent proxying, non-HTTP protocols, Git
 SSH, provider-specific semantic adapters,
 OAuth refresh, SigV4, Keychain integration, approval workflows, Kubernetes,
 filesystem overlays, GUIs, remote execution, or multi-tenant production use.

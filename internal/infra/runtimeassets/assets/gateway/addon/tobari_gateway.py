@@ -6,6 +6,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
 import socket
 import time
 import urllib.error
@@ -29,6 +30,10 @@ DEFAULT_SECRET_HEADERS = frozenset(
 PROFILE_HEADER = "x-tobari-credential-profile"
 MAX_CREDENTIAL_CONFIG_BYTES = 256 * 1024
 MAX_SECRET_BYTES = 64 * 1024
+MAX_PRINCIPAL_CONFIG_BYTES = 256 * 1024
+PROJECT_ID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 
 
 class PolicyUnavailable(Exception):
@@ -39,8 +44,79 @@ class CredentialError(Exception):
     """A selected credential could not be injected safely."""
 
 
+class CredentialBindingError(CredentialError):
+    """A credential profile is not authorized for the established project."""
+
+
+class PrincipalError(Exception):
+    """The host-owned project principal could not be established."""
+
+
 class UpstreamAddressError(Exception):
     """The upstream hostname cannot be bound to a safe resolved address."""
+
+
+def load_project_principals(path: str) -> dict[str, str]:
+    try:
+        with open(path, "rb") as handle:
+            raw = handle.read(MAX_PRINCIPAL_CONFIG_BYTES + 1)
+    except OSError as error:
+        raise PrincipalError("project principal registry could not be read") from error
+    if len(raw) > MAX_PRINCIPAL_CONFIG_BYTES:
+        raise PrincipalError("project principal registry is too large")
+    try:
+        document = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise PrincipalError("project principal registry is invalid") from error
+    if not isinstance(document, dict) or document.get("schema_version") != 1:
+        raise PrincipalError("project principal registry version is invalid")
+    bindings = document.get("bindings")
+    if not isinstance(bindings, list):
+        raise PrincipalError("project principal bindings are invalid")
+    result: dict[str, str] = {}
+    projects: set[str] = set()
+    for binding in bindings:
+        if not isinstance(binding, dict) or set(binding) != {"project_id", "gateway_ip", "network"}:
+            raise PrincipalError("project principal binding shape is invalid")
+        project_id = binding.get("project_id")
+        gateway_ip = binding.get("gateway_ip")
+        network = binding.get("network")
+        if (
+            not isinstance(project_id, str)
+            or not PROJECT_ID_PATTERN.fullmatch(project_id)
+            or project_id in projects
+            or not isinstance(gateway_ip, str)
+            or not isinstance(network, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", network) is None
+        ):
+            raise PrincipalError("project principal binding is invalid")
+        try:
+            address = ipaddress.ip_address(gateway_ip)
+        except ValueError as error:
+            raise PrincipalError("project principal address is invalid") from error
+        if (
+            address.is_loopback
+            or address.is_unspecified
+            or address.is_multicast
+            or address.is_link_local
+        ):
+            raise PrincipalError("project principal address is unsafe")
+        if gateway_ip in result:
+            raise PrincipalError("project principal addresses are ambiguous")
+        projects.add(project_id)
+        result[gateway_ip] = project_id
+    return result
+
+
+def resolve_project_principal(flow: http.HTTPFlow, principals: dict[str, str]) -> str:
+    client = getattr(flow, "client_conn", None)
+    address = getattr(client, "sockname", None)
+    if not isinstance(address, (tuple, list)) or not address or not isinstance(address[0], str):
+        raise PrincipalError("project principal address is unavailable")
+    project_id = principals.get(address[0])
+    if project_id is None:
+        raise PrincipalError("project principal is not registered")
+    return project_id
 
 
 def resolve_upstream_address(host: str, port: int) -> tuple[str, int]:
@@ -161,6 +237,7 @@ def build_policy_input(
     flow: http.HTTPFlow,
     cluster: str,
     session: str | None,
+    project_id: str,
     inspection_bytes: int,
     extra_secret_names: set[str],
 ) -> dict[str, Any]:
@@ -173,7 +250,7 @@ def build_policy_input(
     raw = request.raw_content
     return {
         "version": "v1",
-        "principal": {"cluster": cluster, "session": session},
+        "principal": {"cluster": cluster, "project_id": project_id, "session": session},
         "request": {
             "scheme": request.scheme.lower(),
             "host": host,
@@ -261,6 +338,20 @@ def load_credential_config(path: str) -> dict[str, Any]:
     profiles = document.get("profiles")
     if not isinstance(profiles, dict):
         raise CredentialError("credential profiles are invalid")
+    for name, profile in profiles.items():
+        if not isinstance(name, str) or not name or not isinstance(profile, dict):
+            raise CredentialError("credential profiles are invalid")
+        projects = profile.get("projects")
+        if (
+            not isinstance(projects, list)
+            or any(
+                not isinstance(project, str)
+                or PROJECT_ID_PATTERN.fullmatch(project) is None
+                for project in projects
+            )
+            or len(projects) != len(set(projects))
+        ):
+            raise CredentialError("credential profile project bindings are invalid")
     return document
 
 
@@ -272,10 +363,27 @@ def configured_secret_headers(config: dict[str, Any]) -> set[str]:
     return names
 
 
-def _validated_profile(config: dict[str, Any], name: str, host: str) -> dict[str, Any]:
+def _profile_project_binding(
+    config: dict[str, Any], name: str, project_id: str
+) -> dict[str, Any]:
     profile = config.get("profiles", {}).get(name)
     if not isinstance(profile, dict):
         raise CredentialError("OPA selected an unknown credential profile")
+    projects = profile.get("projects")
+    if (
+        not isinstance(project_id, str)
+        or PROJECT_ID_PATTERN.fullmatch(project_id) is None
+        or not isinstance(projects, list)
+        or project_id not in projects
+    ):
+        raise CredentialBindingError("credential profile is not bound to the project")
+    return profile
+
+
+def _validated_profile(
+    config: dict[str, Any], name: str, host: str, project_id: str
+) -> dict[str, Any]:
+    profile = _profile_project_binding(config, name, project_id)
     profile_type = profile.get("type")
     hosts = profile.get("hosts")
     secret_file = profile.get("secret_file")
@@ -304,8 +412,9 @@ def inject_credential(
     config: dict[str, Any],
     profile_name: str,
     host: str,
+    project_id: str,
 ) -> None:
-    profile = _validated_profile(config, profile_name, host)
+    profile = _validated_profile(config, profile_name, host, project_id)
     try:
         with open(profile["secret_file"], "rb") as handle:
             raw = handle.read(MAX_SECRET_BYTES + 1)
@@ -346,6 +455,10 @@ class TobariGateway:
             "TOBARI_CREDENTIAL_CONFIG",
             "/run/tobari/config/credentials.json",
         )
+        self.principal_path = os.getenv(
+            "TOBARI_PRINCIPAL_REGISTRY",
+            "/run/tobari/principals.json",
+        )
 
     def server_connect(self, data: Any) -> None:
         address = data.server.address
@@ -362,18 +475,25 @@ class TobariGateway:
         request_id = uuid.uuid4().hex
         host = flow.request.host.rstrip(".").lower()
         port = flow.request.port
-        profile_name: str | None = None
+        profile_name: str | None = flow.request.headers.get(PROFILE_HEADER)
+        project_id: str | None = None
         upstream_status: int | None = None
         decision_name = "deny"
         reason = "gateway rejected request"
         learnable = False
         try:
+            project_id = resolve_project_principal(
+                flow, load_project_principals(self.principal_path)
+            )
             config = load_credential_config(self.credential_path)
+            if profile_name is not None:
+                _profile_project_binding(config, profile_name, project_id)
             secret_names = configured_secret_headers(config)
             policy_input = build_policy_input(
                 flow,
                 self.cluster,
                 flow.request.headers.get("x-tobari-session"),
+                project_id,
                 self.inspection_bytes,
                 secret_names,
             )
@@ -394,12 +514,13 @@ class TobariGateway:
                 upstream_status = decision.status_code
                 return
             if profile_name is not None:
-                inject_credential(flow.request, config, profile_name, host)
+                inject_credential(flow.request, config, profile_name, host, project_id)
             decision_name = "allow"
             flow.metadata["tobari_audit"] = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "request_id": request_id,
                 "cluster": self.cluster,
+                "project_id": project_id,
                 "host": host,
                 "port": port,
                 "method": flow.request.method.upper(),
@@ -414,10 +535,18 @@ class TobariGateway:
             reason = str(error)
             _deny(flow, 503, "policy_unavailable")
             upstream_status = 503
+        except CredentialBindingError as error:
+            reason = str(error)
+            _deny(flow, 403, "credential_profile_not_bound")
+            upstream_status = 403
         except CredentialError as error:
             reason = str(error)
             _deny(flow, 503, "credential_unavailable")
             upstream_status = 503
+        except PrincipalError as error:
+            reason = str(error)
+            _deny(flow, 403, "project_principal_unavailable")
+            upstream_status = 403
         except (RuntimeError, UnicodeError):
             reason = "credential processing failed"
             _deny(flow, 503, "credential_unavailable")
@@ -432,6 +561,7 @@ class TobariGateway:
                     timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     request_id=request_id,
                     cluster=self.cluster,
+                    project_id=project_id,
                     host=host,
                     port=port,
                     method=flow.request.method.upper(),

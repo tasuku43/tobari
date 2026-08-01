@@ -405,22 +405,9 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 	if err != nil {
 		return tobari.State{}, fmt.Errorf("read CWD-owned projects for Gateway reconciliation: %w", err)
 	}
-	for _, project := range projects {
-		_, network, nameErr := tobari.ProjectResourceNames(project.ID)
-		if nameErr != nil {
-			return tobari.State{}, nameErr
-		}
-		exists, existsErr := r.projectResourceExists(ctx, "network", network)
-		if existsErr != nil {
-			return tobari.State{}, existsErr
-		}
-		if !exists {
-			continue
-		}
-		if err := r.ensureGatewayNetwork(ctx, network); err != nil {
-			_ = r.recordRecentError(state, "Gateway did not rejoin every Tobari network; inspect cluster status.")
-			return tobari.State{}, err
-		}
+	if err := r.syncProjectPrincipalRegistry(ctx, projects); err != nil {
+		_ = r.recordRecentError(state, "Gateway did not rejoin every Tobari network; inspect cluster status.")
+		return tobari.State{}, err
 	}
 	if err := r.markClusterRuntimeReconciled(clusterOperationUp); err != nil {
 		return tobari.State{}, fmt.Errorf("mark cluster reconcile complete: %w", err)
@@ -517,6 +504,17 @@ func (r *Runtime) prepareState() (tobari.State, error) {
 		if err := r.ensurePrivateDirectory(directory); err != nil {
 			return tobari.State{}, fmt.Errorf("prepare configuration directory: %w", err)
 		}
+	}
+	principalRegistry := filepath.Join(r.configDirectory, "principals.json")
+	if err := initializeBytes(
+		principalRegistry,
+		mustJSONBytes(emptyProjectPrincipalRegistry()),
+		0o600,
+	); err != nil {
+		return tobari.State{}, err
+	}
+	if _, err := r.readProjectPrincipalRegistry(); err != nil {
+		return tobari.State{}, fmt.Errorf("validate project principal registry: %w", err)
 	}
 	for _, name := range []string{"data.json", "tobari.rego", "tobari_test.rego"} {
 		if err := initializeFile(filepath.Join(policyDirectory, name), "opa/policy/"+name, 0o600); err != nil {
@@ -1108,6 +1106,9 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 		_ = r.recordRecentError(state, "Cluster cleanup did not complete; inspect component logs.")
 		return fmt.Errorf("docker compose down: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
+	if err := r.replaceProjectPrincipalRegistry(ctx, []projectPrincipalBinding{}); err != nil {
+		return fmt.Errorf("clear project principal registry: %w", err)
+	}
 	if purge {
 		for _, volume := range []string{"tobari-gateway-ca", "tobari-public-ca"} {
 			if err := r.verifyOwned(ctx, "volume", volume); errors.Is(err, errOwnedResourceMissing) {
@@ -1215,6 +1216,7 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_POLICY_DIR="+state.PolicyDirectory,
 		"TOBARI_CREDENTIAL_CONFIG="+state.CredentialConfig,
 		"TOBARI_CREDENTIAL_DIR="+state.CredentialDir,
+		"TOBARI_PRINCIPAL_CONFIG="+r.principalRegistryPath(),
 		"TOBARI_ASSET_VERSION="+state.AssetVersion,
 		"TOBARI_UID="+strconv.Itoa(uid), "TOBARI_GID="+strconv.Itoa(gid),
 		"TOBARI_MITMPROXY_IMAGE="+versions["MITMPROXY_IMAGE"],
@@ -1346,6 +1348,7 @@ func (r *Runtime) checkCredentialConfig() (string, doctor.CheckStatus) {
 		Profiles map[string]struct {
 			Type       string   `json:"type"`
 			Hosts      []string `json:"hosts"`
+			Projects   []string `json:"projects"`
 			SecretFile string   `json:"secret_file"`
 			Header     string   `json:"header"`
 		} `json:"profiles"`
@@ -1363,9 +1366,20 @@ func (r *Runtime) checkCredentialConfig() (string, doctor.CheckStatus) {
 		secretName := strings.TrimPrefix(profile.SecretFile, "/run/tobari/credentials/")
 		if name == "" || (profile.Type != "bearer" && profile.Type != "header") ||
 			len(profile.Hosts) == 0 ||
+			profile.Projects == nil ||
 			!strings.HasPrefix(profile.SecretFile, "/run/tobari/credentials/") ||
 			secretName == "" || secretName == "." || secretName == ".." || strings.Contains(secretName, "/") {
 			return "credentials.json contains an invalid profile", doctor.CheckStatusFail
+		}
+		seenProjects := make(map[string]struct{}, len(profile.Projects))
+		for _, projectID := range profile.Projects {
+			if err := tobari.ValidateProjectID(projectID); err != nil {
+				return "credentials.json contains an invalid project binding", doctor.CheckStatusFail
+			}
+			if _, exists := seenProjects[projectID]; exists {
+				return "credentials.json contains duplicate project bindings", doctor.CheckStatusFail
+			}
+			seenProjects[projectID] = struct{}{}
 		}
 		for _, host := range profile.Hosts {
 			if host == "" || host != strings.ToLower(strings.TrimSuffix(host, ".")) {

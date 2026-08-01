@@ -18,6 +18,7 @@ func learnedRuleFixture(t *testing.T, path string) tobari.LearnedPolicyRule {
 	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{
 		Timestamp:  "2026-07-30T10:41:11Z",
 		RequestID:  "7185da2688d7469aae9cd9068e920b0b",
+		ProjectID:  "01912345-6789-7abc-8def-0123456789ab",
 		Host:       "api.github.com",
 		Port:       443,
 		Method:     "GET",

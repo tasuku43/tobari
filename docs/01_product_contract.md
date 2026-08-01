@@ -24,6 +24,9 @@ Rego editing plus `policy apply` remains the advanced path for behavior that
 exact learned rules cannot express. OPA watch may make host edits visible when
 Docker-host filesystem events propagate. Denial evidence is a product output,
 not incidental debug noise.
+The host-issued project principal is retained in denial, candidate, learned
+rule, and compaction evidence; an approval made from one current-directory
+Tobari cannot be replayed as another project's permission.
 The initialized policy requires an explicitly captured empty request body for
 routine learned permissions; an unavailable body is denied before policy
 evaluation. Body-dependent APIs require a trusted-host body-aware Rego change
@@ -44,14 +47,19 @@ and explicit policy activation rather than an observed host-only approval.
   mounted as the work user's home.
 - **Tobari image:** the built-in runtime or one locally available compatible
   OCI image selected when a Tobari is first created.
-- **Tobari ID:** a generated stable internal identity used for state and exact
-  resource labels. It is diagnostic output, not a routine user action input.
-- **credential profile:** a Gateway-only secret and exact host binding.
+- **Tobari ID:** a generated stable internal identity used for state, exact
+  resource labels, and host-issued project-principal bindings. It is diagnostic
+  output, not a routine user action input.
+- **project principal:** a host-issued binding from one stable Tobari ID to
+  the exact Gateway interface on that project's dedicated network. Caller
+  headers and profile names are not principals.
+- **credential profile:** a Gateway-only secret bound to exact hosts and an
+  explicit set of project principals.
 
-The stable Tobari ID is an internal host-state identity, not an authenticated
-principal supplied by a work container. The shared cluster currently has one
-policy and credential namespace; project-specific policy, credential, and
-egress separation is not a supported product claim.
+The stable Tobari ID is not trusted when supplied by a work container. The
+host-owned principal registry derives it from the Gateway interface that
+received the request. The initialized host policy remains an installation-wide
+baseline; learned permissions and credential profiles are project-bound.
 
 The public commands are:
 
@@ -116,9 +124,11 @@ property rather than an undeclared Docker mutation by the CLI.
 
 ## Output and exit contract
 
-Human output is concise text. Cluster status and cluster-denials JSON are
-schema version 1. `list --format json` reports root, runtime diagnostic, and
-stable ID. Agent help uses the catalog schema. Successful data is stdout;
+Human output is concise text. Cluster status JSON is schema version 1; cluster
+denials, policy candidates, and policy compactions JSON are schema version 2
+because their items retain the project principal. `list --format json` reports
+root, runtime diagnostic, and stable ID. Agent help uses the catalog schema.
+Successful data is stdout;
 failures are stderr.
 
 Project runtime diagnostics may report `incomplete` when a durable root index
@@ -155,7 +165,11 @@ Configuration is resolved from
 
 - `config.json`: schema-v1 default Tobari image selector;
 - `policy/`: Rego and data mounted read-only into OPA and watched for host edits;
-- `credentials.json`: schema-v1 profile type, exact hosts, and Gateway mount path;
+- `credentials.json`: schema-v1 profile type, exact hosts, explicit project IDs,
+  and Gateway mount path;
+- `principals.json`: owner-only host-issued schema-v1 project-to-Gateway-network
+  bindings, maintained by lifecycle reconciliation and mounted read-only into
+  Gateway;
 - `credentials/`: secret files, required to be regular owner-readable files
   with no group/other permissions.
 

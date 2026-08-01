@@ -145,6 +145,10 @@ run_project_shell() {
   docker exec -i "$work_container" /bin/bash
 }
 
+run_other_project() {
+  docker exec "$other_container" "$@"
+}
+
 assert_resource_bounds() {
   local container=$1
   [[ $(docker inspect --format '{{.HostConfig.NanoCpus}}' "$container") == 2000000000 ]] ||
@@ -189,27 +193,29 @@ assert_component_resource_bounds() {
 }
 
 candidate_id_for_effect() {
-  local host=$1
-  local method=$2
-  local path=$3
+	local project_id=$1
+	local host=$2
+	local method=$3
+	local path=$4
   python3 -c \
     'import json,sys
-host,method,path=sys.argv[1:]
+project_id,host,method,path=sys.argv[1:]
 print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
-           if item["host"] == host and item["method"] == method and item["path"] == path))' \
-    "$host" "$method" "$path"
+           if item["project_id"] == project_id and item["host"] == host and item["method"] == method and item["path"] == path))' \
+    "$project_id" "$host" "$method" "$path"
 }
 
 compaction_id_for_prefix() {
-  local host=$1
-  local method=$2
-  local prefix=$3
+	local project_id=$1
+	local host=$2
+	local method=$3
+	local prefix=$4
   python3 -c \
     'import json,sys
-host,method,prefix=sys.argv[1:]
+project_id,host,method,prefix=sys.argv[1:]
 print(next(item["id"] for item in json.load(sys.stdin)["policy_compactions"]
-           if item["host"] == host and item["method"] == method and item["path_prefix"] == prefix))' \
-    "$host" "$method" "$prefix"
+           if item["project_id"] == project_id and item["host"] == host and item["method"] == method and item["path_prefix"] == prefix))' \
+    "$project_id" "$host" "$method" "$prefix"
 }
 
 cleanup() {
@@ -270,6 +276,7 @@ cat >"$credential_config" <<'JSON'
     "integration": {
       "type": "bearer",
       "hosts": ["mock-upstream"],
+      "projects": [],
       "secret_file": "/run/tobari/credentials/integration"
     }
   }
@@ -320,6 +327,39 @@ other_container=$(container_for_id "$other_id")
 [[ $work_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
   fail "list did not return the project's stable ID"
 [[ $work_id != "$other_id" ]] || fail "CWD projects received the same stable ID"
+
+cat >"$credential_config" <<JSON
+{
+  "version": "v1",
+  "profiles": {
+    "integration": {
+      "type": "bearer",
+      "hosts": ["mock-upstream"],
+      "projects": ["$work_id"],
+      "secret_file": "/run/tobari/credentials/integration"
+    }
+  }
+}
+JSON
+chmod 0600 "$credential_config"
+
+python3 - "$config_directory/principals.json" "$work_id" "$other_id" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    document = json.load(handle)
+bindings = document.get("bindings", [])
+if document.get("schema_version") != 1 or len(bindings) != 2:
+    raise SystemExit(f"unexpected project principal registry: {document!r}")
+ids = {item["project_id"] for item in bindings}
+if ids != set(sys.argv[2:]):
+    raise SystemExit(f"registry project IDs {ids!r} do not match CWD projects")
+addresses = [item["gateway_ip"] for item in bindings]
+if len(addresses) != len(set(addresses)):
+    raise SystemExit("project principal registry reused one Gateway address")
+PY
+
 work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$status_from_nested")
 other_status=$(run_tobari_at "$other_root" status --format json)
 other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$other_status")
@@ -449,6 +489,15 @@ credential_response=$(run_project curl -fsS \
   http://mock-upstream:8080/credential)
 assert_contains "$credential_response" '"authorization_present":true' "credential response"
 assert_contains "$credential_response" "\"authorization_sha256\":\"$expected_digest\"" "credential digest"
+credential_log_count=$(docker logs "$mock_name" 2>&1 | grep -F '"/credential"' | wc -l | tr -d ' ')
+other_credential_status=$(run_other_project curl -sS -o /dev/null -w '%{http_code}' \
+  -H 'X-Tobari-Credential-Profile: integration' \
+  http://mock-upstream:8080/credential)
+[[ $other_credential_status == 403 ]] ||
+  fail "credential profile crossed the project boundary with status $other_credential_status"
+other_credential_log_count=$(docker logs "$mock_name" 2>&1 | grep -F '"/credential"' | wc -l | tr -d ' ')
+[[ $other_credential_log_count == "$credential_log_count" ]] ||
+  fail "cross-project credential request reached mock upstream"
 
 deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST http://mock-upstream:8080/denied)
@@ -469,6 +518,7 @@ fi
 denials_json=$(run_tobari cluster denials --tail 500 --format json)
 assert_contains "$denials_json" '"policy":' "focused denial evidence"
 assert_contains "$denials_json" '"host":"mock-upstream"' "focused denial evidence"
+assert_contains "$denials_json" "\"project_id\":\"$work_id\"" "focused denial evidence"
 assert_contains "$denials_json" '"method":"POST"' "focused denial evidence"
 assert_contains "$denials_json" '"path":"/denied"' "focused denial evidence"
 assert_contains "$denials_json" '"learnable":true' "focused denial evidence"
@@ -478,7 +528,7 @@ if [[ $denials_json == *"$secret_value"* || $denials_json == *'Bearer '* ]]; the
 fi
 
 candidates_json=$(run_tobari policy candidates --tail 500 --format json)
-deny_candidate_id=$(candidate_id_for_effect mock-upstream POST /denied <<<"$candidates_json")
+deny_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream POST /denied <<<"$candidates_json")
 [[ $deny_candidate_id == pcy_* ]] || fail "policy candidates did not emit an opaque candidate ID"
 assert_contains "$candidates_json" \
   "\"allow_command\":\"tobari policy allow --id $deny_candidate_id\"" \
@@ -497,6 +547,10 @@ assert_contains "$allow_output" 'applied: true' "exact policy approval"
 applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST http://mock-upstream:8080/denied)
 [[ $applied_status == 200 ]] || fail "exact learned policy was not active after policy allow"
+other_learned_status=$(run_other_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST http://mock-upstream:8080/denied)
+[[ $other_learned_status == 403 ]] ||
+  fail "learned policy crossed the project boundary with status $other_learned_status"
 child_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST http://mock-upstream:8080/denied/child)
 [[ $child_status == 403 ]] || fail "exact learned policy broadened to a child path"
@@ -510,7 +564,7 @@ done
 for item_path in one two three; do
   candidates_json=$(run_tobari policy candidates --tail 1000 --format json)
   item_candidate_id=$(candidate_id_for_effect \
-    mock-upstream POST "/api/v1/items/$item_path" <<<"$candidates_json")
+    "$work_id" mock-upstream POST "/api/v1/items/$item_path" <<<"$candidates_json")
   item_allow_output=$(run_tobari policy allow --id "$item_candidate_id")
   assert_contains "$item_allow_output" "path: /api/v1/items/$item_path" \
     "exact compaction source approval"
@@ -524,7 +578,7 @@ done
 
 compactions_json=$(run_tobari policy compactions --format json)
 compaction_id=$(compaction_id_for_prefix \
-  mock-upstream POST /api/v1/items/ <<<"$compactions_json")
+  "$work_id" mock-upstream POST /api/v1/items/ <<<"$compactions_json")
 [[ $compaction_id == pcx_* ]] || fail "policy compactions did not emit an opaque compaction ID"
 assert_contains "$compactions_json" '"source_rule_count":3' "compaction evidence"
 assert_contains "$compactions_json" \
@@ -630,9 +684,27 @@ work_container=
 status_after_delete=$(run_tobari_at "$work_root" status --format json)
 assert_contains "$status_after_delete" '"exists":false' "status after delete"
 [[ -f "$profile_skill" && -f "$profile_settings" ]] || fail "delete removed the shared agent profile"
+python3 - "$config_directory/principals.json" "$other_id" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    bindings = json.load(handle)["bindings"]
+if [item["project_id"] for item in bindings] != [sys.argv[2]]:
+    raise SystemExit(f"deleted project principal was not removed: {bindings!r}")
+PY
 run_tobari_at "$other_root" delete --force >/dev/null
 other_id=
 other_container=
+python3 - "$config_directory/principals.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    bindings = json.load(handle)["bindings"]
+if bindings:
+    raise SystemExit(f"project principal registry was not cleared: {bindings!r}")
+PY
 run_tobari cluster down --purge >/dev/null
 run_tobari cluster down >/dev/null
 

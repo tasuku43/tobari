@@ -441,6 +441,7 @@ type clusterDenialsOutput struct {
 type policyCandidateOutput struct {
 	ID                string  `json:"id"`
 	ObservedAt        string  `json:"observed_at"`
+	ProjectID         string  `json:"project_id"`
 	Host              string  `json:"host"`
 	Port              int     `json:"port"`
 	Method            string  `json:"method"`
@@ -463,7 +464,8 @@ func renderPolicyCandidates(
 	for _, item := range result.Items {
 		items = append(items, policyCandidateOutput{
 			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt),
-			Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
+			ProjectID: item.ProjectID,
+			Host:      safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			Path: safeExternalText(item.Path), Reason: safeExternalText(item.Reason),
 			StatusCode:        item.StatusCode,
 			CredentialProfile: safeOptionalExternalText(item.CredentialProfile),
@@ -472,7 +474,7 @@ func renderPolicyCandidates(
 	}
 	if format == successFormatJSON {
 		output, err := json.Marshal(policyCandidatesDocument{
-			SchemaVersion: 1, PolicyCandidates: items,
+			SchemaVersion: 2, PolicyCandidates: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -491,8 +493,8 @@ func renderPolicyCandidates(
 		}
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\n",
-			item.ID, escapeTSVCell(item.ObservedAt), escapeTSVCell(item.Host),
+			"id=%s\tobserved_at=%s\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\n",
+			item.ID, escapeTSVCell(item.ObservedAt), item.ProjectID, escapeTSVCell(item.Host),
 			item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
 			item.StatusCode, escapeTSVCell(profile), escapeTSVCell(action),
 		)
@@ -502,6 +504,7 @@ func renderPolicyCandidates(
 
 type policyCompactionOutput struct {
 	ID              string   `json:"id"`
+	ProjectID       string   `json:"project_id"`
 	Host            string   `json:"host"`
 	Port            int      `json:"port"`
 	Method          string   `json:"method"`
@@ -527,7 +530,7 @@ func renderPolicyCompactions(
 			examples[index] = safeExternalText(example)
 		}
 		items = append(items, policyCompactionOutput{
-			ID: item.ID, Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
+			ID: item.ID, ProjectID: item.ProjectID, Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			PathPrefix: safeExternalText(item.PathPrefix), SourceRuleCount: len(item.SourceRuleIDs),
 			Examples: examples, OutsideCanary: safeExternalText(item.OutsideCanary),
 			CompactCommand: compactCommand + " --id " + item.ID,
@@ -535,7 +538,7 @@ func renderPolicyCompactions(
 	}
 	if format == successFormatJSON {
 		output, err := json.Marshal(policyCompactionsDocument{
-			SchemaVersion: 1, PolicyCompactions: items,
+			SchemaVersion: 2, PolicyCompactions: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -550,8 +553,8 @@ func renderPolicyCompactions(
 		action := compactCommand + " --id " + item.ID
 		fmt.Fprintf(
 			&output,
-			"id=%s\thost=%s\tport=%d\tmethod=%s\tpath_prefix=%s\tsource_rule_count=%d\texamples=%s\toutside_canary=%s\tcompact_command=%s\n",
-			item.ID, escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
+			"id=%s\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath_prefix=%s\tsource_rule_count=%d\texamples=%s\toutside_canary=%s\tcompact_command=%s\n",
+			item.ID, item.ProjectID, escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.PathPrefix), len(item.SourceRuleIDs),
 			escapeTSVCell(strings.Join(item.Examples, ",")), escapeTSVCell(item.OutsideCanary),
 			escapeTSVCell(action),
@@ -566,6 +569,7 @@ func renderPolicyLearningChange(result tobari.PolicyLearningChange) []byte {
 	fmt.Fprintf(&output, "target_id: %s\n", result.TargetID)
 	fmt.Fprintf(&output, "rule_id: %s\n", result.Rule.ID)
 	fmt.Fprintf(&output, "match: %s\n", escapeTSVCell(result.Rule.Match))
+	fmt.Fprintf(&output, "project_id: %s\n", result.Rule.ProjectID)
 	fmt.Fprintf(&output, "host: %s\n", escapeTSVCell(result.Rule.Host))
 	fmt.Fprintf(&output, "port: %d\n", result.Rule.Port)
 	fmt.Fprintf(&output, "method: %s\n", escapeTSVCell(result.Rule.Method))
@@ -589,7 +593,7 @@ func renderClusterDenials(
 			items[index].Reason = safeExternalText(items[index].Reason)
 		}
 		output, err := json.Marshal(clusterDenialsDocument{
-			SchemaVersion: 1,
+			SchemaVersion: 2,
 			Denials: clusterDenialsOutput{
 				Policy: safeExternalText(result.PolicyDirectory), WindowLines: result.WindowLines,
 				Items: items, ApplyCommand: applyCommand,
@@ -610,9 +614,9 @@ func renderClusterDenials(
 	for _, item := range result.Items {
 		fmt.Fprintf(
 			&output,
-			"denial: timestamp=%s\trequest_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\n",
+			"denial: timestamp=%s\trequest_id=%s\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\n",
 			escapeTSVCell(item.Timestamp), escapeTSVCell(item.RequestID),
-			escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
+			item.ProjectID, escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.Path), item.StatusCode, escapeTSVCell(item.Reason),
 		)
 	}

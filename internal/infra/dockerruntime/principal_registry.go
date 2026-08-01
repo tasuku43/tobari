@@ -1,0 +1,303 @@
+package dockerruntime
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"time"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
+)
+
+const projectPrincipalRegistrySchema = 1
+
+var projectPrincipalNetworkPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
+
+// projectPrincipalBinding is written by the host and read by Gateway. The
+// network address is the Gateway interface address on one exact project
+// network; it is not a caller-provided project selector.
+type projectPrincipalBinding struct {
+	ProjectID string `json:"project_id"`
+	GatewayIP string `json:"gateway_ip"`
+	Network   string `json:"network"`
+}
+
+type projectPrincipalRegistry struct {
+	SchemaVersion int                       `json:"schema_version"`
+	Bindings      []projectPrincipalBinding `json:"bindings"`
+}
+
+func (r projectPrincipalRegistry) Validate() error {
+	if r.SchemaVersion != projectPrincipalRegistrySchema {
+		return fmt.Errorf("project principal registry schema version must be %d", projectPrincipalRegistrySchema)
+	}
+	if r.Bindings == nil {
+		return fmt.Errorf("project principal registry bindings must be an array")
+	}
+	projects := make(map[string]struct{}, len(r.Bindings))
+	addresses := make(map[string]struct{}, len(r.Bindings))
+	networks := make(map[string]struct{}, len(r.Bindings))
+	for _, binding := range r.Bindings {
+		if err := tobari.ValidateProjectID(binding.ProjectID); err != nil {
+			return fmt.Errorf("project principal project_id: %w", err)
+		}
+		if _, exists := projects[binding.ProjectID]; exists {
+			return fmt.Errorf("project principal project IDs must be unique")
+		}
+		if _, exists := networks[binding.Network]; exists {
+			return fmt.Errorf("project principal networks must be unique")
+		}
+		if !projectPrincipalNetworkPattern.MatchString(binding.Network) {
+			return fmt.Errorf("project principal network is invalid")
+		}
+		address := net.ParseIP(binding.GatewayIP)
+		if address == nil || !address.IsGlobalUnicast() {
+			return fmt.Errorf("project principal gateway address is not a usable unicast address")
+		}
+		canonicalAddress := address.String()
+		if _, exists := addresses[canonicalAddress]; exists {
+			return fmt.Errorf("project principal gateway addresses must be unique")
+		}
+		projects[binding.ProjectID] = struct{}{}
+		addresses[canonicalAddress] = struct{}{}
+		networks[binding.Network] = struct{}{}
+	}
+	return nil
+}
+
+func (r *Runtime) principalRegistryPath() string {
+	return filepath.Join(r.configDirectory, "principals.json")
+}
+
+func emptyProjectPrincipalRegistry() projectPrincipalRegistry {
+	return projectPrincipalRegistry{
+		SchemaVersion: projectPrincipalRegistrySchema,
+		Bindings:      []projectPrincipalBinding{},
+	}
+}
+
+func (r *Runtime) readProjectPrincipalRegistry() (projectPrincipalRegistry, error) {
+	var registry projectPrincipalRegistry
+	if err := readStrictJSON(r.principalRegistryPath(), &registry); err != nil {
+		return projectPrincipalRegistry{}, err
+	}
+	if err := registry.Validate(); err != nil {
+		return projectPrincipalRegistry{}, err
+	}
+	return registry, nil
+}
+
+func (r *Runtime) ensureProjectPrincipalRegistry() error {
+	if _, err := os.Lstat(r.principalRegistryPath()); errors.Is(err, os.ErrNotExist) {
+		return initializeBytes(r.principalRegistryPath(), mustJSONBytes(emptyProjectPrincipalRegistry()), 0o600)
+	} else if err != nil {
+		return fmt.Errorf("inspect project principal registry: %w", err)
+	}
+	_, err := r.readProjectPrincipalRegistry()
+	return err
+}
+
+func mustJSONBytes(value any) []byte {
+	data, err := jsonMarshalIndent(value)
+	if err != nil {
+		panic(err)
+	}
+	return append(data, '\n')
+}
+
+// jsonMarshalIndent is kept local so registry initialization shares the
+// strict JSON shape of writeAtomicJSON without exposing a new public helper.
+func jsonMarshalIndent(value any) ([]byte, error) {
+	return json.MarshalIndent(value, "", "  ")
+}
+
+func (r *Runtime) withPrincipalRegistryLock(ctx context.Context, action func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := r.ensurePrivateDirectory(r.configDirectory); err != nil {
+		return fmt.Errorf("prepare principal registry directory: %w", err)
+	}
+	path := filepath.Join(r.configDirectory, "principal-registry.lock")
+	if info, err := os.Lstat(path); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
+		return fmt.Errorf("principal registry lock is not a regular file")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect principal registry lock: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- fixed owner-only configuration child.
+	if err != nil {
+		return fmt.Errorf("open principal registry lock: %w", err)
+	}
+	defer file.Close()
+	if err := file.Chmod(0o600); err != nil {
+		return fmt.Errorf("protect principal registry lock: %w", err)
+	}
+	for {
+		acquired, lockErr := tryLockProjectFile(file)
+		if lockErr != nil {
+			return fmt.Errorf("lock principal registry: %w", lockErr)
+		}
+		if acquired {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	defer unlockProjectFile(file)
+	return action()
+}
+
+func (r *Runtime) writeProjectPrincipalRegistry(registry projectPrincipalRegistry) error {
+	if err := registry.Validate(); err != nil {
+		return err
+	}
+	return writeAtomicJSON(r.principalRegistryPath(), registry)
+}
+
+func (r *Runtime) updateProjectPrincipal(ctx context.Context, projectID, network, gatewayIP string) error {
+	binding := projectPrincipalBinding{ProjectID: projectID, Network: network, GatewayIP: gatewayIP}
+	registry := emptyProjectPrincipalRegistry()
+	registry.Bindings = append(registry.Bindings, binding)
+	if err := registry.Validate(); err != nil {
+		return err
+	}
+	return r.withPrincipalRegistryLock(ctx, func() error {
+		current, err := r.readProjectPrincipalRegistry()
+		if errors.Is(err, os.ErrNotExist) {
+			current = emptyProjectPrincipalRegistry()
+		} else if err != nil {
+			return fmt.Errorf("read project principal registry: %w", err)
+		}
+		filtered := make([]projectPrincipalBinding, 0, len(current.Bindings)+1)
+		for _, existing := range current.Bindings {
+			if existing.ProjectID == projectID || existing.Network == network || existing.GatewayIP == gatewayIP {
+				continue
+			}
+			filtered = append(filtered, existing)
+		}
+		filtered = append(filtered, binding)
+		sort.Slice(filtered, func(i, j int) bool { return filtered[i].ProjectID < filtered[j].ProjectID })
+		current.Bindings = filtered
+		return r.writeProjectPrincipalRegistry(current)
+	})
+}
+
+func (r *Runtime) removeProjectPrincipal(ctx context.Context, projectID string) error {
+	if err := tobari.ValidateProjectID(projectID); err != nil {
+		return err
+	}
+	return r.withPrincipalRegistryLock(ctx, func() error {
+		registry, err := r.readProjectPrincipalRegistry()
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read project principal registry: %w", err)
+		}
+		filtered := registry.Bindings[:0]
+		for _, binding := range registry.Bindings {
+			if binding.ProjectID != projectID {
+				filtered = append(filtered, binding)
+			}
+		}
+		registry.Bindings = filtered
+		return r.writeProjectPrincipalRegistry(registry)
+	})
+}
+
+func (r *Runtime) replaceProjectPrincipalRegistry(ctx context.Context, bindings []projectPrincipalBinding) error {
+	registry := projectPrincipalRegistry{SchemaVersion: projectPrincipalRegistrySchema, Bindings: bindings}
+	if err := registry.Validate(); err != nil {
+		return err
+	}
+	sort.Slice(registry.Bindings, func(i, j int) bool { return registry.Bindings[i].ProjectID < registry.Bindings[j].ProjectID })
+	return r.withPrincipalRegistryLock(ctx, func() error {
+		return r.writeProjectPrincipalRegistry(registry)
+	})
+}
+
+func (r *Runtime) gatewayNetworkAddress(ctx context.Context, network string) (string, error) {
+	output, err := r.runner.Output(
+		ctx,
+		[]string{"inspect", "--format", "{{json .NetworkSettings.Networks}}", gatewayContainer},
+		os.Environ(),
+	)
+	if err != nil {
+		return "", fmt.Errorf("inspect Gateway networks for project principal: %w: %s", err, boundedDiagnostic(output))
+	}
+	var networks map[string]struct {
+		IPAddress string `json:"IPAddress"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(output), &networks); err != nil {
+		return "", fmt.Errorf("decode Gateway networks for project principal: %w", err)
+	}
+	endpoint, connected := networks[network]
+	if !connected || endpoint.IPAddress == "" {
+		return "", fmt.Errorf("Gateway is not attached to project network %s", network)
+	}
+	address := net.ParseIP(endpoint.IPAddress)
+	if address == nil || !address.IsGlobalUnicast() {
+		return "", fmt.Errorf("Gateway project network address is not a usable unicast address")
+	}
+	return address.String(), nil
+}
+
+func (r *Runtime) ensureGatewayProjectNetwork(ctx context.Context, network, projectID string) error {
+	if err := tobari.ValidateProjectID(projectID); err != nil {
+		return err
+	}
+	if err := r.ensureGatewayNetwork(ctx, network); err != nil {
+		return err
+	}
+	address, err := r.gatewayNetworkAddress(ctx, network)
+	if err != nil {
+		return err
+	}
+	return r.updateProjectPrincipal(ctx, projectID, network, address)
+}
+
+func (r *Runtime) syncProjectPrincipalRegistry(ctx context.Context, projects []tobari.ProjectInstance) error {
+	bindings := make([]projectPrincipalBinding, 0, len(projects))
+	for _, project := range projects {
+		if err := project.Validate(); err != nil {
+			return err
+		}
+		_, network, err := tobari.ProjectResourceNames(project.ID)
+		if err != nil {
+			return err
+		}
+		exists, err := r.projectResourceExists(ctx, "network", network)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			continue
+		}
+		if err := r.verifyOwnedProjectResource(ctx, "network", network, project.ID, projectNetRole); err != nil {
+			return err
+		}
+		if err := r.ensureGatewayNetwork(ctx, network); err != nil {
+			return err
+		}
+		address, err := r.gatewayNetworkAddress(ctx, network)
+		if err != nil {
+			return err
+		}
+		bindings = append(bindings, projectPrincipalBinding{
+			ProjectID: project.ID,
+			GatewayIP: address,
+			Network:   network,
+		})
+	}
+	return r.replaceProjectPrincipalRegistry(ctx, bindings)
+}

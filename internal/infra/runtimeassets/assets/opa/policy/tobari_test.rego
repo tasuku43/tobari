@@ -4,7 +4,11 @@ import rego.v1
 
 base_input := {
 	"version": "v1",
-	"principal": {"cluster": "default", "session": null},
+	"principal": {
+		"cluster": "default",
+		"project_id": "01912345-6789-7abc-8def-0123456789ab",
+		"session": null,
+	},
 	"request": {
 		"scheme": "https",
 		"host": "api.github.com",
@@ -120,6 +124,7 @@ test_deny_mock_write_path if {
 learned_exact_fixture := {
 	"id": "plr_0123456789abcdef0123456789abcdef",
 	"match": "exact",
+	"project_id": "01912345-6789-7abc-8def-0123456789ab",
 	"host": "api.github.com",
 	"port": 443,
 	"method": "POST",
@@ -131,6 +136,7 @@ learned_exact_fixture := {
 learned_prefix_fixture := {
 	"id": "plr_abcdef0123456789abcdef0123456789",
 	"match": "prefix",
+	"project_id": "01912345-6789-7abc-8def-0123456789ab",
 	"host": "mock-upstream",
 	"port": 8080,
 	"method": "POST",
@@ -275,7 +281,7 @@ test_every_learned_example_matches_and_is_allowed if {
 				"method": rule.method,
 				"path": example,
 			})
-			learned_rule_matches_request(rule, request)
+			learned_rule_matches_request(rule, base_input.principal.project_id, request)
 			result := decision with input as object.union(base_input, {"request": request})
 			result.allow
 		}
@@ -296,6 +302,7 @@ exact_rule_rejects_child(rule) if {
 	rule.match == "exact"
 	not learned_rule_matches_request(
 		rule,
+		base_input.principal.project_id,
 		object.union(base_input.request, {
 			"host": rule.host,
 			"method": rule.method,
@@ -318,12 +325,28 @@ prefix_rule_rejects_outside_canary(rule) if {
 	rule.match == "prefix"
 	not learned_rule_matches_request(
 		rule,
+		base_input.principal.project_id,
 		object.union(base_input.request, {
 			"host": rule.host,
 			"method": rule.method,
 			"path": sprintf("%s-outside-tobari-canary", [trim_suffix(rule.path, "/")]),
 		}),
 	)
+}
+
+test_learned_rule_does_not_cross_project if {
+	request := object.union(base_input.request, {
+		"method": learned_exact_fixture.method,
+		"path": learned_exact_fixture.path,
+	})
+	principal := object.union(base_input.principal, {"project_id": "01912345-6789-7abc-8def-0123456789ac"})
+	result := decision with input as object.union(base_input, {
+		"principal": principal,
+		"request": request,
+	})
+		with data.tobari.learned_allow_rules as [learned_exact_fixture]
+	not result.allow
+	result.learnable
 }
 
 test_allow_bound_credential if {

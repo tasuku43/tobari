@@ -492,7 +492,8 @@ func TestPolicyCandidatesProduceExactOpaqueReferenceAndTailTask(t *testing.T) {
 func validServiceDenial() tobari.PolicyDenial {
 	return tobari.PolicyDenial{
 		Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		Host: "api.example.com", Port: 443, Method: "GET", Path: "/api/v1/items/one",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+		Host:      "api.example.com", Port: 443, Method: "GET", Path: "/api/v1/items/one",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
 }

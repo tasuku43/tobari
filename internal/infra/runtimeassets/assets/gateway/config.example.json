@@ -6,6 +6,9 @@
       "hosts": [
         "api.github.com"
       ],
+      "projects": [
+        "01912345-6789-7abc-8def-0123456789ab"
+      ],
       "secret_file": "/run/tobari/credentials/github-development"
     }
   }

@@ -20,6 +20,7 @@ type gatewayAuditRecord struct {
 	Timestamp         string  `json:"timestamp"`
 	RequestID         string  `json:"request_id"`
 	Cluster           string  `json:"cluster"`
+	ProjectID         string  `json:"project_id"`
 	Host              string  `json:"host"`
 	Port              int     `json:"port"`
 	Method            string  `json:"method"`
@@ -84,7 +85,8 @@ func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
 		}
 		item := tobari.PolicyDenial{
 			Timestamp: record.Timestamp, RequestID: record.RequestID,
-			Host: record.Host, Port: record.Port, Method: record.Method, Path: record.Path,
+			ProjectID: record.ProjectID,
+			Host:      record.Host, Port: record.Port, Method: record.Method, Path: record.Path,
 			Reason: record.Reason, StatusCode: record.UpstreamStatus,
 			Learnable: record.Learnable, CredentialProfile: record.CredentialProfile,
 		}

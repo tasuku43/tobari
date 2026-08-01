@@ -65,12 +65,14 @@ runtime/
 ```
 
 The root ensure operation materializes exact embedded bytes under the Tobari state directory,
-writes generated non-secret runtime configuration, and invokes Docker through
+writes generated non-secret runtime configuration, including the owner-only
+project-principal registry, and invokes Docker through
 the runtime port. Compose owns only Gateway, OPA, shared networks, and CA
 volumes. The built-in image receives an asset-version tag and the stable local
 extension tag `tobari-runtime:local`. The runtime adapter creates each logical
 Tobari from the built-in image or an exact configured local image and
-connects Gateway to its dedicated network. No runtime asset is downloaded
+connects Gateway to its dedicated network, then records the Gateway interface
+address in the principal registry. No runtime asset is downloaded
 during startup. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
@@ -134,7 +136,8 @@ Root invocation only verifies that configured cluster is ready, resolves the
 canonical CWD and nearest indexed ancestor, and then, when there is no record,
 atomically creates an ID, root index, state record, and home. It ensures one
 exact project network and work container, connects Gateway with the `gateway`
-alias, waits for project readiness, and enters the container. The logical
+alias, binds the Gateway interface address to the host-issued project
+principal, waits for project readiness, and enters the container. The logical
 creation and deletion boundaries use durable journals so an interruption
 between the home, instance, index, runtime, and deletion steps is recoverable
 without treating a partial file set as a second project. Runtime convergence
@@ -142,9 +145,11 @@ stores a hash of the desired image identity, mounts, security, environment,
 health contract, fixed resource contract, and profile revision on the project
 container; drift recreates only that container. OPA runs with
 `--watch` against a read-only XDG bind, so host edits reload when Docker-host
-filesystem events propagate. The logical Tobari ID is not a trusted Gateway
-principal: the current optional session field is caller metadata, and
-policy/credential scope remains shared across the cluster. `policy apply`
+filesystem events propagate. The principal registry is a generic host-issued
+contract: Docker currently supplies the network/address observation, while a
+future stronger runtime may supply the same binding through another adapter.
+The logical Tobari ID is not trusted when echoed by a caller; Gateway derives
+it from the local interface address. `policy apply`
 provides the deterministic
 portable path: it tests the current bind, verifies the exact OPA ownership
 label, recreates only OPA, and waits for health.
@@ -179,7 +184,7 @@ client flow
   -> POST decision with finite timeout
   -> deny on any invalid/unavailable decision
   -> require the initialized empty-body boundary
-  -> validate optional credential profile + exact host
+  -> validate project principal and optional credential profile + exact host
   -> inject secret inside Gateway
   -> resolve and pin the upstream address; reject unsafe dotted-host results
   -> forward once
@@ -191,15 +196,15 @@ only when complete and within the limit. The addon never retries.
 
 Denied audit records are also the policy-development feedback interface.
 `tobari cluster denials` parses one bounded Gateway log window, rejects
-malformed denial-shaped records, and returns typed host, port, method, path,
-reason, status, exact-rule learnability, request identity, timestamp, the
+malformed denial-shaped records, and returns typed project principal, host, port,
+method, path, reason, status, exact-rule learnability, request identity, timestamp, the
 trusted host policy directory, and the exact apply command. OPA computes
 learnability only when version, cluster, scheme, fixed port, credential
 binding, and empty-body boundary already pass, so an exact
-host/port/method/path rule can close the request. `policy candidates`
+project/host/port/method/path rule can close the request. `policy candidates`
 deterministically maps only that eligible retained evidence to opaque
 exact-rule references that remain stable across repeated denials of the same
-host/port/method/path, and removes effects already covered by the CLI-owned
+project/host/port/method/path, and removes effects already covered by the CLI-owned
 learned-rule data. `policy tail` is a human text projection over the same
 bounded task result. Raw `cluster logs` remains the component-debugging
 interface.
@@ -211,7 +216,7 @@ exact learned rule, tests a private complete policy copy, atomically replaces
 the data file, and calls the existing OPA activation boundary.
 
 Compaction discovery is pure over current learned rules. It groups at least
-three exact rules only when host, port, method, and a sufficiently deep
+three exact rules only when project, host, port, method, and a sufficiently deep
 directory prefix agree. The opaque proposal binds the exact source-rule set.
 `policy compact` resolves that current proposal, replaces only those sources
 with one prefix rule retaining the positive examples, runs rule-match boundary
