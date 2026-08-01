@@ -272,7 +272,11 @@ test_all_learned_rules_are_valid if {
 }
 
 test_every_learned_example_matches_and_is_allowed if {
-	every rule in learned_rules {
+	learned_examples_are_allowed(learned_rules)
+}
+
+learned_examples_are_allowed(rules) if {
+	every rule in rules {
 		every example in rule.examples {
 			request := object.union(base_input.request, {
 				"scheme": learned_scheme(rule.port),
@@ -281,11 +285,21 @@ test_every_learned_example_matches_and_is_allowed if {
 				"method": rule.method,
 				"path": example,
 			})
-			learned_rule_matches_request(rule, base_input.principal.project_id, request)
-			result := decision with input as object.union(base_input, {"request": request})
+			principal := object.union(base_input.principal, {"project_id": rule.project_id})
+			learned_rule_matches_request(rule, principal.project_id, request)
+			result := decision with input as object.union(base_input, {
+				"principal": principal,
+				"request": request,
+			})
+				with data.tobari.learned_allow_rules as rules
 			result.allow
 		}
 	}
+}
+
+test_learned_rule_with_runtime_project_id_preflights if {
+	rule := object.union(learned_exact_fixture, {"project_id": "01912345-6789-7abc-8def-0123456789ac"})
+	learned_examples_are_allowed([rule])
 }
 
 test_every_exact_rule_rejects_a_child_path if {
@@ -302,7 +316,7 @@ exact_rule_rejects_child(rule) if {
 	rule.match == "exact"
 	not learned_rule_matches_request(
 		rule,
-		base_input.principal.project_id,
+		rule.project_id,
 		object.union(base_input.request, {
 			"host": rule.host,
 			"method": rule.method,
@@ -325,7 +339,7 @@ prefix_rule_rejects_outside_canary(rule) if {
 	rule.match == "prefix"
 	not learned_rule_matches_request(
 		rule,
-		base_input.principal.project_id,
+		rule.project_id,
 		object.union(base_input.request, {
 			"host": rule.host,
 			"method": rule.method,
