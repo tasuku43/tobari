@@ -100,25 +100,69 @@ run_tobari_pty_at() {
   shift
   (
     cd "$root"
-    if [[ $(uname -s) == Darwin ]]; then
-        env \
-          HOME="$test_root/user" \
-          DOCKER_CONFIG="$host_docker_config" \
-          DOCKER_CONTEXT="$host_docker_context" \
-          TOBARI_CREDENTIAL_ADAPTER=passthrough \
-        XDG_CONFIG_HOME="$test_root/config" \
-        XDG_STATE_HOME="$test_root/state" \
-        XDG_DATA_HOME="$test_root/data" \
-        script -q /dev/null "$binary" "$@"
-    else
-      local command
-      printf -v command '%q ' env HOME="$test_root/user" DOCKER_CONFIG="$host_docker_config" \
-        DOCKER_CONTEXT="$host_docker_context" \
-        TOBARI_CREDENTIAL_ADAPTER=passthrough \
-        XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
-        XDG_DATA_HOME="$test_root/data" "$binary" "$@"
-      script -q -c "$command" /dev/null
-    fi
+    env \
+      HOME="$test_root/user" \
+      DOCKER_CONFIG="$host_docker_config" \
+      DOCKER_CONTEXT="$host_docker_context" \
+      TOBARI_CREDENTIAL_ADAPTER=passthrough \
+      XDG_CONFIG_HOME="$test_root/config" \
+      XDG_STATE_HOME="$test_root/state" \
+      XDG_DATA_HOME="$test_root/data" \
+      python3 -c '
+import errno
+import os
+import pty
+import select
+import sys
+
+argv = sys.argv[1:]
+pid, master = pty.fork()
+if pid == 0:
+    os.execvpe(argv[0], argv, os.environ)
+
+stdin_open = True
+status = None
+while status is None:
+    readable = [master]
+    if stdin_open:
+        readable.append(0)
+    ready, _, _ = select.select(readable, [], [], 0.1)
+    if 0 in ready:
+        data = os.read(0, 4096)
+        if data:
+            os.write(master, data)
+        else:
+            stdin_open = False
+    if master in ready:
+        try:
+            data = os.read(master, 4096)
+        except OSError as error:
+            if error.errno == errno.EIO:
+                data = b""
+            else:
+                raise
+        if data:
+            os.write(1, data)
+    waited, status = os.waitpid(pid, os.WNOHANG)
+    if waited == 0:
+        status = None
+
+os.set_blocking(master, False)
+while True:
+    try:
+        data = os.read(master, 4096)
+    except OSError as error:
+        if error.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EIO):
+            break
+        raise
+    if not data:
+        break
+    os.write(1, data)
+
+if os.WIFEXITED(status):
+    raise SystemExit(os.WEXITSTATUS(status))
+raise SystemExit(128 + os.WTERMSIG(status))
+' "$binary" "$@"
   )
 }
 
@@ -656,7 +700,7 @@ fi
 interactive_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-interactive)
 [[ $interactive_status == 403 ]] || fail "interactive review candidate returned $interactive_status instead of 403"
-interactive_output=$({ printf '3dy'; sleep 1; } | run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1)
+interactive_output=$({ sleep 1; printf '3dy'; } | run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1)
 assert_contains "$interactive_output" 'Permission denied' "interactive policy review"
 interactive_review=$(run_tobari policy review --tail 1000 --format json)
 if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/review-interactive" for item in json.load(sys.stdin)["policy_review"]) else 1)' <<<"$interactive_review"; then
