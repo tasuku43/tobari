@@ -280,6 +280,13 @@ The test suite has complementary levels:
 - Context image tests cover manifest selection, legacy seeding, invalid image
   rejection, and the fact that project metadata cannot override the active
   runtime image.
+- Context runtime tests cover non-overwriting recipe initialization, the
+  owner-only Docker build context, generated image naming, compatibility and
+  digest inspection, source-digest drift, and unchanged image selection after
+  build or promotion failure.
+- The Docker integration scenario also creates the active Context recipe,
+  edits it to use the local base, runs the real managed build, and verifies
+  ready status plus automatic Context image promotion before cleanup.
 - Policy-learning integration projects baseline and learnable denials, proves
   baseline denies stay out of the actionable queue, and exercises exact allow
   and deny activation through reference-bound commands without restarting any
@@ -360,6 +367,7 @@ Every strong statement should identify its enforcement path.
 | Context runtime boundary | Context manifest tests, compatibility validation, and ignored-project-metadata regression |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
 | Context composition and selection | Manifest/domain tests, catalog effect/target contracts, owner-only atomic store tests, legacy migration fixtures, active-context drift checks, and agent-readiness transcript |
+| Context runtime build boundary | Fixed active-Context target contracts, owner-only recipe checks, bounded Docker build argv, compatibility/digest validation, source-digest status, and atomic promotion tests |
 | Typed denial recovery | Strict host/port audit projection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, project/host/port/method/path candidate/reference domain validation, discover-act graph and allow/deny round trips, human review without hand-authored OPA/Rego, strict atomic XDG writer, preflight ordering, and Docker retry |
 | Bounded policy compaction | Pure deterministic same-project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |

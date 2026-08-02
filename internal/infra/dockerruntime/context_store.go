@@ -56,6 +56,8 @@ func (r *Runtime) contextPaths(name string) tobari.ContextStorePaths {
 		PolicyDirectory:     r.contextPolicyDirectory(name),
 		CredentialConfig:    r.contextCredentialConfig(name),
 		CredentialDirectory: r.contextCredentialDirectory(name),
+		RuntimeDirectory:    r.contextRuntimeDirectory(name),
+		RuntimeDockerfile:   r.contextRuntimeDockerfile(name),
 	}
 }
 
@@ -358,9 +360,14 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 		if err != nil {
 			return tobari.ContextListResult{}, err
 		}
+		runtimeReport, err := r.contextRuntimeReport(manifest)
+		if err != nil {
+			return tobari.ContextListResult{}, err
+		}
 		items = append(items, tobari.ContextSummary{
 			Name: manifest.Name, Active: manifest.Name == active,
 			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
+			RuntimeStatus: runtimeReport.Status,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
@@ -390,15 +397,7 @@ func (r *Runtime) ShowContext(ctx context.Context, name string) (tobari.ContextR
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
-	result := tobari.ContextReport{
-		Task: tobari.TaskContextShow, Name: manifest.Name, Active: manifest.Name == active,
-		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
-		Stores: r.contextPaths(manifest.Name),
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.ContextReport{}, err
-	}
-	return result, nil
+	return r.contextReport(ctx, tobari.TaskContextShow, manifest, active)
 }
 
 // CreateContext initializes one named Context without accepting any secret.
@@ -424,15 +423,11 @@ func (r *Runtime) CreateContext(ctx context.Context, name string, image string, 
 	if err := r.ensureContext(manifest, false); err != nil {
 		return tobari.ContextReport{}, err
 	}
-	result := tobari.ContextReport{
-		Task: tobari.TaskContextCreate, Name: name, Active: false,
-		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
-		Stores: r.contextPaths(name),
-	}
-	if err := result.Validate(); err != nil {
+	active, err := r.readActiveContext()
+	if err != nil {
 		return tobari.ContextReport{}, err
 	}
-	return result, nil
+	return r.contextReport(ctx, tobari.TaskContextCreate, manifest, active)
 }
 
 // UseContext changes only the host-owned active marker.
@@ -450,15 +445,7 @@ func (r *Runtime) UseContext(ctx context.Context, name string) (tobari.ContextRe
 	if err := r.writeActiveContext(name); err != nil {
 		return tobari.ContextReport{}, err
 	}
-	result := tobari.ContextReport{
-		Task: tobari.TaskContextUse, Name: manifest.Name, Active: true,
-		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
-		Stores: r.contextPaths(name),
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.ContextReport{}, err
-	}
-	return result, nil
+	return r.contextReport(ctx, tobari.TaskContextUse, manifest, name)
 }
 
 // ActiveContextName exposes only the trusted selected name to the application

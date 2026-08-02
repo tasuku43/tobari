@@ -452,6 +452,10 @@ profile name an authority.
 - `context list`, `context show`, `context create`, and `context use` are the
   host-facing composition surface. Existing `policy` commands operate on the
   active Context's policy store.
+- `runtime init` and `runtime build` are the host-facing runtime customization
+  surface. The active Context owns one fixed `runtime/Dockerfile`; build
+  validates the resulting image and promotes it into that Context without
+  requiring a second image-selection command.
 - Context creation initializes separate owner-only policy and credential
   stores, references a read-only agent profile, and records the compatible
   Tobari runtime image. It never accepts a secret value in an argument,
@@ -473,6 +477,9 @@ profile name an authority.
 - Infrastructure tests prove legacy default migration, owner-only separate
   stores, active-context state, read-only OPA mounts, and selected agent-profile
   digests.
+- Runtime tests prove the recipe build context excludes policy and credential
+  stores, the generated image is checked against the runtime contract, and a
+  failed build leaves the previously selected image unchanged.
 - Runtime tests prove Context secrets are never mounted into a Workspace and
   that active-context drift blocks access until explicit reconciliation.
 - Agent-readiness validation records Context discovery and selection as part of

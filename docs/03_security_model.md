@@ -102,6 +102,16 @@ metadata is rejected before project home, network, or container mutation. Users
 remain responsible for image contents and should prefer immutable digest
 references.
 
+The active Context's runtime recipe is a trusted-host build input. `runtime
+build` is the only supported path that may obtain a missing base image, and that
+network effect occurs only because the user explicitly requested the build.
+Docker receives the owner-only Context `runtime/` directory as its complete build
+context; policy files, credential metadata and secret files, the host home,
+Docker sockets, and Workspace mounts are outside it. The generated image must
+pass the same compatibility inspection before its reference is promoted into
+the Context. Editing the recipe or a failed build cannot replace the last
+selected image.
+
 The official base runtime and derived agent images do not change this boundary.
 The base main channel is published by a protected main-branch workflow;
 derived agent variants are separate later slices in the same runtime package.
@@ -243,6 +253,14 @@ malformed, ambiguous, or stale principal registry entry denies before OPA and
 upstream I/O.
 
 ## Mutation policy
+
+`runtime init` is a host-only create of one owner-only recipe directory.
+`runtime build` is a host-only write against the active Context runtime target;
+its Docker build context is fixed to that recipe directory, and its image
+promotion happens only after compatibility and digest checks. Neither command
+mounts the Context directory into a Workspace or accepts a secret/image-name
+override. A build failure is therefore a safe retry point: the old selected
+image and its Context authority remain unchanged.
 
 Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
 The root command uses the catalog-declared current-directory fixed target to

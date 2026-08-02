@@ -35,6 +35,16 @@ func (f *contextCLI) UseContext(context.Context, string) (tobari.ContextReport, 
 	return f.report, nil
 }
 
+func (f *contextCLI) InitRuntime(context.Context) (tobari.ContextReport, error) {
+	f.report.Task = tobari.TaskRuntimeInit
+	return f.report, nil
+}
+
+func (f *contextCLI) BuildRuntime(context.Context) (tobari.ContextReport, error) {
+	f.report.Task = tobari.TaskRuntimeBuild
+	return f.report, nil
+}
+
 type fakeContextRuntime struct {
 	list   tobari.ContextListResult
 	report tobari.ContextReport
@@ -44,6 +54,7 @@ func contextCLIReport(task, name string, active bool, image string, mode tobari.
 	return tobari.ContextReport{
 		Task: task, Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
 		Image: image, PolicyMode: mode,
+		Runtime: tobari.ContextRuntimeReport{Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial},
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials.json"),
@@ -80,5 +91,46 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	}
 	if document.Context.Name != "project-tools" || document.Context.Image != "tobari-runtime:local" || document.Context.PolicyMode != tobari.ContextPolicyModeAdvanced {
 		t.Fatalf("context create document = %+v", document.Context)
+	}
+}
+
+func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
+	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, "builtin", tobari.ContextPolicyModeGuided)}
+	fake.report.Runtime = tobari.ContextRuntimeReport{
+		Kind: tobari.ContextRuntimeKindDockerfile, Status: tobari.ContextRuntimeStatusPendingBuild,
+		Dockerfile: "/config/contexts/default/runtime/Dockerfile",
+	}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+
+	if code := command.RunContext(context.Background(), []string{"runtime", "init", "--format", "json"}); code != ExitOK {
+		t.Fatalf("runtime init code = %d, stderr = %q", code, stderr.String())
+	}
+	var initDocument struct {
+		SchemaVersion int                  `json:"schema_version"`
+		Context       tobari.ContextReport `json:"context"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &initDocument); err != nil {
+		t.Fatalf("runtime init JSON = %q, error = %v", stdout.String(), err)
+	}
+	if initDocument.SchemaVersion != 2 || initDocument.Context.Task != tobari.TaskRuntimeInit {
+		t.Fatalf("runtime init document = %+v", initDocument)
+	}
+
+	stdout.Reset()
+	if code := command.RunContext(context.Background(), []string{"runtime", "init"}); code != ExitOK {
+		t.Fatalf("runtime init text code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Next: edit /config/contexts/default/runtime/Dockerfile, then run `tobari runtime build`.") {
+		t.Fatalf("runtime init text output = %q", stdout.String())
+	}
+
+	stdout.Reset()
+	if code := command.RunContext(context.Background(), []string{"runtime", "build"}); code != ExitOK {
+		t.Fatalf("runtime build code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Runtime") || !strings.Contains(stdout.String(), "Next: run `tobari` from a project directory.") {
+		t.Fatalf("runtime build output = %q", stdout.String())
 	}
 }

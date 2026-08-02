@@ -13,6 +13,7 @@ work_id=
 other_id=
 work_container=
 other_container=
+runtime_image=
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
 host_docker_context=${DOCKER_CONTEXT:-$(docker context show)}
 
@@ -246,6 +247,9 @@ cleanup() {
     run_tobari cluster down --purge >/dev/null 2>&1 || true
   fi
   docker image rm -f "$custom_image" >/dev/null 2>&1 || true
+  if [[ -n ${runtime_image:-} ]]; then
+    docker image rm -f "$runtime_image" >/dev/null 2>&1 || true
+  fi
 }
 
 finish() {
@@ -784,6 +788,26 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 if bindings:
     raise SystemExit(f"project principal registry was not cleared: {bindings!r}")
 PY
+runtime_init_json=$(run_tobari runtime init --format json)
+runtime_dockerfile=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["runtime"]["dockerfile"])' <<<"$runtime_init_json")
+python3 - "$runtime_dockerfile" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+official = "FROM ghcr.io/tasuku43/tobari/runtime:latest"
+if text.count(official) != 1:
+    raise SystemExit("runtime template did not contain one official base reference")
+path.write_text(text.replace(official, "FROM tobari-runtime:local", 1), encoding="utf-8")
+PY
+runtime_build_json=$(run_tobari runtime build --format json)
+runtime_image=$(python3 -c 'import json,sys; d=json.load(sys.stdin)["context"]; assert d["runtime"]["status"] == "ready"; print(d["image"])' <<<"$runtime_build_json")
+[[ $runtime_image == tobari-context-default:* ]] || fail "runtime build selected an unexpected image: $runtime_image"
+runtime_context=$(run_tobari context show --format json)
+assert_contains "$runtime_context" "\"image\":\"$runtime_image\"" "Context runtime promotion"
+assert_contains "$runtime_context" '"status":"ready"' "Context runtime status"
+
 run_tobari cluster down --purge >/dev/null
 run_tobari cluster down >/dev/null
 

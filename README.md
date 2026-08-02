@@ -220,7 +220,7 @@ Git, GitHub CLI, AWS CLI, curl, jq, Python, and SSH. Official agent variants
 such as Claude and Codex add only their agent-specific tool and dependencies.
 These images are convenience starting points; they do not change Tobari's
 isolation or lifecycle boundary. The base image is published on main pushes as
-`ghcr.io/tasuku43/tobari/runtime:main` plus an immutable commit tag. Tobari
+`ghcr.io/tasuku43/tobari/runtime:latest` and `:main`, plus an immutable commit tag. Tobari
 still validates any selected image locally and never pulls it implicitly.
 
 Install other agent CLIs inside a Tobari or place binaries below its selected
@@ -262,7 +262,7 @@ refresh remain tool/provider behavior outside Tobari's contract. Git over HTTPS
 uses the Gateway; Git over SSH and other non-HTTP transports have no direct
 egress route.
 
-### Custom work images
+### Explicit image compatibility path
 
 `cluster up` also builds `tobari-runtime:local`, the local base work runtime.
 Add agent-specific tools without replacing its user or entrypoint:
@@ -340,8 +340,33 @@ logical environment receives a new home.
 
 Runtime selection is intentionally owned by Context. Project-local
 `.devcontainer` files are not interpreted, so they cannot silently become a
-second execution-boundary configuration. Create or select a Context with the
-runtime image you want, then run `tobari` from the project.
+second execution-boundary configuration. The preferred path for a Context-
+specific runtime is:
+
+```sh
+tobari runtime init
+# edit ~/.config/tobari/contexts/<active-context>/runtime/Dockerfile
+tobari runtime build
+tobari
+```
+
+`runtime init` creates the template and never overwrites an existing
+Dockerfile. `runtime build` uses only that Context runtime directory, obtains a
+missing official `ghcr.io/tasuku43/tobari/runtime:latest` base because the
+build was explicitly requested, validates the Tobari runtime contract, and
+selects a machine-managed local image. A local base such as
+`tobari-runtime:local` also works without a registry pull. No image name,
+Context name, or manifest edit is needed. If editing or building fails, the
+previously selected image remains active. Inspect the exact active path and
+status with:
+
+```sh
+tobari context show
+```
+
+The explicit image path above remains available for importing an already-built
+compatible image or for advanced workflows, but ordinary customization should
+stay attached to the active Context through `runtime init` and `runtime build`.
 
 Delete the selected detached Tobari and its per-Tobari home:
 
@@ -383,6 +408,8 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari context show [--name NAME] [--format text\|json]` | Inspect a Context's runtime image, agent profile, and separated stores |
 | `tobari context create --name NAME [--image IMAGE] [--mode guided\|advanced]` | Create a named execution Context without secrets |
 | `tobari context use --name NAME` | Select the active Context on the trusted host |
+| `tobari runtime init [--format text\|json]` | Create the active Context's runtime/Dockerfile template |
+| `tobari runtime build [--format text\|json]` | Build, validate, and select the active Context runtime image |
 | `tobari` | Choose or create the current-directory Workspace, enter it, and leave it reusable after `exit` |
 | `tobari status [--format text\|json]` | Report logical existence and runtime diagnostics for the current directory |
 | `tobari list [--format text\|json]` | List local Workspaces, runtime diagnostics, and diagnostic IDs |
@@ -408,6 +435,8 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
     active.json           # current host-selected Context
     <name>/
       context.json        # agent profile, runtime image, policy mode
+      runtime/
+        Dockerfile         # optional active-Context runtime recipe
       policy/
         data.json
         tobari.rego
@@ -626,6 +655,10 @@ Common failures:
 - `image_not_found`: build or pull the selected image explicitly on the host.
 - `incompatible_image`: extend `tobari-runtime:local` without replacing its
   user, lifetime-command capability, or entrypoint.
+- `runtime_recipe_missing`: run `tobari runtime init`, edit the active Context
+  Dockerfile, and run `tobari runtime build`.
+- `runtime_build_failed`: inspect `tobari context show`; the previous selected
+  image remains active until a validated build succeeds.
 - `project_not_found`: run `tobari` from the intended project directory.
 - `project_session_attached`: exit the attached session and retry `tobari
   delete`, or use `tobari delete --force` only when terminating that session is

@@ -81,6 +81,10 @@ and explicit policy activation rather than an observed host-only approval.
   references an agent profile, a compatible Tobari runtime image, a policy
   store, and managed-credential stores; those stores remain physically
   separated by trust boundary.
+- **Context runtime recipe:** the active Context's owner-only
+  `runtime/Dockerfile`. It is the source for an explicit host-side custom
+  runtime build; it is not project metadata and it is never mounted into a
+  Workspace.
 - **agent profile:** read-only non-secret shared agent configuration referenced
   by a Context. It is not tool-owned login state.
 
@@ -116,6 +120,8 @@ The public commands are:
 | `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's agent, policy, and credential-store references |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced]` | act, fixed target | create | Create one named Context with a runtime image and separate owner-only stores |
 | `context use --name NAME` | act, fixed target | write | Select one Context on the trusted host for the shared cluster |
+| `runtime init [--format text|json]` | act, fixed target | create | Create the active Context's runtime/Dockerfile template without changing its selected image |
+| `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the active Context's generated local runtime image |
 
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
 It does not silently create state in a non-interactive context. When the
@@ -157,15 +163,28 @@ undeclared Docker mutation by the CLI.
   custom image must already exist locally and preserve runtime API `1`, the
   `tobari` image user, the `io.tobari.runtime-lifetime-command` capability, and
   the Tobari entrypoint. That capability is currently `sleep infinity`, which
-  is required by Tobari's fixed Workspace lifetime command. Tobari never pulls an
-  image implicitly. Missing or incompatible images fail before project runtime
-  network or container mutation; the logical Workspace remains available for
-  repair and retry.
+  is required by Tobari's fixed Workspace lifetime command. Ordinary `tobari`
+  startup never pulls a configured image implicitly. Missing or incompatible
+  images fail before project runtime network or container mutation; the logical
+  Workspace remains available for repair and retry.
+- `runtime init` creates the active Context's owner-only
+  `runtime/Dockerfile`. The template starts from
+  `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
+  place to add tools and environment configuration for the Context. The
+  command does not overwrite an existing recipe.
+- `runtime build` is the explicit exception to the no-implicit-pull rule. It
+  runs a host Docker build using only the Context runtime directory as build
+  context; Docker may obtain a missing base image for this explicit build.
+  Tobari validates the resulting image against the same runtime contract,
+  records its immutable local image digest, and then selects the generated
+  `tobari-context-<context>:<source>` image in the active Context. The previous
+  selected image remains in force until promotion succeeds.
 - The built-in `tobari/runtime` image is the base work runtime: it preserves the
   lifecycle contract and carries common Git, HTTP, JSON, Python, SSH, and
-  command-line tools. It is published on reviewed main pushes as a
-  development channel; registry publication is not implied by local image
-  selection, and Tobari never pulls the published image implicitly.
+  command-line tools. It is published on reviewed main pushes as the moving
+  `latest` and `main` development channels; registry publication is not
+  implied by local image selection, and Tobari never pulls the published image
+  implicitly during ordinary startup.
 - Official agent images are complete compatible variants in the same runtime
   family, with tags such as
   `claude.2.1.34-base.0.1.0-r1`. They add the agent tool and only its
@@ -312,6 +331,9 @@ Configuration is resolved from
 - `contexts/<name>/context.json`: host-owned Context manifest with the named
   agent profile, compatible Tobari runtime image selector, and guided/advanced
   policy mode;
+- `contexts/<name>/runtime/Dockerfile`: optional owner-only Context runtime
+  recipe created by `runtime init`; its source digest and last successful
+  managed image build are recorded additively in `context.json`;
 - `contexts/<name>/policy/`: Rego and data for that Context, mounted read-only
   into OPA and watched for host edits;
 - `contexts/<name>/credentials.json`: reserved schema-v1 profile metadata for
@@ -355,11 +377,24 @@ legacy `config.json.default_image` seeds the default Context once, and `builtin`
 is used when no legacy setting exists. Project metadata does not override the
 Context image.
 
+The active Context recipe is a host-side customization source, not a second
+image authority. `runtime build` derives the image reference mechanically from
+the Context name and Dockerfile source digest, validates it, and atomically
+promotes it into the existing Context image field. Editing the recipe or a
+failed build leaves the previously selected image unchanged.
+
 OPA reads the policy bind with `--watch`. Exact policy mutations test a private
 complete policy copy and activate only the exact owned OPA component; host
 authored edits remain an advanced, explicit workflow.
 
 ## Side effects
+
+`runtime init` creates the active Context's owner-only runtime directory and
+template without changing image selection. `runtime build` executes the
+explicit host Docker build, validates the generated image, and atomically
+updates only the active Context manifest after the image digest is confirmed.
+Build, validation, or promotion failure leaves the previous selected image
+authoritative and directs the user to inspect the Context before retrying.
 
 `cluster up` creates shared labeled networks, images, configuration material,
 Gateway, OPA, and CA volumes as needed. It tags the built-in runtime both by

@@ -75,11 +75,12 @@ exactly one validated opaque reference or one declared fixed target.
 
 Context is the user-facing composition layer for the execution boundary. A
 trusted manifest names the compatible runtime image, read-only agent profile,
-the Context policy directory, and the managed-credential metadata/secret stores. The manifest is
-not itself a mountable authority: policy is mounted only into OPA, managed
-secrets are mounted only into Gateway, and agent configuration is mounted
-read-only into the work runtime. Tool-owned authentication remains in the
-per-Workspace home.
+the Context policy directory, and the managed-credential metadata/secret stores.
+It may also own one fixed `runtime/Dockerfile` recipe and its last successful
+managed build record. The manifest is not itself a mountable authority: policy
+is mounted only into OPA, managed secrets are mounted only into Gateway, and
+agent configuration is mounted read-only into the work runtime. Tool-owned
+authentication remains in the per-Workspace home.
 
 The first implementation has one active Context for the shared cluster. Cluster
 state records the active Context and resolved paths, and project runtime
@@ -149,11 +150,13 @@ state, an official published artifact, or an implicit cluster dependency.
 
 The first published family member follows the same layering: a main-branch
 push runs `.github/workflows/runtime-base.yml` and publishes the reviewed
-multi-architecture base to `ghcr.io/<owner>/tobari/runtime:main` plus an
+multi-architecture base to `ghcr.io/<owner>/tobari/runtime:latest` and `:main`
+plus an
 immutable `sha-<commit>` tag. Future agent variants use the same package with
 variant-qualified tags such as
 `ghcr.io/<owner>/tobari/runtime:codex.0.42.0-base.0.1.0-r1`. Pull requests and
-ordinary local startup do not push or pull images.
+ordinary local startup do not push or pull images; an explicit `runtime build`
+may pull the recipe's declared base image.
 
 The first Claude and Codex variants are build-only children under
 `runtimes/claude` and `runtimes/codex`. Each downloads a pinned official agent
@@ -186,9 +189,12 @@ service ceilings, not per-project fairness controls.
 
 Project metadata is not a runtime adapter. Tobari does not interpret
 `.devcontainer` files, invoke the Dev Container CLI, or transfer container
-creation to a second orchestrator. A future runtime-import or runtime-build
-capability would need to attach explicitly to Context operations rather than
-introduce a second implicit image authority.
+creation to a second orchestrator. The supported customization adapter is the
+explicit active-Context `runtime init`/`runtime build` path: infrastructure
+builds only the owner-only Context runtime directory, validates the resulting
+image, and promotes it into the existing Context image field. Future runtime
+import formats must attach to this same Context boundary rather than introduce
+a second implicit image authority.
 
 ## Lifecycle model
 

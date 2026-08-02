@@ -19,6 +19,8 @@ type RuntimePort interface {
 	ShowContext(context.Context, string) (tobari.ContextReport, error)
 	CreateContext(context.Context, string, string, tobari.ContextPolicyMode) (tobari.ContextReport, error)
 	UseContext(context.Context, string) (tobari.ContextReport, error)
+	InitRuntime(context.Context) (tobari.ContextReport, error)
+	BuildRuntime(context.Context) (tobari.ContextReport, error)
 }
 
 type ownedPolicy struct{}
@@ -32,6 +34,14 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 	if intent.Effect == operation.EffectWrite &&
 		intent.Target.Kind == tobari.ContextTargetKind &&
 		intent.Target.ID == tobari.ActiveContextTargetID {
+		return nil
+	}
+	if intent.Effect == operation.EffectCreate && intent.Target.Kind == tobari.ContextRuntimeTargetKind &&
+		intent.Target.ParentID == tobari.ActiveContextRuntimeID && intent.Target.ID == "" {
+		return nil
+	}
+	if intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.ContextRuntimeTargetKind &&
+		intent.Target.ID == tobari.ActiveContextRuntimeID {
 		return nil
 	}
 	return fault.New(fault.KindRejected, "mutation_rejected", "Context mutation target is not owned by Tobari", false)
@@ -165,6 +175,80 @@ func (s *Service) Use(ctx context.Context, intent operation.Intent, name string)
 				fault.NextAction{Command: "context show", Reason: "Inspect the active Context selection."})
 		}
 		result = used
+		return nil
+	})
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	return result, nil
+}
+
+// InitRuntime creates the active Context's recipe template without changing
+// its selected image.
+func (s *Service) InitRuntime(ctx context.Context, intent operation.Intent) (tobari.ContextReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ParentID: tobari.ActiveContextRuntimeID},
+		ExpectedImpact: intent.Impact,
+	}
+	var result tobari.ContextReport
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		initialized, initErr := s.runtime.InitRuntime(actionContext)
+		if errors.Is(initErr, tobari.ErrRuntimeRecipeExists) {
+			return fault.New(
+				fault.KindRejected, "runtime_recipe_exists", "the active Context already has a runtime recipe", false,
+				fault.NextAction{Command: "context show", Reason: "Inspect the existing runtime recipe before editing it."},
+			)
+		}
+		if initErr != nil {
+			return fault.Wrap(
+				fault.KindRejected, "runtime_init_failed", "the active Context runtime recipe could not be created", false,
+				initErr,
+				fault.NextAction{Command: "context show", Reason: "Inspect the active Context stores."},
+			)
+		}
+		result = initialized
+		return nil
+	})
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	return result, nil
+}
+
+// BuildRuntime builds and atomically selects the active Context's recipe.
+func (s *Service) BuildRuntime(ctx context.Context, intent operation.Intent) (tobari.ContextReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ID: tobari.ActiveContextRuntimeID},
+		ExpectedImpact: intent.Impact,
+	}
+	var result tobari.ContextReport
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		built, buildErr := s.runtime.BuildRuntime(actionContext)
+		if errors.Is(buildErr, tobari.ErrRuntimeRecipeMissing) {
+			return fault.New(
+				fault.KindInvalidInput, "runtime_recipe_missing", "the active Context has no runtime recipe", false,
+				fault.NextAction{Command: "runtime init", Reason: "Create the active Context runtime template first."},
+			)
+		}
+		if buildErr != nil {
+			if structured, ok := fault.PublicCopy(buildErr); ok {
+				return structured
+			}
+			return fault.Wrap(
+				fault.KindRejected, "runtime_build_failed", "the active Context runtime could not be built", false,
+				buildErr,
+				fault.NextAction{Command: "context show", Reason: "Inspect the unchanged selected runtime and recipe state."},
+			)
+		}
+		result = built
 		return nil
 	})
 	if err != nil {
