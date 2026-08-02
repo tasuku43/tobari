@@ -55,6 +55,11 @@ It uses only that directory as build context, validates the resulting image
 against the existing Tobari runtime contract, obtains its local image digest,
 and atomically promotes the generated image reference into the Context.
 
+When the first `FROM` is the exact official
+`ghcr.io/tasuku43/tobari/runtime:latest` base, the explicit build requests a
+base refresh with Docker's `--pull`. Explicit local or custom bases do not
+receive that request, so the local-base development path remains valid.
+
 The generated image name is an implementation detail derived from the Context
 name and recipe source digest. The image digest and recipe source digest are
 the durable identities. No `runtime use` or user image-name input is part of
@@ -74,6 +79,8 @@ schema evolution.
 - The active Context is the only runtime selection authority.
 - Build failure is safe and recoverable because promotion is atomic.
 - Policy and credentials remain outside the Docker build context.
+- The ordinary recipe workflow gives the moving official base an explicit
+  refresh point without making local bases depend on a registry.
 - A future Dev Container or other recipe importer can target the same Context
   runtime boundary instead of becoming a second source of truth.
 

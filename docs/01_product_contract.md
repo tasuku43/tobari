@@ -167,6 +167,12 @@ undeclared Docker mutation by the CLI.
   startup never pulls a configured image implicitly. Missing or incompatible
   images fail before project runtime network or container mutation; the logical
   Workspace remains available for repair and retry.
+- `cluster up` obtains the embedded immutable Gateway digest when it is not
+  already available locally, then validates its digest, API/role labels,
+  non-root default user, entrypoint, and Docker Engine platform before running
+  policy tests or creating shared networks and containers. `--gateway-source`
+  is the explicit development/recovery path that builds the embedded Gateway
+  snapshot locally; it is never selected implicitly.
 - `runtime init` creates the active Context's owner-only
   `runtime/Dockerfile`. The template starts from
   `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
@@ -222,7 +228,7 @@ Workspace remains available.
 Resume: tobari
 Remove: tobari delete
 If another session is attached: tobari delete --force
-```
+  ```
 
 `exit` therefore detaches the session without deleting the Workspace. The
 Workspace remains existing until the host runs `tobari delete`, which is the
@@ -383,6 +389,11 @@ the Context name and Dockerfile source digest, validates it, and atomically
 promotes it into the existing Context image field. Editing the recipe or a
 failed build leaves the previously selected image unchanged.
 
+When the recipe's first base is the exact official
+`ghcr.io/tasuku43/tobari/runtime:latest` reference, an explicit `runtime build`
+refreshes that moving base. An explicit local or custom base is not given a
+registry-pull request, so local-only base images remain usable.
+
 OPA reads the policy bind with `--watch`. Exact policy mutations test a private
 complete policy copy and activate only the exact owned OPA component; host
 authored edits remain an advanced, explicit workflow.
@@ -395,9 +406,13 @@ explicit host Docker build, validates the generated image, and atomically
 updates only the active Context manifest after the image digest is confirmed.
 Build, validation, or promotion failure leaves the previous selected image
 authoritative and directs the user to inspect the Context before retrying.
+The official moving base is refreshed only for an explicit build whose recipe
+starts from the exact official `runtime:latest`; custom and local bases retain
+their local/cache-first behavior.
 
-`cluster up` creates shared labeled networks, images, configuration material,
-Gateway, OPA, and CA volumes as needed. It tags the built-in runtime both by
+`cluster up` obtains and preflights the immutable Gateway image, then creates
+shared labeled networks, images, configuration material, Gateway, OPA, and CA
+volumes as needed. It tags the built-in runtime both by
 asset version and as the local extension base `tobari-runtime:local`, then
 reconnects Gateway to the shared networks and existing registered project
 networks without creating project state or project resources, then waits for

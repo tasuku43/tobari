@@ -46,6 +46,10 @@ type clusterUpProgressRuntimePort interface {
 	ClusterUpWithProgress(context.Context, tobari.ClusterUpProgressSink) (tobari.State, error)
 }
 
+type clusterUpModeRuntimePort interface {
+	ClusterUpWithProgressMode(context.Context, bool, tobari.ClusterUpProgressSink) (tobari.State, error)
+}
+
 // legacyNamedRuntimePort is deliberately outside RuntimePort. The old
 // name-bound container lifecycle remains only as a migration diagnostic and
 // cannot become an authority for the CWD-owned public commands.
@@ -656,7 +660,7 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 
 // ClusterUp creates or reconciles the shared enforcement cluster.
 func (s *Service) ClusterUp(ctx context.Context, intent operation.Intent) (tobari.ClusterStatus, error) {
-	return s.clusterUp(ctx, intent, nil)
+	return s.clusterUp(ctx, intent, false, nil)
 }
 
 // ClusterUpWithProgress creates or reconciles the shared enforcement cluster
@@ -666,11 +670,19 @@ func (s *Service) ClusterUp(ctx context.Context, intent operation.Intent) (tobar
 func (s *Service) ClusterUpWithProgress(
 	ctx context.Context, intent operation.Intent, progress tobari.ClusterUpProgressSink,
 ) (tobari.ClusterStatus, error) {
-	return s.clusterUp(ctx, intent, progress)
+	return s.clusterUp(ctx, intent, false, progress)
+}
+
+// ClusterUpWithProgressMode exposes the explicit source-build recovery path
+// without changing the routine cluster-up contract.
+func (s *Service) ClusterUpWithProgressMode(
+	ctx context.Context, intent operation.Intent, gatewaySourceBuild bool, progress tobari.ClusterUpProgressSink,
+) (tobari.ClusterStatus, error) {
+	return s.clusterUp(ctx, intent, gatewaySourceBuild, progress)
 }
 
 func (s *Service) clusterUp(
-	ctx context.Context, intent operation.Intent, progress tobari.ClusterUpProgressSink,
+	ctx context.Context, intent operation.Intent, gatewaySourceBuild bool, progress tobari.ClusterUpProgressSink,
 ) (tobari.ClusterStatus, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ClusterStatus{}, err
@@ -682,7 +694,7 @@ func (s *Service) clusterUp(
 	}
 	err := s.withLifecycleLock(ctx, func(actionContext context.Context) error {
 		return s.mutator.Invoke(actionContext, request, func(actionContext context.Context, _ operation.Intent) error {
-			created, actionErr := s.clusterUpRuntime(actionContext, progress)
+			created, actionErr := s.clusterUpRuntime(actionContext, gatewaySourceBuild, progress)
 			state = created
 			if actionErr == nil {
 				return nil
@@ -727,8 +739,11 @@ func (s *Service) clusterUp(
 }
 
 func (s *Service) clusterUpRuntime(
-	ctx context.Context, progress tobari.ClusterUpProgressSink,
+	ctx context.Context, gatewaySourceBuild bool, progress tobari.ClusterUpProgressSink,
 ) (tobari.State, error) {
+	if runtime, ok := s.runtime.(clusterUpModeRuntimePort); ok {
+		return runtime.ClusterUpWithProgressMode(ctx, gatewaySourceBuild, progress)
+	}
 	if runtime, ok := s.runtime.(clusterUpProgressRuntimePort); ok {
 		return runtime.ClusterUpWithProgress(ctx, progress)
 	}

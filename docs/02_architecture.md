@@ -115,17 +115,31 @@ digest lock, and family manifest are kept beside the source image. This keeps
 the distributed CLI self-contained while avoiding two independently edited
 base definitions.
 
+Gateway follows the same monorepo pattern but has its own release unit. The
+canonical Dockerfile, addon, entrypoint, and tests live under `gateway/`; the
+Go binary embeds a checked snapshot at
+`internal/infra/runtimeassets/assets/gateway/`. The explicit
+`scripts/sync-gateway-source.sh` operation refreshes that snapshot and
+`scripts/check-gateway-source.sh` rejects drift. Compose and OPA remain under
+`internal/infra/runtimeassets/assets` because they are CLI-owned orchestration
+and policy inputs, not Gateway image contents. The main-only Gateway workflow
+builds the canonical source for Linux amd64 and arm64 and publishes moving
+development tags plus an immutable commit tag to GHCR. The embedded
+`versions.env` records one reviewed immutable Gateway digest for routine
+startup; moving tags are never consumed by the CLI.
+
 The root ensure operation materializes exact embedded bytes under the Tobari state directory,
 writes generated non-secret runtime configuration, including the owner-only
 project-principal registry, and invokes Docker through
 the runtime port. Compose owns only Gateway, OPA, shared networks, and CA
 volumes. The built-in image receives an asset-version tag and the stable local
 extension tag `tobari-runtime:local`; this tag is the local base work runtime
-with the common tools shared by supported agents. The runtime adapter creates
-each logical Tobari from the built-in image or an exact configured local image and
-connects Gateway to its dedicated network, then records the Gateway interface
-address in the principal registry. No runtime asset is downloaded
-during startup. A public-only CA volume is mounted read-only into
+with the common tools shared by supported agents. Cluster startup obtains the
+verified Gateway image by digest, while `cluster up --gateway-source` builds
+the embedded snapshot only when explicitly requested. The runtime adapter
+creates each logical Tobari from the built-in image or an exact configured
+local image and connects Gateway to its dedicated network, then records the
+Gateway interface address in the principal registry. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
 Custom images are supported only when they preserve runtime API label
@@ -156,7 +170,9 @@ immutable `sha-<commit>` tag. Future agent variants use the same package with
 variant-qualified tags such as
 `ghcr.io/<owner>/tobari/runtime:codex.0.42.0-base.0.1.0-r1`. Pull requests and
 ordinary local startup do not push or pull images; an explicit `runtime build`
-may pull the recipe's declared base image.
+refreshes the exact official `runtime:latest` base when the recipe starts from
+it, while explicit local or custom bases do not receive a registry-pull
+request.
 
 The first Claude and Codex variants are build-only children under
 `runtimes/claude` and `runtimes/codex`. Each downloads a pinned official agent
@@ -242,8 +258,11 @@ paused state. Detached `delete` removes the logical
 Workspace; an attached exec makes ordinary deletion fail, and `delete --force`
 is the explicit host-side override.
 
-Explicit `cluster up` validates configuration, tests policy, reconciles OPA and
-Gateway, and reconnects Gateway to every existing registered project network.
+Explicit `cluster up` validates configuration, obtains and preflights the
+Gateway image, tests policy, reconciles OPA and Gateway, and reconnects Gateway
+to every existing registered project network. Image preflight fails before the
+policy test, cluster journal, shared network, or service-container mutation;
+the source-build flag is the only deliberate local-build path.
 Root invocation only verifies that configured cluster is ready and reads the
 canonical CWD's indexed Workspace candidates. An exact current-root record is
 selected directly; when only ancestor records exist, the CLI presents every

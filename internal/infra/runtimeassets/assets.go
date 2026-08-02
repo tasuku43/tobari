@@ -107,7 +107,7 @@ func Versions() (map[string]string, error) {
 		}
 		values[key] = value
 	}
-	for _, required := range []string{"MITMPROXY_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
+	for _, required := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
 		if values[required] == "" {
 			return nil, fmt.Errorf("embedded versions.env is missing %s", required)
 		}

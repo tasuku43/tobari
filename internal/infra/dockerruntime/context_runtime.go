@@ -70,6 +70,29 @@ func (r *Runtime) contextRuntimeSourceDigest(name string) (string, error) {
 	return "sha256:" + hex.EncodeToString(hash[:]), nil
 }
 
+func (r *Runtime) contextRuntimeUsesOfficialBase(name string) (bool, error) {
+	data, err := os.ReadFile(r.contextRuntimeDockerfile(name)) // #nosec G304 -- path is the fixed child of a validated Context.
+	if err != nil {
+		return false, fmt.Errorf("read runtime Dockerfile for base refresh: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 || fields[0] != "FROM" {
+			continue
+		}
+		for _, field := range fields[1:] {
+			if strings.EqualFold(field, "AS") {
+				break
+			}
+			if strings.HasPrefix(field, "--") {
+				continue
+			}
+			return field == tobari.OfficialRuntimeBase, nil
+		}
+	}
+	return false, nil
+}
+
 func (r *Runtime) contextRuntimeReport(manifest tobari.ContextManifest) (tobari.ContextRuntimeReport, error) {
 	if manifest.Runtime == nil {
 		return tobari.ContextRuntimeReport{
@@ -212,9 +235,23 @@ func (r *Runtime) BuildRuntime(ctx context.Context) (tobari.ContextReport, error
 		}
 		image := managedRuntimeImage(manifest.Name, sourceDigest)
 		var output bytes.Buffer
+		pullOfficialBase, err := r.contextRuntimeUsesOfficialBase(manifest.Name)
+		if err != nil {
+			return err
+		}
+		buildArgs := []string{"build"}
+		if pullOfficialBase {
+			buildArgs = append(buildArgs, "--pull")
+		}
+		buildArgs = append(
+			buildArgs,
+			"--tag", image,
+			"--file", r.contextRuntimeDockerfile(manifest.Name),
+			r.contextRuntimeDirectory(manifest.Name),
+		)
 		if err := r.runner.Run(
 			ctx,
-			[]string{"build", "--tag", image, "--file", r.contextRuntimeDockerfile(manifest.Name), r.contextRuntimeDirectory(manifest.Name)},
+			buildArgs,
 			os.Environ(), nil, &output, &output,
 		); err != nil {
 			return fmt.Errorf("build Context runtime: %w: %s", err, boundedDiagnostic(output.Bytes()))

@@ -61,9 +61,8 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 	spec := string(data)
 	for _, required := range []string{
 		"internal: true",
+		"image: ${TOBARI_GATEWAY_IMAGE}",
 		"user: \"${TOBARI_UID}:${TOBARI_GID}\"",
-		"TOBARI_UID: ${TOBARI_UID}",
-		"TOBARI_GID: ${TOBARI_GID}",
 		"http://127.0.0.1:8181/health",
 		"http://opa:8181/health",
 		"cap_drop: [ALL]",
@@ -78,6 +77,7 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		"    build:",
 		"privileged: true",
 		"network_mode: host",
 		"/var/run/docker.sock",
@@ -148,13 +148,37 @@ func TestGatewayEntrypointCapsBufferedHTTPBodies(t *testing.T) {
 	}
 }
 
+func TestGatewayDockerfileDeclaresStableContractAndHostIndependentRuntime(t *testing.T) {
+	t.Parallel()
+	data, err := Read("gateway/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := string(data)
+	for _, required := range []string{
+		`io.tobari.gateway-api="1"`,
+		`io.tobari.gateway-role="enforcement"`,
+		"USER 1000:1000",
+		"chmod 0777",
+	} {
+		if !strings.Contains(spec, required) {
+			t.Errorf("Gateway Dockerfile is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"ARG TOBARI_UID", "ARG TOBARI_GID", "chown -R \"${TOBARI_UID}", "USER ${TOBARI_UID}"} {
+		if strings.Contains(spec, forbidden) {
+			t.Errorf("Gateway Dockerfile still depends on host-specific build identity %q", forbidden)
+		}
+	}
+}
+
 func TestVersionsAreDigestPinned(t *testing.T) {
 	t.Parallel()
 	versions, err := Versions()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"MITMPROXY_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
+	for _, key := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
 		if value := versions[key]; len(value) < 72 || value[len(value)-71:len(value)-64] != "sha256:" {
 			t.Fatalf("%s is not digest pinned: %q", key, value)
 		}

@@ -13,7 +13,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-func runClusterUp(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, _ ParsedInputs) int {
+func runClusterUp(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
@@ -30,7 +30,8 @@ func runClusterUp(ctx context.Context, c *CLI, command CommandSpec, _ operation.
 		progressSink = progress.Report
 		defer progress.Close()
 	}
-	status, err := c.tobari.ClusterUpWithProgress(ctx, intent, progressSink)
+	gatewaySourceBuild, _ := inputs.Boolean("--gateway-source")
+	status, err := c.tobari.ClusterUpWithProgressMode(ctx, intent, gatewaySourceBuild, progressSink)
 	if err != nil {
 		if progress != nil {
 			progress.Fail()

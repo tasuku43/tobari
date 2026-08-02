@@ -14,8 +14,13 @@ other_id=
 work_container=
 other_container=
 runtime_image=
+official_runtime_image=
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
 host_docker_context=${DOCKER_CONTEXT:-$(docker context show)}
+gateway_source_args=()
+if [[ ${TOBARI_INTEGRATION_GATEWAY_SOURCE:-0} == 1 ]]; then
+  gateway_source_args+=(--gateway-source)
+fi
 
 fail() {
   echo "integration: $*" >&2
@@ -168,6 +173,10 @@ run_other_project() {
   docker exec "$other_container" "$@"
 }
 
+start_cluster() {
+  run_tobari cluster up "${gateway_source_args[@]}"
+}
+
 assert_resource_bounds() {
   local container=$1
   [[ $(docker inspect --format '{{.HostConfig.NanoCpus}}' "$container") == 2000000000 ]] ||
@@ -250,6 +259,9 @@ cleanup() {
   if [[ -n ${runtime_image:-} ]]; then
     docker image rm -f "$runtime_image" >/dev/null 2>&1 || true
   fi
+  if [[ -n ${official_runtime_image:-} ]]; then
+    docker image rm -f "$official_runtime_image" >/dev/null 2>&1 || true
+  fi
 }
 
 finish() {
@@ -298,7 +310,7 @@ printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
 printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
   >"$config_directory/config.json"
 chmod 0600 "$config_directory/config.json"
-run_tobari cluster up >/dev/null
+start_cluster >/dev/null
 assert_component_log_bounds tobari-opa
 assert_component_log_bounds tobari-gateway
 assert_component_resource_bounds tobari-opa 1000000000 536870912 128
@@ -390,7 +402,7 @@ if docker exec "$other_container" test -e /var/lib/tobari/tool-auth-state; then
   fail "tool authentication state leaked to another project"
 fi
 
-run_tobari cluster up >/dev/null
+start_cluster >/dev/null
 enter_tobari_at "$work_root" &
 first_enter_pid=$!
 enter_tobari_at "$work_root" &
@@ -447,7 +459,7 @@ docker run -d \
   "$tobari_image" -u /mock_upstream.py >/dev/null
 wait_listening "$mock_name" 8080
 wait_network_connection tobari-gateway mock-upstream 8080
-run_tobari cluster up >/dev/null
+start_cluster >/dev/null
 wait_healthy tobari-gateway
 
 plain_response=$(run_project curl -fsS http://mock-upstream:8080/allowed)
@@ -790,6 +802,12 @@ if bindings:
 PY
 runtime_init_json=$(run_tobari runtime init --format json)
 runtime_dockerfile=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["runtime"]["dockerfile"])' <<<"$runtime_init_json")
+official_runtime_build_json=$(run_tobari runtime build --format json)
+official_runtime_image=$(python3 -c 'import json,sys; d=json.load(sys.stdin)["context"]; assert d["runtime"]["status"] == "ready"; print(d["image"])' <<<"$official_runtime_build_json")
+[[ $official_runtime_image == tobari-context-default:* ]] || fail "official runtime build selected an unexpected image: $official_runtime_image"
+official_runtime_context=$(run_tobari context show --format json)
+assert_contains "$official_runtime_context" "\"image\":\"$official_runtime_image\"" "Official Context runtime promotion"
+assert_contains "$official_runtime_context" '"status":"ready"' "Official Context runtime status"
 python3 - "$runtime_dockerfile" <<'PY'
 from pathlib import Path
 import sys

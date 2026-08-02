@@ -142,6 +142,18 @@ Start the shared enforcement cluster explicitly:
 tobari cluster up
 ```
 
+`cluster up` obtains the reviewed immutable Gateway image when it is not
+already local, checks its digest, enforcement labels, non-root entrypoint, and
+Docker Engine architecture before starting shared resources. For Gateway
+source development or recovery, use the explicit fallback:
+
+```sh
+tobari cluster up --gateway-source
+```
+
+The fallback builds only the checked-in embedded Gateway snapshot; it is never
+selected automatically when the official image is unavailable.
+
 In an interactive terminal, `cluster up` shows a compact colored three-phase
 checklist (`prepare environment`, `start services`, and `verify readiness`) on
 stderr while it prepares, starts, and verifies the shared services. Its
@@ -351,10 +363,10 @@ tobari
 ```
 
 `runtime init` creates the template and never overwrites an existing
-Dockerfile. `runtime build` uses only that Context runtime directory, obtains a
-missing official `ghcr.io/tasuku43/tobari/runtime:latest` base because the
-build was explicitly requested, validates the Tobari runtime contract, and
-selects a machine-managed local image. A local base such as
+Dockerfile. `runtime build` uses only that Context runtime directory, refreshes
+the official `ghcr.io/tasuku43/tobari/runtime:latest` base because the build was
+explicitly requested, validates the Tobari runtime contract, and selects a
+machine-managed local image. A local or custom base such as
 `tobari-runtime:local` also works without a registry pull. No image name,
 Context name, or manifest edit is needed. If editing or building fails, the
 previously selected image remains active. Inspect the exact active path and
@@ -392,7 +404,7 @@ tobari cluster down --purge # also removes shared CA volumes
 
 | Command | Outcome |
 |---|---|
-| `tobari cluster up` | Test policy and reconcile shared Gateway and OPA |
+| `tobari cluster up [--gateway-source]` | Preflight the verified Gateway image, test policy, and reconcile shared Gateway and OPA |
 | `tobari cluster status [--format text\|json]` | Show shared readiness, component health, policy, project count, and diagnostics |
 | `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and review command |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
@@ -644,6 +656,11 @@ Common failures:
   `cluster status`; for exact decisions, rediscover the queue and retry the
   corresponding action. If tests pass outside Tobari, verify that the XDG
   policy directory is shared with the Docker VM.
+- `gateway_image_unavailable`: inspect Docker registry access with `tobari
+  doctor`, then retry `tobari cluster up`; use `--gateway-source` only for
+  explicit source development or recovery.
+- `gateway_image_incompatible`: inspect the Gateway image digest, labels,
+  entrypoint, and architecture with `tobari doctor` before retrying.
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`.
 - `tty_required`: run the root `tobari` command from an interactive terminal.

@@ -34,6 +34,16 @@ tasks:
     cmds:
       - ./scripts/check.sh gateway
 
+  gateway:source:check:
+    desc: Verify the embedded Gateway snapshot matches the canonical source.
+    cmds:
+      - ./scripts/check-gateway-source.sh
+
+  gateway:source:sync:
+    desc: Synchronize the canonical Gateway source into the embedded snapshot.
+    cmds:
+      - ./scripts/sync-gateway-source.sh
+
   integration:test:
     desc: Run the real three-container network, TLS, policy, credential, and lifecycle tests.
     cmds:

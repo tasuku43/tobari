@@ -85,6 +85,8 @@ rules exist. The transcript must prove:
   contract and image digest, derives the local image reference mechanically,
   and promotes it into the Context without a second image-selection command.
   A build or validation failure leaves the previous selected image unchanged.
+  The exact official `runtime:latest` base is refreshed on this explicit build;
+  explicit local or custom bases do not request a registry pull.
 - Project metadata does not override the active Context image.
 - `list` retains an explicitly exhaustive local collection, including empty,
   while preserving diagnostic IDs without making them action inputs.

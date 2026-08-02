@@ -138,6 +138,7 @@ run_fast() {
   ./scripts/check-runtime-claude.sh
   ./scripts/check-runtime-codex.sh
   ./scripts/check-toolbox.sh
+  ./scripts/check-gateway-source.sh
   go test ./...
 }
 
@@ -161,7 +162,7 @@ run_public() {
 load_runtime_versions() {
   # shellcheck disable=SC1091
   source internal/infra/runtimeassets/assets/versions.env
-  [[ -n ${OPA_IMAGE:-} && -n ${MITMPROXY_IMAGE:-} ]] || {
+  [[ -n ${OPA_IMAGE:-} && -n ${MITMPROXY_IMAGE:-} && -n ${GATEWAY_IMAGE:-} ]] || {
     echo "runtime image references are incomplete" >&2
     return 1
   }
@@ -183,7 +184,7 @@ run_gateway() {
   docker version >/dev/null
   docker run --rm \
     -e PYTHONPATH=/work/addon \
-    -v "$PWD/internal/infra/runtimeassets/assets/gateway:/work:ro" \
+    -v "$PWD/gateway:/work:ro" \
     -w /work \
     "$MITMPROXY_IMAGE" \
     python -m unittest -v test_tobari_gateway.py

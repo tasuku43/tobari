@@ -84,6 +84,9 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 		!containsArgs(runner.runs[0].args, filepath.Join(root, "config", "contexts", "default", "runtime")) {
 		t.Fatalf("Docker build argv = %+v", runner.runs[0].args)
 	}
+	if !containsArgs(runner.runs[0].args, "--pull") {
+		t.Fatalf("official runtime build must refresh the moving base: %+v", runner.runs[0].args)
+	}
 
 	dockerfile := filepath.Join(root, "config", "contexts", "default", "runtime", "Dockerfile")
 	if err := os.WriteFile(dockerfile, []byte(contextRuntimeTemplate+"\n# changed\n"), 0o600); err != nil {
@@ -95,6 +98,36 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 	}
 	if shown.Runtime.Status != tobari.ContextRuntimeStatusPendingBuild || shown.Image != result.Image {
 		t.Fatalf("changed recipe report = %+v", shown)
+	}
+}
+
+func TestBuildRuntimeDoesNotPullExplicitLocalBase(t *testing.T) {
+	root := t.TempDir()
+	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.InitRuntime(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dockerfile := filepath.Join(root, "config", "contexts", "default", "runtime", "Dockerfile")
+	data, err := os.ReadFile(dockerfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), "FROM "+tobari.OfficialRuntimeBase, "FROM tobari-runtime:local", 1))
+	if err := os.WriteFile(dockerfile, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.BuildRuntime(context.Background()); err != nil {
+		t.Fatalf("BuildRuntime() error = %v", err)
+	}
+	if len(runner.runs) != 1 || containsArgs(runner.runs[0].args, "--pull") {
+		t.Fatalf("local runtime build unexpectedly pulled a base: %+v", runner.runs)
 	}
 }
 
