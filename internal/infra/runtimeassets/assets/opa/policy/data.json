@@ -45,6 +45,7 @@
         "path_prefix": "/api/v1/"
       }
     ],
-    "learned_allow_rules": []
+    "learned_allow_rules": [],
+    "learned_deny_rules": []
   }
 }

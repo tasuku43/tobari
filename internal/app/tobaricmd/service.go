@@ -27,10 +27,14 @@ type RuntimePort interface {
 	ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error)
 	ClusterDenials(context.Context, tobari.State, int) ([]tobari.PolicyDenial, error)
 	ReadLearnedPolicyRules(context.Context, tobari.State) ([]tobari.LearnedPolicyRule, error)
+	ReadPolicyDenyRules(context.Context, tobari.State) (tobari.PolicyDenyRuleSet, error)
 	ApplyLearnedPolicyRules(
 		context.Context, tobari.State, []tobari.LearnedPolicyRule, []tobari.LearnedPolicyRule,
 	) error
-	ApplyPolicy(context.Context, tobari.State) error
+	ApplyPolicyDenyRules(
+		context.Context, tobari.State, []tobari.LearnedPolicyRule,
+		[]tobari.PolicyDenyRule, []tobari.PolicyDenyRule,
+	) error
 	ClusterDown(context.Context, tobari.State, bool) error
 	Doctor(context.Context, string) (doctor.Report, error)
 }
@@ -1034,7 +1038,14 @@ func (s *Service) policyCandidates(
 			"learned policy data could not be read safely", false, err,
 		)
 	}
-	items, err := tobari.PolicyCandidates(denials, rules)
+	denyRules, err := s.runtime.ReadPolicyDenyRules(ctx, state)
+	if err != nil {
+		return tobari.PolicyCandidateReport{}, fault.Wrap(
+			fault.KindRejected, "policy_data_invalid",
+			"policy deny data could not be read safely", false, err,
+		)
+	}
+	items, err := tobari.PolicyCandidatesWithDenyRules(denials, rules, denyRules)
 	if err != nil {
 		return tobari.PolicyCandidateReport{}, fault.Wrap(
 			fault.KindContract, "invalid_candidate_contract",
@@ -1100,6 +1111,24 @@ func (s *Service) loadPolicyState(
 	return state, rules, nil
 }
 
+func (s *Service) readPolicyDenyRules(
+	ctx context.Context, state tobari.State,
+) (tobari.PolicyDenyRuleSet, error) {
+	denyRules, err := s.runtime.ReadPolicyDenyRules(ctx, state)
+	if err != nil {
+		return tobari.PolicyDenyRuleSet{}, fault.Wrap(
+			fault.KindRejected, "policy_data_invalid",
+			"policy deny data could not be read safely", false, err,
+		)
+	}
+	if err := denyRules.Validate(); err != nil {
+		return tobari.PolicyDenyRuleSet{}, fault.Wrap(
+			fault.KindContract, "invalid_policy_deny", "policy deny data is invalid", false, err,
+		)
+	}
+	return denyRules, nil
+}
+
 func validatePolicyMutationTarget(intent operation.Intent, kind, id string) error {
 	if intent.Target.Kind != kind || intent.Target.ID != id {
 		return fault.New(
@@ -1137,6 +1166,36 @@ func (s *Service) applyLearnedRules(
 	})
 }
 
+func (s *Service) applyPolicyDenies(
+	ctx context.Context, intent operation.Intent, state tobari.State,
+	expectedAllows []tobari.LearnedPolicyRule,
+	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
+) error {
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: "policy deny", ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
+	}
+	return s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		actionErr := s.runtime.ApplyPolicyDenyRules(
+			actionContext, state, expectedAllows, expectedDenies, updatedDenies,
+		)
+		if actionErr == nil {
+			return nil
+		}
+		if _, structured := fault.PublicCopy(actionErr); structured {
+			return actionErr
+		}
+		return fault.Wrap(
+			fault.KindUnavailable, "policy_learning_failed",
+			"policy deny activation did not complete; inspect cluster status", false, actionErr,
+			fault.NextAction{
+				Command: "cluster status",
+				Reason:  "Reconcile OPA health and the current policy before another mutation.",
+			},
+		)
+	})
+}
+
 // AllowPolicyCandidate records and activates one exact retained denial.
 func (s *Service) AllowPolicyCandidate(
 	ctx context.Context, intent operation.Intent, id string,
@@ -1157,13 +1216,17 @@ func (s *Service) AllowPolicyCandidate(
 	if err != nil {
 		return tobari.PolicyLearningChange{}, err
 	}
+	denyRules, err := s.readPolicyDenyRules(ctx, state)
+	if err != nil {
+		return tobari.PolicyLearningChange{}, err
+	}
 	denials, err := s.runtime.ClusterDenials(ctx, state, 10_000)
 	if err != nil {
 		return tobari.PolicyLearningChange{}, fault.Wrap(
 			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
 		)
 	}
-	candidates, err := tobari.PolicyCandidates(denials, rules)
+	candidates, err := tobari.PolicyCandidatesWithDenyRules(denials, rules, denyRules)
 	if err != nil {
 		return tobari.PolicyLearningChange{}, fault.Wrap(
 			fault.KindContract, "invalid_candidate_contract",
@@ -1209,6 +1272,87 @@ func (s *Service) AllowPolicyCandidate(
 		return tobari.PolicyLearningChange{}, fault.Wrap(
 			fault.KindContract, "invalid_policy_learning_result",
 			"policy allow result is invalid", false, err,
+		)
+	}
+	return result, nil
+}
+
+// DenyPolicyCandidate records and activates one exact project-bound denial.
+func (s *Service) DenyPolicyCandidate(
+	ctx context.Context, intent operation.Intent, id string,
+) (tobari.PolicyDenyChange, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.PolicyDenyChange{}, err
+	}
+	if err := tobari.ValidatePolicyCandidateID(id); err != nil {
+		return tobari.PolicyDenyChange{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_policy_candidate_id",
+			"policy candidate ID is invalid", false, err,
+		)
+	}
+	if err := validatePolicyMutationTarget(intent, tobari.PolicyCandidateKind, id); err != nil {
+		return tobari.PolicyDenyChange{}, err
+	}
+	state, rules, err := s.loadPolicyState(ctx)
+	if err != nil {
+		return tobari.PolicyDenyChange{}, err
+	}
+	denyRules, err := s.readPolicyDenyRules(ctx, state)
+	if err != nil {
+		return tobari.PolicyDenyChange{}, err
+	}
+	denials, err := s.runtime.ClusterDenials(ctx, state, 10_000)
+	if err != nil {
+		return tobari.PolicyDenyChange{}, fault.Wrap(
+			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
+		)
+	}
+	candidates, err := tobari.PolicyCandidatesWithDenyRules(denials, rules, denyRules)
+	if err != nil {
+		return tobari.PolicyDenyChange{}, fault.Wrap(
+			fault.KindContract, "invalid_candidate_contract",
+			"policy candidates are invalid", false, err,
+		)
+	}
+	var candidate tobari.PolicyCandidate
+	found := false
+	for _, item := range candidates {
+		if item.ID == id {
+			candidate, found = item, true
+			break
+		}
+	}
+	if !found {
+		return tobari.PolicyDenyChange{}, fault.New(
+			fault.KindInvalidInput, "policy_candidate_not_found",
+			"policy candidate is stale, already covered, or outside retained logs", false,
+		)
+	}
+	rule, err := tobari.NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		return tobari.PolicyDenyChange{}, fault.Wrap(
+			fault.KindContract, "invalid_candidate_contract",
+			"policy candidate cannot become an exact deny rule", false, err,
+		)
+	}
+	updatedDenies := append(append([]tobari.PolicyDenyRule{}, denyRules.Exact...), rule)
+	updatedSet := tobari.PolicyDenyRuleSet{Baseline: denyRules.Baseline, Exact: updatedDenies}
+	if err := updatedSet.Validate(); err != nil {
+		return tobari.PolicyDenyChange{}, fault.Wrap(
+			fault.KindContract, "invalid_policy_deny", "exact policy deny is invalid", false, err,
+		)
+	}
+	if err := s.applyPolicyDenies(ctx, intent, state, rules, denyRules.Exact, updatedDenies); err != nil {
+		return tobari.PolicyDenyChange{}, err
+	}
+	result := tobari.PolicyDenyChange{
+		Task: tobari.TaskPolicyDeny, PolicyDirectory: state.PolicyDirectory,
+		TargetID: id, Rule: rule, SourceRuleCount: 1, Applied: true,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.PolicyDenyChange{}, fault.Wrap(
+			fault.KindContract, "invalid_policy_deny_result",
+			"policy deny result is invalid", false, err,
 		)
 	}
 	return result, nil
@@ -1282,61 +1426,6 @@ func (s *Service) CompactPolicy(
 		return tobari.PolicyLearningChange{}, fault.Wrap(
 			fault.KindContract, "invalid_policy_learning_result",
 			"policy compact result is invalid", false, err,
-		)
-	}
-	return result, nil
-}
-
-// ApplyPolicy tests the trusted-host policy and activates it in the exact owned
-// OPA component.
-func (s *Service) ApplyPolicy(
-	ctx context.Context, intent operation.Intent,
-) (tobari.PolicyActivation, error) {
-	if err := s.requireRuntime(); err != nil {
-		return tobari.PolicyActivation{}, err
-	}
-	state, exists, err := s.runtime.LoadState(ctx)
-	if err != nil {
-		return tobari.PolicyActivation{}, fault.Wrap(
-			fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err,
-		)
-	}
-	if !exists {
-		return tobari.PolicyActivation{}, fault.New(
-			fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false,
-		)
-	}
-	request := execution.Request{
-		Intent: intent, ExpectedCommand: "policy apply", ExpectedEffect: operation.EffectWrite,
-		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
-	}
-	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		actionErr := s.runtime.ApplyPolicy(actionContext, state)
-		if actionErr == nil {
-			return nil
-		}
-		if _, structured := fault.PublicCopy(actionErr); structured {
-			return actionErr
-		}
-		return fault.Wrap(
-			fault.KindUnavailable, "policy_apply_failed",
-			"Policy activation did not complete; inspect cluster status", false, actionErr,
-			fault.NextAction{
-				Command: "cluster status",
-				Reason:  "Reconcile OPA health before applying policy again.",
-			},
-		)
-	})
-	if err != nil {
-		return tobari.PolicyActivation{}, err
-	}
-	result := tobari.PolicyActivation{
-		Task: tobari.TaskPolicyApply, PolicyDirectory: state.PolicyDirectory, Applied: true,
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.PolicyActivation{}, fault.Wrap(
-			fault.KindContract, "invalid_policy_activation",
-			"policy activation result is invalid", false, err,
 		)
 	}
 	return result, nil

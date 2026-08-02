@@ -23,6 +23,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         self._reply()
 
+    def do_PUT(self) -> None:
+        self._reply()
+
     def _reply(self, include_body: bool = True) -> None:
         authorization = self.headers.get("authorization")
         document = {

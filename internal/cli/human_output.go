@@ -32,7 +32,7 @@ func (o *humanOutput) section(title string) {
 
 func (o *humanOutput) sectionWithToken(title string, token colorToken) {
 	if o.Len() > 0 && !strings.HasSuffix(o.String(), "\n\n") {
-		o.WriteByte('\n')
+		_ = o.WriteByte('\n') // #nosec G104 -- bytes.Buffer.WriteByte always returns nil.
 	}
 	fmt.Fprintln(&o.Buffer, applyColorToken(o.color, token, title))
 }

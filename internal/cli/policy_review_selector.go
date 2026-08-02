@@ -15,11 +15,20 @@ import (
 
 // policyReviewDecision is deliberately separate from the selected candidate.
 // A canceled review is a successful no-op, while a non-empty ID is the one
-// opaque reference that may cross into policy allow.
+// opaque reference that may cross into one exact policy action.
 type policyReviewDecision struct {
 	CandidateID string
+	Action      policyReviewAction
 	Canceled    bool
 }
+
+type policyReviewAction uint8
+
+const (
+	policyReviewActionNone policyReviewAction = iota
+	policyReviewActionAllow
+	policyReviewActionDeny
+)
 
 type policyReviewSelector struct {
 	mode terminal.Mode
@@ -59,6 +68,7 @@ func (s *policyReviewSelector) Select(
 
 type policyReviewDetailResult struct {
 	CandidateID string
+	Action      policyReviewAction
 	Back        bool
 	Canceled    bool
 	Lines       int
@@ -114,7 +124,7 @@ func selectPolicyReviewRaw(
 			}
 			if detail.CandidateID != "" {
 				finishPolicyReviewSelector(out, detail.Lines)
-				return policyReviewDecision{CandidateID: detail.CandidateID}, nil
+				return policyReviewDecision{CandidateID: detail.CandidateID, Action: detail.Action}, nil
 			}
 			if detail.Canceled {
 				finishPolicyReviewSelector(out, detail.Lines)
@@ -167,14 +177,26 @@ func selectPolicyReviewDetailRaw(
 		}
 		switch key.kind {
 		case selectorKeyAllow:
-			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, in, out, lineCount)
+			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, policyReviewActionAllow, in, out, lineCount)
 			if confirmErr != nil {
 				return policyReviewDetailRawResult{err: confirmErr}
 			}
 			lineCount = confirmLines
 			if confirmed {
 				return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
-					CandidateID: candidate.ID, Lines: lineCount,
+					CandidateID: candidate.ID, Action: policyReviewActionAllow, Lines: lineCount,
+				}}
+			}
+			message = ""
+		case selectorKeyDeny:
+			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, policyReviewActionDeny, in, out, lineCount)
+			if confirmErr != nil {
+				return policyReviewDetailRawResult{err: confirmErr}
+			}
+			lineCount = confirmLines
+			if confirmed {
+				return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
+					CandidateID: candidate.ID, Action: policyReviewActionDeny, Lines: lineCount,
 				}}
 			}
 			message = ""
@@ -183,16 +205,21 @@ func selectPolicyReviewDetailRaw(
 				Back: true, Lines: lineCount,
 			}}
 		default:
-			message = "Press a to allow this exact permission, or q to go back."
+			message = "Press a to allow, d to deny, or q to go back."
 		}
 	}
 }
 
 func confirmPolicyReviewRaw(
 	ctx context.Context, report tobari.PolicyCandidateReport, selected int,
+	action policyReviewAction,
 	in io.Reader, out io.Writer, previousLines int,
 ) (bool, int, error) {
-	message := "Allow this exact permission? Type y to continue; default is no."
+	actionName := "Allow"
+	if action == policyReviewActionDeny {
+		actionName = "Deny"
+	}
+	message := actionName + " this exact permission? Type y to continue; default is no."
 	lineCount := previousLines
 	for {
 		currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount)
@@ -203,6 +230,9 @@ func confirmPolicyReviewRaw(
 		lineCount = currentLines
 		value, err := readSelectorByte(ctx, in)
 		if err != nil {
+			if errors.Is(err, errSelectorEOF) {
+				return false, lineCount, nil
+			}
 			finishPolicyReviewSelector(out, lineCount)
 			return false, lineCount, err
 		}
@@ -212,7 +242,7 @@ func confirmPolicyReviewRaw(
 		case 'n', 'N', '\r', '\n', 'q', 'Q', 3, 4, 27:
 			return false, lineCount, nil
 		default:
-			message = "Type y to allow, or n to keep this permission blocked."
+			message = "Type y to confirm, or n to keep this permission blocked."
 		}
 	}
 }
@@ -271,7 +301,7 @@ func renderPolicyReviewDetailRaw(
 		"",
 		"This allows exactly this host, port, method, and path.",
 		"",
-		"[a] Allow this permission   [q] Back",
+		"[a] Allow   [d] Deny   [q] Back",
 	}
 	if message == "" {
 		lines = append(lines, "")
@@ -351,7 +381,7 @@ func selectPolicyReviewLine(
 			return policyReviewDecision{}, detailErr
 		}
 		if detail.CandidateID != "" || detail.Canceled {
-			return policyReviewDecision{CandidateID: detail.CandidateID, Canceled: detail.Canceled}, nil
+			return policyReviewDecision{CandidateID: detail.CandidateID, Action: detail.Action, Canceled: detail.Canceled}, nil
 		}
 		if errors.Is(err, io.EOF) {
 			return policyReviewDecision{Canceled: true}, nil
@@ -386,7 +416,7 @@ func selectPolicyReviewDetailLine(
 		return policyReviewDetailResult{}, err
 	}
 	for {
-		if _, err := fmt.Fprintln(out, "\nChoose [a] to allow this exact permission, or [q] to go back:"); err != nil {
+		if _, err := fmt.Fprintln(out, "\nChoose [a] to allow, [d] to deny this exact permission, or [q] to go back:"); err != nil {
 			return policyReviewDetailResult{}, err
 		}
 		if err := ctx.Err(); err != nil {
@@ -400,8 +430,12 @@ func selectPolicyReviewDetailLine(
 		switch value {
 		case "q", "quit", "esc", "b", "back":
 			return policyReviewDetailResult{Back: true}, nil
-		case "a", "allow":
-			if _, writeErr := fmt.Fprintln(out, "Allow exactly this permission? [y/N]"); writeErr != nil {
+		case "a", "allow", "d", "deny", "reject":
+			action := "Allow"
+			if value == "d" || value == "deny" || value == "reject" {
+				action = "Deny"
+			}
+			if _, writeErr := fmt.Fprintln(out, action+" exactly this permission? [y/N]"); writeErr != nil {
 				return policyReviewDetailResult{}, writeErr
 			}
 			confirmation, confirmationErr := reader.ReadString('\n')
@@ -409,16 +443,20 @@ func selectPolicyReviewDetailLine(
 				return policyReviewDetailResult{}, confirmationErr
 			}
 			if strings.EqualFold(strings.TrimSpace(confirmation), "y") || strings.EqualFold(strings.TrimSpace(confirmation), "yes") {
-				return policyReviewDetailResult{CandidateID: candidate.ID}, nil
+				selectedAction := policyReviewActionAllow
+				if action == "Deny" {
+					selectedAction = policyReviewActionDeny
+				}
+				return policyReviewDetailResult{CandidateID: candidate.ID, Action: selectedAction}, nil
 			}
 			if errors.Is(confirmationErr, io.EOF) {
 				return policyReviewDetailResult{Canceled: true}, nil
 			}
-			if _, writeErr := fmt.Fprintln(out, "Kept blocked. Choose [a] to allow or [q] to go back."); writeErr != nil {
+			if _, writeErr := fmt.Fprintln(out, "Kept blocked. Choose [a] to allow, [d] to deny, or [q] to go back."); writeErr != nil {
 				return policyReviewDetailResult{}, writeErr
 			}
 		default:
-			if _, writeErr := fmt.Fprintln(out, "Use a to allow this exact permission, or q to go back."); writeErr != nil {
+			if _, writeErr := fmt.Fprintln(out, "Use a to allow, d to deny, or q to go back."); writeErr != nil {
 				return policyReviewDetailResult{}, writeErr
 			}
 		}

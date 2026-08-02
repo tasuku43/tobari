@@ -91,12 +91,6 @@ func runClusterDenials(
 			"help cluster denials", "Correct the command arguments.",
 		)
 	}
-	apply, found := c.catalog.Lookup("policy apply")
-	if !found {
-		return c.fail(ctx, fault.New(
-			fault.KindContract, "invalid_catalog", "policy apply command is missing", false,
-		))
-	}
 	review, found := c.catalog.Lookup("policy review")
 	if !found {
 		return c.fail(ctx, fault.New(
@@ -104,7 +98,7 @@ func runClusterDenials(
 		))
 	}
 	output, err := renderClusterDenialsWithReviewCommand(
-		result, ProgramName+" "+apply.Path, ProgramName+" "+review.Path,
+		result, ProgramName+" "+review.Path,
 		format, format == successFormatText && humanColorAllowed(ctx, c, c.Out),
 	)
 	if err != nil {
@@ -132,6 +126,13 @@ func runPolicyReview(
 		return c.fail(ctx, missingRuntimeFault())
 	}
 	tail, _ := inputs.Integer("--tail")
+	format, formatErr := parseSuccessFormat(inputs.One("--format"))
+	if formatErr != nil {
+		return c.failUsage(
+			ctx, "invalid_arguments", formatErr.Error()+"; usage: "+command.Usage(),
+			"help "+command.Path, "Correct the command arguments.",
+		)
+	}
 	result, err := c.tobari.PolicyReview(ctx, int(tail))
 	if err != nil {
 		return c.fail(ctx, err)
@@ -143,16 +144,32 @@ func runPolicyReview(
 		))
 	}
 	allowCommand := ProgramName + " " + allow.Path
-	if !policyReviewInteractiveAllowed(ctx, c) {
-		return c.emitResult(ctx, renderPolicyReviewWithColor(
-			result, allowCommand, humanColorAllowed(ctx, c, c.Out),
+	deny, found := c.catalog.Lookup("policy deny")
+	if !found {
+		return c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "policy deny command is missing", false,
 		))
+	}
+	denyCommand := ProgramName + " " + deny.Path
+	if format != successFormatText || !policyReviewInteractiveAllowed(ctx, c) {
+		output, renderErr := renderPolicyReviewWithCommands(
+			result, allowCommand, denyCommand, format,
+			format == successFormatText && humanColorAllowed(ctx, c, c.Out),
+		)
+		if renderErr != nil {
+			return c.fail(ctx, renderErr)
+		}
+		return c.emitResult(ctx, output)
 	}
 
 	selector := newPolicyReviewSelector()
 	for {
 		if len(result.Items) == 0 {
-			return c.emitResult(ctx, renderPolicyReviewWithColor(result, allowCommand, true))
+			output, renderErr := renderPolicyReviewWithCommands(result, allowCommand, denyCommand, successFormatText, true)
+			if renderErr != nil {
+				return c.fail(ctx, renderErr)
+			}
+			return c.emitResult(ctx, output)
 		}
 		decision, selectErr := selector.Select(ctx, result, c.In, c.Out)
 		if selectErr != nil {
@@ -169,15 +186,37 @@ func runPolicyReview(
 			))
 		}
 
-		actionCtx := withCommandPath(ctx, allow.Path)
-		change, allowErr := allowPolicyCandidate(actionCtx, c, allow, decision.CandidateID)
-		if allowErr != nil {
-			return c.fail(actionCtx, allowErr)
+		actionCommand := allow
+		if decision.Action == policyReviewActionDeny {
+			deny, denyFound := c.catalog.Lookup("policy deny")
+			if !denyFound {
+				return c.fail(ctx, fault.New(
+					fault.KindContract, "invalid_catalog", "policy deny command is missing", false,
+				))
+			}
+			actionCommand = deny
 		}
-		if code := c.emitMutationResult(
-			actionCtx, allow, renderPolicyReviewAllowSuccess(change, humanColorAllowed(actionCtx, c, c.Out)),
-		); code != ExitOK {
-			return code
+		actionCtx := withCommandPath(ctx, actionCommand.Path)
+		if decision.Action == policyReviewActionDeny {
+			change, denyErr := denyPolicyCandidate(actionCtx, c, actionCommand, decision.CandidateID)
+			if denyErr != nil {
+				return c.fail(actionCtx, denyErr)
+			}
+			if code := c.emitMutationResult(
+				actionCtx, actionCommand, renderPolicyDenyChangeWithColor(change, humanColorAllowed(actionCtx, c, c.Out)),
+			); code != ExitOK {
+				return code
+			}
+		} else {
+			change, allowErr := allowPolicyCandidate(actionCtx, c, actionCommand, decision.CandidateID)
+			if allowErr != nil {
+				return c.fail(actionCtx, allowErr)
+			}
+			if code := c.emitMutationResult(
+				actionCtx, actionCommand, renderPolicyReviewAllowSuccess(change, humanColorAllowed(actionCtx, c, c.Out)),
+			); code != ExitOK {
+				return code
+			}
 		}
 
 		result, err = c.tobari.PolicyReview(ctx, int(tail))
@@ -257,6 +296,25 @@ func runPolicyAllow(
 	return c.emitMutationResult(ctx, command, renderPolicyLearningChangeWithColor(result, humanColorAllowed(ctx, c, c.Out)))
 }
 
+func runPolicyDeny(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
+) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	id := inputs.One("--id")
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: id},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	result, err := c.tobari.DenyPolicyCandidate(ctx, intent, id)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, renderPolicyDenyChangeWithColor(result, humanColorAllowed(ctx, c, c.Out)))
+}
+
 func allowPolicyCandidate(
 	ctx context.Context, c *CLI, command CommandSpec, id string,
 ) (tobari.PolicyLearningChange, error) {
@@ -274,6 +332,25 @@ func allowPolicyCandidate(
 		Impact: command.Agent.Mutation.Impact,
 	}
 	return c.tobari.AllowPolicyCandidate(ctx, intent, id)
+}
+
+func denyPolicyCandidate(
+	ctx context.Context, c *CLI, command CommandSpec, id string,
+) (tobari.PolicyDenyChange, error) {
+	if c == nil || c.tobari == nil {
+		return tobari.PolicyDenyChange{}, missingRuntimeFault()
+	}
+	if command.Agent.Mutation == nil {
+		return tobari.PolicyDenyChange{}, fault.New(
+			fault.KindContract, "invalid_catalog", "policy deny mutation contract is missing", false,
+		)
+	}
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: id},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	return c.tobari.DenyPolicyCandidate(ctx, intent, id)
 }
 
 func runPolicyCompactions(
@@ -323,24 +400,6 @@ func runPolicyCompact(
 		return c.fail(ctx, err)
 	}
 	return c.emitMutationResult(ctx, command, renderPolicyLearningChangeWithColor(result, humanColorAllowed(ctx, c, c.Out)))
-}
-
-func runPolicyApply(
-	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, _ ParsedInputs,
-) int {
-	if c.tobari == nil {
-		return c.fail(ctx, missingRuntimeFault())
-	}
-	intent := operation.Intent{
-		Command: command.Path, Effect: command.Effect,
-		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
-		Impact: command.Agent.Mutation.Impact,
-	}
-	result, err := c.tobari.ApplyPolicy(ctx, intent)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	return c.emitMutationResult(ctx, command, renderPolicyApply(result, humanColorAllowed(ctx, c, c.Out)))
 }
 
 func runClusterDown(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
@@ -582,10 +641,10 @@ type clusterDenialsDocument struct {
 }
 
 type clusterDenialsOutput struct {
-	Policy       string                `json:"policy"`
-	WindowLines  int                   `json:"window_lines"`
-	Items        []tobari.PolicyDenial `json:"items"`
-	ApplyCommand string                `json:"apply_command"`
+	Policy        string                `json:"policy"`
+	WindowLines   int                   `json:"window_lines"`
+	Items         []tobari.PolicyDenial `json:"items"`
+	ReviewCommand string                `json:"review_command"`
 }
 
 type policyCandidateOutput struct {
@@ -600,11 +659,25 @@ type policyCandidateOutput struct {
 	StatusCode        int     `json:"status_code"`
 	CredentialProfile *string `json:"credential_profile"`
 	AllowCommand      string  `json:"allow_command"`
+	DenyCommand       string  `json:"deny_command"`
 }
 
 type policyCandidatesDocument struct {
 	SchemaVersion    int                     `json:"schema_version"`
 	PolicyCandidates []policyCandidateOutput `json:"policy_candidates"`
+}
+
+type policyReviewDocument struct {
+	SchemaVersion int                     `json:"schema_version"`
+	PolicyReview  []policyCandidateOutput `json:"policy_review"`
+}
+
+func pairedPolicyCommand(command, from, to string) string {
+	suffix := "policy " + from
+	if strings.HasSuffix(command, suffix) {
+		return strings.TrimSuffix(command, suffix) + "policy " + to
+	}
+	return ProgramName + " policy " + to
 }
 
 func renderPolicyCandidates(
@@ -616,18 +689,8 @@ func renderPolicyCandidates(
 func renderPolicyCandidatesWithColor(
 	result tobari.PolicyCandidateReport, allowCommand string, format successFormat, color bool,
 ) ([]byte, error) {
-	items := make([]policyCandidateOutput, 0, len(result.Items))
-	for _, item := range result.Items {
-		items = append(items, policyCandidateOutput{
-			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt),
-			ProjectID: item.ProjectID,
-			Host:      safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
-			Path: safeExternalText(item.Path), Reason: safeExternalText(item.Reason),
-			StatusCode:        item.StatusCode,
-			CredentialProfile: safeOptionalExternalText(item.CredentialProfile),
-			AllowCommand:      allowCommand + " --id " + item.ID,
-		})
-	}
+	denyCommand := pairedPolicyCommand(allowCommand, "allow", "deny")
+	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
 		output, err := json.Marshal(policyCandidatesDocument{
 			SchemaVersion: 2, PolicyCandidates: items,
@@ -652,13 +715,32 @@ func renderPolicyCandidatesWithColor(
 		}
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\n",
+			"id=%s\tobserved_at=%s\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\tdeny_command=%s\n",
 			item.ID, escapeTSVCell(item.ObservedAt), item.ProjectID, escapeTSVCell(item.Host),
 			item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
-			item.StatusCode, escapeTSVCell(profile), escapeTSVCell(action),
+			item.StatusCode, escapeTSVCell(profile), escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
 		)
 	}
 	return output.Bytes(), nil
+}
+
+func policyCandidateOutputs(
+	result tobari.PolicyCandidateReport, allowCommand, denyCommand string,
+) []policyCandidateOutput {
+	items := make([]policyCandidateOutput, 0, len(result.Items))
+	for _, item := range result.Items {
+		items = append(items, policyCandidateOutput{
+			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt),
+			ProjectID: item.ProjectID,
+			Host:      safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
+			Path: safeExternalText(item.Path), Reason: safeExternalText(item.Reason),
+			StatusCode:        item.StatusCode,
+			CredentialProfile: safeOptionalExternalText(item.CredentialProfile),
+			AllowCommand:      allowCommand + " --id " + item.ID,
+			DenyCommand:       denyCommand + " --id " + item.ID,
+		})
+	}
+	return items
 }
 
 func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowCommand string) []byte {
@@ -686,12 +768,45 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 		}
 		output.row("Credential", profile, colorTokenMuted)
 		output.row("Allow", allowCommand+" --id "+item.ID, colorTokenAccent)
+		output.row("Deny", pairedPolicyCommand(allowCommand, "allow", "deny")+" --id "+item.ID, colorTokenAccent)
 	}
 	return output.bytes()
 }
 
 func renderPolicyReviewWithColor(
 	result tobari.PolicyCandidateReport, allowCommand string, color bool,
+) []byte {
+	output, err := renderPolicyReviewWithCommands(
+		result, allowCommand, pairedPolicyCommand(allowCommand, "allow", "deny"), successFormatText, color,
+	)
+	if err != nil {
+		return []byte("policy review: output encoding failed\n")
+	}
+	return output
+}
+
+func renderPolicyReviewWithCommands(
+	result tobari.PolicyCandidateReport, allowCommand, denyCommand string,
+	format successFormat, color bool,
+) ([]byte, error) {
+	items := policyCandidateOutputs(result, allowCommand, denyCommand)
+	if format == successFormatJSON {
+		output, err := json.Marshal(policyReviewDocument{
+			SchemaVersion: 2, PolicyReview: items,
+		})
+		if err != nil {
+			return nil, fault.Wrap(
+				fault.KindContract, "output_encoding_failed",
+				"policy review JSON could not be encoded", false, err,
+			)
+		}
+		return append(output, '\n'), nil
+	}
+	return renderPolicyReviewHuman(result, allowCommand, denyCommand, color), nil
+}
+
+func renderPolicyReviewHuman(
+	result tobari.PolicyCandidateReport, allowCommand, denyCommand string, color bool,
 ) []byte {
 	if len(result.Items) == 0 {
 		output := newHumanOutput(color)
@@ -713,7 +828,8 @@ func renderPolicyReviewWithColor(
 		output.row("Observed", safeExternalText(item.ObservedAt), colorTokenMuted)
 		output.row("Reason", safeExternalText(item.Reason), colorTokenWarning)
 		output.row("Status", fmt.Sprintf("%d", item.StatusCode), colorTokenWarning)
-		output.row("Approve exact", allowCommand+" --id "+item.ID, colorTokenAccent)
+		output.row("Allow exact", allowCommand+" --id "+item.ID, colorTokenAccent)
+		output.row("Deny exact", denyCommand+" --id "+item.ID, colorTokenAccent)
 	}
 	return output.bytes()
 }
@@ -857,9 +973,9 @@ func renderPolicyLearningChange(result tobari.PolicyLearningChange) []byte {
 func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, color bool) []byte {
 	if color {
 		output := newHumanOutput(true)
-		marker, title, token := "✓", "Policy rule updated", colorTokenSuccess
+		marker, title, token := "✓", "Policy rule updated", colorTokenSuccess // #nosec G101 -- human-readable status text contains no credential.
 		if !result.Applied {
-			marker, title, token = "!", "Policy rule recorded", colorTokenWarning
+			marker, title, token = "!", "Policy rule recorded", colorTokenWarning // #nosec G101 -- human-readable status text contains no credential.
 		}
 		output.heading(marker, title, token)
 		output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
@@ -892,22 +1008,52 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 	return output.Bytes()
 }
 
+func renderPolicyDenyChangeWithColor(result tobari.PolicyDenyChange, color bool) []byte {
+	if color {
+		output := newHumanOutput(true)
+		output.heading("✓", "Permission denied", colorTokenSuccess)
+		output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
+		output.row("Target", result.TargetID, colorTokenAccent)
+		output.row("Rule", result.Rule.ID, colorTokenAccent)
+		output.row("Request", fmt.Sprintf(
+			"%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port,
+			safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
+		), colorTokenAccent)
+		output.row("Project", safeExternalText(result.Rule.ProjectID), colorTokenMuted)
+		output.row("Applied", humanBool(result.Applied), humanBoolToken(result.Applied))
+		output.next("policy review", "Review the remaining pending permissions.")
+		return output.bytes()
+	}
+	var output bytes.Buffer
+	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
+	fmt.Fprintf(&output, "target_id: %s\n", result.TargetID)
+	fmt.Fprintf(&output, "rule_id: %s\n", result.Rule.ID)
+	fmt.Fprintf(&output, "project_id: %s\n", escapeTSVCell(result.Rule.ProjectID))
+	fmt.Fprintf(&output, "host: %s\n", escapeTSVCell(result.Rule.Host))
+	fmt.Fprintf(&output, "port: %d\n", result.Rule.Port)
+	fmt.Fprintf(&output, "method: %s\n", escapeTSVCell(result.Rule.Method))
+	fmt.Fprintf(&output, "path: %s\n", escapeTSVCell(result.Rule.Path))
+	fmt.Fprintf(&output, "source_rule_count: %d\n", result.SourceRuleCount)
+	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
+	return output.Bytes()
+}
+
 func renderClusterDenials(
-	result tobari.DenialReport, applyCommand string, format successFormat,
+	result tobari.DenialReport, reviewCommand string, format successFormat,
 ) ([]byte, error) {
-	return renderClusterDenialsWithColor(result, applyCommand, format, false)
+	return renderClusterDenialsWithColor(result, reviewCommand, format, false)
 }
 
 func renderClusterDenialsWithColor(
-	result tobari.DenialReport, applyCommand string, format successFormat, color bool,
+	result tobari.DenialReport, reviewCommand string, format successFormat, color bool,
 ) ([]byte, error) {
 	return renderClusterDenialsWithReviewCommand(
-		result, applyCommand, ProgramName+" policy review", format, color,
+		result, reviewCommand, format, color,
 	)
 }
 
 func renderClusterDenialsWithReviewCommand(
-	result tobari.DenialReport, applyCommand, reviewCommand string, format successFormat, color bool,
+	result tobari.DenialReport, reviewCommand string, format successFormat, color bool,
 ) ([]byte, error) {
 	if format == successFormatJSON {
 		items := append([]tobari.PolicyDenial{}, result.Items...)
@@ -923,7 +1069,7 @@ func renderClusterDenialsWithReviewCommand(
 			SchemaVersion: 2,
 			Denials: clusterDenialsOutput{
 				Policy: safeExternalText(result.PolicyDirectory), WindowLines: result.WindowLines,
-				Items: items, ApplyCommand: applyCommand,
+				Items: items, ReviewCommand: reviewCommand,
 			},
 		})
 		if err != nil {
@@ -950,7 +1096,7 @@ func renderClusterDenialsWithReviewCommand(
 			escapeTSVCell(item.Path), item.StatusCode, escapeTSVCell(item.Reason),
 		)
 	}
-	fmt.Fprintf(&output, "apply_command: %s\n", escapeTSVCell(applyCommand))
+	fmt.Fprintf(&output, "review_command: %s\n", escapeTSVCell(reviewCommand))
 	return output.Bytes(), nil
 }
 
@@ -1323,25 +1469,6 @@ func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool)
 	fmt.Fprintf(&output, "root: %s\n", escapeTSVCell(result.Root))
 	fmt.Fprintf(&output, "id: %s\n", result.ID)
 	fmt.Fprintf(&output, "home: %s\n", escapeTSVCell(result.Home))
-	return output.Bytes()
-}
-
-func renderPolicyApply(result tobari.PolicyActivation, color bool) []byte {
-	if color {
-		output := newHumanOutput(true)
-		if result.Applied {
-			output.heading("✓", "Policy applied", colorTokenSuccess)
-		} else {
-			output.heading("!", "Policy not applied", colorTokenWarning)
-		}
-		output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
-		output.row("Applied", humanBool(result.Applied), humanBoolToken(result.Applied))
-		output.next("cluster status", "Verify Gateway and OPA health after policy activation.")
-		return output.bytes()
-	}
-	var output bytes.Buffer
-	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
-	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
 	return output.Bytes()
 }
 

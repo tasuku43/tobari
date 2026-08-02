@@ -289,10 +289,10 @@ The test suite has complementary levels:
   pending-permission summary stays on host stderr and is best-effort.
 - The human permission path is exercised through `policy review`; its TTY
   Permission Inbox covers bounded selection, detail inspection, explicit
-  confirmation, cancellation, and refresh after one allow. It does not
-  require hand-editing OPA or Rego. Redirected review stays read-only, and the
-  exact reference-bound `policy allow` action remains the only routine policy
-  mutation.
+  allow/deny confirmation, cancellation, and refresh after each decision. It
+  does not require hand-editing OPA or Rego. Redirected review stays
+  read-only, and exact reference-bound allow/deny actions are the routine
+  policy mutations.
 - Project-principal integration creates two current-directory Tobari, checks
   distinct Gateway network addresses, proves an atomically updated
   directory-mounted registry is visible without manually recreating Gateway,
@@ -313,10 +313,10 @@ The test suite has complementary levels:
   shared Gateway and OPA services.
 - Runtime-asset and integration tests inspect the fixed shared-service CPU,
   memory-plus-swap, and PID ceilings.
-- Learned-policy integration also passes an opaque denial candidate unchanged
-  into exact approval, verifies a neighboring request remains denied, creates
-  three exact siblings, passes one opaque compaction candidate unchanged into
-  compaction, and rechecks both retained positives and the outside-prefix
+- Learned-policy integration passes opaque denial candidates unchanged into
+  exact allow and deny actions, verifies a neighboring request remains denied,
+  creates three exact siblings, passes one opaque compaction candidate unchanged
+  into compaction, and rechecks both retained positives and the outside-prefix
   canary.
 - Negative tests prove rejection before side effects.
 - Release tests inspect actual artifacts and metadata, not only workflow text.

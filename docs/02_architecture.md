@@ -60,12 +60,12 @@ path remains catalog-owned, effect-declared, and failure-before-side-effect
 where applicable.
 
 `cluster up`, `cluster status`, `cluster denials`, `policy candidates`,
-`policy review`, `policy tail`, `policy allow`, and `policy apply` remain valid
+`policy review`, `policy tail`, `policy allow`, and `policy deny` remain valid
 internal seams today. They are not permission to expose Docker, OPA, or opaque
 resource identifiers as the routine mental model. `policy review` is the
 ordinary human-facing Permission Inbox: on a TTY it composes selection,
-detail inspection, explicit confirmation, and the existing `policy allow`
-action for one candidate; redirected and machine-readable review remains
+detail inspection, explicit confirmation, and the existing `policy allow` or
+`policy deny` action for one candidate; redirected and machine-readable review remains
 read-only. `policy candidates` is the machine discovery surface and
 `policy tail` is a compatibility projection. The catalog declares this
 composition while preserving discover/act separation: the act still consumes
@@ -238,10 +238,10 @@ updates replace the registry file atomically inside that directory so a
 single-file bind mount cannot strand Gateway on an old inode or expose the
 neighboring credential configuration.
 The logical Tobari ID is not trusted when echoed by a caller; Gateway derives
-it from the local interface address. `policy apply`
-provides the deterministic
-portable path: it tests the current bind, verifies the exact OPA ownership
-label, recreates only OPA, and waits for health.
+it from the local interface address. Exact allow, deny, and compaction actions
+provide the deterministic portable activation path: each tests its complete
+private policy copy, verifies the exact OPA ownership label, recreates only OPA,
+and waits for health.
 `delete` observes active Docker exec IDs before ordinary removal, then verifies
 owner, ID, and role labels before removing the selected container and network;
 an attached exec rejects ordinary deletion and `--force` skips only that guard.
@@ -309,16 +309,17 @@ approve or retry a request. `tobari cluster denials` parses one bounded Gateway
 log window, rejects
 malformed denial-shaped records, and returns typed project principal, host, port,
 method, path, reason, status, exact-rule learnability, request identity, timestamp, the
-trusted host policy directory, and the exact apply command. OPA computes
+trusted host policy directory, and the exact review command. OPA computes
 learnability only when version, cluster, scheme, fixed port, project-principal,
 and (for the managed adapter) credential-binding boundaries already pass, so an exact
 project/host/port/method/path rule can close the request. `policy review` and
 `policy candidates` deterministically map only that eligible retained evidence
 to opaque exact-rule references that remain stable across repeated denials of
 the same project/host/port/method/path, and remove effects already covered by
-the CLI-owned learned-rule data. `policy review` is the routine human text
+the CLI-owned learned allow or deny data and trusted baseline deny rules.
+Baseline and exact denies remain audit-only. `policy review` is the routine human text
 projection and, after explicit TTY confirmation, delegates one unchanged
-candidate ID to `policy allow`; redirected review is read-only. `policy tail`
+candidate ID to `policy allow` or `policy deny`; redirected review is read-only. `policy tail`
 is a compatibility projection over the same bounded task result. Raw `cluster
 logs` remains the component-debugging interface.
 
@@ -327,6 +328,11 @@ validated audit state without decoding it. Infrastructure reads the bounded,
 owner-only `data.json`, preserves non-owned members, appends one deterministic
 exact learned rule, tests a private complete policy copy, atomically replaces
 the data file, and calls the existing OPA activation boundary.
+
+`policy deny` resolves the same exact candidate reference and appends one
+project-bound exact deny rule through the same preflight, atomic-write, and OPA
+activation boundary. Exact denies are terminal and win over learned allows for
+the same project/host/port/method/path.
 
 Compaction discovery is pure over current learned rules. It groups at least
 three exact rules only when project, host, port, method, and a sufficiently deep

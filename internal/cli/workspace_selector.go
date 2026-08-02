@@ -20,6 +20,7 @@ const (
 )
 
 var errSelectorTimeout = errors.New("selector input timeout")
+var errSelectorEOF = errors.New("selector input reached EOF")
 
 type workspaceSelector struct {
 	mode terminal.Mode
@@ -83,6 +84,7 @@ const (
 	selectorKeyEnter
 	selectorKeyCreate
 	selectorKeyAllow
+	selectorKeyDeny
 	selectorKeyBack
 	selectorKeyCancel
 	selectorKeyNumber
@@ -452,6 +454,9 @@ func readSelectorKey(ctx context.Context, in io.Reader) (selectorKey, error) {
 	if errors.Is(err, errSelectorTimeout) {
 		return selectorKey{kind: selectorKeyNone}, nil
 	}
+	if errors.Is(err, errSelectorEOF) {
+		return selectorKey{kind: selectorKeyCancel}, nil
+	}
 	if err != nil {
 		return selectorKey{}, err
 	}
@@ -464,6 +469,8 @@ func readSelectorKey(ctx context.Context, in io.Reader) (selectorKey, error) {
 		return selectorKey{kind: selectorKeyCreate}, nil
 	case 'a', 'A':
 		return selectorKey{kind: selectorKeyAllow}, nil
+	case 'd', 'D':
+		return selectorKey{kind: selectorKeyDeny}, nil
 	case 'b', 'B':
 		return selectorKey{kind: selectorKeyBack}, nil
 	case 'q', 'Q', 3, 4:
@@ -471,6 +478,9 @@ func readSelectorKey(ctx context.Context, in io.Reader) (selectorKey, error) {
 	case '\x1b':
 		next, nextErr := readSelectorByte(ctx, in)
 		if errors.Is(nextErr, errSelectorTimeout) {
+			return selectorKey{kind: selectorKeyCancel}, nil
+		}
+		if errors.Is(nextErr, errSelectorEOF) {
 			return selectorKey{kind: selectorKeyCancel}, nil
 		}
 		if nextErr != nil {
@@ -481,6 +491,9 @@ func readSelectorKey(ctx context.Context, in io.Reader) (selectorKey, error) {
 		}
 		code, codeErr := readSelectorByte(ctx, in)
 		if errors.Is(codeErr, errSelectorTimeout) {
+			return selectorKey{kind: selectorKeyCancel}, nil
+		}
+		if errors.Is(codeErr, errSelectorEOF) {
 			return selectorKey{kind: selectorKeyCancel}, nil
 		}
 		if codeErr != nil {
@@ -518,7 +531,7 @@ func readSelectorByte(ctx context.Context, in io.Reader) (byte, error) {
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return 0, context.Canceled
+				return 0, errSelectorEOF
 			}
 			return 0, err
 		}

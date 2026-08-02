@@ -59,20 +59,6 @@ func TestPolicyDenialRejectsInterpretationSensitiveFields(t *testing.T) {
 	}
 }
 
-func TestPolicyActivationRequiresConfirmedTaskResult(t *testing.T) {
-	t.Parallel()
-	valid := PolicyActivation{
-		Task: TaskPolicyApply, PolicyDirectory: "/config/tobari/policy", Applied: true,
-	}
-	if err := valid.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	valid.Applied = false
-	if err := valid.Validate(); err == nil {
-		t.Fatal("unconfirmed activation was accepted")
-	}
-}
-
 func TestPolicyCandidatesDeduplicateLatestEffectAndHideCoveredRules(t *testing.T) {
 	t.Parallel()
 	first := validPolicyDenial()
@@ -104,6 +90,58 @@ func TestPolicyCandidatesDeduplicateLatestEffectAndHideCoveredRules(t *testing.T
 	original, _ := NewPolicyCandidate(first)
 	if original.ID != want.ID || original.ObservedAt == want.ObservedAt {
 		t.Fatalf("repeated exact effect did not retain a stable ID with latest evidence: original=%+v latest=%+v", original, want)
+	}
+}
+
+func TestPolicyCandidatesHideBaselineAndExactDeniedEffects(t *testing.T) {
+	t.Parallel()
+	baseline := validPolicyDenial()
+	baseline.Path = "/api/v1/secret"
+	exact := validPolicyDenial()
+	exact.Path = "/repos/cli/cli"
+	candidate, err := NewPolicyCandidate(exact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exactRule, err := NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := PolicyCandidatesWithDenyRules(
+		[]PolicyDenial{baseline, exact}, []LearnedPolicyRule{}, PolicyDenyRuleSet{
+			Baseline: []PolicyBaselineDenyRule{{Host: baseline.Host, Method: baseline.Method, PathPrefix: "/api/v1/"}},
+			Exact:    []PolicyDenyRule{exactRule},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("denied effects remained actionable: %+v", items)
+	}
+}
+
+func TestPolicyDenyRuleBindsExactProjectAndRequest(t *testing.T) {
+	t.Parallel()
+	candidate, err := NewPolicyCandidate(validPolicyDenial())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, err := NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rule.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !rule.Matches(candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+		t.Fatal("exact deny rule did not match its bound request")
+	}
+	if rule.Matches(policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+		t.Fatal("exact deny rule crossed project boundary")
+	}
+	if rule.Matches(candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path) {
+		t.Fatal("exact deny rule crossed port boundary")
 	}
 }
 

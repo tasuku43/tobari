@@ -35,6 +35,39 @@ test_deny_by_default if {
 	result.learnable
 }
 
+test_explicit_deny_wins_over_learned_allow if {
+	request := object.union(base_input.request, {
+		"host": "api.github.com",
+		"method": "GET",
+		"path": "/user",
+	})
+	deny_rule := {
+		"id": "pdr_0123456789abcdef0123456789abcdef",
+		"project_id": base_input.principal.project_id,
+		"host": "api.github.com",
+		"port": 443,
+		"method": "GET",
+		"path": "/user",
+		"source_candidates": ["pcy_0123456789abcdef0123456789abcdef"],
+	}
+	allow_rule := {
+		"id": "plr_0123456789abcdef0123456789abcdef",
+		"match": "exact",
+		"project_id": base_input.principal.project_id,
+		"host": "api.github.com",
+		"port": 443,
+		"method": "GET",
+		"path": "/user",
+		"examples": ["/user"],
+		"source_candidates": ["pcy_0123456789abcdef0123456789abcdef"],
+	}
+	result := decision with input as object.union(base_input, {"request": request})
+		with data.tobari.learned_allow_rules as [allow_rule]
+		with data.tobari.learned_deny_rules as [deny_rule]
+	not result.allow
+	not result.learnable
+}
+
 test_allow_https_get if {
 	result := decision with input as base_input
 	result.allow
@@ -95,8 +128,8 @@ test_deny_github_write_path if {
 
 test_learnable_denial_preserves_bound_credential_profile if {
 	request := object.union(base_input.request, {
-		"method": "POST",
-		"path": "/repos/example/repository/issues",
+		"method": "PUT",
+		"path": "/graphql",
 	})
 	result := decision with input as object.union(base_input, {
 		"request": request,
@@ -118,7 +151,7 @@ test_deny_mock_write_path if {
 	})})
 		with data.tobari.learned_allow_rules as []
 	not result.allow
-	result.learnable
+	not result.learnable
 }
 
 learned_exact_fixture := {
@@ -127,9 +160,9 @@ learned_exact_fixture := {
 	"project_id": "01912345-6789-7abc-8def-0123456789ab",
 	"host": "api.github.com",
 	"port": 443,
-	"method": "POST",
-	"path": "/repos/example/repository/issues",
-	"examples": ["/repos/example/repository/issues"],
+	"method": "PUT",
+	"path": "/graphql",
+	"examples": ["/graphql"],
 	"source_candidates": ["pcy_0123456789abcdef0123456789abcdef"],
 }
 
@@ -139,12 +172,12 @@ learned_prefix_fixture := {
 	"project_id": "01912345-6789-7abc-8def-0123456789ab",
 	"host": "mock-upstream",
 	"port": 8080,
-	"method": "POST",
-	"path": "/api/v1/items/",
+	"method": "PUT",
+	"path": "/review/items/",
 	"examples": [
-		"/api/v1/items/one",
-		"/api/v1/items/three",
-		"/api/v1/items/two",
+		"/review/items/one",
+		"/review/items/three",
+		"/review/items/two",
 	],
 	"source_candidates": [
 		"pcy_0123456789abcdef0123456789abcdef",
@@ -161,14 +194,20 @@ learned_scheme(port) := "http" if {
 	port == 8080
 }
 
-test_exact_learned_rule_overrides_matching_legacy_deny if {
+test_exact_learned_rule_does_not_override_matching_legacy_deny if {
+	legacy_allow_rule := object.union(learned_exact_fixture, {
+		"method": "POST",
+		"path": "/repos/example/repository/issues",
+		"examples": ["/repos/example/repository/issues"],
+	})
 	request := object.union(base_input.request, {
-		"method": learned_exact_fixture.method,
-		"path": learned_exact_fixture.path,
+		"method": legacy_allow_rule.method,
+		"path": legacy_allow_rule.path,
 	})
 	result := decision with input as object.union(base_input, {"request": request})
-		with data.tobari.learned_allow_rules as [learned_exact_fixture]
-	result.allow
+		with data.tobari.learned_allow_rules as [legacy_allow_rule]
+	not result.allow
+	not result.learnable
 }
 
 test_exact_learned_rule_does_not_allow_child_path if {
@@ -210,7 +249,7 @@ test_compacted_prefix_allows_declared_directory if {
 		"host": learned_prefix_fixture.host,
 		"port": 8080,
 		"method": learned_prefix_fixture.method,
-		"path": "/api/v1/items/four",
+		"path": "/review/items/four",
 	})
 	result := decision with input as object.union(base_input, {"request": request})
 		with data.tobari.learned_allow_rules as [learned_prefix_fixture]
@@ -223,7 +262,7 @@ test_compacted_prefix_rejects_outside_canary if {
 		"host": learned_prefix_fixture.host,
 		"port": 8080,
 		"method": learned_prefix_fixture.method,
-		"path": "/api/v1/items-outside-tobari-canary",
+		"path": "/review/items-outside-tobari-canary",
 	})
 	result := decision with input as object.union(base_input, {"request": request})
 		with data.tobari.learned_allow_rules as [learned_prefix_fixture]
@@ -232,10 +271,10 @@ test_compacted_prefix_rejects_outside_canary if {
 
 test_compacted_prefix_rejects_ambiguous_paths if {
 	every unsafe_path in {
-		"/api/v1/items/%2Fadmin",
-		"/api/v1/items/../admin",
-		"/api/v1/items//admin",
-		"/api/v1/items\\admin",
+		"/review/items/%2Fadmin",
+		"/review/items/../admin",
+		"/review/items//admin",
+		"/review/items\\admin",
 	} {
 		request := object.union(base_input.request, {
 			"scheme": "http",

@@ -37,6 +37,30 @@ func learnedRuleFixture(t *testing.T, path string) tobari.LearnedPolicyRule {
 	return rule
 }
 
+func deniedRuleFixture(t *testing.T, path string) tobari.PolicyDenyRule {
+	t.Helper()
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{
+		Timestamp:  "2026-07-30T10:41:11Z",
+		RequestID:  "8185da2688d7469aae9cd9068e920b0b",
+		ProjectID:  "01912345-6789-7abc-8def-0123456789ab",
+		Host:       "api.github.com",
+		Port:       443,
+		Method:     "GET",
+		Path:       path,
+		Reason:     "request did not match an allow rule",
+		StatusCode: 403,
+		Learnable:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, err := tobari.NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rule
+}
+
 func writePolicyFixture(t *testing.T, state tobari.State, data string) {
 	t.Helper()
 	if err := os.MkdirAll(state.PolicyDirectory, 0o700); err != nil {
@@ -147,6 +171,80 @@ func TestApplyLearnedPolicyRulesRejectsChangedDataBeforeDockerOrWrite(t *testing
 	after, readErr := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
 	if readErr != nil || string(after) != string(before) || len(runner.outputs) != 0 {
 		t.Fatalf("rejected update changed state: read=%v calls=%v data=%s", readErr, runner.outputs, after)
+	}
+}
+
+func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	state := runtimeState(root)
+	writePolicyFixture(t, state, `{
+  "tobari": {
+    "allowed_hosts": ["api.github.com"],
+    "learned_allow_rules": [],
+    "learned_deny_rules": []
+  }
+}
+`)
+	runner := &recordingRunner{outputQueue: [][]byte{nil, nil, []byte("default\n"), nil}}
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	rule := deniedRuleFixture(t, "/user/settings")
+
+	if err := runtime.ApplyPolicyDenyRules(
+		context.Background(), state, []tobari.LearnedPolicyRule{},
+		[]tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{rule},
+	); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	var tobariData map[string]json.RawMessage
+	if err := json.Unmarshal(document["tobari"], &tobariData); err != nil {
+		t.Fatal(err)
+	}
+	var got []tobari.PolicyDenyRule
+	if err := json.Unmarshal(tobariData[learnedDenyDataName], &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != rule.ID {
+		t.Fatalf("learned deny rules = %+v", got)
+	}
+	read, err := runtime.ReadPolicyDenyRules(context.Background(), state)
+	if err != nil || len(read.Exact) != 1 || read.Exact[0].ID != rule.ID {
+		t.Fatalf("read deny rules = %+v, error = %v", read, err)
+	}
+}
+
+func TestApplyPolicyDenyRulesRejectsChangedDenySnapshotBeforeDockerOrWrite(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	state := runtimeState(root)
+	writePolicyFixture(t, state, `{"tobari":{"learned_allow_rules":[],"learned_deny_rules":[]}}`+"\n")
+	before, err := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &recordingRunner{}
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	rule := deniedRuleFixture(t, "/user/settings")
+
+	err = runtime.ApplyPolicyDenyRules(
+		context.Background(), state, []tobari.LearnedPolicyRule{},
+		[]tobari.PolicyDenyRule{rule}, []tobari.PolicyDenyRule{},
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "policy_data_changed" {
+		t.Fatalf("error = %v", err)
+	}
+	after, readErr := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
+	if readErr != nil || string(after) != string(before) || len(runner.outputs) != 0 {
+		t.Fatalf("rejected deny update changed state: read=%v calls=%v data=%s", readErr, runner.outputs, after)
 	}
 }
 

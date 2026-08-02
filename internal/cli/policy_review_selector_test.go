@@ -43,7 +43,8 @@ func TestPolicyReviewSelectorRawInspectConfirmAndPreservesOpaqueID(t *testing.T)
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
 	}
-	if decision.CandidateID != "pcy_abcdef0123456789abcdef0123456789" || decision.Canceled {
+	if decision.CandidateID != "pcy_abcdef0123456789abcdef0123456789" ||
+		decision.Action != policyReviewActionAllow || decision.Canceled {
 		t.Fatalf("decision = %+v", decision)
 	}
 	if !strings.Contains(output.String(), "Tobari · Permission Inbox") ||
@@ -89,7 +90,7 @@ func TestPolicyReviewSelectorFallsBackToLineConfirmation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
 	}
-	if decision.CandidateID != "pcy_abcdef0123456789abcdef0123456789" {
+	if decision.CandidateID != "pcy_abcdef0123456789abcdef0123456789" || decision.Action != policyReviewActionAllow {
 		t.Fatalf("decision = %+v", decision)
 	}
 	if strings.Contains(output.String(), "\x1b[") {
@@ -99,6 +100,40 @@ func TestPolicyReviewSelectorFallsBackToLineConfirmation(t *testing.T) {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("line review output %q lacks %q", output.String(), want)
 		}
+	}
+}
+
+func TestPolicyReviewSelectorLineCanConfirmExactDeny(t *testing.T) {
+	t.Parallel()
+	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}}
+	var output bytes.Buffer
+	decision, err := selector.Select(
+		context.Background(), testPolicyReviewReport(), strings.NewReader("1\nd\ny\n"), &output,
+	)
+	if err != nil {
+		t.Fatalf("Select() error = %v", err)
+	}
+	if decision.CandidateID != "pcy_0123456789abcdef0123456789abcdef" ||
+		decision.Action != policyReviewActionDeny || decision.Canceled {
+		t.Fatalf("decision = %+v", decision)
+	}
+	if !strings.Contains(output.String(), "Deny exactly this permission? [y/N]") {
+		t.Fatalf("deny confirmation missing: %q", output.String())
+	}
+}
+
+func TestPolicyReviewSelectorRawEOFIsSafeCancellation(t *testing.T) {
+	t.Parallel()
+	selector := &policyReviewSelector{mode: &selectorModeFake{}}
+	var output bytes.Buffer
+	decision, err := selector.Select(
+		context.Background(), testPolicyReviewReport(), strings.NewReader(""), &output,
+	)
+	if err != nil {
+		t.Fatalf("Select() error = %v", err)
+	}
+	if !decision.Canceled || decision.CandidateID != "" || decision.Action != policyReviewActionNone {
+		t.Fatalf("decision = %+v", decision)
 	}
 }
 

@@ -43,6 +43,7 @@ candidate_eligible if {
 	allowed_port
 	body_is_empty
 	credential_binding_valid
+	not explicitly_denied
 }
 
 request_allowed if {
@@ -54,6 +55,7 @@ request_allowed if {
 }
 
 request_allowed if {
+	not explicitly_denied
 	allowed_scheme
 	allowed_port
 	body_is_empty
@@ -100,9 +102,22 @@ explicitly_denied if {
 	startswith(input.request.path, rule.path_prefix)
 }
 
+explicitly_denied if {
+	some rule in learned_deny_rules
+	rule.project_id == input.principal.project_id
+	rule.host == input.request.host
+	rule.port == input.request.port
+	rule.method == input.request.method
+	rule.path == input.request.path
+}
+
 default learned_rules := []
 
 learned_rules := data.tobari.learned_allow_rules
+
+default learned_deny_rules := []
+
+learned_deny_rules := data.tobari.learned_deny_rules
 
 learned_rule_allowed if {
 	some rule in learned_rules

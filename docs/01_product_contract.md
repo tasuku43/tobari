@@ -31,10 +31,11 @@ trusted-host next action, the user approves the minimum rule, and the same
 workload is retried. A learnable denial also gives the agent a fixed host-side
 review command, and the human path enters through `policy review`; machine
 discovery remains `policy candidates` and the exact opaque reference remains
-the safety boundary for `policy allow --id`. Trusted-host Rego editing plus
-`policy apply` remains the advanced path for behavior that exact learned rules
-cannot express; ordinary permission growth must not require either. OPA watch
-may make host edits visible when Docker-host filesystem events propagate.
+the safety boundary for `policy allow --id` and `policy deny --id`.
+Trusted-host Rego editing remains the advanced path for behavior that exact
+learned rules cannot express; ordinary permission growth must not require it.
+Exact policy actions perform the bounded activation required for their own
+mutation.
 Denial evidence is a product output, not incidental debug noise.
 The host-issued project principal is retained in denial, candidate, learned
 rule, and compaction evidence; an approval made from one current-directory
@@ -93,13 +94,14 @@ The public commands are:
 | `list [--format text|json]` | utility | read | List local Workspaces with runtime diagnostics and diagnostic IDs |
 | `delete [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari when detached; use `--force` to override an attached-session guard |
 | `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
-| `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and activation command |
+| `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover unique pending exact host/port/method/path candidates and opaque IDs |
-| `policy review [--tail N]` | discover | read | Review pending permissions; on a TTY, explicitly confirm one exact permission through `policy allow` |
-| `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact approval commands |
+| `policy review [--tail N] [--format text|json]` | discover | read | Review pending permissions; on a TTY, explicitly confirm one exact allow or deny |
+| `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact allow and deny commands |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
+| `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `policy apply` | act, fixed target | write | Test host policy and activate it in the exact shared OPA component |
@@ -281,9 +283,12 @@ a bounded recent window of 1 through 10,000 lines per selected component.
 Denials are a fully delivered typed projection from the requested bounded
 Gateway-line window; an empty `items` collection means no valid denial occurred
 in that window, not exhaustive history.
-Policy candidates and tail are bounded by the same retained Gateway-line
-window and omit effects already covered by learned rules. Compactions are
-exhaustive for the current validated learned-rule file at one observation.
+Policy candidates, review, and tail are bounded by the same retained
+Gateway-line window and omit effects already covered by learned allow rules,
+baseline deny rules, or exact learned deny rules. Baseline and exact denies
+remain available as audit evidence but never become pending queue items.
+Compactions are exhaustive for the current validated learned-rule file at one
+observation.
 
 ## Configuration contract
 
@@ -326,10 +331,9 @@ Image selection uses configured bounded image metadata, then
 `config.json.default_image`, then `builtin` when configuration has not yet been
 initialized. Project metadata can select only a literal compatible image.
 
-OPA reads the policy bind with `--watch`. Because Docker-host file-event
-delivery varies by runtime, `policy apply` is the portable completion step: it
-tests the current host directory before recreating only OPA and waiting for
-health.
+OPA reads the policy bind with `--watch`. Exact policy mutations test a private
+complete policy copy and activate only the exact owned OPA component; host
+authored edits remain an advanced, explicit workflow.
 
 ## Side effects
 
@@ -366,10 +370,7 @@ work container is created with fixed CPU, memory, PID-count, and container-log
 bounds; a resource-contract change is treated as runtime drift and recreates
 only that work container. These limits do not claim a disk quota for the
 explicitly mounted root or network bandwidth shaping.
-`policy apply` runs pinned OPA tests against the read-only host bind, then
-recreates only the exact owner-labeled OPA container and waits for health.
-Gateway remains up and fails closed during that bounded activation interval.
-`policy allow` and `policy compact` first build and test the complete candidate
+`policy allow`, `policy deny`, and `policy compact` first build and test the complete candidate
 policy in a private host temporary directory. After successful tests they
 atomically replace only `policy/data.json` and invoke the same activation
 boundary. They never write Rego source, managed credential files, or tool-owned

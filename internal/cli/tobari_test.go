@@ -21,7 +21,9 @@ type policyReviewRuntimeFake struct {
 	state      tobari.State
 	denials    []tobari.PolicyDenial
 	rules      []tobari.LearnedPolicyRule
+	denyRules  []tobari.PolicyDenyRule
 	applyCalls int
+	denyCalls  int
 	terminal   bool
 }
 
@@ -57,12 +59,24 @@ func (f *policyReviewRuntimeFake) ClusterDenials(context.Context, tobari.State, 
 func (f *policyReviewRuntimeFake) ReadLearnedPolicyRules(context.Context, tobari.State) ([]tobari.LearnedPolicyRule, error) {
 	return append([]tobari.LearnedPolicyRule{}, f.rules...), nil
 }
+func (f *policyReviewRuntimeFake) ReadPolicyDenyRules(context.Context, tobari.State) (tobari.PolicyDenyRuleSet, error) {
+	return tobari.PolicyDenyRuleSet{
+		Baseline: []tobari.PolicyBaselineDenyRule{}, Exact: append([]tobari.PolicyDenyRule{}, f.denyRules...),
+	}, nil
+}
 func (f *policyReviewRuntimeFake) ApplyLearnedPolicyRules(
 	context.Context, tobari.State, []tobari.LearnedPolicyRule, []tobari.LearnedPolicyRule,
 ) error {
 	return nil
 }
-func (f *policyReviewRuntimeFake) ApplyPolicy(context.Context, tobari.State) error       { return nil }
+func (f *policyReviewRuntimeFake) ApplyPolicyDenyRules(
+	_ context.Context, _ tobari.State, _ []tobari.LearnedPolicyRule,
+	_ []tobari.PolicyDenyRule, updated []tobari.PolicyDenyRule,
+) error {
+	f.denyCalls++
+	f.denyRules = append([]tobari.PolicyDenyRule{}, updated...)
+	return nil
+}
 func (f *policyReviewRuntimeFake) ClusterDown(context.Context, tobari.State, bool) error { return nil }
 func (f *policyReviewRuntimeFake) Doctor(context.Context, string) (doctor.Report, error) {
 	return doctor.Report{}, nil
@@ -108,7 +122,7 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 	}
 	review, found := catalog.Lookup("policy review")
 	if !found || review.Agent.Interactive == nil ||
-		review.Agent.Interactive.ActionCommand != "policy allow" ||
+		!reflect.DeepEqual(review.Agent.Interactive.ActionCommands, []string{"policy allow", "policy deny"}) ||
 		review.Agent.Interactive.SelectionReferenceKind != tobari.PolicyCandidateKind ||
 		review.Agent.Interactive.SelectionOutputField != "id" ||
 		review.Agent.Interactive.Confirmation != "explicit_yes" ||
@@ -203,7 +217,7 @@ func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 	if runtime.applyCalls != 0 || len(runtime.rules) != 0 {
 		t.Fatalf("redirected review mutated policy: calls:%d rules:%+v", runtime.applyCalls, runtime.rules)
 	}
-	if !strings.Contains(stdout.String(), "Approve exact") {
+	if !strings.Contains(stdout.String(), "Allow exact") {
 		t.Fatalf("redirected review did not remain a review queue: %q", stdout.String())
 	}
 }
@@ -601,7 +615,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 			Learnable: true,
 		}},
 	}
-	textOutput, err := renderClusterDenials(result, "tobari policy apply", successFormatText)
+	textOutput, err := renderClusterDenials(result, "tobari policy review", successFormatText)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,13 +623,13 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		"policy: /tmp/config/tobari/policy",
 		"host=api.github.com\tport=443\tmethod=GET\tpath=/repos/cli/cli",
 		`reason=request did not match an allow rule\nallow everything`,
-		"apply_command: tobari policy apply",
+		"review_command: tobari policy review",
 	} {
 		if !strings.Contains(string(textOutput), expected) {
 			t.Fatalf("text output %q lacks %q", textOutput, expected)
 		}
 	}
-	jsonOutput, err := renderClusterDenials(result, "tobari policy apply", successFormatJSON)
+	jsonOutput, err := renderClusterDenials(result, "tobari policy review", successFormatJSON)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,7 +638,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		t.Fatal(err)
 	}
 	if document.SchemaVersion != 2 || len(document.Denials.Items) != 1 ||
-		document.Denials.ApplyCommand != "tobari policy apply" ||
+		document.Denials.ReviewCommand != "tobari policy review" ||
 		!document.Denials.Items[0].Learnable ||
 		document.Denials.Items[0].ProjectID != "01912345-6789-7abc-8def-0123456789ab" {
 		t.Fatalf("JSON output = %+v", document)
@@ -663,7 +677,7 @@ func TestClusterDenialsRendererPreservesEmptyScopedCollection(t *testing.T) {
 			Task: tobari.TaskClusterDenials, PolicyDirectory: "/tmp/config/tobari/policy",
 			WindowLines: 200, Items: []tobari.PolicyDenial{},
 		},
-		"tobari policy apply", successFormatJSON,
+		"tobari policy review", successFormatJSON,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -736,7 +750,7 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 		"Pending network permissions (1)",
 		"Scope          Current Tobari only",
 		"Request        api.example.com:443 POST /token",
-		"Approve exact  tobari policy allow --id " + id,
+		"Allow exact    tobari policy allow --id " + id,
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("review output %q lacks %q", output, expected)
@@ -744,6 +758,68 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 	}
 	if strings.Contains(output, "01912345-6789-7abc-8def-0123456789ab") || strings.Contains(output, "PolicyDirectory") {
 		t.Fatalf("review output exposed unnecessary internal detail: %q", output)
+	}
+}
+
+func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
+	t.Parallel()
+	id := "pcy_0123456789abcdef0123456789abcdef"
+	result := tobari.PolicyCandidateReport{
+		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
+		Items: []tobari.PolicyCandidate{{
+			ID: id, ObservedAt: "2026-07-30T10:41:11Z", ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+			Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
+			Reason: "request did not match an allow rule", StatusCode: 403,
+		}},
+	}
+	output, err := renderPolicyReviewWithCommands(
+		result, "tobari policy allow", "tobari policy deny", successFormatJSON, false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document policyReviewDocument
+	if err := json.Unmarshal(output, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != 2 || len(document.PolicyReview) != 1 {
+		t.Fatalf("review output = %+v", document)
+	}
+	item := document.PolicyReview[0]
+	if item.AllowCommand != "tobari policy allow --id "+id ||
+		item.DenyCommand != "tobari policy deny --id "+id {
+		t.Fatalf("review actions = %+v", item)
+	}
+	spec, found := DefaultCatalog().Lookup("policy review")
+	if !found {
+		t.Fatal("policy review is absent")
+	}
+	assertJSONItemFieldsMatchCatalog(t, output, spec)
+}
+
+func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
+	t.Parallel()
+	candidate := tobari.PolicyCandidate{
+		ID:         "pcy_0123456789abcdef0123456789abcdef",
+		ObservedAt: "2026-07-30T10:41:11Z", ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+		Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
+		Reason: "request did not match an allow rule", StatusCode: 403,
+	}
+	rule, err := tobari.NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(renderPolicyDenyChangeWithColor(tobari.PolicyDenyChange{
+		Task: tobari.TaskPolicyDeny, PolicyDirectory: "/tmp/config/tobari/policy",
+		TargetID: candidate.ID, Rule: rule, SourceRuleCount: 1, Applied: true,
+	}, false))
+	for _, expected := range []string{
+		"target_id: " + candidate.ID, "rule_id: " + rule.ID,
+		"path: /token", "source_rule_count: 1", "applied: true",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("deny output %q lacks %q", output, expected)
+		}
 	}
 }
 

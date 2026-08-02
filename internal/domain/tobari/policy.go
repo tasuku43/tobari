@@ -17,6 +17,7 @@ var (
 	requestIDPattern          = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	policyCandidateIDPattern  = regexp.MustCompile(`^pcy_[0-9a-f]{32}$`)
 	policyCompactionIDPattern = regexp.MustCompile(`^pcx_[0-9a-f]{32}$`)
+	policyDenyRuleIDPattern   = regexp.MustCompile(`^pdr_[0-9a-f]{32}$`)
 	learnedRuleIDPattern      = regexp.MustCompile(`^plr_[0-9a-f]{32}$`)
 	httpMethodPattern         = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]{0,31}$`)
 )
@@ -262,6 +263,152 @@ func (r PolicyCandidateReport) Validate() error {
 	return nil
 }
 
+// PolicyBaselineDenyRule is a trusted host-authored deny matcher. It may be
+// broader than one project or port because the host owns its policy source.
+// Baseline denies are terminal policy decisions and never become candidates.
+type PolicyBaselineDenyRule struct {
+	Host       string `json:"host"`
+	Method     string `json:"method"`
+	PathPrefix string `json:"path_prefix"`
+}
+
+func (r PolicyBaselineDenyRule) Validate() error {
+	if len(r.Host) == 0 || len(r.Host) > 253 || containsSpaceOrControl(r.Host) {
+		return fmt.Errorf("baseline deny host is invalid")
+	}
+	if !httpMethodPattern.MatchString(r.Method) {
+		return fmt.Errorf("baseline deny method is invalid")
+	}
+	if err := validatePolicyPath(r.PathPrefix); err != nil {
+		return fmt.Errorf("baseline deny path prefix is invalid")
+	}
+	return nil
+}
+
+func (r PolicyBaselineDenyRule) Matches(host, method, path string) bool {
+	return r.Host == host && r.Method == method && strings.HasPrefix(path, r.PathPrefix)
+}
+
+// PolicyDenyRule is one exact project-bound deny created by rejecting a
+// candidate. It is CLI-owned policy data and intentionally carries the same
+// dimensions as the candidate it resolves.
+type PolicyDenyRule struct {
+	ID               string   `json:"id"`
+	ProjectID        string   `json:"project_id"`
+	Host             string   `json:"host"`
+	Port             int      `json:"port"`
+	Method           string   `json:"method"`
+	Path             string   `json:"path"`
+	SourceCandidates []string `json:"source_candidates"`
+}
+
+func policyDenyRuleID(projectID, host string, port int, method, path string, sourceCandidates []string) string {
+	material := strings.Join(
+		[]string{
+			"tobari-policy-deny-v1", projectID, host, strconv.Itoa(port), method, path,
+			strings.Join(sourceCandidates, "\x1f"),
+		},
+		"\x00",
+	)
+	sum := sha256.Sum256([]byte(material))
+	return "pdr_" + hex.EncodeToString(sum[:16])
+}
+
+// NewExactPolicyDenyRule binds a rejection to one exact candidate.
+func NewExactPolicyDenyRule(candidate PolicyCandidate) (PolicyDenyRule, error) {
+	if err := candidate.Validate(); err != nil {
+		return PolicyDenyRule{}, err
+	}
+	rule := PolicyDenyRule{
+		ProjectID: candidate.ProjectID, Host: candidate.Host, Port: candidate.Port,
+		Method: candidate.Method, Path: candidate.Path,
+		SourceCandidates: []string{candidate.ID},
+	}
+	rule.ID = policyDenyRuleID(
+		rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.SourceCandidates,
+	)
+	return rule, nil
+}
+
+func (r PolicyDenyRule) Validate() error {
+	if !policyDenyRuleIDPattern.MatchString(r.ID) {
+		return fmt.Errorf("policy deny rule ID is invalid")
+	}
+	if err := ValidateProjectID(r.ProjectID); err != nil {
+		return fmt.Errorf("policy deny rule project ID is invalid")
+	}
+	if len(r.Host) == 0 || len(r.Host) > 253 || containsSpaceOrControl(r.Host) {
+		return fmt.Errorf("policy deny rule host is invalid")
+	}
+	if r.Port < 1 || r.Port > 65535 {
+		return fmt.Errorf("policy deny rule port is invalid")
+	}
+	if !httpMethodPattern.MatchString(r.Method) {
+		return fmt.Errorf("policy deny rule method is invalid")
+	}
+	if err := validatePolicyPath(r.Path); err != nil {
+		return fmt.Errorf("policy deny rule path is invalid")
+	}
+	if err := validateSortedUniqueCandidateIDs(r.SourceCandidates); err != nil {
+		return fmt.Errorf("policy deny rule sources: %w", err)
+	}
+	if len(r.SourceCandidates) != 1 {
+		return fmt.Errorf("exact policy deny rule must have one source candidate")
+	}
+	if r.ID != policyDenyRuleID(r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.SourceCandidates) {
+		return fmt.Errorf("policy deny rule ID does not bind its content")
+	}
+	return nil
+}
+
+func (r PolicyDenyRule) Matches(projectID, host string, port int, method, path string) bool {
+	return r.ProjectID == projectID && r.Host == host && r.Port == port &&
+		r.Method == method && r.Path == path
+}
+
+// PolicyDenyRuleSet is the current effective deny projection used to remove
+// both baseline and exact-denied effects from the review queue.
+type PolicyDenyRuleSet struct {
+	Baseline []PolicyBaselineDenyRule `json:"baseline"`
+	Exact    []PolicyDenyRule         `json:"exact"`
+}
+
+func (s PolicyDenyRuleSet) Validate() error {
+	if s.Baseline == nil || s.Exact == nil {
+		return fmt.Errorf("policy deny rule collections are unknown")
+	}
+	seen := make(map[string]bool, len(s.Exact))
+	for _, rule := range s.Baseline {
+		if err := rule.Validate(); err != nil {
+			return err
+		}
+	}
+	for _, rule := range s.Exact {
+		if err := rule.Validate(); err != nil {
+			return err
+		}
+		if seen[rule.ID] {
+			return fmt.Errorf("policy deny rule IDs must be unique")
+		}
+		seen[rule.ID] = true
+	}
+	return nil
+}
+
+func (s PolicyDenyRuleSet) Matches(denial PolicyDenial) bool {
+	for _, rule := range s.Baseline {
+		if rule.Matches(denial.Host, denial.Method, denial.Path) {
+			return true
+		}
+	}
+	for _, rule := range s.Exact {
+		if rule.Matches(denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) {
+			return true
+		}
+	}
+	return false
+}
+
 // LearnedPolicyRule is the only data.json member owned by policy-learning
 // commands. Examples are retained so compaction remains testable.
 type LearnedPolicyRule struct {
@@ -424,10 +571,23 @@ func (r LearnedPolicyRule) Matches(projectID, host string, port int, method, pat
 func PolicyCandidates(
 	denials []PolicyDenial, rules []LearnedPolicyRule,
 ) ([]PolicyCandidate, error) {
+	return PolicyCandidatesWithDenyRules(denials, rules, PolicyDenyRuleSet{
+		Baseline: []PolicyBaselineDenyRule{}, Exact: []PolicyDenyRule{},
+	})
+}
+
+// PolicyCandidatesWithDenyRules returns only learnable retained denials that
+// are not already covered by an allow or an effective deny rule.
+func PolicyCandidatesWithDenyRules(
+	denials []PolicyDenial, rules []LearnedPolicyRule, denyRules PolicyDenyRuleSet,
+) ([]PolicyCandidate, error) {
 	if denials == nil {
 		return nil, fmt.Errorf("denial collection is unknown")
 	}
 	if err := ValidateLearnedPolicyRules(rules); err != nil {
+		return nil, err
+	}
+	if err := denyRules.Validate(); err != nil {
 		return nil, err
 	}
 	covered := func(denial PolicyDenial) bool {
@@ -446,7 +606,7 @@ func PolicyCandidates(
 			return nil, err
 		}
 		key := denial.ProjectID + "\x00" + denial.Host + "\x00" + denial.Method + "\x00" + denial.Path
-		if !denial.Learnable || seenEffect[key] || covered(denial) {
+		if !denial.Learnable || seenEffect[key] || covered(denial) || denyRules.Matches(denial) {
 			continue
 		}
 		seenEffect[key] = true
@@ -760,22 +920,31 @@ func (c PolicyLearningChange) Validate() error {
 	return nil
 }
 
-// PolicyActivation is the confirmed result of testing and activating the
-// current trusted-host policy.
-type PolicyActivation struct {
-	Task            string `json:"task"`
-	PolicyDirectory string `json:"policy"`
-	Applied         bool   `json:"applied"`
+// PolicyDenyChange is the confirmed result of rejecting one exact candidate.
+type PolicyDenyChange struct {
+	Task            string         `json:"task"`
+	PolicyDirectory string         `json:"policy"`
+	TargetID        string         `json:"target_id"`
+	Rule            PolicyDenyRule `json:"rule"`
+	SourceRuleCount int            `json:"source_rule_count"`
+	Applied         bool           `json:"applied"`
 }
 
-// Validate prevents a partial or task-mismatched activation from being
-// presented as success.
-func (a PolicyActivation) Validate() error {
-	if a.Task != TaskPolicyApply || !a.Applied {
-		return fmt.Errorf("policy activation result is incomplete")
+func (c PolicyDenyChange) Validate() error {
+	if c.Task != TaskPolicyDeny {
+		return fmt.Errorf("policy deny result task identity is invalid")
 	}
-	if !filepath.IsAbs(a.PolicyDirectory) || filepath.Clean(a.PolicyDirectory) != a.PolicyDirectory {
-		return fmt.Errorf("policy activation directory is invalid")
+	if err := ValidatePolicyCandidateID(c.TargetID); err != nil {
+		return err
+	}
+	if c.SourceRuleCount != 1 || !c.Applied {
+		return fmt.Errorf("policy deny result is inconsistent")
+	}
+	if !filepath.IsAbs(c.PolicyDirectory) || filepath.Clean(c.PolicyDirectory) != c.PolicyDirectory {
+		return fmt.Errorf("policy deny directory is invalid")
+	}
+	if err := c.Rule.Validate(); err != nil {
+		return err
 	}
 	return nil
 }

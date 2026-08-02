@@ -79,15 +79,17 @@ rules exist. The transcript must prove:
   state; detached `tobari delete` removes it, while `tobari delete --force`
   explicitly overrides an attached-session warning.
 - A denied request produces bounded typed secret-free host/method/path
-  evidence, the host policy path, and the exact activation command.
+  evidence, the host policy path, and the exact review command. Baseline
+  terminal denies remain audit evidence without inviting approval.
 - Candidate discovery deduplicates pending effects and emits opaque references
   without changing authority; orthogonal scheme, project-principal, or
   managed-credential failures remain diagnostics and do not become ineffective
   candidates.
 - `PCY_ID` denotes one exact value emitted by `policy review` or `policy
-  candidates`; the transcript passes it unchanged to `policy allow`. The
-  action tests the complete policy, records only an exact rule, and activates
-  it without restarting a Tobari.
+  candidates`; the transcript passes it unchanged to either `policy allow` or
+  `policy deny`. Allow tests the complete policy and records one exact learned
+  rule; deny records one exact project-bound terminal rule. Both activate
+  without restarting a Tobari.
 - Cleanup verifies exact owner and opaque-ID labels.
 
 ## Policy-learning scenario
@@ -95,16 +97,20 @@ rules exist. The transcript must prove:
 The Docker integration test supplies the executable loop:
 
 1. A mock-host GET is allowed.
-2. A mock-host POST under `/denied` receives `403` and never reaches upstream.
-3. `cluster denials` exposes the rejected dimensions, trusted XDG policy path,
-   and exact apply command without a body or credential canary.
-4. `policy review`, `policy candidates`, and `policy tail` expose one pending
-   exact proposal and its opaque reference. The TTY review path lets a user
-   select, inspect, explicitly confirm one exact allow, and refresh without
-   OPA or Rego editing; redirected review does not mutate policy.
+2. A mock-host POST under `/denied` receives `403`, never reaches upstream, and
+   is reported as a terminal baseline denial rather than a queue candidate.
+3. Two learnable mock-host PUT denials receive `403` and expose fixed review
+   navigation without a body or credential canary.
+4. `cluster denials` exposes the rejected dimensions, trusted XDG policy path,
+   and exact review command. `policy review`, `policy candidates`, and
+   `policy tail` expose the same pending exact proposals and opaque references;
+   redirected review does not mutate policy.
 5. `policy allow` tests a private complete policy copy, atomically stores the
-   exact learned rule, recreates only OPA, and confirms it healthy.
-6. The exact retry succeeds while a child path remains denied.
+   exact learned rule, recreates only OPA, and confirms it healthy. The exact
+   retry succeeds while a child path remains denied.
+6. `policy deny` records and activates one exact project-bound terminal rule;
+   the rejected request remains denied and its historical lines disappear from
+   the actionable review queue.
 7. Three separately denied and approved sibling paths produce one current
    `policy compactions` proposal.
 8. `policy compact` retains the examples, activates the bounded prefix, permits

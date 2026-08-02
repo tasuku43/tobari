@@ -140,7 +140,6 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 	for _, required := range []string{
 		"doctor", "help", "version",
 		"cluster up", "cluster status", "cluster denials", "cluster logs", "cluster down",
-		"policy apply",
 		"tobari", "status", "list", "delete",
 	} {
 		if !seen[required] {
@@ -159,7 +158,6 @@ func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 		"cluster denials": CollectionCoverageBoundedWindow,
 		"cluster logs":    CollectionCoverageBoundedWindow,
 		"cluster down":    CollectionCoverageNotApplicable,
-		"policy apply":    CollectionCoverageNotApplicable,
 		"tobari":          CollectionCoverageNotApplicable,
 		"status":          CollectionCoverageNotApplicable,
 		"list":            CollectionCoverageExhaustive,

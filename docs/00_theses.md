@@ -37,11 +37,10 @@ observe a denied boundary effect as secret-free evidence, receive a fixed
 host-side review cue, review the pending exact permission, approve the minimum
 rule, and retry. The normal path does not require writing OPA or Rego by hand:
 interactive `policy review` presents a Permission Inbox and delegates one
-explicitly confirmed candidate to the existing `policy allow` action; its
-non-interactive and machine-readable path remains read-only. OPA watches the read-only host policy bind where
-Docker-host filesystem events propagate; `policy apply` remains the
-deterministic portable activation path for an explicitly edited policy and does
-not restart active Tobari. A useful denial shortens that loop without silently
+explicitly confirmed candidate to `policy allow` or `policy deny`; its
+non-interactive and machine-readable path remains read-only. Exact actions
+test and activate their private policy copy without restarting active Tobari.
+A useful denial shortens that loop without silently
 expanding authority. The loop is part of the product's adoption boundary: if
 the safe path is harder than running the agent on the host, users will bypass
 the isolation that the boundary is meant to provide.
@@ -381,26 +380,28 @@ administration project.
   stderr. Neither notification can mutate policy or trigger a retry.
 - Interactive `policy review` is the ordinary human Permission Inbox over the
   retained queue: selection, detail inspection, and explicit confirmation can
-  delegate exactly one opaque candidate to `policy allow`. Redirected and
+  delegate exactly one opaque candidate to `policy allow` or `policy deny`.
+  Redirected and
   machine-readable `policy review` remains read-only. `policy candidates`
   remains the machine discovery surface, and `policy tail` remains a
   compatibility projection. All three turn only learnable retained denials
   into unique exact host/port/method/path proposals with stable opaque IDs.
 - `tobari cluster denials` remains the lower-level diagnostic step: it projects
   validated denial records, reports the editable host-side policy directory,
-  and exposes advanced activation details. Raw component logs remain
-  available.
-- `policy allow --id` is the explicit trusted-host action that consumes one
-  candidate ID unchanged, preflights and atomically records one exact learned
-  rule, then activates it through the same portable OPA boundary.
+  and points to the Permission Inbox. Raw component logs remain available.
+- `policy allow --id` and `policy deny --id` are the explicit trusted-host
+  actions that consume one candidate ID unchanged. Allow preflights and
+  atomically records one exact learned rule; deny records one exact
+  project-bound terminal rule. Both activate through the same portable OPA
+  boundary, and an exact deny wins over a learned allow for the same request.
 - Repeated exact learned rules may produce a `policy compactions` proposal only
   for a fixed host, port, and method beneath a sufficiently specific path prefix.
   `policy compact --id` is a separate explicit action whose positive examples
   and boundary canaries must pass before the source rules are replaced.
-- OPA watches the policy directory mounted read-only from XDG; `policy apply`
-  tests the same directory, recreates only exact owned OPA, and waits for
-  health when Docker-host filesystem events are unavailable. The trusted host
-  remains the only policy writer.
+- OPA watches the policy directory mounted read-only from XDG. Exact allow,
+  deny, and compaction actions test a private complete policy copy, atomically
+  update CLI-owned data, and activate only the exact owned OPA component. The
+  trusted host remains the only policy writer.
 - Audit evidence never includes credential values, cookies, raw bodies, or raw
   response data.
 - Tobari never changes permission from observation alone. Every learned rule or
@@ -415,10 +416,10 @@ administration project.
   canaries.
 - Integration tests deny a known request, retrieve its typed audit record
   through the CLI, assert the structured agent navigation and host-only session
-  summary, review the exact candidate through the human queue, approve it,
-  exercise the allowed rule, compact repeated exact rules, and retain a denied
-  boundary without restarting any Tobari.
-- README makes the observe-review-approve-retry loop the primary operating
+  summary, review exact candidates through the human queue, allow one and deny
+  one, exercise the allowed rule, compact repeated exact rules, and retain a
+  denied boundary without restarting any Tobari.
+- README makes the observe-review-decide-retry loop the primary operating
   workflow, keeps routine permission growth free of hand-authored OPA/Rego,
   and keeps tested host editing as the advanced escape hatch.
 

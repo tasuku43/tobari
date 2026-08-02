@@ -21,13 +21,16 @@ const (
 	maxPolicyPreflight    = 4 * 1024 * 1024
 	maxPolicyFiles        = 128
 	learnedPolicyDataName = "learned_allow_rules"
+	learnedDenyDataName   = "learned_deny_rules"
 )
 
 type policyDataFile struct {
-	document map[string]json.RawMessage
-	tobari   map[string]json.RawMessage
-	rules    []tobari.LearnedPolicyRule
-	source   []byte
+	document          map[string]json.RawMessage
+	tobari            map[string]json.RawMessage
+	rules             []tobari.LearnedPolicyRule
+	baselineDenyRules []tobari.PolicyBaselineDenyRule
+	denyRules         []tobari.PolicyDenyRule
+	source            []byte
 }
 
 func validateNoDuplicateJSONKeys(data []byte) error {
@@ -175,18 +178,55 @@ func readPolicyData(policyDirectory string) (policyDataFile, error) {
 		return policyDataFile{}, fmt.Errorf("validate %s: %w", learnedPolicyDataName, err)
 	}
 	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
+	baselineDenyRules := []tobari.PolicyBaselineDenyRule{}
+	if rawDenyRules, exists := tobariData["deny_rules"]; exists {
+		if bytes.Equal(bytes.TrimSpace(rawDenyRules), []byte("null")) {
+			return policyDataFile{}, fmt.Errorf("deny_rules must be an array")
+		}
+		if err := json.Unmarshal(rawDenyRules, &baselineDenyRules); err != nil {
+			return policyDataFile{}, fmt.Errorf("decode deny_rules: %w", err)
+		}
+	}
+	for _, rule := range baselineDenyRules {
+		if err := rule.Validate(); err != nil {
+			return policyDataFile{}, fmt.Errorf("validate deny_rules: %w", err)
+		}
+	}
+	denyRules := []tobari.PolicyDenyRule{}
+	if rawDenyRules, exists := tobariData[learnedDenyDataName]; exists {
+		if bytes.Equal(bytes.TrimSpace(rawDenyRules), []byte("null")) {
+			return policyDataFile{}, fmt.Errorf("%s must be an array", learnedDenyDataName)
+		}
+		if err := json.Unmarshal(rawDenyRules, &denyRules); err != nil {
+			return policyDataFile{}, fmt.Errorf("decode %s: %w", learnedDenyDataName, err)
+		}
+	}
+	denyRuleSet := tobari.PolicyDenyRuleSet{Baseline: baselineDenyRules, Exact: denyRules}
+	if err := denyRuleSet.Validate(); err != nil {
+		return policyDataFile{}, fmt.Errorf("validate %s: %w", learnedDenyDataName, err)
+	}
+	sort.Slice(denyRules, func(i, j int) bool { return denyRules[i].ID < denyRules[j].ID })
 	return policyDataFile{
 		document: document, tobari: tobariData, rules: rules,
+		baselineDenyRules: baselineDenyRules, denyRules: denyRules,
 		source: append([]byte{}, data...),
 	}, nil
 }
 
-func (f policyDataFile) withRules(rules []tobari.LearnedPolicyRule) ([]byte, error) {
+func (f policyDataFile) withPolicyRules(
+	rules []tobari.LearnedPolicyRule, denyRules []tobari.PolicyDenyRule,
+) ([]byte, error) {
 	if err := tobari.ValidateLearnedPolicyRules(rules); err != nil {
+		return nil, err
+	}
+	denyRuleSet := tobari.PolicyDenyRuleSet{Baseline: f.baselineDenyRules, Exact: denyRules}
+	if err := denyRuleSet.Validate(); err != nil {
 		return nil, err
 	}
 	rules = append([]tobari.LearnedPolicyRule{}, rules...)
 	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
+	denyRules = append([]tobari.PolicyDenyRule{}, denyRules...)
+	sort.Slice(denyRules, func(i, j int) bool { return denyRules[i].ID < denyRules[j].ID })
 	rawRules, err := json.Marshal(rules)
 	if err != nil {
 		return nil, err
@@ -196,6 +236,11 @@ func (f policyDataFile) withRules(rules []tobari.LearnedPolicyRule) ([]byte, err
 		tobariData[key] = append(json.RawMessage{}, value...)
 	}
 	tobariData[learnedPolicyDataName] = rawRules
+	rawDenyRules, err := json.Marshal(denyRules)
+	if err != nil {
+		return nil, err
+	}
+	tobariData[learnedDenyDataName] = rawDenyRules
 	rawTobari, err := json.Marshal(tobariData)
 	if err != nil {
 		return nil, err
@@ -210,6 +255,14 @@ func (f policyDataFile) withRules(rules []tobari.LearnedPolicyRule) ([]byte, err
 		return nil, err
 	}
 	return append(output, '\n'), nil
+}
+
+func (f policyDataFile) withRules(rules []tobari.LearnedPolicyRule) ([]byte, error) {
+	return f.withPolicyRules(rules, f.denyRules)
+}
+
+func (f policyDataFile) withDenyRules(denyRules []tobari.PolicyDenyRule) ([]byte, error) {
+	return f.withPolicyRules(f.rules, denyRules)
 }
 
 // ReadLearnedPolicyRules returns the validated CLI-owned rule collection while
@@ -228,6 +281,28 @@ func (r *Runtime) ReadLearnedPolicyRules(
 		return nil, err
 	}
 	return append([]tobari.LearnedPolicyRule{}, file.rules...), nil
+}
+
+// ReadPolicyDenyRules returns both trusted host-authored baseline deny
+// matchers and the validated CLI-owned exact deny collection.
+func (r *Runtime) ReadPolicyDenyRules(
+	ctx context.Context, state tobari.State,
+) (tobari.PolicyDenyRuleSet, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.PolicyDenyRuleSet{}, err
+	}
+	if err := state.Validate(); err != nil {
+		return tobari.PolicyDenyRuleSet{}, err
+	}
+	file, err := readPolicyData(state.PolicyDirectory)
+	if err != nil {
+		return tobari.PolicyDenyRuleSet{}, err
+	}
+	result := tobari.PolicyDenyRuleSet{
+		Baseline: append([]tobari.PolicyBaselineDenyRule{}, file.baselineDenyRules...),
+		Exact:    append([]tobari.PolicyDenyRule{}, file.denyRules...),
+	}
+	return result, result.Validate()
 }
 
 func copyPolicyForPreflight(sourceDirectory string, dataJSON []byte) (string, error) {
@@ -338,16 +413,39 @@ func (r *Runtime) ApplyLearnedPolicyRules(
 	ctx context.Context, state tobari.State,
 	expected, updated []tobari.LearnedPolicyRule,
 ) error {
+	return r.applyPolicyData(ctx, state, expected, updated, nil, nil, false)
+}
+
+// ApplyPolicyDenyRules tests and atomically activates one complete policy data
+// update while requiring the exact-deny snapshot used by discovery to remain
+// unchanged.
+func (r *Runtime) ApplyPolicyDenyRules(
+	ctx context.Context, state tobari.State,
+	expectedAllows []tobari.LearnedPolicyRule,
+	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
+) error {
+	return r.applyPolicyData(ctx, state, expectedAllows, nil, expectedDenies, updatedDenies, true)
+}
+
+func (r *Runtime) applyPolicyData(
+	ctx context.Context, state tobari.State,
+	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
+	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
+	checkDenySnapshot bool,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := state.Validate(); err != nil {
 		return err
 	}
-	if err := tobari.ValidateLearnedPolicyRules(expected); err != nil {
+	if err := tobari.ValidateLearnedPolicyRules(expectedAllows); err != nil {
 		return err
 	}
-	if err := tobari.ValidateLearnedPolicyRules(updated); err != nil {
+	if updatedAllows == nil {
+		updatedAllows = expectedAllows
+	}
+	if err := tobari.ValidateLearnedPolicyRules(updatedAllows); err != nil {
 		return err
 	}
 	file, err := readPolicyData(state.PolicyDirectory)
@@ -357,19 +455,46 @@ func (r *Runtime) ApplyLearnedPolicyRules(
 			"host policy data is not safe for managed learning", false, err,
 		)
 	}
-	expected = append([]tobari.LearnedPolicyRule{}, expected...)
-	sort.Slice(expected, func(i, j int) bool { return expected[i].ID < expected[j].ID })
-	if !reflect.DeepEqual(file.rules, expected) {
+	expectedAllows = append([]tobari.LearnedPolicyRule{}, expectedAllows...)
+	sort.Slice(expectedAllows, func(i, j int) bool { return expectedAllows[i].ID < expectedAllows[j].ID })
+	if !reflect.DeepEqual(file.rules, expectedAllows) {
 		return fault.New(
 			fault.KindRejected, "policy_data_changed",
 			"learned policy rules changed after discovery", false,
 		)
 	}
-	data, err := file.withRules(updated)
+	if !checkDenySnapshot {
+		expectedDenies = append([]tobari.PolicyDenyRule{}, file.denyRules...)
+		updatedDenies = append([]tobari.PolicyDenyRule{}, file.denyRules...)
+	}
+	denyExpected := tobari.PolicyDenyRuleSet{
+		Baseline: file.baselineDenyRules, Exact: expectedDenies,
+	}
+	denyUpdated := tobari.PolicyDenyRuleSet{
+		Baseline: file.baselineDenyRules, Exact: updatedDenies,
+	}
+	if err := denyExpected.Validate(); err != nil {
+		return fault.Wrap(fault.KindRejected, "policy_data_invalid", "host policy deny data is invalid", false, err)
+	}
+	if !reflect.DeepEqual(file.denyRules, expectedDenies) {
+		return fault.New(
+			fault.KindRejected, "policy_data_changed",
+			"policy deny rules changed after discovery", false,
+		)
+	}
+	if err := denyUpdated.Validate(); err != nil {
+		return fault.Wrap(fault.KindContract, "invalid_policy_deny", "exact policy deny update is invalid", false, err)
+	}
+	data, err := file.withPolicyRules(updatedAllows, updatedDenies)
 	if err != nil {
+		code := "invalid_learned_policy"
+		message := "learned policy update is invalid"
+		if checkDenySnapshot {
+			code = "invalid_policy_deny"
+			message = "exact policy deny update is invalid"
+		}
 		return fault.Wrap(
-			fault.KindContract, "invalid_learned_policy",
-			"learned policy update is invalid", false, err,
+			fault.KindContract, code, message, false, err,
 		)
 	}
 	preflight, err := copyPolicyForPreflight(state.PolicyDirectory, data)

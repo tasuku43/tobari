@@ -490,15 +490,36 @@ deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
 [[ $deny_status == 403 ]] || fail "denied method/path returned $deny_status instead of 403"
 deny_body=$(run_project curl -sS -X POST http://mock-upstream:8080/denied)
 assert_contains "$deny_body" '"error":"policy_denied"' "agent denial response"
-assert_contains "$deny_body" '"event":"permission_review_available"' "agent denial response"
-assert_contains "$deny_body" '"command":"tobari policy review"' "agent denial response"
+assert_contains "$deny_body" '"event":"permission_review_unavailable"' "baseline denial response"
+assert_contains "$deny_body" '"available":false' "baseline denial response"
+assert_contains "$deny_body" '"command":null' "baseline denial response"
 assert_contains "$deny_body" '"automatic_retry":false' "agent denial response"
+assert_contains "$deny_body" '"retry_after_review":false' "baseline denial response"
 assert_contains "$deny_body" '"path":"/denied"' "agent denial response"
 if [[ $deny_body == *"$tool_auth_value"* || $deny_body == *'Bearer '* || $deny_body == *'"key"'* ]]; then
   fail "agent denial response contains a credential or request secret"
 fi
 if docker logs "$mock_name" 2>&1 | grep -F '"/denied"' >/dev/null; then
   fail "denied request reached mock upstream"
+fi
+
+review_allow_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/review-allow)
+[[ $review_allow_status == 403 ]] || fail "review allow candidate returned $review_allow_status instead of 403"
+review_deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/review-deny)
+[[ $review_deny_status == 403 ]] || fail "review deny candidate returned $review_deny_status instead of 403"
+review_allow_body=$(run_project curl -sS -X PUT http://mock-upstream:8080/review-allow)
+assert_contains "$review_allow_body" '"event":"permission_review_available"' "learnable denial response"
+assert_contains "$review_allow_body" '"command":"tobari policy review"' "learnable denial response"
+assert_contains "$review_allow_body" '"automatic_retry":false' "learnable denial response"
+assert_contains "$review_allow_body" '"retry_after_review":true' "learnable denial response"
+review_deny_body=$(run_project curl -sS -X PUT http://mock-upstream:8080/review-deny)
+assert_contains "$review_deny_body" '"event":"permission_review_available"' "learnable denial response"
+assert_contains "$review_deny_body" '"command":"tobari policy review"' "learnable denial response"
+if [[ $review_allow_body == *"$tool_auth_value"* || $review_allow_body == *'Bearer '* || \
+  $review_deny_body == *"$tool_auth_value"* || $review_deny_body == *'Bearer '* ]]; then
+  fail "learnable denial response contains a credential value"
 fi
 
 gateway_logs=$(run_tobari cluster logs --component gateway --tail 500)
@@ -517,89 +538,154 @@ assert_contains "$denials_json" "\"project_id\":\"$work_id\"" "focused denial ev
 assert_contains "$denials_json" '"method":"POST"' "focused denial evidence"
 assert_contains "$denials_json" '"path":"/denied"' "focused denial evidence"
 assert_contains "$denials_json" '"learnable":true' "focused denial evidence"
-assert_contains "$denials_json" '"apply_command":"tobari policy apply"' "focused denial recovery"
+assert_contains "$denials_json" '"review_command":"tobari policy review"' "focused denial recovery"
 if [[ $denials_json == *"$tool_auth_value"* || $denials_json == *'Bearer '* ]]; then
   fail "focused denial evidence contains a credential value"
 fi
 
 candidates_json=$(run_tobari policy candidates --tail 500 --format json)
-deny_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream POST /denied <<<"$candidates_json")
-[[ $deny_candidate_id == pcy_* ]] || fail "policy candidates did not emit an opaque candidate ID"
+if python3 -c 'import json,sys; sys.exit(0 if not any(item["path"] == "/denied" for item in json.load(sys.stdin)["policy_candidates"]) else 1)' <<<"$candidates_json"; then
+  :
+else
+  fail "baseline explicit deny remained in the actionable policy queue"
+fi
+allow_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-allow <<<"$candidates_json")
+deny_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-deny <<<"$candidates_json")
+[[ $allow_candidate_id == pcy_* && $deny_candidate_id == pcy_* ]] || fail "policy candidates did not emit opaque candidate IDs"
 assert_contains "$candidates_json" \
-  "\"allow_command\":\"tobari policy allow --id $deny_candidate_id\"" \
-  "policy candidate exact action"
+	"\"allow_command\":\"tobari policy allow --id $allow_candidate_id\"" \
+	"policy candidate exact action"
+assert_contains "$candidates_json" \
+	"\"deny_command\":\"tobari policy deny --id $deny_candidate_id\"" \
+	"policy candidate exact rejection"
 tail_output=$(run_tobari policy tail --tail 500)
 assert_contains "$tail_output" \
-  "allow_command=tobari policy allow --id $deny_candidate_id" \
-  "human policy tail"
+	"allow_command=tobari policy allow --id $allow_candidate_id" \
+	"human policy tail"
 review_output=$(run_tobari policy review --tail 500)
 assert_contains "$review_output" \
-  "Approve exact  tobari policy allow --id $deny_candidate_id" \
-  "human policy review"
+	"Allow exact    tobari policy allow --id $allow_candidate_id" \
+	"human policy review"
+assert_contains "$review_output" \
+	"Deny exact     tobari policy deny --id $deny_candidate_id" \
+	"human policy review"
+review_json=$(run_tobari policy review --tail 500 --format json)
+assert_contains "$review_json" \
+	"\"allow_command\":\"tobari policy allow --id $allow_candidate_id\"" \
+	"machine policy review"
+assert_contains "$review_json" \
+	"\"deny_command\":\"tobari policy deny --id $deny_candidate_id\"" \
+	"machine policy review"
 
-allow_output=$(run_tobari policy allow --id "$deny_candidate_id")
-assert_contains "$allow_output" "policy: $config_directory/policy" "exact policy approval"
+allow_output=$(run_tobari policy allow --id "$allow_candidate_id")
+assert_contains "$allow_output" "policy: $policy_directory" "exact policy approval"
 assert_contains "$allow_output" 'match: exact' "exact policy approval"
-assert_contains "$allow_output" 'path: /denied' "exact policy approval"
+assert_contains "$allow_output" 'path: /review-allow' "exact policy approval"
 assert_contains "$allow_output" 'applied: true' "exact policy approval"
 
 applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST http://mock-upstream:8080/denied)
+  -X PUT http://mock-upstream:8080/review-allow)
 [[ $applied_status == 200 ]] || fail "exact learned policy was not active after policy allow"
 other_learned_status=$(run_other_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST http://mock-upstream:8080/denied)
+  -X PUT http://mock-upstream:8080/review-allow)
 [[ $other_learned_status == 403 ]] ||
   fail "learned policy crossed the project boundary with status $other_learned_status"
 child_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST http://mock-upstream:8080/denied/child)
+  -X PUT http://mock-upstream:8080/review-allow/child)
 [[ $child_status == 403 ]] || fail "exact learned policy broadened to a child path"
+
+deny_output=$(run_tobari policy deny --id "$deny_candidate_id")
+assert_contains "$deny_output" "policy: $policy_directory" "exact policy rejection"
+assert_contains "$deny_output" 'path: /review-deny' "exact policy rejection"
+assert_contains "$deny_output" 'applied: true' "exact policy rejection"
+rejected_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/review-deny)
+[[ $rejected_status == 403 ]] || fail "exact policy rejection changed the denied request to $rejected_status"
+review_after_deny=$(run_tobari policy review --tail 1000 --format json)
+if [[ $review_after_deny == *"$deny_candidate_id"* ]]; then
+  fail "denied candidate remained in the review queue"
+fi
+
+reject_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/rejected)
+[[ $reject_status == 403 ]] || fail "rejection candidate request returned $reject_status instead of 403"
+reject_candidates_json=$(run_tobari policy review --tail 1000 --format json)
+reject_candidate_id=$(python3 -c \
+  'import json,sys
+print(next(item["id"] for item in json.load(sys.stdin)["policy_review"]
+           if item["project_id"] == sys.argv[1] and item["host"] == "mock-upstream" and item["method"] == "PUT" and item["path"] == "/rejected"))' \
+  "$work_id" <<<"$reject_candidates_json")
+[[ $reject_candidate_id == pcy_* ]] || fail "policy review JSON did not emit the rejection candidate"
+assert_contains "$reject_candidates_json" \
+  "\"deny_command\":\"tobari policy deny --id $reject_candidate_id\"" \
+  "policy review JSON rejection action"
+deny_output=$(run_tobari policy deny --id "$reject_candidate_id")
+assert_contains "$deny_output" 'applied: true' "exact policy rejection"
+rejected_after_deny=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/rejected)
+[[ $rejected_after_deny == 403 ]] || fail "exact policy rejection changed the denied request to $rejected_after_deny"
+remaining_review=$(run_tobari policy review --tail 1000 --format json)
+if [[ $remaining_review == *"$reject_candidate_id"* ]]; then
+  fail "denied candidate remained in the review queue"
+fi
+
+interactive_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/review-interactive)
+[[ $interactive_status == 403 ]] || fail "interactive review candidate returned $interactive_status instead of 403"
+interactive_output=$({ printf '3dy'; sleep 1; } | run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1)
+assert_contains "$interactive_output" 'Permission denied' "interactive policy review"
+interactive_review=$(run_tobari policy review --tail 1000 --format json)
+if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/review-interactive" for item in json.load(sys.stdin)["policy_review"]) else 1)' <<<"$interactive_review"; then
+  fail "interactive deny did not remove the candidate from the review queue"
+fi
 
 for item_path in one two three; do
   item_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST "http://mock-upstream:8080/api/v1/items/$item_path")
+    -X PUT "http://mock-upstream:8080/review/items/$item_path")
   [[ $item_status == 403 ]] || fail "compaction source $item_path was not initially denied"
 done
 
 for item_path in one two three; do
   candidates_json=$(run_tobari policy candidates --tail 1000 --format json)
   item_candidate_id=$(candidate_id_for_effect \
-    "$work_id" mock-upstream POST "/api/v1/items/$item_path" <<<"$candidates_json")
+    "$work_id" mock-upstream PUT "/review/items/$item_path" <<<"$candidates_json")
   item_allow_output=$(run_tobari policy allow --id "$item_candidate_id")
-  assert_contains "$item_allow_output" "path: /api/v1/items/$item_path" \
+  assert_contains "$item_allow_output" "path: /review/items/$item_path" \
     "exact compaction source approval"
 done
 
 for item_path in one two three; do
   item_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST "http://mock-upstream:8080/api/v1/items/$item_path")
+    -X PUT "http://mock-upstream:8080/review/items/$item_path")
   [[ $item_status == 200 ]] || fail "exact source rule $item_path was not active"
 done
 
 compactions_json=$(run_tobari policy compactions --format json)
 compaction_id=$(compaction_id_for_prefix \
-  "$work_id" mock-upstream POST /api/v1/items/ <<<"$compactions_json")
+  "$work_id" mock-upstream PUT /review/items/ <<<"$compactions_json")
 [[ $compaction_id == pcx_* ]] || fail "policy compactions did not emit an opaque compaction ID"
 assert_contains "$compactions_json" '"source_rule_count":3' "compaction evidence"
 assert_contains "$compactions_json" \
-  '"outside_canary":"/api/v1/items-outside-tobari-canary"' \
+  '"outside_canary":"/review/items-outside-tobari-canary"' \
   "compaction boundary"
 
 compact_output=$(run_tobari policy compact --id "$compaction_id")
 assert_contains "$compact_output" 'match: prefix' "policy compaction"
-assert_contains "$compact_output" 'path: /api/v1/items/' "policy compaction"
+assert_contains "$compact_output" 'path: /review/items/' "policy compaction"
 assert_contains "$compact_output" 'source_rule_count: 3' "policy compaction"
 assert_contains "$compact_output" 'applied: true' "policy compaction"
 
 compacted_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST http://mock-upstream:8080/api/v1/items/four)
+  -X PUT http://mock-upstream:8080/review/items/four)
 [[ $compacted_status == 200 ]] || fail "compacted prefix did not allow a sibling path"
 outside_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST http://mock-upstream:8080/api/v1/items-outside-tobari-canary)
+  -X PUT http://mock-upstream:8080/review/items-outside-tobari-canary)
 [[ $outside_status == 403 ]] || fail "compacted prefix crossed its tested directory boundary"
 
-apply_output=$(run_tobari policy apply)
-assert_contains "$apply_output" "policy: $config_directory/policy" "policy activation"
-assert_contains "$apply_output" 'applied: true' "policy activation"
+policy_help=$(run_tobari help policy)
+if [[ $policy_help == *"policy apply"* ]]; then
+  fail "retired policy apply command remains in public policy help"
+fi
 
 https_status=$(run_project curl -fsS -o /dev/null -w '%{http_code}' https://example.com/)
 [[ $https_status == 200 ]] || fail "intercepted HTTPS returned $https_status instead of 200"

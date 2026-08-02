@@ -17,6 +17,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		policyReviewSpec(),
 		policyTailSpec(),
 		policyAllowSpec(),
+		policyDenySpec(),
 		policyCompactionsSpec(),
 		policyCompactSpec(),
 		policyApplySpec(),
@@ -214,7 +215,7 @@ func clusterDenialsSpec() CommandSpec {
 		Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Identify recent denied HTTP effects, the host policy directory, and the exact activation command",
+			Outcome:      "Identify recent denied HTTP effects and the pending permission review command",
 			Inputs: []CommandInput{
 				denialTailInput(),
 				formatInput(),
@@ -228,7 +229,7 @@ func clusterDenialsSpec() CommandSpec {
 						Name: "items", Type: OutputFieldTypeArray,
 						Description: "Validated denials ordered oldest to newest with host-issued project principal, scheme-independent request authority (host and port), method, path, reason, status, and exact-rule learnability.",
 					},
-					{Name: "apply_command", Type: OutputFieldTypeString, Description: "Exact command that tests and activates the edited policy."},
+					{Name: "review_command", Type: OutputFieldTypeString, Description: "Exact command that opens the pending permission review queue."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
 				JSONEnvelope: "denials", JSONSchemaVersion: 2,
@@ -279,44 +280,6 @@ func clusterLogsSpec() CommandSpec {
 	}
 }
 
-func policyApplySpec() CommandSpec {
-	return CommandSpec{
-		Path: "policy apply", Summary: "Test and activate host policy",
-		Effect: operation.EffectWrite, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID: "policy.learning",
-			Outcome:      "Test the current host XDG policy and activate it in the exact shared OPA component",
-			Inputs:       []CommandInput{},
-			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
-				Fields: []OutputField{
-					{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host policy directory that was tested."},
-					{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Whether the tested policy is active in a healthy OPA."},
-				},
-				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-			},
-			Prerequisites: []string{"The cluster has been created.", "Policy edits have been made on the trusted host."},
-			FixedTarget:   fixedClusterTarget(),
-			Errors: mutationCommandErrors("policy apply", "cluster status",
-				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
-				declaredCommandError(fault.KindRejected, "policy_test_failed", false, "doctor", "Correct the policy or ensure its XDG directory is accessible to the Docker Engine before activation."),
-				declaredCommandError(fault.KindUnavailable, "policy_apply_failed", false, "cluster status", "Reconcile OPA health before another activation."),
-				declaredCommandError(fault.KindContract, "invalid_policy_activation", false, "cluster status", "Reconcile the confirmed activation."),
-				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
-			Mutation: &MutationContract{
-				TargetKind: tobari.ClusterTargetKind, TargetInputs: []string{},
-				Impact: operation.Impact{
-					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
-					AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
-				},
-			},
-		},
-		handler: runPolicyApply,
-	}
-}
-
 func policyCandidatesSpec() CommandSpec {
 	return CommandSpec{
 		Path: "policy candidates", Summary: "Discover exact rules from denials",
@@ -363,20 +326,22 @@ func policyTailSpec() CommandSpec {
 func policyReviewSpec() CommandSpec {
 	return CommandSpec{
 		Path: "policy review", Summary: "Review pending network permissions",
-		Args: "[--tail <lines>]", Effect: operation.EffectRead, Role: RoleDiscover,
+		Args: "[--tail <lines>] [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Review pending exact network permissions and, in an interactive terminal, approve one exact permission through policy allow",
-			Inputs:       []CommandInput{reviewTailInput()},
+			Outcome:      "Review the bounded pending exact network-permission queue; an interactive terminal can explicitly allow or deny one exact permission",
+			Inputs:       []CommandInput{reviewTailInput(), formatInput()},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
+				JSONEnvelope: "policy_review", JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy review", true),
 			Interactive: &InteractiveWorkflowContract{
 				ActionCommand:          "policy allow",
+				ActionCommands:         []string{"policy allow", "policy deny"},
 				SelectionReferenceKind: tobari.PolicyCandidateKind,
 				SelectionOutputField:   "id",
 				Confirmation:           "explicit_yes",
@@ -425,6 +390,47 @@ func policyAllowSpec() CommandSpec {
 			},
 		},
 		handler: runPolicyAllow,
+	}
+}
+
+func policyDenySpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy deny", Summary: "Deny one exact denied effect",
+		Args: "--id <id>", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Test, record, and activate one exact project-bound denial for a retained host, port, method, and path",
+			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCandidateKind, "policy candidates, policy review, or policy tail")},
+			Output:       policyDenyChangeOutput(),
+			Prerequisites: []string{
+				"The ID was emitted by policy candidates, policy review, or policy tail and remains an actionable pending candidate.",
+			},
+			Errors: mutationCommandErrors("policy deny", "policy review",
+				declaredCommandError(fault.KindInvalidInput, "invalid_policy_candidate_id", false, "policy review", "Use a candidate ID unchanged."),
+				declaredCommandError(fault.KindInvalidInput, "policy_candidate_not_found", false, "policy review", "Rediscover the current pending queue."),
+				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
+				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
+				declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster denials", "Inspect retained denial evidence."),
+				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
+				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "policy review", "Rediscover after the concurrent policy change."),
+				declaredCommandError(fault.KindRejected, "policy_preflight_failed", false, "doctor", "Correct the complete candidate policy."),
+				declaredCommandError(fault.KindRejected, "policy_test_failed", false, "doctor", "Correct the policy or ensure its XDG directory is accessible to the Docker Engine before activation."),
+				declaredCommandError(fault.KindInternal, "policy_write_failed", false, "policy review", "Inspect the unchanged or atomically updated policy data."),
+				declaredCommandError(fault.KindUnavailable, "policy_learning_failed", false, "cluster status", "Reconcile OPA and current policy state."),
+				declaredCommandError(fault.KindContract, "invalid_candidate_contract", false, "cluster denials", "Inspect retained denial compatibility."),
+				declaredCommandError(fault.KindContract, "invalid_policy_deny", false, "doctor", "Repair the exact-deny contract."),
+				declaredCommandError(fault.KindContract, "invalid_policy_deny_result", false, "cluster status", "Reconcile the confirmed policy mutation."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.PolicyCandidateKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id",
+				Impact: operation.Impact{
+					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+					AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
+				},
+			},
+		},
+		handler: runPolicyDeny,
 	}
 }
 
@@ -809,7 +815,7 @@ func policyReferenceInput(kind, producer string) CommandInput {
 
 func policyCandidateOutputFields() []OutputField {
 	return []OutputField{
-		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque exact approval reference.", ReferenceKind: tobari.PolicyCandidateKind},
+		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque exact policy-candidate reference.", ReferenceKind: tobari.PolicyCandidateKind},
 		{Name: "observed_at", Type: OutputFieldTypeString, Description: "Gateway denial timestamp."},
 		{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal for the denied request."},
 		{Name: "host", Type: OutputFieldTypeString, Description: "Exact denied request host."},
@@ -820,6 +826,26 @@ func policyCandidateOutputFields() []OutputField {
 		{Name: "status_code", Type: OutputFieldTypeInteger, Description: "Gateway denial status."},
 		{Name: "credential_profile", Type: OutputFieldTypeString, Description: "Requested bound credential profile or null."},
 		{Name: "allow_command", Type: OutputFieldTypeString, Description: "Exact reference-bound approval command."},
+		{Name: "deny_command", Type: OutputFieldTypeString, Description: "Exact reference-bound rejection command."},
+	}
+}
+
+func policyDenyChangeOutput() CommandOutput {
+	return CommandOutput{
+		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+		Fields: []OutputField{
+			{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
+			{Name: "target_id", Type: OutputFieldTypeString, Description: "Opaque candidate ID consumed unchanged."},
+			{Name: "rule_id", Type: OutputFieldTypeString, Description: "Deterministic stored exact-deny identity."},
+			{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal bound to the denial."},
+			{Name: "host", Type: OutputFieldTypeString, Description: "Stored exact host."},
+			{Name: "port", Type: OutputFieldTypeInteger, Description: "Stored exact request port."},
+			{Name: "method", Type: OutputFieldTypeString, Description: "Stored exact uppercase HTTP method."},
+			{Name: "path", Type: OutputFieldTypeString, Description: "Stored exact path."},
+			{Name: "source_rule_count", Type: OutputFieldTypeInteger, Description: "Number of source candidates represented by the result."},
+			{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Whether the tested exact denial is active."},
+		},
+		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 	}
 }
 

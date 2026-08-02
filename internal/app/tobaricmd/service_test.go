@@ -24,12 +24,13 @@ type fakeRuntime struct {
 	inspectErr     error
 	attachCalls    int
 	detachCalls    int
-	policyCalls    int
 	learnedCalls   int
+	denyCalls      int
 	execSeen       tobari.Instance
 	devConfig      tobari.DevContainerConfig
 	denials        []tobari.PolicyDenial
 	rules          []tobari.LearnedPolicyRule
+	denyRules      []tobari.PolicyDenyRule
 }
 
 func (f *fakeRuntime) ResolveRoot(_ context.Context, root string) (string, error) { return root, nil }
@@ -195,6 +196,11 @@ func (f *fakeRuntime) ReadLearnedPolicyRules(
 	}
 	return append([]tobari.LearnedPolicyRule{}, f.rules...), nil
 }
+func (f *fakeRuntime) ReadPolicyDenyRules(context.Context, tobari.State) (tobari.PolicyDenyRuleSet, error) {
+	return tobari.PolicyDenyRuleSet{
+		Baseline: []tobari.PolicyBaselineDenyRule{}, Exact: append([]tobari.PolicyDenyRule{}, f.denyRules...),
+	}, nil
+}
 func (f *fakeRuntime) ApplyLearnedPolicyRules(
 	_ context.Context, _ tobari.State, _, updated []tobari.LearnedPolicyRule,
 ) error {
@@ -202,8 +208,12 @@ func (f *fakeRuntime) ApplyLearnedPolicyRules(
 	f.rules = append([]tobari.LearnedPolicyRule{}, updated...)
 	return nil
 }
-func (f *fakeRuntime) ApplyPolicy(context.Context, tobari.State) error {
-	f.policyCalls++
+func (f *fakeRuntime) ApplyPolicyDenyRules(
+	_ context.Context, _ tobari.State, _ []tobari.LearnedPolicyRule,
+	_ []tobari.PolicyDenyRule, updated []tobari.PolicyDenyRule,
+) error {
+	f.denyCalls++
+	f.denyRules = append([]tobari.PolicyDenyRule{}, updated...)
 	return nil
 }
 func (f *fakeRuntime) TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error) {
@@ -652,17 +662,6 @@ func TestDeleteProjectFailsClosedWhenSessionStatusIsUnavailable(t *testing.T) {
 	}
 }
 
-func applyPolicyIntent() operation.Intent {
-	return operation.Intent{
-		Command: "policy apply", Effect: operation.EffectWrite,
-		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
-		Impact: operation.Impact{
-			Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
-			AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
-		},
-	}
-}
-
 func policyLearningIntent(command, kind, id string) operation.Intent {
 	return operation.Intent{
 		Command: command, Effect: operation.EffectWrite,
@@ -866,6 +865,40 @@ func TestAllowPolicyCandidateRejectsStaleReferenceWithoutMutation(t *testing.T) 
 	}
 }
 
+func TestDenyPolicyCandidateBindsExactReferenceAndRemovesQueueItem(t *testing.T) {
+	t.Parallel()
+	denial := validServiceDenial()
+	candidate, _ := tobari.NewPolicyCandidate(denial)
+	runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{denial}}
+	result, err := New(runtime).DenyPolicyCandidate(
+		context.Background(),
+		policyLearningIntent("policy deny", tobari.PolicyCandidateKind, candidate.ID),
+		candidate.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.denyCalls != 1 || result.TargetID != candidate.ID || !result.Applied ||
+		len(runtime.denyRules) != 1 || !runtime.denyRules[0].Matches(
+		candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path,
+	) {
+		t.Fatalf("result=%+v deny calls=%d rules=%+v", result, runtime.denyCalls, runtime.denyRules)
+	}
+}
+
+func TestDenyPolicyCandidateRejectsStaleReferenceWithoutMutation(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{}}
+	id := "pcy_0123456789abcdef0123456789abcdef"
+	_, err := New(runtime).DenyPolicyCandidate(
+		context.Background(),
+		policyLearningIntent("policy deny", tobari.PolicyCandidateKind, id), id,
+	)
+	if err == nil || runtime.denyCalls != 0 {
+		t.Fatalf("stale candidate error=%v calls=%d", err, runtime.denyCalls)
+	}
+}
+
 func compactableServiceRules(t *testing.T) []tobari.LearnedPolicyRule {
 	t.Helper()
 	paths := []string{
@@ -925,32 +958,6 @@ func TestPolicyCompactionRoundTripUsesCurrentOpaqueReference(t *testing.T) {
 	}
 	if runtime.learnedCalls != 1 {
 		t.Fatalf("stale compaction caused mutation: %d", runtime.learnedCalls)
-	}
-}
-
-func TestApplyPolicyUsesFixedClusterMutationAndConfirmsResult(t *testing.T) {
-	t.Parallel()
-	runtime := &fakeRuntime{state: testState(t.TempDir())}
-	result, err := New(runtime).ApplyPolicy(context.Background(), applyPolicyIntent())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.policyCalls != 1 || !result.Applied ||
-		result.PolicyDirectory != runtime.state.PolicyDirectory {
-		t.Fatalf("activation = %+v, calls = %d", result, runtime.policyCalls)
-	}
-}
-
-func TestApplyPolicyRejectsWrongIntentBeforeRuntime(t *testing.T) {
-	t.Parallel()
-	runtime := &fakeRuntime{state: testState(t.TempDir())}
-	intent := applyPolicyIntent()
-	intent.Effect = operation.EffectCreate
-	if _, err := New(runtime).ApplyPolicy(context.Background(), intent); err == nil {
-		t.Fatal("invalid policy mutation was accepted")
-	}
-	if runtime.policyCalls != 0 {
-		t.Fatalf("policy calls = %d", runtime.policyCalls)
 	}
 }
 

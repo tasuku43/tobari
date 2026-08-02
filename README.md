@@ -13,7 +13,7 @@ review-and-retry loop. Every supported outbound HTTP and HTTPS request is
 enforced through one installation-local Gateway and OPA cluster.
 The safe path should be easier than running the agent directly on the host;
 the current explicit cluster bootstrap remains separate, while permission
-growth is designed as one interactive review-to-allow flow.
+growth is designed as one interactive review-to-allow-or-deny flow.
 
 Tobari does not guess intent from command strings. It controls the network
 effect at the point where an HTTP request crosses an isolation boundary.
@@ -26,7 +26,8 @@ policy learning:
 1. Run `tobari` from a project directory.
 2. Work freely until an undeclared request receives `403`.
 3. The agent explains that the host must review the secret-free pending queue.
-4. Run `tobari policy review`, select one permission, confirm the exact allow,
+4. Run `tobari policy review`, select one permission, confirm the exact allow or
+   deny,
    then retry.
 
 ```sh
@@ -36,21 +37,24 @@ tobari status
 tobari list
 
 # Review is the human host-side entry point; in a TTY it offers selection,
-# detail, explicit confirmation, and exact allow without editing OPA or Rego.
+# detail, explicit confirmation, and exact allow/deny without editing OPA or Rego.
 tobari policy review
 # Redirected output stays read-only; use the explicit action when scripting.
 tobari policy allow --id PCY_ID
+# or: tobari policy deny --id PCY_ID
 ```
 
 The Gateway response gives the agent a fixed host-side review command and never
 requests an automatic retry. When an interactive session ends, the host also
 prints an aggregate pending-permission summary. The review queue includes
-bounded `host`, `method`, `path`, and `reason` evidence plus the exact approval
-command. It includes only denials OPA marks resolvable by an exact learned rule;
-immutable scheme, cluster, and credential-binding failures remain diagnostics
-instead of becoming ineffective approvals. `policy allow` resolves the opaque
-ID against retained denials, tests the complete policy, atomically records one
-exact rule, and activates it. Tobari never turns observed traffic into
+bounded `host`, `method`, `path`, and `reason` evidence plus exact allow and deny
+commands. It includes only denials OPA marks resolvable by an exact learned
+rule; immutable scheme, cluster, and credential-binding failures remain
+diagnostics instead of becoming ineffective decisions. Baseline host-authored
+denies and previously rejected exact effects are terminal and remain audit
+evidence rather than queue items. `policy allow` and `policy deny` resolve the
+opaque ID against retained denials, test the complete policy, atomically record
+one exact rule, and activate it. Tobari never turns observed traffic into
 permission automatically.
 
 ## Cluster and Tobari topology
@@ -373,13 +377,14 @@ tobari cluster down --purge # also removes shared CA volumes
 |---|---|
 | `tobari cluster up` | Test policy and reconcile shared Gateway and OPA |
 | `tobari cluster status [--format text\|json]` | Show shared readiness, component health, policy, project count, and diagnostics |
-| `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and activation command |
+| `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and review command |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
 | `tobari cluster down [--purge]` | Remove an empty cluster and optionally shared CA state |
-| `tobari policy review [--tail N]` | Interactive Permission Inbox: inspect and explicitly allow one exact permission on a TTY; read-only when redirected |
-| `tobari policy candidates [--tail N] [--format text\|json]` | Discover pending exact approvals and opaque IDs |
-| `tobari policy tail [--tail N]` | Compatibility view of the bounded queue with exact approval commands |
+| `tobari policy review [--tail N] [--format text\|json]` | Interactive Permission Inbox: inspect and explicitly allow or deny one exact permission on a TTY; read-only when redirected |
+| `tobari policy candidates [--tail N] [--format text\|json]` | Discover pending exact allow/deny decisions and opaque IDs |
+| `tobari policy tail [--tail N]` | Compatibility view of the bounded queue with exact allow and deny commands |
 | `tobari policy allow --id ID` | Test, store, and activate one exact observed permission |
+| `tobari policy deny --id ID` | Test, store, and activate one exact project-bound rejection |
 | `tobari policy compactions [--format text\|json]` | Discover test-backed prefix compactions and opaque IDs |
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
 | `tobari policy apply` | Test host policy, recreate only OPA, and wait for health |
@@ -462,8 +467,8 @@ tobari policy allow --id PCY_ID  # explicit/scripted path
 
 On a TTY, `policy review` is the complete human flow: select a request, inspect
 its exact host/port/method/path, confirm with `y`, and let Tobari delegate the
-selected ID to `policy allow`. It refreshes the queue after each successful
-allow. Redirected or `--error-format json` review is read-only. `PCY_ID` is
+selected ID to `policy allow` or `policy deny`. It refreshes the queue after
+each successful decision. Redirected or `--error-format json` review is read-only. `PCY_ID` is
 emitted by the review or machine discovery queue and must be copied unchanged
 when invoking the explicit action; `policy candidates` remains the structured
 machine path.
@@ -487,8 +492,8 @@ declared boundary regression; they do not prove every unknown future path is
 safe.
 
 For advanced policy behavior that the exact learning flow cannot express, edit
-the XDG Rego and data files on the trusted host, add tests, then run
-`tobari policy apply`.
+the XDG Rego and data files on the trusted host and add tests. The routine
+review queue does not interpret or activate arbitrary host edits.
 
 Run read-only diagnostics when you want to test policy without activating it:
 
@@ -608,9 +613,10 @@ tobari list
 
 Common failures:
 
-- `policy_test_failed`: edit the policy reported by `cluster denials` or
-  `cluster status`, then run `doctor` or `policy apply`; if tests pass outside
-  Tobari, verify that the XDG policy directory is shared with the Docker VM.
+- `policy_test_failed`: inspect the policy reported by `cluster denials` or
+  `cluster status`; for exact decisions, rediscover the queue and retry the
+  corresponding action. If tests pass outside Tobari, verify that the XDG
+  policy directory is shared with the Docker VM.
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`.
 - `tty_required`: run the root `tobari` command from an interactive terminal.

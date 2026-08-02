@@ -332,11 +332,22 @@ type MutationContract struct {
 // mutation and receives the selected opaque reference unchanged. Redirected
 // and machine-readable invocations must follow NonInteractiveBehavior.
 type InteractiveWorkflowContract struct {
-	ActionCommand          string `json:"action_command"`
-	SelectionReferenceKind string `json:"selection_reference_kind"`
-	SelectionOutputField   string `json:"selection_output_field"`
-	Confirmation           string `json:"confirmation"`
-	NonInteractiveBehavior string `json:"non_interactive_behavior"`
+	ActionCommand          string   `json:"action_command,omitempty"`
+	ActionCommands         []string `json:"action_commands,omitempty"`
+	SelectionReferenceKind string   `json:"selection_reference_kind"`
+	SelectionOutputField   string   `json:"selection_output_field"`
+	Confirmation           string   `json:"confirmation"`
+	NonInteractiveBehavior string   `json:"non_interactive_behavior"`
+}
+
+func (workflow InteractiveWorkflowContract) actionCommands() []string {
+	if len(workflow.ActionCommands) != 0 {
+		return append([]string{}, workflow.ActionCommands...)
+	}
+	if workflow.ActionCommand != "" {
+		return []string{workflow.ActionCommand}
+	}
+	return []string{}
 }
 
 // MarshalJSON projects policy-relevant impact enums as stable words rather
@@ -528,7 +539,7 @@ func defaultCatalog() Catalog {
 					Delivery:           OutputDeliveryComplete,
 					CollectionCoverage: CollectionCoverageExhaustive,
 					JSONEnvelope:       "commands",
-					JSONSchemaVersion:  7,
+					JSONSchemaVersion:  8,
 				},
 				Prerequisites: []string{},
 				Errors: []CommandError{
@@ -670,21 +681,24 @@ func (c Catalog) Validate() error {
 		if workflow == nil {
 			continue
 		}
-		action, found := commandsByPath[workflow.ActionCommand]
-		if !found {
-			return fmt.Errorf("catalog command %q interactive action %q is not registered", command.Path, workflow.ActionCommand)
-		}
-		if action.Effect != operation.EffectWrite || action.Role != RoleAct {
-			return fmt.Errorf("catalog command %q interactive action %q must be a write act command", command.Path, workflow.ActionCommand)
-		}
-		matched := 0
-		for _, consumed := range action.ConsumedRefs() {
-			if consumed.Kind == workflow.SelectionReferenceKind {
-				matched++
+		actions := workflow.actionCommands()
+		for _, actionPath := range actions {
+			action, found := commandsByPath[actionPath]
+			if !found {
+				return fmt.Errorf("catalog command %q interactive action %q is not registered", command.Path, actionPath)
 			}
-		}
-		if matched != 1 {
-			return fmt.Errorf("catalog command %q interactive action %q must consume exactly one %q reference", command.Path, workflow.ActionCommand, workflow.SelectionReferenceKind)
+			if action.Effect != operation.EffectWrite || action.Role != RoleAct {
+				return fmt.Errorf("catalog command %q interactive action %q must be a write act command", command.Path, actionPath)
+			}
+			matched := 0
+			for _, consumed := range action.ConsumedRefs() {
+				if consumed.Kind == workflow.SelectionReferenceKind {
+					matched++
+				}
+			}
+			if matched != 1 {
+				return fmt.Errorf("catalog command %q interactive action %q must consume exactly one %q reference", command.Path, actionPath, workflow.SelectionReferenceKind)
+			}
 		}
 	}
 	for kind, owner := range paginationKindOwners {
@@ -1197,11 +1211,22 @@ func validateInteractiveWorkflow(command CommandSpec, fields map[string]OutputFi
 	if command.Effect != operation.EffectRead || command.Role != RoleDiscover {
 		return fmt.Errorf("interactive workflow must belong to a read-only discover command")
 	}
-	if err := operation.ValidateCommandPath(workflow.ActionCommand); err != nil {
-		return fmt.Errorf("interactive action command: %w", err)
+	actions := workflow.actionCommands()
+	if len(actions) == 0 {
+		return fmt.Errorf("interactive action command is missing")
 	}
-	if workflow.ActionCommand == command.Path {
-		return fmt.Errorf("interactive action command must be separate from the discover command")
+	seenActions := make(map[string]bool, len(actions))
+	for _, action := range actions {
+		if err := operation.ValidateCommandPath(action); err != nil {
+			return fmt.Errorf("interactive action command: %w", err)
+		}
+		if action == command.Path {
+			return fmt.Errorf("interactive action command must be separate from the discover command")
+		}
+		if seenActions[action] {
+			return fmt.Errorf("interactive action commands must be unique")
+		}
+		seenActions[action] = true
 	}
 	if err := validateReferenceName(workflow.SelectionReferenceKind); err != nil {
 		return fmt.Errorf("interactive selection reference kind: %w", err)

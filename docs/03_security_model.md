@@ -150,11 +150,13 @@ instance's persistent XDG home and records after the session-attachment guard;
 `--force` explicitly overrides an attached-session warning.
 Shared cluster removal is rejected while any Tobari record remains.
 
-XDG policy is mounted read-only into OPA. Host-side edits are reflected by the
-bind mount. OPA watch reloads them where Docker-host events propagate;
-`policy apply` first tests the bind and then recreates only the exact
-owner-labeled OPA component for deterministic activation. OPA receives no
-authority to rewrite trusted policy.
+The active Context's policy directory is mounted read-only into OPA. Host-side
+edits are reflected by the bind mount. OPA watch reloads them where Docker-host
+events propagate. Exact allow, deny, and compaction mutations first test a
+private complete policy copy and then recreate only the exact owner-labeled OPA
+component for deterministic activation. OPA receives no authority to rewrite
+trusted policy. A Context directory is never mounted wholesale into a
+Workspace.
 
 ## HTTP authorization boundary
 
@@ -197,8 +199,8 @@ it contains no candidate ID, query, body, header, credential, policy path, or
 dynamic command argument. Non-learnable denials advertise no review command.
 The host-owned retained denial queue remains the source of truth, and only the
 reference-bound host action can change policy. Interactive `policy review` is
-only a confirmation surface for that action: it cannot approve from a display
-position, batch candidates, create wildcards, or act when input/output is
+only a confirmation surface for those actions: it cannot allow or deny from a
+display position, batch candidates, create wildcards, or act when input/output is
 redirected. Session-close summaries use the same untrusted request projection
 and are best-effort host stderr output.
 
@@ -262,23 +264,25 @@ ordinary deletion requires no attached session, while `--force` overrides that
 guard; both affect only the selected XDG home and exact owned resources. Shared
 CA purge remains separate
 and only follows an empty instance repository.
-`policy apply` is an access-changing write to the same fixed cluster target. It
-does not edit policy, but it can change outbound authority by activating the
-trusted host's current tested files. Gateway remains fail-closed while OPA is
-recreated.
-`policy allow` and `policy compact` are access-changing writes bound to opaque
+`policy allow`, `policy deny`, and `policy compact` are access-changing writes bound to opaque
 candidate references. Discovery never mutates. An allow reference identifies
 one retained validated denial that OPA marked exact-rule learnable; a
-compaction reference identifies one current exact source-rule set. Scheme,
+deny reference identifies one retained validated denial and binds its exact
+project/host/port/method/path; a compaction reference identifies one current
+exact source-rule set. Scheme,
 cluster, credential-binding, unavailable-body, and body-inspection failures
 never become permission candidates.
+Host-authored baseline denies and CLI-owned exact deny rules are also terminal
+and are excluded from the actionable queue, while their bounded audit records
+remain visible.
 The mutation rejects stale or ambiguous references, unsafe policy files,
 malformed learned data, failed preflight tests, and unrecognized compaction
 shapes before the atomic policy write.
 
 Learned rules never broaden a project, host, port, or method beyond the
-explicitly approved evidence. Exact approvals may override an older deny rule
-only for their exact project/host/port/method/path. Prefix compaction requires three exact
+explicitly approved evidence. Baseline and exact deny rules remain terminal; an
+exact deny wins over a learned allow for the same project/host/port/method/path.
+Prefix compaction requires three exact
 sources, keeps host, port, and method fixed, requires a multi-segment directory
 boundary, rejects percent
 encoding, backslashes, empty segments, and dot segments, retains positive
@@ -304,9 +308,10 @@ unredacted diagnostics. `cluster denials` projects only validated deny records
 and preserves only non-secret credential-profile names. Read-only policy
 candidate commands derive opaque proposals from that evidence. `policy review`
 presents the same queue and, after explicit confirmation on a TTY, delegates
-one unchanged opaque reference to `policy allow`; its redirected and
-machine-readable path remains read-only. Observation alone never changes
-authority; only an explicit reference-bound mutation can write a learned rule.
+one unchanged opaque reference to `policy allow` or `policy deny`; its
+redirected and machine-readable path remains read-only. Observation alone
+never changes authority; only an explicit reference-bound mutation can write a
+learned allow or exact deny rule.
 
 ## Enforcement
 

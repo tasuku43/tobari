@@ -67,9 +67,9 @@ the proxy port on the Tobari interface and no management port.
 A process in a CWD-owned Tobari may intentionally modify the selected project
 root, but the shared XDG `policy/` directory is not mounted into it. OPA itself
 sees policy read-only and watches host changes where Docker-host events
-propagate. The fixed-target `policy apply` path tests the host files and
-recreates only the owned OPA component for deterministic activation. The
-reference-bound `policy allow` and `policy compact` paths write only the
+propagate. The reference-bound `policy allow`, `policy deny`, and `policy compact`
+paths test a private complete policy copy and recreate only the owned OPA
+component for deterministic activation; they write only the
 CLI-owned learned-rule member after validating owner-only regular files,
 testing a private complete policy copy, and checking that the discovered source
 state is unchanged.
@@ -109,8 +109,8 @@ until reconciliation succeeds, requests fail closed.
 
 OPA times out, stops, returns malformed JSON, or returns an incomplete
 decision. Gateway denies and does not contact upstream. Invalid watched policy
-does not create an allow decision, and `policy apply` refuses it before OPA
-recreation. Learned-rule evaluation also validates the rule shape before
+does not create an allow or deny decision, and exact policy actions refuse it
+before OPA recreation. Learned-rule evaluation also validates the rule shape before
 matching it. A failed learned-rule or compaction preflight leaves `data.json`
 unchanged; a concurrent source change makes the opaque proposal stale.
 OPA also classifies exact-rule learnability only after scheme, fixed port,
@@ -151,7 +151,9 @@ observed port and scheme. Immediately before connecting, Gateway rejects
 non-global results for dotted hostnames and replaces the hostname with the
 selected resolved address, preventing a later DNS answer from changing the
 connection target. A non-matching port is denied without becoming an approval
-candidate, and a learned rule cannot cross that port or scheme.
+candidate, and a baseline or exact deny is terminal rather than reviewable. A
+learned rule cannot cross that port or scheme, and an exact deny wins over a
+learned allow for the same project-bound request.
 
 ### Host path escape
 
