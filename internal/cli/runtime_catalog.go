@@ -20,11 +20,122 @@ func runtimeCommandSpecs() []CommandSpec {
 		policyDenySpec(),
 		policyCompactionsSpec(),
 		policyCompactSpec(),
-		policyApplySpec(),
+		contextListSpec(),
+		contextShowSpec(),
+		contextCreateSpec(),
+		contextUseSpec(),
 		projectEnterSpec(),
 		statusSpec(),
 		listSpec(),
 		deleteSpec(),
+	}
+}
+
+func contextListSpec() CommandSpec {
+	return CommandSpec{
+		Path: "context list", Summary: "List named execution Contexts",
+		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
+		Agent: AgentContract{
+			CapabilityID: "context.composition",
+			Outcome:      "List the complete local Context collection and identify the active Context",
+			Inputs:       []CommandInput{formatInput()},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Fields: []OutputField{
+					{Name: "active", Type: OutputFieldTypeString, Description: "Name of the host-selected active Context."},
+					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with active state, image, agent profile, and policy mode."},
+				},
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
+				JSONEnvelope: "contexts", JSONSchemaVersion: 1,
+			},
+			Prerequisites: []string{},
+			Errors: readCommandErrors("context list", true,
+				declaredCommandError(fault.KindInternal, "context_read_failed", false, "doctor", "Inspect the host Context stores."),
+				declaredCommandError(fault.KindContract, "invalid_context_list", false, "doctor", "Repair the Context manifest collection."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+		},
+		handler: runContextList,
+	}
+}
+
+func contextShowSpec() CommandSpec {
+	return CommandSpec{
+		Path: "context show", Summary: "Inspect one execution Context",
+		Args: "[--name <name>] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
+		Agent: AgentContract{
+			CapabilityID: "context.composition",
+			Outcome:      "Inspect the active Context or one named Context and its separated store references",
+			Inputs: []CommandInput{
+				{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Named Context to inspect; omission selects the active Context.", AllowedValues: []string{}},
+				formatInput(),
+			},
+			Output:        contextReportOutput(),
+			Prerequisites: []string{},
+			Errors: readCommandErrors("context show", true,
+				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
+				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindInternal, "context_read_failed", false, "doctor", "Inspect the host Context stores."),
+				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context list", "Repair the Context manifest."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+		},
+		handler: runContextShow,
+	}
+}
+
+func contextCreateSpec() CommandSpec {
+	return CommandSpec{
+		Path: "context create", Summary: "Create a named execution Context",
+		Args:   "--name <name> [--image <image>] [--mode guided|advanced] [--format text|json]",
+		Effect: operation.EffectCreate, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID:  "context.composition",
+			Outcome:       "Create one named Context with separate owner-only policy and managed-credential stores",
+			Inputs:        []CommandInput{contextNameInput(), contextImageInput(), contextModeInput(), formatInput()},
+			Output:        contextReportOutput(),
+			Prerequisites: []string{"The host Context directory is accessible."},
+			FixedTarget:   fixedContextCatalogTarget(),
+			Errors: mutationCommandErrors("context create", "context list",
+				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help context create", "Correct the Context name, image, or policy mode."),
+				declaredCommandError(fault.KindRejected, "context_exists", false, "context show", "Inspect the existing Context or choose another name."),
+				declaredCommandError(fault.KindRejected, "context_create_failed", false, "context list", "Inspect the partially initialized Context stores."),
+				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context list", "Reconcile the confirmed Context creation."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.ContextCatalogTargetKind, TargetInputs: []string{},
+				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo},
+			},
+		},
+		handler: runContextCreate,
+	}
+}
+
+func contextUseSpec() CommandSpec {
+	return CommandSpec{
+		Path: "context use", Summary: "Select the active execution Context",
+		Args: "--name <name> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID:  "context.composition",
+			Outcome:       "Select one existing Context in the host active marker for the shared cluster",
+			Inputs:        []CommandInput{contextNameInput(), formatInput()},
+			Output:        contextReportOutput(),
+			Prerequisites: []string{"The named Context already exists."},
+			FixedTarget:   fixedActiveContextTarget(),
+			Errors: mutationCommandErrors("context use", "context show",
+				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
+				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context or create it first."),
+				declaredCommandError(fault.KindRejected, "context_use_failed", false, "context show", "Inspect the active Context selection."),
+				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context selection."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.ContextTargetKind, TargetInputs: []string{},
+				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo},
+			},
+		},
+		handler: runContextUse,
 	}
 }
 
@@ -551,7 +662,7 @@ func clusterDownSpec() CommandSpec {
 func attachSpec() CommandSpec {
 	return CommandSpec{
 		Path: "attach", Summary: "Attach one named Tobari to a root",
-		Args: "--name <name> --root <path> [--image <image>] [--devcontainer <path>]", Effect: operation.EffectCreate, Role: RoleAct,
+		Args: "--name <name> --root <path> [--image <image>]", Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
 			Outcome:      "Create one named isolated container with a dedicated network and persistent home",
@@ -569,14 +680,7 @@ func attachSpec() CommandSpec {
 				{
 					Name: "--image", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description: "Locally available compatible OCI image or builtin; omission uses XDG default_image, then builtin.", AllowedValues: []string{},
-					ConflictsWith: []string{"--devcontainer"},
-				},
-				{
-					Name: "--devcontainer", Source: InputSourceFlag, Required: false,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description: "Explicit in-root image-based devcontainer.json path.", AllowedValues: []string{},
-					ConflictsWith: []string{"--image"},
+					Description: "Locally available compatible OCI image or builtin; omission uses the active Context image.", AllowedValues: []string{},
 				},
 			},
 			Output: CommandOutput{
@@ -594,9 +698,7 @@ func attachSpec() CommandSpec {
 				declaredCommandError(fault.KindInvalidInput, "invalid_name", false, "help attach", "Choose a portable unique name."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Validate the intended root."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_image", false, "help attach", "Choose builtin or a portable OCI image reference."),
-				declaredCommandError(fault.KindRejected, "invalid_image_config", false, "doctor", "Correct the XDG default image configuration."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_devcontainer", false, "help attach", "Correct the explicit in-root image configuration."),
-				declaredCommandError(fault.KindUnsupported, "unsupported_devcontainer", false, "help attach", "Use only the documented image-based subset."),
+				declaredCommandError(fault.KindRejected, "invalid_image_config", false, "context show", "Inspect the active Context image configuration."),
 				declaredCommandError(fault.KindInvalidInput, "name_conflict", false, "list", "Choose another name or detach the existing Tobari."),
 				declaredCommandError(fault.KindInvalidInput, "root_conflict", false, "list", "Use the existing Tobari or detach it."),
 				declaredCommandError(fault.KindInvalidInput, "image_conflict", false, "list", "Use the existing image or detach the Tobari."),
@@ -766,6 +868,65 @@ func fixedCurrentDirectoryTarget() *FixedTarget {
 		Kind: tobari.CurrentDirectoryTargetKind, ID: tobari.CurrentDirectoryTargetID,
 		Description: "The CWD-owned Workspace associated with this process's canonical current directory.",
 		Scope:       FixedTargetScopeToolLocal,
+	}
+}
+
+func fixedContextCatalogTarget() *FixedTarget {
+	return &FixedTarget{
+		Kind: tobari.ContextCatalogTargetKind, ID: tobari.ContextCatalogTargetID,
+		Description: "This installation's host-owned collection of named Contexts.",
+		Scope:       FixedTargetScopeToolLocal,
+	}
+}
+
+func fixedActiveContextTarget() *FixedTarget {
+	return &FixedTarget{
+		Kind: tobari.ContextTargetKind, ID: tobari.ActiveContextTargetID,
+		Description: "This installation's host-owned active Context selection.",
+		Scope:       FixedTargetScopeToolLocal,
+	}
+}
+
+func contextNameInput() CommandInput {
+	return CommandInput{
+		Name: "--name", Source: InputSourceFlag, Required: true,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description:   "Portable Context name; it is a selection label, not a credential authority.",
+		AllowedValues: []string{},
+	}
+}
+
+func contextImageInput() CommandInput {
+	return CommandInput{
+		Name: "--image", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description:   "Default compatible Tobari image selector stored in the Context.",
+		AllowedValues: []string{}, DefaultValue: stringPointer(tobari.BuiltinImageSelector),
+	}
+}
+
+func contextModeInput() CommandInput {
+	return CommandInput{
+		Name: "--mode", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description:   "Policy development mode: guided exact permission review or advanced trusted-host Rego.",
+		AllowedValues: []string{"guided", "advanced"}, DefaultValue: stringPointer("guided"),
+	}
+}
+
+func contextReportOutput() CommandOutput {
+	return CommandOutput{
+		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+		Fields: []OutputField{
+			{Name: "name", Type: OutputFieldTypeString, Description: "Named Context identifier."},
+			{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the host-selected active Context."},
+			{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only shared agent profile reference."},
+			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Context."},
+			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Guided or advanced policy-development mode."},
+			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved policy and managed-credential store paths; secret values are never included."},
+		},
+		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
+		JSONEnvelope: "context", JSONSchemaVersion: 1,
 	}
 }
 

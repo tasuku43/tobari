@@ -1,0 +1,130 @@
+package contextcmd
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"testing"
+
+	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
+)
+
+type contextRuntimeFake struct {
+	listResult   tobari.ContextListResult
+	showResult   tobari.ContextReport
+	createResult tobari.ContextReport
+	useResult    tobari.ContextReport
+	createErr    error
+	useErr       error
+	createCalls  int
+	useCalls     int
+	lastName     string
+	lastImage    string
+	lastMode     tobari.ContextPolicyMode
+}
+
+func (f *contextRuntimeFake) ListContexts(context.Context) (tobari.ContextListResult, error) {
+	return f.listResult, nil
+}
+
+func (f *contextRuntimeFake) ShowContext(context.Context, string) (tobari.ContextReport, error) {
+	return f.showResult, nil
+}
+
+func (f *contextRuntimeFake) CreateContext(
+	_ context.Context, name, image string, mode tobari.ContextPolicyMode,
+) (tobari.ContextReport, error) {
+	f.createCalls++
+	f.lastName, f.lastImage, f.lastMode = name, image, mode
+	return f.createResult, f.createErr
+}
+
+func (f *contextRuntimeFake) UseContext(context.Context, string) (tobari.ContextReport, error) {
+	f.useCalls++
+	return f.useResult, f.useErr
+}
+
+func contextReport(task, name string) tobari.ContextReport {
+	return tobari.ContextReport{
+		Task: task, Name: name, Active: task == tobari.TaskContextUse,
+		AgentProfile: tobari.DefaultProfile, Image: "tobari-runtime:local",
+		PolicyMode: tobari.ContextPolicyModeGuided,
+		Stores: tobari.ContextStorePaths{
+			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
+			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials.json"),
+			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials"),
+		},
+	}
+}
+
+func contextImpact() operation.Impact {
+	return operation.Impact{
+		Cardinality:  operation.CardinalityOne,
+		Notification: operation.DeclarationNo,
+		AccessChange: operation.DeclarationYes,
+		Destructive:  operation.DeclarationNo,
+	}
+}
+
+func TestCreateValidatesIntentAndPassesRuntimeImageToPort(t *testing.T) {
+	fake := &contextRuntimeFake{createResult: contextReport(tobari.TaskContextCreate, "project-tools")}
+	service := New(fake)
+	intent := operation.Intent{
+		Command: "context create", Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
+		Impact: contextImpact(),
+	}
+	result, err := service.Create(context.Background(), intent, "project-tools", "tobari-runtime:local", tobari.ContextPolicyModeAdvanced)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if result.Name != "project-tools" || fake.createCalls != 1 || fake.lastName != "project-tools" ||
+		fake.lastImage != "tobari-runtime:local" || fake.lastMode != tobari.ContextPolicyModeAdvanced {
+		t.Fatalf("result/call = %+v, calls=%d name=%q image=%q mode=%q", result, fake.createCalls, fake.lastName, fake.lastImage, fake.lastMode)
+	}
+}
+
+func TestCreateRejectsInvalidImageBeforePortCall(t *testing.T) {
+	fake := &contextRuntimeFake{createResult: contextReport(tobari.TaskContextCreate, "project-tools")}
+	service := New(fake)
+	intent := operation.Intent{
+		Command: "context create", Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
+		Impact: contextImpact(),
+	}
+	_, err := service.Create(context.Background(), intent, "project-tools", "--pull=always", tobari.ContextPolicyModeGuided)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindInvalidInput || public.Code != "invalid_context" {
+		t.Fatalf("Create() fault = %#v, ok=%t", public, ok)
+	}
+	if fake.createCalls != 0 {
+		t.Fatalf("CreateContext() calls = %d, want 0", fake.createCalls)
+	}
+}
+
+func TestUseMapsMissingContextAndDoesNotHidePortError(t *testing.T) {
+	fake := &contextRuntimeFake{useErr: tobari.ErrContextNotFound}
+	service := New(fake)
+	intent := operation.Intent{
+		Command: "context use", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ContextTargetKind, ID: tobari.ActiveContextTargetID},
+		Impact: contextImpact(),
+	}
+	_, err := service.Use(context.Background(), intent, "missing")
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindNotFound || public.Code != "context_not_found" {
+		t.Fatalf("Use() fault = %#v, ok=%t", public, ok)
+	}
+	if fake.useCalls != 1 {
+		t.Fatalf("UseContext() calls = %d, want 1", fake.useCalls)
+	}
+
+	fake.useErr = errors.New("private runtime failure")
+	_, err = service.Use(context.Background(), intent, "missing")
+	public, ok = fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindRejected || public.Code != "context_use_failed" {
+		t.Fatalf("Use() runtime fault = %#v, ok=%t", public, ok)
+	}
+}

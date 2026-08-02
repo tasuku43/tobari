@@ -174,9 +174,12 @@ current directory, or `q`/Escape to cancel. When raw terminal mode is
 unavailable, the same experience falls back to numbered line input. For
 example, from `/work/root/app`, existing roots at `/work/root` and `/work`
 are shown as two choices before the create-here option. A selected Workspace
-root at `/work` enters `/workspace/work/root/app`; a shell exit returns to the
-host while the Workspace remains existing. Tobari prints the following host
-guidance on stderr after the child session returns:
+root at `/work` enters `/workspace/work/root/app`; when the selected root is
+below the host home, Tobari preserves the home-relative path instead, so
+`$HOME/path/to` enters at `/var/lib/tobari/path/to`. Only the selected
+project root is mounted; the host home is never mounted wholesale. A shell exit
+returns to the host while the Workspace remains existing. Tobari prints the
+following host guidance on stderr after the child session returns:
 
 ```text
 Workspace session closed.
@@ -281,7 +284,7 @@ Build it explicitly on the trusted host, then select it in the owner-only XDG
 docker build --tag my-tobari:dev .
 ```
 
-For the usual case, set the XDG default once:
+For a one-time default, the legacy XDG setting seeds the `default` Context:
 
 ```json
 {
@@ -290,14 +293,25 @@ For the usual case, set the XDG default once:
 }
 ```
 
+The first Context initialization copies this selector into its manifest. For a
+named execution setup, store the runtime image directly in the Context and
+select it on the host:
+
+```sh
+tobari context create --name project-tools --image my-tobari:dev
+tobari context use --name project-tools
+tobari context show
+```
+
 Then ordinary root invocations stay short:
 
 ```sh
 tobari
 ```
 
-Image selection uses `config.json.default_image`, then `builtin` before
-configuration is initialized.
+New Workspaces use the active Context's runtime image. Before the default
+Context is initialized, `config.json.default_image` seeds it, then `builtin`
+is used. Project metadata does not override the Context image.
 
 Tobari never pulls a configured image implicitly. The image must be available
 locally and preserve runtime API `1`, the `tobari` image user, the inherited
@@ -322,34 +336,12 @@ tobari exec --id <id-from-list> -- claude
 To change an existing Tobari's image, delete it and run `tobari` again; the new
 logical environment receives a new home.
 
-### Dev Container image definitions
+### Runtime customization
 
-Tobari can read an explicit image-based Dev Container definition inside the
-selected root:
-
-```jsonc
-{
-  "name": "work",
-  "image": "my-tobari:dev",
-  "customizations": {}
-}
-```
-
-```sh
-cd ~/ghq/example
-tobari
-```
-
-When `.devcontainer/devcontainer.json` exists below the selected root, Tobari
-uses its one literal locally available compatible `image`. JSON comments and
-trailing commas are accepted, and only inert `$schema`, `name`, and
-`customizations` are allowed alongside it.
-Effectful Dev Container properties—including `build`, Compose, Features,
-mounts, environment, users, privileges, capabilities, ports, and lifecycle
-commands—fail with `unsupported_devcontainer`. Tobari does not invoke the Dev
-Container CLI or let the definition replace its isolation boundary. See the
-[Dev Container specification](https://github.com/devcontainers/spec/blob/main/docs/specs/devcontainer-reference.md)
-for the broader format that Tobari deliberately does not claim to implement.
+Runtime selection is intentionally owned by Context. Project-local
+`.devcontainer` files are not interpreted, so they cannot silently become a
+second execution-boundary configuration. Create or select a Context with the
+runtime image you want, then run `tobari` from the project.
 
 Delete the selected detached Tobari and its per-Tobari home:
 
@@ -387,7 +379,10 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari policy deny --id ID` | Test, store, and activate one exact project-bound rejection |
 | `tobari policy compactions [--format text\|json]` | Discover test-backed prefix compactions and opaque IDs |
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
-| `tobari policy apply` | Test host policy, recreate only OPA, and wait for health |
+| `tobari context list [--format text\|json]` | List named execution Contexts and identify the active one |
+| `tobari context show [--name NAME] [--format text\|json]` | Inspect a Context's runtime image, agent profile, and separated stores |
+| `tobari context create --name NAME [--image IMAGE] [--mode guided\|advanced]` | Create a named execution Context without secrets |
+| `tobari context use --name NAME` | Select the active Context on the trusted host |
 | `tobari` | Choose or create the current-directory Workspace, enter it, and leave it reusable after `exit` |
 | `tobari status [--format text\|json]` | Report logical existence and runtime diagnostics for the current directory |
 | `tobari list [--format text\|json]` | List local Workspaces, runtime diagnostics, and diagnostic IDs |
@@ -409,12 +404,16 @@ On macOS and Linux, Tobari uses the same XDG paths:
 ```text
 ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
   config.json
-  policy/
-    data.json
-    tobari.rego
-    tobari_test.rego
-  credentials.json       # reserved managed-adapter metadata
-  credentials/           # reserved managed-adapter secret files
+  contexts/
+    active.json           # current host-selected Context
+    <name>/
+      context.json        # agent profile, runtime image, policy mode
+      policy/
+        data.json
+        tobari.rego
+        tobari_test.rego
+      credentials.json     # reserved managed-adapter metadata
+      credentials/         # reserved managed-adapter secret files
 
 ${XDG_STATE_HOME:-$HOME/.local/state}/tobari/
   roots/<root-hash>.json
@@ -422,35 +421,34 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tobari/
   instances/<tobari-id>/home
 
 ${XDG_DATA_HOME:-$HOME/.local/share}/tobari/
-  profiles/default/   # shared read-only agent profile
+  profiles/default/       # shared read-only agent profile
 ```
 
-OPA sees `policy/` through a read-only bind and runs with file watch enabled.
+OPA sees the active Context's `contexts/<name>/policy/` through a read-only bind
+and runs with file watch enabled. `context use` changes the host selection; it
+does not silently restart a running cluster. If the cluster still uses the
+previous Context, the next root invocation fails closed and points to
+`tobari cluster up`.
 A read-only bind still reflects host changes; OPA does not need write authority
 over trusted policy. Some Docker hosts do not propagate host filesystem events
-to OPA watch reliably, so finish every deliberate edit with:
-
-```sh
-tobari policy apply
-```
-
-This tests the current host policy, recreates only the exact owned OPA
-container, and waits for health. Gateway remains up and fails closed during the
-brief activation interval; active Tobari are not restarted. Where file events
-do propagate, watch may make the change visible before this command completes,
-but `policy apply` remains the portable confirmation.
+to OPA watch reliably. Exact allow, deny, and compaction actions test their
+complete private policy copy, atomically update CLI-owned data, and recreate
+only the exact OPA component. Advanced host-authored edits remain explicit and
+are not part of the routine review queue.
 
 Use the policy directory as a trusted-host path when editing policy; do not
 mount its parent configuration directory into a Tobari:
 
 ```sh
-${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy/tobari.rego"
+${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/contexts/<name>/policy/tobari.rego"
 ```
 
-Keep the `policy/` subdirectory separate from the parent Tobari configuration
-directory. The parent also contains reserved managed-adapter metadata and
-secret files that must remain outside untrusted containers. Tool-native login
-state belongs in the selected instance home instead.
+Use `tobari context show` to discover the exact active Context and its policy
+path. Keep the Context's policy directory separate from its credential stores;
+those stores remain outside untrusted containers. For routine exact permission
+growth, use `tobari policy review` and `tobari policy allow` or `policy deny`; direct Rego editing
+is the advanced path. Tool-native login state belongs in the selected instance
+home instead.
 
 The initialized policy is generic HTTP policy, not a GitHub adapter. It starts
 deny-by-default, distinguishes HTTPS from explicitly allowed test-only HTTP,
@@ -533,11 +531,11 @@ Create an owner-only secret file on the trusted host:
 
 ```sh
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tobari"
-install -d -m 0700 "$config_dir/credentials"
-install -m 0600 /path/to/token "$config_dir/credentials/github-development"
+install -d -m 0700 "$config_dir/contexts/<name>/credentials"
+install -m 0600 /path/to/token "$config_dir/contexts/<name>/credentials/github-development"
 ```
 
-Configure metadata only in `credentials.json`:
+Configure metadata only in the active Context's `credentials.json`:
 
 ```json
 {

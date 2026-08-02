@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -26,6 +27,7 @@ type CLI struct {
 	catalog Catalog
 	doctor  *doctorcmd.Service
 	tobari  *tobaricmd.Service
+	context *contextcmd.Service
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
@@ -34,6 +36,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	runtime, err := dockerruntime.New()
 	if err == nil {
 		command.tobari = tobaricmd.NewWithWorkspaceSelector(runtime, newWorkspaceSelector())
+		command.context = contextcmd.New(runtime)
 	}
 	return command
 }

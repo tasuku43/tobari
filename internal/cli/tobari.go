@@ -541,7 +541,7 @@ func runAttach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Int
 	}
 	instance, err := c.tobari.Attach(
 		ctx, intent, inputs.One("--name"), inputs.One("--root"),
-		inputs.One("--image"), inputs.One("--devcontainer"),
+		inputs.One("--image"),
 	)
 	if err != nil {
 		return c.fail(ctx, err)

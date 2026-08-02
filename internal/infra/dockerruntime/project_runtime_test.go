@@ -152,6 +152,81 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 	t.Fatalf("EnterProjectRuntime() args = %v, missing --workdir", runner.runs[0].args)
 }
 
+func TestProjectContainerRootPreservesHostHomeRelativePath(t *testing.T) {
+	t.Parallel()
+	hostHome := t.TempDir()
+	projectRoot := filepath.Join(hostHome, "path", "to")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	containerRoot, err := projectContainerRootForHostHome(projectRoot, hostHome)
+	if err != nil {
+		t.Fatalf("projectContainerRootForHostHome() error = %v", err)
+	}
+	if containerRoot != "/var/lib/tobari/path/to" {
+		t.Fatalf("projectContainerRootForHostHome() = %q, want /var/lib/tobari/path/to", containerRoot)
+	}
+
+	nested := filepath.Join(projectRoot, "src")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workdir, err := mapProjectCWDToContainer(projectRoot, nested, containerRoot)
+	if err != nil {
+		t.Fatalf("mapProjectCWDToContainer() error = %v", err)
+	}
+	if workdir != "/var/lib/tobari/path/to/src" {
+		t.Fatalf("mapProjectCWDToContainer() = %q, want /var/lib/tobari/path/to/src", workdir)
+	}
+}
+
+func TestProjectContainerRootKeepsHostHomeExternalPathMapping(t *testing.T) {
+	t.Parallel()
+	hostHome := t.TempDir()
+	projectRoot := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	containerRoot, err := projectContainerRootForHostHome(projectRoot, hostHome)
+	if err != nil {
+		t.Fatalf("projectContainerRootForHostHome() error = %v", err)
+	}
+	canonicalRoot, err := canonicalPathWithMissing(projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/workspace" + filepath.ToSlash(canonicalRoot)
+	if containerRoot != want {
+		t.Fatalf("projectContainerRootForHostHome() = %q, want %q", containerRoot, want)
+	}
+}
+
+func TestProjectContainerRootRejectsHostHomeOrAncestor(t *testing.T) {
+	t.Parallel()
+	hostHome := t.TempDir()
+	for _, root := range []string{hostHome, filepath.Dir(hostHome)} {
+		if _, err := projectContainerRootForHostHome(root, hostHome); err == nil {
+			t.Fatalf("projectContainerRootForHostHome(%q) accepted a protected root", root)
+		}
+	}
+}
+
+func TestMapProjectCWDToContainerRejectsSibling(t *testing.T) {
+	t.Parallel()
+	hostHome := t.TempDir()
+	projectRoot := filepath.Join(hostHome, "project")
+	sibling := filepath.Join(hostHome, "project-other")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sibling, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mapProjectCWDToContainer(projectRoot, sibling, "/var/lib/tobari/project"); err == nil {
+		t.Fatal("mapProjectCWDToContainer() accepted a sibling path")
+	}
+}
+
 func TestDeleteProjectRemovesLogicalStateWhenRuntimeResourcesAreMissing(t *testing.T) {
 	t.Parallel()
 	runner := &recordingRunner{outputErr: errors.New("No such object")}

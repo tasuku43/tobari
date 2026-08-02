@@ -19,10 +19,20 @@ The trusted Gateway runtime selects `TOBARI_CREDENTIAL_ADAPTER`:
   policy allow.
 
 Selection is infrastructure configuration, not a user-facing provider login
-command. There is no implicit fallback from passthrough to managed injection.
+command in the current slice. There is no implicit fallback from passthrough to
+managed injection. If managed selection becomes user-facing later, it should
+become Context metadata so the adapter choice and its credential stores switch
+together; the adapter implementation and secret values must remain
+infrastructure-owned.
 The default path applies equally to GitHub CLI, AWS CLI, Claude, Codex, and any
 other tool that owns its authentication flow; these names are examples, not a
 provider-specific product boundary.
+
+The active Context is the host-facing composition boundary for managed
+credential metadata and secret paths. A Context never contains tool-native
+login state, and its display name or credential-profile name is not an
+authority. Project-principal and normalized-host binding checks remain the
+source of managed credential authority.
 
 ## Tool-native runtime flow
 

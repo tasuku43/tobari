@@ -310,6 +310,23 @@ func (r *Runtime) ResolveImageSelector(ctx context.Context, explicit string) (st
 	if explicit != "" {
 		return explicit, nil
 	}
+	if _, err := os.Lstat(r.activeContextPath()); err == nil {
+		name, activeErr := r.readActiveContext()
+		if activeErr != nil {
+			return "", activeErr
+		}
+		manifest, manifestErr := r.readContextManifest(name)
+		if manifestErr != nil {
+			return "", manifestErr
+		}
+		return manifest.Image, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect active Context: %w", err)
+	}
+	return r.configuredDefaultImage()
+}
+
+func (r *Runtime) configuredDefaultImage() (string, error) {
 	path := filepath.Join(r.configDirectory, "config.json")
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -605,26 +622,12 @@ func (r *Runtime) prepareState() (tobari.State, error) {
 	if err := runtimeassets.Materialize(runtimeDirectory); err != nil {
 		return tobari.State{}, err
 	}
-	policyDirectory := filepath.Join(r.configDirectory, "policy")
-	credentialDirectory := filepath.Join(r.configDirectory, "credentials")
-	credentialConfig := filepath.Join(r.configDirectory, "credentials.json")
-	for _, directory := range []string{policyDirectory, credentialDirectory} {
-		if err := r.ensurePrivateDirectory(directory); err != nil {
-			return tobari.State{}, fmt.Errorf("prepare configuration directory: %w", err)
-		}
+	manifest, stores, err := r.activeContext()
+	if err != nil {
+		return tobari.State{}, fmt.Errorf("prepare active Context: %w", err)
 	}
 	if err := r.ensureProjectPrincipalRegistry(); err != nil {
 		return tobari.State{}, fmt.Errorf("validate project principal registry: %w", err)
-	}
-	for _, name := range []string{"data.json", "tobari.rego", "tobari_test.rego"} {
-		if err := initializeFile(filepath.Join(policyDirectory, name), "opa/policy/"+name, 0o600); err != nil {
-			return tobari.State{}, err
-		}
-	}
-	if err := initializeBytes(
-		credentialConfig, []byte("{\n  \"version\": \"v1\",\n  \"profiles\": {}\n}\n"), 0o600,
-	); err != nil {
-		return tobari.State{}, err
 	}
 	if err := initializeBytes(
 		filepath.Join(r.configDirectory, "config.json"),
@@ -634,8 +637,9 @@ func (r *Runtime) prepareState() (tobari.State, error) {
 	}
 	state := tobari.State{
 		SchemaVersion: 2, RuntimeDirectory: runtimeDirectory,
-		PolicyDirectory: policyDirectory, CredentialConfig: credentialConfig,
-		CredentialDir: credentialDirectory, AssetVersion: version,
+		ContextName: manifest.Name, AgentProfile: manifest.AgentProfile,
+		PolicyDirectory: stores.PolicyDirectory, CredentialConfig: stores.CredentialConfig,
+		CredentialDir: stores.CredentialDirectory, AssetVersion: version,
 		ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
 	}
 	if err := state.Validate(); err != nil {
@@ -1373,6 +1377,21 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 		add("root_sharing", doctor.CheckStatusWarn, "no root was supplied")
 	}
 	state, exists, stateErr := r.LoadState(ctx)
+	storePaths := r.legacyContextStorePaths()
+	if stateErr == nil && exists {
+		storePaths = tobari.ContextStorePaths{
+			PolicyDirectory:     state.PolicyDirectory,
+			CredentialConfig:    state.CredentialConfig,
+			CredentialDirectory: state.CredentialDir,
+		}
+	} else {
+		var contextErr error
+		storePaths, contextErr = r.diagnosticContextStores()
+		if contextErr != nil {
+			add("context", doctor.CheckStatusFail, "active Context could not be inspected")
+			storePaths = r.legacyContextStorePaths()
+		}
+	}
 	if stateErr != nil {
 		add("state", doctor.CheckStatusFail, "Tobari state is invalid")
 	} else if exists {
@@ -1392,7 +1411,7 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 		}
 	} else {
 		add("state", doctor.CheckStatusWarn, "cluster is not configured")
-		policyDirectory := filepath.Join(r.configDirectory, "policy")
+		policyDirectory := storePaths.PolicyDirectory
 		if _, err := os.Lstat(policyDirectory); errors.Is(err, os.ErrNotExist) {
 			add("policy", doctor.CheckStatusWarn, "policy will be initialized by cluster up")
 		} else if err != nil {
@@ -1405,12 +1424,12 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 			add("policy", doctor.CheckStatusPass, "OPA policy tests passed")
 		}
 	}
-	if err := r.checkCredentialPermissions(); err != nil {
+	if err := r.checkCredentialPermissionsAt(storePaths.CredentialDirectory); err != nil {
 		add("credentials", doctor.CheckStatusFail, err.Error())
 	} else {
 		add("credentials", doctor.CheckStatusPass, "credential files have safe Unix modes")
 	}
-	if detail, status := r.checkCredentialConfig(); status != doctor.CheckStatusPass {
+	if detail, status := r.checkCredentialConfigAt(storePaths.CredentialConfig); status != doctor.CheckStatusPass {
 		add("credential_config", status, detail)
 	} else {
 		add("credential_config", doctor.CheckStatusPass, detail)
@@ -1434,7 +1453,14 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 }
 
 func (r *Runtime) checkCredentialConfig() (string, doctor.CheckStatus) {
-	path := filepath.Join(r.configDirectory, "credentials.json")
+	paths, err := r.diagnosticContextStores()
+	if err != nil {
+		return "active Context could not be inspected", doctor.CheckStatusFail
+	}
+	return r.checkCredentialConfigAt(paths.CredentialConfig)
+}
+
+func (r *Runtime) checkCredentialConfigAt(path string) (string, doctor.CheckStatus) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return "configuration will be initialized by cluster up", doctor.CheckStatusWarn
@@ -1497,7 +1523,14 @@ func (r *Runtime) checkCredentialConfig() (string, doctor.CheckStatus) {
 }
 
 func (r *Runtime) checkCredentialPermissions() error {
-	directory := filepath.Join(r.configDirectory, "credentials")
+	paths, err := r.diagnosticContextStores()
+	if err != nil {
+		return err
+	}
+	return r.checkCredentialPermissionsAt(paths.CredentialDirectory)
+}
+
+func (r *Runtime) checkCredentialPermissionsAt(directory string) error {
 	info, err := os.Lstat(directory)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil

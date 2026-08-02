@@ -58,7 +58,9 @@ and explicit policy activation rather than an observed host-only approval.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
 - **root:** the canonical host directory selected from the current working
-  directory and mounted read-write into one Tobari at `/workspace`.
+  directory and mounted read-write into one Tobari. A root below the host home
+  is mounted at the same relative path below `/var/lib/tobari`; a root outside
+  the host home uses the mirrored `/workspace` path.
 - **Tobari home:** a per-Tobari persistent owner-only XDG state directory
   mounted as the work user's home.
 - **Tobari image:** the minimal built-in runtime or one locally available
@@ -75,6 +77,12 @@ and explicit policy activation rather than an observed host-only approval.
   one Tobari's persistent home during its own login or configuration flow.
 - **credential profile:** non-secret Gateway configuration for the retained
   managed adapter; it binds a profile to exact hosts and project principals.
+- **Context:** one host-selected logical execution setup. Its manifest
+  references an agent profile, a compatible Tobari runtime image, a policy
+  store, and managed-credential stores; those stores remain physically
+  separated by trust boundary.
+- **agent profile:** read-only non-secret shared agent configuration referenced
+  by a Context. It is not tool-owned login state.
 
 The stable Tobari ID is not trusted when supplied by a work container. The
 host-owned principal registry derives it from the Gateway interface that
@@ -104,7 +112,10 @@ The public commands are:
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
-| `policy apply` | act, fixed target | write | Test host policy and activate it in the exact shared OPA component |
+| `context list [--format text|json]` | utility | read | List named Contexts and identify the active execution setup |
+| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's agent, policy, and credential-store references |
+| `context create --name NAME [--image IMAGE] [--mode guided|advanced]` | act, fixed target | create | Create one named Context with a runtime image and separate owner-only stores |
+| `context use --name NAME` | act, fixed target | write | Select one Context on the trusted host for the shared cluster |
 
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
 It does not silently create state in a non-interactive context. When the
@@ -135,9 +146,13 @@ undeclared Docker mutation by the CLI.
   trusted active policy/configuration paths are protected.
 - An explicit create choice uses the canonical current directory as root.
   Project moves and copies are not inferred or recorded in the project tree.
-- The selected root is mounted at `/workspace/<canonical-root-without-leading-slash>`
-  and the container workdir mirrors the host CWD below that path. Thus a root
-  at `/work` and a host CWD of `/work/root` enter at `/workspace/work/root`.
+- The selected root is the only project directory mounted read-write. When it
+  is below the host home, the container target preserves the relative path
+  below `HOME=/var/lib/tobari`; for example, a host root of
+  `$HOME/path/to` enters at `/var/lib/tobari/path/to`. A root outside
+  the host home retains `/workspace/<canonical-root-without-leading-slash>`;
+  thus a root at `/work` and a host CWD of `/work/root` enter at
+  `/workspace/work/root`. Tobari never mounts the host home wholesale.
 - The configured image accepts `builtin` or a portable OCI image reference. A
   custom image must already exist locally and preserve runtime API `1`, the
   `tobari` image user, the `io.tobari.runtime-lifetime-command` capability, and
@@ -155,12 +170,10 @@ undeclared Docker mutation by the CLI.
   family, with tags such as
   `claude.2.1.34-base.0.1.0-r1`. They add the agent tool and only its
   agent-specific dependencies; they do not create a second authority boundary.
-- An explicitly configured Dev Container file is one regular file below the
-  canonical root. The supported JSONC subset requires
-  one literal `image` and permits only inert `$schema`, `name`, and
-  `customizations` metadata. Dockerfile, Compose, Features, mounts,
-  environment, user, privileges, capabilities, ports, and lifecycle properties
-  are rejected rather than ignored.
+- Project metadata does not select or alter the runtime image. New Workspaces
+  use the active Context image, or an explicitly supplied `--image` for the
+  legacy named lifecycle command; all selected images still pass the same
+  compatibility checks before Docker mutation.
 - Shared cluster mutations use one command-bound `tool_local` target and are
   never performed by the root `tobari` operation.
 - CWD-local lifecycle operations use one command-bound `tool_local` current
@@ -296,16 +309,25 @@ Configuration is resolved from
 `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on both macOS and Linux:
 
 - `config.json`: schema-v1 default Tobari image selector;
-- `policy/`: Rego and data mounted read-only into OPA and watched for host edits;
-- `credentials.json`: reserved schema-v1 profile metadata for the explicitly
-  selected managed Gateway adapter;
+- `contexts/<name>/context.json`: host-owned Context manifest with the named
+  agent profile, compatible Tobari runtime image selector, and guided/advanced
+  policy mode;
+- `contexts/<name>/policy/`: Rego and data for that Context, mounted read-only
+  into OPA and watched for host edits;
+- `contexts/<name>/credentials.json`: reserved schema-v1 profile metadata for
+  the explicitly selected managed Gateway adapter;
+- `contexts/<name>/credentials/`: reserved managed-adapter secret files for
+  that Context, never mounted into a Workspace;
+- `contexts/active.json`: owner-only active Context selection; missing means
+  `default`;
 - `principal-registry/principals.json`: owner-only host-issued schema-v1
   project-to-Gateway-network bindings, maintained by lifecycle reconciliation
   and directory-mounted read-only into Gateway so atomic host updates remain
   visible without exposing credential files;
-- `credentials/`: reserved managed-adapter secret files, required to be
-  regular owner-readable files with no group/other permissions. The default
-  passthrough adapter does not load them;
+- Legacy top-level `policy/`, `credentials.json`, and `credentials/` are read
+  only during the one-time default Context compatibility migration and remain
+  untouched for rollback/diagnosis. The default passthrough adapter does not
+  load managed credential files;
 
 Tool authentication state is not cluster configuration. It belongs below the
 selected instance's persistent home and is created by the tool's own login or
@@ -315,11 +337,12 @@ Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`:
 `roots/<hash>.json` indexes canonical roots and
 `instances/<id>/state.json` contains one logical instance and diagnostic runtime
 identifiers. `instances/<id>/home` is the writable home for tool-owned state.
-Shared read-only agent profiles are under
+Shared read-only agent profiles referenced by Contexts are under
 `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles`.
-Cluster state contains paths and Docker resource names or identifiers, never
-credential contents; managed credential paths are reserved for the managed
-adapter, while the per-Tobari home may contain tool credentials by design.
+Cluster state contains the active Context name, resolved store paths, and
+Docker resource names or identifiers, never credential contents; managed
+credential paths are reserved for the managed adapter, while the per-Tobari
+home may contain tool credentials by design.
 Project and cluster mutation journals are durable recovery markers;
 an interrupted marker makes the next observation fail closed or reconcile only
 the exact incomplete record.
@@ -327,9 +350,10 @@ Environment variables select only XDG locations and test/runtime overrides
 documented in scoped help; they do not carry managed token values and Tobari
 does not copy host credential values into the runtime environment.
 
-Image selection uses configured bounded image metadata, then
-`config.json.default_image`, then `builtin` when configuration has not yet been
-initialized. Project metadata can select only a literal compatible image.
+Image selection uses the active Context's bounded runtime image selector. The
+legacy `config.json.default_image` seeds the default Context once, and `builtin`
+is used when no legacy setting exists. Project metadata does not override the
+Context image.
 
 OPA reads the policy bind with `--watch`. Exact policy mutations test a private
 complete policy copy and activate only the exact owned OPA component; host

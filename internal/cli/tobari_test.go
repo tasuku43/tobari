@@ -38,9 +38,6 @@ func (f *policyReviewRuntimeFake) IsInputTerminal(io.Reader) bool { return f.ter
 func (f *policyReviewRuntimeFake) ResolveImageSelector(context.Context, string) (string, error) {
 	return "test-image", nil
 }
-func (f *policyReviewRuntimeFake) ReadDevContainer(context.Context, string, string) (tobari.DevContainerConfig, error) {
-	return tobari.DevContainerConfig{}, nil
-}
 func (f *policyReviewRuntimeFake) ClusterUp(context.Context) (tobari.State, error) {
 	return f.state, nil
 }
@@ -95,7 +92,6 @@ func (f *policyReviewRuntimeApplyingFake) ApplyLearnedPolicyRules(
 	f.rules = append([]tobari.LearnedPolicyRule{}, updated...)
 	return nil
 }
-
 func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
@@ -155,6 +151,19 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 		compact.Agent.Mutation.TargetKind != tobari.PolicyCompactionKind ||
 		compact.Agent.Mutation.TargetIDInput != "--id" {
 		t.Fatalf("policy compact reference contract = %+v", compact)
+	}
+}
+
+func TestDefaultCatalogDoesNotPublishDevContainerRuntimeSelection(t *testing.T) {
+	t.Parallel()
+	catalog := DefaultCatalog()
+	if _, found := catalog.Lookup("attach"); found {
+		t.Fatal("retired named attach command is still public")
+	}
+	for _, command := range catalog.Commands() {
+		if strings.Contains(strings.ToLower(command.Usage()), "devcontainer") {
+			t.Fatalf("public command %q still exposes Dev Container input: %q", command.Path, command.Usage())
+		}
 	}
 }
 

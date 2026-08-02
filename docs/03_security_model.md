@@ -78,7 +78,11 @@ Only the selected root and that Tobari's exact XDG-owned home directory are
 mounted writable. The project-root resolver rejects filesystem root, the user's
 home and its ancestors, and paths overlapping XDG configuration, state, or
 shared-profile management directories, Docker sockets, and Docker management
-paths. Policy source repositories remain allowed; the active host policy,
+paths. For a project below the host home, the selected root may be nested below
+the container home path `/var/lib/tobari`, but the host home itself is never
+mounted. A bind mount masks image-layer contents at its destination without
+deleting them; runtime compatibility therefore keeps executable and package
+assets outside the mutable home. Policy source repositories remain allowed; the active host policy,
 principal registry, and reserved managed credential files are separate trusted
 assets and are never selected as project roots. Publishing or applying a source
 to active policy is an explicit trusted-host operation; entering that source
@@ -120,16 +124,11 @@ result contains no credentials, copies no host CLI configuration, inherits the
 same untrusted custom-image treatment, and receives no Docker socket or direct
 egress.
 
-The XDG `config.json` image default is a strict, bounded, owner-only regular
-file. Bounded project metadata may select only a literal compatible image.
-Malformed defaults fail before Docker resource creation.
-
-A Dev Container file is untrusted project data. Tobari reads only configured
-metadata contained by the selected root, with a fixed size limit and no variable or
-environment substitution. Only a literal compatible image is consumed.
-Properties that could request builds, Compose services, Features, commands,
-mounts, environment, users, privileges, capabilities, or ports fail before
-Docker mutation.
+The active Context's runtime image selector is strict, bounded, and stored in
+the owner-only Context manifest. The legacy XDG `config.json` image default is
+used only to seed the default Context during compatibility initialization.
+Project metadata cannot select or alter the runtime image, so untrusted project
+files cannot introduce a second image or execution-boundary authority.
 
 Project runtime readiness is an explicit healthcheck boundary. Enter waits for
 healthy rather than treating a running or healthcheck-less container as ready;
@@ -207,14 +206,15 @@ and are best-effort host stderr output.
 ## Credentials
 
 The default `passthrough` adapter uses tool-owned authentication state created
-below the selected Tobari's `HOME=/var/lib/tobari`. It redacts client
+below the selected Tobari's `HOME=/var/lib/tobari`. A Context does not contain
+or copy this state. It redacts client
 authentication and cookie values from OPA input and audit, preserves them until
 policy allow, then forwards them upstream. It strips proxy and Tobari control
 headers and never reads managed credential files.
 
 The retained `managed` adapter uses static bearer or fixed-header secrets
-supplied through owner-only host files. Secret files are mounted read-only into
-Gateway only. Configuration contains a profile type, exact allowed hosts,
+supplied through the active Context's owner-only host files. Secret files are
+mounted read-only into Gateway only. Configuration contains a profile type, exact allowed hosts,
 explicit project IDs, and a container secret path; it never contains the secret
 value. The host-owned `principal-registry/principals.json` registry binds each
 project ID to one exact Gateway network. Its dedicated directory is mounted
@@ -236,9 +236,9 @@ value is never returned to Tobari, OPA, CLI output, errors, or audit logs.
 OAuth, refresh tokens, provider SDKs, OS keychains, request signing, and
 process-level identity are not used. The optional `session` value remains
 caller metadata, not authentication. Gateway performs project- and host-bound
-post-authorization handling inside the trusted infrastructure boundary. The
-initialized host policy is an installation-wide baseline; the learned-rule and
-managed-secret namespaces are project-bound. A missing,
+ post-authorization handling inside the trusted infrastructure boundary. The
+ initialized policy belongs to the active Context; the learned-rule and
+ managed-secret namespaces remain project-bound. A missing,
 malformed, ambiguous, or stale principal registry entry denies before OPA and
 upstream I/O.
 
@@ -329,8 +329,8 @@ learned allow or exact deny rule.
 | One Tobari cannot consume unbounded CPU, memory, PIDs, or container logs | Fixed create-argv and spec-hash tests plus runtime HostConfig assertions |
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
 | Optional toolbox artifacts retain reviewed identity | Pinned versions, vendor checksum or signature verification, and explicit build validation |
-| Dev Container metadata cannot become a second runtime boundary | Contained bounded parser, unsupported-property tests, and fixed runtime adapter |
-| OPA cannot rewrite host policy | Read-only mount-spec test |
+| Project metadata cannot become a second runtime boundary | Context-only image resolution, ignored-project-metadata regression test, and fixed runtime adapter |
+| OPA cannot rewrite Context policy | Read-only mount-spec test |
 | Tested host policy activates across Docker hosts | Fixed-target OPA recreation test and integration scenario |
 | CWD lifecycle actions use exact Tobari identity | Canonical-root, state, and label-validation tests |
 | One canonical root has one Workspace | Root-index hash naming, locked exact-root checks, domain duplicate-index validation, and concurrent explicit-creation tests |

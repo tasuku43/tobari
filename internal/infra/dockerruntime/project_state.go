@@ -255,7 +255,7 @@ func (r *Runtime) CreateProject(ctx context.Context, cwd string) (tobari.Project
 }
 
 func (r *Runtime) createProjectUnlocked(ctx context.Context, resolved string) (tobari.ProjectInstance, error) {
-	image, imageErr := r.resolveProjectImage(ctx, resolved)
+	image, imageErr := r.resolveContextImage(ctx)
 	if imageErr != nil {
 		return tobari.ProjectInstance{}, imageErr
 	}
@@ -401,33 +401,19 @@ func (r *Runtime) removeIncompleteProject(journal projectJournal, indexPath stri
 	return r.clearProjectJournal()
 }
 
-func (r *Runtime) resolveProjectImage(ctx context.Context, root string) (string, error) {
-	image, err := r.ResolveImageSelector(ctx, "")
-	if err != nil {
-		return "", err
+func (r *Runtime) resolveContextImage(ctx context.Context) (string, error) {
+	manifest, _, contextErr := r.activeContext()
+	image := tobari.BuiltinImageSelector
+	if contextErr == nil {
+		image = manifest.Image
+	} else {
+		var imageErr error
+		image, imageErr = r.ResolveImageSelector(ctx, "")
+		if imageErr != nil {
+			return "", imageErr
+		}
 	}
-	path := filepath.Join(root, ".devcontainer", "devcontainer.json")
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return image, nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("inspect project Dev Container file: %w", err)
-	}
-	if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("project Dev Container path is unsafe")
-	}
-	config, err := r.ReadDevContainer(ctx, root, path)
-	if err != nil {
-		return "", err
-	}
-	if unsupported := config.UnsupportedProperties(); len(unsupported) != 0 {
-		return "", fmt.Errorf("project Dev Container contains unsupported properties: %s", strings.Join(unsupported, ", "))
-	}
-	if err := config.Validate(); err != nil {
-		return "", err
-	}
-	return config.Image, nil
+	return image, nil
 }
 
 // ListProjects returns every valid logical Tobari record ordered by root.

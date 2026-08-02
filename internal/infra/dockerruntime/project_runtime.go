@@ -105,7 +105,11 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err := r.ensurePrivateDirectory(r.projectHomePath(stored.ID)); err != nil {
 			return fmt.Errorf("prepare project home: %w", err)
 		}
-		profile, err := r.ensureSharedProfile(stored.Profile)
+		agentProfile := state.AgentProfile
+		if agentProfile == "" {
+			agentProfile = stored.Profile
+		}
+		profile, err := r.ensureSharedProfile(agentProfile)
 		if err != nil {
 			return err
 		}
@@ -237,7 +241,7 @@ func (r *Runtime) EnterProjectRuntime(
 	if err != nil {
 		return 0, err
 	}
-	workdir, err := tobari.MapProjectCWD(instance.Root, resolved)
+	workdir, err := r.projectContainerCWD(instance.Root, resolved)
 	if err != nil {
 		return 0, err
 	}
@@ -392,7 +396,7 @@ func (r *Runtime) ensureProjectContainer(
 	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
 	profile, container, network, image, specHash string,
 ) error {
-	workspaceRoot, err := tobari.ProjectWorkspaceRoot(instance.Root)
+	workspaceRoot, err := r.projectContainerRoot(instance.Root)
 	if err != nil {
 		return err
 	}
@@ -445,8 +449,8 @@ func (r *Runtime) ensureProjectContainer(
 		"--env", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
 		"--env", "REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem",
 		"--env", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
-		"--mount", "type=bind,src=" + instance.Root + ",dst=" + workspaceRoot,
 		"--mount", "type=bind,src=" + r.projectHomePath(instance.ID) + ",dst=/var/lib/tobari",
+		"--mount", "type=bind,src=" + instance.Root + ",dst=" + workspaceRoot,
 		"--mount", "type=bind,src=" + profile + ",dst=/opt/tobari/profile,readonly",
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "skills") + ",dst=/var/lib/tobari/.claude/skills,readonly",
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "agents") + ",dst=/var/lib/tobari/.claude/agents,readonly",
@@ -555,7 +559,7 @@ func (r *Runtime) projectSpecHashWithCommand(
 	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
 	command []string,
 ) (string, error) {
-	workspaceRoot, err := tobari.ProjectWorkspaceRoot(instance.Root)
+	workspaceRoot, err := r.projectContainerRoot(instance.Root)
 	if err != nil {
 		return "", err
 	}
@@ -577,8 +581,8 @@ func (r *Runtime) projectSpecHashWithCommand(
 			"REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
 		},
 		Mounts: []string{
-			"bind:" + instance.Root + "->" + workspaceRoot,
 			"bind:" + r.projectHomePath(instance.ID) + "->/var/lib/tobari",
+			"bind:" + instance.Root + "->" + workspaceRoot,
 			"bind:" + profile + "->/opt/tobari/profile:ro",
 			"bind:" + filepath.Join(profile, "claude", "skills") + "->/var/lib/tobari/.claude/skills:ro",
 			"bind:" + filepath.Join(profile, "claude", "agents") + "->/var/lib/tobari/.claude/agents:ro",
@@ -730,8 +734,8 @@ func (r *Runtime) verifyOwnedProjectResource(ctx context.Context, kind, name, id
 }
 
 func (r *Runtime) ensureSharedProfile(profile string) (string, error) {
-	if profile != tobari.DefaultProfile {
-		return "", fmt.Errorf("unsupported project profile")
+	if err := tobari.ValidateName(profile); err != nil {
+		return "", fmt.Errorf("unsupported agent profile: %w", err)
 	}
 	if err := r.ensurePrivateDirectory(r.dataDirectory); err != nil {
 		return "", fmt.Errorf("prepare shared profile data directory: %w", err)

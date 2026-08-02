@@ -18,8 +18,9 @@ journey is the product baseline to improve:
 | First isolated session | `doctor`, explicit `cluster up`, then `tobari` | One obvious CWD-first entry with cluster/bootstrap complexity guided or hidden while retaining an explicit recovery command |
 | Agent work | Reusable root, home, and deny-by-default Gateway | The user sets the boundary first; the agent works freely inside it without per-command supervision, host credentials, or direct egress |
 | First denied request | 403 plus host-side `policy review` | The agent can explain that the host must review the secret-free exact request; one fixed next command is available |
-| Permission growth | Human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` | TTY users select, inspect, explicitly confirm, and refresh after one exact allow without OPA/Rego editing; redirected review remains read-only and the underlying action remains exact-reference-bound and tested |
-| Advanced policy | Edit trusted-host Rego and run `policy apply` | Remains an explicit escape hatch, never a prerequisite for routine success |
+| Permission growth | Human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users select, inspect, explicitly confirm, and refresh after one exact decision without OPA/Rego editing; redirected review remains read-only and the underlying action remains exact-reference-bound and tested |
+| Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
+| Execution setup | `context list`, `context show`, `context use --name NAME` | The user can inspect and select one logical setup while policy, agent configuration, and credential stores remain physically separated |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
 
 The table is a review baseline, not a claim that the desired command count is
@@ -44,6 +45,9 @@ go build -o /tmp/tobari ./cmd/tobari
 (cd /absolute/test/root && /tmp/tobari status --format json)
 (cd /absolute/test/root && /tmp/tobari list --format json)
 go run ./cmd/tobari cluster denials --tail 100 --format json
+go run ./cmd/tobari context show --format json
+go run ./cmd/tobari context list --format json
+go run ./cmd/tobari context use --name default
 go run ./cmd/tobari policy review --tail 100
 go run ./cmd/tobari policy candidates --tail 100 --format json
 go run ./cmd/tobari policy allow --id PCY_ID
@@ -61,15 +65,17 @@ rules exist. The transcript must prove:
 - Root agent help is a compact outcome/capability index.
 - Scoped help supplies inputs, outputs, prerequisites, effects, references,
   failures, and recovery commands.
+- Context discovery identifies the active Context and its separated agent,
+  policy, and credential stores without exposing secret values.
 - Cluster startup mounts no work root.
 - The root command binds the canonical current directory and a compatible local
   image selector without a name or root flag; an ancestor-root entry exposes all
   containing Workspaces nearest-first and requires an explicit reuse/create
   choice.
-- Omitted image selection resolves from the XDG default and then `builtin`
+- Omitted image selection resolves from the active Context's runtime image; the
+  legacy XDG default seeds the default Context and then `builtin` is used,
   without requiring source inspection.
-- An explicit image-based Dev Container file resolves within the selected root;
-  unsupported runtime metadata returns one stable recovery fault.
+- Project metadata does not override the active Context image.
 - `list` retains an explicitly exhaustive local collection, including empty,
   while preserving diagnostic IDs without making them action inputs.
 - `status` and `delete` resolve the same nearest canonical ancestor; `tobari`
@@ -164,8 +170,7 @@ At minimum, exercise:
   Docker mutation and directs the user to retry or choose again;
 - invalid, missing, incompatible, or conflicting image selection before Docker
   resource creation;
-- escaping, malformed, ambiguous, oversized, or unsupported Dev Container
-  configuration before Docker mutation;
+- invalid or incompatible Context image configuration before Docker mutation;
 - malformed or legacy state;
 - invalid Rego before cluster reconciliation;
 - invalid Rego before policy activation and exact OPA-only recreation after a

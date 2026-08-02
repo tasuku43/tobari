@@ -71,6 +71,24 @@ read-only. `policy candidates` is the machine discovery surface and
 composition while preserving discover/act separation: the act still consumes
 exactly one validated opaque reference or one declared fixed target.
 
+### Context composition
+
+Context is the user-facing composition layer for the execution boundary. A
+trusted manifest names the compatible runtime image, read-only agent profile,
+the Context policy directory, and the managed-credential metadata/secret stores. The manifest is
+not itself a mountable authority: policy is mounted only into OPA, managed
+secrets are mounted only into Gateway, and agent configuration is mounted
+read-only into the work runtime. Tool-owned authentication remains in the
+per-Workspace home.
+
+The first implementation has one active Context for the shared cluster. Cluster
+state records the active Context and resolved paths, and project runtime
+reconciliation uses its agent-profile reference and digest. `context use` is a
+host mutation; changing the marker while a cluster is running creates a
+declared active-context mismatch until `cluster up` reconciles the exact shared
+components. Per-Workspace Context routing is deferred because it would require
+explicit OPA routing, learned-rule scope, and project-principal decisions.
+
 ## Runtime assets
 
 The Go binary embeds a versioned runtime tree:
@@ -147,24 +165,30 @@ and `/opt/tobari` paths; `/var/lib/tobari` contains only per-Tobari home state
 and is safe to replace with the persistent home bind. Their workflows do not
 publish agent tags until redistribution and license review is complete.
 
-The root resolver obtains an image from bounded project metadata or the strict
-owner-only XDG `config.json` `default_image`; absence before first initialization
-falls back to `builtin`. The resolved selector, rather than the source of the
-default, is persisted on the logical Tobari.
+The root resolver obtains the image from the active Context's strict manifest.
+Before the default Context exists, the owner-only XDG `config.json`
+`default_image` seeds that manifest; absence falls back to `builtin`. The
+resolved selector, rather than the source of the default, is persisted on the
+logical Tobari. Project metadata is not consulted for runtime selection.
+
+Project runtime path mapping is owned by the Docker adapter. The selected root
+is mounted read-write exactly once. If its canonical path is below the host
+home, the adapter maps the host-home-relative suffix below `/var/lib/tobari`;
+otherwise it uses the mirrored `/workspace` path. The per-Workspace home mount
+is established before a nested project mount, and the runtime image contract
+keeps executable and package assets in `/usr/local/bin` or `/opt/tobari`, not
+below `/var/lib/tobari`.
 
 The shared Gateway and OPA Compose services use fixed CPU, memory-plus-swap,
 PID, and JSON-file log rotation bounds (`10m` per file, three files) so one
 project cannot grow shared service resources without a cap. These are shared
 service ceilings, not per-project fairness controls.
 
-An explicit Dev Container path is resolved after the root and must remain
-inside it after symlink evaluation. Infrastructure reads at most 256 KiB,
-normalizes JSON-with-comments and trailing commas, and rejects duplicate keys.
-It returns typed image metadata to application; application rejects every
-top-level property outside `image`, `$schema`, `name`, and `customizations`.
-The selected literal image then uses the same local compatibility inspection.
-Tobari does not invoke the Dev Container CLI or transfer container creation to
-a second orchestrator.
+Project metadata is not a runtime adapter. Tobari does not interpret
+`.devcontainer` files, invoke the Dev Container CLI, or transfer container
+creation to a second orchestrator. A future runtime-import or runtime-build
+capability would need to attach explicitly to Context operations rather than
+introduce a second implicit image authority.
 
 ## Lifecycle model
 

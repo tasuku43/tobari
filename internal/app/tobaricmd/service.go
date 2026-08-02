@@ -91,6 +91,10 @@ type lifecycleRuntimePort interface {
 	WithLifecycleLock(context.Context, func(context.Context) error) error
 }
 
+type activeContextRuntimePort interface {
+	ActiveContextName(context.Context) (string, error)
+}
+
 type ownedPolicy struct{}
 
 func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
@@ -251,6 +255,26 @@ func (s *Service) readyCluster(ctx context.Context) (tobari.State, error) {
 			"the shared cluster is not ready; repair it with an explicit cluster operation", false,
 			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster explicitly."},
 		)
+	}
+	if activeContext, ok := s.runtime.(activeContextRuntimePort); ok {
+		active, activeErr := activeContext.ActiveContextName(ctx)
+		if activeErr != nil {
+			return tobari.State{}, fault.Wrap(
+				fault.KindInternal, "context_read_failed", "the active Context could not be read", false, activeErr,
+				fault.NextAction{Command: "context show", Reason: "Inspect the selected Context before entering a Tobari."},
+			)
+		}
+		storedContext := state.ContextName
+		if storedContext == "" {
+			storedContext = tobari.DefaultContextName
+		}
+		if active != storedContext {
+			return tobari.State{}, fault.New(
+				fault.KindRejected, "context_mismatch",
+				"the shared cluster uses a different Context than the host selection", false,
+				fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared cluster with the selected Context."},
+			)
+		}
 	}
 	return state, nil
 }
@@ -782,35 +806,15 @@ func (s *Service) Attach(
 		}
 		return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "Tobari root is invalid", false, err)
 	}
-	if devcontainer != "" {
-		config, readErr := s.runtime.ReadDevContainer(ctx, resolved, devcontainer)
-		if readErr != nil {
-			if contextErr := ctx.Err(); contextErr != nil {
-				return tobari.Instance{}, contextErr
-			}
-			return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_devcontainer", "Dev Container configuration is invalid", false, readErr)
+	image, err = s.runtime.ResolveImageSelector(ctx, image)
+	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return tobari.Instance{}, contextErr
 		}
-		if len(config.UnsupportedProperties()) != 0 {
-			return tobari.Instance{}, fault.New(
-				fault.KindUnsupported, "unsupported_devcontainer",
-				"Dev Container configuration contains runtime properties outside Tobari's image-based subset", false,
-			)
+		if _, structured := fault.PublicCopy(err); structured {
+			return tobari.Instance{}, err
 		}
-		if err := config.Validate(); err != nil {
-			return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_devcontainer", "Dev Container configuration is invalid", false, err)
-		}
-		image = config.Image
-	} else {
-		image, err = s.runtime.ResolveImageSelector(ctx, image)
-		if err != nil {
-			if contextErr := ctx.Err(); contextErr != nil {
-				return tobari.Instance{}, contextErr
-			}
-			if _, structured := fault.PublicCopy(err); structured {
-				return tobari.Instance{}, err
-			}
-			return tobari.Instance{}, fault.Wrap(fault.KindRejected, "invalid_image_config", "default Tobari image configuration is invalid", false, err)
-		}
+		return tobari.Instance{}, fault.Wrap(fault.KindRejected, "invalid_image_config", "default Tobari image configuration is invalid", false, err)
 	}
 	if err := tobari.ValidateImageSelector(image); err != nil {
 		return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_image", "Tobari image selector is invalid", false, err)

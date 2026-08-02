@@ -33,5 +33,10 @@
     "id": "system.diagnostics",
     "status": "public",
     "reason": ""
+  },
+  {
+    "id": "context.composition",
+    "status": "public",
+    "reason": ""
   }
 ]

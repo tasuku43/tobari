@@ -277,16 +277,22 @@ The test suite has complementary levels:
   options and the Tobari-owned lifetime command, include that contract in drift
   hashing, and the Docker integration scenario inspects those limits after
   creation and recovery.
-- Dev Container tests cover comments, trailing commas, duplicate keys, size and
-  symlink escape, unsupported runtime properties, input conflicts, and one
-  image-based Docker integration path.
-- Policy-learning integration projects a denial, edits the host XDG policy and
-  its test, activates it through the fixed-target command, and observes the
-  changed decision without restarting any Tobari.
+- Context image tests cover manifest selection, legacy seeding, invalid image
+  rejection, and the fact that project metadata cannot override the active
+  runtime image.
+- Policy-learning integration projects baseline and learnable denials, proves
+  baseline denies stay out of the actionable queue, and exercises exact allow
+  and deny activation through reference-bound commands without restarting any
+  Tobari.
 - Gateway contract tests verify that a learnable denial carries only the fixed
   host-side review navigation, while non-learnable and infrastructure failures
   do not invite approval. Session lifecycle tests verify that the aggregate
   pending-permission summary stays on host stderr and is best-effort.
+- Context contract tests verify named manifest validation, owner-only separate
+  stores, one-time legacy default migration, active selection, and explicit
+  cluster-reconcile recovery after a Context change. Runtime tests verify that
+  Context policy reaches OPA, the selected agent profile reaches the project
+  as read-only data, and managed credential values remain Gateway-only.
 - The human permission path is exercised through `policy review`; its TTY
   Permission Inbox covers bounded selection, detail inspection, explicit
   allow/deny confirmation, cancellation, and refresh after each decision. It
@@ -351,10 +357,11 @@ Every strong statement should identify its enforcement path.
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
 | Agent executable/home separation | Runtimechecker path assertions, local image builds with a home overlay, and Tobari smoke tests for each agent command |
 | Shared runtime resource bounds | Fixed project create-argv, resource-aware spec hash, and Docker HostConfig integration assertions |
-| Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |
+| Context runtime boundary | Context manifest tests, compatibility validation, and ignored-project-metadata regression |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
+| Context composition and selection | Manifest/domain tests, catalog effect/target contracts, owner-only atomic store tests, legacy migration fixtures, active-context drift checks, and agent-readiness transcript |
 | Typed denial recovery | Strict host/port audit projection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
-| Explicit policy learning | OPA scheme/port learnability classification, project/host/port/method/path candidate/reference domain validation, discover-act graph and round trip, human review without hand-authored OPA/Rego, strict atomic XDG writer, preflight ordering, and Docker retry |
+| Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, project/host/port/method/path candidate/reference domain validation, discover-act graph and allow/deny round trips, human review without hand-authored OPA/Rego, strict atomic XDG writer, preflight ordering, and Docker retry |
 | Bounded policy compaction | Pure deterministic same-project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |
 | Project principal and credential scope | Owner-only atomic registry schema, local-interface derivation, forged-session and unknown-principal denial, passthrough default/managed profile adapter tests, cross-project Rego canary, and two-project Docker integration |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |

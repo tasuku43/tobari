@@ -169,8 +169,12 @@ func (i Instance) Validate() error {
 
 // State is the secret-free persisted identity of one cluster and its Tobari.
 type State struct {
-	SchemaVersion    int        `json:"schema_version"`
-	RuntimeDirectory string     `json:"runtime_directory"`
+	SchemaVersion    int    `json:"schema_version"`
+	RuntimeDirectory string `json:"runtime_directory"`
+	// ContextName is empty only for legacy schema-2 state; infrastructure
+	// interprets that value as the default Context during migration.
+	ContextName      string     `json:"context_name,omitempty"`
+	AgentProfile     string     `json:"agent_profile,omitempty"`
 	PolicyDirectory  string     `json:"policy_directory"`
 	CredentialConfig string     `json:"credential_config"`
 	CredentialDir    string     `json:"credential_directory"`
@@ -196,6 +200,16 @@ func (s State) Validate() error {
 	}
 	if s.AssetVersion == "" || strings.ContainsAny(s.AssetVersion, " \t\r\n") {
 		return fmt.Errorf("asset version is invalid")
+	}
+	if s.ContextName != "" {
+		if err := ValidateName(s.ContextName); err != nil {
+			return fmt.Errorf("context name: %w", err)
+		}
+	}
+	if s.AgentProfile != "" {
+		if err := ValidateName(s.AgentProfile); err != nil {
+			return fmt.Errorf("agent profile: %w", err)
+		}
 	}
 	if s.ProxyEndpoint != "http://gateway:8080" {
 		return fmt.Errorf("proxy endpoint is invalid")

@@ -214,6 +214,11 @@ directory.
 - The logical record owns a generated stable internal ID, canonical root,
   selected compatible runtime image, profile, XDG home, and diagnostic runtime
   identifiers. Container or network loss never changes logical existence.
+- The selected project root remains the only writable project mount. For a root
+  below the host home, its relative path is preserved below the container's
+  `/var/lib/tobari` home; home-external roots retain the `/workspace` mirror.
+  The host home is never mounted wholesale, and runtime image assets remain
+  outside the mutable home boundary.
 - Workspace existence and interactive session attachment are separate states:
   `tobari` attaches a session to an existing or newly created Workspace, while
   `exit` detaches only the session. The Workspace remains existing and
@@ -228,9 +233,8 @@ directory.
 - A canonical root is a unique Workspace key. Repeated or concurrent explicit
   creation at the same canonical root must yield one logical record and a
   typed already-exists outcome for losing callers.
-- An explicit in-root image-based `devcontainer.json` may select that image,
-  but cannot delegate mounts, privileges, environment, lifecycle, or
-  orchestration to another tool.
+- The active Context is the only runtime-image authority for new Workspaces;
+  project metadata does not silently override the execution boundary.
 - The selected image is an environment and tool source, not the Workspace
   lifetime owner. Tobari starts the work container with its own fixed lifetime
   command; an image `CMD` such as `claude` cannot make a child-agent exit stop
@@ -265,8 +269,8 @@ directory.
   enter and recover the same root repeatedly, preserve the Workspace after
   session exit, and delete only the selected instance without growing owned
   resources.
-- Dev Container tests accept bounded JSONC image metadata and reject every
-  unsupported runtime property before Docker mutation.
+- Context-only image selection tests prove project metadata cannot silently
+  override the execution boundary before Docker mutation.
 
 ## Thesis 5: Lifecycle changes are bounded and ownership-labeled
 
@@ -422,6 +426,57 @@ administration project.
 - README makes the observe-review-decide-retry loop the primary operating
   workflow, keeps routine permission growth free of hand-authored OPA/Rego,
   and keeps tested host editing as the advanced escape hatch.
+
+## Thesis 9: One logical Context composes the execution boundary
+
+Users should choose one understandable execution setup, not assemble an agent
+profile, runtime image, policy directory, and credential configuration from
+unrelated paths.
+Tobari therefore presents a named Context as the logical bundle for an agent's
+configuration, network policy, and credential references. The Context manifest
+is a host-owned composition record; it does not collapse the physical trust
+boundaries between read-only agent data, OPA policy, and Gateway-only secret
+stores. The active Context is selected by a trusted host operation and cannot be
+selected by an agent inside a Tobari.
+
+The first shared-cluster slice has one active Context for the installation.
+Per-Workspace Context routing is deferred until the policy-routing and
+project-principal consequences are explicit. Tool-native authentication state
+remains below each Workspace home and is not a Context secret. The default
+passthrough adapter remains the universal path for tools that own their login
+flow; a Context may reference managed credential metadata without making a
+profile name an authority.
+
+### Consequences
+
+- `context list`, `context show`, `context create`, and `context use` are the
+  host-facing composition surface. Existing `policy` commands operate on the
+  active Context's policy store.
+- Context creation initializes separate owner-only policy and credential
+  stores, references a read-only agent profile, and records the compatible
+  Tobari runtime image. It never accepts a secret value in an argument,
+  environment variable, or manifest.
+- A Context switch is an explicit configuration mutation. It does not silently
+  restart Docker; a running cluster using another Context fails closed until
+  the user runs the declared reconciliation action.
+- The ordinary guided mode keeps deny/review/allow exact permission growth as
+  the default. Advanced mode keeps trusted-host Rego and tests available for
+  policy that cannot be expressed as an exact learned rule.
+- A future per-Workspace Context model must add explicit Gateway/OPA routing,
+  learned-rule scope, credential binding, and migration decisions; it cannot be
+  introduced by adding a field to project state alone.
+
+### Mechanical enforcement
+
+- Context domain and catalog tests validate the manifest, modes, active
+  selection, effects, fixed targets, and complete output/error contracts.
+- Infrastructure tests prove legacy default migration, owner-only separate
+  stores, active-context state, read-only OPA mounts, and selected agent-profile
+  digests.
+- Runtime tests prove Context secrets are never mounted into a Workspace and
+  that active-context drift blocks access until explicit reconciliation.
+- Agent-readiness validation records Context discovery and selection as part of
+  the bounded-autonomy setup path.
 
 ## Deliberate non-goals
 

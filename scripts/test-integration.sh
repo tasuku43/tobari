@@ -14,6 +14,7 @@ other_id=
 work_container=
 other_container=
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
+host_docker_context=${DOCKER_CONTEXT:-$(docker context show)}
 
 fail() {
   echo "integration: $*" >&2
@@ -74,6 +75,7 @@ run_tobari() {
   env \
     HOME="$test_root/user" \
     DOCKER_CONFIG="$host_docker_config" \
+    DOCKER_CONTEXT="$host_docker_context" \
     TOBARI_CREDENTIAL_ADAPTER=passthrough \
     XDG_CONFIG_HOME="$test_root/config" \
     XDG_STATE_HOME="$test_root/state" \
@@ -93,10 +95,11 @@ run_tobari_pty_at() {
   (
     cd "$root"
     if [[ $(uname -s) == Darwin ]]; then
-      env \
-        HOME="$test_root/user" \
-        DOCKER_CONFIG="$host_docker_config" \
-        TOBARI_CREDENTIAL_ADAPTER=passthrough \
+        env \
+          HOME="$test_root/user" \
+          DOCKER_CONFIG="$host_docker_config" \
+          DOCKER_CONTEXT="$host_docker_context" \
+          TOBARI_CREDENTIAL_ADAPTER=passthrough \
         XDG_CONFIG_HOME="$test_root/config" \
         XDG_STATE_HOME="$test_root/state" \
         XDG_DATA_HOME="$test_root/data" \
@@ -104,6 +107,7 @@ run_tobari_pty_at() {
     else
       local command
       printf -v command '%q ' env HOME="$test_root/user" DOCKER_CONFIG="$host_docker_config" \
+        DOCKER_CONTEXT="$host_docker_context" \
         TOBARI_CREDENTIAL_ADAPTER=passthrough \
         XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
         XDG_DATA_HOME="$test_root/data" "$binary" "$@"
@@ -275,12 +279,21 @@ for name in tobari-gateway tobari-opa "$mock_name"; do
 done
 
 test_root=$(mktemp -d "$PWD/.tobari-integration.XXXXXX")
-mkdir -p "$test_root/user" "$test_root/config/tobari" "$test_root/state" "$test_root/workspace"
+mkdir -p "$test_root/user/workspace" "$test_root/config/tobari" "$test_root/state"
 
 config_directory=$test_root/config/tobari
+policy_directory=$config_directory/contexts/default/policy
 tool_auth_value=tobari-tool-auth-canary
 
 go build -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
+work_root=$test_root/user/workspace
+work_nested_root=$work_root/root
+other_root=$test_root/user/other-workspace
+mkdir -p "$work_root" "$work_nested_root" "$other_root"
+printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
+printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
+  >"$config_directory/config.json"
+chmod 0600 "$config_directory/config.json"
 run_tobari cluster up >/dev/null
 assert_component_log_bounds tobari-opa
 assert_component_log_bounds tobari-gateway
@@ -288,23 +301,8 @@ assert_component_resource_bounds tobari-opa 1000000000 536870912 128
 assert_component_resource_bounds tobari-gateway 2000000000 1073741824 256
 docker build --tag "$custom_image" \
   --file test/integration/custom-image.Dockerfile . >/dev/null
-mkdir -p "$test_root/workspace/.devcontainer"
-cat >"$test_root/workspace/.devcontainer/devcontainer.json" <<JSON
-{
-  // Tobari consumes only this literal compatible image.
-  "name": "integration",
-  "image": "$custom_image",
-  "customizations": {},
-}
-JSON
-printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
-  >"$config_directory/config.json"
-chmod 0600 "$config_directory/config.json"
-work_root=$test_root/workspace
-work_nested_root=$work_root/root
-other_root=$test_root/other-workspace
-mkdir -p "$work_nested_root"
-mkdir -p "$other_root"
+container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
+container_nested_root="/var/lib/tobari/${work_nested_root#"$test_root/user/"}"
 enter_tobari_at "$work_root"
 enter_ancestor_tobari_at "$work_nested_root"
 enter_tobari_at "$other_root"
@@ -313,7 +311,7 @@ status_from_nested=$(run_tobari_at "$work_nested_root" status --format json)
 assert_contains "$status_from_nested" '"exists":true' "nested status"
 assert_contains "$status_from_nested" "\"root\":\"$work_root\"" "nested status root"
 nested_pwd=$({ printf '\r'; sleep 1; printf 'pwd\nexit\n'; } | run_tobari_pty_at "$work_nested_root" 2>&1)
-assert_contains "$nested_pwd" "/workspace${work_root}/root" "nested host CWD mapping"
+assert_contains "$nested_pwd" "$container_nested_root" "nested host CWD mapping"
 list_json=$(run_tobari_at "$work_root" list --format json)
 work_id=$(id_for_root "$work_root" <<<"$list_json")
 other_id=$(id_for_root "$other_root" <<<"$list_json")
@@ -347,6 +345,12 @@ other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["
 [[ $work_home != "$other_home" ]] || fail "CWD projects share a home directory"
 assert_resource_bounds "$work_container"
 assert_resource_bounds "$other_container"
+[[ $(run_project printenv HOME) == /var/lib/tobari ]] || fail "project HOME is not /var/lib/tobari"
+[[ $(run_project sh -c 'command -v gh') == /usr/local/bin/gh ]] || fail "GitHub CLI disappeared behind the project mount"
+[[ $(run_project sh -c 'command -v aws') == /usr/local/bin/aws ]] || fail "AWS CLI disappeared behind the project mount"
+if run_project test -e /var/lib/tobari/host-home-canary; then
+  fail "Tobari mounted the host home wholesale"
+fi
 
 profile_directory=$test_root/data/tobari/profiles/default
 profile_skill=$profile_directory/claude/skills/shared.md
@@ -370,7 +374,7 @@ assert_contains "$(docker exec "$other_container" cat /var/lib/tobari/.claude/sk
 if docker exec "$work_container" sh -c 'printf forbidden > /var/lib/tobari/.claude/skills/shared.md' >/dev/null 2>&1; then
   fail "Tobari modified the read-only shared profile"
 fi
-if ! docker exec "$work_container" test -e "/workspace${work_root}/.claude/project.md"; then
+if ! docker exec "$work_container" test -e "$container_work_root/.claude/project.md"; then
   fail "Tobari did not expose project-local .claude content"
 fi
 run_project sh -c 'printf private > /var/lib/tobari/.claude/memory.txt'
@@ -404,7 +408,7 @@ assert_resource_bounds "$work_container"
 assert_contains "$(run_project cat /var/lib/tobari/tool-auth-state)" "$tool_auth_value" \
   "tool authentication persistence"
 
-if run_project test -e "/workspace${work_root}/credentials"; then
+if run_project test -e "$container_work_root/credentials"; then
   fail "Tobari unexpectedly contains the host credential directory"
 fi
 if run_project getent hosts "$other_container" >/dev/null 2>&1; then
