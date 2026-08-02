@@ -5,33 +5,92 @@ revise the thesis and its enforcement explicitly instead of adding a bypass.
 
 ## North Star
 
-**A developer can run `tobari` in a project directory to create or reuse its
-long-lived isolated environment while every HTTP and HTTPS effect that crosses
-the boundary is denied by default and authorized as a normalized request by one
-shared OPA-backed Gateway.**
+**Tobari gives a coding agent an execution boundary in advance, then lets it
+move freely inside that boundary. By making isolation startup, understanding a
+denied operation, and granting the minimum required permission extremely easy,
+it makes the safe execution path a more natural choice than running the agent
+directly on the host.**
+
+Every HTTP and HTTPS effect that crosses that boundary is denied by default and
+authorized as a normalized request by one shared OPA-backed Gateway.
 
 The primary users are developers who run Claude Code, Codex, shells, tests, and
-other arbitrary programs against project roots. Success means each Tobari can
-host concurrent processes, cannot reach the Internet or another Tobari directly,
-never receives host-managed credentials, and is selected from the canonical
-current directory rather than a user-managed name, root flag, or container
-identifier. A user may deliberately create tool-owned authentication state in
-that Tobari's own persistent home; this is not host credential inheritance.
-One installation-local cluster shares Gateway, OPA, an installation-wide
-baseline policy, and CA state without sharing Tobari roots or homes. Host-issued
-project principals bind mutable learned permissions to the exact current-directory
-network that originated a request; they do not select credentials.
+other arbitrary programs against project roots. Success has two inseparable
+parts: each Tobari can host concurrent processes, cannot reach the Internet or
+another Tobari directly, never receives host-managed credentials, and is
+selected from the canonical current directory rather than a user-managed name,
+root flag, or container identifier; and the user can reach that boundary
+without becoming a Docker or policy operator. A user may deliberately create
+tool-owned authentication state in that Tobari's own persistent home; this is
+not host credential inheritance. One installation-local cluster shares
+Gateway, OPA, an installation-wide baseline policy, and CA state without
+sharing Tobari roots or homes. Host-issued project principals bind mutable
+learned permissions to the exact current-directory network that originated a
+request; they do not select credentials.
 
 The first testable slice is one local mock upstream reached through the
 Gateway: an allowed request succeeds, a denied request does not reach upstream,
 direct egress fails, and an OPA outage fails closed.
 
 The core product loop is progressive policy learning: work freely in Tobari,
-observe a denied boundary effect as secret-free evidence, refine the host-side
-XDG policy, test and activate it, and retry. OPA watches that read-only host
-policy bind where Docker-host filesystem events propagate; `policy apply` is
-the deterministic portable activation path and does not restart active Tobari.
-A useful denial shortens that loop without silently expanding authority.
+observe a denied boundary effect as secret-free evidence, receive a fixed
+host-side review cue, review the pending exact permission, approve the minimum
+rule, and retry. The normal path does not require writing OPA or Rego by hand:
+interactive `policy review` presents a Permission Inbox and delegates one
+explicitly confirmed candidate to the existing `policy allow` action; its
+non-interactive and machine-readable path remains read-only. OPA watches the read-only host policy bind where
+Docker-host filesystem events propagate; `policy apply` remains the
+deterministic portable activation path for an explicitly edited policy and does
+not restart active Tobari. A useful denial shortens that loop without silently
+expanding authority. The loop is part of the product's adoption boundary: if
+the safe path is harder than running the agent on the host, users will bypass
+the isolation that the boundary is meant to provide.
+
+## Thesis 0: Bounded autonomy must be easier than host execution
+
+Tobari's security value depends on adoption. The product is not primarily a
+container lifecycle wrapper; it is a way for a user to define an agent's
+activity boundary before work begins, then let the agent move quickly inside a
+chosen root, home, and network policy without per-command monitoring or
+unrestricted host authority. Starting the isolated environment, understanding
+a denied operation, and adjusting the boundary by granting the minimum
+required permission must require less operational knowledge than running the
+same agent directly on the host. The workflow is opt-in and reversible: not
+using `tobari` leaves host execution unchanged, while `delete` and
+`cluster down` remove Tobari-owned state through exact ownership checks.
+
+### Consequences
+
+- The human journey is CWD-first. Docker resource names, stable IDs, network
+  topology, and OPA syntax are implementation or advanced-policy details, not
+  routine setup inputs.
+- The ordinary entry path should have one obvious next action, reuse an
+  existing Workspace without reconfiguration, and make the first successful
+  agent session valuable before policy customization is required. The user
+  sets the boundary once; the agent is not supervised action by action inside
+  it.
+- A denied network effect should provide enough secret-free context and a
+  concrete host-side review action to reach one exact, tested permission. The
+  safe action may remain opaque-reference-bound internally, but the human
+  presentation must not make reference plumbing or OPA syntax the user's
+  primary task.
+- Host-authored Rego, raw logs, Docker diagnostics, and provider-specific
+  details remain available as advanced paths; they do not define the routine
+  agent workflow.
+- The current explicit `cluster up` bootstrap and separate denial discovery
+  commands are compatibility surfaces under review against this thesis. They
+  must not be mistaken for the product's central value.
+
+### Mechanical enforcement
+
+- Agent-readiness validation records the first-use path and the
+  denial-to-retry path, including discovery rounds and undeclared external
+  processing, rather than checking only that each command is individually
+  correct.
+- Human CLI help and README lead with the bounded-autonomy outcome and an
+  exact next action; scoped agent help retains the complete catalog contract.
+- Integration tests prove that isolation is opt-in, reusable, recoverable, and
+  customizable through the deny-review-allow-retry loop without direct egress.
 
 ## Thesis 1: Authorize effects at the isolation boundary
 
@@ -309,19 +368,28 @@ test, lint, policy test, or integration scenario.
 
 The default-deny experience is successful only when a developer can understand
 what boundary effect was rejected and deliberately teach Tobari the minimum new
-rule from the trusted host.
+rule from the trusted host without turning ordinary agent work into a policy
+administration project.
 
 ### Consequences
 
 - Every HTTP denial emits bounded structured audit metadata including host, port,
   method, path, decision, reason, and whether an exact learned rule can resolve
   the denial without weakening orthogonal invariants.
-- `tobari cluster denials` is the first diagnostic step: it projects only
+- A learnable denial returns a fixed, secret-free host-side review command to
+  the agent; a completed session also summarizes the pending queue on host
+  stderr. Neither notification can mutate policy or trigger a retry.
+- Interactive `policy review` is the ordinary human Permission Inbox over the
+  retained queue: selection, detail inspection, and explicit confirmation can
+  delegate exactly one opaque candidate to `policy allow`. Redirected and
+  machine-readable `policy review` remains read-only. `policy candidates`
+  remains the machine discovery surface, and `policy tail` remains a
+  compatibility projection. All three turn only learnable retained denials
+  into unique exact host/port/method/path proposals with stable opaque IDs.
+- `tobari cluster denials` remains the lower-level diagnostic step: it projects
   validated denial records, reports the editable host-side policy directory,
-  and names the exact activation command. Raw component logs remain available.
-- `policy candidates` turns only learnable retained denials into unique exact
-  host/port/method/path proposals with stable opaque IDs. `policy tail` is the
-  bounded human review of that same queue. Neither command changes authority.
+  and exposes advanced activation details. Raw component logs remain
+  available.
 - `policy allow --id` is the explicit trusted-host action that consumes one
   candidate ID unchanged, preflights and atomically records one exact learned
   rule, then activates it through the same portable OPA boundary.
@@ -336,8 +404,9 @@ rule from the trusted host.
 - Audit evidence never includes credential values, cookies, raw bodies, or raw
   response data.
 - Tobari never changes permission from observation alone. Every learned rule or
-  compaction remains an explicit opaque-reference-bound trusted-host action and
-  must pass `opa test`; finite examples and canaries detect declared
+  compaction remains an explicit opaque-reference-bound trusted-host action;
+  interactive review is only a confirmation UI for that action and it must
+  pass `opa test`; finite examples and canaries detect declared
   regressions but do not prove safety for every unknown future request.
 
 ### Mechanical enforcement
@@ -345,11 +414,13 @@ rule from the trusted host.
 - Gateway tests assert both useful denial dimensions and absence of secret/body
   canaries.
 - Integration tests deny a known request, retrieve its typed audit record
-  through the CLI, approve the exact candidate, exercise the allowed rule,
-  compact repeated exact rules, and retain a denied boundary without restarting
-  any Tobari.
+  through the CLI, assert the structured agent navigation and host-only session
+  summary, review the exact candidate through the human queue, approve it,
+  exercise the allowed rule, compact repeated exact rules, and retain a denied
+  boundary without restarting any Tobari.
 - README makes the observe-review-approve-retry loop the primary operating
-  workflow and keeps tested host editing as the advanced escape hatch.
+  workflow, keeps routine permission growth free of hand-authored OPA/Rego,
+  and keeps tested host editing as the advanced escape hatch.
 
 ## Deliberate non-goals
 

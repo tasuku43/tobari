@@ -237,7 +237,7 @@ type PolicyCandidateReport struct {
 }
 
 func (r PolicyCandidateReport) Validate() error {
-	if r.Task != TaskPolicyCandidates && r.Task != TaskPolicyTail {
+	if r.Task != TaskPolicyCandidates && r.Task != TaskPolicyTail && r.Task != TaskPolicyReview {
 		return fmt.Errorf("policy candidate report task identity is invalid")
 	}
 	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {

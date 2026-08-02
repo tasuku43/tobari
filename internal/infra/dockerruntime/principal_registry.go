@@ -73,6 +73,14 @@ func (r projectPrincipalRegistry) Validate() error {
 }
 
 func (r *Runtime) principalRegistryPath() string {
+	return filepath.Join(r.principalRegistryDirectory(), "principals.json")
+}
+
+func (r *Runtime) principalRegistryDirectory() string {
+	return filepath.Join(r.configDirectory, "principal-registry")
+}
+
+func (r *Runtime) legacyPrincipalRegistryPath() string {
 	return filepath.Join(r.configDirectory, "principals.json")
 }
 
@@ -95,10 +103,32 @@ func (r *Runtime) readProjectPrincipalRegistry() (projectPrincipalRegistry, erro
 }
 
 func (r *Runtime) ensureProjectPrincipalRegistry() error {
-	if _, err := os.Lstat(r.principalRegistryPath()); errors.Is(err, os.ErrNotExist) {
-		return initializeBytes(r.principalRegistryPath(), mustJSONBytes(emptyProjectPrincipalRegistry()), 0o600)
+	if err := r.ensurePrivateDirectory(r.principalRegistryDirectory()); err != nil {
+		return fmt.Errorf("prepare principal registry directory: %w", err)
+	}
+	path := r.principalRegistryPath()
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		legacyPath := r.legacyPrincipalRegistryPath()
+		if _, legacyErr := os.Lstat(legacyPath); legacyErr == nil {
+			var legacy projectPrincipalRegistry
+			if err := readStrictJSON(legacyPath, &legacy); err != nil {
+				return fmt.Errorf("read legacy project principal registry: %w", err)
+			}
+			if err := legacy.Validate(); err != nil {
+				return fmt.Errorf("validate legacy project principal registry: %w", err)
+			}
+			if err := writeAtomicJSON(path, legacy); err != nil {
+				return fmt.Errorf("migrate project principal registry: %w", err)
+			}
+		} else if errors.Is(legacyErr, os.ErrNotExist) {
+			if err := initializeBytes(path, mustJSONBytes(emptyProjectPrincipalRegistry()), 0o600); err != nil {
+				return err
+			}
+		} else {
+			return fmt.Errorf("inspect legacy project principal registry: %w", legacyErr)
+		}
 	} else if err != nil {
-		return fmt.Errorf("inspect project principal registry: %w", err)
+		return fmt.Errorf("inspect principal registry: %w", err)
 	}
 	_, err := r.readProjectPrincipalRegistry()
 	return err

@@ -14,6 +14,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		clusterLogsSpec(),
 		clusterDownSpec(),
 		policyCandidatesSpec(),
+		policyReviewSpec(),
 		policyTailSpec(),
 		policyAllowSpec(),
 		policyCompactionsSpec(),
@@ -359,6 +360,33 @@ func policyTailSpec() CommandSpec {
 	}
 }
 
+func policyReviewSpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy review", Summary: "Review pending network permissions",
+		Args: "[--tail <lines>]", Effect: operation.EffectRead, Role: RoleDiscover,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Review pending exact network permissions and, in an interactive terminal, approve one exact permission through policy allow",
+			Inputs:       []CommandInput{reviewTailInput()},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+				Fields:   policyCandidateOutputFields(),
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
+			},
+			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
+			Errors:        policyCandidateReadErrors("policy review", true),
+			Interactive: &InteractiveWorkflowContract{
+				ActionCommand:          "policy allow",
+				SelectionReferenceKind: tobari.PolicyCandidateKind,
+				SelectionOutputField:   "id",
+				Confirmation:           "explicit_yes",
+				NonInteractiveBehavior: "read_only",
+			},
+		},
+		handler: runPolicyReview,
+	}
+}
+
 func policyAllowSpec() CommandSpec {
 	return CommandSpec{
 		Path: "policy allow", Summary: "Allow one exact denied effect",
@@ -366,10 +394,10 @@ func policyAllowSpec() CommandSpec {
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
 			Outcome:      "Test, record, and activate one exact retained host, port, method, and path permission",
-			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCandidateKind, "policy candidates")},
+			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCandidateKind, "policy candidates, policy review, or policy tail")},
 			Output:       policyLearningChangeOutput(),
 			Prerequisites: []string{
-				"The ID was emitted by policy candidates or policy tail and remains in retained Gateway logs.",
+				"The ID was emitted by policy candidates, policy review, or policy tail and remains in retained Gateway logs.",
 			},
 			Errors: mutationCommandErrors("policy allow", "policy candidates",
 				declaredCommandError(fault.KindInvalidInput, "invalid_policy_candidate_id", false, "policy candidates", "Use a candidate ID unchanged."),
@@ -848,6 +876,15 @@ func denialTailInput() CommandInput {
 		ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle,
 		Description: "Maximum recent Gateway log lines inspected for denials.", AllowedValues: []string{},
 		DefaultValue: stringPointer("200"), Minimum: int64Pointer(1), Maximum: int64Pointer(10_000),
+	}
+}
+
+func reviewTailInput() CommandInput {
+	return CommandInput{
+		Name: "--tail", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle,
+		Description: "Maximum retained Gateway log lines inspected for pending permissions.", AllowedValues: []string{},
+		DefaultValue: stringPointer("10000"), Minimum: int64Pointer(1), Maximum: int64Pointer(10_000),
 	}
 }
 

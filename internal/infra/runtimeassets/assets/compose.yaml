@@ -82,13 +82,13 @@ services:
       TOBARI_UPSTREAM_TIMEOUT_SECONDS: ${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}
       TOBARI_CREDENTIAL_ADAPTER: ${TOBARI_CREDENTIAL_ADAPTER:-passthrough}
       TOBARI_CREDENTIAL_CONFIG: /run/tobari/config/credentials.json
-      TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principals.json
+      TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json
     volumes:
       - gateway-ca:/var/lib/mitmproxy/.mitmproxy
       - public-ca:/run/tobari/ca-public
       - ${TOBARI_CREDENTIAL_CONFIG}:/run/tobari/config/credentials.json:ro
       - ${TOBARI_CREDENTIAL_DIR}:/run/tobari/credentials:ro
-      - ${TOBARI_PRINCIPAL_CONFIG}:/run/tobari/principals.json:ro
+      - ${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro
     networks:
       control: {}
       egress: {}

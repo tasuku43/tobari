@@ -770,6 +770,12 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 			t.Fatalf("%s is not digest pinned", key)
 		}
 	}
+	if !strings.Contains(joined, "TOBARI_PRINCIPAL_DIR="+runtime.principalRegistryDirectory()) {
+		t.Fatalf("compose environment does not expose the dedicated principal directory: %s", joined)
+	}
+	if strings.Contains(joined, "TOBARI_PRINCIPAL_CONFIG=") {
+		t.Fatal("compose environment still exposes the single-file principal configuration")
+	}
 }
 
 func TestBuildTobariImageTagsVersionAndStableExtensionBase(t *testing.T) {

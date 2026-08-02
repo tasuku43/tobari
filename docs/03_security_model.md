@@ -5,14 +5,19 @@ catalog and operational limits are in [Threat Model](THREAT_MODEL.md).
 
 ## Objective
 
-Untrusted Tobari processes may freely execute and may modify their explicitly
-mounted root, but they cannot access other host files, another Tobari, Docker
-control, host authentication state, OPA administration, or direct Internet
-egress through the supported configuration. Tool-owned credentials may exist
-inside one Tobari's exact home by explicit user action. Every supported
-HTTP/HTTPS request is
-normalized, authorized by OPA, and enforced by the shared Gateway before
-forwarding.
+Tobari makes bounded autonomous work practical: untrusted Tobari processes may
+freely execute and may modify their explicitly mounted root, but they cannot
+access other host files, another Tobari, Docker control, host authentication
+state, OPA administration, or direct Internet egress through the supported
+configuration. Tool-owned credentials may exist inside one Tobari's exact home
+by explicit user action. Every supported HTTP/HTTPS request is normalized,
+authorized by OPA, and enforced by the shared Gateway before forwarding.
+
+Adoption is part of this security objective. A boundary that is too difficult
+to create or customize will be bypassed by running the agent on the host. The
+safe default therefore remains opt-in and deny-by-default, while the user
+journey should make isolation, useful denial evidence, and exact permission
+growth easier than manually operating Docker, OPA, or host policy files.
 
 ## Trust boundaries
 
@@ -185,6 +190,18 @@ connection to the selected resolved address. Single-label private service
 names remain an explicit policy-controlled local exception for the Docker
 integration shape.
 
+A learnable policy denial returns a fixed, secret-free navigation object that
+names the trusted host and `tobari policy review`. The object is advisory data
+for the child process, not an authorization token or an instruction to retry;
+it contains no candidate ID, query, body, header, credential, policy path, or
+dynamic command argument. Non-learnable denials advertise no review command.
+The host-owned retained denial queue remains the source of truth, and only the
+reference-bound host action can change policy. Interactive `policy review` is
+only a confirmation surface for that action: it cannot approve from a display
+position, batch candidates, create wildcards, or act when input/output is
+redirected. Session-close summaries use the same untrusted request projection
+and are best-effort host stderr output.
+
 ## Credentials
 
 The default `passthrough` adapter uses tool-owned authentication state created
@@ -197,8 +214,10 @@ The retained `managed` adapter uses static bearer or fixed-header secrets
 supplied through owner-only host files. Secret files are mounted read-only into
 Gateway only. Configuration contains a profile type, exact allowed hosts,
 explicit project IDs, and a container secret path; it never contains the secret
-value. The host-owned `principals.json` registry binds each project ID to one
-exact Gateway network and is mounted read-only into Gateway.
+value. The host-owned `principal-registry/principals.json` registry binds each
+project ID to one exact Gateway network. Its dedicated directory is mounted
+read-only into Gateway; credential configuration and secret directories are
+not included in that mount.
 
 In passthrough mode, `Authorization`, `X-API-Key`, cookies, and other client
 authentication are forwarded only after allow; `Proxy-Authorization`, the
@@ -282,8 +301,11 @@ status, and duration. A
 profile name is non-secret metadata; secret values and raw bodies are excluded.
 CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
-and preserves only non-secret credential-profile names. Read-only policy candidate commands
-derive opaque proposals from that evidence. Observation alone never changes
+and preserves only non-secret credential-profile names. Read-only policy
+candidate commands derive opaque proposals from that evidence. `policy review`
+presents the same queue and, after explicit confirmation on a TTY, delegates
+one unchanged opaque reference to `policy allow`; its redirected and
+machine-readable path remains read-only. Observation alone never changes
 authority; only an explicit reference-bound mutation can write a learned rule.
 
 ## Enforcement
@@ -308,10 +330,10 @@ authority; only an explicit reference-bound mutation can write a learned rule.
 | CWD lifecycle actions use exact Tobari identity | Canonical-root, state, and label-validation tests |
 | One canonical root has one Workspace | Root-index hash naming, locked exact-root checks, domain duplicate-index validation, and concurrent explicit-creation tests |
 | Session exit cannot delete a Workspace | Child exit-status tests, host-stderr summary tests, and logical-state preservation after entry |
-| Gateway cannot accept a caller-selected project principal | Owner-only atomic principal registry, local-interface derivation, malformed/unknown denial tests, and two-project integration |
+| Gateway cannot accept a caller-selected project principal | Owner-only atomic directory-mounted principal registry, local-interface derivation, malformed/unknown denial tests, and two-project integration |
 | Managed credentials cannot cross project principals | Explicit profile project bindings, pre-OPA Gateway rejection, repeated injection check, and two-project integration |
 | Unknown effects fail closed | Domain and catalog validation |
-| Denials support safe policy learning | Typed project/host/port/method/path denial validation, secret canaries, and integration projection |
+| Denials support safe policy learning | Typed project/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
 | Learned permissions stay explicit and project-bound | Opaque candidate round trips, exact project/host/port/method/path domain tests, Rego cross-project canaries, preflight-before-atomic-write tests, and Docker integration |
 | Compaction preserves declared boundaries | Three-source same-host/port/method grouping invariant, retained positive examples, outside-prefix canary, stale-reference rejection, and OPA tests |
 | Gateway body buffering is bounded | Fixed mitmproxy body-size asset test and over-limit integration request |

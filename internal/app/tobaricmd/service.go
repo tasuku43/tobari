@@ -145,6 +145,30 @@ func (s *Service) IsTerminal(writer io.Writer) bool {
 	return s.runtime.IsTerminal(writer)
 }
 
+// IsInputTerminal reports whether the injected input is an interactive
+// terminal. RuntimePort deliberately keeps this capability optional so
+// read-only and application test doubles do not need to model terminal
+// inspection just to use the policy service.
+func (s *Service) IsInputTerminal(reader io.Reader) bool {
+	if s == nil || portcheck.IsNil(s.runtime) {
+		return false
+	}
+	inputTerminal, ok := s.runtime.(interface {
+		IsInputTerminal(io.Reader) bool
+	})
+	if !ok || portcheck.IsNil(inputTerminal) {
+		return false
+	}
+	return inputTerminal.IsInputTerminal(reader)
+}
+
+// IsInteractive reports whether a human-facing workflow may safely read
+// commands and confirmations. Both streams must be terminals; a redirected
+// input or output must remain on the read-only path.
+func (s *Service) IsInteractive(in io.Reader, out io.Writer) bool {
+	return s.IsTerminal(out) && s.IsInputTerminal(in)
+}
+
 func (s *Service) projectRuntime() (ProjectRuntimePort, error) {
 	if err := s.requireRuntime(); err != nil {
 		return nil, err
@@ -1041,6 +1065,15 @@ func (s *Service) PolicyTail(
 	ctx context.Context, tail int,
 ) (tobari.PolicyCandidateReport, error) {
 	return s.policyCandidates(ctx, tail, tobari.TaskPolicyTail)
+}
+
+// PolicyReview discovers the bounded exact-permission queue for a human host
+// review. It is intentionally read-only; policy allow remains the separate
+// opaque-reference-bound mutation.
+func (s *Service) PolicyReview(
+	ctx context.Context, tail int,
+) (tobari.PolicyCandidateReport, error) {
+	return s.policyCandidates(ctx, tail, tobari.TaskPolicyReview)
 }
 
 func (s *Service) loadPolicyState(

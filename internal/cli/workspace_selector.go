@@ -82,6 +82,8 @@ const (
 	selectorKeyEnd
 	selectorKeyEnter
 	selectorKeyCreate
+	selectorKeyAllow
+	selectorKeyBack
 	selectorKeyCancel
 	selectorKeyNumber
 	selectorKeyInvalid
@@ -460,6 +462,10 @@ func readSelectorKey(ctx context.Context, in io.Reader) (selectorKey, error) {
 		return selectorKey{kind: selectorKeyEnter}, nil
 	case 'n', 'N':
 		return selectorKey{kind: selectorKeyCreate}, nil
+	case 'a', 'A':
+		return selectorKey{kind: selectorKeyAllow}, nil
+	case 'b', 'B':
+		return selectorKey{kind: selectorKeyBack}, nil
 	case 'q', 'Q', 3, 4:
 		return selectorKey{kind: selectorKeyCancel}, nil
 	case '\x1b':

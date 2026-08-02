@@ -1,20 +1,33 @@
 # Tobari
 
-Tobari creates or reuses one long-lived Docker-isolated coding space for the
-current project directory. One installation-local Gateway and OPA cluster
-enforces every supported outbound HTTP and HTTPS request for every Tobari.
+Tobari gives a coding agent an execution boundary in advance, then lets it act
+freely inside that boundary. It makes starting an isolated coding space,
+understanding a denied operation, and granting the minimum required permission
+extremely easy, so the safe execution path is a more natural choice than
+running the agent directly on the host.
+
+Isolation is opt-in, project-local, reusable, and reversible. When the agent
+reaches a network boundary, Tobari starts from deny, shows the useful evidence,
+and lets the user teach the minimum permission through a trusted
+review-and-retry loop. Every supported outbound HTTP and HTTPS request is
+enforced through one installation-local Gateway and OPA cluster.
+The safe path should be easier than running the agent directly on the host;
+the current explicit cluster bootstrap remains separate, while permission
+growth is designed as one interactive review-to-allow flow.
 
 Tobari does not guess intent from command strings. It controls the network
 effect at the point where an HTTP request crosses an isolation boundary.
 
 ## How it feels to use
 
-The normal loop is progressive policy learning:
+Once the shared enforcement cluster is ready, the normal loop is progressive
+policy learning:
 
 1. Run `tobari` from a project directory.
 2. Work freely until an undeclared request receives `403`.
-3. Review the secret-free pending queue.
-4. Approve one exact host, method, and path rule by opaque ID, then retry.
+3. The agent explains that the host must review the secret-free pending queue.
+4. Run `tobari policy review`, select one permission, confirm the exact allow,
+   then retry.
 
 ```sh
 cd ~/ghq/example
@@ -22,19 +35,23 @@ tobari
 tobari status
 tobari list
 
-# The ID in list is diagnostic only; lifecycle actions use the current directory.
-tobari policy tail --tail 100
-# Copy one exact opaque ID printed by policy tail.
-tobari policy allow --id pcy_0123456789abcdef0123456789abcdef
+# Review is the human host-side entry point; in a TTY it offers selection,
+# detail, explicit confirmation, and exact allow without editing OPA or Rego.
+tobari policy review
+# Redirected output stays read-only; use the explicit action when scripting.
+tobari policy allow --id PCY_ID
 ```
 
-The queue includes bounded `host`, `method`, `path`, and `reason` evidence plus
-the exact approval command. It includes only denials OPA marks resolvable by an
-exact learned rule; immutable scheme, cluster, and credential-binding failures
-remain diagnostics instead of becoming ineffective approvals. `policy allow`
-resolves the opaque ID against retained denials, tests the complete policy,
-atomically records one exact rule, and activates it. Tobari never turns
-observed traffic into permission automatically.
+The Gateway response gives the agent a fixed host-side review command and never
+requests an automatic retry. When an interactive session ends, the host also
+prints an aggregate pending-permission summary. The review queue includes
+bounded `host`, `method`, `path`, and `reason` evidence plus the exact approval
+command. It includes only denials OPA marks resolvable by an exact learned rule;
+immutable scheme, cluster, and credential-binding failures remain diagnostics
+instead of becoming ineffective approvals. `policy allow` resolves the opaque
+ID against retained denials, tests the complete policy, atomically records one
+exact rule, and activates it. Tobari never turns observed traffic into
+permission automatically.
 
 ## Cluster and Tobari topology
 
@@ -359,8 +376,9 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and activation command |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
 | `tobari cluster down [--purge]` | Remove an empty cluster and optionally shared CA state |
+| `tobari policy review [--tail N]` | Interactive Permission Inbox: inspect and explicitly allow one exact permission on a TTY; read-only when redirected |
 | `tobari policy candidates [--tail N] [--format text\|json]` | Discover pending exact approvals and opaque IDs |
-| `tobari policy tail [--tail N]` | Review the bounded queue with exact approval commands |
+| `tobari policy tail [--tail N]` | Compatibility view of the bounded queue with exact approval commands |
 | `tobari policy allow --id ID` | Test, store, and activate one exact observed permission |
 | `tobari policy compactions [--format text\|json]` | Discover test-backed prefix compactions and opaque IDs |
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
@@ -438,11 +456,17 @@ restricts methods and paths, and validates credential profile bindings.
 Use the human review queue during normal work:
 
 ```sh
-tobari policy tail --tail 200
-tobari policy allow --id PCY_ID
+tobari policy review
+tobari policy allow --id PCY_ID  # explicit/scripted path
 ```
 
-`PCY_ID` must be copied unchanged from `policy tail` or `policy candidates`.
+On a TTY, `policy review` is the complete human flow: select a request, inspect
+its exact host/port/method/path, confirm with `y`, and let Tobari delegate the
+selected ID to `policy allow`. It refreshes the queue after each successful
+allow. Redirected or `--error-format json` review is read-only. `PCY_ID` is
+emitted by the review or machine discovery queue and must be copied unchanged
+when invoking the explicit action; `policy candidates` remains the structured
+machine path.
 It expires when its denial falls outside retained logs or another learned rule
 already covers that exact effect. Repeating the same denied host/method/path
 retains the same ID and refreshes its evidence. Approval never accepts a host
@@ -602,9 +626,10 @@ Common failures:
 - `project_session_attached`: exit the attached session and retry `tobari
   delete`, or use `tobari delete --force` only when terminating that session is
   intentional.
-- intended request returns `403`: run `policy tail`, approve one exact candidate
-  with `policy allow --id`, and retry; use `cluster denials` plus a tested host
-  edit only when the exact learning flow cannot express the required behavior.
+- intended request returns `403`: ask the user to run `tobari policy review` on
+  the host, approve one exact candidate with `policy allow --id`, and retry;
+  use `cluster denials` plus a tested host edit only when the exact learning
+  flow cannot express the required behavior.
 - root bind-mount error under Colima/Lima: use a directory shared with the VM.
 
 Schema-1 singleton state from older pre-v1 builds is intentionally not guessed

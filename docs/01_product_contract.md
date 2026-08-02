@@ -2,10 +2,15 @@
 
 ## Product statement
 
-Tobari is a local CLI that runs one shared Gateway and OPA cluster and creates
-or reuses Docker-isolated coding spaces selected from the current project
-directory. Every supported outbound HTTP and HTTPS request is enforced through
-that shared policy boundary.
+Tobari is a local CLI that gives a coding agent an execution boundary in
+advance, then lets it act freely inside that boundary. It makes starting an
+isolated coding space, understanding a denied operation, and granting the
+minimum required permission extremely easy, so the safe execution path is a
+more natural choice than running the agent on the host. Isolation is opt-in and
+reversible; creating a space is a CWD-local action, and customizing its network
+authority is an observe, review, approve, and retry loop rather than a
+prerequisite policy-authoring project. Every supported outbound HTTP and HTTPS
+request remains enforced through one shared Gateway and OPA policy boundary.
 
 ## Primary users and owned outcome
 
@@ -13,20 +18,24 @@ The primary user is a developer who wants an autonomous coding agent to edit a
 bounded source tree without receiving host credentials or unrestricted network
 egress. Tool-native authentication may be created inside the selected
 Tobari's own persistent home; host authentication state is never copied in.
-`cluster up` explicitly owns shared Gateway and OPA setup; `cd project
-&& tobari` requires that ready cluster, then owns project logical-state
-resolution, an explicit Workspace choice when ancestor roots are ambiguous,
-project-runtime recovery, and interactive entry. The user normally manages only
-the directory; a Tobari either exists or does not exist.
+The user-facing entry point is the current project directory: a Tobari either
+exists or does not exist, and the user should not need to manage container
+names, network IDs, or policy internals for routine work. `cluster up` remains
+the current explicit owner of shared Gateway and OPA setup; reducing that
+first-use bootstrap is an adoption goal, not the reason a user adopts Tobari.
 
 The primary operating loop is progressive policy learning: a Tobari workload is
 denied by default, Gateway records the rejected host/port/method/path and reason
-without secrets, `policy tail` presents a bounded exact proposal and opaque ID,
-the user runs `policy allow --id`, and the same workload is retried. Trusted-host
-Rego editing plus `policy apply` remains the advanced path for behavior that
-exact learned rules cannot express. OPA watch may make host edits visible when
-Docker-host filesystem events propagate. Denial evidence is a product output,
-not incidental debug noise.
+without secrets, the CLI presents a bounded exact proposal and a concrete
+trusted-host next action, the user approves the minimum rule, and the same
+workload is retried. A learnable denial also gives the agent a fixed host-side
+review command, and the human path enters through `policy review`; machine
+discovery remains `policy candidates` and the exact opaque reference remains
+the safety boundary for `policy allow --id`. Trusted-host Rego editing plus
+`policy apply` remains the advanced path for behavior that exact learned rules
+cannot express; ordinary permission growth must not require either. OPA watch
+may make host edits visible when Docker-host filesystem events propagate.
+Denial evidence is a product output, not incidental debug noise.
 The host-issued project principal is retained in denial, candidate, learned
 rule, and compaction evidence; an approval made from one current-directory
 Tobari cannot be replayed as another project's permission.
@@ -88,6 +97,7 @@ The public commands are:
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover unique pending exact host/port/method/path candidates and opaque IDs |
+| `policy review [--tail N]` | discover | read | Review pending permissions; on a TTY, explicitly confirm one exact permission through `policy allow` |
 | `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact approval commands |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
@@ -187,6 +197,13 @@ session is attached, ordinary delete fails with a warning and `--force` is the
 explicit override. There is no public `stop` or `pause` state. The choice is
 revalidated under the lifecycle lock before logical or Docker mutation, so a
 changed candidate set fails closed and asks the user to run `tobari` again.
+When a learnable network request is denied, the Gateway's 403 response carries
+fixed secret-free host-review navigation for the agent, and an interactive
+session close may summarize the pending queue on host stderr. These are
+advisory only; the interactive `policy review` queue is the human entry point
+and delegates one explicitly confirmed opaque reference to the separate exact
+reference-bound `policy allow` action. Redirected and machine-readable review
+remains read-only.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
 a small state marker, aligned detail rows, semantic color tokens, and an exact
@@ -277,9 +294,10 @@ Configuration is resolved from
 - `policy/`: Rego and data mounted read-only into OPA and watched for host edits;
 - `credentials.json`: reserved schema-v1 profile metadata for the explicitly
   selected managed Gateway adapter;
-- `principals.json`: owner-only host-issued schema-v1 project-to-Gateway-network
-  bindings, maintained by lifecycle reconciliation and mounted read-only into
-  Gateway;
+- `principal-registry/principals.json`: owner-only host-issued schema-v1
+  project-to-Gateway-network bindings, maintained by lifecycle reconciliation
+  and directory-mounted read-only into Gateway so atomic host updates remain
+  visible without exposing credential files;
 - `credentials/`: reserved managed-adapter secret files, required to be
   regular owner-readable files with no group/other permissions. The default
   passthrough adapter does not load them;

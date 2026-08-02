@@ -324,7 +324,7 @@ other_container=$(container_for_id "$other_id")
   fail "list did not return the project's stable ID"
 [[ $work_id != "$other_id" ]] || fail "CWD projects received the same stable ID"
 
-python3 - "$config_directory/principals.json" "$work_id" "$other_id" <<'PY'
+python3 - "$config_directory/principal-registry/principals.json" "$work_id" "$other_id" <<'PY'
 import json
 import sys
 
@@ -439,10 +439,6 @@ docker run -d \
   "$tobari_image" -u /mock_upstream.py >/dev/null
 wait_listening "$mock_name" 8080
 wait_network_connection tobari-gateway mock-upstream 8080
-# Docker Desktop file binds can retain the pre-reconcile inode after the
-# host-owned principal registry is atomically replaced. Recreate only the
-# trusted Gateway so it observes the complete current registry before traffic.
-docker rm -f tobari-gateway >/dev/null
 run_tobari cluster up >/dev/null
 wait_healthy tobari-gateway
 
@@ -492,6 +488,15 @@ assert_contains "$auth_response" "\"authorization_sha256\":\"$expected_digest\""
 deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST http://mock-upstream:8080/denied)
 [[ $deny_status == 403 ]] || fail "denied method/path returned $deny_status instead of 403"
+deny_body=$(run_project curl -sS -X POST http://mock-upstream:8080/denied)
+assert_contains "$deny_body" '"error":"policy_denied"' "agent denial response"
+assert_contains "$deny_body" '"event":"permission_review_available"' "agent denial response"
+assert_contains "$deny_body" '"command":"tobari policy review"' "agent denial response"
+assert_contains "$deny_body" '"automatic_retry":false' "agent denial response"
+assert_contains "$deny_body" '"path":"/denied"' "agent denial response"
+if [[ $deny_body == *"$tool_auth_value"* || $deny_body == *'Bearer '* || $deny_body == *'"key"'* ]]; then
+  fail "agent denial response contains a credential or request secret"
+fi
 if docker logs "$mock_name" 2>&1 | grep -F '"/denied"' >/dev/null; then
   fail "denied request reached mock upstream"
 fi
@@ -527,6 +532,10 @@ tail_output=$(run_tobari policy tail --tail 500)
 assert_contains "$tail_output" \
   "allow_command=tobari policy allow --id $deny_candidate_id" \
   "human policy tail"
+review_output=$(run_tobari policy review --tail 500)
+assert_contains "$review_output" \
+  "Approve exact  tobari policy allow --id $deny_candidate_id" \
+  "human policy review"
 
 allow_output=$(run_tobari policy allow --id "$deny_candidate_id")
 assert_contains "$allow_output" "policy: $config_directory/policy" "exact policy approval"
@@ -664,7 +673,7 @@ work_container=
 status_after_delete=$(run_tobari_at "$work_root" status --format json)
 assert_contains "$status_after_delete" '"exists":false' "status after delete"
 [[ -f "$profile_skill" && -f "$profile_settings" ]] || fail "delete removed the shared agent profile"
-python3 - "$config_directory/principals.json" "$other_id" <<'PY'
+python3 - "$config_directory/principal-registry/principals.json" "$other_id" <<'PY'
 import json
 import sys
 
@@ -676,7 +685,7 @@ PY
 run_tobari_at "$other_root" delete --force >/dev/null
 other_id=
 other_container=
-python3 - "$config_directory/principals.json" <<'PY'
+python3 - "$config_directory/principal-registry/principals.json" <<'PY'
 import json
 import sys
 

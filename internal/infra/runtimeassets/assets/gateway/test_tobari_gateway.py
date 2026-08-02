@@ -411,6 +411,66 @@ class GatewayTests(unittest.TestCase):
         self.assertTrue(audit["learnable"])
         self.assertEqual(audit["credential_profile"], "example")
 
+    def test_learnable_policy_denial_guides_agent_to_host_review_without_secrets(self):
+        flow = self.flow()
+        addon = self.managed_gateway()
+        with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
+            with mock.patch.object(
+                gateway,
+                "query_opa",
+                return_value=gateway.Decision(False, "denied", "example", 403, True),
+            ):
+                with redirect_stdout(io.StringIO()):
+                    addon.request(flow)
+
+        document = json.loads(flow.response.content)
+        self.assertEqual(document["error"], "policy_denied")
+        self.assertEqual(document["tobari"]["schema_version"], 1)
+        self.assertEqual(document["tobari"]["event"], "permission_review_available")
+        self.assertEqual(document["tobari"]["run_on"], "host")
+        self.assertEqual(
+            document["tobari"]["review"],
+            {
+                "available": True,
+                "command": "tobari policy review",
+                "automatic_retry": False,
+                "retry_after_review": True,
+            },
+        )
+        self.assertEqual(
+            document["tobari"]["request"],
+            {
+                "host": "api.example.com",
+                "port": 443,
+                "method": "POST",
+                "path": "/v1/resources",
+            },
+        )
+        rendered = flow.response.content.decode("utf-8")
+        self.assertNotIn("Tobari supplied secret", rendered)
+        self.assertNotIn("session=secret", rendered)
+        self.assertNotIn("example-token", rendered)
+        self.assertNotIn('{"example":true}', rendered)
+        self.assertNotIn("key=value", rendered)
+
+    def test_non_learnable_policy_denial_does_not_invite_approval(self):
+        flow = self.flow()
+        addon = self.managed_gateway()
+        with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
+            with mock.patch.object(
+                gateway,
+                "query_opa",
+                return_value=gateway.Decision(False, "denied", "example", 403, False),
+            ):
+                with redirect_stdout(io.StringIO()):
+                    addon.request(flow)
+
+        document = json.loads(flow.response.content)
+        self.assertEqual(document["tobari"]["event"], "permission_review_unavailable")
+        self.assertEqual(document["tobari"]["review"]["available"], False)
+        self.assertIsNone(document["tobari"]["review"]["command"])
+        self.assertFalse(document["tobari"]["review"]["retry_after_review"])
+
     def test_opa_outage_returns_503_without_forwarding(self):
         flow = self.flow()
         addon = self.managed_gateway()

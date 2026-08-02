@@ -70,8 +70,8 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"no-new-privileges:true",
 		"--watch",
 		"${TOBARI_POLICY_DIR}:/policy:ro",
-		"${TOBARI_PRINCIPAL_CONFIG}:/run/tobari/principals.json:ro",
-		"TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principals.json",
+		"${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro",
+		"TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json",
 	} {
 		if !strings.Contains(spec, required) {
 			t.Errorf("compose spec is missing %q", required)
@@ -84,6 +84,7 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"cap_add:",
 		"tobari-realm",
 		"${TOBARI_ROOT}",
+		"${TOBARI_PRINCIPAL_CONFIG}",
 		"/policy:rw",
 	} {
 		if strings.Contains(spec, forbidden) {

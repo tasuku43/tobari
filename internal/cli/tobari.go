@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -96,7 +97,16 @@ func runClusterDenials(
 			fault.KindContract, "invalid_catalog", "policy apply command is missing", false,
 		))
 	}
-	output, err := renderClusterDenialsWithColor(result, ProgramName+" "+apply.Path, format, format == successFormatText && humanColorAllowed(ctx, c, c.Out))
+	review, found := c.catalog.Lookup("policy review")
+	if !found {
+		return c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "policy review command is missing", false,
+		))
+	}
+	output, err := renderClusterDenialsWithReviewCommand(
+		result, ProgramName+" "+apply.Path, ProgramName+" "+review.Path,
+		format, format == successFormatText && humanColorAllowed(ctx, c, c.Out),
+	)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -113,6 +123,82 @@ func runPolicyTail(
 	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
 ) int {
 	return runPolicyCandidateQueue(ctx, c, command, inputs, true)
+}
+
+func runPolicyReview(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
+) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	tail, _ := inputs.Integer("--tail")
+	result, err := c.tobari.PolicyReview(ctx, int(tail))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	allow, found := c.catalog.Lookup("policy allow")
+	if !found {
+		return c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "policy allow command is missing", false,
+		))
+	}
+	allowCommand := ProgramName + " " + allow.Path
+	if !policyReviewInteractiveAllowed(ctx, c) {
+		return c.emitResult(ctx, renderPolicyReviewWithColor(
+			result, allowCommand, humanColorAllowed(ctx, c, c.Out),
+		))
+	}
+
+	selector := newPolicyReviewSelector()
+	for {
+		if len(result.Items) == 0 {
+			return c.emitResult(ctx, renderPolicyReviewWithColor(result, allowCommand, true))
+		}
+		decision, selectErr := selector.Select(ctx, result, c.In, c.Out)
+		if selectErr != nil {
+			return c.fail(ctx, selectErr)
+		}
+		if decision.Canceled {
+			return c.emitResult(ctx, renderPolicyReviewCanceled())
+		}
+		if !policyReviewContainsID(result, decision.CandidateID) {
+			return c.fail(ctx, fault.New(
+				fault.KindContract, "invalid_policy_candidate_selection",
+				"the interactive review selected an ID outside its validated snapshot", false,
+				fault.NextAction{Command: "policy candidates", Reason: "Rediscover the current pending queue."},
+			))
+		}
+
+		actionCtx := withCommandPath(ctx, allow.Path)
+		change, allowErr := allowPolicyCandidate(actionCtx, c, allow, decision.CandidateID)
+		if allowErr != nil {
+			return c.fail(actionCtx, allowErr)
+		}
+		if code := c.emitMutationResult(
+			actionCtx, allow, renderPolicyReviewAllowSuccess(change, humanColorAllowed(actionCtx, c, c.Out)),
+		); code != ExitOK {
+			return code
+		}
+
+		result, err = c.tobari.PolicyReview(ctx, int(tail))
+		if err != nil {
+			return c.fail(ctx, err)
+		}
+	}
+}
+
+func policyReviewInteractiveAllowed(ctx context.Context, c *CLI) bool {
+	return invocationErrorFormat(ctx) != errorFormatJSON && c != nil && c.tobari != nil &&
+		c.tobari.IsInteractive(c.In, c.Out)
+}
+
+func policyReviewContainsID(result tobari.PolicyCandidateReport, id string) bool {
+	for _, candidate := range result.Items {
+		if candidate.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func runPolicyCandidateQueue(
@@ -164,16 +250,30 @@ func runPolicyAllow(
 		return c.fail(ctx, missingRuntimeFault())
 	}
 	id := inputs.One("--id")
+	result, err := allowPolicyCandidate(ctx, c, command, id)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, renderPolicyLearningChangeWithColor(result, humanColorAllowed(ctx, c, c.Out)))
+}
+
+func allowPolicyCandidate(
+	ctx context.Context, c *CLI, command CommandSpec, id string,
+) (tobari.PolicyLearningChange, error) {
+	if c == nil || c.tobari == nil {
+		return tobari.PolicyLearningChange{}, missingRuntimeFault()
+	}
+	if command.Agent.Mutation == nil {
+		return tobari.PolicyLearningChange{}, fault.New(
+			fault.KindContract, "invalid_catalog", "policy allow mutation contract is missing", false,
+		)
+	}
 	intent := operation.Intent{
 		Command: command.Path, Effect: command.Effect,
 		Target: operation.TargetRef{Kind: tobari.PolicyCandidateKind, ID: id},
 		Impact: command.Agent.Mutation.Impact,
 	}
-	result, err := c.tobari.AllowPolicyCandidate(ctx, intent, id)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	return c.emitMutationResult(ctx, command, renderPolicyLearningChangeWithColor(result, humanColorAllowed(ctx, c, c.Out)))
+	return c.tobari.AllowPolicyCandidate(ctx, intent, id)
 }
 
 func runPolicyCompactions(
@@ -279,12 +379,37 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	}
 	// The child interactive process owns stdout. Keep the host-side lifecycle
 	// guidance on stderr so shell output from the session remains untouched.
-	_, _ = writeOnce(c.Err, renderProjectSessionClosed())
+	message := renderProjectSessionClosed()
+	if pending, reviewErr := c.tobari.PolicyReview(ctx, 10_000); reviewErr == nil {
+		message = append(message, renderPendingPolicyNotification(pending)...)
+	}
+	_, _ = writeOnce(c.Err, message)
 	return code
 }
 
 func renderProjectSessionClosed() []byte {
 	return []byte("Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete\nIf another session is attached: tobari delete --force\n")
+}
+
+func renderPendingPolicyNotification(result tobari.PolicyCandidateReport) []byte {
+	if len(result.Items) == 0 {
+		return nil
+	}
+	latest := result.Items[len(result.Items)-1]
+	var output strings.Builder
+	fmt.Fprintf(&output, "\n⚠ %d pending network permission", len(result.Items))
+	if len(result.Items) == 1 {
+		output.WriteString(" is")
+	} else {
+		output.WriteString("s are")
+	}
+	output.WriteString(" waiting for review.\n")
+	fmt.Fprintf(
+		&output, "Latest: %s:%d %s %s\n",
+		safeExternalText(latest.Host), latest.Port, safeExternalText(latest.Method), safeExternalText(latest.Path),
+	)
+	output.WriteString("Review on the host: tobari policy review\n")
+	return []byte(output.String())
 }
 
 func runProjectStatus(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
@@ -565,6 +690,69 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 	return output.bytes()
 }
 
+func renderPolicyReviewWithColor(
+	result tobari.PolicyCandidateReport, allowCommand string, color bool,
+) []byte {
+	if len(result.Items) == 0 {
+		output := newHumanOutput(color)
+		output.empty(
+			"No pending network permissions",
+			"No retained exact permission is waiting for host review.",
+			"", "",
+		)
+		return output.bytes()
+	}
+	output := newHumanOutput(color)
+	output.heading("⚠", fmt.Sprintf("Pending network permissions (%d)", len(result.Items)), colorTokenWarning)
+	output.row("Scope", "Current Tobari only", colorTokenMuted)
+	output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), colorTokenMuted)
+	for index, item := range result.Items {
+		output.section(fmt.Sprintf("Permission %d", index+1))
+		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
+		output.row("Request", request, colorTokenAccent)
+		output.row("Observed", safeExternalText(item.ObservedAt), colorTokenMuted)
+		output.row("Reason", safeExternalText(item.Reason), colorTokenWarning)
+		output.row("Status", fmt.Sprintf("%d", item.StatusCode), colorTokenWarning)
+		output.row("Approve exact", allowCommand+" --id "+item.ID, colorTokenAccent)
+	}
+	return output.bytes()
+}
+
+func renderPolicyReviewCanceled() []byte {
+	output := newHumanOutput(true)
+	output.heading("·", "Permission review canceled", colorTokenMuted)
+	output.row("Changed", "No permissions changed.", colorTokenMuted)
+	output.next("policy review", "Review pending permissions when you are ready.")
+	return output.bytes()
+}
+
+func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bool) []byte {
+	if !color {
+		var output bytes.Buffer
+		fmt.Fprintln(&output, "testing_policy: passed")
+		fmt.Fprintln(&output, "applying_exact_rule: applied")
+		fmt.Fprintln(&output, "permission_allowed: true")
+		fmt.Fprintln(&output, "host: "+escapeTSVCell(result.Rule.Host))
+		fmt.Fprintln(&output, "port: "+strconv.Itoa(result.Rule.Port))
+		fmt.Fprintln(&output, "method: "+escapeTSVCell(result.Rule.Method))
+		fmt.Fprintln(&output, "path: "+escapeTSVCell(result.Rule.Path))
+		fmt.Fprintln(&output, "next: Retry the blocked operation.")
+		return output.Bytes()
+	}
+
+	output := newHumanOutput(true)
+	output.heading("✓", "Permission allowed", colorTokenSuccess)
+	output.row("Testing policy", "passed", colorTokenSuccess)
+	output.row("Applying exact rule", "applied", colorTokenSuccess)
+	output.row("Scope", "Current Tobari only", colorTokenMuted)
+	output.row("Request", fmt.Sprintf(
+		"%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port,
+		safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
+	), colorTokenAccent)
+	output.next("retry", "Retry the blocked operation.")
+	return output.bytes()
+}
+
 type policyCompactionOutput struct {
 	ID              string   `json:"id"`
 	ProjectID       string   `json:"project_id"`
@@ -682,7 +870,11 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 		output.row("Project", safeExternalText(result.Rule.ProjectID), colorTokenMuted)
 		output.row("Source rules", fmt.Sprintf("%d", result.SourceRuleCount), colorTokenMuted)
 		output.row("Applied", humanBool(result.Applied), humanBoolToken(result.Applied))
-		output.next("cluster status", "Verify the shared policy component after the change.")
+		if result.Task == tobari.TaskPolicyAllow {
+			output.row("Next", "Retry the blocked operation.", colorTokenAccent)
+		} else {
+			output.next("cluster status", "Verify the shared policy component after the change.")
+		}
 		return output.bytes()
 	}
 	var output bytes.Buffer
@@ -708,6 +900,14 @@ func renderClusterDenials(
 
 func renderClusterDenialsWithColor(
 	result tobari.DenialReport, applyCommand string, format successFormat, color bool,
+) ([]byte, error) {
+	return renderClusterDenialsWithReviewCommand(
+		result, applyCommand, ProgramName+" policy review", format, color,
+	)
+}
+
+func renderClusterDenialsWithReviewCommand(
+	result tobari.DenialReport, applyCommand, reviewCommand string, format successFormat, color bool,
 ) ([]byte, error) {
 	if format == successFormatJSON {
 		items := append([]tobari.PolicyDenial{}, result.Items...)
@@ -735,7 +935,7 @@ func renderClusterDenialsWithColor(
 		return append(output, '\n'), nil
 	}
 	if color && format == successFormatText {
-		return renderClusterDenialsHuman(result, applyCommand), nil
+		return renderClusterDenialsHuman(result, reviewCommand), nil
 	}
 	var output bytes.Buffer
 	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
@@ -754,7 +954,7 @@ func renderClusterDenialsWithColor(
 	return output.Bytes(), nil
 }
 
-func renderClusterDenialsHuman(result tobari.DenialReport, applyCommand string) []byte {
+func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string) []byte {
 	if len(result.Items) == 0 {
 		output := newHumanOutput(true)
 		output.empty("No policy denials", "The selected Gateway log window contains no denied requests.", "policy candidates", "Check whether a new denied request has been retained.")
@@ -764,7 +964,7 @@ func renderClusterDenialsHuman(result tobari.DenialReport, applyCommand string) 
 	output.heading("✓", fmt.Sprintf("Policy denials (%d)", len(result.Items)), colorTokenSuccess)
 	output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
 	output.row("Window", fmt.Sprintf("%d lines", result.WindowLines), colorTokenMuted)
-	output.row("Apply", applyCommand, colorTokenAccent)
+	output.row("Review", reviewCommand, colorTokenAccent)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Denial %d", index+1))
 		output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path)), colorTokenAccent)

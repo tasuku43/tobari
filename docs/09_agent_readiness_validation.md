@@ -3,8 +3,29 @@
 Tobari is agent-ready when a coding agent can discover the shared cluster,
 run the root command from a project directory, enter an exact CWD-owned
 Workspace without an ID, and recover from denied network requests without
-source inspection. Human entry below ancestor roots explicitly chooses reuse
-or creation; that interaction is outside the machine help contract.
+source inspection. This is also a product-adoption check: the bounded path
+must be easier to choose than running the agent on the host. Human entry below
+ancestor roots explicitly chooses reuse or creation; that interaction is
+outside the machine help contract.
+
+## Experience scorecard
+
+The current implementation is safe and catalog-complete, but the following
+journey is the product baseline to improve:
+
+| Journey | Current surface | Desired evidence |
+|---|---|---|
+| First isolated session | `doctor`, explicit `cluster up`, then `tobari` | One obvious CWD-first entry with cluster/bootstrap complexity guided or hidden while retaining an explicit recovery command |
+| Agent work | Reusable root, home, and deny-by-default Gateway | The user sets the boundary first; the agent works freely inside it without per-command supervision, host credentials, or direct egress |
+| First denied request | 403 plus host-side `policy review` | The agent can explain that the host must review the secret-free exact request; one fixed next command is available |
+| Permission growth | Human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` | TTY users select, inspect, explicitly confirm, and refresh after one exact allow without OPA/Rego editing; redirected review remains read-only and the underlying action remains exact-reference-bound and tested |
+| Advanced policy | Edit trusted-host Rego and run `policy apply` | Remains an explicit escape hatch, never a prerequisite for routine success |
+| Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
+
+The table is a review baseline, not a claim that the desired command count is
+already met. Readiness evidence records command count, discovery rounds,
+external-processing count, and the exact next command separately for machine
+and human paths.
 
 ## Required scenario
 
@@ -23,6 +44,7 @@ go build -o /tmp/tobari ./cmd/tobari
 (cd /absolute/test/root && /tmp/tobari status --format json)
 (cd /absolute/test/root && /tmp/tobari list --format json)
 go run ./cmd/tobari cluster denials --tail 100 --format json
+go run ./cmd/tobari policy review --tail 100
 go run ./cmd/tobari policy candidates --tail 100 --format json
 go run ./cmd/tobari policy allow --id PCY_ID
 go run ./cmd/tobari policy compactions --format json
@@ -62,9 +84,10 @@ rules exist. The transcript must prove:
   without changing authority; orthogonal scheme, project-principal, or
   managed-credential failures remain diagnostics and do not become ineffective
   candidates.
-- `policy allow` consumes one candidate reference unchanged, tests the complete
-  policy, records only an exact rule, and activates it without restarting a
-  Tobari.
+- `PCY_ID` denotes one exact value emitted by `policy review` or `policy
+  candidates`; the transcript passes it unchanged to `policy allow`. The
+  action tests the complete policy, records only an exact rule, and activates
+  it without restarting a Tobari.
 - Cleanup verifies exact owner and opaque-ID labels.
 
 ## Policy-learning scenario
@@ -75,8 +98,10 @@ The Docker integration test supplies the executable loop:
 2. A mock-host POST under `/denied` receives `403` and never reaches upstream.
 3. `cluster denials` exposes the rejected dimensions, trusted XDG policy path,
    and exact apply command without a body or credential canary.
-4. `policy candidates` and `policy tail` expose one pending exact proposal and
-   its opaque reference without mutating policy.
+4. `policy review`, `policy candidates`, and `policy tail` expose one pending
+   exact proposal and its opaque reference. The TTY review path lets a user
+   select, inspect, explicitly confirm one exact allow, and refresh without
+   OPA or Rego editing; redirected review does not mutate policy.
 5. `policy allow` tests a private complete policy copy, atomically stores the
    exact learned rule, recreates only OPA, and confirms it healthy.
 6. The exact retry succeeds while a child path remains denied.

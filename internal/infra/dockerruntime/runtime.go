@@ -613,15 +613,7 @@ func (r *Runtime) prepareState() (tobari.State, error) {
 			return tobari.State{}, fmt.Errorf("prepare configuration directory: %w", err)
 		}
 	}
-	principalRegistry := filepath.Join(r.configDirectory, "principals.json")
-	if err := initializeBytes(
-		principalRegistry,
-		mustJSONBytes(emptyProjectPrincipalRegistry()),
-		0o600,
-	); err != nil {
-		return tobari.State{}, err
-	}
-	if _, err := r.readProjectPrincipalRegistry(); err != nil {
+	if err := r.ensureProjectPrincipalRegistry(); err != nil {
 		return tobari.State{}, fmt.Errorf("validate project principal registry: %w", err)
 	}
 	for _, name := range []string{"data.json", "tobari.rego", "tobari_test.rego"} {
@@ -1327,7 +1319,7 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_POLICY_DIR="+state.PolicyDirectory,
 		"TOBARI_CREDENTIAL_CONFIG="+state.CredentialConfig,
 		"TOBARI_CREDENTIAL_DIR="+state.CredentialDir,
-		"TOBARI_PRINCIPAL_CONFIG="+r.principalRegistryPath(),
+		"TOBARI_PRINCIPAL_DIR="+r.principalRegistryDirectory(),
 		"TOBARI_ASSET_VERSION="+state.AssetVersion,
 		"TOBARI_UID="+strconv.Itoa(uid), "TOBARI_GID="+strconv.Itoa(gid),
 		"TOBARI_MITMPROXY_IMAGE="+versions["MITMPROXY_IMAGE"],

@@ -789,6 +789,26 @@ func TestPolicyCandidatesProduceExactOpaqueReferenceAndTailTask(t *testing.T) {
 	if tail.Task != tobari.TaskPolicyTail || tail.Items[0].ID != result.Items[0].ID {
 		t.Fatalf("tail = %+v, candidates = %+v", tail, result)
 	}
+	review, err := New(runtime).PolicyReview(context.Background(), 75)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if review.Task != tobari.TaskPolicyReview || review.Items[0].ID != result.Items[0].ID {
+		t.Fatalf("review = %+v, candidates = %+v", review, result)
+	}
+}
+
+func TestServiceInteractiveRequiresTerminalStreams(t *testing.T) {
+	t.Parallel()
+	runtime := &projectRuntimeFake{fakeRuntime: &fakeRuntime{}, terminal: true}
+	service := New(runtime)
+	if !service.IsInteractive(bytes.NewReader(nil), &bytes.Buffer{}) {
+		t.Fatal("interactive runtime was not recognized")
+	}
+	runtime.terminal = false
+	if service.IsInteractive(bytes.NewReader(nil), &bytes.Buffer{}) {
+		t.Fatal("non-terminal runtime entered interactive mode")
+	}
 }
 
 func validServiceDenial() tobari.PolicyDenial {

@@ -15,6 +15,7 @@ const (
 	TaskClusterDown       = "cluster.down"
 	TaskPolicyCandidates  = "policy.candidates"
 	TaskPolicyTail        = "policy.tail"
+	TaskPolicyReview      = "policy.review"
 	TaskPolicyAllow       = "policy.allow"
 	TaskPolicyCompactions = "policy.compactions"
 	TaskPolicyCompact     = "policy.compact"

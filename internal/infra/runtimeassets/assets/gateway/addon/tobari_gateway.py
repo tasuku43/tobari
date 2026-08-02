@@ -448,6 +448,37 @@ def _deny(flow: http.HTTPFlow, status: int, code: str) -> None:
     flow.response = http.Response.make(status, body, {"content-type": "application/json"})
 
 
+def _policy_denied(flow: http.HTTPFlow, status: int, learnable: bool) -> None:
+    path = urlsplit(flow.request.url).path or "/"
+    review_available = bool(learnable)
+    review = {
+        "available": review_available,
+        "command": "tobari policy review" if review_available else None,
+        "automatic_retry": False,
+        "retry_after_review": review_available,
+    }
+    document = {
+        "error": "policy_denied",
+        "message": "Tobari blocked this network request because it is outside the current execution boundary.",
+        "tobari": {
+            "schema_version": 1,
+            "event": "permission_review_available"
+            if review_available
+            else "permission_review_unavailable",
+            "run_on": "host",
+            "review": review,
+            "request": {
+                "host": flow.request.host.rstrip(".").lower(),
+                "port": flow.request.port,
+                "method": flow.request.method.upper(),
+                "path": path,
+            },
+        },
+    }
+    body = json.dumps(document, separators=(",", ":")).encode("utf-8")
+    flow.response = http.Response.make(status, body, {"content-type": "application/json"})
+
+
 def _audit(**fields: Any) -> None:
     print(json.dumps(fields, separators=(",", ":"), sort_keys=True), flush=True)
 
@@ -489,7 +520,7 @@ class TobariGateway:
         )
         self.principal_path = os.getenv(
             "TOBARI_PRINCIPAL_REGISTRY",
-            "/run/tobari/principals.json",
+            "/run/tobari/principal-registry/principals.json",
         )
 
     def server_connect(self, data: Any) -> None:
@@ -540,7 +571,7 @@ class TobariGateway:
             profile_name = decision.credential_profile
             learnable = decision.learnable
             if not decision.allow:
-                _deny(flow, decision.status_code, "policy_denied")
+                _policy_denied(flow, decision.status_code, learnable)
                 upstream_status = decision.status_code
                 return
             profile_name = credential_request.apply(

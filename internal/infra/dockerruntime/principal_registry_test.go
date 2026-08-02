@@ -61,6 +61,51 @@ func TestProjectPrincipalRegistryUpdateIsAtomicAndProjectBound(t *testing.T) {
 	}
 }
 
+func TestProjectPrincipalRegistryUsesDedicatedDirectoryAndMigratesLegacyFile(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "config")
+	if err := os.MkdirAll(config, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.principalRegistryPath() == filepath.Join(config, "principals.json") {
+		t.Fatal("principal registry still uses the single-file mount path")
+	}
+	legacy := projectPrincipalRegistry{
+		SchemaVersion: projectPrincipalRegistrySchema,
+		Bindings: []projectPrincipalBinding{{
+			ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+			GatewayIP: "172.29.0.2", Network: "tobari-a-net",
+		}},
+	}
+	legacyData, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(config, "principals.json")
+	if err := os.WriteFile(legacyPath, append(legacyData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runtime.ensureProjectPrincipalRegistry(); err != nil {
+		t.Fatalf("ensureProjectPrincipalRegistry() error = %v", err)
+	}
+	data, err := os.ReadFile(runtime.principalRegistryPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var migrated projectPrincipalRegistry
+	if err := json.Unmarshal(data, &migrated); err != nil {
+		t.Fatal(err)
+	}
+	if len(migrated.Bindings) != 1 || migrated.Bindings[0] != legacy.Bindings[0] {
+		t.Fatalf("migrated registry = %+v, want %+v", migrated, legacy)
+	}
+}
+
 func TestProjectPrincipalRegistryRejectsStaleOrMalformedState(t *testing.T) {
 	tests := map[string]projectPrincipalRegistry{
 		"wrong schema": {SchemaVersion: projectPrincipalRegistrySchema + 1},

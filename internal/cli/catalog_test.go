@@ -560,6 +560,42 @@ func TestCatalogEnforcesRoleAndReferenceFlowContracts(t *testing.T) {
 	}
 }
 
+func TestCatalogDeclaresInteractiveDiscoverToActionWorkflow(t *testing.T) {
+	discover := discoverSpec("items list", "item")
+	discover.Agent.Interactive = &InteractiveWorkflowContract{
+		ActionCommand:          "items allow",
+		SelectionReferenceKind: "item",
+		SelectionOutputField:   "id",
+		Confirmation:           "explicit_yes",
+		NonInteractiveBehavior: "read_only",
+	}
+	action := actSpec("items allow", "item", "--id")
+	action.Effect = operation.EffectWrite
+	action.Agent.Errors = mutationErrors(action.Agent.Errors, action.Path)
+	action.Agent.Mutation = &MutationContract{
+		TargetKind: "item", TargetInputs: []string{"--id"}, TargetIDInput: "--id",
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
+		},
+	}
+	if err := NewCatalog(discover, action).Validate(); err != nil {
+		t.Fatalf("valid interactive workflow: %v", err)
+	}
+
+	invalid := cloneCommandSpec(discover)
+	invalid.Agent.Interactive.ActionCommand = "items missing"
+	if err := NewCatalog(invalid, action).Validate(); err == nil || !strings.Contains(err.Error(), "interactive action") {
+		t.Fatalf("missing interactive action validation = %v", err)
+	}
+
+	invalid = cloneCommandSpec(discover)
+	invalid.Agent.Interactive.Confirmation = "implicit"
+	if err := NewCatalog(invalid, action).Validate(); err == nil || !strings.Contains(err.Error(), "explicit_yes") {
+		t.Fatalf("confirmation validation = %v", err)
+	}
+}
+
 func TestCatalogValidatesCommandBoundToolLocalFixedTargets(t *testing.T) {
 	valid := fixedTargetActSpec("auth status")
 	if err := NewCatalog(valid).Validate(); err != nil {

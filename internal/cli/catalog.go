@@ -326,6 +326,19 @@ type MutationContract struct {
 	Impact        operation.Impact `json:"impact"`
 }
 
+// InteractiveWorkflowContract describes a human-only composition of one
+// discover command and one existing action command. The discover command
+// remains read-only in the public reference graph; the action command owns the
+// mutation and receives the selected opaque reference unchanged. Redirected
+// and machine-readable invocations must follow NonInteractiveBehavior.
+type InteractiveWorkflowContract struct {
+	ActionCommand          string `json:"action_command"`
+	SelectionReferenceKind string `json:"selection_reference_kind"`
+	SelectionOutputField   string `json:"selection_output_field"`
+	Confirmation           string `json:"confirmation"`
+	NonInteractiveBehavior string `json:"non_interactive_behavior"`
+}
+
 // MarshalJSON projects policy-relevant impact enums as stable words rather
 // than implementation-specific integer values.
 func (m MutationContract) MarshalJSON() ([]byte, error) {
@@ -356,15 +369,16 @@ func (m MutationContract) MarshalJSON() ([]byte, error) {
 // interpret a command without exploratory calls. Nil slices mean unknown and
 // are invalid; non-nil empty slices explicitly mean none.
 type AgentContract struct {
-	CapabilityID  string              `json:"capability_id"`
-	Outcome       string              `json:"outcome"`
-	Inputs        []CommandInput      `json:"inputs"`
-	Output        CommandOutput       `json:"output"`
-	Pagination    *PaginationContract `json:"pagination,omitempty"`
-	Prerequisites []string            `json:"prerequisites"`
-	FixedTarget   *FixedTarget        `json:"fixed_target,omitempty"`
-	Errors        []CommandError      `json:"errors"`
-	Mutation      *MutationContract   `json:"mutation,omitempty"`
+	CapabilityID  string                       `json:"capability_id"`
+	Outcome       string                       `json:"outcome"`
+	Inputs        []CommandInput               `json:"inputs"`
+	Output        CommandOutput                `json:"output"`
+	Pagination    *PaginationContract          `json:"pagination,omitempty"`
+	Prerequisites []string                     `json:"prerequisites"`
+	FixedTarget   *FixedTarget                 `json:"fixed_target,omitempty"`
+	Errors        []CommandError               `json:"errors"`
+	Mutation      *MutationContract            `json:"mutation,omitempty"`
+	Interactive   *InteractiveWorkflowContract `json:"interactive,omitempty"`
 }
 
 // CommandSpec is the single source of truth for dispatch, human help, and the
@@ -514,7 +528,7 @@ func defaultCatalog() Catalog {
 					Delivery:           OutputDeliveryComplete,
 					CollectionCoverage: CollectionCoverageExhaustive,
 					JSONEnvelope:       "commands",
-					JSONSchemaVersion:  6,
+					JSONSchemaVersion:  7,
 				},
 				Prerequisites: []string{},
 				Errors: []CommandError{
@@ -569,6 +583,7 @@ func (c Catalog) Validate() error {
 		return fmt.Errorf("command catalog is empty")
 	}
 	seen := make(map[string]struct{}, len(c.commands))
+	commandsByPath := make(map[string]CommandSpec, len(c.commands))
 	producedKinds := make(map[string][]string)
 	consumedKinds := make(map[string][]string)
 	paginationKindOwners := make(map[string]string)
@@ -618,6 +633,7 @@ func (c Catalog) Validate() error {
 			return fmt.Errorf("catalog contains duplicate command %q", command.Path)
 		}
 		seen[command.Path] = struct{}{}
+		commandsByPath[command.Path] = command
 		for _, declaredError := range command.Agent.Errors {
 			got := catalogFaultSignature{
 				command:   command.Path,
@@ -647,6 +663,28 @@ func (c Catalog) Validate() error {
 		}
 		if command.Agent.Pagination != nil {
 			paginationKindOwners[command.Agent.Pagination.CursorOutput.ReferenceKind] = command.Path
+		}
+	}
+	for _, command := range c.commands {
+		workflow := command.Agent.Interactive
+		if workflow == nil {
+			continue
+		}
+		action, found := commandsByPath[workflow.ActionCommand]
+		if !found {
+			return fmt.Errorf("catalog command %q interactive action %q is not registered", command.Path, workflow.ActionCommand)
+		}
+		if action.Effect != operation.EffectWrite || action.Role != RoleAct {
+			return fmt.Errorf("catalog command %q interactive action %q must be a write act command", command.Path, workflow.ActionCommand)
+		}
+		matched := 0
+		for _, consumed := range action.ConsumedRefs() {
+			if consumed.Kind == workflow.SelectionReferenceKind {
+				matched++
+			}
+		}
+		if matched != 1 {
+			return fmt.Errorf("catalog command %q interactive action %q must consume exactly one %q reference", command.Path, workflow.ActionCommand, workflow.SelectionReferenceKind)
 		}
 	}
 	for kind, owner := range paginationKindOwners {
@@ -916,6 +954,7 @@ func validateAgentContract(command CommandSpec) error {
 		return fmt.Errorf("agent output must declare at least one field")
 	}
 	seenFields := make(map[string]struct{}, len(contract.Output.Fields))
+	fieldsByName := make(map[string]OutputField, len(contract.Output.Fields))
 	for index, field := range contract.Output.Fields {
 		if err := validateOutputFieldName(field.Name); err != nil {
 			return fmt.Errorf("agent output field %d: %w", index, err)
@@ -930,6 +969,7 @@ func validateAgentContract(command CommandSpec) error {
 			return fmt.Errorf("agent output field %q is declared more than once", field.Name)
 		}
 		seenFields[field.Name] = struct{}{}
+		fieldsByName[field.Name] = field
 		if field.ReferenceKind != "" {
 			if err := validateReferenceName(field.ReferenceKind); err != nil {
 				return fmt.Errorf("agent output field %q reference kind: %w", field.Name, err)
@@ -937,6 +977,11 @@ func validateAgentContract(command CommandSpec) error {
 			if field.Type != OutputFieldTypeString {
 				return fmt.Errorf("agent output reference field %q must have string type", field.Name)
 			}
+		}
+	}
+	if contract.Interactive != nil {
+		if err := validateInteractiveWorkflow(command, fieldsByName); err != nil {
+			return err
 		}
 	}
 	if err := contract.Output.Delivery.validate(); err != nil {
@@ -1140,6 +1185,42 @@ func validateAgentContract(command CommandSpec) error {
 		if len(mutation.TargetInputs) != expectedTargetInputs {
 			return fmt.Errorf("write mutation target_inputs must contain only target_id_input and optional parent_input")
 		}
+	}
+	return nil
+}
+
+func validateInteractiveWorkflow(command CommandSpec, fields map[string]OutputField) error {
+	workflow := command.Agent.Interactive
+	if workflow == nil {
+		return nil
+	}
+	if command.Effect != operation.EffectRead || command.Role != RoleDiscover {
+		return fmt.Errorf("interactive workflow must belong to a read-only discover command")
+	}
+	if err := operation.ValidateCommandPath(workflow.ActionCommand); err != nil {
+		return fmt.Errorf("interactive action command: %w", err)
+	}
+	if workflow.ActionCommand == command.Path {
+		return fmt.Errorf("interactive action command must be separate from the discover command")
+	}
+	if err := validateReferenceName(workflow.SelectionReferenceKind); err != nil {
+		return fmt.Errorf("interactive selection reference kind: %w", err)
+	}
+	if err := validateOutputFieldName(workflow.SelectionOutputField); err != nil {
+		return fmt.Errorf("interactive selection output field: %w", err)
+	}
+	field, exists := fields[workflow.SelectionOutputField]
+	if !exists {
+		return fmt.Errorf("interactive selection output field %q is not declared", workflow.SelectionOutputField)
+	}
+	if field.ReferenceKind != workflow.SelectionReferenceKind {
+		return fmt.Errorf("interactive selection output field %q must produce reference kind %q", workflow.SelectionOutputField, workflow.SelectionReferenceKind)
+	}
+	if workflow.Confirmation != "explicit_yes" {
+		return fmt.Errorf("interactive confirmation must be explicit_yes")
+	}
+	if workflow.NonInteractiveBehavior != "read_only" {
+		return fmt.Errorf("interactive non-interactive behavior must be read_only")
 	}
 	return nil
 }
@@ -1908,6 +1989,10 @@ func cloneAgentContract(contract AgentContract) AgentContract {
 		mutation := *contract.Mutation
 		mutation.TargetInputs = cloneSlice(mutation.TargetInputs)
 		contract.Mutation = &mutation
+	}
+	if contract.Interactive != nil {
+		interactive := *contract.Interactive
+		contract.Interactive = &interactive
 	}
 	return contract
 }

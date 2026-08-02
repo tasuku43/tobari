@@ -71,6 +71,23 @@ automatic Codex Stop hook: a per-turn gate adds latency and does not prove
 completion. Optional local automation must delegate to one named profile and
 must not claim equivalence to a profile it did not run.
 
+## Adoption is a product check
+
+The harness validates more than an intact security boundary. It also checks
+whether the boundary is usable enough to be selected for ordinary autonomous
+work. The agent-readiness scenario records the current first-use path and the
+denial-to-retry path, including discovery rounds and undeclared external
+processing. A passing policy test with a workflow that requires users to become
+Docker or OPA operators is evidence for a thesis revision or follow-up UX
+slice, not evidence that the product outcome is complete.
+
+The desired routine journey remains CWD-first: enter a reusable Tobari, work
+freely within the declared root and network boundary, receive a useful
+secret-free denial, approve the minimum exact permission through a trusted host
+action, and retry. Human presentation may simplify this journey only while the
+catalog, opaque-reference, effect, mutation, and fail-closed contracts remain
+unchanged.
+
 ## Harness components
 
 ### `.harness/project.json`
@@ -266,10 +283,22 @@ The test suite has complementary levels:
 - Policy-learning integration projects a denial, edits the host XDG policy and
   its test, activates it through the fixed-target command, and observes the
   changed decision without restarting any Tobari.
+- Gateway contract tests verify that a learnable denial carries only the fixed
+  host-side review navigation, while non-learnable and infrastructure failures
+  do not invite approval. Session lifecycle tests verify that the aggregate
+  pending-permission summary stays on host stderr and is best-effort.
+- The human permission path is exercised through `policy review`; its TTY
+  Permission Inbox covers bounded selection, detail inspection, explicit
+  confirmation, cancellation, and refresh after one allow. It does not
+  require hand-editing OPA or Rego. Redirected review stays read-only, and the
+  exact reference-bound `policy allow` action remains the only routine policy
+  mutation.
 - Project-principal integration creates two current-directory Tobari, checks
-  distinct Gateway network addresses, denies learned permission when requested
-  by the other project, and checks registry cleanup after network recovery and
-  deletion. Gateway unit tests separately cover managed profile binding.
+  distinct Gateway network addresses, proves an atomically updated
+  directory-mounted registry is visible without manually recreating Gateway,
+  denies learned permission when requested by the other project, and checks
+  registry cleanup after network recovery and deletion. Gateway unit tests
+  separately cover managed profile binding.
 - Policy-boundary tests prove the normalized request port is required by the
   initialized scheme-port allowlist, rejected non-default ports are not
   learnable, and learned rules do not cross ports.
@@ -324,8 +353,8 @@ Every strong statement should identify its enforcement path.
 | Shared runtime resource bounds | Fixed project create-argv, resource-aware spec hash, and Docker HostConfig integration assertions |
 | Dev Container boundary | Bounded JSONC/path tests, application rejection, and catalog input conflicts |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
-| Typed denial recovery | Strict host/port audit projection, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
-| Explicit policy learning | OPA scheme/port learnability classification, project/host/port/method/path candidate/reference domain validation, discover-act graph and round trip, strict atomic XDG writer, preflight ordering, and Docker retry |
+| Typed denial recovery | Strict host/port audit projection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
+| Explicit policy learning | OPA scheme/port learnability classification, project/host/port/method/path candidate/reference domain validation, discover-act graph and round trip, human review without hand-authored OPA/Rego, strict atomic XDG writer, preflight ordering, and Docker retry |
 | Bounded policy compaction | Pure deterministic same-project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |
 | Project principal and credential scope | Owner-only atomic registry schema, local-interface derivation, forged-session and unknown-principal denial, passthrough default/managed profile adapter tests, cross-project Rego canary, and two-project Docker integration |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
@@ -337,6 +366,7 @@ Every strong statement should identify its enforcement path.
 | Executable command inputs | Catalog validation, one shared typed parser, handler integration tests, and exact human/agent-help input projection |
 | Agent recovery | Catalog fault declarations, exact-path/help-selector executable grammar tests, and structured error snapshots |
 | Bounded agent discovery | Fixed root-index shape, 512-byte per-command entry validation, 100-command growth/selection tests, and a derived-scale grouped-workflow whole-response budget with edge-equivalence checks |
+| Bounded-autonomy adoption | Agent-readiness first-use and denial-to-retry transcripts record command count, discovery rounds, external-processing count, and the concrete next action; a reviewed human-handoff scorecard identifies setup friction as product evidence |
 | Work-packet lifecycle consistency | Repository validation of finite status, all GFM completion checkboxes, CommonMark fence handling, explicit non-template acyclic supersession, and regular-file paths |
 | Local Go consistency | Gate preflight comparison of required/reported/compiler versions and GOROOT/GOTOOLDIR, with a mixed-installation shell fixture |
 | External text structure | Visible-projection unit/E2E tests plus scoped I/O trust metadata; printable meaning remains explicitly out of scope |

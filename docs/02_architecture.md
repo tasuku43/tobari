@@ -48,6 +48,29 @@ Infrastructure satisfies ports structurally without importing application.
 CLI is the only production composition root. `tools/archlint` enforces these
 directions.
 
+## User-facing composition
+
+The internal separation between shared cluster reconciliation, project runtime
+reconciliation, and policy activation must not become a setup tax for the
+ordinary user. The product front door is the current project directory and the
+bounded-autonomy outcome: enter a reusable isolated space, let the agent work,
+and teach the minimum network permission after a useful denial. The CLI may
+orchestrate or guide these internal steps in a future slice, but every such
+path remains catalog-owned, effect-declared, and failure-before-side-effect
+where applicable.
+
+`cluster up`, `cluster status`, `cluster denials`, `policy candidates`,
+`policy review`, `policy tail`, `policy allow`, and `policy apply` remain valid
+internal seams today. They are not permission to expose Docker, OPA, or opaque
+resource identifiers as the routine mental model. `policy review` is the
+ordinary human-facing Permission Inbox: on a TTY it composes selection,
+detail inspection, explicit confirmation, and the existing `policy allow`
+action for one candidate; redirected and machine-readable review remains
+read-only. `policy candidates` is the machine discovery surface and
+`policy tail` is a compatibility projection. The catalog declares this
+composition while preserving discover/act separation: the act still consumes
+exactly one validated opaque reference or one declared fixed target.
+
 ## Runtime assets
 
 The Go binary embeds a versioned runtime tree:
@@ -210,6 +233,10 @@ container; drift recreates only that container. OPA runs with
 filesystem events propagate. The principal registry is a generic host-issued
 contract: Docker currently supplies the network/address observation, while a
 future stronger runtime may supply the same binding through another adapter.
+Only its dedicated directory is mounted read-only into Gateway; lifecycle
+updates replace the registry file atomically inside that directory so a
+single-file bind mount cannot strand Gateway on an old inode or expose the
+neighboring credential configuration.
 The logical Tobari ID is not trusted when echoed by a caller; Gateway derives
 it from the local interface address. `policy apply`
 provides the deterministic
@@ -274,20 +301,26 @@ default passthrough adapter never loads or injects managed credentials; the
 retained managed adapter performs the existing project/host validation and
 injection at the same post-allow boundary. The addon never retries.
 
-Denied audit records are also the policy-development feedback interface.
-`tobari cluster denials` parses one bounded Gateway log window, rejects
+Denied audit records are also the policy-development feedback interface. A
+learnable Gateway denial carries a fixed host-side `tobari policy review`
+navigation hint, and session closure may summarize the pending queue on host
+stderr. These are advisory only: they contain no action reference and cannot
+approve or retry a request. `tobari cluster denials` parses one bounded Gateway
+log window, rejects
 malformed denial-shaped records, and returns typed project principal, host, port,
 method, path, reason, status, exact-rule learnability, request identity, timestamp, the
 trusted host policy directory, and the exact apply command. OPA computes
 learnability only when version, cluster, scheme, fixed port, project-principal,
 and (for the managed adapter) credential-binding boundaries already pass, so an exact
-project/host/port/method/path rule can close the request. `policy candidates`
-deterministically maps only that eligible retained evidence to opaque
-exact-rule references that remain stable across repeated denials of the same
-project/host/port/method/path, and removes effects already covered by the CLI-owned
-learned-rule data. `policy tail` is a human text projection over the same
-bounded task result. Raw `cluster logs` remains the component-debugging
-interface.
+project/host/port/method/path rule can close the request. `policy review` and
+`policy candidates` deterministically map only that eligible retained evidence
+to opaque exact-rule references that remain stable across repeated denials of
+the same project/host/port/method/path, and remove effects already covered by
+the CLI-owned learned-rule data. `policy review` is the routine human text
+projection and, after explicit TTY confirmation, delegates one unchanged
+candidate ID to `policy allow`; redirected review is read-only. `policy tail`
+is a compatibility projection over the same bounded task result. Raw `cluster
+logs` remains the component-debugging interface.
 
 `policy allow` resolves one exact candidate reference against retained
 validated audit state without decoding it. Infrastructure reads the bounded,
