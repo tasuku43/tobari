@@ -20,7 +20,6 @@ type RuntimePort interface {
 	CurrentDirectory(context.Context) (string, error)
 	IsTerminal(io.Writer) bool
 	ResolveImageSelector(context.Context, string) (string, error)
-	ReadDevContainer(context.Context, string, string) (tobari.DevContainerConfig, error)
 	ClusterUp(context.Context) (tobari.State, error)
 	LoadState(context.Context) (tobari.State, bool, error)
 	InspectCluster(context.Context, tobari.State) (tobari.ClusterStatus, error)
@@ -776,7 +775,7 @@ func (s *Service) ClusterStatus(ctx context.Context) (tobari.ClusterStatus, erro
 
 // Attach creates one named Tobari within the shared cluster.
 func (s *Service) Attach(
-	ctx context.Context, intent operation.Intent, name, root, image, devcontainer string,
+	ctx context.Context, intent operation.Intent, name, root, image string,
 ) (tobari.Instance, error) {
 	legacy, err := s.legacyNamedRuntime()
 	if err != nil {
@@ -784,12 +783,6 @@ func (s *Service) Attach(
 	}
 	if err := ctx.Err(); err != nil {
 		return tobari.Instance{}, err
-	}
-	if image != "" && devcontainer != "" {
-		return tobari.Instance{}, fault.New(
-			fault.KindInvalidInput, "invalid_devcontainer",
-			"--image and --devcontainer cannot be used together", false,
-		)
 	}
 	if err := tobari.ValidateName(name); err != nil {
 		return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_name", "Tobari name is invalid", false, err)
