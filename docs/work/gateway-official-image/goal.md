@@ -40,22 +40,22 @@ build and leaves the image distribution/release boundary implicit.
 
 ## Acceptance criteria
 
-- [ ] The canonical Gateway source, embedded snapshot/materialization boundary,
+- [x] The canonical Gateway source, embedded snapshot/materialization boundary,
       Dockerfile, tests, and release metadata have one documented source of truth.
-- [ ] A multi-architecture official Gateway image is built from a reviewed
+- [x] A multi-architecture official Gateway image is built from a reviewed
       source revision and published with an immutable digest and least
       privilege workflow permissions. Provenance/SBOM is included only if the
       release contract explicitly adopts those claims.
-- [ ] The CLI selects an immutable compatible Gateway image and fails before
+- [x] The CLI selects an immutable compatible Gateway image and fails before
       cluster mutation when it is missing, incompatible, or for the wrong
       architecture.
-- [ ] The non-root host UID/GID and owner-only credential/CA access contract is
+- [x] The non-root host UID/GID and owner-only credential/CA access contract is
       preserved or deliberately replaced with an equivalent verified design;
       this includes the private/public named-CA-volume distinction.
-- [ ] Source development remains possible without publishing an image for every
+- [x] Source development remains possible without publishing an image for every
       local edit; the fallback is explicit rather than silently changing the
       trust path.
-- [ ] Gateway unit, image, integration, security, public-boundary, and release
+- [x] Gateway unit, image, integration, security, public-boundary, and release
       gates pass.
 
 ## Completion definition
@@ -63,4 +63,4 @@ build and leaves the image distribution/release boundary implicit.
 The source ownership, image contract, UID/GID design, release workflow,
 rollback, and user-facing startup behavior are documented and tested. Durable
 decisions are promoted to an ADR and governing documents, required gates pass,
-and this temporary packet is removed.
+and this temporary packet is removed after GHCR package visibility is verified.
