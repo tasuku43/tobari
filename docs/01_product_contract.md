@@ -11,7 +11,9 @@ that shared policy boundary.
 
 The primary user is a developer who wants an autonomous coding agent to edit a
 bounded source tree without receiving host credentials or unrestricted network
-egress. `cluster up` explicitly owns shared Gateway and OPA setup; `cd project
+egress. Tool-native authentication may be created inside the selected
+Tobari's own persistent home; host authentication state is never copied in.
+`cluster up` explicitly owns shared Gateway and OPA setup; `cd project
 && tobari` requires that ready cluster, then owns project logical-state
 resolution, an explicit Workspace choice when ancestor roots are ambiguous,
 project-runtime recovery, and interactive entry. The user normally manages only
@@ -41,8 +43,8 @@ and explicit policy activation rather than an observed host-only approval.
 - **Workspace:** the human-facing name for one directory-bound Tobari in
   lifecycle and list output. It is not a second runtime resource; its identity
   remains the canonical root and its stable Tobari ID remains diagnostic.
-- **cluster:** the one installation-local Gateway, OPA, policy, credential, and
-  CA lifecycle.
+- **cluster:** the one installation-local Gateway, OPA, policy, principal,
+  optional managed-credential inputs, and CA lifecycle.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
 - **root:** the canonical host directory selected from the current working
@@ -59,13 +61,16 @@ and explicit policy activation rather than an observed host-only approval.
 - **project principal:** a host-issued binding from one stable Tobari ID to
   the exact Gateway interface on that project's dedicated network. Caller
   headers and profile names are not principals.
-- **credential profile:** a Gateway-only secret bound to exact hosts and an
-  explicit set of project principals.
+- **tool-owned authentication state:** files written by a tool or agent below
+  one Tobari's persistent home during its own login or configuration flow.
+- **credential profile:** non-secret Gateway configuration for the retained
+  managed adapter; it binds a profile to exact hosts and project principals.
 
 The stable Tobari ID is not trusted when supplied by a work container. The
 host-owned principal registry derives it from the Gateway interface that
 received the request. The initialized host policy remains an installation-wide
-baseline; learned permissions and credential profiles are project-bound.
+baseline; learned permissions are project-bound. Principal identity does not
+select or inject tool credentials.
 
 The public commands are:
 
@@ -73,7 +78,7 @@ The public commands are:
 |---|---|---|---|
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version` | utility | read | Print build identity |
-| `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Validate host, Docker, configuration, policy, secret permissions, ports, and residue |
+| `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Validate host, Docker, configuration, policy, managed-secret permissions, ports, and residue |
 | `tobari` | act, fixed target | create | Choose or create the current directory's Workspace, reconcile runtime, enter it, and leave it reusable after `exit` |
 | `status` | utility | read | Inspect the nearest current-directory Tobari and its diagnostic runtime state |
 | `list [--format text|json]` | utility | read | List local Workspaces with runtime diagnostics and diagnostic IDs |
@@ -130,8 +135,8 @@ undeclared Docker mutation by the CLI.
   network or container mutation; the logical Workspace remains available for
   repair and retry.
 - The built-in `tobari/runtime` image is the base work runtime: it preserves the
-  lifecycle contract and carries the common Git, HTTP, JSON, Python, SSH,
-  GitHub, and AWS tools. It is published on reviewed main pushes as a
+  lifecycle contract and carries common Git, HTTP, JSON, Python, SSH, and
+  command-line tools. It is published on reviewed main pushes as a
   development channel; registry publication is not implied by local image
   selection, and Tobari never pulls the published image implicitly.
 - Official agent images are complete compatible variants in the same runtime
@@ -270,25 +275,34 @@ Configuration is resolved from
 
 - `config.json`: schema-v1 default Tobari image selector;
 - `policy/`: Rego and data mounted read-only into OPA and watched for host edits;
-- `credentials.json`: schema-v1 profile type, exact hosts, explicit project IDs,
-  and Gateway mount path;
+- `credentials.json`: reserved schema-v1 profile metadata for the explicitly
+  selected managed Gateway adapter;
 - `principals.json`: owner-only host-issued schema-v1 project-to-Gateway-network
   bindings, maintained by lifecycle reconciliation and mounted read-only into
   Gateway;
-- `credentials/`: secret files, required to be regular owner-readable files
-  with no group/other permissions.
+- `credentials/`: reserved managed-adapter secret files, required to be
+  regular owner-readable files with no group/other permissions. The default
+  passthrough adapter does not load them;
+
+Tool authentication state is not cluster configuration. It belongs below the
+selected instance's persistent home and is created by the tool's own login or
+configuration flow.
 
 Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`:
 `roots/<hash>.json` indexes canonical roots and
 `instances/<id>/state.json` contains one logical instance and diagnostic runtime
-identifiers. `instances/<id>/home` is the writable home. Shared read-only agent
-profiles are under `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles`.
-State contains paths and Docker resource names or identifiers, never credential
-contents. Project and cluster mutation journals are durable recovery markers;
+identifiers. `instances/<id>/home` is the writable home for tool-owned state.
+Shared read-only agent profiles are under
+`${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles`.
+Cluster state contains paths and Docker resource names or identifiers, never
+credential contents; managed credential paths are reserved for the managed
+adapter, while the per-Tobari home may contain tool credentials by design.
+Project and cluster mutation journals are durable recovery markers;
 an interrupted marker makes the next observation fail closed or reconcile only
 the exact incomplete record.
 Environment variables select only XDG locations and test/runtime overrides
-documented in scoped help; they do not carry managed tokens.
+documented in scoped help; they do not carry managed token values and Tobari
+does not copy host credential values into the runtime environment.
 
 Image selection uses configured bounded image metadata, then
 `config.json.default_image`, then `builtin` when configuration has not yet been
@@ -340,9 +354,11 @@ Gateway remains up and fails closed during that bounded activation interval.
 `policy allow` and `policy compact` first build and test the complete candidate
 policy in a private host temporary directory. After successful tests they
 atomically replace only `policy/data.json` and invoke the same activation
-boundary. They never write Rego source or credential files.
+boundary. They never write Rego source, managed credential files, or tool-owned
+home files.
 OPA marks a denial learnable only when its version, cluster, scheme, fixed
-request port, and credential binding already satisfy the orthogonal boundary.
+request port, project-principal boundary, and (when selected) managed
+credential binding already satisfy the orthogonal boundary.
 Candidate
 discovery excludes other denials, preventing a successful no-op approval.
 

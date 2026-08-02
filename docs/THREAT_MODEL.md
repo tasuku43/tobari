@@ -3,8 +3,9 @@
 ## Scope
 
 This model covers the local MVP: one shared Gateway and OPA cluster, multiple
-CWD-owned Tobari, one selected read-write root and home per Tobari, and
-optional static credential injection.
+CWD-owned Tobari, one selected read-write root and home per Tobari, a default
+tool-native passthrough adapter, and a retained optional static credential
+injection adapter.
 
 ## Trust classification
 
@@ -12,7 +13,8 @@ Trusted:
 
 - host OS and Docker Engine or its Linux VM;
 - Tobari CLI and embedded runtime assets;
-- Gateway, OPA, Rego policy, and host credential storage.
+- Gateway, OPA, Rego policy, and host credential storage used by the managed
+  adapter.
 
 Untrusted:
 
@@ -30,14 +32,15 @@ Untrusted:
 | Direct Internet access | Agent bypasses policy | Docker network | Each Tobari network is internal and has only Gateway |
 | OPA policy/admin API | Agent changes or queries policy | Control network | OPA joins only control; Tobari do not |
 | Host policy integrity | OPA rewrites trusted policy | Bind mount | XDG policy is read-only inside OPA |
-| Managed secrets | Agent reads or exfiltrates them | Gateway mount | Secret files mount read-only only into Gateway |
+| Tool-owned authentication | Another Tobari reads or reuses it | Per-Tobari home/network | Exact home bind, dedicated network, recovery/deletion tests |
+| Managed secrets | Agent reads or exfiltrates them | Gateway mount | Secret files mount read-only only into Gateway; passthrough never loads them |
 | Authorization integrity | Policy sees a different request | Gateway buffer | One normalized buffered request is inspected and forwarded |
 | Authority binding | An approved path is replayed on another port, scheme, or unsafe resolved address | OPA/Gateway connection boundary | Fixed scheme-port allowlist, learned-rule port/scheme matching, address classification, and address pinning |
 | Body-dependent authority | A host-only approval authorizes a different request body or unknown body | Gateway/OPA policy boundary | Explicit-empty default, unavailable/non-empty denials are not learnable, trusted-host body-aware exception only |
 | Gateway buffering | One Tobari sends an oversized body to exhaust shared Gateway memory or reach upstream before policy | mitmproxy transport boundary | Fixed 8 MiB request/response cap before the addon hook; over-limit integration canary |
 | Audit confidentiality | Token or body leaks | Logger | Metadata-only schema and secret-canary tests |
 | Shared runtime capacity | One Tobari exhausts work-container or shared-service CPU, memory, PIDs, or logs | Docker resource contract | Fixed work-container limits plus fixed Gateway/OPA CPU/memory/PID ceilings, JSON log rotation, and runtime inspection |
-| Project authority | One Tobari claims another project's learned policy or credential scope | Shared Gateway/OPA principal boundary | Host-owned atomic principal registry maps each exact Gateway project-network address to one UUIDv7 project ID; Gateway derives the principal from the local interface, and project-bound credentials/rules reject mismatches before upstream I/O |
+| Project authority | One Tobari claims another project's learned policy or managed credential scope | Shared Gateway/OPA principal boundary | Host-owned atomic principal registry maps each exact Gateway project-network address to one UUIDv7 project ID; Gateway derives the principal from the local interface, and project-bound credentials/rules reject mismatches before upstream I/O |
 | Other Docker resources | Cleanup removes unrelated state | Labels/state | Exact names plus owner and opaque-ID verification |
 
 ## Credible abuse cases
@@ -74,16 +77,19 @@ state is unchanged.
 ### Forged authorization
 
 Tobari supplies authorization, cookies, API keys, or another configured secret
-header. Gateway excludes secret values from OPA and audit output. It strips
-managed headers before forwarding; application cookies may pass only after
-allow. Only an OPA-selected profile bound to the established project and
-normalized host can add a managed value.
+header. Gateway excludes secret values from OPA and audit output. The default
+passthrough adapter forwards client authentication only after allow and strips
+proxy/Tobari control headers. The managed adapter strips managed headers before
+forwarding; application cookies may pass only after allow. Only an OPA-selected
+profile bound to the established project and normalized host can add a managed
+value.
 
 ### Project identity and credential scope
 
 A process can supply another-looking `x-tobari-session` value or request a
 known credential profile name. The session and profile name are untrusted
-inputs. Gateway instead observes the local address on which the proxy
+inputs; passthrough ignores the profile selector. Gateway instead observes the
+local address on which the proxy
 connection arrived and looks it up in the host-owned, owner-only principal
 registry. Docker network ownership and the exact project ID are checked before
 the registry binding is written. An unknown, duplicate, malformed, or stale
@@ -108,8 +114,8 @@ recreation. Learned-rule evaluation also validates the rule shape before
 matching it. A failed learned-rule or compaction preflight leaves `data.json`
 unchanged; a concurrent source change makes the opaque proposal stale.
 OPA also classifies exact-rule learnability only after scheme, fixed port,
-empty-body, cluster, and credential binding pass. Gateway records that boolean,
-and candidate discovery
+empty-body, cluster, and applicable credential binding pass. Gateway records
+that boolean, and candidate discovery
 excludes false values instead of offering a permission that cannot resolve the
 denial.
 
@@ -176,8 +182,9 @@ authorized network capacity remains outside this control.
   authorized network throughput; MVP resource controls do not provide disk
   quotas or bandwidth shaping.
 - A permitted destination can receive any data that Tobari can read.
-- An injected credential can perform any operation allowed by both Rego and its
-  upstream authority.
+- A tool-owned or injected credential can perform any operation allowed by both
+  Rego and its upstream authority; same-Tobari processes intentionally share the
+  tool-owned home.
 - The initialized host policy is an installation-wide baseline rather than a
   per-project allowlist. Project-bound learned permissions and managed
   credentials are separated, but mutually untrusted tenants still require a

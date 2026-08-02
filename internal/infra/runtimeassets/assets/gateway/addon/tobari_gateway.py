@@ -18,21 +18,29 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from mitmproxy import http
 
-DEFAULT_SECRET_HEADERS = frozenset(
-    {
-        "authorization",
-        "proxy-authorization",
-        "cookie",
-        "set-cookie",
-        "x-api-key",
-    }
+from credential_adapters import (
+    CONTROL_HEADERS,
+    DEFAULT_SECRET_HEADERS,
+    PROFILE_HEADER,
+    CredentialAdapterError,
+    build_credential_adapter,
 )
-PROFILE_HEADER = "x-tobari-credential-profile"
 MAX_CREDENTIAL_CONFIG_BYTES = 256 * 1024
 MAX_SECRET_BYTES = 64 * 1024
 MAX_PRINCIPAL_CONFIG_BYTES = 256 * 1024
 PROJECT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
+_REQUESTED_PROFILE_UNSET = object()
+_SECRET_HEADER_MARKERS = (
+    "authorization",
+    "api-key",
+    "apikey",
+    "access-token",
+    "auth-token",
+    "credential",
+    "secret",
+    "token",
 )
 
 
@@ -199,7 +207,11 @@ def _headers_for_policy(headers: http.Headers, secret_names: set[str]) -> dict[s
     safe: dict[str, list[str]] = {}
     for name, value in headers.fields:
         decoded_name = name.decode("latin-1").lower()
-        if decoded_name in secret_names or decoded_name == PROFILE_HEADER:
+        if (
+            decoded_name in secret_names
+            or decoded_name in CONTROL_HEADERS
+            or any(marker in decoded_name for marker in _SECRET_HEADER_MARKERS)
+        ):
             continue
         safe.setdefault(decoded_name, []).append(value.decode("latin-1"))
     return {name: ", ".join(values) for name, values in sorted(safe.items())}
@@ -240,12 +252,14 @@ def build_policy_input(
     project_id: str,
     inspection_bytes: int,
     extra_secret_names: set[str],
+    requested_profile: str | None | object = _REQUESTED_PROFILE_UNSET,
 ) -> dict[str, Any]:
     request = flow.request
     split = urlsplit(request.url)
     host = request.host.rstrip(".").lower()
     path = split.path or "/"
-    requested_profile = request.headers.get(PROFILE_HEADER)
+    if requested_profile is _REQUESTED_PROFILE_UNSET:
+        requested_profile = request.headers.get(PROFILE_HEADER)
     secret_names = set(DEFAULT_SECRET_HEADERS) | extra_secret_names
     raw = request.raw_content
     return {
@@ -455,6 +469,24 @@ class TobariGateway:
             "TOBARI_CREDENTIAL_CONFIG",
             "/run/tobari/config/credentials.json",
         )
+        self.credential_adapter_name = os.getenv(
+            "TOBARI_CREDENTIAL_ADAPTER", "passthrough"
+        )
+        self.credential_adapter = build_credential_adapter(
+            self.credential_adapter_name,
+            credential_path=self.credential_path,
+            # Resolve these callbacks when the request runs so the adapter
+            # boundary remains observable/testable without duplicating the
+            # managed implementation in the Gateway lifecycle.
+            load_config=lambda path: load_credential_config(path),
+            configured_secret_headers=lambda config: configured_secret_headers(config),
+            profile_binding=lambda config, name, project: _profile_project_binding(
+                config, name, project
+            ),
+            injector=lambda request, config, name, host, project: inject_credential(
+                request, config, name, host, project
+            ),
+        )
         self.principal_path = os.getenv(
             "TOBARI_PRINCIPAL_REGISTRY",
             "/run/tobari/principals.json",
@@ -475,7 +507,7 @@ class TobariGateway:
         request_id = uuid.uuid4().hex
         host = flow.request.host.rstrip(".").lower()
         port = flow.request.port
-        profile_name: str | None = flow.request.headers.get(PROFILE_HEADER)
+        profile_name: str | None = None
         project_id: str | None = None
         upstream_status: int | None = None
         decision_name = "deny"
@@ -485,21 +517,19 @@ class TobariGateway:
             project_id = resolve_project_principal(
                 flow, load_project_principals(self.principal_path)
             )
-            config = load_credential_config(self.credential_path)
-            if profile_name is not None:
-                _profile_project_binding(config, profile_name, project_id)
-            secret_names = configured_secret_headers(config)
+            credential_request = self.credential_adapter.prepare(
+                flow.request, host, project_id
+            )
+            profile_name = credential_request.requested_profile
             policy_input = build_policy_input(
                 flow,
                 self.cluster,
                 flow.request.headers.get("x-tobari-session"),
                 project_id,
                 self.inspection_bytes,
-                secret_names,
+                credential_request.secret_headers,
+                profile_name,
             )
-            for name in set(DEFAULT_SECRET_HEADERS) | secret_names | {PROFILE_HEADER}:
-                if name not in {"cookie", "set-cookie"}:
-                    flow.request.headers.pop(name, None)
             if policy_input["request"]["body"]["kind"] == "unavailable":
                 reason = "request body is unavailable"
                 _deny(flow, 403, "request_body_unavailable")
@@ -513,8 +543,9 @@ class TobariGateway:
                 _deny(flow, decision.status_code, "policy_denied")
                 upstream_status = decision.status_code
                 return
-            if profile_name is not None:
-                inject_credential(flow.request, config, profile_name, host, project_id)
+            profile_name = credential_request.apply(
+                flow.request, decision.credential_profile
+            )
             decision_name = "allow"
             flow.metadata["tobari_audit"] = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -539,7 +570,7 @@ class TobariGateway:
             reason = str(error)
             _deny(flow, 403, "credential_profile_not_bound")
             upstream_status = 403
-        except CredentialError as error:
+        except (CredentialAdapterError, CredentialError) as error:
             reason = str(error)
             _deny(flow, 503, "credential_unavailable")
             upstream_status = 503

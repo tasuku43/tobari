@@ -251,30 +251,36 @@ raw-mode availability out of the public command contract.
 
 ```text
 client flow
-  -> strip inbound secret headers
+  -> select trusted credential adapter (passthrough by default)
+  -> redact client authentication and cookie headers for OPA input
   -> buffer bounded body once
   -> normalize OPA input
   -> reject an unavailable body as ambiguous
   -> POST decision with finite timeout
   -> deny on any invalid/unavailable decision
   -> require the initialized empty-body boundary
-  -> validate project principal and optional credential profile + exact host
-  -> inject secret inside Gateway
+  -> validate the host-issued project principal and adapter request context
+  -> strip only proxy and Tobari control headers after allow
   -> resolve and pin the upstream address; reject unsafe dotted-host results
-  -> forward once
+  -> adapter forwards client authentication or applies the managed profile
+     once after allow
   -> emit redacted audit JSON
 ```
 
 The same buffered bytes inspected by policy are forwarded. JSON is structured
-only when complete and within the limit. The addon never retries.
+only when complete and within the limit. Client authentication can be present
+on the forwarded request but is absent from OPA input and audit output. The
+default passthrough adapter never loads or injects managed credentials; the
+retained managed adapter performs the existing project/host validation and
+injection at the same post-allow boundary. The addon never retries.
 
 Denied audit records are also the policy-development feedback interface.
 `tobari cluster denials` parses one bounded Gateway log window, rejects
 malformed denial-shaped records, and returns typed project principal, host, port,
 method, path, reason, status, exact-rule learnability, request identity, timestamp, the
 trusted host policy directory, and the exact apply command. OPA computes
-learnability only when version, cluster, scheme, fixed port, credential
-binding, and empty-body boundary already pass, so an exact
+learnability only when version, cluster, scheme, fixed port, project-principal,
+and (for the managed adapter) credential-binding boundaries already pass, so an exact
 project/host/port/method/path rule can close the request. `policy candidates`
 deterministically maps only that eligible retained evidence to opaque
 exact-rule references that remain stable across repeated denials of the same

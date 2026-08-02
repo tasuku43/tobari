@@ -60,6 +60,19 @@ class GatewayTests(unittest.TestCase):
         else:
             os.environ["TOBARI_PRINCIPAL_REGISTRY"] = self.previous_principal_path
 
+    def managed_gateway(self):
+        previous = os.environ.get("TOBARI_CREDENTIAL_ADAPTER")
+        os.environ["TOBARI_CREDENTIAL_ADAPTER"] = "managed"
+
+        def restore():
+            if previous is None:
+                os.environ.pop("TOBARI_CREDENTIAL_ADAPTER", None)
+            else:
+                os.environ["TOBARI_CREDENTIAL_ADAPTER"] = previous
+
+        self.addCleanup(restore)
+        return gateway.TobariGateway()
+
     def flow(self, url="https://api.example.com/v1/resources?key=value", method="POST"):
         flow = tflow.tflow()
         flow.request = http.Request.make(method, url, b'{"example":true}', {
@@ -126,6 +139,59 @@ class GatewayTests(unittest.TestCase):
             request["body"]["sha256"],
             hashlib.sha256(b'{"example":true}').hexdigest(),
         )
+
+    def test_passthrough_forwards_client_auth_only_after_allow(self):
+        flow = self.flow()
+        flow.request.headers["x-api-key"] = "api-secret"
+        flow.request.headers["x-auth-token"] = "token-secret"
+        flow.request.headers["proxy-authorization"] = "proxy-secret"
+        flow.request.headers["x-tobari-session"] = self.project_a
+        addon = gateway.TobariGateway()
+        with mock.patch.object(
+            gateway,
+            "load_credential_config",
+            side_effect=AssertionError("passthrough loaded managed credentials"),
+        ):
+            with mock.patch.object(
+                gateway,
+                "query_opa",
+                return_value=gateway.Decision(True, "allowed", None, 403, False),
+            ):
+                with redirect_stdout(io.StringIO()):
+                    addon.request(flow)
+        self.assertEqual(addon.credential_adapter_name, "passthrough")
+        self.assertEqual(flow.request.headers["authorization"], "Tobari supplied secret")
+        self.assertEqual(flow.request.headers["x-api-key"], "api-secret")
+        self.assertEqual(flow.request.headers["x-auth-token"], "token-secret")
+        self.assertEqual(flow.request.headers["cookie"], "session=secret")
+        self.assertNotIn("proxy-authorization", flow.request.headers)
+        self.assertNotIn("x-tobari-session", flow.request.headers)
+
+    def test_passthrough_does_not_interpret_profile_selector(self):
+        flow = self.flow()
+        flow.request.headers["x-tobari-credential-profile"] = "example"
+        document = gateway.build_policy_input(
+            flow, "default", None, self.project_a, 1024, set(), None
+        )
+        self.assertIsNone(document["credential"]["requested_profile"])
+        self.assertNotIn("x-tobari-credential-profile", document["request"]["headers"])
+
+    def test_unknown_credential_adapter_fails_closed_at_construction(self):
+        with mock.patch.dict(
+            os.environ, {"TOBARI_CREDENTIAL_ADAPTER": "unknown"}, clear=False
+        ):
+            with self.assertRaises(gateway.CredentialAdapterError):
+                gateway.TobariGateway()
+
+    def test_policy_input_redacts_generic_secret_shaped_headers(self):
+        flow = self.flow()
+        flow.request.headers["x-auth-token"] = "token-secret"
+        flow.request.headers["x-safe"] = "visible"
+        document = gateway.build_policy_input(
+            flow, "default", None, self.project_a, 1024, set(), None
+        )
+        self.assertNotIn("x-auth-token", document["request"]["headers"])
+        self.assertEqual(document["request"]["headers"]["x-safe"], "visible")
 
     def test_missing_streamed_body_is_not_treated_as_empty(self):
         flow = self.flow()
@@ -264,7 +330,7 @@ class GatewayTests(unittest.TestCase):
         flow = self.flow()
         flow.client_conn = SimpleNamespace(sockname=("172.29.1.2", 8080))
         flow.request.headers["x-tobari-credential-profile"] = "example"
-        addon = gateway.TobariGateway()
+        addon = self.managed_gateway()
         output = io.StringIO()
         with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
             with mock.patch.object(
@@ -279,6 +345,33 @@ class GatewayTests(unittest.TestCase):
             json.loads(flow.response.content), {"error": "credential_profile_not_bound"}
         )
 
+    def test_managed_adapter_injects_only_after_allow(self):
+        flow = self.flow()
+        flow.request.headers["x-tobari-credential-profile"] = "example"
+        flow.request.headers["x-tobari-session"] = self.project_a
+        flow.request.headers["proxy-authorization"] = "proxy-secret"
+        addon = self.managed_gateway()
+        with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
+            with mock.patch.object(
+                gateway,
+                "load_project_principals",
+                return_value={"172.29.0.2": self.project_a},
+            ):
+                with mock.patch.object(
+                    gateway,
+                    "query_opa",
+                    return_value=gateway.Decision(True, "allowed", "example", 403, False),
+                ):
+                    with mock.patch(
+                        "builtins.open", return_value=io.BytesIO(b"example-token\n")
+                    ):
+                        with redirect_stdout(io.StringIO()):
+                            addon.request(flow)
+        self.assertEqual(flow.request.headers["authorization"], "Bearer example-token")
+        self.assertNotIn("x-tobari-credential-profile", flow.request.headers)
+        self.assertNotIn("x-tobari-session", flow.request.headers)
+        self.assertNotIn("proxy-authorization", flow.request.headers)
+
     def test_credential_config_requires_project_bindings(self):
         config = json.loads(json.dumps(self.config))
         del config["profiles"]["example"]["projects"]
@@ -288,7 +381,7 @@ class GatewayTests(unittest.TestCase):
 
     def test_deny_and_audit_never_include_secrets_or_body(self):
         flow = self.flow()
-        addon = gateway.TobariGateway()
+        addon = self.managed_gateway()
         output = io.StringIO()
         with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
             with mock.patch.object(
@@ -320,7 +413,7 @@ class GatewayTests(unittest.TestCase):
 
     def test_opa_outage_returns_503_without_forwarding(self):
         flow = self.flow()
-        addon = gateway.TobariGateway()
+        addon = self.managed_gateway()
         output = io.StringIO()
         with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
             with mock.patch.object(
@@ -337,7 +430,7 @@ class GatewayTests(unittest.TestCase):
 
     def test_unexpected_gateway_error_fails_closed(self):
         flow = self.flow()
-        addon = gateway.TobariGateway()
+        addon = self.managed_gateway()
         with mock.patch.object(
             gateway,
             "load_credential_config",

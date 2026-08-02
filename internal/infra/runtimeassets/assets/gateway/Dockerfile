@@ -15,12 +15,14 @@ RUN mkdir -p \
       /var/lib/mitmproxy
 
 COPY addon/tobari_gateway.py /opt/tobari/tobari_gateway.py
+COPY addon/credential_adapters.py /opt/tobari/credential_adapters.py
 COPY entrypoint.sh /opt/tobari/entrypoint.sh
 
 RUN chown "${TOBARI_UID}:${TOBARI_GID}" \
       /opt/tobari/tobari_gateway.py \
+      /opt/tobari/credential_adapters.py \
       /opt/tobari/entrypoint.sh \
-    && chmod 0400 /opt/tobari/tobari_gateway.py \
+    && chmod 0400 /opt/tobari/tobari_gateway.py /opt/tobari/credential_adapters.py \
     && chmod 0500 /opt/tobari/entrypoint.sh
 
 USER ${TOBARI_UID}:${TOBARI_GID}

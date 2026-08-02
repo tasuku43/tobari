@@ -74,6 +74,7 @@ run_tobari() {
   env \
     HOME="$test_root/user" \
     DOCKER_CONFIG="$host_docker_config" \
+    TOBARI_CREDENTIAL_ADAPTER=passthrough \
     XDG_CONFIG_HOME="$test_root/config" \
     XDG_STATE_HOME="$test_root/state" \
     XDG_DATA_HOME="$test_root/data" \
@@ -95,6 +96,7 @@ run_tobari_pty_at() {
       env \
         HOME="$test_root/user" \
         DOCKER_CONFIG="$host_docker_config" \
+        TOBARI_CREDENTIAL_ADAPTER=passthrough \
         XDG_CONFIG_HOME="$test_root/config" \
         XDG_STATE_HOME="$test_root/state" \
         XDG_DATA_HOME="$test_root/data" \
@@ -102,6 +104,7 @@ run_tobari_pty_at() {
     else
       local command
       printf -v command '%q ' env HOME="$test_root/user" DOCKER_CONFIG="$host_docker_config" \
+        TOBARI_CREDENTIAL_ADAPTER=passthrough \
         XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
         XDG_DATA_HOME="$test_root/data" "$binary" "$@"
       script -q -c "$command" /dev/null
@@ -114,6 +117,17 @@ enter_tobari_at() {
   shift
   local output
   if output=$(printf 'exit\n' | run_tobari_pty_at "$root" "$@" 2>&1); then
+    return 0
+  fi
+  printf '%s\n' "$output" >&2
+  return 1
+}
+
+enter_ancestor_tobari_at() {
+  local root=$1
+  shift
+  local output
+  if output=$({ printf '\r'; sleep 1; printf 'exit\n'; } | run_tobari_pty_at "$root" "$@" 2>&1); then
     return 0
   fi
   printf '%s\n' "$output" >&2
@@ -261,28 +275,10 @@ for name in tobari-gateway tobari-opa "$mock_name"; do
 done
 
 test_root=$(mktemp -d "$PWD/.tobari-integration.XXXXXX")
-mkdir -p "$test_root/user" "$test_root/config/tobari/credentials" "$test_root/state" "$test_root/workspace"
+mkdir -p "$test_root/user" "$test_root/config/tobari" "$test_root/state" "$test_root/workspace"
 
 config_directory=$test_root/config/tobari
-secret_value=tobari-integration-secret-canary
-secret_file=$config_directory/credentials/integration
-printf '%s\n' "$secret_value" >"$secret_file"
-chmod 0600 "$secret_file"
-credential_config=$config_directory/credentials.json
-cat >"$credential_config" <<'JSON'
-{
-  "version": "v1",
-  "profiles": {
-    "integration": {
-      "type": "bearer",
-      "hosts": ["mock-upstream"],
-      "projects": [],
-      "secret_file": "/run/tobari/credentials/integration"
-    }
-  }
-}
-JSON
-chmod 0600 "$credential_config"
+tool_auth_value=tobari-tool-auth-canary
 
 go build -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
 run_tobari cluster up >/dev/null
@@ -310,13 +306,13 @@ other_root=$test_root/other-workspace
 mkdir -p "$work_nested_root"
 mkdir -p "$other_root"
 enter_tobari_at "$work_root"
-enter_tobari_at "$work_nested_root"
+enter_ancestor_tobari_at "$work_nested_root"
 enter_tobari_at "$other_root"
 
 status_from_nested=$(run_tobari_at "$work_nested_root" status --format json)
 assert_contains "$status_from_nested" '"exists":true' "nested status"
 assert_contains "$status_from_nested" "\"root\":\"$work_root\"" "nested status root"
-nested_pwd=$(printf 'pwd\nexit\n' | run_tobari_pty_at "$work_nested_root" 2>&1)
+nested_pwd=$({ printf '\r'; sleep 1; printf 'pwd\nexit\n'; } | run_tobari_pty_at "$work_nested_root" 2>&1)
 assert_contains "$nested_pwd" "/workspace${work_root}/root" "nested host CWD mapping"
 list_json=$(run_tobari_at "$work_root" list --format json)
 work_id=$(id_for_root "$work_root" <<<"$list_json")
@@ -327,21 +323,6 @@ other_container=$(container_for_id "$other_id")
 [[ $work_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
   fail "list did not return the project's stable ID"
 [[ $work_id != "$other_id" ]] || fail "CWD projects received the same stable ID"
-
-cat >"$credential_config" <<JSON
-{
-  "version": "v1",
-  "profiles": {
-    "integration": {
-      "type": "bearer",
-      "hosts": ["mock-upstream"],
-      "projects": ["$work_id"],
-      "secret_file": "/run/tobari/credentials/integration"
-    }
-  }
-}
-JSON
-chmod 0600 "$credential_config"
 
 python3 - "$config_directory/principals.json" "$work_id" "$other_id" <<'PY'
 import json
@@ -396,6 +377,10 @@ run_project sh -c 'printf private > /var/lib/tobari/.claude/memory.txt'
 if docker exec "$other_container" test -e /var/lib/tobari/.claude/memory.txt; then
   fail "Tobari home state leaked to another project"
 fi
+run_project sh -c "printf '%s\\n' '$tool_auth_value' > /var/lib/tobari/tool-auth-state"
+if docker exec "$other_container" test -e /var/lib/tobari/tool-auth-state; then
+  fail "tool authentication state leaked to another project"
+fi
 
 run_tobari cluster up >/dev/null
 enter_tobari_at "$work_root" &
@@ -416,6 +401,8 @@ enter_tobari_at "$work_root"
 status_after_reconcile=$(run_tobari_at "$work_root" status --format json)
 assert_contains "$status_after_reconcile" '"runtime":"ready"' "runtime recovery"
 assert_resource_bounds "$work_container"
+assert_contains "$(run_project cat /var/lib/tobari/tool-auth-state)" "$tool_auth_value" \
+  "tool authentication persistence"
 
 if run_project test -e "/workspace${work_root}/credentials"; then
   fail "Tobari unexpectedly contains the host credential directory"
@@ -452,6 +439,12 @@ docker run -d \
   "$tobari_image" -u /mock_upstream.py >/dev/null
 wait_listening "$mock_name" 8080
 wait_network_connection tobari-gateway mock-upstream 8080
+# Docker Desktop file binds can retain the pre-reconcile inode after the
+# host-owned principal registry is atomically replaced. Recreate only the
+# trusted Gateway so it observes the complete current registry before traffic.
+docker rm -f tobari-gateway >/dev/null
+run_tobari cluster up >/dev/null
+wait_healthy tobari-gateway
 
 plain_response=$(run_project curl -fsS http://mock-upstream:8080/allowed)
 assert_contains "$plain_response" '"authorization_present":false' "allowed HTTP response"
@@ -489,21 +482,12 @@ gateway_gid=$(docker exec tobari-gateway sh -c "awk '/^Gid:/{print \$2}' /proc/1
 policy_mount_rw=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/policy"}}{{.RW}}{{end}}{{end}}' tobari-opa)
 [[ $policy_mount_rw == false ]] || fail "OPA policy bind is writable"
 
-expected_digest=$(printf 'Bearer %s' "$secret_value" | shasum -a 256 | awk '{print $1}')
-credential_response=$(run_project curl -fsS \
-  -H 'X-Tobari-Credential-Profile: integration' \
+expected_digest=$(printf 'Bearer %s' "$tool_auth_value" | shasum -a 256 | awk '{print $1}')
+auth_response=$(run_project curl -fsS \
+  -H "Authorization: Bearer $tool_auth_value" \
   http://mock-upstream:8080/credential)
-assert_contains "$credential_response" '"authorization_present":true' "credential response"
-assert_contains "$credential_response" "\"authorization_sha256\":\"$expected_digest\"" "credential digest"
-credential_log_count=$(docker logs "$mock_name" 2>&1 | grep -F -c '"/credential"' || true)
-other_credential_status=$(run_other_project curl -sS -o /dev/null -w '%{http_code}' \
-  -H 'X-Tobari-Credential-Profile: integration' \
-  http://mock-upstream:8080/credential)
-[[ $other_credential_status == 403 ]] ||
-  fail "credential profile crossed the project boundary with status $other_credential_status"
-other_credential_log_count=$(docker logs "$mock_name" 2>&1 | grep -F -c '"/credential"' || true)
-[[ $other_credential_log_count == "$credential_log_count" ]] ||
-  fail "cross-project credential request reached mock upstream"
+assert_contains "$auth_response" '"authorization_present":true' "tool auth response"
+assert_contains "$auth_response" "\"authorization_sha256\":\"$expected_digest\"" "tool auth digest"
 
 deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST http://mock-upstream:8080/denied)
@@ -517,7 +501,7 @@ assert_contains "$gateway_logs" '"decision":"deny"' "Gateway denial audit"
 assert_contains "$gateway_logs" '"host":"mock-upstream"' "Gateway denial audit"
 assert_contains "$gateway_logs" '"method":"POST"' "Gateway denial audit"
 assert_contains "$gateway_logs" '"path":"/denied"' "Gateway denial audit"
-if [[ $gateway_logs == *"$secret_value"* || $gateway_logs == *'Bearer '* ]]; then
+if [[ $gateway_logs == *"$tool_auth_value"* || $gateway_logs == *'Bearer '* ]]; then
   fail "Gateway logs contain a credential value"
 fi
 
@@ -529,7 +513,7 @@ assert_contains "$denials_json" '"method":"POST"' "focused denial evidence"
 assert_contains "$denials_json" '"path":"/denied"' "focused denial evidence"
 assert_contains "$denials_json" '"learnable":true' "focused denial evidence"
 assert_contains "$denials_json" '"apply_command":"tobari policy apply"' "focused denial recovery"
-if [[ $denials_json == *"$secret_value"* || $denials_json == *'Bearer '* ]]; then
+if [[ $denials_json == *"$tool_auth_value"* || $denials_json == *'Bearer '* ]]; then
   fail "focused denial evidence contains a credential value"
 fi
 
@@ -608,19 +592,6 @@ apply_output=$(run_tobari policy apply)
 assert_contains "$apply_output" "policy: $config_directory/policy" "policy activation"
 assert_contains "$apply_output" 'applied: true' "policy activation"
 
-other_host_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -H 'X-Tobari-Credential-Profile: integration' https://example.com/)
-[[ $other_host_status == 403 ]] || fail "cross-host credential request returned $other_host_status instead of 403"
-unlearnable_denials=$(run_tobari cluster denials --tail 1000 --format json)
-assert_contains "$unlearnable_denials" '"learnable":false' "orthogonal denial evidence"
-post_credential_candidates=$(run_tobari policy candidates --tail 1000 --format json)
-python3 -c \
-  'import json,sys
-items=json.load(sys.stdin)["policy_candidates"]
-if any(item["host"] == "example.com" and item["method"] == "GET" and item["path"] == "/" for item in items):
-    raise SystemExit("credential-binding denial became an ineffective policy candidate")' \
-  <<<"$post_credential_candidates"
-
 https_status=$(run_project curl -fsS -o /dev/null -w '%{http_code}' https://example.com/)
 [[ $https_status == 200 ]] || fail "intercepted HTTPS returned $https_status instead of 200"
 
@@ -689,6 +660,7 @@ docker network rm "$work_network" >/dev/null 2>&1 || true
 run_tobari_at "$work_root" delete --force >/dev/null
 work_id=
 work_container=
+[[ ! -e "$work_home/tool-auth-state" ]] || fail "delete did not remove tool authentication state"
 status_after_delete=$(run_tobari_at "$work_root" status --format json)
 assert_contains "$status_after_delete" '"exists":false' "status after delete"
 [[ -f "$profile_skill" && -f "$profile_settings" ]] || fail "delete removed the shared agent profile"

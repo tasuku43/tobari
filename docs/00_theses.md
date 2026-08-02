@@ -13,12 +13,14 @@ shared OPA-backed Gateway.**
 The primary users are developers who run Claude Code, Codex, shells, tests, and
 other arbitrary programs against project roots. Success means each Tobari can
 host concurrent processes, cannot reach the Internet or another Tobari directly,
-never receives managed credentials, and is selected from the canonical current
-directory rather than a user-managed name, root flag, or container identifier.
+never receives host-managed credentials, and is selected from the canonical
+current directory rather than a user-managed name, root flag, or container
+identifier. A user may deliberately create tool-owned authentication state in
+that Tobari's own persistent home; this is not host credential inheritance.
 One installation-local cluster shares Gateway, OPA, an installation-wide
 baseline policy, and CA state without sharing Tobari roots or homes. Host-issued
-project principals bind mutable learned permissions and managed credential
-profiles to the exact current-directory network that originated a request.
+project principals bind mutable learned permissions to the exact current-directory
+network that originated a request; they do not select credentials.
 
 The first testable slice is one local mock upstream reached through the
 Gateway: an allowed request succeeds, a denied request does not reach upstream,
@@ -47,14 +49,15 @@ brand.
   host-only approval candidates.
 - A body that is unavailable because it was not captured is denied before OPA;
   it is never treated as an explicit empty body or a learning candidate.
-- GitHub, AWS, and other provider adapters are not part of the MVP.
+- Provider-specific adapters are not part of the MVP. GitHub, AWS, Claude, and
+  other tools use their own native flows through the generic boundary.
 - HTTP methods are evidence supplied to policy, not a CLI effect classifier.
 
 ### Mechanical enforcement
 
 - Gateway unit tests fix the OPA input schema and secret-header redaction.
 - Rego tests exercise host, port, method, path, scheme, body-empty, and
-  credential bindings.
+  project-principal boundaries.
 - Docker integration tests use curl and Python rather than a named coding agent.
 
 ## Thesis 2: Network topology is an enforcement mechanism
@@ -91,30 +94,42 @@ egress networks; OPA joins only control.
   replace the CLI-owned isolation arguments. Runtime API compatibility includes
   the bootstrap needed to execute Tobari's fixed Workspace lifetime command.
 
-## Thesis 3: Secrets enter only after authorization
+## Thesis 3: Authentication handling is pluggable and tool-owned by default
 
-Tobari never receives a Gateway-managed secret. OPA may select a credential
-profile only after allowing a request, and Gateway injects it only when the
-profile is configured for both the host-issued project principal and the
-normalized destination host.
+Tobari does not inherit host authentication material. A user may run a tool's
+normal login or configuration flow inside a Tobari, and the tool may write its
+credential state below that Tobari's exact persistent home. Gateway credential
+handling is selected through an explicit adapter boundary. The default
+`passthrough` adapter does not load or inject managed profiles; it continues to
+authorize the generic HTTP/HTTPS effect and forwards tool/client authentication
+only after allow. The existing `managed` profile-injection adapter remains
+available for a later trusted runtime switch.
 
 ### Consequences
 
-- Tokens are supplied through host files mounted read-only into Gateway.
-- CLI arguments, Tobari environment, Tobari files, OPA input, and audit logs
-  never contain token values.
-- Tobari-supplied authorization and other configured secret headers are removed
-  before policy evaluation and upstream forwarding.
-- The MVP supports only static bearer or fixed-header injection; OAuth,
-  refresh, signing, and OS keychains are excluded.
+- Host home, host CLI configuration, keychains, SSH agents, and credential
+  environment variables are never mounted or copied into Tobari.
+- Tool-owned credential state is available to every process in the same
+  Tobari by design, survives runtime-container recreation, and is removed by
+  the explicit Tobari delete operation.
+- Client authentication and cookie values are redacted from OPA input, Gateway
+  audit, denial projections, and CLI output. After policy allow, the selected
+  adapter forwards or injects authentication; proxy and Tobari control headers
+  are not forwarded upstream.
+- Gateway-managed profile selection is not the default. Its existing static
+  injection adapter remains reserved and keeps its host/project/host binding
+  checks. Refresh, signing, and OS-keychain integration remain outside the
+  product boundary. A tool may implement its own native OAuth, SigV4, or
+  keychain-compatible flow inside the home without Tobari interpreting it.
 
 ### Mechanical enforcement
 
-- Credential configuration validation binds every profile to explicit hosts
-  and an explicit set of project IDs.
-- Gateway tests use canary secrets and scan decisions and audit logs.
-- Integration tests prove injection at an allowed host and project, and
-  non-disclosure to Tobari, another host, or another project.
+- Runtime mount tests reject host-home mounts and verify the selected default
+  adapter. Gateway tests use canary secrets to prove redaction and client-header
+  forwarding only after allow, while managed adapter tests retain binding and
+  injection coverage.
+- Integration tests prove one Tobari's tool-owned state persists through runtime
+  recovery, is unavailable to another Tobari, and is removed by exact delete.
 
 ## Thesis 4: One shared cluster hosts multiple CWD-owned Tobari
 
@@ -123,7 +138,7 @@ Tobari. The shared cluster is one host trust domain with a host-issued
 project-principal boundary: a stable Tobari ID is not trusted merely because
 it appears in caller data, but the host binds it to the exact Gateway network
 interface that received the request. The initialized policy is an
-installation-wide baseline; learned permissions and managed credentials are
+installation-wide baseline; learned permissions and managed profiles are
 project-bound and cannot be selected by another project. A Tobari is selected
 from the canonical current directory: an exact indexed root is reused directly;
 when only ancestor roots exist, the interactive root command presents every
@@ -341,5 +356,6 @@ rule from the trusted host.
 MVP does not support multiple clusters, process-level identity, a per-project
 static baseline policy, transparent proxying, non-HTTP protocols, Git
 SSH, provider-specific semantic adapters,
-OAuth refresh, SigV4, Keychain integration, approval workflows, Kubernetes,
+Gateway-managed OAuth refresh, Gateway-managed SigV4, Gateway-managed Keychain
+integration, approval workflows, Kubernetes,
 filesystem overlays, GUIs, remote execution, or multi-tenant production use.

@@ -7,15 +7,18 @@ catalog and operational limits are in [Threat Model](THREAT_MODEL.md).
 
 Untrusted Tobari processes may freely execute and may modify their explicitly
 mounted root, but they cannot access other host files, another Tobari, Docker
-control, managed credentials, OPA administration, or direct Internet egress
-through the supported configuration. Every supported HTTP/HTTPS request is
+control, host authentication state, OPA administration, or direct Internet
+egress through the supported configuration. Tool-owned credentials may exist
+inside one Tobari's exact home by explicit user action. Every supported
+HTTP/HTTPS request is
 normalized, authorized by OPA, and enforced by the shared Gateway before
 forwarding.
 
 ## Trust boundaries
 
 Trusted components are the host OS, Docker Engine or its Linux VM, Tobari CLI,
-Gateway, OPA, Rego policy, and host credential storage. Tobari, every process in
+Gateway, OPA, Rego policy, and reserved host credential storage used only by
+the managed adapter. Tobari, every process in
 it, coding agents, generated code, downloaded packages, request data, and
 upstream responses are untrusted.
 
@@ -23,7 +26,8 @@ upstream responses are untrusted.
 host root A (rw) ---> Tobari A --+
                                   +--explicit proxy--> Gateway --OPA--> upstream
 host root B (rw) ---> Tobari B --+                       |
-                no cross-route                           +-- credentials (ro)
+                no cross-route                           +-- redacted policy data
+                                                          +-- optional managed adapter inputs (ro)
 ```
 
 Each Tobari joins only its dedicated internal network. OPA joins only an
@@ -34,7 +38,8 @@ proxy network, control, and egress.
 
 - Host files outside the selected root.
 - Docker Engine and socket.
-- Host authentication material and Gateway-managed credential files.
+- Tool-owned authentication state inside a Tobari home, plus the reserved host
+  authentication material used by the managed adapter.
 - OPA policy, decision API, and Gateway management surface.
 - Denial of direct Internet connectivity.
 - Integrity of request normalization, policy decisions, and audit records.
@@ -44,8 +49,9 @@ Processes can change or delete that entire mounted root. Docker or kernel
 compromise, VM/container escape, allowed-destination exfiltration, the
 installation-wide baseline policy, non-HTTP protocols, covert channels,
 same-Tobari process interference, and malware detection are outside the MVP
-guarantee. Mutable learned permissions and managed credential profiles are
-bound to the host-issued project principal described below.
+guarantee. Mutable learned permissions are bound to the host-issued project
+principal described below. A tool credential is intentionally available to all
+processes in the same Tobari and may be sent to any policy-allowed destination.
 
 ## Resource and process boundary
 
@@ -67,10 +73,11 @@ Only the selected root and that Tobari's exact XDG-owned home directory are
 mounted writable. The project-root resolver rejects filesystem root, the user's
 home and its ancestors, and paths overlapping XDG configuration, state, or
 shared-profile management directories, Docker sockets, and Docker management
-paths. Policy source repositories remain allowed; the active host policy and
-credential directories are separate trusted assets and are never selected as
-project roots. Publishing or applying a source to active policy is an explicit
-trusted-host operation; entering that source repository never changes policy.
+paths. Policy source repositories remain allowed; the active host policy,
+principal registry, and reserved managed credential files are separate trusted
+assets and are never selected as project roots. Publishing or applying a source
+to active policy is an explicit trusted-host operation; entering that source
+repository never changes policy.
 
 A custom Tobari image is untrusted input and receives no additional authority.
 The CWD-owned runtime accepts only a locally available image that asserts
@@ -90,7 +97,7 @@ The official base runtime and derived agent images do not change this boundary.
 The base main channel is published by a protected main-branch workflow;
 derived agent variants are separate later slices in the same runtime package.
 A published Claude or Codex image is a convenience rootfs and tool bundle, not
-a source of mounts, credentials, capabilities, network routes, or lifecycle
+a source of host mounts, host credentials, capabilities, network routes, or lifecycle
 policy, and registry provenance does not replace local runtime compatibility
 validation.
 
@@ -150,9 +157,9 @@ Gateway constructs OPA input version `v1` from the exact buffered request that
 will be forwarded. It includes the host-issued project principal plus
 cluster/session metadata, scheme, normalized host and port, method, path and
 path segments, multi-valued query, redacted headers, bounded body metadata, and
-an optional requested credential profile. The project principal is derived
-from the local Gateway interface address and an owner-only host registry; the
-session field is caller metadata only.
+an adapter-dependent optional requested credential profile. The project
+principal is derived from the local Gateway interface address and an owner-only
+host registry; the session field is caller metadata only.
 
 Secret header values are absent from both OPA input and logs. JSON is decoded
 only when the complete body fits the inspection limit. Oversized and non-JSON
@@ -180,14 +187,23 @@ integration shape.
 
 ## Credentials
 
-MVP uses static bearer or fixed-header secrets supplied through owner-only host
-files. Secret files are mounted read-only into Gateway only. Configuration
-contains a profile type, exact allowed hosts, explicit project IDs, and a
-container secret path; it never contains the secret value. The host-owned
-`principals.json` registry binds each project ID to one exact Gateway network
-and is mounted read-only into Gateway.
+The default `passthrough` adapter uses tool-owned authentication state created
+below the selected Tobari's `HOME=/var/lib/tobari`. It redacts client
+authentication and cookie values from OPA input and audit, preserves them until
+policy allow, then forwards them upstream. It strips proxy and Tobari control
+headers and never reads managed credential files.
 
-Gateway removes Tobari-provided `Authorization`, `Proxy-Authorization`,
+The retained `managed` adapter uses static bearer or fixed-header secrets
+supplied through owner-only host files. Secret files are mounted read-only into
+Gateway only. Configuration contains a profile type, exact allowed hosts,
+explicit project IDs, and a container secret path; it never contains the secret
+value. The host-owned `principals.json` registry binds each project ID to one
+exact Gateway network and is mounted read-only into Gateway.
+
+In passthrough mode, `Authorization`, `X-API-Key`, cookies, and other client
+authentication are forwarded only after allow; `Proxy-Authorization`, the
+profile selector, and Tobari session control headers are removed. In managed
+mode, Gateway removes Tobari-provided `Authorization`, `Proxy-Authorization`,
 `X-API-Key`, and configured managed-secret headers. Cookie and Set-Cookie
 values may remain part of the authorized application flow but are excluded
 from OPA input and Tobari audit logs. A managed header is added only after an
@@ -198,10 +214,10 @@ value is never returned to Tobari, OPA, CLI output, errors, or audit logs.
 
 OAuth, refresh tokens, provider SDKs, OS keychains, request signing, and
 process-level identity are not used. The optional `session` value remains
-caller metadata, not authentication. Gateway performs project- and
-host-bound post-authorization injection inside the trusted infrastructure
-boundary. The initialized host policy is an installation-wide baseline; the
-learned-rule and managed-secret namespaces are project-bound. A missing,
+caller metadata, not authentication. Gateway performs project- and host-bound
+post-authorization handling inside the trusted infrastructure boundary. The
+initialized host policy is an installation-wide baseline; the learned-rule and
+managed-secret namespaces are project-bound. A missing,
 malformed, ambiguous, or stale principal registry entry denies before OPA and
 upstream I/O.
 
@@ -277,7 +293,7 @@ authority; only an explicit reference-bound mutation can write a learned rule.
 | No direct Tobari egress | Per-Tobari internal topology and Docker integration test |
 | Tobari cannot access OPA or peers | Separate internal networks and integration test |
 | OPA outage denies | Gateway unit and integration tests |
-| Secrets stay outside Tobari | Mount-spec tests and integration canaries |
+| Host-managed secrets stay outside Tobari; tool-owned state stays in its home | Mount-spec tests and integration canaries |
 | Secret headers and bodies stay out of logs | Gateway unit tests and log scans |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Attached sessions are not removed accidentally | Exact work-container Exec ID observation, guard-before-delete tests, and explicit force-override tests |

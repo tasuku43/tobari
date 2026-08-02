@@ -59,8 +59,9 @@ rules exist. The transcript must prove:
 - A denied request produces bounded typed secret-free host/method/path
   evidence, the host policy path, and the exact activation command.
 - Candidate discovery deduplicates pending effects and emits opaque references
-  without changing authority; orthogonal scheme or credential failures remain
-  diagnostics and do not become ineffective candidates.
+  without changing authority; orthogonal scheme, project-principal, or
+  managed-credential failures remain diagnostics and do not become ineffective
+  candidates.
 - `policy allow` consumes one candidate reference unchanged, tests the complete
   policy, records only an exact rule, and activates it without restarting a
   Tobari.
@@ -96,9 +97,13 @@ calls.
 - Neither has direct egress, OPA access, or cross-Tobari reachability.
 - HTTPS is authorized after CONNECT interception and validates the Tobari CA.
 - OPA and Gateway outages fail closed.
-- A profile is injected only after allow and exact host binding.
-- The secret is absent from Tobari files, mounts, environment, logs, OPA input,
-  and CLI output.
+- Tool-owned authentication state persists below one Tobari home and is not
+  visible from another Tobari.
+- The default passthrough adapter forwards a client-authenticated request only
+  after allow, while its value is absent from mounts, logs, OPA input, and CLI
+  output.
+- The retained managed adapter is covered separately by exact project/host
+  binding and post-allow injection tests.
 - Concurrent processes share one selected Tobari.
 - Repeated root reconciliation does not grow owned resources.
 

@@ -70,9 +70,10 @@ Proxy-aware tools such as `gh`, Git over HTTPS, and `curl` receive the same
 `HTTP_PROXY` and `HTTPS_PROXY` settings. Their destination remains an HTTPS
 URL: the client uses HTTP `CONNECT` to reach Gateway, Gateway authorizes the
 decrypted request, and the upstream leg is a separate verified HTTPS
-connection. No GitHub-specific URL rewriting or adapter is required. Tool
-authentication prerequisites still belong to that tool or an explicitly
-configured Gateway credential profile.
+connection. No provider-specific URL rewriting or adapter is required. By
+default, tool authentication prerequisites belong to that tool and its
+per-Tobari home; an explicitly selected Gateway managed adapter remains
+available for the earlier profile-injection design.
 
 ## Requirements
 
@@ -231,10 +232,11 @@ local and optional: Tobari does not pull it implicitly or rebuild it during
 ordinary root invocation.
 
 The toolbox contains no credentials and does not mount host CLI configuration.
-Authenticate deliberately within the isolated environment or use a supported
-Gateway credential profile. AWS SigV4 and OAuth refresh remain outside the MVP
-credential-injection contract. Git over HTTPS uses the Gateway; Git over SSH
-and other non-HTTP transports have no direct egress route.
+Authenticate deliberately within the isolated environment; the resulting
+tool-owned state stays in that Tobari's persistent home. AWS SigV4 and OAuth
+refresh remain tool/provider behavior outside Tobari's contract. Git over HTTPS
+uses the Gateway; Git over SSH and other non-HTTP transports have no direct
+egress route.
 
 ### Custom work images
 
@@ -367,7 +369,7 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari status [--format text\|json]` | Report logical existence and runtime diagnostics for the current directory |
 | `tobari list [--format text\|json]` | List local Workspaces, runtime diagnostics, and diagnostic IDs |
 | `tobari delete [--force]` | Delete the nearest detached current-directory Tobari; `--force` overrides an attached-session guard |
-| `tobari doctor [--root PATH] [--format text\|tsv\|json]` | Diagnose Docker, paths, policy, credentials, and residue |
+| `tobari doctor [--root PATH] [--format text\|tsv\|json]` | Diagnose Docker, paths, policy, managed-secret permissions, and residue |
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version` | Print build identity |
 
@@ -388,8 +390,8 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
     data.json
     tobari.rego
     tobari_test.rego
-  credentials.json
-  credentials/
+  credentials.json       # reserved managed-adapter metadata
+  credentials/           # reserved managed-adapter secret files
 
 ${XDG_STATE_HOME:-$HOME/.local/state}/tobari/
   roots/<root-hash>.json
@@ -423,8 +425,9 @@ ${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/policy/tobari.rego"
 ```
 
 Keep the `policy/` subdirectory separate from the parent Tobari configuration
-directory. The parent also contains credential metadata and secret files that
-must remain outside untrusted containers.
+directory. The parent also contains reserved managed-adapter metadata and
+secret files that must remain outside untrusted containers. Tool-native login
+state belongs in the selected instance home instead.
 
 The initialized policy is generic HTTP policy, not a GitHub adapter. It starts
 deny-by-default, distinguishes HTTPS from explicitly allowed test-only HTTP,
@@ -476,10 +479,28 @@ the policy:
 tobari cluster logs --component opa --tail 100
 ```
 
-## Credential injection
+## Authentication in a Tobari
 
-Tobari supports static bearer and fixed-header injection. Create an owner-only
-secret file on the trusted host:
+The default authentication path is tool-native. Enter the Tobari and run the
+tool's normal login flow; Tobari persists the tool's own state below
+`HOME=/var/lib/tobari` and never copies the host home, keychain, SSH agent, or
+host CLI configuration into it:
+
+```sh
+cd ~/ghq/example
+tobari
+gh auth login       # example: GitHub CLI's native device/browser flow
+aws sso login       # example: AWS CLI's native flow
+claude login        # example: an agent CLI's native flow
+```
+
+These are examples; the boundary applies to any tool that stores its own
+authentication state in the Tobari home. The state survives runtime recovery,
+is isolated from other Tobaris, and is removed by exact `tobari delete`.
+
+The retained managed adapter can be selected through trusted runtime
+configuration when the original Gateway profile-injection design is needed.
+Create an owner-only secret file on the trusted host:
 
 ```sh
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tobari"
@@ -496,6 +517,7 @@ Configure metadata only in `credentials.json`:
     "github-development": {
       "type": "bearer",
       "hosts": ["api.github.com"],
+      "projects": ["<project-id>"],
       "secret_file": "/run/tobari/credentials/github-development"
     }
   }
@@ -511,22 +533,26 @@ curl \
   https://api.github.com/user
 ```
 
-OPA must allow the request and select that profile. Gateway independently
-checks the exact host binding, reads the secret, removes client-supplied
-authorization, and injects the managed header. The secret is absent from
-Tobari mounts, environment, CLI argv, OPA input, and audit logs.
+OPA must allow the request and select that profile. In managed mode Gateway
+independently checks the exact host and project binding, reads the secret,
+removes client-supplied authorization, and injects the managed header. The
+secret is absent from Tobari mounts, environment, CLI argv, OPA input, and
+audit logs. The default passthrough adapter does not load this configuration.
 
 ## Security guarantees
 
 Under the documented topology and trusted-component assumptions:
 
 - Each Tobari can write only its selected root and exact XDG home directory.
+- Tool-native authentication state persists in that exact home and is not shared
+  with another Tobari.
 - Tobari have no Docker socket, SSH agent, host networking, privileged mode, or
   added Linux capabilities.
 - Direct Internet egress has no route.
-- Tobari cannot reach OPA, Gateway credential files, or another Tobari.
+- Tobari cannot reach OPA, reserved Gateway credential files, or another Tobari.
 - HTTP/HTTPS requests fail closed when OPA or Gateway fails.
-- Managed credentials are injected only after allow and exact host binding.
+- The default adapter forwards client authentication only after allow; managed
+  credentials are injected only after allow and exact host/project binding.
 - Audit logs contain request metadata and decisions, not secret values or raw
   bodies.
 - Cleanup verifies exact owner and opaque Tobari-ID labels.
@@ -602,7 +628,8 @@ task public:check
 
 The integration profile creates two CWD-owned Tobari, dedicated internal
 networks, one shared Gateway and OPA, and a mock upstream. It proves network
-separation, HTTP and HTTPS enforcement, credential injection, fail-closed
+separation, HTTP and HTTPS enforcement, default client-auth forwarding,
+tool-home persistence, fail-closed
 outages, CWD resolution, runtime recovery, typed denial recovery, tested
 host-policy activation, terminal exit behavior, concurrency, idempotency, and
 exact cleanup.

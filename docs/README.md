@@ -14,7 +14,7 @@ work uses [`$add-capability`](../.agents/skills/add-capability/SKILL.md).
 | [04_harness.md](04_harness.md) | How written claims become local and CI checks | Contributors, agents, maintainers |
 | [05_public_repository.md](05_public_repository.md) | Clean-room derivation, sanitization, licensing, and public-readiness review | Maintainers and release owners |
 | [06_release.md](06_release.md) | Versioning, artifact construction, provenance decisions, and release procedure | Release owners |
-| [07_authentication.md](07_authentication.md) | Gateway credential injection and deliberate authentication exclusions | Security owners, adapter authors, agents |
+| [07_authentication.md](07_authentication.md) | Pluggable Gateway authentication and deliberate authentication exclusions | Security owners, adapter authors, agents |
 | [08_external_api_contracts.md](08_external_api_contracts.md) | Generic HTTP Gateway and OPA request contracts | Adapter authors, agents, reviewers |
 | [09_agent_readiness_validation.md](09_agent_readiness_validation.md) | Scenario-based discovery, execution, interpretation, and recovery validation | Product owners, agents, reviewers |
 
