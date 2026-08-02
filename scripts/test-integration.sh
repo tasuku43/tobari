@@ -174,7 +174,11 @@ run_other_project() {
 }
 
 start_cluster() {
-  run_tobari cluster up "${gateway_source_args[@]}"
+  if ((${#gateway_source_args[@]} == 0)); then
+    run_tobari cluster up
+  else
+    run_tobari cluster up "${gateway_source_args[@]}"
+  fi
 }
 
 assert_resource_bounds() {
