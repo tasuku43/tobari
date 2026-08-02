@@ -1453,7 +1453,7 @@ func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool)
 		output := newHumanOutput(true)
 		marker, title, token := "✓", "Tobari deleted", colorTokenSuccess
 		if !result.Deleted {
-			marker, title, token = "!", "Tobari not deleted", colorTokenWarning
+			marker, title, token = "!", "Tobari not deleted", colorTokenWarning // #nosec G101 -- human-readable status text contains no credential.
 		}
 		output.heading(marker, title, token)
 		output.row("Root", safeExternalText(result.Root), colorTokenMuted)
