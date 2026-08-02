@@ -16,10 +16,16 @@ type contextRuntimeFake struct {
 	showResult   tobari.ContextReport
 	createResult tobari.ContextReport
 	useResult    tobari.ContextReport
+	initResult   tobari.ContextReport
+	buildResult  tobari.ContextReport
 	createErr    error
 	useErr       error
+	initErr      error
+	buildErr     error
 	createCalls  int
 	useCalls     int
+	initCalls    int
+	buildCalls   int
 	lastName     string
 	lastImage    string
 	lastMode     tobari.ContextPolicyMode
@@ -44,6 +50,16 @@ func (f *contextRuntimeFake) CreateContext(
 func (f *contextRuntimeFake) UseContext(context.Context, string) (tobari.ContextReport, error) {
 	f.useCalls++
 	return f.useResult, f.useErr
+}
+
+func (f *contextRuntimeFake) InitRuntime(context.Context) (tobari.ContextReport, error) {
+	f.initCalls++
+	return f.initResult, f.initErr
+}
+
+func (f *contextRuntimeFake) BuildRuntime(context.Context) (tobari.ContextReport, error) {
+	f.buildCalls++
+	return f.buildResult, f.buildErr
 }
 
 func contextReport(task, name string) tobari.ContextReport {
@@ -126,5 +142,40 @@ func TestUseMapsMissingContextAndDoesNotHidePortError(t *testing.T) {
 	public, ok = fault.PublicCopy(err)
 	if !ok || public.Kind != fault.KindRejected || public.Code != "context_use_failed" {
 		t.Fatalf("Use() runtime fault = %#v, ok=%t", public, ok)
+	}
+}
+
+func TestRuntimeBuildUsesActiveContextFixedTarget(t *testing.T) {
+	fake := &contextRuntimeFake{buildResult: contextReport(tobari.TaskRuntimeBuild, "default")}
+	service := New(fake)
+	intent := operation.Intent{
+		Command: "runtime build", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ID: tobari.ActiveContextRuntimeID},
+		Impact: contextImpact(),
+	}
+	result, err := service.BuildRuntime(context.Background(), intent)
+	if err != nil {
+		t.Fatalf("BuildRuntime() error = %v", err)
+	}
+	if result.Task != tobari.TaskRuntimeBuild || fake.buildCalls != 1 {
+		t.Fatalf("result/calls = %+v/%d", result, fake.buildCalls)
+	}
+}
+
+func TestRuntimeBuildMapsMissingRecipeBeforePromotion(t *testing.T) {
+	fake := &contextRuntimeFake{buildErr: tobari.ErrRuntimeRecipeMissing}
+	service := New(fake)
+	intent := operation.Intent{
+		Command: "runtime build", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ID: tobari.ActiveContextRuntimeID},
+		Impact: contextImpact(),
+	}
+	_, err := service.BuildRuntime(context.Background(), intent)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindInvalidInput || public.Code != "runtime_recipe_missing" {
+		t.Fatalf("BuildRuntime() fault = %#v, ok=%t", public, ok)
+	}
+	if fake.buildCalls != 1 {
+		t.Fatalf("BuildRuntime() calls = %d, want 1", fake.buildCalls)
 	}
 }

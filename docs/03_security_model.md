@@ -102,6 +102,20 @@ metadata is rejected before project home, network, or container mutation. Users
 remain responsible for image contents and should prefer immutable digest
 references.
 
+The active Context's runtime recipe is a trusted-host build input. `runtime
+build` is the only supported path that may obtain a missing base image, and that
+network effect occurs only because the user explicitly requested the build.
+Docker receives the owner-only Context `runtime/` directory as its complete build
+context; policy files, credential metadata and secret files, the host home,
+Docker sockets, and Workspace mounts are outside it. The generated image must
+pass the same compatibility inspection before its reference is promoted into
+the Context. Editing the recipe or a failed build cannot replace the last
+selected image.
+For the exact official `ghcr.io/tasuku43/tobari/runtime:latest` first base,
+the explicit build also requests a refresh of the moving base. Explicit local
+or custom bases do not receive that registry-pull request; this keeps local
+development bases usable without weakening the build-context boundary.
+
 The official base runtime and derived agent images do not change this boundary.
 The base main channel is published by a protected main-branch workflow;
 derived agent variants are separate later slices in the same runtime package.
@@ -136,10 +150,19 @@ unhealthy, exited, and timeout outcomes remain distinct diagnostics. Desired
 runtime drift is detected from an ownership-scoped spec hash and recreates only
 the work container, preserving the logical project home and root record.
 
-Gateway image directories are assigned to the invoking host UID/GID at build
-time, and the service starts directly as that non-root identity. It opens no
-root entrypoint and receives no added capability. This preserves owner-only host
-credential permissions across native Linux and Docker Desktop.
+Gateway image code is root-owned and read-only in the image, while the service
+starts directly as the invoking numeric non-root identity supplied by Compose.
+Routine startup pulls only the reviewed immutable Gateway digest recorded in
+the embedded asset metadata and rejects missing labels, a root default user,
+the wrong entrypoint, or a Docker Engine platform mismatch before cluster
+resources are created. The explicit `cluster up --gateway-source` recovery
+path builds only the checked embedded snapshot and runs the same compatibility
+preflight. The image does not bake in a host UID/GID. The private CA named volume is
+mounted only into Gateway and its initialization directory is writable by that
+service; the public CA named volume is written by Gateway and mounted
+read-only into each Tobari. Gateway opens no root entrypoint and receives no
+added capability. Host credential files remain owner-only read-only binds, and
+Docker Desktop-specific behavior is outside the current macOS release contract.
 
 All resources carry `io.tobari.owner=default`; per-Tobari resources also carry
 the exact stable Tobari ID and a resource role. Destructive lifecycle code
@@ -243,6 +266,14 @@ malformed, ambiguous, or stale principal registry entry denies before OPA and
 upstream I/O.
 
 ## Mutation policy
+
+`runtime init` is a host-only create of one owner-only recipe directory.
+`runtime build` is a host-only write against the active Context runtime target;
+its Docker build context is fixed to that recipe directory, and its image
+promotion happens only after compatibility and digest checks. Neither command
+mounts the Context directory into a Workspace or accepts a secret/image-name
+override. A build failure is therefore a safe retry point: the old selected
+image and its Context authority remain unchanged.
 
 Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
 The root command uses the catalog-declared current-directory fixed target to
@@ -351,4 +382,8 @@ distributed nor trusted by Tobari; their selector is persisted as user
 configuration. Third-party licenses are reviewed. Tests use synthetic
 credentials and `example.com` identities only. Publication still requires
 `task security` and `task public:check`; neither replaces a human history and
-confidentiality review.
+confidentiality review. The canonical Gateway source is the public `gateway/`
+tree; its embedded snapshot and published image are checked against that
+source. GHCR moving tags are development conveniences, not a trusted runtime
+identity; routine consumption uses the reviewed immutable digest recorded in
+`versions.env`.

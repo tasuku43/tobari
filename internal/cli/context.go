@@ -112,6 +112,58 @@ func runContextUse(
 	return c.emitMutationResult(ctx, command, output)
 }
 
+func runRuntimeInit(
+	ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs,
+) int {
+	if c == nil {
+		return ExitInternal
+	}
+	if c.context == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	intent.Target = operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ParentID: tobari.ActiveContextRuntimeID}
+	intent.Impact = command.Agent.Mutation.Impact
+	result, err := c.context.InitRuntime(ctx, intent)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help runtime init", "Correct the command arguments.")
+	}
+	output, err := renderContextReport(result, format, humanColorAllowed(ctx, c, c.Out))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
+func runRuntimeBuild(
+	ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs,
+) int {
+	if c == nil {
+		return ExitInternal
+	}
+	if c.context == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	intent.Target = operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ID: tobari.ActiveContextRuntimeID}
+	intent.Impact = command.Agent.Mutation.Impact
+	result, err := c.context.BuildRuntime(ctx, intent)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help runtime build", "Correct the command arguments.")
+	}
+	output, err := renderContextReport(result, format, humanColorAllowed(ctx, c, c.Out))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
 type contextListDocument struct {
 	SchemaVersion int `json:"schema_version"`
 	Contexts      struct {
@@ -130,7 +182,7 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		return nil, fault.Wrap(fault.KindContract, "invalid_context_list", "Context list is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		document := contextListDocument{SchemaVersion: 1}
+		document := contextListDocument{SchemaVersion: 2}
 		document.Contexts.Active = result.Active
 		document.Contexts.Items = append([]tobari.ContextSummary{}, result.Items...)
 		output, err := json.Marshal(document)
@@ -148,8 +200,8 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		if item.Active {
 			marker = "*"
 		}
-		fmt.Fprintf(&output, "%s %s\tmode=%s\timage=%s\tagent=%s\n", marker,
-			safeExternalText(item.Name), item.PolicyMode, safeExternalText(item.Image), safeExternalText(item.AgentProfile))
+		fmt.Fprintf(&output, "%s %s\tmode=%s\timage=%s\truntime=%s\tagent=%s\n", marker,
+			safeExternalText(item.Name), item.PolicyMode, safeExternalText(item.Image), item.RuntimeStatus, safeExternalText(item.AgentProfile))
 	}
 	return []byte(output.String()), nil
 }
@@ -159,7 +211,7 @@ func renderContextReport(result tobari.ContextReport, format successFormat, colo
 		return nil, fault.Wrap(fault.KindContract, "invalid_context_report", "Context report is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(contextReportDocument{SchemaVersion: 1, Context: result})
+		output, err := json.Marshal(contextReportDocument{SchemaVersion: 2, Context: result})
 		if err != nil {
 			return nil, err
 		}
@@ -175,6 +227,29 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	fmt.Fprintf(&output, "Image: %s\n", safeExternalText(result.Image))
 	fmt.Fprintf(&output, "Agent profile: %s\n", safeExternalText(result.AgentProfile))
 	fmt.Fprintf(&output, "Policy mode: %s\n", result.PolicyMode)
+	if result.Runtime.Kind != "" {
+		fmt.Fprintf(&output, "Runtime: %s (%s)\n", result.Runtime.Kind, result.Runtime.Status)
+		if result.Runtime.Dockerfile != "" {
+			fmt.Fprintf(&output, "Runtime Dockerfile: %s\n", safeExternalText(result.Runtime.Dockerfile))
+		}
+		if result.Runtime.BaseReference != "" {
+			fmt.Fprintf(&output, "Runtime base: %s\n", safeExternalText(result.Runtime.BaseReference))
+		}
+		if result.Runtime.SourceDigest != "" {
+			fmt.Fprintf(&output, "Runtime source digest: %s\n", safeExternalText(result.Runtime.SourceDigest))
+		}
+		if result.Runtime.ImageDigest != "" {
+			fmt.Fprintf(&output, "Runtime image digest: %s\n", safeExternalText(result.Runtime.ImageDigest))
+		}
+	}
+	switch result.Task {
+	case tobari.TaskRuntimeInit:
+		if result.Runtime.Dockerfile != "" {
+			fmt.Fprintf(&output, "Next: edit %s, then run `tobari runtime build`.\n", safeExternalText(result.Runtime.Dockerfile))
+		}
+	case tobari.TaskRuntimeBuild:
+		fmt.Fprintln(&output, "Next: run `tobari` from a project directory.")
+	}
 	fmt.Fprintf(&output, "Policy: %s\n", safeExternalText(result.Stores.PolicyDirectory))
 	fmt.Fprintf(&output, "Credential metadata: %s\n", safeExternalText(result.Stores.CredentialConfig))
 	fmt.Fprintf(&output, "Credential directory: %s\n", safeExternalText(result.Stores.CredentialDirectory))

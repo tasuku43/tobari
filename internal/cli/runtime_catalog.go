@@ -24,6 +24,8 @@ func runtimeCommandSpecs() []CommandSpec {
 		contextShowSpec(),
 		contextCreateSpec(),
 		contextUseSpec(),
+		runtimeInitSpec(),
+		runtimeBuildSpec(),
 		projectEnterSpec(),
 		statusSpec(),
 		listSpec(),
@@ -43,10 +45,10 @@ func contextListSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
 				Fields: []OutputField{
 					{Name: "active", Type: OutputFieldTypeString, Description: "Name of the host-selected active Context."},
-					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with active state, image, agent profile, and policy mode."},
+					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with active state, image, agent profile, policy mode, and runtime status."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "contexts", JSONSchemaVersion: 1,
+				JSONEnvelope: "contexts", JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("context list", true,
@@ -136,6 +138,60 @@ func contextUseSpec() CommandSpec {
 			},
 		},
 		handler: runContextUse,
+	}
+}
+
+func runtimeInitSpec() CommandSpec {
+	return CommandSpec{
+		Path: "runtime init", Summary: "Create a runtime recipe for the active Context",
+		Args: "[--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID:  "runtime.customization",
+			Outcome:       "Create the active Context's owner-only Dockerfile template without changing its selected runtime image",
+			Inputs:        []CommandInput{formatInput()},
+			Output:        contextReportOutput(),
+			Prerequisites: []string{"An active Context is available on the trusted host."},
+			FixedTarget:   fixedActiveContextRuntimeTarget(),
+			Errors: mutationCommandErrors("runtime init", "context show",
+				declaredCommandError(fault.KindRejected, "runtime_recipe_exists", false, "context show", "Inspect the existing active Context runtime recipe."),
+				declaredCommandError(fault.KindRejected, "runtime_init_failed", false, "context show", "Inspect the active Context stores."),
+				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the Context runtime report."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.ContextRuntimeTargetKind, TargetInputs: []string{},
+				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
+			},
+		},
+		handler: runRuntimeInit,
+	}
+}
+
+func runtimeBuildSpec() CommandSpec {
+	return CommandSpec{
+		Path: "runtime build", Summary: "Build and select the active Context runtime",
+		Args: "[--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID:  "runtime.customization",
+			Outcome:       "Build the active Context Dockerfile, validate the Tobari runtime contract, and select the generated local image",
+			Inputs:        []CommandInput{formatInput()},
+			Output:        contextReportOutput(),
+			Prerequisites: []string{"The active Context has a runtime/Dockerfile recipe.", "The trusted host Docker daemon is available."},
+			FixedTarget:   fixedActiveContextRuntimeTarget(),
+			Errors: mutationCommandErrors("runtime build", "context show",
+				declaredCommandError(fault.KindInvalidInput, "runtime_recipe_missing", false, "runtime init", "Create the active Context runtime template first."),
+				declaredCommandError(fault.KindRejected, "runtime_build_failed", false, "context show", "Inspect the unchanged selected runtime and recipe state."),
+				declaredCommandError(fault.KindUnavailable, "image_not_found", false, "runtime build", "Build or make the official base image available to Docker."),
+				declaredCommandError(fault.KindRejected, "incompatible_image", false, "context show", "Correct the Dockerfile so the selected image preserves the Tobari runtime contract."),
+				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed runtime promotion."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.ContextRuntimeTargetKind, TargetInputs: []string{},
+				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo},
+			},
+		},
+		handler: runRuntimeBuild,
 	}
 }
 
@@ -246,15 +302,16 @@ func deleteSpec() CommandSpec {
 
 func clusterUpSpec() CommandSpec {
 	return CommandSpec{
-		Path: "cluster up", Summary: "Start shared Gateway and OPA",
+		Path: "cluster up", Args: "[--gateway-source]", Summary: "Start shared Gateway and OPA",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "cluster.lifecycle",
 			Outcome:      "Start one healthy shared enforcement cluster without mounting a work root",
-			Inputs:       []CommandInput{},
+			Inputs:       []CommandInput{gatewaySourceInput()},
 			Output:       textClusterStatusOutput(),
 			Prerequisites: []string{
 				"Docker Engine and Docker Compose v2 are available.",
+				"The routine path uses the immutable Gateway image; --gateway-source is for explicit development or recovery.",
 			},
 			FixedTarget: fixedClusterTarget(),
 			Errors: mutationCommandErrors("cluster up", "cluster status",
@@ -267,6 +324,9 @@ func clusterUpSpec() CommandSpec {
 					fault.NextAction{Command: "cluster down", Reason: "Explicitly clean up the shared cluster instead."}),
 				declaredCommandError(fault.KindContract, "invalid_status_contract", false, "cluster status", "Repair the runtime status contract."),
 				declaredCommandError(fault.KindUnavailable, "cluster_start_failed", false, "cluster status", "Reconcile partial Docker state."),
+				declaredCommandError(fault.KindUnavailable, "gateway_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the verified Gateway image."),
+				declaredCommandError(fault.KindContract, "gateway_image_incompatible", false, "doctor", "Inspect the Gateway image API, digest, and architecture contract."),
+				declaredCommandError(fault.KindUnavailable, "gateway_source_build_failed", false, "doctor", "Inspect Docker and host access before retrying the explicit source build."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
@@ -887,6 +947,15 @@ func fixedActiveContextTarget() *FixedTarget {
 	}
 }
 
+func fixedActiveContextRuntimeTarget() *FixedTarget {
+	return &FixedTarget{
+		Kind:        tobari.ContextRuntimeTargetKind,
+		ID:          tobari.ActiveContextRuntimeID,
+		Description: "The active Context's host-owned runtime recipe and selected image.",
+		Scope:       FixedTargetScopeToolLocal,
+	}
+}
+
 func contextNameInput() CommandInput {
 	return CommandInput{
 		Name: "--name", Source: InputSourceFlag, Required: true,
@@ -923,10 +992,11 @@ func contextReportOutput() CommandOutput {
 			{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only shared agent profile reference."},
 			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Context."},
 			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Guided or advanced policy-development mode."},
-			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved policy and managed-credential store paths; secret values are never included."},
+			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."},
+			{Name: "runtime", Type: OutputFieldTypeObject, Description: "Selected runtime source, recipe status, source digest, and image digest."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "context", JSONSchemaVersion: 1,
+		JSONEnvelope: "context", JSONSchemaVersion: 2,
 	}
 }
 
@@ -1080,6 +1150,15 @@ func purgeInput(description string) CommandInput {
 		Name: "--purge", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
 		Description: description, AllowedValues: []string{}, DefaultValue: stringPointer("false"),
+	}
+}
+
+func gatewaySourceInput() CommandInput {
+	return CommandInput{
+		Name: "--gateway-source", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
+		Description:   "Build the embedded Gateway source explicitly for development or recovery instead of using the verified official image.",
+		AllowedValues: []string{}, DefaultValue: stringPointer("false"),
 	}
 }
 

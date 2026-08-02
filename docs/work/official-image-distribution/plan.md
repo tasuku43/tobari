@@ -11,8 +11,9 @@ Use one GHCR runtime package with a base tag and variant-qualified agent tags.
 Start with a `tobari/runtime` foundation and derived Claude/Codex variants in
 the same package. The base carries the common work tools; each agent image adds
 only its agent-specific tool and dependencies. Keep immutable composition tags
-and digests as the supported identity; do not make `latest` part of the first
-contract.
+and digests as the supported release identity. The base may also publish
+`latest` and `main` as moving development aliases for the active-Context
+customization workflow; neither alias is a stable release identity.
 
 Keep image publication in a dedicated release workflow, separate from the
 CLI's `v*` archive workflow. Pull requests build and test without push. A
@@ -116,8 +117,8 @@ allowing offline/local verification.
 The first slice makes `runtimes/base` canonical, synchronizes its Dockerfile,
 bootstrap, and public verification key into the embedded CLI snapshot, and
 publishes only the base variant on pushes to `main`. The base is versioned as
-`0.1.0` in metadata; the workflow publishes the moving `main` channel and an
-immutable `sha-<commit>` tag for Linux amd64 and arm64 with job-scoped
+`0.1.0` in metadata; the workflow publishes the moving `latest` and `main`
+channels and an immutable `sha-<commit>` tag for Linux amd64 and arm64 with job-scoped
 `packages: write`. It performs no pull-request or local-startup publication.
 The GHCR `tobari/runtime` package must still receive its intended public
 visibility through the maintainer's package settings before users can consume

@@ -38,5 +38,10 @@
     "id": "context.composition",
     "status": "public",
     "reason": ""
+  },
+  {
+    "id": "runtime.customization",
+    "status": "public",
+    "reason": ""
   }
 ]

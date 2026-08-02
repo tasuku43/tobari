@@ -21,6 +21,7 @@ journey is the product baseline to improve:
 | Permission growth | Human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users select, inspect, explicitly confirm, and refresh after one exact decision without OPA/Rego editing; redirected review remains read-only and the underlying action remains exact-reference-bound and tested |
 | Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
 | Execution setup | `context list`, `context show`, `context use --name NAME` | The user can inspect and select one logical setup while policy, agent configuration, and credential stores remain physically separated |
+| Runtime customization | `runtime init`, edit the active Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
 
 The table is a review baseline, not a claim that the desired command count is
@@ -48,6 +49,9 @@ go run ./cmd/tobari cluster denials --tail 100 --format json
 go run ./cmd/tobari context show --format json
 go run ./cmd/tobari context list --format json
 go run ./cmd/tobari context use --name default
+go run ./cmd/tobari runtime init
+# edit the active Context's runtime/Dockerfile
+go run ./cmd/tobari runtime build --format json
 go run ./cmd/tobari policy review --tail 100
 go run ./cmd/tobari policy candidates --tail 100 --format json
 go run ./cmd/tobari policy allow --id PCY_ID
@@ -75,6 +79,14 @@ rules exist. The transcript must prove:
 - Omitted image selection resolves from the active Context's runtime image; the
   legacy XDG default seeds the default Context and then `builtin` is used,
   without requiring source inspection.
+- `runtime init` creates one owner-only active-Context Dockerfile and does not
+  overwrite it or change the selected image.
+- `runtime build` uses only that recipe directory, validates the runtime
+  contract and image digest, derives the local image reference mechanically,
+  and promotes it into the Context without a second image-selection command.
+  A build or validation failure leaves the previous selected image unchanged.
+  The exact official `runtime:latest` base is refreshed on this explicit build;
+  explicit local or custom bases do not request a registry pull.
 - Project metadata does not override the active Context image.
 - `list` retains an explicitly exhaustive local collection, including empty,
   while preserving diagnostic IDs without making them action inputs.

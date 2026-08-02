@@ -33,6 +33,16 @@ runtime contract, and byte equality with the embedded CLI snapshot. The
 main-only runtime workflow runs this check before its package-write job and
 pushes only the base image; pull-request CI has no package-write permission.
 
+`task gateway:source:check` validates byte equality between the canonical
+`gateway/` source and the embedded snapshot. `task gateway:test` runs the
+Gateway unit suite against the canonical source, while the runtime integration
+continues to exercise the embedded snapshot used by the CLI. The Gateway image
+workflow builds both supported architectures; only its main-push publish job
+has package-write permission, and its pull-request validation job is
+cache-only. Runtime tests preflight the immutable Gateway digest, labels,
+entrypoint, default user, and Docker Engine platform before shared resources;
+the explicit source-build integration path exercises the checked fallback.
+
 The focused Claude and Codex runtime checks validate their pinned agent
 artifacts and inherited contract. Their local build fixtures also replace
 `/var/lib/tobari` with a temporary home mount and execute the agent commands,
@@ -280,6 +290,15 @@ The test suite has complementary levels:
 - Context image tests cover manifest selection, legacy seeding, invalid image
   rejection, and the fact that project metadata cannot override the active
   runtime image.
+- Context runtime tests cover non-overwriting recipe initialization, the
+  owner-only Docker build context, generated image naming, compatibility and
+  digest inspection, source-digest drift, and unchanged image selection after
+  build or promotion failure. They also assert that an exact official base
+  requests `--pull` while an explicit local base does not.
+- The Docker integration scenario creates the active Context recipe, runs a
+  real managed build from the public official GHCR base, verifies ready status
+  and automatic Context image promotion, then repeats the flow with the local
+  base before cleanup.
 - Policy-learning integration projects baseline and learnable denials, proves
   baseline denies stay out of the actionable queue, and exercises exact allow
   and deny activation through reference-bound commands without restarting any
@@ -360,6 +379,8 @@ Every strong statement should identify its enforcement path.
 | Context runtime boundary | Context manifest tests, compatibility validation, and ignored-project-metadata regression |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
 | Context composition and selection | Manifest/domain tests, catalog effect/target contracts, owner-only atomic store tests, legacy migration fixtures, active-context drift checks, and agent-readiness transcript |
+| Context runtime build boundary | Fixed active-Context target contracts, owner-only recipe checks, bounded Docker build argv including official-base refresh versus local-base behavior, compatibility/digest validation, source-digest status, and atomic promotion tests |
+| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, canonical-source unit tests, stable Gateway labels, immutable digest/platform/entrypoint preflight, non-root host-UID-independent Dockerfile, and pull-request/main workflow permission separation |
 | Typed denial recovery | Strict host/port audit projection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, project/host/port/method/path candidate/reference domain validation, discover-act graph and allow/deny round trips, human review without hand-authored OPA/Rego, strict atomic XDG writer, preflight ordering, and Docker retry |
 | Bounded policy compaction | Pure deterministic same-project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |

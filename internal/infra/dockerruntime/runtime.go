@@ -369,13 +369,23 @@ func (r *Runtime) configuredDefaultImage() (string, error) {
 
 // ClusterUp materializes assets and reconciles shared Gateway and OPA.
 func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
-	return r.ClusterUpWithProgress(ctx, nil)
+	return r.ClusterUpWithProgressMode(ctx, false, nil)
 }
 
 // ClusterUpWithProgress materializes assets and reconciles shared Gateway and
 // OPA while emitting only fixed, secret-free lifecycle signals.
 func (r *Runtime) ClusterUpWithProgress(
 	ctx context.Context, progress tobari.ClusterUpProgressSink,
+) (tobari.State, error) {
+	return r.ClusterUpWithProgressMode(ctx, false, progress)
+}
+
+// ClusterUpWithProgressMode is the explicit development/recovery extension
+// for callers that need to build the embedded Gateway source. The routine
+// path keeps this false and consumes the verified immutable image from
+// versions.env.
+func (r *Runtime) ClusterUpWithProgressMode(
+	ctx context.Context, gatewaySourceBuild bool, progress tobari.ClusterUpProgressSink,
 ) (tobari.State, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.State{}, err
@@ -409,6 +419,23 @@ func (r *Runtime) ClusterUpWithProgress(
 		}
 		state.RecentError = existing.RecentError
 	}
+	var environment []string
+	var gatewayImage string
+	environment, err = r.composeEnvironment(state)
+	if err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+		})
+		return tobari.State{}, err
+	}
+	gatewayImage, err = r.prepareGatewayImage(ctx, state, environment, gatewaySourceBuild)
+	if err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+		})
+		return tobari.State{}, err
+	}
+	environment = replaceEnvironmentValue(environment, "TOBARI_GATEWAY_IMAGE", gatewayImage)
 	if err := r.startClusterReconcile(clusterOperationUp); err != nil {
 		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
 			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
@@ -429,15 +456,9 @@ func (r *Runtime) ClusterUpWithProgress(
 		return tobari.State{}, err
 	}
 
-	var environment []string
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressBuildImage, func() error {
 		if err := r.writeState(state); err != nil {
 			return fmt.Errorf("persist Tobari state: %w", err)
-		}
-		var err error
-		environment, err = r.composeEnvironment(state)
-		if err != nil {
-			return err
 		}
 		return r.buildTobariImage(ctx, state, environment)
 	}); err != nil {
@@ -451,7 +472,7 @@ func (r *Runtime) ClusterUpWithProgress(
 			[]string{
 				"compose", "--project-directory", state.RuntimeDirectory,
 				"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
-				"up", "-d", "--build", "--remove-orphans",
+				"up", "-d", "--no-build", "--remove-orphans",
 			},
 			environment, nil, &output, &output,
 		)
@@ -1327,10 +1348,22 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_ASSET_VERSION="+state.AssetVersion,
 		"TOBARI_UID="+strconv.Itoa(uid), "TOBARI_GID="+strconv.Itoa(gid),
 		"TOBARI_MITMPROXY_IMAGE="+versions["MITMPROXY_IMAGE"],
+		"TOBARI_GATEWAY_IMAGE="+versions["GATEWAY_IMAGE"],
 		"TOBARI_OPA_IMAGE="+versions["OPA_IMAGE"],
 		"TOBARI_DEBIAN_IMAGE="+versions["DEBIAN_IMAGE"],
 	)
 	return environment, nil
+}
+
+func replaceEnvironmentValue(environment []string, key, value string) []string {
+	prefix := key + "="
+	filtered := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, prefix) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return append(filtered, prefix+value)
 }
 
 func (r *Runtime) recordRecentError(state tobari.State, message string) error {

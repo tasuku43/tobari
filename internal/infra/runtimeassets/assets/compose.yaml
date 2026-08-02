@@ -46,13 +46,7 @@ services:
       retries: 30
 
   gateway:
-    build:
-      context: gateway
-      args:
-        MITMPROXY_IMAGE: ${TOBARI_MITMPROXY_IMAGE}
-        TOBARI_UID: ${TOBARI_UID}
-        TOBARI_GID: ${TOBARI_GID}
-    image: tobari-gateway:${TOBARI_ASSET_VERSION}
+    image: ${TOBARI_GATEWAY_IMAGE}
     container_name: tobari-gateway
     user: "${TOBARI_UID}:${TOBARI_GID}"
     cpus: "2.0"

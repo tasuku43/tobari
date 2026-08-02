@@ -69,6 +69,7 @@ jobs:
             --build-arg TOBARI_GID=1000 \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --label "org.opencontainers.image.version=main-${GITHUB_SHA:0:12}" \
+            --tag "$image:latest" \
             --tag "$image:main" \
             --tag "$image:sha-$GITHUB_SHA" \
             --push \

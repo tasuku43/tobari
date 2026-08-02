@@ -19,6 +19,14 @@ are pinned to reviewed immutable versions or digests.
 The canonical base image definition is maintained under `runtimes/base` and
 its Dockerfile/bootstrap snapshot is checked against the embedded runtime
 assets. The first official image workflow supports Linux amd64 and arm64.
+The canonical Gateway image definition is maintained under `gateway` and its
+Dockerfile, addon, entrypoint, and tests are checked against the embedded
+`internal/infra/runtimeassets/assets/gateway` snapshot. The main-only Gateway
+workflow publishes `ghcr.io/<owner>/tobari/gateway:latest`, `:main`, and an
+immutable `:sha-<commit>` tag for Linux amd64 and arm64. The CLI records one
+reviewed multi-architecture manifest digest in `versions.env` and uses that
+digest for routine startup; `cluster up --gateway-source` is the explicit
+source-development/recovery path.
 
 ## Compatibility
 
@@ -33,10 +41,14 @@ Tags use `vMAJOR.MINOR.PATCH` for CLI releases. Image releases are independent:
 the base uses `ghcr.io/<owner>/tobari/runtime:<base-version>`, while a derived
 agent uses `<agent>.<agent-version>-base.<base-version>-r<revision>`, for example
 `claude.2.1.34-base.0.1.0-r1`. A push to `main` additionally runs the base-image
-workflow, which publishes `ghcr.io/<owner>/tobari/runtime:main` and an
-immutable `sha-<commit>` tag for the exact main revision. This is a development
-channel, not a stable image release. Pull requests never receive package-write
-permission.
+workflow, which publishes `ghcr.io/<owner>/tobari/runtime:latest`, `:main`, and
+an immutable `sha-<commit>` tag for the exact main revision. `latest` and
+`main` are moving development channels, not stable image releases. Pull
+requests never receive package-write permission.
+
+The Gateway workflow follows the same moving-versus-immutable tag rule. Its
+pull-request job has no package-write permission and uses a cache-only
+multi-architecture build; only the main-push job can publish to GHCR.
 
 The first Claude and Codex agent-image slices are build-only: their
 pull-request and main-push workflows validate the pinned parent, agent release

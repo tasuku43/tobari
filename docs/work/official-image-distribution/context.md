@@ -25,11 +25,11 @@ desired publication model into current repository behavior.
   HTTP, JSON, Python, SSH, GitHub, and AWS tool set; derived images inherit the
   contract when they use `FROM tobari-runtime:local`.
 - The first base version is `0.1.0`. The official GHCR package is
-  `ghcr.io/<owner>/tobari/runtime`; its base development tags are `main` and
-  `sha-<commit>`, while future agent tags are qualified compositions such as
+  `ghcr.io/<owner>/tobari/runtime`; its base development tags are `latest`,
+  `main`, and `sha-<commit>`, while future agent tags are qualified compositions such as
   `claude.2.1.34-base.0.1.0-r1`.
 - `.github/workflows/runtime-base.yml` builds and pushes
-  `ghcr.io/<owner>/tobari/runtime:main` plus `sha-<commit>` on a main push,
+  `ghcr.io/<owner>/tobari/runtime:latest`, `:main`, plus `sha-<commit>` on a main push,
   after the base source/snapshot check. Claude and Codex agent publication is
   deferred pending redistribution review; there is no neutral official
   toolbox image.
@@ -151,8 +151,9 @@ reviewed update.
       qualified agent tags.
 - [x] Use independent image versions from the CLI: base `<version>` and agent
       `<agent>.<agent-version>-base.<base-version>-r<revision>`.
-- [ ] Whether `stable`/`latest` aliases are needed; immutable version tags and
-      digests are the safer initial contract.
+- [x] `latest` and `main` are moving development aliases for the Context
+      customization workflow; immutable version and commit tags remain the
+      release identities.
 - [ ] Which agent/tool installers and licenses permit redistribution inside a
       public image, especially for Claude and Codex.
 - [ ] Which multi-architecture targets and base-image update SLA are supported
@@ -169,8 +170,8 @@ reviewed update.
       images, including GHCR untagged-manifest retention.
 - [x] `runtimes/base` is canonical and the embedded runtime assets are a checked
       generated snapshot.
-- [x] Main pushes publish a moving `main` development tag and an immutable
-      commit-addressed base tag; pull requests remain no-push.
+- [x] Main pushes publish moving `latest` and `main` development tags and an
+      immutable commit-addressed base tag; pull requests remain no-push.
 - [x] Claude and Codex sources use one level of `FROM` inheritance, the base runtime
       user/entrypoint/lifetime contract, and no image `CMD` or `ENTRYPOINT`
       override.

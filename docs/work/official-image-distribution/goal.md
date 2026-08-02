@@ -37,7 +37,8 @@ GHCR lifecycle before agent variants are added.
   vendor-policy review
 - Changing the Tobari runtime API or Workspace lifetime contract
 - Making the CLI's `v*` release workflow push images implicitly
-- Adding mutable `latest` behavior before the immutable release path is proven
+- Treating the moving `latest`/`main` development aliases as stable SemVer
+  release identities
 
 ## Acceptance criteria
 
