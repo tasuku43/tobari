@@ -88,6 +88,15 @@ feature-completion claim.
   No Inbox decision was parent-applied; a future rerun must preserve this
   blind-discovery constraint while determining whether the outcome is
   discoverable at all.
+- The parent then proved the Medium-01 product path independently: three
+  distinct synthetic denials produced a visible `3 pending permissions` Inbox;
+  one exact candidate was allowed, one denied, and the remaining one was
+  canceled without mutation. Read-only JSON confirmed the third candidate
+  remained. The redacted baseline is in
+  [feedback/official/parent-medium-01-baseline.md](feedback/official/parent-medium-01-baseline.md).
+  This establishes that the child boundary, not the underlying queue path, is
+  the next uncertainty. The baseline also reproduced the existing
+  confirmation timing fault when `a` was not followed promptly by `y`.
 - Official Medium-02 reached Workspace entry and reuse, then completed
   deletion and cluster cleanup, but never exercised an explicit cancel/back
   action. Its partial functional evidence is in
