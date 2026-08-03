@@ -853,7 +853,7 @@ func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bo
 		fmt.Fprintln(&output, "port: "+strconv.Itoa(result.Rule.Port))
 		fmt.Fprintln(&output, "method: "+escapeTSVCell(result.Rule.Method))
 		fmt.Fprintln(&output, "path: "+escapeTSVCell(result.Rule.Path))
-		fmt.Fprintln(&output, "next: Retry the blocked operation.")
+		fmt.Fprintln(&output, "next: tobari")
 		return output.Bytes()
 	}
 
@@ -866,7 +866,7 @@ func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bo
 		"%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port,
 		safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
 	), colorTokenAccent)
-	output.next("retry", "Retry the blocked operation.")
+	output.next("tobari", "Re-enter the Workspace and retry the same request.")
 	return output.bytes()
 }
 
@@ -988,7 +988,7 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 		output.row("Source rules", fmt.Sprintf("%d", result.SourceRuleCount), colorTokenMuted)
 		output.row("Applied", humanBool(result.Applied), humanBoolToken(result.Applied))
 		if result.Task == tobari.TaskPolicyAllow {
-			output.row("Next", "Retry the blocked operation.", colorTokenAccent)
+			output.next("tobari", "Re-enter the Workspace and retry the same request.")
 		} else {
 			output.next("cluster status", "Verify the shared policy component after the change.")
 		}

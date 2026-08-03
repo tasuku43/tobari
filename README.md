@@ -138,11 +138,23 @@ selected project root and make proxy-aware HTTP/HTTPS requests, but it cannot
 reach OPA, Docker, host credentials, or the Internet directly. A denial is a
 host handoff; it is never an automatic approval or retry.
 
+Host-owned actions in this walkthrough are `tobari doctor`, `tobari cluster up`,
+`tobari policy review`, `tobari policy allow --id ID`,
+`tobari policy deny --id ID`, `tobari context show`, `tobari runtime init`,
+`tobari runtime build`, `tobari delete`, and `tobari cluster down`.
+Workspace-owned actions are the agent's commands and file changes below the
+selected project root. Leave the Workspace before running a host-owned
+recovery command; the Workspace does not contain a second Tobari control path.
+
 Prerequisites:
 
 - macOS or Linux with Docker Engine 24 or newer and Docker Compose v2;
 - an interactive terminal for the root `tobari` command;
 - `tobari` installed from source or available on `PATH`; and
+- when using Colima or Lima, the project directory and Tobari XDG
+  configuration/state directories must be visible through the Docker VM's
+  shared paths; an unshared bind path stops setup before a Workspace can start;
+  and
 - access to the reviewed Gateway image if it is not already local. The
   explicit `runtime build` step may obtain its declared base image.
 
@@ -175,7 +187,10 @@ Enter the project from the host:
 tobari
 ```
 
-Run this inside the resulting Tobari shell. `example.com` and the path are
+The command opens the supported interactive Bash shell as user `tobari`
+(`BASH=/bin/bash`). The shell is inside the Workspace; `exit` returns to the
+host and leaves the Workspace reusable. Run this request inside that shell.
+`example.com` and the path are
 synthetic public values; the `PUT` is intentionally outside the initialized
 allow rules while remaining eligible for exact policy learning.
 
@@ -187,7 +202,7 @@ curl -sS -w '\nhttp=%{http_code}\n' \
 The response is a secret-free `policy_denied` with `http=403` and fixed host
 navigation to `tobari policy review`. It does not contain a candidate ID and
 does not request an automatic retry. Leave the session before running the host
-recovery commands:
+recovery commands; policy review and policy changes belong to the trusted host:
 
 ```sh
 exit
@@ -216,6 +231,8 @@ derive an ID from display order, host text, or a previous denial. `policy allow`
 tests the complete policy, records one exact project-bound rule, and activates
 it without restarting the Tobari. `policy deny --id <exact-pcy-id>` is the
 corresponding recovery when the requested permission should remain blocked.
+The successful allow handoff names `tobari` as the next command: re-enter from
+the host and repeat the same request inside the Workspace.
 
 ### 4. Retry the same request
 
@@ -238,10 +255,25 @@ path, another project, or another method is not silently broadened.
 Runtime customization is host-owned and explicit. Initialize the active
 Context recipe, inspect the reported Dockerfile path, and edit that file:
 
+The active Context image is checked before a new Workspace is registered. A
+missing or incompatible image returns `image_not_found`, points to
+`tobari runtime build`, and leaves no broken Workspace, project network, or
+work container behind. `runtime build` is new-Workspace-only: an existing
+Workspace keeps its stored image and is not silently refreshed. In this
+synthetic walkthrough, remove the detached policy-demo Workspace before
+building the new image:
+
+```sh
+tobari delete
+```
+
 ```sh
 tobari runtime init --format json
-tobari context show --format json
+tobari context show --name=default --format=json
 ```
+
+Omit `--name=default` to inspect the active Context; use the equals form when
+you name a Context explicitly.
 
 Add one harmless tool between the template's existing `USER root` and
 `USER tobari` lines. For example, install `tree` and keep the package lists
@@ -301,7 +333,8 @@ previously selected image active.
   `tobari delete`; use `tobari delete --force` only when terminating that
   session is intentional.
 
-When finished with this synthetic Workspace, clean up from the host:
+When finished with this synthetic Workspace, clean up from the host. Delete the
+project Workspace first; only then remove the shared cluster:
 
 ```sh
 tobari delete
@@ -523,7 +556,7 @@ before creating its project network or work container.
 
 The selected image's `CMD` does not own Workspace lifetime. Tobari starts the
 work container with its own long-lived `sleep infinity` command, then runs an
-interactive shell or an agent as a child session. Run an exact agent command
+interactive `/bin/bash` shell or an agent as a child session. Run an exact agent command
 from inside the current `tobari` session; a child exit returns its status while
 the Workspace remains reusable.
 
@@ -851,7 +884,8 @@ Common failures:
 - cancelled or unavailable Workspace selection: choose an available candidate,
   press `n` to create explicitly at the current directory, or run `q` to leave.
 - `already_inside`: exit the current Tobari before entering another session.
-- `image_not_found`: build or pull the selected image explicitly on the host.
+- `image_not_found`: run `tobari runtime build` on the host; a new Workspace
+  is not registered until its selected compatible image is available locally.
 - `incompatible_image`: extend `tobari-runtime:local` without replacing its
   user, lifetime-command capability, or entrypoint.
 - `runtime_recipe_missing`: run `tobari runtime init`, edit the active Context
@@ -866,7 +900,9 @@ Common failures:
   the host, approve one exact candidate with `policy allow --id`, and retry;
   use `cluster denials` plus a tested host edit only when the exact learning
   flow cannot express the required behavior.
-- root bind-mount error under Colima/Lima: use a directory shared with the VM.
+- root bind-mount error under Colima/Lima: place the project and Tobari XDG
+  configuration/state directories on paths shared with the Docker VM, then
+  rerun `tobari doctor --root .` and `tobari cluster up`.
 
 Schema-1 singleton state from older pre-v1 builds is intentionally not guessed
 or migrated. Remove it with the matching older binary before starting a

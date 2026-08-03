@@ -338,20 +338,25 @@ func TestPolicyReviewRendererShowsRecoverableEmptyQueue(t *testing.T) {
 
 func TestPolicyReviewAllowRendererExplainsExactActivation(t *testing.T) {
 	t.Parallel()
-	output := string(renderPolicyReviewAllowSuccess(tobari.PolicyLearningChange{
+	change := tobari.PolicyLearningChange{
 		Task: tobari.TaskPolicyAllow,
 		Rule: tobari.LearnedPolicyRule{
 			Match: tobari.PolicyMatchExact, Host: "api.example.com", Port: 443,
 			Method: "POST", Path: "/repos/example/issues",
 		},
-	}, false))
+	}
+	output := string(renderPolicyReviewAllowSuccess(change, false))
 	for _, want := range []string{
 		"testing_policy: passed", "applying_exact_rule: applied", "permission_allowed: true",
-		"host: api.example.com", "path: /repos/example/issues", "next: Retry the blocked operation.",
+		"host: api.example.com", "path: /repos/example/issues", "next: tobari",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("allow output %q lacks %q", output, want)
 		}
+	}
+	humanOutput := string(renderPolicyLearningChangeWithColor(change, true))
+	if !strings.Contains(humanOutput, "tobari") || !strings.Contains(humanOutput, "Re-enter the Workspace") {
+		t.Fatalf("allow recovery output does not name tobari: %q", humanOutput)
 	}
 }
 

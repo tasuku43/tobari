@@ -1,6 +1,6 @@
 # Work Goal: Make the first-use host handoff executable
 
-- Status: Draft
+- Status: Complete
 - Retention: temporary
 - Retention reason: Promote blind new-user findings into a runnable, public-safe Quick Start and recovery handoff.
 - Governing contract: `docs/00_theses.md`, `docs/01_product_contract.md`, `docs/02_architecture.md`, `docs/03_security_model.md`, `docs/04_harness.md`, `docs/05_public_repository.md`, `docs/06_release.md`, `docs/09_agent_readiness_validation.md`
@@ -28,23 +28,28 @@ and Docker VM sharing pitfalls for disposable projects.
 
 - Do not add a retry alias or new public command solely to match stale wording.
 - Do not add an unrestricted in-Workspace Tobari control path.
-- Do not decide runtime refresh semantics; consume the runtime packet's decision.
+- Do not change runtime refresh semantics; consume the runtime packet's
+  preflight and new-Workspace-only image decision.
 - Do not publish GitHub Pages or architecture HTML in this packet.
 - Do not change policy, credentials, image authority, or security boundaries.
 
 ## Acceptance criteria
 
-- [ ] README and exact help/recovery text name only executable catalog paths.
-- [ ] The denial and Workspace-exit handoff explicitly identify the host owner
+- [x] README and exact help/recovery text name only executable catalog paths;
+      no retry command is added.
+- [x] The denial and Workspace-exit handoff explicitly identify the host owner
       of review/recovery without exposing secrets or private endpoints.
-- [ ] Runtime prerequisites, new-Workspace effect, shell expectation, and
+- [x] Runtime prerequisites, new-Workspace effect, shell expectation, and
       cleanup ownership match the completed runtime lifecycle decision.
-- [ ] `context show` grammar and Docker VM/shared-path prerequisites are
+- [x] `context show` grammar and Docker VM/shared-path prerequisites are
       understandable through public-safe synthetic examples.
-- [ ] A fresh new-user PTY replay reaches the documented value signal and
-      cleanup after the policy/runtime successor packets land.
-- [ ] `task check`, `task public:check`, and relevant release/integration gates
-      pass or exact blockers are recorded.
+- [x] A fresh 120x40 PTY replay reaches the documented policy-review value
+      signal and cleanup; the aggregate runtime replay reaches the same
+      handoff but is blocked by the external policy-review input wrapper, with
+      exit 130 recorded in the packet.
+- [x] `task check`, `task public:check`, and `task security` pass; the
+      exit-130 integration/runtime PTY blocker and the out-of-scope
+      `release:check` ShellCheck blocker are recorded exactly in the packet.
 
 ## Governing documents
 
