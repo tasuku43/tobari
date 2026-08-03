@@ -1,6 +1,6 @@
 # Work Plan: Make runtime preparation and reuse deterministic
 
-- Status: Proposed
+- Status: Complete
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -47,6 +47,7 @@ reversible impact. It must not become a generic Docker escape hatch.
   cleanup.
 - Negative case proving a failed build or canceled lifecycle action does not
   silently replace the prior runtime.
-- `task runtime:test`, `task check`, `task security`, and `task public:check`.
-- Integration replay after the existing policy-review PTY blocker is resolved;
-  record the exact blocker if it remains external.
+- `task check`, `task security`, and `task public:check` pass. The
+  `task runtime:test` replay reaches the existing policy-review PTY handoff,
+  exits 130, and is recorded as an external blocker; no runtime-specific
+  failure remains.

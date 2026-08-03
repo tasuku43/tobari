@@ -12,12 +12,12 @@ desired fix or product direction into current repository behavior.
 - Existing unit tests cover raw selection, explicit confirmation, line fallback, EOF cancellation, opaque-ID preservation, and redirected read-only behavior. `scripts/test-integration.sh` also contains a PTY scenario that feeds an exact key sequence and verifies an interactive deny.
 - The user-reported behavior was materially different from the intended contract: an interactive `policy review` invocation appeared blank and ended with `Permission review canceled`, while `policy review --format=json` showed a pending candidate. A deterministic PTY reproduction now covers early input/EOF, explicit allow/deny, cancellation, invalid input, and JSON projection; the fix is recorded in commit `7d096bb`.
 - The local `codex/auth-broker` branch exists and is not an ancestor of `main`. Its historical commits contain the proposed host-side broker and declarative auth-profile work; the current `main` path does not include that branch.
-- The repository's current public contract includes Context runtime customization through `runtime init`, editing the active Context Dockerfile, and `runtime build`. The supported checkout is now `main` at `d98e086`; the first-wave merge, auth-broker docs-only handoff, packet finalization, architecture presentation, and Quick Start/runtime documentation are committed. The auth-broker implementation remains outside `main`.
+- The repository's current public contract includes Context runtime customization through `runtime init`, editing the active Context Dockerfile, and `runtime build`. The current `main` line now also contains the runtime preflight, executable Quick Start host handoff, and stale-retry wording fixes. The auth-broker implementation remains outside `main`.
 - The requested base-runtime shell outcome is verified end to end: `runtimes/base/Dockerfile` contains Bash and the `tobari` user's `/bin/bash` shell, while the CLI and Docker adapter use an interactive `/bin/bash` exec. The regression coverage and transcript are committed in `912c602`. Current `task check`, `task security`, and `task public:check` pass on `main`; the shared integration profile still stops at the existing policy-review scenario with exit 130.
 - The public command catalog audit is complete and committed in `a007059`. The catalog-derived inventory found no command removal candidate that can be safely deleted from the current public surface; compatibility and recovery paths remain documented.
 - The packet lifecycle audit is complete and committed in `92d742c`; its second-wave evidence refresh is committed in `1cc400e`. It found no deletion candidate and preserves active, incomplete, uncertain, and deferred evidence.
 - Several local `docs/work/` directories had no files, including paths associated with auth-broker and older exploratory topics. Empty directories are not completion evidence and are not tracked by Git; after recording that disposition, the six empty stale directories were removed on 2026-08-02. Non-empty active packets remain in place.
-- The primary `main` worktree is clean. Runtime, Context, documentation, harness, and integration changes are represented by scoped commits. The auth-broker implementation remains on `codex/auth-broker`, while its governance packet is docs-only on `main`.
+- The primary `main` worktree is clean before the PTY-evidence rescue commit. Runtime, Context, documentation, and harness changes are represented by scoped commits. The auth-broker implementation remains on `codex/auth-broker`, while its governance packet is docs-only on `main`.
 
 ## Issue register
 
@@ -26,11 +26,11 @@ priority policy.
 
 | ID | State | Proposed order | Owner role | Dependency | Next action |
 |---|---|---:|---|---|---|
-| `policy-review-tty` | Original first-render fix committed; new human-pause/redraw follow-up active; supported runtime integration still blocked | 1 | CLI/policy maintainer | None; preserve current machine-readable contract | Reproduce and fix delayed confirmation/redraw behavior, then rerun PTY/readiness integration |
-| `runtime-bash-shell` | Focused E2E complete; scoped regression evidence committed; broader integration still blocked | 1 (parallel) | Runtime maintainer | Existing base-image and fixed interactive exec contracts | Keep the Bash contract in the Quick Start evidence and close only after the supported integration condition is resolved or explicitly deferred |
-| `runtime-lifecycle-reconcile` | Draft successor packet from repeated new-user E2E evidence | 1 (after policy review for shared integration) | Runtime/CLI maintainer | Existing Context/runtime and Workspace ownership contracts | Decide and implement runtime-not-ready and build-after-registration semantics; classify shell identity |
-| `new-user-quickstart-handoff` | Draft successor packet; documentation waits for product decisions | 2 | Documentation/CLI maintainer | `policy-review-tty` and `runtime-lifecycle-reconcile` | Update the executable host/Workspace first-use handoff after both contracts are verified |
-| `pty-evidence-harness` | Draft successor packet for missing raw child evidence | 2 (parallel where files do not overlap) | Harness/readiness maintainer | Existing PTY helpers; final blind replay after product packets | Add safe raw/digest/checkpoint capture and prove it with one outcome-only blind journey |
+| `policy-review-tty` | Original first-render and delayed human-pause fixes committed; shared runtime integration remains blocked at the checked-in PTY handoff | 1 | CLI/policy maintainer | None; preserve current machine-readable contract | Retain the exact external blocker and rerun the specialized profile when the wrapper is repaired |
+| `runtime-bash-shell` | Focused E2E complete; scoped regression evidence and Quick Start handoff committed | 1 (parallel) | Runtime maintainer | Existing base-image and fixed interactive exec contracts | Retain the Bash contract; the shared integration blocker is carried by the policy packet |
+| `runtime-lifecycle-reconcile` | Implemented and complete; new Workspace runtime preflight prevents broken registration | 1 (after policy review for shared integration) | Runtime/CLI maintainer | Existing Context/runtime and Workspace ownership contracts | Retain `6094f08` and its exact `task runtime:test` external blocker |
+| `new-user-quickstart-handoff` | Complete; public host/Workspace handoff and stale recovery wording committed | 2 | Documentation/CLI maintainer | `policy-review-tty` and `runtime-lifecycle-reconcile` | Retain `a4e6334`; rerun the documented journey after the shared PTY wrapper is repaired |
+| `pty-evidence-harness` | Active; parent-owned raw/digest/checkpoint helper and gates complete; blind product rerun pending | 2 (parallel where files do not overlap) | Harness/readiness maintainer | Existing PTY helpers; final blind replay after product packets | Use the external bundle on the next outcome-only blind journey, then close the packet |
 | `auth-broker-deferral` | Parked; explicitly deferred and detached from `main` | Not scheduled | Security/product owner | Explicit maintainer request to keep the experiment out of the current product path | Preserve the branch and evidence only; do not implement, commit into the current line, cherry-pick, merge, or make it a dependency until the maintainer explicitly resumes it |
 | `agent-plugin-and-runtime-skill` | Discovery complete; skill-first standalone workflow selected | 2 | Product/integration maintainer | Stable policy review and runtime-build contracts | Reopen only when a concrete shared/installable or server-backed capability is proven necessary |
 | `quickstart-and-architecture-docs` | Complete/evidence; implementation committed; publication activation remains an owner-side follow-up | 2 | Documentation/release maintainer | Policy-review fix, CLI audit, and runtime finalization | Retain the bounded evidence, verify repository Pages settings when publication is intentionally enabled, and keep the release ShellCheck blocker visible |
@@ -122,15 +122,19 @@ the current line. The second-wave documentation commits are also on `main`.
 
 | Child | E2E / gate result | Commit state | Disposition |
 |---|---|---|---|
-| `policy-review-tty` | Real PTY allow/deny/cancel/invalid/JSON passed; `task check`, `task public:check`, and `task security` passed; real cluster integration stopped before review | `7d096bb` | Committed; preserve the fixed denial-to-review-to-retry journey and keep the runtime blocker open |
+| `policy-review-tty` | Real PTY allow/deny/cancel/invalid/JSON and delayed-confirmation preservation passed; `task check`, `task public:check`, and `task security` passed; real cluster integration stopped at the checked-in PTY handoff | `7d096bb`, `7942b6e` | Committed; preserve the fixed denial-to-review-to-retry journey and keep the external wrapper blocker open |
 | `agent-integration-discovery` | Workflow E2E passed; isolated `task check` and `task public:check` passed | `8e1adfa` | Committed; plugin/MCP remains deferred, skill-first conclusion retained |
 | `base-runtime-only` (outside this wave) | Separate runtime-image retirement slice was committed; it removes the maintained Claude/Codex image variants and updates the base-only contract | `0ec04f8` | Preserve as a separate task; do not fold it into a first-wave child or treat it as auth-broker work |
 | `runtime-bash-shell` | Base/embedded Bash, `/bin/bash` TTY entry, and Workspace reuse passed; integration stopped at the existing policy-review case with exit 130 | `912c602` | Committed; retain the gate blocker as evidence and carry the verified contract into the completed Quick Start packet |
+| `runtime-lifecycle-reconcile` | New-image preflight, no-broken-registration, stored-image reuse, and clean Bash re-entry passed; `task runtime:test` stopped at the existing policy-review PTY handoff | `6094f08` | Complete; retain the exact external blocker and no-silent-refresh contract |
+| `new-user-quickstart-handoff` | README/CLI host handoff, runtime prerequisite, stale recovery wording, and fresh PTY replay passed; shared runtime/profile handoff remains externally blocked | `a4e6334` | Complete; retain the documented blocker and rerun after the PTY wrapper is repaired |
+| `pty-evidence-harness` | Parent-owned real-PTY helper, ANSI-preserving redaction, external raw output guard, digest/checkpoint contract, and required gates passed; blind product rerun pending | `b8e0d50` | Active; use the bundle on the next outcome-only blind journey before retirement |
 | `cli-catalog-audit` | Clean build, help, 25 representative argv paths, faults/recovery, and side-effect boundaries passed; Docker-positive flow blocked | `a007059` | Committed; no safe removal candidate identified |
 | `work-packet-retirement` | Classifier and deferred-branch boundary E2E passed; no cleanup target found; isolated gates passed | `92d742c` | Committed as evidence; do not delete active or uncertain packets |
 | `auth-broker-deferral` | Governance E2E passed; docs-only handoff committed on `main` | `93e5cac`, `ed37f80` | Parked and detached; implementation has no current-line commit, merge, cherry-pick, or dependency |
 
-The current Git state is clean branch `main` at `1cc400e`. The first-wave
+The current Git state is clean branch `main` at `b8e0d50` after the PTY-evidence
+rescue commit. The first-wave
 merge is `966dd08`; the packet/coordinator and auth handoff commits are
 `831c7e7`, `93e5cac`, and `ed37f80`; the architecture and Quick Start commits
 are `001c4a7` and `d98e086`; the lifecycle evidence refresh is `1cc400e`. The base-runtime-only changes remain captured
@@ -145,12 +149,13 @@ to the existing `policy-review-tty` packet and the three bounded successors:
 
 - `../policy-review-tty/` owns delayed confirmation, redraw stability, and
   cancellation/fault presentation.
-- `../runtime-lifecycle-reconcile/` owns runtime readiness, image reuse, and
-  the shell identity disposition.
-- `../new-user-quickstart-handoff/` owns the public first-use host handoff
-  after those two product decisions are verified.
-- `../pty-evidence-harness/` owns the missing raw-byte digest and checkpoint
-  handoff for future blind journeys.
+- `../runtime-lifecycle-reconcile/` owns the completed runtime readiness,
+  image-reuse, and shell-identity disposition in `6094f08`.
+- `../new-user-quickstart-handoff/` owns the completed public first-use
+  host/Workspace handoff in `a4e6334`.
+- `../pty-evidence-harness/` owns the active raw-byte digest/checkpoint
+  handoff; its helper is ready, but a future blind journey must consume one
+  external artifact before the packet can be retired.
 
 The CLI catalog audit remains the disposition for command-surface feedback:
 the journeys did not provide evidence for removing a public command. The

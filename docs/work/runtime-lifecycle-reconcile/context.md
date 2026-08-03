@@ -8,14 +8,16 @@ runtime lifecycle as current behavior.
 - The public runtime path is host-owned `runtime init`, editing the active
   Context Dockerfile, and explicit `runtime build`.
 - Parent E2E observed that a Workspace entered before the runtime was ready
-  could become an instance with `runtime: missing`; later initialization/build
-  did not repair that instance without deletion and re-registration.
+  could become an instance with `runtime: missing`; the implementation now
+  performs a read-only image preflight before new Workspace registration so
+  this state is not created.
 - Parent and blind Long-01 E2E observed that `runtime build` selects a new
   image, while an already-existing Workspace continues to use its old image on
   re-entry. Deleting and recreating the Workspace consumed the new image.
 - Blind Long-01 and the parent shell transcript displayed `I have no name!`
-  in the runtime prompt. The cause and whether it is product-visible defect or
-  an intentional dynamic UID model are not yet established.
+  in the runtime prompt. A clean supported-image replay did not reproduce it;
+  the observation remains classified as unsupported-image evidence rather than
+  a reason to add a host-UID workaround.
 - The current fixed Workspace lifetime boundary is host-controlled; runtime
   image selection must not become an implicit project-file or agent-side side
   effect.
@@ -37,8 +39,8 @@ runtime lifecycle as current behavior.
   declared `image_not_found`/runtime prerequisite and the logical Workspace
   remains absent. Existing Workspaces still use their stored image and retain
   the no-silent-refresh boundary.
-- The shell identity probe was attempted with a real 120x40 PTY, but the
-- A subsequent clean 120x40 PTY replay on the supported built image produced
+- The shell identity probe was attempted with a real 120x40 PTY. A subsequent
+  clean 120x40 PTY replay on the supported built image produced
   `tobari@...`, `id -un=tobari`, `HOME=/var/lib/tobari`, and `BASH=/bin/bash`,
   followed by a successful re-entry. The earlier `I have no name!` output is
   classified as a runtime image whose passwd entry did not match the host UID;
@@ -79,8 +81,9 @@ runtime lifecycle as current behavior.
       explicit lifecycle capability, not an implicit side effect.
 - [x] The `I have no name!` prompt did not reproduce on the clean supported
       image replay; the visible identity is `tobari` and the shell is Bash.
-- [ ] Which existing runtime/integration profile is the authoritative E2E gate
-      once the policy-review PTY blocker is fixed?
+- [x] The applicable specialized profile is `task runtime:test`; its current
+      external blocker is the checked-in policy-review PTY handoff, which exits
+      130 after the product/runtime portions pass and cleanup completes.
 
 ## Evidence intake
 

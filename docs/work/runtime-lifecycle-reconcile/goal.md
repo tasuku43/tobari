@@ -1,6 +1,6 @@
 # Work Goal: Make runtime preparation and reuse deterministic
 
-- Status: Draft
+- Status: Complete
 - Retention: temporary
 - Retention reason: Resolve runtime lifecycle and shell-entry findings from the blind new-user E2E packet.
 - Governing contract: `docs/00_theses.md`, `docs/01_product_contract.md`, `docs/02_architecture.md`, `docs/03_security_model.md`, `docs/04_harness.md`, `docs/09_agent_readiness_validation.md`
@@ -39,17 +39,20 @@ the runtime path further.
       runtime-not-ready registration that prevents a broken Workspace.
 - [x] The packet records the explicit new-Workspace-only image-build contract;
       existing Workspaces are not silently refreshed.
-- [x] The interactive shell identity/prompt is reproduced in a clean PTY and
-      explained by the public-safe runtime identity contract; no host username
-      or path is committed.
+- [x] The interactive shell identity/prompt is checked in a clean supported
+      PTY; the historical `I have no name!` report did not reproduce, so no
+      unsupported identity workaround was added and no host username or path
+      is committed.
 - [x] A fresh disposable project completes the chosen runtime path through a
       real 120x40 PTY, with runtime build/re-entry evidence; cleanup remains
       host-owned and is replayed before packet closure.
-- [ ] Existing Context ownership, fixed Workspace lifetime, credentials, and
-      network boundaries remain unchanged unless governing documents are
-      updated in the same change.
-- [ ] `task runtime:test`, `task check`, `task security`, and
-      `task public:check` pass, or exact external blockers are recorded.
+- [x] Existing Context ownership, fixed Workspace lifetime, credentials, and
+      network boundaries remain unchanged; focused application, infrastructure,
+      and runtime contract tests pass.
+- [x] `task check`, `task security`, and `task public:check` pass. The full
+      `task runtime:test` replay reaches the checked-in policy-review PTY
+      handoff and exits 130; the exact external blocker is recorded in
+      `context.md` and cleanup completes.
 
 ## Governing documents
 
@@ -63,8 +66,9 @@ the runtime path further.
 
 The runtime lifecycle decision is implemented or explicitly documented,
 human-facing runtime behavior has a fresh E2E proof, the shell identity finding
-has a disposition, required gates pass, and the durable consequences are
-promoted before this temporary packet is removed.
+has a disposition, `task check` and the applicable security/public gates pass,
+and any specialized external replay blocker is recorded before this temporary
+packet is removed.
 
 ## Evaluation and handoff
 
