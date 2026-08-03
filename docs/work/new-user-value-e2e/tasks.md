@@ -60,7 +60,9 @@
 ## Verify
 
 - [ ] Each scenario has raw-PTY evidence, readable checkpoints, typed-key
-      timing, visible value signal, and exit/cleanup result. Evidence:
+      timing, visible value signal, and exit/cleanup result. Evidence: all four
+      functional TTY outcomes are in `feedback/official/*.md`; child raw
+      digests and timestamped checkpoints were not returned and remain open.
 - [x] Each scenario has a committed readable feedback record with a visible
       value signal and exit/cleanup result; raw digest/timing remains open in
       the preceding task. Evidence: `feedback/official/*.md`.
@@ -72,13 +74,16 @@
 - [x] Cross-scenario comparison identifies repeated friction and missing
       transitions without prematurely approving a command change. Evidence:
       [comparison.md](comparison.md).
-- [ ] `git diff --check` passes. Evidence:
-- [ ] `task check` passes. Evidence:
-- [ ] `task public:check` passes. Evidence:
-- [ ] Security/release/runtime/integration results are recorded when relevant.
-      Evidence:
-- [ ] Raw host-specific captures are outside Git and no sensitive output is in
-      the packet. Evidence:
+- [x] `git diff --check` passes. Evidence: comparison/feedback commit gate.
+- [x] `task check` passes. Evidence: full repository check on current `main`.
+- [x] `task public:check` passes. Evidence: public-boundary check on current
+      `main`.
+- [x] Security/release/runtime/integration results are recorded when relevant.
+      Evidence: [context.md](context.md), including the pre-existing release
+      ShellCheck failure and integration PTY block.
+- [x] No raw host-specific captures or sensitive output are committed; raw
+      captures remain outside Git or were not returned by children. Evidence:
+      [context.md](context.md) and redacted feedback files.
 
 ## Hand off
 

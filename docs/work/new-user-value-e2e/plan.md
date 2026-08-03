@@ -1,6 +1,6 @@
 # Work Plan: New-user value journeys through a real pseudo-TTY
 
-- Status: Proposed
+- Status: Evidence run complete; handoff pending raw-PTY artifact closure
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)

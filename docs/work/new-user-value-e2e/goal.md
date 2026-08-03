@@ -5,7 +5,8 @@
 - Retention reason: Preserve human-experience E2E transcripts, friction findings, and command-surface observations until the next product or documentation slice promotes the conclusions.
 - Governing contract: `docs/00_theses.md`, `docs/01_product_contract.md`, `docs/02_architecture.md`, `docs/03_security_model.md`, `docs/04_harness.md`, `docs/09_agent_readiness_validation.md`
 - Review/delete trigger: Delete after every actionable finding has a successor packet or explicit deferral and the conclusions are promoted to durable contracts or a reviewed CLI decision.
-- Successor: None
+- Successor: See [comparison.md](comparison.md); successor packets are
+  candidates only and are not opened by this evidence slice.
 - Owner: Tobari product and repository maintainers
 - Target: Current `main`; four new-user value journeys using disposable copies
   of the maintainer-supplied `cc-bash-guard` project snapshot

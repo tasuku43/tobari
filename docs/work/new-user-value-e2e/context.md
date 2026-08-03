@@ -130,6 +130,8 @@ feature-completion claim.
 
 - Parent scenario definitions: [scenarios.md](scenarios.md).
 - Per-scenario observations: [feedback/](feedback/README.md).
+- Cross-scenario findings and successor candidates:
+  [comparison.md](comparison.md).
 - Public onboarding: `README.md`, especially Quick Start, policy recovery,
   runtime customization, and failure/recovery sections.
 - Catalog source of truth: `internal/cli.Catalog` and its catalog-backed help;
@@ -229,6 +231,23 @@ the four-scenario acceptance criteria.
 - No external dependency or publication artifact is introduced by this
   investigation. Any raw PTY capture containing machine-specific data is kept
   outside the repository and represented by a digest plus redacted projection.
+
+## Gate results
+
+- `git diff --check`: passed after the comparison and feedback commits.
+- `task check`: passed (`repoguard`, architecture/contract/runtime checks, and
+  Go tests).
+- `task public:check`: passed (`repoguard (public)` and contract checks).
+- `task security`: passed; module verification and vulnerability scan reported
+  no vulnerabilities.
+- `task release:check`: failed on the pre-existing
+  `scripts/test-integration.sh:238` ShellCheck SC2183/SC2016 findings. This
+  evidence-only packet does not touch that script.
+- `task integration:test`: interrupted with exit 130 after the test's own PTY
+  child remained blocked in `policy review --tail 1000` awaiting input. The
+  exact block was observed before interruption, and the test left no Tobari
+  containers or `.tobari-integration.*` directory. This is recorded as an
+  existing harness/integration blocker, not as a failed child journey.
 
 ## Glossary
 
