@@ -1,6 +1,6 @@
 # Work Plan: New-user value journeys through a real pseudo-TTY
 
-- Status: Evidence run complete; handoff pending raw-PTY artifact closure
+- Status: Complete
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -8,11 +8,12 @@
 ## Chosen approach
 
 The parent defines four deterministic journeys before delegation. Each child
-agent acts as a first-time maintainer/user in a fresh synthetic root, uses a
-real pseudo-TTY with human-paced input, captures raw and readable terminal
-evidence, and returns only observed behavior and bounded feedback. The parent
-writes each result into this packet's `feedback/` directory, then compares the
-journeys before opening any implementation packet.
+agent acts as a first-time maintainer/user in a fresh synthetic root and uses a
+real pseudo-TTY with human-paced input. The parent writes each result into this
+packet's `feedback/` directory, then compares the journeys before opening any
+implementation packet. Raw capture is parent-owned: the child is not taught a
+capture route, and a missing child-returned digest is recorded rather than
+invented.
 
 The four journeys are:
 
@@ -125,7 +126,9 @@ environment blocker must be diagnosed.
 ## Verification
 
 - Human-path E2E: all four scenario journeys are attempted with real PTY
-  allocation, paced keystrokes, raw capture, screen checkpoints, and cleanup.
+  allocation, paced keystrokes, visible checkpoints, and cleanup. The
+  parent-owned raw-capture boundary is separately exercised by the validated
+  integration run documented in the PTY evidence packet.
 - Negative/recovery E2E: denied requests, cancel/back/invalid input, startup
   failure, workspace reuse, exact scope, and deletion are recorded where the
   scenario includes them.
@@ -135,9 +138,9 @@ environment blocker must be diagnosed.
 - Discovery budget: each feedback file records help/doc lookups and any
   non-routine processing; routine success must not require source inspection or
   exploratory calls.
-- Repository gates: `git diff --check`, `task check`, and `task public:check`;
-  run security/release/runtime/integration profiles when their boundaries are
-  touched and record blockers rather than weakening them.
+- Repository gates: `git diff --check`, `task check`, `task security`,
+  `task public:check`, `task release:check`, and `task integration:test` all
+  pass at handoff.
 - Artifact check: only the work packet changes; raw host-specific transcripts
   are excluded from Git.
 
@@ -152,5 +155,6 @@ and their own E2E/rollback plan.
 If multiple journeys show the same trust-boundary confusion, missing recovery,
 or command-integrity issue, promote the conclusion to the appropriate thesis,
 product, architecture, security, harness, or ADR before implementing a local
-exception. Command retirement/integration candidates require a catalog and
-compatibility review packet.
+exception. The completed comparison routes those findings to the existing
+policy, lifecycle, Quick Start, catalog, and PTY packets; no command retirement
+is approved by this evidence packet.

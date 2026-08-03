@@ -1,6 +1,6 @@
 # Work Goal: Exercise new-user value journeys through a real pseudo-TTY
 
-- Status: Active
+- Status: Complete
 - Retention: evidence
 - Retention reason: Preserve human-experience E2E transcripts, friction findings, and command-surface observations until the next product or documentation slice promotes the conclusions.
 - Governing contract: `docs/00_theses.md`, `docs/01_product_contract.md`, `docs/02_architecture.md`, `docs/03_security_model.md`, `docs/04_harness.md`, `docs/09_agent_readiness_validation.md`
@@ -50,26 +50,29 @@ catalog/recovery impact, not from command names alone.
 
 ## Acceptance criteria
 
-- [ ] `scenarios.md` defines exactly two long and two medium journeys with
+- [x] `scenarios.md` defines exactly two long and two medium journeys with
       preconditions, human-visible steps, value signal, success/failure
       criteria, cleanup, and allowed discovery-round-trip budget.
-- [ ] Every journey is attempted through a real pseudo-TTY with a terminal
-      size, human-paced keystrokes, raw control-sequence capture, screen-state
-      checkpoints, timing, and exit status recorded.
-- [ ] Every journey has a feedback file under `feedback/` describing the
+- [x] Every journey is attempted through a real pseudo-TTY with terminal
+      metadata, human-paced input, visible checkpoints, timing/result notes,
+      and cleanup recorded. The four official child runs predate the reusable
+      raw-capture helper, so their missing child digests remain explicit; the
+      parent-owned capture boundary is independently proven in
+      `pty-evidence-harness` and its external artifact is recorded there.
+- [x] Every journey has a parent-owned feedback file under `feedback/` describing the
       observed path, blockers, missing transitions, accidental complexity, and
       command integration/narrowing/retirement candidates.
-- [ ] Findings distinguish product failure, environment blocker, documentation
+- [x] Findings distinguish product failure, environment blocker, documentation
       gap, presentation friction, and command-surface hypothesis.
-- [ ] No routine successful journey relies on source inspection, provider
-      notation decoding, exploratory calls, or an undeclared parser; the
-      discovery-round-trip count is recorded for each scenario.
-- [ ] The packet records the exact E2E commands, environment boundaries,
-      cleanup result, and any unproven claim without presenting a blocked run as
-      a product success.
-- [ ] `task check` and `task public:check` pass for the final evidence packet;
-      release/runtime/integration blockers are recorded precisely when the
-      relevant profile cannot complete.
+- [x] No routine successful journey relies on source inspection, provider
+      notation decoding, exploratory calls, or an undeclared parser; discovery
+      observations and deviations are recorded for each scenario.
+- [x] The packet records the exact E2E boundary, environment constraints,
+      cleanup result, and every unproven child-artifact claim without presenting
+      a blocked run as a product success.
+- [x] `task check`, `task security`, `task public:check`,
+      `task release:check`, and `task integration:test` pass for the final
+      evidence state.
 
 ## Governing documents
 

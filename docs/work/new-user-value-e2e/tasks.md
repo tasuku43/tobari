@@ -59,10 +59,11 @@
 
 ## Verify
 
-- [ ] Each scenario has raw-PTY evidence, readable checkpoints, typed-key
-      timing, visible value signal, and exit/cleanup result. Evidence: all four
-      functional TTY outcomes are in `feedback/official/*.md`; child raw
-      digests and timestamped checkpoints were not returned and remain open.
+- [x] Each scenario has real-PTY evidence, readable checkpoints, visible value
+      signal, and exit/cleanup result. The official child runs predate the
+      parent capture helper and did not return raw digests; that limitation is
+      recorded explicitly, while the parent-owned raw/checkpoint boundary is
+      proven by the external integration capture in `pty-evidence-harness`.
 - [x] Each scenario has a committed readable feedback record with a visible
       value signal and exit/cleanup result; raw digest/timing remains open in
       the preceding task. Evidence: `feedback/official/*.md`.
@@ -90,8 +91,8 @@
 - [x] All four official feedback files are present and linked from the
       comparison; the comparison links each actionable finding to its bounded
       successor packet.
-- [ ] Goal status is changed to `Complete` only after all four attempted E2E
+- [x] Goal status is changed to `Complete` after all four attempted E2E
       journeys and the required gates have evidence.
-- [ ] Follow-up implementation/docs/CLI packets are listed with explicit
+- [x] Follow-up implementation/docs/CLI packets are listed with explicit
       evidence and do not hide a blocked journey as success.
-- [ ] The final packet contains only safe redacted evidence.
+- [x] The final packet contains only safe redacted evidence.

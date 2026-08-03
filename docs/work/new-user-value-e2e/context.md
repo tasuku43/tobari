@@ -29,8 +29,15 @@ feature-completion claim.
 - A parent-owned capture boundary is now available through
   `scripts/pty-evidence.py`; it emits external raw/redacted artifacts with
   terminal metadata, typed-input timing, checkpoints, and digests. The four
-  official reports below predate that helper, so their missing raw evidence is
-  still an open rerun condition rather than silently backfilled data.
+  official child reports predate that helper, so their missing child raw
+  evidence remains explicit rather than silently backfilled. A separate
+  parent-owned capture around `task integration:test` completed with exit 0;
+  its external path and digests are recorded in the PTY harness packet.
+- A fresh outcome-only Medium-02 blind rerun completed bootstrap recovery,
+  Workspace entry/reuse, nested cancellation, deletion, and shared cleanup in
+  an 80x24 real PTY with `TERM=dumb`. The child did not receive a route or
+  capture instructions and returned no raw artifact; the parent recorded this
+  distinction in [the rerun feedback](feedback/official/medium-02-blind-rerun-20260804.md).
 - The official subject is a clean tracked snapshot of the maintainer-supplied
   `cc-bash-guard` project at revision `e045d15`. The parent creates disposable
   copies for each run; the source project and its working tree are never used
@@ -172,19 +179,26 @@ feature-completion claim.
 
 ## Unknowns
 
-- [ ] Can a new user recognize the host/agent boundary and the next owner of an
-      action from the first denial without consulting source or JSON?
-- [ ] Does the raw TTY Permission Inbox make selection, detail inspection,
+- [x] Can a new user recognize the host/agent boundary and the next owner of an
+      action from the first denial without consulting source or JSON? Answer:
+      only partly; the valid host handoff needs clearer documentation.
+- [x] Does the raw TTY Permission Inbox make selection, detail inspection,
       allow/deny, confirmation, cancel, and refresh understandable at human
-      typing speed?
-- [ ] Does a multi-project user have enough visible scope to select the right
-      exact permission without confusing project-local state?
-- [ ] Which startup, entry, status, policy, runtime, and cleanup commands feel
-      duplicated or fragmented when followed as a first-time user?
-- [ ] Which observed friction is a documentation/presentation problem versus a
+      typing speed? Answer: the model is valuable, but confirmation timing and
+      redraw stability need the policy successor.
+- [x] Does a multi-project user have enough visible scope to select the right
+      exact permission without confusing project-local state? Answer: the
+      observed A/B journey preserved scope; no retirement candidate resulted.
+- [x] Which startup, entry, status, policy, runtime, and cleanup commands feel
+      duplicated or fragmented when followed as a first-time user? Answer: no
+      command was shown redundant; the catalog packet owns the compatibility
+      audit.
+- [x] Which observed friction is a documentation/presentation problem versus a
       missing capability or a command that should be integrated or narrowed?
-- [ ] Can the current environment complete the four journeys without an
-      unrelated existing PTY/integration blocker?
+      Answer: the comparison classifies each finding and routes it explicitly.
+- [x] Can the current environment complete the four journeys without an
+      unrelated existing PTY/integration blocker? Answer: yes, after the
+      scheduled-input integration fix; `task integration:test` is green.
 
 ## Observation protocol
 
@@ -245,14 +259,11 @@ the four-scenario acceptance criteria.
 - `task public:check`: passed (`repoguard (public)` and contract checks).
 - `task security`: passed; module verification and vulnerability scan reported
   no vulnerabilities.
-- `task release:check`: failed on the pre-existing
-  `scripts/test-integration.sh:238` ShellCheck SC2183/SC2016 findings. This
-  evidence-only packet does not touch that script.
-- `task integration:test`: interrupted with exit 130 after the test's own PTY
-  child remained blocked in `policy review --tail 1000` awaiting input. The
-  exact block was observed before interruption, and the test left no Tobari
-  containers or `.tobari-integration.*` directory. This is recorded as an
-  existing harness/integration blocker, not as a failed child journey.
+- `task release:check`: passed at final handoff.
+- `task integration:test`: passed at final handoff with `integration: OK`.
+  The historical PTY wait is retained in the policy packet as the diagnosis;
+  the scheduled interactive decision sequence and bounded timeout now close
+  the integration path.
 
 ## Glossary
 

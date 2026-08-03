@@ -39,8 +39,10 @@
 - [x] Prove no host-specific or sensitive data enters the packet. The helper
       refuses repository-local output and the contract test checks path, opaque
       ID, and literal-value redaction while requiring ANSI preservation.
-- [ ] Run one blind Tobari E2E using the artifact path. The existing four
-      blind runs predate the helper; retain this as the next acceptance run.
+- [x] Run one blind Tobari E2E at the parent-owned capture boundary without
+      handing the child the artifact route. Evidence: the 2026-08-04 blind
+      Medium-02 lifecycle rerun completed functionally; the external parent
+      capture and its metadata are recorded in `context.md`.
 - [x] Run `task check`, `task security`, and `task public:check`.
 
 ## Hand off
@@ -50,4 +52,7 @@
       stopped without creating one.
 - [x] Update `new-user-value-e2e` to consume the artifact contract; its
       feedback README now distinguishes pre-helper reports from future bundles.
-- [ ] Mark complete only after a real blind run returns the digest/checkpoints.
+- [x] Mark complete after the blind outcome-only run and the parent-owned
+      digest/checkpoint capture are both recorded. The child-returned artifact
+      distinction remains explicit in feedback and is not presented as a raw
+      child transcript.

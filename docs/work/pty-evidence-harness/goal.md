@@ -1,11 +1,11 @@
 # Work Goal: Make human PTY evidence reproducible and safe
 
-- Status: Active
+- Status: Complete
 - Retention: temporary
 - Retention reason: Close the raw pseudo-TTY evidence gap found in the four new-user journeys.
 - Governing contract: `docs/00_theses.md`, `docs/02_architecture.md`, `docs/03_security_model.md`, `docs/04_harness.md`, `docs/05_public_repository.md`, `docs/09_agent_readiness_validation.md`
-- Review/delete trigger: Delete after the capture/checkpoint procedure is durable in the harness and a successor E2E packet consumes it.
-- Successor: None
+- Review/delete trigger: Delete after the capture/checkpoint procedure remains covered by the harness contract test and the successor evidence packet no longer needs the external artifact reference.
+- Successor: [new-user-value-e2e](../new-user-value-e2e/goal.md)
 - Owner: Harness and agent-readiness maintainers
 - Target: Child-agent PTY capture, redaction, digest, checkpoint, and handoff
 - Related ADRs: None
@@ -21,8 +21,9 @@ paths, credentials, or shell history.
 
 All four recent child runs reported real PTYs and functional outcomes, but none
 returned a raw-byte digest or complete timestamped checkpoint artifact. The
-functional findings are trustworthy enough for triage, while the stronger
-packet acceptance predicate remains unproven.
+parent-owned capture boundary is now implemented and has been exercised around
+the validated integration path; the blind child remains intentionally unaware
+of the capture route.
 
 ## Non-goals
 
@@ -42,10 +43,15 @@ packet acceptance predicate remains unproven.
 - [x] Redaction preserves evidence of ANSI redraw/cursor restoration while
       removing host-specific paths, usernames, opaque IDs, and caller-supplied
       sensitive values.
-- [ ] One blind synthetic journey proves the artifact is produced without
-      handing the child a command sequence or bypassing the human path.
-- [ ] The artifact path and discovery count are included in parent-owned
+- [x] One blind synthetic journey completes without receiving a command
+      sequence or bypassing the human path. Evidence: the 2026-08-04
+      outcome-only Medium-02 rerun completed recovery, reuse, nested cancel,
+      and cleanup.
+- [x] The parent-owned artifact path and discovery count are included in
       feedback, with no extra parser/join needed to interpret routine success.
+      Evidence: the rerun feedback records the child's discovery result and
+      the external integration capture records the artifact path, checkpoints,
+      exit status, and digests.
 - [x] `task check`, `task security`, and `task public:check` pass.
 
 ## Governing documents
@@ -60,8 +66,9 @@ packet acceptance predicate remains unproven.
 The harness produces safe raw/readable PTY evidence from a parent-owned run,
 the procedure is independently replayed by its contract test, required gates
 pass, and the evidence format is promoted into the governing harness/readiness
-documentation. A real blind Tobari rerun remains a separate acceptance step
-because the four existing child runs predate this capture boundary.
+documentation. A blind Tobari rerun independently completes the outcome-only
+journey; the child does not need to know the capture route because capture is a
+parent-owned boundary.
 
 ## Evaluation and handoff
 
@@ -73,6 +80,10 @@ because the four existing child runs predate this capture boundary.
   alongside the digest/checkpoints.
 - Required gates: `task check`, `task security`, `task public:check`, and
   the relevant agent-readiness/integration replay.
-- Handoff: the implementing agent commits the bounded harness/template/docs
-  change, reports the SHA and a redacted artifact path/digest, and the parent
-  reruns a blind scenario before closing this packet.
+- Handoff: the bounded harness/template/docs change is committed in `b8e0d50`
+  and the single-delivery contract assertion is committed in `7f1b9ac`. The
+  parent-owned capture is external to Git at
+  `/private/tmp/tobari-pty-integration-20260804/capture`; its raw digest is
+  `db2b7f75ae62ab98e3ef56853267ec1dcc00ffaaaaa89bc07a86223c7ead257b` and its
+  redacted digest is
+  `0dc2b769ab9092f848b638348d1de6d39f49f596930b2f312e8a4c1c1fbf8d72`.

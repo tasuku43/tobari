@@ -15,10 +15,11 @@ Historical protocol-v1 pilot files:
 
 Official re-run files:
 
-- `official/long-01-safe-first-success.md`
-- `official/long-02-least-privilege-multi-project.md`
-- `official/medium-01-human-permission-inbox.md`
-- `official/medium-02-workspace-bootstrap-reuse.md`
+- `official/long-01.md`
+- `official/long-02.md`
+- `official/medium-01.md`
+- `official/medium-02.md`
+- `official/medium-02-blind-rerun-20260804.md`
 
 Each file records the raw-PTY capture digest/location outside Git, readable
 screen checkpoints, exact typed keys and timings, value signal, blockers,
@@ -30,9 +31,11 @@ schedule and an output directory outside the repository. The bundle's
 `metadata.json` is the parent-owned intake boundary: it carries terminal
 dimensions, `TERM`, typed-input timing, checkpoint offsets/tails, exit status,
 and raw/redacted digests. `transcript.raw` stays outside Git; only a reviewed
-redacted projection may be copied into feedback. The four official runs above
-predate this helper, so their missing raw digests remain recorded rather than
-being backfilled or treated as newly captured evidence.
+redacted projection may be copied into feedback. The four official scenario
+runs above predate this helper, so their missing child raw digests remain
+recorded rather than being backfilled or treated as newly captured evidence. A
+parent-owned supporting capture may be linked from the packet that owns the
+harness boundary.
 
 Official child inputs contain only the desired outcome and safe sandbox
 boundary. They do not receive the paths above or the parent-authored route.

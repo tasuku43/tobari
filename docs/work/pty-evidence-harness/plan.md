@@ -1,6 +1,6 @@
 # Work Plan: Make human PTY evidence reproducible and safe
 
-- Status: Active
+- Status: Complete
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -29,11 +29,14 @@ Rejected by the public-boundary and security constraints.
 
 ## Verification
 
-- Real-PTY smoke run with delayed human input and ANSI redraw; cancellation and
-  blind Tobari replay remain separate scenario acceptance work.
+- Real-PTY smoke run with delayed input and ANSI redraw passed, and a blind
+  Tobari lifecycle replay completed without a supplied route. The parent-owned
+  integration capture produced the external raw/readable bundle used for
+  handoff.
 - Digest and redaction negative tests for paths, credentials, control
   sequences, literal values, and opaque IDs pass in
   `scripts/test-pty-evidence.py`.
-- The four official blind scenario reports predate this artifact format; the
-  next parent run must consume one bundle before this packet can be removed.
+- The four official child reports predate this artifact format; the new
+  parent-owned bundle closes the capture-boundary requirement while the child
+  feedback records the absence of a child-returned bundle honestly.
 - `task check`, `task security`, and `task public:check` pass.
