@@ -88,6 +88,11 @@ feature-completion claim.
   No Inbox decision was parent-applied; a future rerun must preserve this
   blind-discovery constraint while determining whether the outcome is
   discoverable at all.
+- Official Medium-02 reached Workspace entry and reuse, then completed
+  deletion and cluster cleanup, but never exercised an explicit cancel/back
+  action. Its partial functional evidence is in
+  [feedback/official/medium-02.md](feedback/official/medium-02.md); the
+  cancellation branch and raw evidence remain open.
 
 ## Relevant structure
 

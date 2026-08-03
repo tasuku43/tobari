@@ -47,10 +47,8 @@
       run despite corrected state injection; evidence: [feedback/official/medium-01-attempt-02-stalled.md](feedback/official/medium-01-attempt-02-stalled.md).
 - [ ] Officially run medium scenario 1 through a real pseudo-TTY and record
       parent-owned feedback.
-- [ ] Officially run long scenario 2 through a real pseudo-TTY and record
-      parent-owned feedback.
-- [ ] Officially run medium scenario 1 through a real pseudo-TTY and record
-      parent-owned feedback.
+- [x] Record the first Medium-02 run as partial functional reuse/cleanup
+      evidence with the cancellation branch still open; evidence: [feedback/official/medium-02.md](feedback/official/medium-02.md).
 - [ ] Officially run medium scenario 2 through a real pseudo-TTY and record
       parent-owned feedback.
 - [x] Do not modify production code, CLI catalog, README, or unrelated packets.
