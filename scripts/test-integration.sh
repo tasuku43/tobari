@@ -100,25 +100,69 @@ run_tobari_pty_at() {
   shift
   (
     cd "$root"
-    if [[ $(uname -s) == Darwin ]]; then
-        env \
-          HOME="$test_root/user" \
-          DOCKER_CONFIG="$host_docker_config" \
-          DOCKER_CONTEXT="$host_docker_context" \
-          TOBARI_CREDENTIAL_ADAPTER=passthrough \
-        XDG_CONFIG_HOME="$test_root/config" \
-        XDG_STATE_HOME="$test_root/state" \
-        XDG_DATA_HOME="$test_root/data" \
-        script -q /dev/null "$binary" "$@"
-    else
-      local command
-      printf -v command '%q ' env HOME="$test_root/user" DOCKER_CONFIG="$host_docker_config" \
-        DOCKER_CONTEXT="$host_docker_context" \
-        TOBARI_CREDENTIAL_ADAPTER=passthrough \
-        XDG_CONFIG_HOME="$test_root/config" XDG_STATE_HOME="$test_root/state" \
-        XDG_DATA_HOME="$test_root/data" "$binary" "$@"
-      script -q -c "$command" /dev/null
-    fi
+    env \
+      HOME="$test_root/user" \
+      DOCKER_CONFIG="$host_docker_config" \
+      DOCKER_CONTEXT="$host_docker_context" \
+      TOBARI_CREDENTIAL_ADAPTER=passthrough \
+      XDG_CONFIG_HOME="$test_root/config" \
+      XDG_STATE_HOME="$test_root/state" \
+      XDG_DATA_HOME="$test_root/data" \
+      python3 -c '
+import errno
+import os
+import pty
+import select
+import sys
+
+argv = sys.argv[1:]
+pid, master = pty.fork()
+if pid == 0:
+    os.execvpe(argv[0], argv, os.environ)
+
+stdin_open = True
+status = None
+while status is None:
+    readable = [master]
+    if stdin_open:
+        readable.append(0)
+    ready, _, _ = select.select(readable, [], [], 0.1)
+    if 0 in ready:
+        data = os.read(0, 4096)
+        if data:
+            os.write(master, data)
+        else:
+            stdin_open = False
+    if master in ready:
+        try:
+            data = os.read(master, 4096)
+        except OSError as error:
+            if error.errno == errno.EIO:
+                data = b""
+            else:
+                raise
+        if data:
+            os.write(1, data)
+    waited, status = os.waitpid(pid, os.WNOHANG)
+    if waited == 0:
+        status = None
+
+os.set_blocking(master, False)
+while True:
+    try:
+        data = os.read(master, 4096)
+    except OSError as error:
+        if error.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EIO):
+            break
+        raise
+    if not data:
+        break
+    os.write(1, data)
+
+if os.WIFEXITED(status):
+    raise SystemExit(os.WEXITSTATUS(status))
+raise SystemExit(128 + os.WTERMSIG(status))
+' "$binary" "$@"
   )
 }
 
@@ -169,12 +213,51 @@ run_project_shell() {
   docker exec -i "$work_container" /bin/bash
 }
 
+assert_base_bash_contract() {
+  local image=$1
+  local output
+  output=$(docker run --rm --entrypoint /bin/bash "$image" -lc '
+    test -x /bin/bash
+    test "$(getent passwd tobari | cut -d: -f7)" = /bin/bash
+    test "$(id -un)" = tobari
+    printf "base-bash-ok shell=%s user=%s\\n" "$BASH" "$(id -un)"
+  ')
+  assert_contains "$output" "base-bash-ok" "base runtime Bash contract"
+  [[ $(docker image inspect --format '{{json .Config.Cmd}}' "$image") == '["sleep","infinity"]' ]] ||
+    fail "$image changed the infrastructure-owned lifetime command"
+  [[ $(docker image inspect --format '{{json .Config.Entrypoint}}' "$image") == '["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]' ]] ||
+    fail "$image changed the fixed Tobari entrypoint"
+}
+
+enter_bash_tobari_at() {
+  local root=$1
+  shift
+  local output
+  if output=$({
+    sleep 1
+    printf 'printf "tobari-shell:%s\\n" "$BASH"\n'
+    printf 'if test -t 0 && test -t 1 && test -t 2; then printf "tobari-tty:yes\\n"; else printf "tobari-tty:no\\n"; fi\n'
+    printf 'exit\n'
+  } | run_tobari_pty_at "$root" "$@" 2>&1); then
+    :
+  else
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  assert_contains "$output" "tobari-shell:" "interactive Bash entry"
+  assert_contains "$output" "tobari-tty:yes" "interactive Bash TTY"
+}
+
 run_other_project() {
   docker exec "$other_container" "$@"
 }
 
 start_cluster() {
-  run_tobari cluster up "${gateway_source_args[@]}"
+  if ((${#gateway_source_args[@]} == 0)); then
+    run_tobari cluster up
+  else
+    run_tobari cluster up "${gateway_source_args[@]}"
+  fi
 }
 
 assert_resource_bounds() {
@@ -317,6 +400,7 @@ assert_component_resource_bounds tobari-opa 1000000000 536870912 128
 assert_component_resource_bounds tobari-gateway 2000000000 1073741824 256
 docker build --tag "$custom_image" \
   --file test/integration/custom-image.Dockerfile . >/dev/null
+assert_base_bash_contract tobari-runtime:local
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
 container_nested_root="/var/lib/tobari/${work_nested_root#"$test_root/user/"}"
 enter_tobari_at "$work_root"
@@ -334,6 +418,11 @@ other_id=$(id_for_root "$other_root" <<<"$list_json")
 work_container=$(container_for_id "$work_id")
 work_network=$(network_for_id "$work_id")
 other_container=$(container_for_id "$other_id")
+enter_bash_tobari_at "$work_root"
+[[ $(docker inspect --format '{{.State.Running}}' "$work_container") == true ]] ||
+  fail "Workspace stopped after the interactive Bash child exited"
+[[ $(docker inspect --format '{{json .Config.Cmd}}' "$work_container") == '["sleep","infinity"]' ]] ||
+  fail "Workspace lifetime command was not sleep infinity after Bash exit"
 [[ $work_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
   fail "list did not return the project's stable ID"
 [[ $work_id != "$other_id" ]] || fail "CWD projects received the same stable ID"
@@ -652,7 +741,7 @@ fi
 interactive_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-interactive)
 [[ $interactive_status == 403 ]] || fail "interactive review candidate returned $interactive_status instead of 403"
-interactive_output=$({ printf '3dy'; sleep 1; } | run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1)
+interactive_output=$({ sleep 1; printf '3dy'; } | run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1)
 assert_contains "$interactive_output" 'Permission denied' "interactive policy review"
 interactive_review=$(run_tobari policy review --tail 1000 --format json)
 if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/review-interactive" for item in json.load(sys.stdin)["policy_review"]) else 1)' <<<"$interactive_review"; then

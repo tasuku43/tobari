@@ -20,7 +20,7 @@
       transition; direct startup still requires fresh/reused volume evidence.
 - [x] Decide the image API labels, moving/immutable tag shape, package-write
       split, and current no-attestation release claim. CLI digest preflight is
-      an explicit follow-up.
+      implemented and verified before policy/shared-resource mutation.
 - [x] Create an ADR for the durable Gateway image/source decision.
 
 ## Implement
@@ -46,13 +46,18 @@
 - [x] `task release:check` passes. Evidence: release lint and actionlint
       passed on 2026-08-02.
 - [x] Runtime/Gateway integration evidence is recorded: OPA 27/27, Gateway
-      25/25, and explicit `--gateway-source` embedded-snapshot integration
-      `OK` on 2026-08-03.
-- [ ] Multi-architecture publication evidence is pending the main-push GHCR
-      workflow; the workflow is present and cache-only PR behavior is defined.
+      25/25, explicit `--gateway-source` embedded-snapshot integration `OK`,
+      and official-digest integration `OK` on 2026-08-03.
+- [x] Multi-architecture publication evidence is recorded from main workflow
+      `30754778241`: immutable OCI index digest
+      `sha256:9f2b714d9a61dafc451fb015535d5f60265c13a6754d76df21b87800fdc65078`
+      with `linux/amd64` and `linux/arm64`, plus matching `latest`/`main`
+      tag checks.
+- [ ] GHCR package visibility is changed to public and verified with an
+      anonymous manifest request.
 
 ## Hand off
 
-- [ ] Acceptance criteria have evidence.
+- [ ] Acceptance criteria have evidence; package visibility remains pending.
 - [ ] Durable decisions are promoted.
 - [ ] Temporary diagnostics and packet are removed after completion.

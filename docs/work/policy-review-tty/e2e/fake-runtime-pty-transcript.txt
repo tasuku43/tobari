@@ -1,0 +1,44 @@
+Fake-runtime policy-review PTY evidence
+========================================
+
+Command:
+
+    GOCACHE=/private/tmp/tobari-policy-review-gocache \
+      go test ./internal/cli \
+      -run '^TestPolicyReviewRealPTYAndReadOnlyE2E$' -count=1 -v
+
+The test allocates a Unix PTY with Python's standard-library `pty` module,
+starts the existing fake runtime through the production CLI, waits for the
+first frame, and sends raw bytes. The synthetic candidate is:
+
+    pcy_ffd73b5251017a08e18f50a74d9e1062
+
+Successful allow transcript (ANSI cleanup applied):
+
+    input: 1ay
+    Tobari · Permission Inbox
+    1 pending permission
+    Permission 1 of 1
+    This allows exactly this host, port, method, and path.
+    source_candidate=pcy_ffd73b5251017a08e18f50a74d9e1062
+    No pending network permissions
+    POLICY_REVIEW_E2E case=allow code=0 apply_calls=1 deny_calls=0
+
+Successful deny transcript:
+
+    input: 1dy
+    Tobari · Permission Inbox
+    Permission 1 of 1
+    deny_candidate=pcy_ffd73b5251017a08e18f50a74d9e1062
+    No pending network permissions
+    POLICY_REVIEW_E2E case=deny code=0 apply_calls=0 deny_calls=1
+
+Non-mutating E2E cases:
+
+    input: q       -> Permission review canceled; apply_calls=0 deny_calls=0
+    input: 9q      -> invalid selection, then cancellation; apply_calls=0 deny_calls=0
+    redirected JSON -> policy_review contains the candidate; apply_calls=0 deny_calls=0
+
+The raw transcript also contains `ESC[?25h` after every interactive case,
+proving cursor/terminal restoration. The test passed on macOS with all five
+subcases.

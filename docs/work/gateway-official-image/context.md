@@ -27,8 +27,12 @@
 - `.github/workflows/gateway-image.yml` validates pull requests with a
   cache-only multi-architecture build and publishes main-push `latest`, `main`,
   and `sha-<commit>` tags. The CLI records the reviewed immutable Gateway
-  digest in `versions.env`; the currently checked-in digest is a temporary
-  placeholder until the first main publication is observed.
+  digest in `versions.env`:
+  `ghcr.io/tasuku43/tobari/gateway@sha256:9f2b714d9a61dafc451fb015535d5f60265c13a6754d76df21b87800fdc65078`.
+  Main workflow `30754778241` published revision
+  `34e7caa93359f9fa5cbbbe71dd3504885c44dd29` as an OCI index for
+  `linux/amd64` and `linux/arm64`; the local digest inspection succeeded
+  without credentials before the package visibility check.
 
 ## Relevant structure
 
@@ -59,10 +63,10 @@
 
 ## Unknowns
 
-- [ ] Can the host-UID-independent official image preserve the private/public CA volume
-      contract on fresh and reused volumes across the supported engines? The
-      image build and mode inspection pass locally, but official-image volume
-      reuse is not yet an acceptance result.
+- [x] The host-UID-independent official image preserves the private/public CA
+      volume contract on fresh and reused volumes in the supported Colima
+      integration: the first official-image startup creates both named volumes,
+      a repeated `cluster up` reuses them, and the HTTPS proxy path succeeds.
 - [x] The Gateway source moves to a top-level `gateway/` directory while
       retaining one checked snapshot for embedding; Compose and OPA remain
       CLI-owned orchestration inputs.
@@ -72,9 +76,10 @@
       non-root user, entrypoint, and Docker Engine platform.
 - [x] Source builds are selected explicitly with `cluster up --gateway-source`;
       rollback restores the reviewed digest in `versions.env`.
-- [ ] What public package visibility and release cadence are acceptable for the
-      trusted enforcement image? Provenance and SBOM are not current release
-      claims and require an explicit release-contract decision first.
+- [ ] The first GHCR package was published successfully, but its visibility is
+      still pending the package-owner visibility change. Provenance and SBOM are
+      not current release claims and require an explicit release-contract
+      decision first.
 
 ## Thesis evidence
 
@@ -95,6 +100,18 @@ sed -n '1,45p' internal/infra/runtimeassets/assets/gateway/Dockerfile
 sed -n '447,460p' internal/infra/dockerruntime/runtime.go
 task gateway:test
 ```
+
+Official-image evidence on 2026-08-03:
+
+```sh
+DOCKER_CONFIG=/private/tmp/tobari-docker-config.zfoQ3U \
+DOCKER_CONTEXT=colima task runtime:test
+```
+
+The runtime profile passed OPA 27/27, Gateway 25/25, and the complete
+integration scenario with the pinned official Gateway digest. The temporary
+Docker config was required only because the local default config denied
+BuildKit activity-file writes; it is not a product dependency.
 
 ## Security and public-boundary notes
 

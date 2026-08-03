@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	gatewayAPIKey  = "io.tobari.gateway-api"
+	gatewayAPIKey  = "io.tobari.gateway-api" // #nosec G101 -- stable image-contract label key, not a credential.
 	gatewayRoleKey = "io.tobari.gateway-role"
 	gatewayAPI     = "1"
 	gatewayRole    = "enforcement"

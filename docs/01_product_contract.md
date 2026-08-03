@@ -164,9 +164,9 @@ undeclared Docker mutation by the CLI.
   `tobari` image user, the `io.tobari.runtime-lifetime-command` capability, and
   the Tobari entrypoint. That capability is currently `sleep infinity`, which
   is required by Tobari's fixed Workspace lifetime command. Ordinary `tobari`
-	startup never pulls a configured image implicitly. Missing or incompatible
-	images fail before project runtime network or container mutation; the logical
-	Workspace remains available for repair and retry.
+  startup never pulls a configured image implicitly. Missing or incompatible
+  images fail before project runtime network or container mutation; the logical
+  Workspace remains available for repair and retry.
 - `cluster up` obtains the embedded immutable Gateway digest when it is not
   already available locally, then validates its digest, API/role labels,
   non-root default user, entrypoint, and Docker Engine platform before running

@@ -531,6 +531,14 @@ func readSelectorByte(ctx context.Context, in io.Reader) (byte, error) {
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				// Unix raw mode uses VMIN=0/VTIME=1 so the read can
+				// poll for context cancellation. Go maps the resulting
+				// zero-byte terminal read to io.EOF; it is a timeout, not
+				// a closed interactive session. A real terminal still
+				// cancels explicitly through q or Ctrl-D.
+				if terminal.IsCharDevice(in) {
+					return 0, errSelectorTimeout
+				}
 				return 0, errSelectorEOF
 			}
 			return 0, err

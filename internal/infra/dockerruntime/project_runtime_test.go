@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -141,6 +142,18 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		t.Fatalf("EnterProjectRuntime() run count = %d, want 1", len(runner.runs))
 	}
 	want := "/workspace" + nested
+	container, _, err := tobari.ProjectResourceNames(instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, gid := currentIDs()
+	wantArgs := []string{
+		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
+		"--workdir", want, container, "/bin/bash",
+	}
+	if got := strings.Join(runner.runs[0].args, " "); got != strings.Join(wantArgs, " ") {
+		t.Fatalf("EnterProjectRuntime() argv = %q, want %q", got, strings.Join(wantArgs, " "))
+	}
 	for index, arg := range runner.runs[0].args {
 		if arg == "--workdir" {
 			if index+1 >= len(runner.runs[0].args) || runner.runs[0].args[index+1] != want {

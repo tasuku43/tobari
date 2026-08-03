@@ -17,6 +17,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 type runnerCall struct{ args []string }
@@ -46,7 +47,11 @@ func (clusterUpProgressRunner) Run(context.Context, []string, []string, io.Reade
 
 func (clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	if len(args) >= 1 && args[0] == "image" {
-		return []byte(`{"RepoDigests":["ghcr.io/tasuku43/tobari/gateway@sha256:1111111111111111111111111111111111111111111111111111111111111111"],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"1","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`), nil
+		versions, err := runtimeassets.Versions()
+		if err != nil {
+			return nil, err
+		}
+		return []byte(fmt.Sprintf(`{"RepoDigests":[%q],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"1","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`, versions["GATEWAY_IMAGE"])), nil
 	}
 	if len(args) >= 1 && args[0] == "version" {
 		return []byte(`{"Os":"linux","Arch":"arm64"}`), nil
