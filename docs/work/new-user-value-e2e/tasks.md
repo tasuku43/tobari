@@ -39,8 +39,8 @@
       parent-owned functional feedback; evidence: [feedback/official/long-01.md](feedback/official/long-01.md).
 - [x] Record the first Long-02 attempt as a non-acceptance stalled/state-boundary
       run; evidence: [feedback/official/long-02-attempt-01-stalled.md](feedback/official/long-02-attempt-01-stalled.md).
-- [ ] Officially run long scenario 2 through a real pseudo-TTY and record
-      parent-owned feedback.
+- [x] Officially run long scenario 2 through a real pseudo-TTY and record
+      parent-owned functional feedback; evidence: [feedback/official/long-02.md](feedback/official/long-02.md).
 - [ ] Officially run long scenario 2 through a real pseudo-TTY and record
       parent-owned feedback.
 - [ ] Officially run medium scenario 1 through a real pseudo-TTY and record

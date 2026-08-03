@@ -67,6 +67,13 @@ feature-completion claim.
   [feedback/official/long-02-attempt-01-stalled.md](feedback/official/long-02-attempt-01-stalled.md);
   stronger entrypoint injection is required before retrying the two-root
   journey.
+- Official Long-02 rerun-01 completed the two-root functional journey with
+  exact wrapper isolation: A-only approval, B denial of the identical request,
+  B survival after A deletion, an intentional B deny, cancellation with no
+  mutation, and full cleanup. Evidence is in
+  [feedback/official/long-02.md](feedback/official/long-02.md). The child
+  reported 120x40 PTYs but no raw digest, and repeated the review confirmation
+  fault; packet-wide evidence remains open.
 
 ## Relevant structure
 
