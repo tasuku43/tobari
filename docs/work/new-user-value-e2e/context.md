@@ -59,6 +59,14 @@ feature-completion claim.
   not return a raw digest or terminal-size checkpoint, so packet-wide PTY
   evidence remains open. It also exposed an unknown `tobari retry` navigation
   command and repeated the raw-review `undeclared_fault_contract` finding.
+- Official Long-02 attempt 01 did not return a child report or scope signal.
+  The child Workspace appeared under the maintainer's default state instead of
+  the parent-provisioned isolated state, then the parent closed it after
+  repeated unanswered status requests. It is recorded as non-acceptance
+  evidence in
+  [feedback/official/long-02-attempt-01-stalled.md](feedback/official/long-02-attempt-01-stalled.md);
+  stronger entrypoint injection is required before retrying the two-root
+  journey.
 
 ## Relevant structure
 
