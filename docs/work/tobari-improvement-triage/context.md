@@ -26,8 +26,11 @@ priority policy.
 
 | ID | State | Proposed order | Owner role | Dependency | Next action |
 |---|---|---:|---|---|---|
-| `policy-review-tty` | Focused E2E complete; interactive review fix committed; supported runtime integration still blocked | 1 | CLI/policy maintainer | None; preserve current machine-readable contract | Resolve or explicitly disposition the runtime PTY/integration blocker before claiming the supported journey complete |
+| `policy-review-tty` | Original first-render fix committed; new human-pause/redraw follow-up active; supported runtime integration still blocked | 1 | CLI/policy maintainer | None; preserve current machine-readable contract | Reproduce and fix delayed confirmation/redraw behavior, then rerun PTY/readiness integration |
 | `runtime-bash-shell` | Focused E2E complete; scoped regression evidence committed; broader integration still blocked | 1 (parallel) | Runtime maintainer | Existing base-image and fixed interactive exec contracts | Keep the Bash contract in the Quick Start evidence and close only after the supported integration condition is resolved or explicitly deferred |
+| `runtime-lifecycle-reconcile` | Draft successor packet from repeated new-user E2E evidence | 1 (after policy review for shared integration) | Runtime/CLI maintainer | Existing Context/runtime and Workspace ownership contracts | Decide and implement runtime-not-ready and build-after-registration semantics; classify shell identity |
+| `new-user-quickstart-handoff` | Draft successor packet; documentation waits for product decisions | 2 | Documentation/CLI maintainer | `policy-review-tty` and `runtime-lifecycle-reconcile` | Update the executable host/Workspace first-use handoff after both contracts are verified |
+| `pty-evidence-harness` | Draft successor packet for missing raw child evidence | 2 (parallel where files do not overlap) | Harness/readiness maintainer | Existing PTY helpers; final blind replay after product packets | Add safe raw/digest/checkpoint capture and prove it with one outcome-only blind journey |
 | `auth-broker-deferral` | Parked; explicitly deferred and detached from `main` | Not scheduled | Security/product owner | Explicit maintainer request to keep the experiment out of the current product path | Preserve the branch and evidence only; do not implement, commit into the current line, cherry-pick, merge, or make it a dependency until the maintainer explicitly resumes it |
 | `agent-plugin-and-runtime-skill` | Discovery complete; skill-first standalone workflow selected | 2 | Product/integration maintainer | Stable policy review and runtime-build contracts | Reopen only when a concrete shared/installable or server-backed capability is proven necessary |
 | `quickstart-and-architecture-docs` | Complete/evidence; implementation committed; publication activation remains an owner-side follow-up | 2 | Documentation/release maintainer | Policy-review fix, CLI audit, and runtime finalization | Retain the bounded evidence, verify repository Pages settings when publication is intentionally enabled, and keep the release ShellCheck blocker visible |
@@ -133,6 +136,25 @@ merge is `966dd08`; the packet/coordinator and auth handoff commits are
 are `001c4a7` and `d98e086`; the lifecycle evidence refresh is `1cc400e`. The base-runtime-only changes remain captured
 separately in `0ec04f8`, and `codex/auth-broker` remains detached and
 unmerged. No rebase, reset, or deletion operation is pending.
+
+## New-user E2E follow-up routing
+
+The four official blind journeys are functionally complete and are compared in
+`../new-user-value-e2e/comparison.md`. The actionable findings are now routed
+to the existing `policy-review-tty` packet and the three bounded successors:
+
+- `../policy-review-tty/` owns delayed confirmation, redraw stability, and
+  cancellation/fault presentation.
+- `../runtime-lifecycle-reconcile/` owns runtime readiness, image reuse, and
+  the shell identity disposition.
+- `../new-user-quickstart-handoff/` owns the public first-use host handoff
+  after those two product decisions are verified.
+- `../pty-evidence-harness/` owns the missing raw-byte digest and checkpoint
+  handoff for future blind journeys.
+
+The CLI catalog audit remains the disposition for command-surface feedback:
+the journeys did not provide evidence for removing a public command. The
+coordinator therefore does not create a speculative simplification packet.
 
 ## Glossary
 

@@ -11,10 +11,10 @@
 
 | Journey | Functional result | Strongest value signal | Repeated or new friction |
 |---|---|---|---|
-| Long-01 | Complete, with earlier blocked/partial attempts retained | Exact denied request approved, retried upstream, custom runtime visible after fresh Workspace | Confirmation fault; unknown `tobari retry`; runtime changes require recreation; `I have no name!` prompt |
-| Long-02 | Complete on rerun | A-only permission succeeds while identical B request remains denied; A deletion leaves B | Confirmation fault; exact project scope is understandable but raw evidence incomplete |
-| Medium-01 | Complete with setup deviation | Inbox allow/deny/cancel leaves one candidate pending | Confirmation fault; frequent redraw; host/Workspace command-boundary confusion; first probe already allowed |
-| Medium-02 | Complete on rerun | Recovery, same-root reuse, nested cancel without mutation, bounded cleanup | Selector cancel is styled as `Command failed`; unrelated shell warning; cleanup ownership needs explanation |
+| [Long-01](feedback/official/long-01.md) | Complete, with earlier blocked/partial attempts retained | Exact denied request approved, retried upstream, custom runtime visible after fresh Workspace | Confirmation fault; unknown `tobari retry`; runtime changes require recreation; `I have no name!` prompt |
+| [Long-02](feedback/official/long-02.md) | Complete on rerun | A-only permission succeeds while identical B request remains denied; A deletion leaves B | Confirmation fault; exact project scope is understandable but raw evidence incomplete |
+| [Medium-01](feedback/official/medium-01.md) | Complete with setup deviation | Inbox allow/deny/cancel leaves one candidate pending | Confirmation fault; frequent redraw; host/Workspace command-boundary confusion; first probe already allowed |
+| [Medium-02](feedback/official/medium-02.md) | Complete on rerun | Recovery, same-root reuse, nested cancel without mutation, bounded cleanup | Selector cancel is styled as `Command failed`; unrelated shell warning; cleanup ownership needs explanation |
 
 All four child runs reported real PTYs, 120x40 dimensions, and
 `TERM=xterm-256color`. None returned a raw-byte digest or complete timestamped
@@ -138,18 +138,20 @@ without adding an in-Workspace control path.
 
 ## Successor packet candidates
 
-1. `policy-review-pty-contract`: confirmation timing, cancellation, redraw,
-   raw-PTY regression, and valid recovery output.
-2. `runtime-lifecycle-reconcile`: missing-runtime recovery and whether build
-   affects existing Workspaces; update product/architecture/docs together.
-3. `new-user-quickstart-and-handoff`: Quick Start, host/Workspace boundary,
-   valid retry/re-entry wording, runtime prerequisites, and cleanup ownership.
-4. `cli-catalog-simplification`: consume this packet's keep/integrate/narrow
-   candidates alongside the existing catalog audit before proposing any
-   retirement or integration.
-5. `pty-evidence-harness`: add a parent-owned capture/digest/checkpoint path so
-   future child feedback can satisfy the raw transcript predicate without
-   exposing host-specific data.
+1. [`policy-review-tty`](../policy-review-tty/goal.md): confirmation timing,
+   cancellation, redraw, raw-PTY regression, and valid recovery output.
+2. [`runtime-lifecycle-reconcile`](../runtime-lifecycle-reconcile/goal.md):
+   missing-runtime recovery and whether build affects existing Workspaces;
+   update product/architecture/docs together.
+3. [`new-user-quickstart-handoff`](../new-user-quickstart-handoff/goal.md): Quick
+   Start, host/Workspace boundary, valid retry/re-entry wording, runtime
+   prerequisites, and cleanup ownership.
+4. [`cli-catalog-audit`](../cli-catalog-audit/goal.md): consume the keep/integrate/
+   narrow classifications; no command retirement is justified by these
+   journeys yet.
+5. [`pty-evidence-harness`](../pty-evidence-harness/goal.md): add a parent-owned
+   capture/digest/checkpoint path so future child feedback can satisfy the raw
+   transcript predicate without exposing host-specific data.
 
 These candidates are intentionally not created or implemented here. They are
 the explicit handoff from evidence to reviewed product work.

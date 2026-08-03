@@ -128,6 +128,22 @@ support, or agent-readiness expectations into the product, architecture,
 harness, or readiness documents. Keep raw PTY diagnostics in this temporary
 packet until handoff, then remove them with the packet.
 
+## New-user E2E follow-up
+
+1. Reproduce the confirmation failure with a real PTY, a human-length pause
+   after both `a` and `d`, and a final `y`, cancel, or interrupt. Capture the
+   state transition and whether a policy mutation occurred.
+2. Inspect the existing selector state machine and redraw loop. Choose the
+   smallest presentation/state fix that keeps confirmation pending while the
+   user is deciding and does not change the catalog, JSON schema, or opaque
+   reference contract.
+3. Add focused regressions for delayed confirmation, explicit cancellation,
+   terminal interruption, redraw stability, exact ID round-trip, and zero
+   mutation on invalid/stale input.
+4. Replay the fresh 120x40 PTY journey and the policy-learning integration
+   scenario, then update readiness evidence and this packet with the exact
+   result or independent environment blocker.
+
 ## Current-main verification snapshot
 
 - `main` is `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`, containing the first-wave

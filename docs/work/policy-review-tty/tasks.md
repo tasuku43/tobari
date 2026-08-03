@@ -45,3 +45,18 @@
 - [x] Temporary PTY diagnostics and sensitive artifacts are removed. Only the sanitized durable E2E transcript remains in this packet.
 - [ ] The coordinator packet is updated with the final status and successor disposition.
 - [ ] This temporary child packet is removed after completion or explicitly superseded.
+
+## New-user E2E follow-up
+
+- [ ] Reproduce the `a`/`d` confirmation failure after a normal human pause in
+      a real PTY and record the exact state transition and side-effect count.
+- [ ] Implement the smallest selector/redraw fix without adding a command or
+      changing the JSON/reference contract.
+- [ ] Add delayed-input, explicit-cancel, interrupt, redraw, and zero-call
+      negative-path regressions.
+- [ ] Replay the fresh 120x40 PTY journey and the policy-learning integration
+      scenario; record any external runtime blocker separately.
+- [ ] Run focused tests, `task check`, `task public:check`, security, and the
+      relevant readiness checks.
+- [ ] Commit the follow-up with an intentional message and report the SHA;
+      update the triage/comparison handoff before closing this packet.

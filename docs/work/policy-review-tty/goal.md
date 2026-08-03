@@ -53,6 +53,24 @@ from a terminal, PTY wrapper, candidate-snapshot, or screen-redraw mismatch.
 - [ ] The policy-review integration scenario passes on the supported runtime, or an external cluster-start blocker is recorded separately and does not get misclassified as a review result.
 - [ ] `task check` and the relevant policy, Gateway, integration, public, and agent-readiness checks pass before handoff. Focused policy/Gateway/CLI and clean repository profiles are passing; the supported runtime integration and resulting readiness handoff remain unresolved.
 
+## New-user E2E follow-up
+
+The blind new-user journeys found a second interaction defect beyond the
+original first-render/EOF fix. The implementation must keep the confirmation
+state alive across a normal human pause after `a` or `d`, and must make the
+next safe action and final outcome readable without a repeated redraw storm.
+
+- [ ] A human-length pause after `a` or `d` preserves the confirmation state
+      and performs exactly one opaque action only after `y`, explicit cancel,
+      or terminal interruption.
+- [ ] The raw PTY transcript has stable, readable redraw behavior without a
+      repeated warning storm, and terminal state is restored on every exit.
+- [ ] Intentional cancellation is visually distinguishable from an
+      operational failure wherever the reviewed outcome needs that distinction.
+- [ ] A fresh supported-runtime PTY E2E and the policy readiness scenario pass
+      after the follow-up, or the remaining external blocker is recorded
+      separately from the product result.
+
 ## Governing documents
 
 - Thesis: [Project theses](../../00_theses.md), especially Theses 0, 7, and 8

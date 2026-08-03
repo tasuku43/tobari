@@ -148,6 +148,24 @@ blocked independently at cluster startup.
 - The cluster-start failure must not be “fixed” by weakening path access, policy validation, or cleanup ownership just to reach the review test.
 - Any final CLI presentation change is public contract work and requires `task check` plus `task public:check`; runtime/integration evidence remains separately required.
 
+## New-user E2E follow-up
+
+The parent-owned comparison and the blind official journeys confirm that the
+original first-render/EOF fix is not the whole human-path contract. After a
+candidate is selected with `a` or `d`, a normal human pause can produce an
+`undeclared_fault_contract` before the user reaches `y`. The same pattern was
+observed in the parent baseline and in Long-01, Long-02, and Medium-01, so it
+is a product defect rather than an isolated child-agent discovery issue. See
+`../new-user-value-e2e/comparison.md` and the corresponding redacted feedback
+files.
+
+The journeys also reported frequent redraws while the selector was waiting
+for input. The follow-up must review the state machine and presentation as one
+bounded change: preserve the exact opaque candidate and one-action mutation
+boundary, keep cancellation a zero-call no-op, and make the visible final
+state distinguish cancellation from an operational fault. It must not add a
+retry alias, an in-Workspace policy command, or a second catalog route.
+
 ## Gate evidence
 
 - `GOCACHE=/private/tmp/tobari-policy-review-final-gocache go test ./internal/cli -run '^TestPolicyReviewRealPTYAndReadOnlyE2E$' -count=1 -v`: passed all five real-PTY/read-only subcases in 4.13s.

@@ -87,7 +87,9 @@
 
 ## Hand off
 
-- [ ] All four feedback files are present and linked from the comparison.
+- [x] All four official feedback files are present and linked from the
+      comparison; the comparison links each actionable finding to its bounded
+      successor packet.
 - [ ] Goal status is changed to `Complete` only after all four attempted E2E
       journeys and the required gates have evidence.
 - [ ] Follow-up implementation/docs/CLI packets are listed with explicit
