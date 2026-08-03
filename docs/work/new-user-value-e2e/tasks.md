@@ -35,8 +35,8 @@
       non-acceptance run; evidence: [feedback/official/long-01-attempt-01-environment-blocked.md](feedback/official/long-01-attempt-01-environment-blocked.md).
 - [x] Record the second Long-01 attempt as a partial blind run whose allowed
       request missed policy learning; evidence: [feedback/official/long-01-attempt-02-partial.md](feedback/official/long-01-attempt-02-partial.md).
-- [ ] Officially run long scenario 1 through a real pseudo-TTY and record
-      parent-owned feedback.
+- [x] Officially run long scenario 1 through a real pseudo-TTY and record
+      parent-owned functional feedback; evidence: [feedback/official/long-01.md](feedback/official/long-01.md).
 - [ ] Officially run long scenario 2 through a real pseudo-TTY and record
       parent-owned feedback.
 - [ ] Officially run medium scenario 1 through a real pseudo-TTY and record

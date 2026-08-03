@@ -52,6 +52,13 @@ feature-completion claim.
   [feedback/official/long-01-attempt-02-partial.md](feedback/official/long-01-attempt-02-partial.md);
   the next attempt must express the denied-and-recovered outcome without
   handing the child a command sequence.
+- Official Long-01 attempt 03 reached the denied `example.org:443 GET /`
+  request, exact human approval, same-request upstream retry, runtime-marker
+  re-entry, and cleanup. The functional result is recorded in
+  [feedback/official/long-01.md](feedback/official/long-01.md). The child did
+  not return a raw digest or terminal-size checkpoint, so packet-wide PTY
+  evidence remains open. It also exposed an unknown `tobari retry` navigation
+  command and repeated the raw-review `undeclared_fault_contract` finding.
 
 ## Relevant structure
 
