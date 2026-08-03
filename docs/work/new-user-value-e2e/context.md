@@ -106,11 +106,10 @@ feature-completion claim.
   corroborates the confirmation timing fault and adds frequent TUI redraws and
   host/Workspace command-boundary confusion. Raw digest/timing evidence is
   still missing.
-- Official Medium-02 reached Workspace entry and reuse, then completed
-  deletion and cluster cleanup, but never exercised an explicit cancel/back
-  action. Its partial functional evidence is in
-  [feedback/official/medium-02.md](feedback/official/medium-02.md); the
-  cancellation branch and raw evidence remain open.
+- Earlier official Medium-02 attempt 01 reached Workspace entry and reuse,
+  then completed deletion and cluster cleanup, but never exercised an explicit
+  cancel/back action. Its non-acceptance evidence is in
+  [feedback/official/medium-02-attempt-01-partial.md](feedback/official/medium-02-attempt-01-partial.md).
 - The parent then proved the Medium-02 lifecycle independently: premature
   entry gave a visible cluster recovery cue, root entry reused the same
   Workspace after `exit`, nested entry exposed an ancestor/create selector,
@@ -119,6 +118,13 @@ feature-completion claim.
   [feedback/official/parent-medium-02-baseline.md](feedback/official/parent-medium-02-baseline.md).
   The selector cancel is semantically safe but rendered as a red
   `Command failed`/`operation_canceled` result.
+- Official Medium-02 rerun-02 completed the full blind lifecycle: visible
+  recovery from `cluster_not_configured`, isolated entry, same-root reuse,
+  nested selection cancellation without mutation, and bounded cleanup. The
+  functional evidence is in
+  [feedback/official/medium-02.md](feedback/official/medium-02.md). The child
+  corroborated that the selector labels and `cluster up` cue were discoverable;
+  raw digest/timing evidence remains open.
 
 ## Relevant structure
 
