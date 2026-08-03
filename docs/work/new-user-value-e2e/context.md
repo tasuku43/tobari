@@ -80,6 +80,14 @@ feature-completion claim.
   resources. It is recorded as non-acceptance evidence in
   [feedback/official/medium-01-attempt-01-stalled.md](feedback/official/medium-01-attempt-01-stalled.md);
   the three-decision Inbox journey still requires a fresh run.
+- Official Medium-01 rerun-01 repeated the same boundary with a corrected
+  exact wrapper and healthy isolated Workspace: the queue stayed empty and the
+  child again did not answer status requests. It is recorded as
+  non-acceptance evidence in
+  [feedback/official/medium-01-attempt-02-stalled.md](feedback/official/medium-01-attempt-02-stalled.md).
+  No Inbox decision was parent-applied; a future rerun must preserve this
+  blind-discovery constraint while determining whether the outcome is
+  discoverable at all.
 
 ## Relevant structure
 
