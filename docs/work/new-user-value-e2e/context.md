@@ -38,6 +38,13 @@ feature-completion claim.
   missing runtime can leave a newly registered instance unrecoverable without
   deletion/re-registration, raw review confirmation is sensitive to a human
   pause after `a`, and `runtime build` does not refresh an existing Workspace.
+- Official Long-01 attempt 01 was stopped at a child-isolated environment
+  boundary before bootstrap: `cluster up` reported `gateway_image_unavailable`
+  and `doctor` reported unavailable Engine/Compose plus an XDG-to-Docker-VM
+  sharing failure. It is recorded as a non-acceptance attempt in
+  [feedback/official/long-01-attempt-01-environment-blocked.md](feedback/official/long-01-attempt-01-environment-blocked.md);
+  the parent must repair the disposable environment and rerun from a fresh
+  copy before routing the remaining scenarios.
 
 ## Relevant structure
 

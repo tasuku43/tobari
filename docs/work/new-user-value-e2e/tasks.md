@@ -31,6 +31,8 @@
       official success; evidence: the three pilot feedback files.
 - [x] Prove the core value loop in a parent-owned PTY baseline before blind
       delegation; evidence: [feedback/official/parent-baseline.md](feedback/official/parent-baseline.md).
+- [x] Record the first official Long-01 attempt as an environment-blocked,
+      non-acceptance run; evidence: [feedback/official/long-01-attempt-01-environment-blocked.md](feedback/official/long-01-attempt-01-environment-blocked.md).
 - [ ] Officially run long scenario 1 through a real pseudo-TTY and record
       parent-owned feedback.
 - [ ] Officially run long scenario 2 through a real pseudo-TTY and record
