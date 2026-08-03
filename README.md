@@ -31,7 +31,7 @@ policy learning:
    then retry.
 
 ```sh
-cd ~/ghq/example
+cd quickstart-example
 tobari
 tobari status
 tobari list
@@ -103,7 +103,8 @@ available for the earlier profile-injection design.
 - Docker Compose v2
 - Go version declared in [`go.mod`](go.mod) for source builds
 - [Task](https://taskfile.dev/) for development commands
-- outbound image-registry access on first startup
+- access to the reviewed Gateway image when it is not already local; the
+  explicit runtime build may also obtain its declared base image
 
 Docker Desktop-specific APIs are not used. Colima, Lima-based Docker contexts,
 and standard Linux Docker Engine use the same Docker CLI adapter.
@@ -130,10 +131,194 @@ Ensure the destination is on `PATH`.
 
 ## Quick start
 
+This path has one deliberate host/agent boundary. The trusted host starts the
+cluster, reviews and changes policy, edits the active Context recipe, and runs
+the explicit runtime build. A process inside Tobari can work below the
+selected project root and make proxy-aware HTTP/HTTPS requests, but it cannot
+reach OPA, Docker, host credentials, or the Internet directly. A denial is a
+host handoff; it is never an automatic approval or retry.
+
+Prerequisites:
+
+- macOS or Linux with Docker Engine 24 or newer and Docker Compose v2;
+- an interactive terminal for the root `tobari` command;
+- `tobari` installed from source or available on `PATH`; and
+- access to the reviewed Gateway image if it is not already local. The
+  explicit `runtime build` step may obtain its declared base image.
+
+### 1. Start from a project directory
+
+The directory below is synthetic and can be replaced with an existing project
+directory. Do not use the filesystem root, your home directory, or a Tobari
+configuration/state directory as a project root.
+
+```sh
+mkdir -p quickstart-example
+cd quickstart-example
+tobari doctor --root .
+tobari cluster up
+```
+
+`cluster up` is explicit shared-cluster startup. It preflights the reviewed
+Gateway image and starts Gateway, OPA, policy, and CA state. Ordinary
+`tobari` entry does not repair or start the cluster and does not pull a
+configured work image. If the reviewed Gateway image is unavailable, inspect
+the host with `tobari doctor` and retry `tobari cluster up`; the
+`--gateway-source` option is only the explicit Gateway source-development or
+recovery path.
+
+### 2. Observe a denied request inside Tobari
+
+Enter the project from the host:
+
+```sh
+tobari
+```
+
+Run this inside the resulting Tobari shell. `example.com` and the path are
+synthetic public values; the `PUT` is intentionally outside the initialized
+allow rules while remaining eligible for exact policy learning.
+
+```sh
+curl -sS -w '\nhttp=%{http_code}\n' \
+  -X PUT https://example.com/quickstart
+```
+
+The response is a secret-free `policy_denied` with `http=403` and fixed host
+navigation to `tobari policy review`. It does not contain a candidate ID and
+does not request an automatic retry. Leave the session before running the host
+recovery commands:
+
+```sh
+exit
+```
+
+### 3. Review and allow one exact permission on the host
+
+On the host, use the TTY Permission Inbox and inspect the exact
+`example.com` / `PUT` / `/quickstart` request before confirming **allow**:
+
+```sh
+tobari policy review --tail 100
+```
+
+For a redirected or scripted host flow, review is read-only. Copy the exact
+opaque `pcy_...` value for that same request unchanged, then run the explicit
+action:
+
+```sh
+tobari policy review --tail 100 --format json
+tobari policy allow --id <exact-pcy-id-from-policy-review>
+```
+
+Replace the angle-bracket placeholder with the value emitted by review; do not
+derive an ID from display order, host text, or a previous denial. `policy allow`
+tests the complete policy, records one exact project-bound rule, and activates
+it without restarting the Tobari. `policy deny --id <exact-pcy-id>` is the
+corresponding recovery when the requested permission should remain blocked.
+
+### 4. Retry the same request
+
+Re-enter the same project directory and run the same curl again:
+
+```sh
+tobari
+curl -sS -w '\nhttp=%{http_code}\n' \
+  -X PUT https://example.com/quickstart
+exit
+```
+
+The response is now an upstream response rather than Tobari's
+`policy_denied` handoff. The final HTTP status belongs to `example.com`; the
+Tobari contract is that the exact learned request is allowed, while a child
+path, another project, or another method is not silently broadened.
+
+### 5. Customize the active Context runtime
+
+Runtime customization is host-owned and explicit. Initialize the active
+Context recipe, inspect the reported Dockerfile path, and edit that file:
+
+```sh
+tobari runtime init --format json
+tobari context show --format json
+```
+
+Add one harmless tool between the template's existing `USER root` and
+`USER tobari` lines. For example, install `tree` and keep the package lists
+out of the image:
+
+```dockerfile
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tree \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+Then build and promote the active Context runtime explicitly, and enter the
+project again:
+
+```sh
+tobari runtime build --format json
+tobari
+```
+
+Inside the new session, verify the added tool and then leave the reusable
+Workspace:
+
+```sh
+tree --version
+exit
+```
+
+`runtime init` does not overwrite an existing recipe or change the selected
+image. Editing the Dockerfile does not build anything. `runtime build` is the
+one deliberate host Docker build boundary: with the template's official
+`ghcr.io/tasuku43/tobari/runtime:latest` base, that explicit build may refresh
+the base; an explicit local or custom base does not request a registry pull.
+The build context is only the active Context runtime directory. A successful
+compatible image is promoted into the Context, and a failed build leaves the
+previously selected image active.
+
+### Failure and recovery
+
+- `tty_required`: run the root `tobari` command from an interactive terminal.
+- `cluster_start_failed`, `gateway_image_unavailable`, or
+  `gateway_image_incompatible`: run `tobari doctor`, inspect
+  `tobari cluster status`, and retry `tobari cluster up`; use
+  `tobari cluster up --gateway-source` only for its explicit source/recovery
+  purpose.
+- A learnable `403`: leave the session, run `tobari policy review`, pass one
+  exact candidate unchanged to `tobari policy allow --id ID` or
+  `tobari policy deny --id ID`, then re-enter and retry. Do not retry before a
+  confirmed host action.
+- `runtime_recipe_missing`: run `tobari runtime init`, edit the active Context
+  Dockerfile, then run `tobari runtime build`.
+- `runtime_recipe_exists`: inspect the existing recipe with
+  `tobari context show`; `runtime init` never overwrites it.
+- `runtime_build_failed` or `incompatible_image`: run `tobari context show`,
+  correct the Dockerfile, and retry `tobari runtime build`; the previous image
+  remains selected until promotion succeeds.
+- `project_session_attached`: exit the attached session, then run
+  `tobari delete`; use `tobari delete --force` only when terminating that
+  session is intentional.
+
+When finished with this synthetic Workspace, clean up from the host:
+
+```sh
+tobari delete
+tobari cluster down --purge
+```
+
+The base runtime already carries common Git, HTTP, JSON, Python, SSH, and
+command-line tools. Install additional tools through the active Context recipe
+when they should be part of a reusable Context; tool-native authentication
+state remains below each Tobari's persistent home.
+
+### Lifecycle and image reference
+
 Validate the host and intended project directory:
 
 ```sh
-tobari doctor --root ~/ghq/example
+tobari doctor --root .
 ```
 
 Start the shared enforcement cluster explicitly:
@@ -166,8 +351,8 @@ The same human output language is used by the other commands: an outcome
 heading, aligned detail rows, semantic colors, explicit empty states, and an
 exact next action where one is useful. `doctor` defaults to this view;
 `tobari doctor --format tsv` remains available for tab-separated consumers.
-Help, JSON, agent help, logs, and `exec` keep their respective machine or raw
-data contracts and never receive terminal styling.
+Help, JSON, agent help, and logs keep their respective machine or raw data
+contracts and never receive terminal styling.
 
 Then run the primary operation from the project directory. It requires the
 cluster to be configured and ready, and creates or reuses only the project
@@ -247,7 +432,7 @@ validate it on the trusted host:
 
 ```sh
 task toolbox:build
-cd ~/ghq/example
+cd quickstart-example
 tobari
 ```
 
@@ -338,15 +523,9 @@ before creating its project network or work container.
 
 The selected image's `CMD` does not own Workspace lifetime. Tobari starts the
 work container with its own long-lived `sleep infinity` command, then runs an
-interactive shell or an agent as a child exec session. For example, a child
-`claude` exit returns its status while the Workspace remains reusable:
-
-```sh
-tobari exec --id <id-from-list> -- claude
-```
-
-To change an existing Tobari's image, delete it and run `tobari` again; the new
-logical environment receives a new home.
+interactive shell or an agent as a child session. Run an exact agent command
+from inside the current `tobari` session; a child exit returns its status while
+the Workspace remains reusable.
 
 ### Runtime customization
 
@@ -356,17 +535,20 @@ second execution-boundary configuration. The preferred path for a Context-
 specific runtime is:
 
 ```sh
-tobari runtime init
-# edit ~/.config/tobari/contexts/<active-context>/runtime/Dockerfile
-tobari runtime build
+tobari runtime init --format json
+tobari context show --format json
+# edit the active Context runtime/Dockerfile path reported above
+tobari runtime build --format json
 tobari
 ```
 
 `runtime init` creates the template and never overwrites an existing
-Dockerfile. `runtime build` uses only that Context runtime directory, refreshes
-the official `ghcr.io/tasuku43/tobari/runtime:latest` base because the build was
-explicitly requested, validates the Tobari runtime contract, and selects a
-machine-managed local image. A local or custom base such as
+Dockerfile. Add tools between its existing `USER root` and `USER tobari` lines;
+the template includes a harmless package-install example. `runtime build` uses
+only that Context runtime directory, refreshes the official
+`ghcr.io/tasuku43/tobari/runtime:latest` base because the build was explicitly
+requested, validates the Tobari runtime contract, and selects a machine-managed
+local image. A local or custom base such as
 `tobari-runtime:local` also works without a registry pull. No image name,
 Context name, or manifest edit is needed. If editing or building fails, the
 previously selected image remains active. Inspect the exact active path and
@@ -555,7 +737,7 @@ tool's normal login flow; Tobari persists the tool's own state below
 host CLI configuration into it:
 
 ```sh
-cd ~/ghq/example
+cd quickstart-example
 tobari
 gh auth login       # example: GitHub CLI's native device/browser flow
 aws sso login       # example: AWS CLI's native flow
@@ -573,7 +755,7 @@ Create an owner-only secret file on the trusted host:
 ```sh
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tobari"
 install -d -m 0700 "$config_dir/contexts/<name>/credentials"
-install -m 0600 /path/to/token "$config_dir/contexts/<name>/credentials/github-development"
+install -m 0600 example-token-file "$config_dir/contexts/<name>/credentials/github-development"
 ```
 
 Configure metadata only in the active Context's `credentials.json`:
@@ -645,7 +827,7 @@ cases.
 ## Troubleshooting
 
 ```sh
-tobari doctor --root /absolute/root
+tobari doctor --root .
 tobari cluster status
 tobari list
 ```
