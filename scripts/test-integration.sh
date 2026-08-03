@@ -299,7 +299,7 @@ enter_bash_tobari_at() {
   local output
   if output=$({
     sleep 1
-    printf 'printf "tobari-shell:%s\\n" "$BASH"\n'
+    printf '%s\n' "printf \"tobari-shell:%s\\n\" \"\$BASH\""
     printf 'if test -t 0 && test -t 1 && test -t 2; then printf "tobari-tty:yes\\n"; else printf "tobari-tty:no\\n"; fi\n'
     printf 'exit\n'
   } | run_tobari_pty_at "$root" "$@" 2>&1); then
