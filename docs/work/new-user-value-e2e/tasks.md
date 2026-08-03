@@ -61,12 +61,17 @@
 
 - [ ] Each scenario has raw-PTY evidence, readable checkpoints, typed-key
       timing, visible value signal, and exit/cleanup result. Evidence:
-- [ ] Each scenario records discovery-round-trip count and any non-routine
-      processing. Evidence:
-- [ ] Each feedback record classifies blockers and command-surface candidates.
-      Evidence:
-- [ ] Cross-scenario comparison identifies repeated friction and missing
+- [x] Each scenario has a committed readable feedback record with a visible
+      value signal and exit/cleanup result; raw digest/timing remains open in
+      the preceding task. Evidence: `feedback/official/*.md`.
+- [x] Each scenario records discovery-round-trip observations and any
+      non-routine processing, including deviations where the child did not
+      return an exact numeric count. Evidence: `feedback/official/*.md`.
+- [x] Each feedback record classifies blockers and command-surface candidates.
+      Evidence: `feedback/official/*.md`.
+- [x] Cross-scenario comparison identifies repeated friction and missing
       transitions without prematurely approving a command change. Evidence:
+      [comparison.md](comparison.md).
 - [ ] `git diff --check` passes. Evidence:
 - [ ] `task check` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:
