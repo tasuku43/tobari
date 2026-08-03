@@ -26,6 +26,10 @@ feature-completion claim.
   policy review and runtime entry, but its streaming helper is not itself a
   substitute for a first-time human transcript. This packet adds paced,
   screen-aware observation on top of the existing supported commands.
+- The official subject is a clean tracked snapshot of the maintainer-supplied
+  `cc-bash-guard` project at revision `e045d15`. The parent creates disposable
+  copies for each run; the source project and its working tree are never used
+  as a scenario mount.
 
 ## Relevant structure
 
@@ -41,8 +45,9 @@ feature-completion claim.
 
 ## Constraints
 
-- Each scenario uses a fresh synthetic project root and a single sequential
-  cluster session unless its own steps explicitly test two project roots.
+- Each official scenario uses a fresh disposable copy of the subject project
+  and a single sequential cluster session unless its own goal explicitly tests
+  two project roots. The subject copy is preparation, not a usage manual.
 - A real pseudo-TTY is mandatory for host and Workspace interactions. Set a
   deterministic terminal size (120 columns by 40 rows unless the current
   terminal cannot support it), use `TERM=xterm-256color`, attach stdin/stdout/
@@ -81,17 +86,25 @@ feature-completion claim.
 
 ## Observation protocol
 
-Delegation mode is part of the evidence. Long scenario 1 was dispatched as a
-guided baseline before the maintainer tightened the protocol. The remaining
-three scenarios must be dispatched blind: the child receives only a user goal,
-fresh environment boundary, safety constraints, and the value signal. It must
-not receive the scenario's command sequence, README section, packet path, or
-source/harness usage instructions. The child may discover the interface through
-the installed `tobari` command and the screens/help that a new user would
-naturally reach. The comparison must label guided versus blind findings rather
-than treating their discovery counts as equivalent.
+Delegation mode is part of the evidence. The first three attempts in this
+packet were protocol-v1 pilots: one guided run and two blind runs, all of which
+were incomplete or lacked a final handoff. They are retained as pilot evidence
+and do not satisfy the official acceptance criteria. The official re-run starts
+all four journeys from fresh project copies. Each child receives only a user
+goal, a fresh environment boundary, safety constraints, progress-reporting
+expectations, and the value signal. It must not receive the scenario's command
+sequence, README/thesis/work-packet text, source, or harness usage
+instructions. The child does not edit the repository; the parent writes and
+commits the returned feedback. Official findings therefore measure self-
+discovery rather than the ability to follow a prepared route.
 
-Each feedback file must include:
+At the start, after bootstrap, after the first value signal, at any meaningful
+blocker, and before cleanup, the child sends a short status update to the
+parent while continuing the run. A status request is answered before the
+parent decides whether to stop or continue; elapsed time alone is not a
+failure criterion.
+
+Each official feedback file must include:
 
 1. Environment and scenario ID, with synthetic/redacted project names.
 2. The first-attempt command/key sequence and discovery-round-trip count.
@@ -102,6 +115,10 @@ Each feedback file must include:
 7. Candidate command-surface disposition: keep, integrate, narrow, deprecate
    candidate, or docs-only, with catalog/recovery compatibility evidence.
 8. Cleanup and final process/cluster state.
+
+Pilot files in the feedback root are historical protocol-v1 records. Official
+files live under `feedback/official/` and are the only files counted toward
+the four-scenario acceptance criteria.
 
 ## Security and public-boundary notes
 

@@ -10,7 +10,7 @@ user's temporary Workspace resources.
 
 ## Pre-trial environment and expectation
 
-- Repository: `/Users/tasuku/work/github.com/tasuku43/tobari`
+- Repository: [redacted; pilot ran against the current checkout]
 - Date: 2026-08-03 (Asia/Tokyo)
 - Initial branch: `main`
 - Initial repository revision: `96160610bec0ab56e948f126594123f6dff4d447`
@@ -33,3 +33,20 @@ user's temporary Workspace resources.
 Created before the blind trial. The post-trial observations will be appended
 to this same file and committed separately as the scoped feedback change.
 
+## Pilot status update
+
+- Status: incomplete pilot; not official acceptance evidence.
+- The child reached a healthy synthetic Workspace, issued several synthetic
+  requests, exited the Workspace, and observed a visible pending-permission
+  summary with a host review cue.
+- The child did not reach allow/deny/cancel screen actions. No policy mutation
+  was reported. The Workspace and cluster remained at the time of the status
+  report; the parent subsequently removed the exact scenario-owned state with
+  supported CLI cleanup.
+- Raw PTY evidence was retained outside Git with a redacted digest prefix
+  `cf4cbf8c…9377aa2`. The full capture is not committed.
+- The child reported that it had inspected CLI help and read-only queue views;
+  this pilot therefore cannot be treated as a pure no-document beginner run.
+- The parent received the status update before deciding the next action. This
+  timing/communication behavior is retained as orchestration evidence, not as
+  a product success claim.

@@ -7,7 +7,8 @@
 - Review/delete trigger: Delete after every actionable finding has a successor packet or explicit deferral and the conclusions are promoted to durable contracts or a reviewed CLI decision.
 - Successor: None
 - Owner: Tobari product and repository maintainers
-- Target: Current `main`; four new-user value journeys
+- Target: Current `main`; four new-user value journeys using disposable copies
+  of the maintainer-supplied `cc-bash-guard` project snapshot
 - Related ADRs: None
 
 ## Outcome

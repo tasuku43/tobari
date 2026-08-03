@@ -20,16 +20,24 @@
       budgets before delegating execution.
 - [x] Define the command-surface observation rubric: keep, integrate, narrow,
       deprecate candidate, or docs-only, with catalog/recovery evidence.
-- [ ] Confirm the scenario order and shared-resource isolation before each run.
+- [x] Confirm the scenario order and shared-resource isolation before each
+      protocol-v1 pilot; the official rerun uses parent-prepared project
+      copies.
 
 ## Implement
 
 - [x] Create the parent-authored scenario definitions and feedback template.
-- [ ] Run long scenario 1 through a real pseudo-TTY and record feedback.
-- [ ] Run long scenario 2 through a real pseudo-TTY and record feedback.
-- [ ] Run medium scenario 1 through a real pseudo-TTY and record feedback.
-- [ ] Run medium scenario 2 through a real pseudo-TTY and record feedback.
-- [ ] Do not modify production code, CLI catalog, README, or unrelated packets.
+- [x] Record the incomplete protocol-v1 pilot attempts without counting them as
+      official success; evidence: the three pilot feedback files.
+- [ ] Officially run long scenario 1 through a real pseudo-TTY and record
+      parent-owned feedback.
+- [ ] Officially run long scenario 2 through a real pseudo-TTY and record
+      parent-owned feedback.
+- [ ] Officially run medium scenario 1 through a real pseudo-TTY and record
+      parent-owned feedback.
+- [ ] Officially run medium scenario 2 through a real pseudo-TTY and record
+      parent-owned feedback.
+- [x] Do not modify production code, CLI catalog, README, or unrelated packets.
 
 ## Verify
 
