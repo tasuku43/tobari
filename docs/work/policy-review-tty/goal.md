@@ -1,6 +1,6 @@
 # Work Goal: Restore a visible interactive policy review
 
-- Status: Active
+- Status: Complete
 - Retention: temporary
 - Retention reason: Reproduce and repair the reported TTY presentation/interaction failure in the denial-to-review loop.
 - Governing contract: docs/00_theses.md, docs/01_product_contract.md, docs/02_architecture.md, docs/03_security_model.md, docs/04_harness.md, docs/09_agent_readiness_validation.md
@@ -12,8 +12,8 @@
 
 History note: the implementation and regression evidence were committed in
 `7d096bb5749e3ad8afd6d85c88af301f5dda113f`, merged by
-`966dd08841a7ccd88212dd9c8683562c99e17aa9`, and are present on current
-`main` at `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`.
+`966dd08841a7ccd88212dd9c8683562c99e17aa9`, and the supported-runtime PTY
+completion fix is in `c957401` on current `main`.
 
 ## Outcome
 
@@ -50,8 +50,8 @@ from a terminal, PTY wrapper, candidate-snapshot, or screen-redraw mismatch.
 - [x] A user can cancel without an ambiguous blank result; empty queues, cancellation, errors, and successful mutations have distinct reviewed human outcomes. Evidence: `q`, `9q`, allow, deny, and empty-queue outputs are distinct in the focused E2E.
 - [x] `policy review --format=json` and redirected text remain read-only with the existing schema, bounded collection semantics, and exact action commands. Evidence: the redirected JSON subcase returns the candidate with zero mutation calls, and focused CLI tests preserve the existing projection.
 - [x] Hostile request fields, opaque IDs, stdout/stderr ownership, terminal restoration, and secret redaction remain covered. Evidence: existing hostile-output/CLI tests and the PTY transcript preserve these boundaries, including `ESC[?25h` restoration.
-- [ ] The policy-review integration scenario passes on the supported runtime, or an external cluster-start blocker is recorded separately and does not get misclassified as a review result.
-- [ ] `task check` and the relevant policy, Gateway, integration, public, and agent-readiness checks pass before handoff. Focused policy/Gateway/CLI and clean repository profiles are passing; the supported runtime integration and resulting readiness handoff remain unresolved.
+- [x] The policy-review integration scenario passes on the supported runtime, or an external cluster-start blocker is recorded separately and does not get misclassified as a review result. Evidence: `task integration:test` completed with `integration: OK` on current `main`; the real Gateway/OPA/mock path entered the review queue, denied the selected exact `/review-interactive` candidate, returned with `q`, and completed cleanup.
+- [x] `task check` and the relevant policy, Gateway, integration, public, and agent-readiness checks pass before handoff. Evidence: focused policy/Gateway/PTY checks, `task check`, `task security`, `task public:check`, and `task integration:test` pass after `c957401`; the agent-readiness packet consumes the same denial-to-review contract.
 
 ## New-user E2E follow-up
 
@@ -77,9 +77,9 @@ next safe action and final outcome readable without a repeated redraw storm.
 - [x] A fresh supported-runtime PTY E2E and the policy readiness scenario pass
       after the follow-up, or the remaining external blocker is recorded
       separately from the product result. Evidence: the fresh fake-runtime
-      supported PTY suite passes all four cases; the Docker readiness scenario
-      reaches the review wrapper but is separately blocked before its first
-      `Permission denied` assertion after a four-minute no-progress wait.
+      supported PTY suite passes all four cases, and the Docker readiness
+      scenario now reaches the review wrapper, denies the exact candidate,
+      returns with `q`, and finishes with `integration: OK`.
 
 ## Governing documents
 
@@ -90,10 +90,9 @@ next safe action and final outcome readable without a repeated redraw storm.
 
 ## Completion definition
 
-The packet is complete when the observed TTY behavior has a deterministic
-explanation and regression test, the smallest safe implementation change is
-verified, the existing discover/act and fail-closed contracts remain intact,
-and all required evidence and gates are recorded. The focused review behavior
-is verified here, but the packet remains `Active` until the supported runtime
-integration and readiness evidence are available; the independent blocker is
-not treated as review success.
+The packet is complete because the observed TTY behavior has a deterministic
+explanation and regression test, the smallest safe implementation and
+integration-harness changes are verified, the existing discover/act and
+fail-closed contracts remain intact, and the required evidence and gates are
+recorded. The supported runtime integration now passes; the packet has no
+remaining product or environment blocker.

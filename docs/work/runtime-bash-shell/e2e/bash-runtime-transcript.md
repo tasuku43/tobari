@@ -52,7 +52,7 @@ running=true cmd=["sleep","infinity"] entrypoint=["/usr/bin/tini","--","/usr/loc
 This proves the interactive child is Bash and that its exit does not stop the
 Workspace lifetime process.
 
-## Broader integration profile
+## Historical broader integration profile
 
 Docker/Colima was available. The profile was run with a writable BuildKit
 configuration because the host Docker configuration directory is read-only to
@@ -77,12 +77,11 @@ cluster:
 task: Failed to run task "integration:test": exit status 130
 ```
 
-This is recorded as a broader-profile blocker, not as a Bash E2E failure. The
-dedicated real-runtime replay above completed successfully. The coordinator
-should rerun the exact command after the policy-review packet repairs that
-shared integration case.
+This historical run is recorded as the reason the shared PTY bridge needed a
+bounded repair, not as a Bash E2E failure. The dedicated real-runtime replay
+above completed successfully.
 
-## Recovery rerun
+## Historical recovery rerun
 
 After Git recovery onto `codex/first-wave`, the focused checks were replayed:
 
@@ -107,3 +106,20 @@ interrupted.
 their normal checks on `docs/work/auth-broker-deferral/context.md:106`:
 `machine-specific home directory path`. That packet is outside this child
 packet's allowed write scope and was not edited.
+
+## Current supported integration replay
+
+After the bounded PTY bridge repair in `c957401`:
+
+```text
+$ task integration:test
+delete_target: ... runtime=missing
+delete_target: ... runtime=ready
+integration: OK
+```
+
+This same run covered the canonical and embedded Bash image contract, real
+PTY `tobari` entry/reentry, reusable `sleep infinity` Workspace lifetime,
+Gateway/OPA policy learning, interactive review, compaction, and cleanup. The
+review input was sent through a 40x120 PTY as `3`, `d`, `y`, `q`; the selected
+candidate was denied and the remaining review queue was exited explicitly.

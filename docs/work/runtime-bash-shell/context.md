@@ -5,13 +5,14 @@ source presence as runtime proof.
 
 ## Main-history reconciliation
 
-- The current checkout is `main` at `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`.
+- The current checkout is `main` after `c957401`; the runtime evidence commit
+  remains in the supported main history.
 - The Bash regression/test evidence is in
   `912c602b4e80d055775e557e6e509b6beff26928`; it is an ancestor of merge
   `966dd08841a7ccd88212dd9c8683562c99e17aa9` and current `main`.
 - The scoped runtime commit is present in the supported main history. There is
-  no paused rebase, read-only Git metadata, or missing commit blocker for this
-  packet; only the broader runtime integration result remains open.
+  no paused rebase, read-only Git metadata, missing commit, or integration
+  blocker for this packet.
 
 ## Current behavior
 
@@ -58,9 +59,8 @@ source presence as runtime proof.
 - [x] The current Docker Engine can build and run the canonical base image on
   this host. The build and runtime assertions passed on Docker/Colima.
 - [x] A real `tobari` PTY entry reached the shell path and returned to a live
-  Workspace. The full integration profile reached its existing policy-review
-  interaction and then stopped making progress; this is recorded in the E2E
-  transcript rather than treated as a Bash failure.
+  Workspace. The full integration profile also completed the policy-review
+  interaction and finished with `integration: OK`.
 - [x] The focused fixture did not mechanically assert the exact interactive
   `/bin/bash` argv or the base-image shell contract, so those assertions were
   added without changing production behavior.
@@ -91,16 +91,16 @@ source presence as runtime proof.
   `running=true`, `cmd=["sleep","infinity"]`, and the fixed Tini entrypoint.
 - The first-wave `task integration:test` profile was interrupted with exit 130
   after reaching its interactive policy-review case. See [the transcript](e2e/bash-runtime-transcript.md)
-  for that historical replay; the current-main recheck is recorded below.
+  for that historical replay; the repaired current-main replay is recorded
+  below.
 - Current-main `task check` and `task public:check` are clean repository gates
   after the deferred auth packet was committed. A clean `HEAD + allowed packet
   diff` security snapshot also passes; the current worktree `task security`
   invocation is blocked only by the out-of-scope untracked
   `docs/work/architecture-publication/context.md:57` link.
-- The current-main `task integration:test` recheck stopped at its preflight
-  because `tobari-gateway` already exists and is running (exit 1). The active
-  cluster was not stopped by this packet; the earlier exit-130 policy-review
-  stop remains historical evidence.
+- The current-main `task integration:test` replay after `c957401` passed the
+  runtime Bash entry, policy-learning review, compaction, and cleanup with
+  `integration: OK`.
 - The scoped runtime commit is already in `main`; final packet documentation
   is a separate scoped change and does not alter production behavior.
 
@@ -114,8 +114,8 @@ rg -n 'bash|/bin/bash|sleep infinity|tobari-entrypoint' \
 ```
 
 Expected source observation is Bash in the image and `/bin/bash` in the
-interactive exec request. The dedicated Docker-backed PTY replay is recorded
-above; the broader policy-review integration still remains unresolved.
+interactive exec request. The dedicated Docker-backed PTY replay and the
+full supported integration are recorded above.
 
 ## Security and public-boundary notes
 

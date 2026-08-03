@@ -1,6 +1,6 @@
 # Work Plan: Enter Tobari workspaces through Bash
 
-- Status: Active
+- Status: Complete
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -80,8 +80,7 @@ Docker build/run is the only image side effect in the E2E.
 2. Add or refine focused Bash/runtime regression assertions if a gap exists.
    **Complete; no production source change was needed.**
 3. Replay the interactive entry and reusable-Workspace E2E. **Complete for
-   the dedicated real-runtime replay; the broader profile has a separate
-   pre-existing policy-review blocker.**
+   the dedicated real-runtime replay and the full supported integration.**
 4. Run required repository gates and commit only the scoped packet/change.
    **The required repository gates are recorded in the task handoff, and the
    scoped implementation/evidence commit is
@@ -107,12 +106,11 @@ Docker build/run is the only image side effect in the E2E.
 - Generated-diff or artifact checks: canonical/embedded runtime equality and
   no unreviewed generated files.
 
-The current-main `task check` and `task public:check` profiles pass after the
-deferred auth packet was committed, and a clean `HEAD + allowed packet diff`
-snapshot passes `task security`. The current worktree security invocation is
-blocked by an out-of-scope untracked packet link. The broader
-`task integration:test` result remains a separate unresolved policy-review
-runtime blocker and is not counted as Bash success.
+The current-main `task check`, `task security`, and `task public:check` profiles
+pass after the deferred auth packet was committed. `task integration:test` now
+also passes the Bash runtime and policy-learning path with `integration: OK`;
+the bounded PTY bridge and its completion are recorded in the policy-review
+packet.
 
 ## Rollout and rollback
 

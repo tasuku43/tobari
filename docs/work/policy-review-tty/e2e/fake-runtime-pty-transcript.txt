@@ -79,3 +79,30 @@ Post-fix staged raw input (0.75s pause between stages):
 
 Every staged case restores the cursor with `ESC[?25h`; invalid `9q` and
 redirected JSON remain read-only cases from the first-wave transcript.
+
+Docker policy-learning PTY replay
+---------------------------------
+
+Current-main command:
+
+    task integration:test
+
+The real Gateway/OPA/mock integration reached a queue containing three
+pending permissions. A bounded 40x120 PTY sent the human-like sequence:
+
+    5.0s: 3       select the third candidate
+    0.75s: d      request deny
+    0.75s: y      confirm the exact deny
+    0.75s: q      return from the remaining queue
+
+The visible result included:
+
+    Permission 3 of 3
+    Request   mock-upstream:8080 PUT /review-interactive
+    Permission denied
+
+The integration script then verified that the selected candidate left the
+review queue, continued through compaction and runtime cleanup, and finished
+with `integration: OK`. The PTY wrapper now has a bounded timeout and emits
+the captured transcript on failure, so this journey cannot silently remain in
+input wait.

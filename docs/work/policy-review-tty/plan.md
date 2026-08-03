@@ -1,6 +1,6 @@
 # Work Plan: Restore a visible interactive policy review
 
-- Status: Active
+- Status: Complete
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -11,7 +11,9 @@ Diagnose the behavior in three bounded layers before changing production code:
 
 1. Verify the semantic report and existing selector state machine with focused tests.
 2. Run a synthetic candidate through a real supported PTY wrapper, preserving the raw byte transcript and the human-visible final state.
-3. Run the Docker policy-learning scenario once the independent cluster-start blocker is resolved or reproduced in a clean supported runtime.
+3. Run the Docker policy-learning scenario in a clean supported runtime and
+   keep the PTY bridge bounded so an incomplete human interaction is a test
+   failure with transcript evidence.
 
 Only after those layers agree should the smallest fix be chosen. The preferred
 fix stays in the CLI/terminal presentation boundary, keeps the candidate ID
@@ -157,9 +159,10 @@ packet until handoff, then remove them with the packet.
 
 ## Current-main verification snapshot
 
-- `main` is `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`, containing the first-wave
-  merge `966dd08841a7ccd88212dd9c8683562c99e17aa9` and the scoped policy-review
-  implementation commit `7d096bb5749e3ad8afd6d85c88af301f5dda113f`.
+- `main` is after `c957401`, containing the first-wave merge
+  `966dd08841a7ccd88212dd9c8683562c99e17aa9`, the scoped policy-review
+  implementation commit `7d096bb5749e3ad8afd6d85c88af301f5dda113f`, and the
+  completed integration PTY bridge.
 - The post-fix focused suite passes the existing five real-PTY/read-only cases
   and four new staged cases (delayed allow, delayed deny, cancel, interrupt)
   with 120x40 metadata, stable three-frame redraws, exact opaque IDs, and
@@ -167,8 +170,7 @@ packet until handoff, then remove them with the packet.
 - `task check:fast`, `task check`, `task public:check`, and `task security` all
   pass in the current worktree. The security run reports verified modules and
   `No vulnerabilities found.`
-- The follow-up `task integration:test` reaches the real `/review-interactive`
-  denial and the checked-in PTY command at `scripts/test-integration.sh:744`,
-  then waits over four minutes without producing the `Permission denied`
-  assertion. Ctrl-C exits 130 and cleanup leaves no integration containers.
-  This remains an external readiness/harness blocker, not focused PTY success.
+- `task integration:test` reaches the real `/review-interactive` denial,
+  performs the staged `3`, `d`, `y`, `q` PTY interaction, and finishes with
+  `integration: OK`; the bounded bridge prints its captured transcript on
+  failure and cleanup leaves no integration containers.

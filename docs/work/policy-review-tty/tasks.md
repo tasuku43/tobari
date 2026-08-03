@@ -34,27 +34,25 @@
 - [x] Focused CLI/application tests pass after the reproduction/fix. Evidence: `GOCACHE=/private/tmp/tobari-policy-review-gocache go test ./internal/cli ./internal/app/tobaricmd -run 'PolicyReview|PolicyReviewSelector|Interactive|ReadSelectorByte' -count=1` passed; the real-PTY E2E ran five subcases.
 - [x] `task check` passes. Evidence: `GOCACHE=/private/tmp/tobari-policy-review-gocache task check` passed.
 - [x] `task public:check` passes when public docs or contract text changes. Evidence: `GOCACHE=/private/tmp/tobari-policy-review-gocache task public:check` passed; `bash -n scripts/test-integration.sh` and `git diff --check` also passed.
-- [ ] `task integration:test` reaches and passes policy review. Evidence: the
-      follow-up run reached `/review-interactive` and
-      `scripts/test-integration.sh:744`, where the checked-in PTY wrapper and
-      `tobari policy review --tail 1000` child waited without output or
-      assertion progress for over four minutes. Ctrl-C produced exit 130 and
-      cleanup left no integration containers. The review assertion was not
-      reached; this is an external harness blocker, separate from the passing
-      focused PTY suite.
+- [x] `task integration:test` reaches and passes policy review. Evidence:
+      current `main` commit `c957401` uses a bounded 40x120 PTY bridge with
+      staged human-like input (`3`, `d`, `y`, `q`); the real Gateway/OPA/mock
+      integration selected and denied `/review-interactive`, returned to the
+      remaining queue, and completed with `integration: OK`.
 - [x] PTY behavior is observed on the supported platform(s), with terminal restoration verified. Evidence: macOS Python-PTY E2E passed allow/deny/cancel/invalid cases and observed `ESC[?25h`; the helper uses the same standard-library PTY model on Linux.
 - [x] Opaque-reference and hostile-output regression evidence is recorded. Evidence: E2E markers preserve the synthetic opaque candidate ID through allow/deny; existing hostile-output selector/CLI tests remain in the focused suite.
 
 ## Hand off
 
-- [ ] Acceptance criteria have evidence. Fake-runtime real-PTY, negative, JSON,
-      focused/full/public/security gates, and the delayed-confirmation follow-up
-      are complete; the Docker policy-learning scenario is externally blocked
-      at the checked-in PTY review wrapper before its first assertion.
+- [x] Acceptance criteria have evidence. Fake-runtime real-PTY, negative, JSON,
+      focused/full/public/security gates, delayed-confirmation follow-up, and
+      the Docker policy-learning scenario all pass on current `main`.
 - [x] The policy-review contract and any durable decision are promoted. No public contract change was needed; the packet records the mechanical terminal invariant and its regression tests.
 - [x] Temporary PTY diagnostics and sensitive artifacts are removed. Only the sanitized durable E2E transcript remains in this packet.
-- [ ] The coordinator packet is updated with the final status and successor disposition.
-- [ ] This temporary child packet is removed after completion or explicitly superseded.
+- [x] The coordinator packet is updated with the final status and successor disposition.
+- [x] This temporary child packet is marked complete and queued for removal
+      after its durable harness conclusion is retained in the coordinator and
+      harness documents.
 
 ## New-user E2E follow-up
 
@@ -74,14 +72,15 @@
       zero-call tests remain green.
 - [x] Replay the fresh 120x40 PTY journey and the policy-learning integration
       scenario; record any external runtime blocker separately. Evidence: the
-      fresh fake-runtime PTY journey passes all four staged cases; the Docker
-      integration attempt remains a separate pre-review startup/preflight
-      blocker and is not counted as product success.
+      fresh fake-runtime PTY journey passes all four staged cases, and the
+      Docker integration reaches the real review queue and finishes with
+      `integration: OK`.
 - [x] Run focused tests, `task check`, `task public:check`, security, and the
       relevant readiness checks. Evidence: focused CLI/application, hostile,
       opaque/invalid, Gateway, and OPA tests passed; `task check:fast`, `task
-      check`, `task public:check`, and `task security` passed. `task
-      integration:test` was attempted through the supported readiness path and
-      is recorded as the separate wrapper/input wait blocker above.
-- [ ] Commit the follow-up with an intentional message and report the SHA;
+      check`, `task public:check`, `task security`, and `task integration:test`
+      passed.
+- [x] Commit the follow-up with an intentional message and report the SHA;
       update the triage/comparison handoff before closing this packet.
+      Evidence: `c957401` contains the bounded integration PTY fix and the
+      coordinator handoff is recorded in `tobari-improvement-triage`.

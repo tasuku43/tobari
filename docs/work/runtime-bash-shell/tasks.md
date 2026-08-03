@@ -57,10 +57,10 @@
   by the out-of-scope untracked architecture-publication packet link.
 - [x] `task public:check` passes. Evidence: current-main `task public:check`
   passes with public repository guard and contract checks green.
-- [ ] `task integration:test` passes. Evidence: the current-main recheck
-  stopped at the preflight with `tobari-gateway` already existing and running
-  (exit 1); the earlier profile reached the interactive policy-review scenario
-  and was interrupted with exit 130. Neither is Bash integration success.
+- [x] `task integration:test` passes. Evidence: current `main` completes the
+  canonical/embedded Bash contract, real PTY Workspace entry/reentry,
+  runtime reuse, policy learning, interactive review, and cleanup with
+  `integration: OK`.
 - [x] Canonical/embedded runtime diff is understood and temporary artifacts
   are removed. Evidence: no runtime source changed; `task runtime:base:check`
   passed. Integration containers and the repository-local temporary roots were
@@ -72,10 +72,9 @@
 
 ## Hand off
 
-- [ ] Acceptance criteria have E2E evidence; the dedicated Bash E2E and clean
-  repository gates pass, while the broader runtime integration remains open at
-  the policy-review scenario and is not claimed as Bash success.
-- [ ] Goal status is changed to `Complete` only after required gates and the
+- [x] Acceptance criteria have E2E evidence; the dedicated Bash E2E, full
+  repository gates, and broader runtime integration all pass.
+- [x] Goal status is changed to `Complete` after required gates and the
   delegated commit are complete.
 - [x] Durable decisions were promoted or explicitly confirmed unchanged.
 - [x] Temporary diagnostics and sensitive artifacts were removed from the

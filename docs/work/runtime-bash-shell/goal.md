@@ -1,6 +1,6 @@
 # Work Goal: Enter Tobari workspaces through Bash
 
-- Status: Active
+- Status: Complete
 - Retention: temporary
 - Retention reason: Evidence for the base-runtime shell contract and its end-to-end verification
 - Governing contract: docs/00_theses.md, docs/01_product_contract.md, docs/02_architecture.md, docs/03_security_model.md, docs/04_harness.md
@@ -12,8 +12,8 @@
 
 History note: the runtime regression evidence and scoped test changes were
 committed in `912c602b4e80d055775e557e6e509b6beff26928`, merged by
-`966dd08841a7ccd88212dd9c8683562c99e17aa9`, and are present on current
-`main` at `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`.
+`966dd08841a7ccd88212dd9c8683562c99e17aa9`, and the complete supported
+runtime integration is verified on current `main` after `c957401`.
 
 ## Outcome
 
@@ -52,11 +52,9 @@ alone.
   a new input or recovery path, and the discovery/retry journey needs no extra
   parser or command guess.
 - [x] Required runtime, implementation, security, and public-boundary checks
-  pass. Current-main `task runtime:base:check`, `task check`, and
-  `task public:check` pass; a clean `HEAD + allowed packet diff` snapshot also
-  passes `task security`. The current worktree security scan is blocked only by
-  an out-of-scope untracked packet link, and the separate runtime integration
-  blocker remains unresolved below.
+  pass. Current-main `task runtime:base:check`, `task check`, `task security`,
+  and `task public:check` pass, and `task integration:test` completes the
+  runtime plus policy-learning scenario on the supported Docker/Colima host.
 - [x] The delegated sub-agent creates an intentional scoped commit and reports
   its SHA after the E2E and required gates pass. Evidence: scoped commit
   `912c602b4e80d055775e557e6e509b6beff26928` is an ancestor of current `main`.
@@ -75,12 +73,9 @@ alone.
 
 ## Completion definition
 
-The work is complete when the acceptance criteria have evidence in the child
-packet, the canonical and embedded runtime sources agree, the end-to-end shell
-journey has been replayed, the required gates pass, and the delegated sub-agent
-has created a scoped commit. The Bash journey and repository gates are
-verified, but the broader shared runtime integration remains unresolved at the
-policy-review step, so this packet remains `Active` until that blocker is
-closed. If the packet only confirms behavior that was already present, the
-commit may contain the packet's durable evidence and regression coverage; no
-unnecessary production change is required.
+The work is complete because the acceptance criteria have evidence in the
+child packet, the canonical and embedded runtime sources agree, the end-to-end
+shell journey and full supported integration have been replayed, the required
+gates pass, and the scoped runtime evidence commit is in `main`. The requested
+behavior was already present in production; the work added durable regression
+coverage and evidence without an unnecessary production change.
