@@ -7,15 +7,20 @@
 
 ## Chosen approach
 
-Resolve the lifecycle contract before changing mechanics:
-
 1. Reproduce both runtime-not-ready registration and build-after-registration
    in fresh disposable projects.
-2. Decide whether prevention, reconcile, or new-Workspace-only semantics best
-   preserve CWD ownership, explicit host authority, and safe lifecycle effects.
-3. Reproduce the shell prompt identity in a clean PTY and classify it.
-4. Implement the smallest bounded change, if the decision requires one.
-5. Replay the full runtime journey and promote the contract into docs/tests.
+2. Prevent broken registration: before a new Workspace is created, the
+   application asks the runtime adapter to validate the image selected by the
+   active Context. The adapter performs no state or Docker mutation and maps
+   `builtin` to the current cluster asset image before compatibility checking.
+3. Declare the missing-image prerequisite in the `tobari` catalog with
+   `runtime build` as the recovery action.
+4. Keep existing Workspace image reuse and no-silent-refresh semantics
+   unchanged. A future refresh/recreate action needs its own mutation contract.
+5. Record the shell identity wrapper timeout separately rather than changing
+   the fixed `/bin/bash` entry contract without a bounded reproduction.
+6. Replay the complete runtime journey and promote the contract into
+   docs/tests.
 
 ## Alternatives considered
 
@@ -26,9 +31,9 @@ silent refresh can surprise a user and alter the running environment.
 
 ### B: Require runtime readiness before registration
 
-Viable if the first command gives a clear typed prerequisite and no broken
-instance is created. It keeps the lifecycle explicit but may require a better
-recovery path.
+Chosen. A read-only adapter preflight gives the first command a clear typed
+prerequisite and guarantees that no logical Workspace is created when its
+image cannot be used. The catalog recovery is `runtime build`.
 
 ### C: Add an explicit reconcile/recreate action
 

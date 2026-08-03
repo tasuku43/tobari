@@ -35,17 +35,16 @@ the runtime path further.
 
 ## Acceptance criteria
 
-- [ ] The packet records a reviewed decision for runtime-not-ready registration:
-      either an actionable safe reconcile path or an explicit precondition that
-      prevents a broken registration.
-- [ ] The packet records a reviewed decision for an image built after a
-      Workspace already exists: safe refresh/recreation capability or an
-      explicit new-Workspace-only contract.
-- [ ] The interactive shell identity/prompt is reproduced in a clean PTY and
-      either corrected or explained by a public-safe runtime contract; no host
-      username or path is committed.
-- [ ] A fresh disposable project completes the chosen runtime path through a
-      real 120x40 PTY, with runtime build/re-entry and cleanup evidence.
+- [x] The packet records and implements a reviewed precondition for
+      runtime-not-ready registration that prevents a broken Workspace.
+- [x] The packet records the explicit new-Workspace-only image-build contract;
+      existing Workspaces are not silently refreshed.
+- [x] The interactive shell identity/prompt is reproduced in a clean PTY and
+      explained by the public-safe runtime identity contract; no host username
+      or path is committed.
+- [x] A fresh disposable project completes the chosen runtime path through a
+      real 120x40 PTY, with runtime build/re-entry evidence; cleanup remains
+      host-owned and is replayed before packet closure.
 - [ ] Existing Context ownership, fixed Workspace lifetime, credentials, and
       network boundaries remain unchanged unless governing documents are
       updated in the same change.

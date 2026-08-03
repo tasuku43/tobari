@@ -20,6 +20,32 @@ runtime lifecycle as current behavior.
   image selection must not become an implicit project-file or agent-side side
   effect.
 
+## Verified reproduction and decision
+
+- On 2026-08-03, a fresh task-owned project with an active Context selecting
+  `localhost/missing-runtime:latest` reached the real `tobari` PTY. The first
+  entry attempt returned `undeclared_fault_contract` and left one logical
+  Workspace with `runtime: missing` in `list --format json`. No unrelated
+  containers were touched; the Gateway and OPA containers were task-owned and
+  healthy.
+- The failure was two defects: entry created logical state before runtime
+  image validation, and the image fault was not declared by the `tobari`
+  catalog. This made a normal missing-image prerequisite look like a contract
+  failure.
+- Decision: a new Workspace now performs a read-only runtime-image preflight
+  before `CreateProject`. A missing or incompatible image is surfaced as the
+  declared `image_not_found`/runtime prerequisite and the logical Workspace
+  remains absent. Existing Workspaces still use their stored image and retain
+  the no-silent-refresh boundary.
+- The shell identity probe was attempted with a real 120x40 PTY, but the
+- A subsequent clean 120x40 PTY replay on the supported built image produced
+  `tobari@...`, `id -un=tobari`, `HOME=/var/lib/tobari`, and `BASH=/bin/bash`,
+  followed by a successful re-entry. The earlier `I have no name!` output is
+  classified as a runtime image whose passwd entry did not match the host UID;
+  no product change is justified without reproducing it on a supported build.
+- The complete sanitized replay is in
+  [the runtime lifecycle transcript](e2e/runtime-lifecycle-transcript.md).
+
 ## Relevant structure
 
 - Runtime use cases: `internal/app/contextcmd/`.
@@ -46,12 +72,13 @@ runtime lifecycle as current behavior.
 
 ## Unknowns
 
-- [ ] Should runtime preparation be a hard prerequisite before Workspace
-      registration, or should the CLI expose a safe reconcile transition?
-- [ ] Is a safe refresh/recreate operation necessary, or is new-Workspace-only
-      behavior the intended contract?
-- [ ] Does the `I have no name!` prompt reproduce on the supported base image
-      and current main, and what identity contract should be visible?
+- [x] Runtime preparation is a hard prerequisite before new Workspace
+      registration; no safe reconcile mutation is needed for this finding.
+- [x] `runtime build` is new-Workspace-only for image selection. Existing
+      Workspaces retain their stored image; refresh/recreate remains a future
+      explicit lifecycle capability, not an implicit side effect.
+- [x] The `I have no name!` prompt did not reproduce on the clean supported
+      image replay; the visible identity is `tobari` and the shell is Bash.
 - [ ] Which existing runtime/integration profile is the authoritative E2E gate
       once the policy-review PTY blocker is fixed?
 
@@ -61,6 +88,18 @@ runtime lifecycle as current behavior.
   `new-user-value-e2e` packet.
 - Blind Long-01: `feedback/official/long-01.md` in the same packet.
 - Existing Bash runtime evidence: `docs/work/runtime-bash-shell/`.
+
+## Verification outcome
+
+- Focused Go tests and `go test ./...` pass with the preflight change.
+- The fresh PTY replay and CLI-owned cleanup pass; the task-owned state ended
+  with no Workspace records and no `tobari-*` containers.
+- `task runtime:test` passes its policy, Gateway, custom-image, and ordinary
+  lifecycle portions, then exits 130 at the checked-in interactive policy
+  review handoff. The process tree shows the test's PTY wrapper waiting at
+  `policy review --tail 1000`; the same external wrapper/input handoff is
+  already recorded in `policy-review-tty`. This remains an integration
+  harness blocker, not a runtime-preflight failure.
 
 ## Security and public-boundary notes
 

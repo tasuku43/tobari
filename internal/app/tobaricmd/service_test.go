@@ -219,6 +219,8 @@ type projectRuntimeFake struct {
 	resolveCalls    int
 	createCalls     int
 	ensureCalls     int
+	validateCalls   int
+	validateErr     error
 	enterCalls      int
 	deleteCalls     int
 	sessionCalls    int
@@ -255,6 +257,10 @@ func (f *projectRuntimeFake) ListProjects(context.Context) ([]tobari.ProjectInst
 }
 func (f *projectRuntimeFake) ProjectHome(context.Context, tobari.ProjectInstance) (string, error) {
 	return "/tmp/tobari-home", nil
+}
+func (f *projectRuntimeFake) ValidateProjectRuntime(context.Context, tobari.State) error {
+	f.validateCalls++
+	return f.validateErr
 }
 func (f *projectRuntimeFake) EnsureProjectRuntime(_ context.Context, _ tobari.State, instance tobari.ProjectInstance) (tobari.ProjectInstance, error) {
 	f.ensureCalls++
@@ -404,6 +410,25 @@ func TestEnterProjectWithoutAncestorCreatesDirectly(t *testing.T) {
 	}
 	if fake.createCalls != 1 || fake.resolveCalls != 0 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
 		t.Fatalf("calls = create:%d resolve:%d ensure:%d enter:%d", fake.createCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
+	}
+}
+
+func TestEnterProjectChecksNewRuntimeBeforeCreatingWorkspace(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project", terminal: true, found: false, project: testProjectInstance(),
+		validateErr: fault.New(fault.KindUnavailable, "image_not_found", "runtime image is unavailable", false),
+	}
+	_, err := New(fake).EnterProject(
+		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "image_not_found" {
+		t.Fatalf("EnterProject() error = %v, public = %+v", err, public)
+	}
+	if fake.validateCalls != 1 || fake.createCalls != 0 || fake.ensureCalls != 0 || fake.enterCalls != 0 {
+		t.Fatalf("calls = validate:%d create:%d ensure:%d enter:%d", fake.validateCalls, fake.createCalls, fake.ensureCalls, fake.enterCalls)
 	}
 }
 

@@ -1020,6 +1020,7 @@ func projectEnterErrors() []CommandError {
 		declaredCommandError(fault.KindContract, "workspace_selection_invalid", false, "tobari", "Choose a current Workspace or explicitly create one again."),
 		declaredCommandError(fault.KindRejected, "workspace_selection_stale", true, "tobari", "Refresh the Workspace choices and select again."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
+		declaredCommandError(fault.KindUnavailable, "image_not_found", false, "runtime build", "Build or make the selected compatible runtime image available to Docker."),
 		declaredCommandError(fault.KindUnavailable, "runtime_reconcile_failed", false, "status", "Inspect the selected project's runtime."),
 		declaredCommandError(fault.KindInternal, "enter_failed", false, "status", "Inspect the selected project's runtime."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),

@@ -61,6 +61,24 @@ func projectResourceHashFields() []string {
 	}
 }
 
+// ValidateProjectRuntime checks the image that a new logical Workspace would
+// consume without creating state or Docker resources. EnterProject calls this
+// before CreateProject so a missing or incompatible image cannot leave a
+// durable Workspace that has no possible runtime.
+func (r *Runtime) ValidateProjectRuntime(ctx context.Context, state tobari.State) error {
+	if err := state.Validate(); err != nil {
+		return err
+	}
+	image, err := r.resolveContextImage(ctx)
+	if err != nil {
+		return err
+	}
+	if image == tobari.BuiltinImageSelector {
+		image = tobariImage(state)
+	}
+	return r.validateCompatibleImage(ctx, image)
+}
+
 // EnsureProjectRuntime converges the exact runtime resources of a durable
 // logical Tobari. It never removes logical state when Docker is missing or
 // cannot be classified safely.

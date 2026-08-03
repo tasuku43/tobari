@@ -71,6 +71,9 @@ type ProjectRuntimePort interface {
 	ProjectHome(context.Context, tobari.ProjectInstance) (string, error)
 	IsTerminal(io.Writer) bool
 	IsInputTerminal(io.Reader) bool
+	// ValidateProjectRuntime is a read-only precondition for a new Workspace.
+	// It must not create logical state or Docker resources.
+	ValidateProjectRuntime(context.Context, tobari.State) error
 	EnsureProjectRuntime(context.Context, tobari.State, tobari.ProjectInstance) (tobari.ProjectInstance, error)
 	InspectProjectRuntime(context.Context, tobari.ProjectInstance) (tobari.RuntimeDiagnostic, error)
 	ProjectSessionAttached(context.Context, tobari.ProjectInstance) (bool, error)
@@ -444,6 +447,9 @@ func (s *Service) EnterProject(
 			var actionErr error
 			switch choice.Kind {
 			case tobari.ProjectSelectionCreate:
+				if actionErr = project.ValidateProjectRuntime(actionContext, state); actionErr != nil {
+					return classifyProjectMutationError(actionErr, "tobari", "runtime build", "the selected runtime is not ready for a new Workspace")
+				}
 				instance, actionErr = project.CreateProject(actionContext, cwd)
 				if errors.Is(actionErr, tobari.ErrProjectExists) {
 					return workspaceSelectionStaleFault()

@@ -9,22 +9,25 @@
       readiness documents.
 - [ ] Inspect the current Context/runtime catalog, use cases, adapters, image
       assets, Bash runtime packet, and relevant tests.
-- [ ] Record fresh reproductions for runtime-not-ready registration and
+- [x] Record fresh reproductions for runtime-not-ready registration and
       build-after-Workspace registration.
-- [ ] Reproduce and classify the `I have no name!` prompt in a clean PTY.
+- [x] Attempt to reproduce and classify the `I have no name!` prompt in a
+      clean PTY; the external wrapper timed out and the identity question is
+      kept separate from the preflight fix.
 
 ## Decide
 
-- [ ] Choose prevention, reconcile, or explicit new-Workspace-only semantics
-      and record why alternatives are rejected.
+- [x] Choose prevention (read-only runtime-image preflight) and record why
+      alternatives are rejected.
 - [ ] Decide whether shell identity requires a runtime fix, a contract note, or
       a separate deferred packet.
-- [ ] Confirm the public command/catalog/recovery impact before implementation.
+- [x] Confirm and implement the public catalog recovery impact:
+      `image_not_found` points to `runtime build`.
 
 ## Implement
 
-- [ ] Add the smallest domain/application/infrastructure/CLI change required by
-      the decision, or record why no code change is needed.
+- [x] Add the smallest application/infrastructure/CLI change required by the
+      decision: preflight before logical Workspace creation plus its tests.
 - [ ] Add negative-path, cancellation, failed-build, and opaque/lifecycle
       ownership tests in the owning layer.
 - [ ] Update durable product/architecture/security/harness docs if the decision
@@ -33,11 +36,13 @@
 
 ## Verify
 
-- [ ] Replay the complete runtime journey through a real 120x40 PTY.
-- [ ] Verify existing Workspace behavior and cleanup ownership.
+- [x] Replay the complete runtime journey through a real 120x40 PTY.
+- [x] Verify existing Workspace behavior and cleanup ownership; CLI cleanup
+      removed the task-owned records and cluster.
 - [ ] Run `task runtime:test`, `task check`, `task security`, and
       `task public:check`.
-- [ ] Record integration outcome and any remaining external blocker.
+- [x] Record integration outcome and the remaining external policy-review PTY
+      blocker.
 
 ## Hand off
 
