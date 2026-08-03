@@ -80,39 +80,50 @@ func selectPolicyReviewRaw(
 	selected := 0
 	message := ""
 	lineCount := 0
+	needsRender := true
 	for {
 		if err := ctx.Err(); err != nil {
 			finishPolicyReviewSelector(out, lineCount)
 			return policyReviewDecision{}, err
 		}
-		top := selectorWindowTop(selected, len(report.Items), selectorMaxVisibleOptions)
-		currentLines := renderPolicyReviewListRaw(out, report, selected, top, message, lineCount)
-		if currentLines < 0 {
-			finishPolicyReviewSelector(out, lineCount)
-			return policyReviewDecision{}, fmt.Errorf("render policy review selector")
+		if needsRender {
+			top := selectorWindowTop(selected, len(report.Items), selectorMaxVisibleOptions)
+			currentLines := renderPolicyReviewListRaw(out, report, selected, top, message, lineCount)
+			if currentLines < 0 {
+				finishPolicyReviewSelector(out, lineCount)
+				return policyReviewDecision{}, fmt.Errorf("render policy review selector")
+			}
+			lineCount = currentLines
+			needsRender = false
 		}
-		lineCount = currentLines
 		key, err := readSelectorKey(ctx, in)
 		if err != nil {
 			finishPolicyReviewSelector(out, lineCount)
 			return policyReviewDecision{}, err
 		}
 		switch key.kind {
+		case selectorKeyNone:
+			continue
 		case selectorKeyUp:
 			selected = (selected - 1 + len(report.Items)) % len(report.Items)
 			message = ""
+			needsRender = true
 		case selectorKeyDown:
 			selected = (selected + 1) % len(report.Items)
 			message = ""
+			needsRender = true
 		case selectorKeyHome:
 			selected = 0
 			message = ""
+			needsRender = true
 		case selectorKeyEnd:
 			selected = len(report.Items) - 1
 			message = ""
+			needsRender = true
 		case selectorKeyNumber:
 			if key.index < 0 || key.index >= len(report.Items) {
 				message = "That permission does not exist."
+				needsRender = true
 				continue
 			}
 			selected = key.index
@@ -133,11 +144,13 @@ func selectPolicyReviewRaw(
 			finishPolicyReviewSelector(out, detail.Lines)
 			lineCount = 0
 			message = ""
+			needsRender = true
 		case selectorKeyCancel:
 			finishPolicyReviewSelector(out, lineCount)
 			return policyReviewDecision{Canceled: true}, nil
 		default:
 			message = "Use ↑/↓ to move, Enter to inspect, or q to cancel."
+			needsRender = true
 		}
 	}
 }
@@ -159,23 +172,29 @@ func selectPolicyReviewDetailRaw(
 	candidate := report.Items[selected]
 	message := ""
 	lineCount := previousLines
+	needsRender := true
 	for {
 		if err := ctx.Err(); err != nil {
 			finishPolicyReviewSelector(out, lineCount)
 			return policyReviewDetailRawResult{err: err}
 		}
-		currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount)
-		if currentLines < 0 {
-			finishPolicyReviewSelector(out, lineCount)
-			return policyReviewDetailRawResult{err: fmt.Errorf("render policy permission detail")}
+		if needsRender {
+			currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount)
+			if currentLines < 0 {
+				finishPolicyReviewSelector(out, lineCount)
+				return policyReviewDetailRawResult{err: fmt.Errorf("render policy permission detail")}
+			}
+			lineCount = currentLines
+			needsRender = false
 		}
-		lineCount = currentLines
 		key, err := readSelectorKey(ctx, in)
 		if err != nil {
 			finishPolicyReviewSelector(out, lineCount)
 			return policyReviewDetailRawResult{err: err}
 		}
 		switch key.kind {
+		case selectorKeyNone:
+			continue
 		case selectorKeyAllow:
 			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, policyReviewActionAllow, in, out, lineCount)
 			if confirmErr != nil {
@@ -188,6 +207,7 @@ func selectPolicyReviewDetailRaw(
 				}}
 			}
 			message = ""
+			needsRender = true
 		case selectorKeyDeny:
 			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, policyReviewActionDeny, in, out, lineCount)
 			if confirmErr != nil {
@@ -200,12 +220,14 @@ func selectPolicyReviewDetailRaw(
 				}}
 			}
 			message = ""
+			needsRender = true
 		case selectorKeyBack, selectorKeyCancel:
 			return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
 				Back: true, Lines: lineCount,
 			}}
 		default:
 			message = "Press a to allow, d to deny, or q to go back."
+			needsRender = true
 		}
 	}
 }
@@ -221,15 +243,18 @@ func confirmPolicyReviewRaw(
 	}
 	message := actionName + " this exact permission? Type y to continue; default is no."
 	lineCount := previousLines
+	currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount)
+	if currentLines < 0 {
+		finishPolicyReviewSelector(out, lineCount)
+		return false, lineCount, fmt.Errorf("render policy permission confirmation")
+	}
+	lineCount = currentLines
 	for {
-		currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount)
-		if currentLines < 0 {
-			finishPolicyReviewSelector(out, lineCount)
-			return false, lineCount, fmt.Errorf("render policy permission confirmation")
-		}
-		lineCount = currentLines
 		value, err := readSelectorByte(ctx, in)
 		if err != nil {
+			if errors.Is(err, errSelectorTimeout) {
+				continue
+			}
 			if errors.Is(err, errSelectorEOF) {
 				return false, lineCount, nil
 			}
@@ -243,6 +268,12 @@ func confirmPolicyReviewRaw(
 			return false, lineCount, nil
 		default:
 			message = "Type y to confirm, or n to keep this permission blocked."
+			currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount)
+			if currentLines < 0 {
+				finishPolicyReviewSelector(out, lineCount)
+				return false, lineCount, fmt.Errorf("render policy permission confirmation")
+			}
+			lineCount = currentLines
 		}
 	}
 }

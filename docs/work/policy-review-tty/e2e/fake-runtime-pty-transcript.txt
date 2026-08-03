@@ -42,3 +42,40 @@ Non-mutating E2E cases:
 The raw transcript also contains `ESC[?25h` after every interactive case,
 proving cursor/terminal restoration. The test passed on macOS with all five
 subcases.
+
+New-user delayed-confirmation follow-up
+---------------------------------------
+
+PTY metadata: `TERM=xterm-256color`, rows=40, cols=120.
+
+Pre-fix reproduction:
+
+    input: 1a
+    pause: 1.0s before confirmation
+    result: undeclared_fault_contract, exit=13, apply_calls=0, deny_calls=0
+    observed: repeated Inbox/confirmation redraws during timeout polling
+
+Post-fix staged raw input (0.75s pause between stages):
+
+    input: 1a | y
+    result: code=0, apply_calls=1, deny_calls=0
+    frames: Inbox list -> Permission detail -> Allow confirmation (3 total)
+    reference: source_candidate=pcy_ffd73b5251017a08e18f50a74d9e1062
+    refresh: No pending network permissions
+
+    input: 1d | y
+    result: code=0, apply_calls=0, deny_calls=1
+    frames: Inbox list -> Permission detail -> Deny confirmation (3 total)
+    reference: deny_candidate=pcy_ffd73b5251017a08e18f50a74d9e1062
+    refresh: No pending network permissions
+
+    input: 1a | q | q | q
+    result: code=0, apply_calls=0, deny_calls=0
+    outcome: Permission review canceled; No permissions changed.
+
+    input: 1d | Ctrl-C | Ctrl-C | Ctrl-C
+    result: code=0, apply_calls=0, deny_calls=0
+    outcome: Permission review canceled; No permissions changed.
+
+Every staged case restores the cursor with `ESC[?25h`; invalid `9q` and
+redirected JSON remain read-only cases from the first-wave transcript.

@@ -132,39 +132,123 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	})
 }
 
+func TestPolicyReviewDelayedConfirmationRealPTYAndCancellation(t *testing.T) {
+	if os.Getenv(policyReviewPTYChildEnv) == "1" {
+		return
+	}
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("the supported raw-terminal test requires a Unix PTY")
+	}
+
+	for _, test := range []struct {
+		name     string
+		input    string
+		marker   string
+		wantText []string
+	}{
+		{
+			name:     "delayed-allow",
+			input:    "1a|y",
+			marker:   "case=delayed-allow code=0 apply_calls=1 deny_calls=0",
+			wantText: []string{"source_candidate=" + policyReviewPTYCandidateID(), "No pending network permissions"},
+		},
+		{
+			name:     "delayed-deny",
+			input:    "1d|y",
+			marker:   "case=delayed-deny code=0 apply_calls=0 deny_calls=1",
+			wantText: []string{"deny_candidate=" + policyReviewPTYCandidateID(), "No pending network permissions"},
+		},
+		{
+			name:     "cancel-after-allow",
+			input:    "1a|q|q|q",
+			marker:   "case=cancel-after-allow code=0 apply_calls=0 deny_calls=0",
+			wantText: []string{"Permission review canceled", "Changed", "No permissions changed."},
+		},
+		{
+			name:     "interrupt-after-deny",
+			input:    "1d|\x03|\x03|\x03",
+			marker:   "case=interrupt-after-deny code=0 apply_calls=0 deny_calls=0",
+			wantText: []string{"Permission review canceled", "Changed", "No permissions changed."},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := runPolicyReviewPTYChild(t, test.name, test.input)
+			for _, want := range append([]string{
+				"PTY_META rows=40 cols=120",
+				"\x1b[?25h",
+				"Tobari · Permission Inbox",
+				test.marker,
+			}, test.wantText...) {
+				if !strings.Contains(output, want) {
+					t.Fatalf("PTY output lacks %q: %q", want, output)
+				}
+			}
+			if strings.Contains(output, "undeclared_fault_contract") {
+				t.Fatalf("PTY output contains an undeclared fault: %q", output)
+			}
+			if test.name == "delayed-allow" || test.name == "delayed-deny" {
+				if got := strings.Count(output, "Tobari · Permission Inbox"); got != 3 {
+					t.Fatalf("delayed confirmation redrew the screen %d times, output=%q", got, output)
+				}
+			}
+		})
+	}
+}
+
 func runPolicyReviewPTYChild(t *testing.T, caseName, input string) string {
+	t.Helper()
+	output, err := runPolicyReviewPTYChildResult(t, caseName, input)
+	if err != nil {
+		t.Fatalf("PTY child failed: %v\noutput=%q", err, output)
+	}
+	return output
+}
+
+func runPolicyReviewPTYChildResult(t *testing.T, caseName, input string) (string, error) {
 	t.Helper()
 	command := exec.Command("python3", "-c", policyReviewPTYPython,
 		os.Args[0], "-test.run=^TestPolicyReviewPTYChild$", "-test.v", input)
 	command.Env = append(os.Environ(),
 		policyReviewPTYChildEnv+"=1",
 		policyReviewPTYCaseEnv+"="+caseName,
+		"TERM=xterm-256color",
 	)
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	if err := command.Run(); err != nil {
-		t.Fatalf("PTY child failed: %v\nstdout=%q\nstderr=%q", err, stdout.String(), stderr.String())
-	}
-	return stdout.String() + stderr.String()
+	err := command.Run()
+	return stdout.String() + stderr.String(), err
 }
 
 const policyReviewPTYPython = `
 import errno
+import fcntl
 import os
 import pty
 import select
+import struct
 import sys
+import termios
 import time
 
 args = sys.argv[1:-1]
-payload = sys.argv[-1].encode()
+payload = sys.argv[-1]
 pid, master = pty.fork()
 if pid == 0:
     os.execv(args[0], args)
 
+fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+os.write(1, b"PTY_META rows=40 cols=120\n")
 time.sleep(1.0)
-os.write(master, payload)
+for index, part in enumerate(payload.split("|")):
+    try:
+        os.write(master, part.encode())
+    except OSError as error:
+        if error.errno == errno.EIO:
+            break
+        raise
+    if index + 1 < len(payload.split("|")):
+        time.sleep(0.75)
 status = None
 while status is None:
     ready, _, _ = select.select([master], [], [], 0.1)

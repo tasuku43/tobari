@@ -90,6 +90,17 @@ timeout; ordinary redirected readers retain EOF cancellation semantics. The
 integration helper uses a standard-library Python PTY bridge so stdin remains
 attached to the child PTY until the process exits.
 
+### Resolution of the delayed-confirmation follow-up
+
+The real 120x40 PTY reproduction showed two related CLI presentation defects:
+the list/detail loops treated polling timeouts as state changes and redrew the
+same screen, while confirmation treated the same timeout as an unstructured
+error. The smallest fix keeps the existing state machine and opaque action
+boundary: list and detail render only on initial entry or an actual key/state
+change, and confirmation renders once, waits through timeout polls, and renders
+again only for an invalid confirmation byte. `q`, Ctrl-C, and `y` retain their
+existing hierarchical meanings; no catalog, JSON, or action contract changes.
+
 ### Security and public boundary
 
 Use synthetic hosts, paths, IDs, timestamps, and reasons in tests and docs.
@@ -149,10 +160,15 @@ packet until handoff, then remove them with the packet.
 - `main` is `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`, containing the first-wave
   merge `966dd08841a7ccd88212dd9c8683562c99e17aa9` and the scoped policy-review
   implementation commit `7d096bb5749e3ad8afd6d85c88af301f5dda113f`.
-- The focused real-PTY/read-only E2E passes all five subcases. `task check` and
-  `task public:check` pass on the current documentation edit.
-- `task integration:test` remains unresolved: its preflight finds an already
-  running `tobari-gateway` and exits 1; the active cluster is intentionally not
-  stopped. Current-worktree `task security` is separately blocked by an
-  out-of-scope architecture-publication link, while the isolated HEAD-plus-
-  allowed-packet snapshot passes security.
+- The post-fix focused suite passes the existing five real-PTY/read-only cases
+  and four new staged cases (delayed allow, delayed deny, cancel, interrupt)
+  with 120x40 metadata, stable three-frame redraws, exact opaque IDs, and
+  cursor restoration.
+- `task check:fast`, `task check`, `task public:check`, and `task security` all
+  pass in the current worktree. The security run reports verified modules and
+  `No vulnerabilities found.`
+- The follow-up `task integration:test` reaches the real `/review-interactive`
+  denial and the checked-in PTY command at `scripts/test-integration.sh:744`,
+  then waits over four minutes without producing the `Permission denied`
+  assertion. Ctrl-C exits 130 and cleanup leaves no integration containers.
+  This remains an external readiness/harness blocker, not focused PTY success.

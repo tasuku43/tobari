@@ -60,16 +60,26 @@ original first-render/EOF fix. The implementation must keep the confirmation
 state alive across a normal human pause after `a` or `d`, and must make the
 next safe action and final outcome readable without a repeated redraw storm.
 
-- [ ] A human-length pause after `a` or `d` preserves the confirmation state
+- [x] A human-length pause after `a` or `d` preserves the confirmation state
       and performs exactly one opaque action only after `y`, explicit cancel,
-      or terminal interruption.
-- [ ] The raw PTY transcript has stable, readable redraw behavior without a
+      or terminal interruption. Evidence: 120x40 staged PTY allow/deny cases
+      waited 0.75 seconds before `y`; cancel/interrupt cases performed zero
+      policy calls.
+- [x] The raw PTY transcript has stable, readable redraw behavior without a
       repeated warning storm, and terminal state is restored on every exit.
-- [ ] Intentional cancellation is visually distinguishable from an
+      Evidence: delayed allow/deny each rendered exactly three frames and
+      every staged case restored `ESC[?25h`.
+- [x] Intentional cancellation is visually distinguishable from an
       operational failure wherever the reviewed outcome needs that distinction.
-- [ ] A fresh supported-runtime PTY E2E and the policy readiness scenario pass
+      Evidence: q/Ctrl-C finish with `Permission review canceled` and
+      `No permissions changed.` while the pre-fix timeout produced the distinct
+      `undeclared_fault_contract` failure.
+- [x] A fresh supported-runtime PTY E2E and the policy readiness scenario pass
       after the follow-up, or the remaining external blocker is recorded
-      separately from the product result.
+      separately from the product result. Evidence: the fresh fake-runtime
+      supported PTY suite passes all four cases; the Docker readiness scenario
+      reaches the review wrapper but is separately blocked before its first
+      `Permission denied` assertion after a four-minute no-progress wait.
 
 ## Governing documents
 

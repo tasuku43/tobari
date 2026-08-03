@@ -19,10 +19,12 @@ desired TTY experience or an uncompleted integration run as current behavior.
 - The public contract defines `policy review` as a read-only discover command that may, on a TTY, compose selection, detail inspection, explicit confirmation, and one exact `policy allow` or `policy deny` action.
 - `internal/cli/tobari.go` enters interactive mode only for text output when both input and output are reported as terminals. JSON and redirected text use the read-only renderer.
 - `internal/cli/policy_review_selector.go` first attempts raw terminal mode. On Unix it requires the injected input to be an `*os.File` backed by a character device; otherwise it falls back to line input. The raw renderer writes ANSI cursor/screen-control sequences and clears the selector screen when it finishes.
-- Raw input semantics are: number selects an item, Enter opens detail, `a` requests allow, `d` requests deny, `y` confirms, and `q` cancels or returns. The integration fixture sends `3dy` because raw mode does not require newline characters. Unix raw mode uses `VMIN=0/VTIME=1`; a zero-byte character-device read is now treated as a polling timeout because Go can surface that read as `io.EOF`.
+- Raw input semantics are: number selects an item, Enter opens detail, `a` requests allow, `d` requests deny, `y` confirms, and `q` cancels or returns. The integration fixture sends `3dy` because raw mode does not require newline characters. Unix raw mode uses `VMIN=0/VTIME=1`; a zero-byte character-device read is treated as a polling timeout because Go can surface that read as `io.EOF`. Policy review keeps the current screen rendered while polling and redraws only after a key changes state.
 - Existing focused tests pass: selector raw selection/confirmation/cancellation, line fallback, CLI TTY delegation and queue refresh, redirected read-only behavior, and application terminal gating.
 - The Gateway and OPA focused tests pass, including learnable denial navigation and policy candidate behavior.
 - The user-reported observation is explained by the raw terminal read path: the initial Inbox rendered, the first zero-byte `VMIN=0/VTIME=1` poll was surfaced as EOF, and the selector converted it to cancellation before a human byte arrived. The validated candidate report was present; this was not a discovery or opaque-reference failure.
+- The follow-up reproduction used the same supported Python `pty.fork` bridge with a 120x40 window. After `1a` and a one-second human-length pause before any confirmation byte, the pre-fix selector returned `errSelectorTimeout`; command normalization rendered `undeclared_fault_contract`, exit code 13, and zero policy calls. The capture also showed repeated Inbox/confirmation redraws during every timeout poll.
+- The follow-up fix keeps `errSelectorTimeout` inside the confirmation state, treats timeout-only reads as no-op waits, and gates list/detail rendering on state changes. The post-fix staged PTY cases wait 0.75 seconds after both `a` and `d`, then confirm, cancel, or send Ctrl-C through the existing hierarchical back/list behavior. Allow and deny each perform one exact action and refresh to an empty queue; cancellation and interruption return the reviewed success text with zero mutation calls.
 
 ## Reproduction or observation
 
@@ -104,6 +106,49 @@ round trip, queue refresh, and cursor restoration. See
 `e2e/fake-runtime-pty-transcript.txt`. The full Docker integration remains
 blocked independently at cluster startup.
 
+The follow-up `GOCACHE=/private/tmp/tobari-policy-review-integration-gocache
+task integration:test` reached the real policy-learning review step. The
+integration log had already created `/review-interactive` and confirmed its
+403 learnable denial, then stopped at `scripts/test-integration.sh:744`:
+
+```sh
+interactive_output=$({ sleep 1; printf '3dy'; } | run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1)
+```
+
+At `2026-08-03T23:48:51+0900`, the parent task had elapsed 04:21 and the
+PTY child `tobari policy review --tail 1000` had elapsed 03:38 with no stdout,
+stderr, exit, or assertion progress. The wrapper process was the checked-in
+Python `pty.fork` stdin-forwarder (`run_tobari_pty_at`), and the review child
+was waiting for input. Gateway logs showed the expected `/review-interactive`
+denial followed only by health checks; no `Permission denied` assertion was
+observed. Ctrl-C was sent after the four-minute threshold; the task exited
+with status 130 and its cleanup trap left no integration `tobari-*` or mock
+containers running. This is an external integration-harness input/wait
+blocker after reaching review, not a failed focused PTY result and not
+evidence that the review assertion passed.
+
+## New-user E2E follow-up evidence
+
+The pre-fix real-PTY reproduction is recorded by the temporary test history and
+the sanitized transcript. Its exact input was `1a` after the initial 120x40
+frame, followed by a one-second pause with no confirmation byte. The result was
+`undeclared_fault_contract`, exit code 13, and `apply_calls=0 deny_calls=0`.
+
+The post-fix regression uses `TERM=xterm-256color`, a PTY window of 120 columns
+by 40 rows, and staged raw bytes with a 0.75-second pause between stages:
+
+- `1a`, pause, `y`: one allow call, the exact synthetic candidate ID appears in `source_candidate`, and the refreshed queue is empty.
+- `1d`, pause, `y`: one deny call, the exact same candidate ID appears in `deny_candidate`, and the refreshed queue is empty.
+- `1a`, pause, `q`, pause, `q`, pause, `q`: confirmation cancel, detail back, list cancel; zero mutation calls and `Permission review canceled`.
+- `1d`, pause, Ctrl-C, pause, Ctrl-C, pause, Ctrl-C: confirmation interrupt, detail back, list cancel; zero mutation calls and `Permission review canceled`.
+
+The allow/deny captures contain exactly three `Tobari · Permission Inbox`
+frames (list, detail, confirmation) despite the waits, and every case contains
+the cursor-restoration sequence `ESC[?25h`. Invalid selection (`9q`),
+redirected JSON, hostile visible fields, raw polling timeout mapping, stale
+candidate rejection, and wrong-kind/zero-call mutation paths remain covered by
+the existing focused suites.
+
 ## Relevant structure
 
 - Interactive decision orchestration: `internal/cli/tobari.go`, `runPolicyReview`, and `policyReviewInteractiveAllowed`.
@@ -131,7 +176,7 @@ blocked independently at cluster startup.
 - [x] Does raw redraw output hide the first screen in the user's terminal, or does the command receive EOF/cancel before the first visible frame? The supported reproduction identified the zero-byte character-device poll being surfaced as `io.EOF` and converted to cancellation.
 - [x] Does the output stream share a terminal with an enclosing shell or host UI that interprets the ANSI cleanup differently? The focused E2E records cursor restoration and the final visible outcomes independently of the enclosing shell.
 - [x] Should the final interactive state retain a short readable summary after screen cleanup, or is the existing cancellation/success renderer sufficient once the first frame is visible? The reviewed fake-runtime transcript shows the existing distinct cancellation, mutation, and empty-queue outcomes are sufficient for this fix.
-- [ ] Is the cluster-start blocker caused by current uncommitted Gateway image changes, Docker state, or a broader environment prerequisite? The policy-review packet does not claim this is resolved; repeated runs stop at `cluster_start_failed` before review.
+- [x] Is the current supported-runtime blocker a cluster-start failure? No: the follow-up run reached review. It now blocks at the checked-in PTY wrapper/input handoff before the first `Permission denied` assertion; the wrapper-level cause remains a separate harness follow-up.
 
 ## Thesis evidence
 
@@ -174,6 +219,12 @@ retry alias, an in-Workspace policy command, or a second catalog route.
 - `GOCACHE=/private/tmp/tobari-public-final2-gocache task public:check`: passed (`repoguard (public)`, `contractlint`).
 - The clean `HEAD + allowed packet diff` security snapshot passed `task security` with `repoguard (security): OK`, all modules verified, and `No vulnerabilities found.` The current worktree security invocation is separately blocked by the out-of-scope untracked `docs/work/architecture-publication/context.md:57` link; this packet does not edit it.
 - Current-main `GOCACHE=/private/tmp/tobari-integration-final-gocache task integration:test` stopped at the preflight because `tobari-gateway` already exists and is running; it exited 1 before a clean review assertion. The active cluster was not stopped by this packet.
+- Follow-up `GOCACHE=/private/tmp/tobari-policy-review-integration-gocache task integration:test` reached the `/review-interactive` denial and `scripts/test-integration.sh:744` PTY review command, then remained unchanged for more than four minutes. It was interrupted with exit 130 after recording the exact child/wrapper state; cleanup left no integration containers. The line never produced the `Permission denied` assertion.
+- `GOCACHE=/private/tmp/tobari-policy-review-fast-gocache task check:fast`: passed.
+- `GOCACHE=/private/tmp/tobari-policy-review-full-gocache task check`: passed.
+- `GOCACHE=/private/tmp/tobari-policy-review-public-gocache task public:check`: passed (`repoguard (public)`, `contractlint`).
+- `GOCACHE=/private/tmp/tobari-policy-review-security-gocache task security`: passed (`repoguard (security)`, module verification, `No vulnerabilities found.`).
+- Focused post-fix PTY suite passed all four staged cases (delayed allow, delayed deny, cancel, interrupt) in about 10.4 seconds; parent and child runs both observed 120x40, exact opaque IDs, stable three-frame redraws, cursor restoration, and zero-call cancellation/interrupt.
 
 ## Glossary
 

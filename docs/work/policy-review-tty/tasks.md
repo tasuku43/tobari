@@ -34,13 +34,23 @@
 - [x] Focused CLI/application tests pass after the reproduction/fix. Evidence: `GOCACHE=/private/tmp/tobari-policy-review-gocache go test ./internal/cli ./internal/app/tobaricmd -run 'PolicyReview|PolicyReviewSelector|Interactive|ReadSelectorByte' -count=1` passed; the real-PTY E2E ran five subcases.
 - [x] `task check` passes. Evidence: `GOCACHE=/private/tmp/tobari-policy-review-gocache task check` passed.
 - [x] `task public:check` passes when public docs or contract text changes. Evidence: `GOCACHE=/private/tmp/tobari-policy-review-gocache task public:check` passed; `bash -n scripts/test-integration.sh` and `git diff --check` also passed.
-- [ ] `task integration:test` reaches and passes policy review. Evidence: the first-wave clean repository-local run stopped before review at non-retryable `cluster_start_failed` (exit 9); the current-main recheck reported `integration: container tobari-gateway already exists` and exited 1 before a clean review assertion. The active container was left untouched; neither outcome is success evidence.
+- [ ] `task integration:test` reaches and passes policy review. Evidence: the
+      follow-up run reached `/review-interactive` and
+      `scripts/test-integration.sh:744`, where the checked-in PTY wrapper and
+      `tobari policy review --tail 1000` child waited without output or
+      assertion progress for over four minutes. Ctrl-C produced exit 130 and
+      cleanup left no integration containers. The review assertion was not
+      reached; this is an external harness blocker, separate from the passing
+      focused PTY suite.
 - [x] PTY behavior is observed on the supported platform(s), with terminal restoration verified. Evidence: macOS Python-PTY E2E passed allow/deny/cancel/invalid cases and observed `ESC[?25h`; the helper uses the same standard-library PTY model on Linux.
 - [x] Opaque-reference and hostile-output regression evidence is recorded. Evidence: E2E markers preserve the synthetic opaque candidate ID through allow/deny; existing hostile-output selector/CLI tests remain in the focused suite.
 
 ## Hand off
 
-- [ ] Acceptance criteria have evidence. Fake-runtime real-PTY, negative, JSON, and repository gates are complete; the Docker policy-learning scenario remains externally blocked before review.
+- [ ] Acceptance criteria have evidence. Fake-runtime real-PTY, negative, JSON,
+      focused/full/public/security gates, and the delayed-confirmation follow-up
+      are complete; the Docker policy-learning scenario is externally blocked
+      at the checked-in PTY review wrapper before its first assertion.
 - [x] The policy-review contract and any durable decision are promoted. No public contract change was needed; the packet records the mechanical terminal invariant and its regression tests.
 - [x] Temporary PTY diagnostics and sensitive artifacts are removed. Only the sanitized durable E2E transcript remains in this packet.
 - [ ] The coordinator packet is updated with the final status and successor disposition.
@@ -48,15 +58,30 @@
 
 ## New-user E2E follow-up
 
-- [ ] Reproduce the `a`/`d` confirmation failure after a normal human pause in
+- [x] Reproduce the `a`/`d` confirmation failure after a normal human pause in
       a real PTY and record the exact state transition and side-effect count.
-- [ ] Implement the smallest selector/redraw fix without adding a command or
-      changing the JSON/reference contract.
-- [ ] Add delayed-input, explicit-cancel, interrupt, redraw, and zero-call
-      negative-path regressions.
-- [ ] Replay the fresh 120x40 PTY journey and the policy-learning integration
-      scenario; record any external runtime blocker separately.
-- [ ] Run focused tests, `task check`, `task public:check`, security, and the
-      relevant readiness checks.
+      Evidence: `1a` followed by a one-second pause returned
+      `undeclared_fault_contract`, exit 13, with zero mutation calls; the
+      follow-up packet transcript records the repeated redraws.
+- [x] Implement the smallest selector/redraw fix without adding a command or
+      changing the JSON/reference contract. Evidence: timeout-only reads now
+      wait in place; list/detail render only on state changes; confirmation
+      remains pending until an explicit byte arrives.
+- [x] Add delayed-input, explicit-cancel, interrupt, redraw, and zero-call
+      negative-path regressions. Evidence: the 120x40 PTY test covers delayed
+      allow/deny, cancel, Ctrl-C, exact IDs, cursor restoration, and three
+      stable frames; existing invalid, hostile, stale, wrong-kind, JSON, and
+      zero-call tests remain green.
+- [x] Replay the fresh 120x40 PTY journey and the policy-learning integration
+      scenario; record any external runtime blocker separately. Evidence: the
+      fresh fake-runtime PTY journey passes all four staged cases; the Docker
+      integration attempt remains a separate pre-review startup/preflight
+      blocker and is not counted as product success.
+- [x] Run focused tests, `task check`, `task public:check`, security, and the
+      relevant readiness checks. Evidence: focused CLI/application, hostile,
+      opaque/invalid, Gateway, and OPA tests passed; `task check:fast`, `task
+      check`, `task public:check`, and `task security` passed. `task
+      integration:test` was attempted through the supported readiness path and
+      is recorded as the separate wrapper/input wait blocker above.
 - [ ] Commit the follow-up with an intentional message and report the SHA;
       update the triage/comparison handoff before closing this packet.
