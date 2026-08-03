@@ -108,46 +108,110 @@ run_tobari_pty_at() {
       XDG_CONFIG_HOME="$test_root/config" \
       XDG_STATE_HOME="$test_root/state" \
       XDG_DATA_HOME="$test_root/data" \
+      TERM=xterm-256color \
       python3 -c '
 import errno
+import fcntl
+import json
 import os
 import pty
 import select
+import signal
+import struct
 import sys
+import termios
+import time
 
 argv = sys.argv[1:]
+try:
+    scheduled_events = json.loads(os.environ.pop("TOBARI_TEST_PTY_EVENTS", "[]"))
+    timeout_seconds = float(os.environ.pop("TOBARI_TEST_PTY_TIMEOUT_SECONDS", "60"))
+except (TypeError, ValueError, json.JSONDecodeError) as error:
+    print(f"invalid integration PTY configuration: {error}", file=sys.stderr)
+    raise SystemExit(2)
+if not isinstance(scheduled_events, list) or timeout_seconds <= 0:
+    print("invalid integration PTY configuration", file=sys.stderr)
+    raise SystemExit(2)
+
 pid, master = pty.fork()
 if pid == 0:
     os.execvpe(argv[0], argv, os.environ)
 
-stdin_open = True
+fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+os.set_blocking(master, False)
+started = time.monotonic()
+event_index = 0
+next_event = started
+if scheduled_events:
+    next_event += float(scheduled_events[0].get("after_ms", 0)) / 1000
+stdin_open = not scheduled_events
 status = None
+master_closed = False
 while status is None:
-    readable = [master]
+    elapsed = time.monotonic() - started
+    if elapsed >= timeout_seconds:
+        print(
+            f"integration PTY timed out after {timeout_seconds:.1f}s; "
+            f"events_sent={event_index}/{len(scheduled_events)}",
+            file=sys.stderr,
+        )
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            _, status = os.waitpid(pid, 0)
+        except ChildProcessError:
+            status = 1
+        raise SystemExit(124)
+
+    readable = [] if master_closed else [master]
     if stdin_open:
         readable.append(0)
-    ready, _, _ = select.select(readable, [], [], 0.1)
+    wait_seconds = 0.1
+    if event_index < len(scheduled_events):
+        wait_seconds = min(wait_seconds, max(0, next_event - time.monotonic()))
+    ready, _, _ = select.select(readable, [], [], wait_seconds)
     if 0 in ready:
         data = os.read(0, 4096)
         if data:
             os.write(master, data)
         else:
             stdin_open = False
+            try:
+                os.write(master, b"\x04")
+            except OSError as error:
+                if error.errno not in (errno.EIO, errno.EPIPE):
+                    raise
     if master in ready:
         try:
             data = os.read(master, 4096)
         except OSError as error:
             if error.errno == errno.EIO:
                 data = b""
+                master_closed = True
             else:
                 raise
         if data:
             os.write(1, data)
+    now = time.monotonic()
+    while event_index < len(scheduled_events) and now >= next_event:
+        event = scheduled_events[event_index]
+        data = str(event.get("data", "")).encode("utf-8")
+        if not master_closed:
+            try:
+                os.write(master, data)
+            except OSError as error:
+                if error.errno not in (errno.EIO, errno.EPIPE):
+                    raise
+                master_closed = True
+        event_index += 1
+        if event_index < len(scheduled_events):
+            next_event += float(scheduled_events[event_index].get("after_ms", 0)) / 1000
     waited, status = os.waitpid(pid, os.WNOHANG)
     if waited == 0:
         status = None
 
-os.set_blocking(master, False)
 while True:
     try:
         data = os.read(master, 4096)
@@ -741,7 +805,12 @@ fi
 interactive_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-interactive)
 [[ $interactive_status == 403 ]] || fail "interactive review candidate returned $interactive_status instead of 403"
-interactive_output=$({ sleep 1; printf '3dy'; } | run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1)
+if ! interactive_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
+  TOBARI_TEST_PTY_EVENTS='[{"after_ms":5000,"data":"3"},{"after_ms":750,"data":"d"},{"after_ms":750,"data":"y"},{"after_ms":750,"data":"q"}]' \
+  run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1); then
+  printf '%s\n' "$interactive_output" >&2
+  fail "interactive policy review PTY session failed"
+fi
 assert_contains "$interactive_output" 'Permission denied' "interactive policy review"
 interactive_review=$(run_tobari policy review --tail 1000 --format json)
 if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/review-interactive" for item in json.load(sys.stdin)["policy_review"]) else 1)' <<<"$interactive_review"; then
