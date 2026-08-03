@@ -94,6 +94,8 @@ def main() -> int:
             fail(f"checkpoint labels mismatch: {labels!r}")
         if metadata["inputs"][0]["data"] != "hello\r":
             fail(f"typed input was not retained: {metadata['inputs']!r}")
+        if b"done input=hello\r" not in raw or b"done input=hello\rhello\r" in raw:
+            fail("PTY event was not delivered exactly once")
         if not metadata["redacted"]["ansi_preserved"]:
             fail("redacted artifact did not declare ANSI preservation")
         rejected = subprocess.run(
