@@ -9,6 +9,11 @@
 - Existing focused policy-review tests contain raw PTY evidence, but the blind
   new-user orchestration does not yet force the child-to-parent handoff to
   return it.
+- The parent capture boundary is now implemented in
+  `scripts/pty-evidence.py`. It refuses repository-local output, sets the PTY
+  size and `TERM`, records delayed input/checkpoints and exit status, and emits
+  raw/redacted SHA-256 metadata. Its contract replay passes, but the four
+  official blind runs predate the helper and have not been retrofitted.
 - Raw captures may contain ANSI controls, host paths, usernames, opaque IDs,
   and shell prompts; they must stay outside the public repository.
 
@@ -32,10 +37,18 @@
 
 ## Unknowns
 
-- [ ] Should capture live in the parent orchestration wrapper, a reusable
-      harness helper, or both?
-- [ ] What digest/metadata format is stable across macOS and Linux PTYs?
-- [ ] Which checkpoint projection is sufficient to prove redraw without
-      storing every raw frame publicly?
+- [x] Choose whether capture lives in the parent orchestration wrapper, a
+      reusable harness helper, or both. Decision: the reusable helper is
+      parent-owned; the child remains unaware of the route and raw artifact
+      location.
+- [x] What digest/metadata format is stable across macOS and Linux PTYs?
+      Decision: schema-versioned JSON with terminal metadata, monotonic
+      elapsed milliseconds, offsets, prefix digests, and SHA-256 files.
+- [x] Which checkpoint projection is sufficient to prove redraw without
+      storing every raw frame publicly? Decision: ANSI-preserving redacted
+      output plus checkpoint offsets, prefix digests, and visible tails; raw
+      bytes remain external.
 - [ ] How should a child report a capture location without reading the parent
-      repository or being taught the scenario route?
+      repository or being taught the scenario route? The parent must inject
+      only the desired outcome and receive the external bundle path on the next
+      blind rerun.

@@ -1,6 +1,6 @@
 # Work Plan: Make human PTY evidence reproducible and safe
 
-- Status: Proposed
+- Status: Active
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -29,8 +29,11 @@ Rejected by the public-boundary and security constraints.
 
 ## Verification
 
-- Cross-platform PTY smoke run with delayed human input and a cancellation.
-- Digest stability and redaction negative tests for paths, credentials, control
-  sequences, and opaque IDs.
-- One blind scenario replay consuming the new artifact format.
-- `task check`, `task security`, and `task public:check`.
+- Real-PTY smoke run with delayed human input and ANSI redraw; cancellation and
+  blind Tobari replay remain separate scenario acceptance work.
+- Digest and redaction negative tests for paths, credentials, control
+  sequences, literal values, and opaque IDs pass in
+  `scripts/test-pty-evidence.py`.
+- The four official blind scenario reports predate this artifact format; the
+  next parent run must consume one bundle before this packet can be removed.
+- `task check`, `task security`, and `task public:check` pass.

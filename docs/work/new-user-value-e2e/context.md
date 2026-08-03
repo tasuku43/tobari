@@ -26,6 +26,11 @@ feature-completion claim.
   policy review and runtime entry, but its streaming helper is not itself a
   substitute for a first-time human transcript. This packet adds paced,
   screen-aware observation on top of the existing supported commands.
+- A parent-owned capture boundary is now available through
+  `scripts/pty-evidence.py`; it emits external raw/redacted artifacts with
+  terminal metadata, typed-input timing, checkpoints, and digests. The four
+  official reports below predate that helper, so their missing raw evidence is
+  still an open rerun condition rather than silently backfilled data.
 - The official subject is a clean tracked snapshot of the maintainer-supplied
   `cc-bash-guard` project at revision `e045d15`. The parent creates disposable
   copies for each run; the source project and its working tree are never used

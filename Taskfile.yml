@@ -89,6 +89,11 @@ tasks:
     cmds:
       - ./scripts/check.sh runtime
 
+  pty:evidence:test:
+    desc: Verify the parent-owned real-PTY evidence bundle and redaction contract.
+    cmds:
+      - python3 scripts/test-pty-evidence.py
+
   check:fast:
     desc: Run the quick local and agent completion gate.
     cmds:

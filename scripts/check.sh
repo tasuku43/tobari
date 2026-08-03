@@ -23,6 +23,9 @@ preflight_commands() {
   local -a required_commands=(go gofmt git)
   local -a missing_commands=()
   local command_name
+  if [[ $selected_profile == fast || $selected_profile == full ]]; then
+    required_commands+=(python3)
+  fi
   if [[ $selected_profile == release ]]; then
     required_commands+=(shellcheck tar unzip ruby)
   fi
@@ -134,6 +137,7 @@ run_fast() {
   go run ./tools/repoguard --scope hygiene
   go run ./tools/archlint
   go run ./tools/contractlint
+  python3 scripts/test-pty-evidence.py
   ./scripts/check-runtime-base.sh
   ./scripts/check-runtime-claude.sh
   ./scripts/check-runtime-codex.sh

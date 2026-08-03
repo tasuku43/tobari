@@ -29,6 +29,15 @@ already met. Readiness evidence records command count, discovery rounds,
 external-processing count, and the exact next command separately for machine
 and human paths.
 
+Parent-owned human-path evidence uses a real-PTY capture boundary. The
+reviewable bundle records `rows`, `cols`, `TERM`, one short input event at a
+time, monotonic timing, redraw-preserving output checkpoints, exit status, and
+SHA-256 digests. Raw bytes stay in a task-owned directory outside Git; only a
+reviewed projection and its relative metadata belong in a work packet. The
+capture boundary does not teach a blind child the scenario route and does not
+turn a piped replay into human success. Run its contract test with
+`python3 scripts/test-pty-evidence.py`.
+
 ## Required scenario
 
 Run against a clean Docker Engine with a synthetic root:

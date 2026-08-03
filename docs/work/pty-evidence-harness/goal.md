@@ -1,6 +1,6 @@
 # Work Goal: Make human PTY evidence reproducible and safe
 
-- Status: Draft
+- Status: Active
 - Retention: temporary
 - Retention reason: Close the raw pseudo-TTY evidence gap found in the four new-user journeys.
 - Governing contract: `docs/00_theses.md`, `docs/02_architecture.md`, `docs/03_security_model.md`, `docs/04_harness.md`, `docs/05_public_repository.md`, `docs/09_agent_readiness_validation.md`
@@ -35,17 +35,18 @@ packet acceptance predicate remains unproven.
 
 ## Acceptance criteria
 
-- [ ] A supported PTY runner captures raw bytes, terminal size, `TERM`, typed
-      input timing, screen checkpoints, and exit status.
-- [ ] The runner produces a stable digest and a redacted readable projection;
-      raw captures remain outside Git.
-- [ ] Redaction preserves evidence of ANSI redraw/cursor restoration while
-      removing host-specific paths, usernames, IDs, and sensitive text.
+- [x] A supported PTY runner captures raw bytes, terminal size, `TERM`, typed
+      input timing, output checkpoints, and exit status.
+- [x] The runner produces SHA-256 digests and a redacted readable projection;
+      raw captures are refused inside the repository and remain outside Git.
+- [x] Redaction preserves evidence of ANSI redraw/cursor restoration while
+      removing host-specific paths, usernames, opaque IDs, and caller-supplied
+      sensitive values.
 - [ ] One blind synthetic journey proves the artifact is produced without
       handing the child a command sequence or bypassing the human path.
 - [ ] The artifact path and discovery count are included in parent-owned
       feedback, with no extra parser/join needed to interpret routine success.
-- [ ] `task check`, `task security`, and `task public:check` pass.
+- [x] `task check`, `task security`, and `task public:check` pass.
 
 ## Governing documents
 
@@ -56,10 +57,11 @@ packet acceptance predicate remains unproven.
 
 ## Completion definition
 
-The harness produces safe raw/readable PTY evidence from a blind run, the
-procedure is independently replayed, required gates pass, and the evidence
-format is promoted into the governing harness/readiness documentation before
-this temporary packet is removed.
+The harness produces safe raw/readable PTY evidence from a parent-owned run,
+the procedure is independently replayed by its contract test, required gates
+pass, and the evidence format is promoted into the governing harness/readiness
+documentation. A real blind Tobari rerun remains a separate acceptance step
+because the four existing child runs predate this capture boundary.
 
 ## Evaluation and handoff
 

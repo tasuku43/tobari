@@ -318,6 +318,16 @@ The test suite has complementary levels:
   does not require hand-editing OPA or Rego. Redirected review stays
   read-only, and exact reference-bound allow/deny actions are the routine
   policy mutations.
+- Parent-owned blind E2E runs use `scripts/pty-evidence.py` when raw terminal
+  evidence is required. The runner allocates a real PTY, sets explicit
+  rows/columns and `TERM`, applies a timestamped short-input schedule, and
+  records exit status, raw bytes, SHA-256 digests, and output checkpoints.
+  The raw bundle must be written to a task-owned directory outside the
+  repository. `transcript.redacted` and `metadata.json` are the reviewable
+  projection; redaction changes printable host paths, literal values, and
+  opaque IDs but preserves ANSI control sequences and the raw digest boundary.
+  `python3 scripts/test-pty-evidence.py` is the executable contract test and
+  runs as part of `task check:fast`.
 - Project-principal integration creates two current-directory Tobari, checks
   distinct Gateway network addresses, proves an atomically updated
   directory-mounted registry is visible without manually recreating Gateway,
