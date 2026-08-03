@@ -20,6 +20,7 @@ work uses [`$add-capability`](../.agents/skills/add-capability/SKILL.md).
 
 Additional directories serve different lifetimes:
 
+- The [architecture presentation](architecture-site/index.html) is a public-safe static map of the current product line.
 - The [decision template](decisions/0000-template.md) starts durable architecture decision records. An ADR is never edited to hide an old decision; a later ADR supersedes it.
 - The [work-packet goal template](work/_template/goal.md) starts bounded work packets. Facts and plans there are temporary unless promoted into a durable document.
 

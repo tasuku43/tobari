@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b1327">
+    <meta name="description" content="A public, static architecture presentation for Tobari's bounded agent execution boundary.">
+    <title>Tobari architecture — bounded autonomy, made legible</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body id="top">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="site-header">
+      <div class="shell nav-shell">
+        <a class="wordmark" href="#top" aria-label="Tobari architecture presentation">
+          <span class="wordmark-mark" aria-hidden="true">TB</span>
+          <span>Tobari <small>architecture</small></span>
+        </a>
+        <nav class="primary-nav" aria-label="Primary navigation">
+          <a href="#layers">Layers</a>
+          <a href="#boundaries">Trust</a>
+          <a href="#lifecycle">Workspace</a>
+          <a href="#policy-loop">Policy loop</a>
+          <a href="#context">Context</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero shell" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow">Second-wave architecture presentation <span class="eyebrow-dot" aria-hidden="true"></span> public static view</p>
+          <h1 id="page-title">Bounded autonomy, <em>made legible.</em></h1>
+          <p class="hero-lede">Tobari gives a coding agent an execution boundary in advance, then lets it move freely inside that boundary. This page is the map: where decisions live, where trust changes, and how a useful denial becomes a deliberate retry.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#layers">Start with the map <span aria-hidden="true">→</span></a>
+            <a class="text-link" href="#source-notes">Read the contract notes <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+
+        <aside class="hero-panel" aria-label="Architecture at a glance">
+          <div class="panel-kicker">One request path</div>
+          <div class="mini-flow" aria-label="Host, Workspace, Gateway, OPA, and upstream">
+            <span class="mini-node mini-node-host">Host</span>
+            <span class="mini-arrow" aria-hidden="true">→</span>
+            <span class="mini-node mini-node-work">Workspace</span>
+            <span class="mini-arrow" aria-hidden="true">→</span>
+            <span class="mini-node mini-node-gateway">Gateway</span>
+            <span class="mini-arrow" aria-hidden="true">→</span>
+            <span class="mini-node mini-node-opa">OPA</span>
+            <span class="mini-arrow" aria-hidden="true">→</span>
+            <span class="mini-node mini-node-upstream">upstream</span>
+          </div>
+          <p class="panel-caption">Supported HTTP/HTTPS effects cross one shared OPA-backed Gateway. Direct egress is not part of the agent path.</p>
+          <div class="panel-rule" aria-hidden="true"></div>
+          <p class="panel-foot"><span class="status-dot" aria-hidden="true"></span> default deny <span class="panel-separator">·</span> explicit permission growth</p>
+        </aside>
+      </section>
+
+      <div class="shell section-nav" aria-label="Presentation sections">
+        <span class="section-nav-label">Explore the boundary</span>
+        <a href="#layers">01 Layers</a>
+        <a href="#boundaries">02 Trust</a>
+        <a href="#lifecycle">03 Lifecycle</a>
+        <a href="#policy-loop">04 Policy</a>
+        <a href="#context">05 Context</a>
+      </div>
+
+      <section class="presentation-section shell" id="layers" aria-labelledby="layers-title">
+        <div class="section-heading">
+          <p class="section-number">01 <span>/</span> dependency direction</p>
+          <h2 id="layers-title">Four layers. One inward pull.</h2>
+          <p>The public CLI is the composition root. Application code interprets user tasks, infrastructure performs bounded effects, and the domain keeps the vocabulary pure. The direction is a constraint, not a suggestion.</p>
+        </div>
+
+        <div class="layer-diagram" aria-describedby="layer-diagram-description">
+          <p class="visually-hidden" id="layer-diagram-description">Dependencies point from the CLI to the application and domain, from the application to the domain, and from infrastructure to domain. The domain has no outward dependency.</p>
+          <div class="layer-card layer-cli">
+            <div class="layer-index">01</div>
+            <div>
+              <p class="layer-label">composition root</p>
+              <h3>CLI</h3>
+              <p>Catalog, typed arguments, human and agent help, presentation, signal handoff, and dependency wiring.</p>
+            </div>
+            <span class="layer-tag">public boundary</span>
+          </div>
+          <div class="layer-card layer-app">
+            <div class="layer-index">02</div>
+            <div>
+              <p class="layer-label">user-task interpretation</p>
+              <h3>Application</h3>
+              <p>Use cases own the smallest ports needed to close a task. They choose outcomes, not transport requests.</p>
+            </div>
+            <span class="layer-tag">task ports</span>
+          </div>
+          <div class="layer-card layer-infra">
+            <div class="layer-index">03</div>
+            <div>
+              <p class="layer-label">controlled effects</p>
+              <h3>Infrastructure</h3>
+              <p>Concrete Docker, filesystem, process, and network adapters satisfy domain contracts behind one boundary.</p>
+            </div>
+            <span class="layer-tag">adapters</span>
+          </div>
+          <div class="layer-card layer-domain">
+            <div class="layer-index">04</div>
+            <div>
+              <p class="layer-label">pure vocabulary and invariants</p>
+              <h3>Domain</h3>
+              <p>Workspace identity, operation effects, mutation intent, references, state, and validation. No I/O. No outward dependency.</p>
+            </div>
+            <span class="layer-tag">contracts</span>
+          </div>
+        </div>
+
+        <div class="edge-strip" aria-label="Dependency edges">
+          <span>CLI <b>→</b> Application</span>
+          <span>CLI <b>→</b> Domain</span>
+          <span>Application <b>→</b> Domain</span>
+          <span>Infrastructure <b>→</b> Domain</span>
+        </div>
+      </section>
+
+      <section class="presentation-section section-tinted" id="boundaries" aria-labelledby="boundaries-title">
+        <div class="shell">
+          <div class="section-heading section-heading-wide">
+            <p class="section-number">02 <span>/</span> trust boundaries</p>
+            <h2 id="boundaries-title">Trust changes at the edge of the Workspace.</h2>
+            <p>The host owns setup and exact resource selection. Agent processes are untrusted and can work inside the explicitly mounted root. Gateway and OPA are trusted enforcement components; the agent never receives their control surface.</p>
+          </div>
+
+          <div class="trust-map" aria-describedby="trust-map-description">
+            <p class="visually-hidden" id="trust-map-description">The trusted host creates a Workspace with one writable root, one persistent tool-owned home, and one dedicated internal network. The untrusted agent uses an explicit proxy to reach the trusted Gateway. Gateway asks trusted OPA for a decision before reaching an upstream service.</p>
+            <div class="trust-zone trust-host">
+              <div class="zone-heading"><span class="zone-mark" aria-hidden="true">H</span><div><p class="zone-kicker">trusted plane</p><h3>Host</h3></div></div>
+              <ul class="zone-list">
+                <li><strong>CLI + Docker Engine</strong><span>exact, ownership-labeled lifecycle</span></li>
+                <li><strong>Active Context</strong><span>host-selected execution setup</span></li>
+                <li><strong>Principal registry</strong><span>binds the project to its Gateway interface</span></li>
+              </ul>
+            </div>
+
+            <div class="trust-bridge" aria-hidden="true"><span>fixed runtime</span><b>→</b><span>proxy env</span></div>
+
+            <div class="trust-zone trust-agent">
+              <div class="zone-heading"><span class="zone-mark" aria-hidden="true">A</span><div><p class="zone-kicker">untrusted plane</p><h3>Workspace / agent</h3></div></div>
+              <ul class="zone-list">
+                <li><strong>Agent processes</strong><span>generated code and packages stay untrusted</span></li>
+                <li><strong>Selected root</strong><span>one explicit read-write project scope</span></li>
+                <li><strong>Tool-owned home</strong><span>persists inside this Workspace only</span></li>
+              </ul>
+            </div>
+
+            <div class="trust-bridge trust-bridge-wide" aria-hidden="true"><span>supported HTTP/HTTPS only</span><b>→</b><span>no direct route</span></div>
+
+            <div class="trust-zone trust-enforcement">
+              <div class="zone-heading"><span class="zone-mark" aria-hidden="true">G</span><div><p class="zone-kicker">trusted boundary</p><h3>Gateway + OPA</h3></div></div>
+              <ul class="zone-list">
+                <li><strong>Gateway</strong><span>normalizes, redacts, enforces, then forwards</span></li>
+                <li><strong>OPA</strong><span>shared decision point; default deny</span></li>
+                <li><strong>Upstream</strong><span>reachable only after an allow decision</span></li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="boundary-notes">
+            <div class="note-card"><span class="note-icon" aria-hidden="true">↗</span><div><h3>No host credential inheritance</h3><p>Host-managed credentials are not mounted into a Workspace. Tool-native authentication may be created in its own persistent home.</p></div></div>
+            <div class="note-card"><span class="note-icon" aria-hidden="true">◎</span><div><h3>Identity is host-derived</h3><p>Gateway derives the project principal from the host-owned binding and received interface, not from a caller-supplied header or profile name.</p></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="presentation-section shell" id="lifecycle" aria-labelledby="lifecycle-title">
+        <div class="section-heading">
+          <p class="section-number">03 <span>/</span> Workspace lifecycle</p>
+          <h2 id="lifecycle-title">CWD first. Reusable by design.</h2>
+          <p>A Workspace is selected by its canonical project root, not by a name or diagnostic ID. A session is temporary; the logical Workspace remains until the host deliberately deletes it.</p>
+        </div>
+
+        <ol class="timeline">
+          <li class="timeline-item">
+            <div class="timeline-number">01</div>
+            <div class="timeline-copy"><p class="timeline-kicker">enter</p><h3>Start from the current directory</h3><p>An exact root is reused directly. If ancestor roots exist, Tobari lists every containing Workspace nearest-first and requires an explicit reuse or create-here choice.</p><span class="code-pill">tobari</span></div>
+          </li>
+          <li class="timeline-item">
+            <div class="timeline-number">02</div>
+            <div class="timeline-copy"><p class="timeline-kicker">reconcile</p><h3>Bind one bounded runtime</h3><p>The selected root, dedicated internal network, persistent home, compatible image, and Gateway attachment converge under ownership checks.</p><span class="code-pill">canonical root → one Workspace</span></div>
+          </li>
+          <li class="timeline-item">
+            <div class="timeline-number">03</div>
+            <div class="timeline-copy"><p class="timeline-kicker">work</p><h3>Let the agent move inside it</h3><p>Concurrent processes can modify the mounted root. Direct egress, host-home mounts, Docker control, and another Tobari remain outside the supported path.</p><span class="code-pill">exit ≠ delete</span></div>
+          </li>
+          <li class="timeline-item">
+            <div class="timeline-number">04</div>
+            <div class="timeline-copy"><p class="timeline-kicker">finish</p><h3>Detach, reuse, or remove</h3><p>A child exit detaches the session and leaves the Workspace reusable. <code>delete</code> ends the exact CWD-local Workspace; <code>--force</code> only overrides an attached-session guard.</p><span class="code-pill">tobari delete</span></div>
+          </li>
+        </ol>
+
+        <div class="state-rail" aria-label="Workspace state transitions">
+          <div class="state-node state-muted"><span>state</span><strong>Workspace absent</strong></div>
+          <span class="state-arrow" aria-hidden="true">→</span>
+          <div class="state-node"><span>tobari</span><strong>Attached session + Workspace exists</strong></div>
+          <span class="state-arrow" aria-hidden="true">→</span>
+          <div class="state-node"><span>exit</span><strong>Detached session + Workspace exists</strong></div>
+          <span class="state-arrow" aria-hidden="true">→</span>
+          <div class="state-node state-accent"><span>delete</span><strong>Workspace absent</strong></div>
+        </div>
+      </section>
+
+      <section class="presentation-section section-tinted" id="policy-loop" aria-labelledby="policy-title">
+        <div class="shell">
+          <div class="section-heading section-heading-wide">
+            <p class="section-number">04 <span>/</span> policy learning</p>
+            <h2 id="policy-title">A denial is a handoff, not a hidden grant.</h2>
+            <p>The ordinary loop keeps the agent moving without turning routine work into Rego administration. Observation creates evidence; only an explicit, tested, project-bound action changes authority.</p>
+          </div>
+
+          <ol class="policy-flow">
+            <li class="policy-step">
+              <span class="step-number">01</span>
+              <p class="step-kicker">attempt</p>
+              <h3>Agent requests</h3>
+              <p>A supported HTTP/HTTPS effect leaves the Workspace through the explicit proxy.</p>
+            </li>
+            <li class="policy-step">
+              <span class="step-number">02</span>
+              <p class="step-kicker">decide</p>
+              <h3>Gateway asks OPA</h3>
+              <p>The request is normalized, credentials are redacted from policy input, and default deny wins unknowns.</p>
+            </li>
+            <li class="policy-step policy-step-denied">
+              <span class="step-number">03</span>
+              <p class="step-kicker">evidence</p>
+              <h3>Useful denial</h3>
+              <p>Bounded host, port, method, path, and reason are retained. Secrets, raw bodies, and credentials are not.</p>
+            </li>
+            <li class="policy-step policy-step-review">
+              <span class="step-number">04</span>
+              <p class="step-kicker">trusted host</p>
+              <h3>Review one candidate</h3>
+              <p><code>policy review</code> presents the Permission Inbox. An explicit TTY decision delegates one opaque reference.</p>
+            </li>
+            <li class="policy-step policy-step-allow">
+              <span class="step-number">05</span>
+              <p class="step-kicker">activate</p>
+              <h3>Test, activate, retry</h3>
+              <p>Allow or deny tests a complete private policy, atomically updates the exact rule, activates OPA, and makes the next retry meaningful.</p>
+            </li>
+          </ol>
+
+          <div class="policy-callouts">
+            <div class="callout callout-warning"><span class="callout-mark" aria-hidden="true">!</span><div><h3>Not every denial is learnable</h3><p>Baseline denies, unavailable bodies, wrong scheme or port, stale principals, and other orthogonal failures remain diagnostics rather than ineffective candidates.</p></div></div>
+            <div class="callout callout-safe"><span class="callout-mark" aria-hidden="true">✓</span><div><h3>Exact means exact</h3><p>Learned permission stays bound to the observed project, host, port, method, and path. A prior allow never becomes permission for a similar request.</p></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="presentation-section shell" id="context" aria-labelledby="context-title">
+        <div class="section-heading">
+          <p class="section-number">05 <span>/</span> Context runtime</p>
+          <h2 id="context-title">Customize the runtime without moving the boundary.</h2>
+          <p>Context is one host-selected logical execution setup. It composes references to an agent profile, policy, credentials, and a compatible runtime image while keeping each physical trust boundary separate.</p>
+        </div>
+
+        <div class="context-layout">
+          <div class="context-stores">
+            <div class="context-card context-card-main">
+              <p class="card-eyebrow">host-owned composition record</p>
+              <h3>Active Context</h3>
+              <p>One understandable setup for the shared cluster. Selection happens on the trusted host, never inside a Workspace.</p>
+              <div class="context-badge">active / explicit</div>
+            </div>
+            <div class="context-card"><span class="store-mark store-agent" aria-hidden="true">A</span><div><h3>Agent profile</h3><p>Read-only, non-secret configuration for the work runtime.</p></div></div>
+            <div class="context-card"><span class="store-mark store-policy" aria-hidden="true">P</span><div><h3>Policy store</h3><p>Mounted read-only into OPA, not into a Workspace.</p></div></div>
+            <div class="context-card"><span class="store-mark store-credential" aria-hidden="true">C</span><div><h3>Credential store</h3><p>Managed secrets, when used, are Gateway-only. Values never enter the agent.</p></div></div>
+            <div class="context-card"><span class="store-mark store-home" aria-hidden="true">H</span><div><h3>Workspace home</h3><p>Tool-owned authentication state stays per Workspace and is not a Context secret.</p></div></div>
+          </div>
+
+          <div class="recipe-panel">
+            <p class="card-eyebrow">explicit host-side recipe</p>
+            <h3>Runtime customization flow</h3>
+            <ol class="recipe-flow">
+              <li><span>01</span><code>context use</code><small>Select the active setup.</small></li>
+              <li><span>02</span><code>runtime init</code><small>Create one owner-only Dockerfile.</small></li>
+              <li><span>03</span><strong>edit recipe</strong><small>Add tools and environment configuration.</small></li>
+              <li><span>04</span><code>runtime build</code><small>Build only from that recipe directory.</small></li>
+              <li><span>05</span><strong>validate → promote</strong><small>Check compatibility and digest; then select the generated image.</small></li>
+            </ol>
+            <div class="recipe-boundary"><span class="boundary-lock" aria-hidden="true">⌁</span><p>Policy, credential stores, host home, Docker sockets, and Workspace mounts stay outside the build context.</p></div>
+          </div>
+        </div>
+
+        <div class="guardrail-grid">
+          <div><span class="guardrail-number">01</span><h3>Failed builds are safe retries</h3><p>The previous selected image remains authoritative until validation and promotion succeed.</p></div>
+          <div><span class="guardrail-number">02</span><h3>Project metadata is not authority</h3><p>Untrusted project files cannot silently select or alter the active Context runtime image.</p></div>
+          <div><span class="guardrail-number">03</span><h3>One Context, separated stores</h3><p>Composition is logical for the user; policy, credentials, agent data, and home state remain physically separated.</p></div>
+        </div>
+      </section>
+
+      <section class="closing-section" aria-labelledby="closing-title">
+        <div class="shell closing-grid">
+          <div>
+            <p class="section-number">The through-line</p>
+            <h2 id="closing-title">Make the safe path the easy path.</h2>
+          </div>
+          <p class="closing-copy">Tobari’s architecture keeps autonomy inside a declared boundary: the CLI expresses a task, the layers keep ownership visible, the Gateway and OPA enforce one network edge, Workspace state stays reusable, and policy growth requires a human decision that can be tested and retried.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer shell" id="source-notes">
+      <div class="footer-brand"><span class="wordmark-mark" aria-hidden="true">TB</span><div><strong>Tobari architecture</strong><p>Static presentation · English · synthetic examples</p></div></div>
+      <div class="footer-copy"><p>This page presents the current product line; it is not a second contract. The source of truth is the numbered repository documentation: <code>docs/00</code> through <code>docs/06</code>, plus <code>docs/09</code>.</p><a href="#top">Back to top <span aria-hidden="true">↑</span></a></div>
+    </footer>
+  </body>
+</html>
