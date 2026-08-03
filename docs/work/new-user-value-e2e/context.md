@@ -97,6 +97,15 @@ feature-completion claim.
   This establishes that the child boundary, not the underlying queue path, is
   the next uncertainty. The baseline also reproduced the existing
   confirmation timing fault when `a` was not followed promptly by `y`.
+- Official Medium-01 then completed the three-decision Inbox journey through a
+  blind real-PTY run, with one setup deviation: the first probe was already
+  allowed, so the child generated an additional request before producing three
+  denials. It independently discovered review, applied one allow and one deny,
+  canceled the remaining candidate, and cleaned up. The functional evidence is
+  in [feedback/official/medium-01.md](feedback/official/medium-01.md). It
+  corroborates the confirmation timing fault and adds frequent TUI redraws and
+  host/Workspace command-boundary confusion. Raw digest/timing evidence is
+  still missing.
 - Official Medium-02 reached Workspace entry and reuse, then completed
   deletion and cluster cleanup, but never exercised an explicit cancel/back
   action. Its partial functional evidence is in
