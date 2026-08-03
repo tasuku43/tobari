@@ -127,3 +127,16 @@ Promote only a durable change in cancellation/empty-state semantics, terminal
 support, or agent-readiness expectations into the product, architecture,
 harness, or readiness documents. Keep raw PTY diagnostics in this temporary
 packet until handoff, then remove them with the packet.
+
+## Current-main verification snapshot
+
+- `main` is `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`, containing the first-wave
+  merge `966dd08841a7ccd88212dd9c8683562c99e17aa9` and the scoped policy-review
+  implementation commit `7d096bb5749e3ad8afd6d85c88af301f5dda113f`.
+- The focused real-PTY/read-only E2E passes all five subcases. `task check` and
+  `task public:check` pass on the current documentation edit.
+- `task integration:test` remains unresolved: its preflight finds an already
+  running `tobari-gateway` and exits 1; the active cluster is intentionally not
+  stopped. Current-worktree `task security` is separately blocked by an
+  out-of-scope architecture-publication link, while the isolated HEAD-plus-
+  allowed-packet snapshot passes security.

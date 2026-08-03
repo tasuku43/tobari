@@ -83,8 +83,9 @@ Docker build/run is the only image side effect in the E2E.
    the dedicated real-runtime replay; the broader profile has a separate
    pre-existing policy-review blocker.**
 4. Run required repository gates and commit only the scoped packet/change.
-   **Gate results are recorded in the task handoff; commit creation is blocked
-   by the execution boundary's read-only Git metadata.**
+   **The required repository gates are recorded in the task handoff, and the
+   scoped implementation/evidence commit is
+   `912c602b4e80d055775e557e6e509b6beff26928`, already merged into `main`.**
 
 ## Verification
 
@@ -106,11 +107,12 @@ Docker build/run is the only image side effect in the E2E.
 - Generated-diff or artifact checks: canonical/embedded runtime equality and
   no unreviewed generated files.
 
-The shared-worktree `task check`, `task security`, and `task public:check`
-profiles currently stop in unrelated active packets before repository tests:
-`docs/work/auth-broker-deferral/context.md` contains a machine-specific home
-path. This packet does not edit that coordinator-owned path; the exact result
-is recorded in `tasks.md`.
+The current-main `task check` and `task public:check` profiles pass after the
+deferred auth packet was committed, and a clean `HEAD + allowed packet diff`
+snapshot passes `task security`. The current worktree security invocation is
+blocked by an out-of-scope untracked packet link. The broader
+`task integration:test` result remains a separate unresolved policy-review
+runtime blocker and is not counted as Bash success.
 
 ## Rollout and rollback
 

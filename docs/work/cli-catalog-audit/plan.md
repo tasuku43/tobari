@@ -1,6 +1,6 @@
 # Work Plan: CLI catalog audit
 
-- Status: Active (verification complete; commit blocked by repository state)
+- Status: Complete (verification and scoped commit complete; evidence retained)
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -17,6 +17,12 @@ definitions that are demonstrably unreachable, have no persisted-state or
 supported-test owner, and can be deleted as a small buildable change; keep
 public-contract retirement as a follow-up when it needs migration or durable
 decision work.
+
+The audit's scoped commit is
+`a007059863ec3c5f80441c9ac86bbc643ca1d5ac`; it is merged into current `main`
+by `966dd08841a7ccd88212dd9c8683562c99e17aa9`. The positive Docker flow stays
+held as an integration-harness follow-up and does not reopen the completed
+catalog inventory.
 
 ## Alternatives considered
 

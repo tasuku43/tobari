@@ -10,6 +10,11 @@
 - Target: `policy review` interactive Permission Inbox
 - Related ADRs: None
 
+History note: the implementation and regression evidence were committed in
+`7d096bb5749e3ad8afd6d85c88af301f5dda113f`, merged by
+`966dd08841a7ccd88212dd9c8683562c99e17aa9`, and are present on current
+`main` at `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`.
+
 ## Outcome
 
 When a retained learnable denial exists, a developer running `tobari policy
@@ -39,14 +44,14 @@ from a terminal, PTY wrapper, candidate-snapshot, or screen-redraw mismatch.
 
 ## Acceptance criteria
 
-- [ ] A deterministic supported-PTY reproduction uses a synthetic pending candidate and records the exact initial render, key sequence, terminal capabilities, and final visible output.
-- [ ] The interactive path visibly renders the queue before input, supports selection/detail/explicit confirmation, and refreshes after one exact allow or deny action.
-- [ ] The selected candidate ID is preserved byte-for-byte into the existing reference-bound action; invalid, stale, canceled, or out-of-snapshot choices perform zero policy mutation calls.
-- [ ] A user can cancel without an ambiguous blank result; empty queues, cancellation, errors, and successful mutations have distinct reviewed human outcomes.
-- [ ] `policy review --format=json` and redirected text remain read-only with the existing schema, bounded collection semantics, and exact action commands.
-- [ ] Hostile request fields, opaque IDs, stdout/stderr ownership, terminal restoration, and secret redaction remain covered.
+- [x] A deterministic supported-PTY reproduction uses a synthetic pending candidate and records the exact initial render, key sequence, terminal capabilities, and final visible output. Evidence: the fake-runtime PTY transcript records the initial Inbox, raw sequences, candidate, and cursor restoration.
+- [x] The interactive path visibly renders the queue before input, supports selection/detail/explicit confirmation, and refreshes after one exact allow or deny action. Evidence: the allow and deny subcases render the Inbox, detail/confirmation state, and an empty refreshed queue.
+- [x] The selected candidate ID is preserved byte-for-byte into the existing reference-bound action; invalid, stale, canceled, or out-of-snapshot choices perform zero policy mutation calls. Evidence: the focused PTY E2E and selector tests cover exact ID round trips and zero-call negative cases.
+- [x] A user can cancel without an ambiguous blank result; empty queues, cancellation, errors, and successful mutations have distinct reviewed human outcomes. Evidence: `q`, `9q`, allow, deny, and empty-queue outputs are distinct in the focused E2E.
+- [x] `policy review --format=json` and redirected text remain read-only with the existing schema, bounded collection semantics, and exact action commands. Evidence: the redirected JSON subcase returns the candidate with zero mutation calls, and focused CLI tests preserve the existing projection.
+- [x] Hostile request fields, opaque IDs, stdout/stderr ownership, terminal restoration, and secret redaction remain covered. Evidence: existing hostile-output/CLI tests and the PTY transcript preserve these boundaries, including `ESC[?25h` restoration.
 - [ ] The policy-review integration scenario passes on the supported runtime, or an external cluster-start blocker is recorded separately and does not get misclassified as a review result.
-- [ ] `task check` and the relevant policy, Gateway, integration, public, and agent-readiness checks pass before handoff.
+- [ ] `task check` and the relevant policy, Gateway, integration, public, and agent-readiness checks pass before handoff. Focused policy/Gateway/CLI and clean repository profiles are passing; the supported runtime integration and resulting readiness handoff remain unresolved.
 
 ## Governing documents
 
@@ -60,6 +65,7 @@ from a terminal, PTY wrapper, candidate-snapshot, or screen-redraw mismatch.
 The packet is complete when the observed TTY behavior has a deterministic
 explanation and regression test, the smallest safe implementation change is
 verified, the existing discover/act and fail-closed contracts remain intact,
-and all required evidence and gates are recorded. If the runtime cannot reach
-the review scenario, the packet must name that independent blocker and leave
-the review behavior unclaimed rather than marking the issue complete.
+and all required evidence and gates are recorded. The focused review behavior
+is verified here, but the packet remains `Active` until the supported runtime
+integration and readiness evidence are available; the independent blocker is
+not treated as review success.

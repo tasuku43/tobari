@@ -3,6 +3,17 @@
 This file records verified facts and unresolved questions. It does not treat a
 desired TTY experience or an uncompleted integration run as current behavior.
 
+## Main-history reconciliation
+
+- The current checkout is `main` at `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`.
+- The policy-review implementation and regression evidence are in
+  `7d096bb5749e3ad8afd6d85c88af301f5dda113f`; that commit is an ancestor of
+  merge `966dd08841a7ccd88212dd9c8683562c99e17aa9` and therefore of current
+  `main`.
+- No rebase, alternate index, or read-only Git metadata condition is part of
+  the current main checkout. The remaining packet state below is a product/
+  runtime integration question, not a branch or staging failure.
+
 ## Current behavior
 
 - The public contract defines `policy review` as a read-only discover command that may, on a TTY, compose selection, detail inspection, explicit confirmation, and one exact `policy allow` or `policy deny` action.
@@ -39,11 +50,11 @@ standard-library Python PTY bridge that keeps the child master open and
 forwards stdin until the child exits. The policy-learning input now waits for
 the first frame before sending `3dy`.
 
-Repeated full integration attempts in this worktree still stop at shared-cluster
-startup with `cluster_start_failed`, before the review section. The attempts
-were run with the repository-local policy path and a task-specific Go cache;
-the failure is therefore an independent runtime/setup blocker, not a review
-assertion. The latest gate was:
+Repeated first-wave integration attempts stopped at shared-cluster startup with
+`cluster_start_failed`, before the review section. Those attempts were run
+with the repository-local policy path and a task-specific Go cache; the failure
+was therefore an independent runtime/setup blocker, not a review assertion.
+The current-main recheck is recorded under `Gate evidence` below.
 
 ```text
 GOCACHE=/private/tmp/tobari-policy-review-gocache task integration:test
@@ -56,8 +67,9 @@ next_action: tobari cluster status — Reconcile partial Docker state.
 task: Failed to run task "integration:test": exit status 9
 ```
 
-This run did not execute the policy-review assertions. It must be rerun in a
-healthy Docker/Colima environment before claiming the full integration path.
+The first-wave run did not execute the policy-review assertions. It must be
+rerun in a healthy Docker/Colima environment before claiming the full
+integration path.
 
 A later rerun was blocked even earlier by the integration preflight because an
 existing healthy `tobari-gateway` container was still active:
@@ -68,9 +80,9 @@ integration: container tobari-gateway already exists; stop the active Tobari clu
 task: Failed to run task "integration:test": exit status 1
 ```
 
-The active container was not stopped or removed because it is outside this
-packet's authority. The earlier `cluster_start_failed` observation remains the
-cluster-start blocker for a clean run.
+The active container was not stopped or removed because it was outside this
+packet's authority. The historical `cluster_start_failed` observation remains
+separate from the selector result; the current-main result is recorded below.
 
 The durable `TestPolicyReviewRealPTYAndReadOnlyE2E` now exercises the real
 selector with the existing fake runtime and a synthetic candidate. Before the
@@ -114,11 +126,11 @@ blocked independently at cluster startup.
 
 ## Unknowns
 
-- [ ] Does the report contain the candidate at the first interactive call in the reported environment?
+- [x] Does the report contain the candidate at the first interactive call in the reported environment? The synthetic report is present before each fake-runtime PTY case.
 - [x] Does the supported PTY wrapper deliver an actual character-device input/output pair to the child process on both macOS and Linux? The Python bridge uses `pty.fork`; the durable fake-runtime test passed on macOS, and the bridge is standard-library Unix code for Linux as well.
-- [ ] Does raw redraw output hide the first screen in the user's terminal, or does the command receive EOF/cancel before the first visible frame?
-- [ ] Does the output stream share a terminal with an enclosing shell or host UI that interprets the ANSI cleanup differently?
-- [ ] Should the final interactive state retain a short readable summary after screen cleanup, or is the existing cancellation/success renderer sufficient once the first frame is visible?
+- [x] Does raw redraw output hide the first screen in the user's terminal, or does the command receive EOF/cancel before the first visible frame? The supported reproduction identified the zero-byte character-device poll being surfaced as `io.EOF` and converted to cancellation.
+- [x] Does the output stream share a terminal with an enclosing shell or host UI that interprets the ANSI cleanup differently? The focused E2E records cursor restoration and the final visible outcomes independently of the enclosing shell.
+- [x] Should the final interactive state retain a short readable summary after screen cleanup, or is the existing cancellation/success renderer sufficient once the first frame is visible? The reviewed fake-runtime transcript shows the existing distinct cancellation, mutation, and empty-queue outcomes are sufficient for this fix.
 - [ ] Is the cluster-start blocker caused by current uncommitted Gateway image changes, Docker state, or a broader environment prerequisite? The policy-review packet does not claim this is resolved; repeated runs stop at `cluster_start_failed` before review.
 
 ## Thesis evidence
@@ -138,11 +150,12 @@ blocked independently at cluster startup.
 
 ## Gate evidence
 
+- `GOCACHE=/private/tmp/tobari-policy-review-final-gocache go test ./internal/cli -run '^TestPolicyReviewRealPTYAndReadOnlyE2E$' -count=1 -v`: passed all five real-PTY/read-only subcases in 4.13s.
 - `GOCACHE=/private/tmp/tobari-policy-review-gocache task check:fast`: passed; `archlint`, `contractlint`, runtime checks, and all Go tests passed.
-- `GOCACHE=/private/tmp/tobari-policy-review-gocache task check`: passed.
-- `GOCACHE=/private/tmp/tobari-policy-review-gocache task public:check`: passed (`repoguard (public)`, `contractlint`).
-- `GOCACHE=/private/tmp/tobari-policy-review-gocache task security`: passed (`repoguard (security)`, dependency verification, vulnerability scan).
-- `GOCACHE=/private/tmp/tobari-policy-review-gocache task integration:test`: blocked before policy review by `cluster_start_failed`, as recorded above.
+- `GOCACHE=/private/tmp/tobari-check-final2-gocache task check`: passed; hygiene, architecture, contract, runtime, vet, race, tidy, and Go tests were green.
+- `GOCACHE=/private/tmp/tobari-public-final2-gocache task public:check`: passed (`repoguard (public)`, `contractlint`).
+- The clean `HEAD + allowed packet diff` security snapshot passed `task security` with `repoguard (security): OK`, all modules verified, and `No vulnerabilities found.` The current worktree security invocation is separately blocked by the out-of-scope untracked `docs/work/architecture-publication/context.md:57` link; this packet does not edit it.
+- Current-main `GOCACHE=/private/tmp/tobari-integration-final-gocache task integration:test` stopped at the preflight because `tobari-gateway` already exists and is running; it exited 1 before a clean review assertion. The active cluster was not stopped by this packet.
 
 ## Glossary
 

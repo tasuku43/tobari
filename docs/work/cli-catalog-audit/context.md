@@ -3,6 +3,15 @@
 This file records verified facts and unresolved questions for the isolated CLI
 catalog audit. It does not change the coordinator packet or another packet.
 
+## Main-history reconciliation
+
+- The current checkout is `main` at `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`.
+- The catalog audit is the scoped docs commit
+  `a007059863ec3c5f80441c9ac86bbc643ca1d5ac`, merged by
+  `966dd08841a7ccd88212dd9c8683562c99e17aa9`.
+- The scoped commit is an ancestor of current `main`; the audit is no longer
+  blocked by a paused rebase, old branch checkout, or Git metadata access.
+
 ## Current behavior
 
 - `internal/cli/catalog.go` defines `cli.Catalog`, catalog validation, root
@@ -34,14 +43,11 @@ catalog audit. It does not change the coordinator packet or another packet.
   example even though `exec` is rejected and absent from the catalog. This is a
   documentation consistency finding for a later docs packet; this packet will
   not edit README.
-- `task integration:test` was retried with a task-specific writable Go cache.
-  It reached the Docker integration runner and returned `cluster_start_failed`
-  (exit 9). After the run, no Tobari containers/networks were present while
-  the default XDG state still contained a project record. No restoration or
-  further host mutation was attempted here. This is evidence that the current
-  integration harness is unsafe to run alongside an existing Tobari cluster;
-  the full positive Docker flow remains blocked until an isolated resource
-  namespace or a safe preflight is provided.
+- The first-wave `task integration:test` run reached the Docker integration
+  runner and returned `cluster_start_failed` (exit 9); a separate preflight
+  run detected an existing `tobari-gateway` resource. The current-main
+  recheck is recorded in the final gate handoff. This remains a positive-flow
+  harness blocker, not a catalog reachability failure.
 
 ## Relevant structure
 
@@ -115,6 +121,21 @@ go build -o "$TMPDIR/tobari-cli-catalog-audit" ./cmd/tobari
 
 The complete command transcripts, representative argv, exit codes, and side-
 effect observations are recorded in `e2e-transcript.md`.
+
+## Final recheck on current `main`
+
+- A clean binary recheck passed: the agent index reported schema 8, `view=index`,
+  and 25 commands; scoped policy/runtime help, empty `status`/`list`, and the
+  retired `exec` rejection all returned their declared outcomes.
+- `task contracts:check` passed with `contractlint: OK`.
+- `GOCACHE=/private/tmp/tobari-check-final2-gocache task check` and
+  `GOCACHE=/private/tmp/tobari-public-final2-gocache task public:check` passed.
+- A clean `HEAD + allowed packet diff` snapshot passed `task security`; the
+  current worktree security invocation is blocked only by an out-of-scope
+  untracked architecture-publication packet link.
+- The current-main integration recheck stopped before a clean positive flow
+  because the existing `tobari-gateway` container was already running. This is
+  a harness/resource-isolation hold, not a catalog reachability failure.
 
 ## Security and public-boundary notes
 

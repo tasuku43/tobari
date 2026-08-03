@@ -10,6 +10,11 @@
 - Target: Base runtime image and interactive `tobari` entry
 - Related ADRs: None
 
+History note: the runtime regression evidence and scoped test changes were
+committed in `912c602b4e80d055775e557e6e509b6beff26928`, merged by
+`966dd08841a7ccd88212dd9c8683562c99e17aa9`, and are present on current
+`main` at `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`.
+
 ## Outcome
 
 A developer who runs `tobari` enters the selected Workspace through an
@@ -46,11 +51,15 @@ alone.
 - [x] The agent-facing and human-facing contract remains discoverable without
   a new input or recovery path, and the discovery/retry journey needs no extra
   parser or command guess.
-- [ ] Required runtime, implementation, security, and public-boundary checks
-  pass. The shared-worktree packet-lint blocker is recorded in `tasks.md` and
-  the E2E transcript without claiming this criterion passed.
-- [ ] The delegated sub-agent creates an intentional scoped commit and reports
-  its SHA after the E2E and required gates pass.
+- [x] Required runtime, implementation, security, and public-boundary checks
+  pass. Current-main `task runtime:base:check`, `task check`, and
+  `task public:check` pass; a clean `HEAD + allowed packet diff` snapshot also
+  passes `task security`. The current worktree security scan is blocked only by
+  an out-of-scope untracked packet link, and the separate runtime integration
+  blocker remains unresolved below.
+- [x] The delegated sub-agent creates an intentional scoped commit and reports
+  its SHA after the E2E and required gates pass. Evidence: scoped commit
+  `912c602b4e80d055775e557e6e509b6beff26928` is an ancestor of current `main`.
 
 ## Governing documents
 
@@ -69,6 +78,9 @@ alone.
 The work is complete when the acceptance criteria have evidence in the child
 packet, the canonical and embedded runtime sources agree, the end-to-end shell
 journey has been replayed, the required gates pass, and the delegated sub-agent
-has created a scoped commit. If the packet only confirms behavior that was
-already present, the commit may contain the packet's durable evidence and
-regression coverage; no unnecessary production change is required.
+has created a scoped commit. The Bash journey and repository gates are
+verified, but the broader shared runtime integration remains unresolved at the
+policy-review step, so this packet remains `Active` until that blocker is
+closed. If the packet only confirms behavior that was already present, the
+commit may contain the packet's durable evidence and regression coverage; no
+unnecessary production change is required.

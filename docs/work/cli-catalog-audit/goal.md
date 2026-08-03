@@ -1,17 +1,19 @@
 # Work Goal: Audit the public CLI catalog
 
-- Status: Active
-- Retention: temporary
-- Retention reason: Hold catalog inventory and E2E evidence until the coordinator promotes durable command-retirement or documentation decisions.
+- Status: Complete
+- Retention: evidence
+- Retention reason: The catalog inventory, classifications, and bounded argv/help E2E remain useful evidence until the coordinator promotes the follow-up retirement and documentation decisions.
 - Governing contract: `cli.Catalog` is the sole public command and invocation source of truth; `task check` is the implementation gate.
-- Review/delete trigger: Delete after the classifications and E2E evidence are promoted to the coordinator or a successor packet.
+- Review/delete trigger: Delete after the classifications and E2E evidence are promoted to the coordinator or a successor packet and no compatibility decision depends on this transcript.
 - Successor: None
 - Owner: CLI catalog audit
 - Target: First-wave Tobari issue triage
 - Related ADRs: `docs/decisions/0012-own-workspace-container-lifetime.md`, `docs/decisions/0015-defer-devcontainer-integration.md`
 
-Execution note: the audit content and E2E are complete, but its scoped commit
-is blocked by the repository's paused rebase and Git metadata permissions.
+History note: the audit was committed in
+`a007059863ec3c5f80441c9ac86bbc643ca1d5ac`, merged by
+`966dd08841a7ccd88212dd9c8683562c99e17aa9`, and is present on current `main`
+at `ed37f805a4e2876f93c6ad86fb70beb40b6fc073`.
 
 ## Outcome
 
@@ -75,7 +77,7 @@ retirement work can safely proceed.
 
 ## Completion definition
 
-The work is complete when the catalog inventory, classifications, E2E transcript,
-and required gates have evidence, any safe dead-code cleanup is verified, no
-other packet was changed, and the temporary packet is ready for coordinator
-handoff or removal after its conclusions are promoted.
+The work is complete: the catalog inventory, classifications, E2E transcript,
+and required gates have evidence, no safe dead-code cleanup was justified, no
+other packet was changed by the audit, and the evidence packet is ready for
+coordinator handoff while its retention trigger remains unsatisfied.

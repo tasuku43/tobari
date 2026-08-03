@@ -48,38 +48,39 @@
   `tobari-shell:/bin/bash`, `tobari-tty:yes`, followed by
   `Workspace remains available.` and Docker inspection
   `running=true cmd=["sleep","infinity"]`.
-- [ ] `task check` passes. Evidence: blocked before tests by unrelated active
-  packet lint finding in `docs/work/auth-broker-deferral/context.md:106`; that
-  path is outside this packet's allowed scope.
-- [ ] `task security` passes. Evidence: the same unrelated packet lint
-  findings stopped the profile before security checks.
-- [ ] `task public:check` passes. Evidence: the same unrelated packet lint
-  findings stopped the profile before public-boundary checks.
-- [ ] `task integration:test` passes. Evidence: Docker/Colima was available
-  and the profile reached the existing interactive policy-review scenario,
-  but it remained in that scenario until interrupted with exit 130. The exact
-  replay command, stop point, and dedicated real-runtime success are in
-  `e2e/bash-runtime-transcript.md`.
+- [x] `task check` passes. Evidence: current-main `task check` passes with
+  repository hygiene, architecture, catalog, runtime, vet, race, tidy, and Go
+  test checks green.
+- [x] `task security` passes. Evidence: the clean `HEAD + allowed packet diff`
+  security snapshot passes with repository guard, dependency verification, and
+  vulnerability checks green; the current worktree invocation is blocked only
+  by the out-of-scope untracked architecture-publication packet link.
+- [x] `task public:check` passes. Evidence: current-main `task public:check`
+  passes with public repository guard and contract checks green.
+- [ ] `task integration:test` passes. Evidence: the current-main recheck
+  stopped at the preflight with `tobari-gateway` already existing and running
+  (exit 1); the earlier profile reached the interactive policy-review scenario
+  and was interrupted with exit 130. Neither is Bash integration success.
 - [x] Canonical/embedded runtime diff is understood and temporary artifacts
   are removed. Evidence: no runtime source changed; `task runtime:base:check`
   passed. Integration containers and the repository-local temporary roots were
   cleaned; temporary diagnostic images and directories were removed.
-- [ ] The delegated sub-agent creates an intentional scoped commit and reports
-  its SHA. Evidence: blocked in this execution boundary. `git add --
-  internal/infra/dockerruntime/project_runtime_test.go
-  scripts/test-integration.sh docs/work/runtime-bash-shell/` cannot create
-  `.git/index.lock`; a writable alternate index also cannot insert changed
-  blobs into the read-only Git object database. No commit is claimed.
+- [x] The delegated sub-agent creates an intentional scoped commit and reports
+  its SHA. Evidence: `912c602b4e80d055775e557e6e509b6beff26928` contains the
+  scoped runtime test/transcript changes and is merged into current `main` by
+  `966dd08841a7ccd88212dd9c8683562c99e17aa9`.
 
 ## Hand off
 
-- [ ] Acceptance criteria have E2E evidence; shared-worktree gate blockers
-  remain open and are not claimed as passed.
+- [ ] Acceptance criteria have E2E evidence; the dedicated Bash E2E and clean
+  repository gates pass, while the broader runtime integration remains open at
+  the policy-review scenario and is not claimed as Bash success.
 - [ ] Goal status is changed to `Complete` only after required gates and the
   delegated commit are complete.
 - [x] Durable decisions were promoted or explicitly confirmed unchanged.
 - [x] Temporary diagnostics and sensitive artifacts were removed from the
   repository.
-- [ ] Handoff summary explains whether the request required code, what E2E ran,
-  the commit SHA, and any environment blocker. The SHA remains absent until a
-  Git-writable execution context is available.
+- [x] Handoff summary explains whether the request required code, what E2E ran,
+  the commit SHA, and the remaining environment blocker. Evidence: the
+  dedicated runtime transcript, `912c602b`, and the unresolved integration
+  result are recorded in this packet.

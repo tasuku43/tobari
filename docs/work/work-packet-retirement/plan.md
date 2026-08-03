@@ -1,6 +1,6 @@
 # Work Plan: Audit and safely retire completed work packets
 
-- Status: Active
+- Status: Complete
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -50,8 +50,8 @@ references and packet syntax.
 - Application: none.
 - Infrastructure: none.
 - CLI and catalog: none.
-- Repository documentation: add only this lifecycle evidence packet; do not
-  edit the coordinator or existing active packets.
+- Repository documentation: update only the four user-authorized packet
+  directories; do not edit the coordinator or any other packet.
 
 ### Data and control flow
 
@@ -85,10 +85,9 @@ documentation safety.
 3. Create this packet without touching the coordinator or active packets.
 4. Rerun classification, reference checks, detached-branch check, and task
    gates.
-5. Stage only the four packet files and create one intentional commit. Mark
-   this packet complete only if every condition, including the commit, is
-   proven; retain it as evidence until the coordinator's review/delete trigger
-   is satisfied.
+5. Stage only the 16 `goal/context/plan/tasks` files in the four authorized
+   packet directories and create one intentional commit. Retain the lifecycle
+   packet as evidence until its coordinator review/delete trigger is satisfied.
 
 ## Verification
 
@@ -112,9 +111,10 @@ documentation safety.
   part of the reference evidence.
 - Generated-diff or artifact checks: `git diff --check`; no generated artifact
   is produced.
-- Commit gate: `git add --` the four explicit packet paths, verify the cached
-  path set, then create one commit and report its SHA. A read-only `.git`
-  metadata boundary fails closed and leaves this packet Active.
+- Commit gate: explicitly stage the 16 authorized packet paths, verify the
+  cached path set contains no `README.md` or other path, run `git diff --check`,
+  then create one commit and report its SHA. The unrelated `README.md` change
+  remains unstaged and preserved.
 
 ## Rollout and rollback
 

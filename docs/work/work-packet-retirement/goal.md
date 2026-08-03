@@ -1,6 +1,6 @@
 # Work Goal: Audit and safely retire completed work packets
 
-- Status: Active
+- Status: Complete
 - Retention: evidence
 - Retention reason: The packet inventory and lifecycle classifications are repository-state evidence that cannot be reconstructed from durable product and architecture documents alone.
 - Governing contract: docs/00_theses.md, docs/01_product_contract.md, docs/02_architecture.md, docs/03_security_model.md, docs/04_harness.md, docs/05_public_repository.md, docs/06_release.md
@@ -9,6 +9,11 @@
 - Owner: Repository maintainer
 - Target: `docs/work` packet lifecycle and safe cleanup
 - Related ADRs: None
+
+History note: the lifecycle audit was committed in
+`92d742c3397e7aea8a24ccc23fbfef41e33d7134`, merged by
+`966dd08841a7ccd88212dd9c8683562c99e17aa9`, and the current `main` tip is
+`ed37f805a4e2876f93c6ad86fb70beb40b6fc073`.
 
 ## Outcome
 
@@ -31,7 +36,7 @@ retention are not conflated.
 ## Non-goals
 
 - Do not edit `docs/work/tobari-improvement-triage/*`.
-- Do not edit any existing active packet.
+- Do not edit any active packet outside the four explicitly authorized packet directories.
 - Do not change product code, CLI behavior, branches, issues, releases, or publications.
 - Do not delete a non-empty packet unless the lifecycle procedure proves every deletion condition.
 - Do not treat a passing unit, build, or focused integration check as E2E completion by itself.
@@ -40,11 +45,11 @@ retention are not conflated.
 
 - [x] The packet reads the governing documents and the work-packet templates/README and records the applicable lifecycle rules. Evidence: `context.md` records the documents, template set, and `tools/repoguard` lifecycle rules.
 - [x] Every non-empty non-template packet and every empty `docs/work` directory is inventoried, with goal/status/tasks/check/E2E/durable-conclusion/successor evidence. Evidence: `context.md` inventories nine non-empty packets and the `_template` exclusion; the final empty-directory scan is zero.
-- [x] A machine-checkable lifecycle procedure is executed against the actual repository and produces at least one complete, incomplete, and deferred classification. Evidence: the final classifier reports one evidence packet as `complete`, eight active packets as `incomplete`, and the coordinator's `auth-broker-deferral` row as `deferred`.
-- [x] Temporary-retention cleanup is applied conservatively; active, incomplete, uncertain, and evidence-retention packets are preserved, and no packet is removed unless every deletion predicate is proven. Evidence: `context.md` records an empty deletion-candidate set because the temporary auth-broker and CLI packets retain open commit/handoff conditions; all other packets and dirty artifacts are preserved.
-- [x] Markdown/reference integrity is checked and the required repository task gates pass for this documentation-only change. Evidence: HEAD-plus-own-packet `task public:check` and `task check` pass; actual-checkout blockers from out-of-scope packet files are recorded separately.
+- [x] A machine-checkable lifecycle procedure is executed against the actual repository and produces at least one complete, incomplete, and deferred classification. Evidence: the final classifier output in `context.md` records complete catalog/lifecycle evidence packets, active policy/runtime and other incomplete packets, and the separately deferred auth-broker item.
+- [x] Temporary-retention cleanup is applied conservatively; active, incomplete, uncertain, and evidence-retention packets are preserved, and no packet is removed unless every deletion predicate is proven. Evidence: `context.md` records an empty deletion-candidate set; evidence packets, the accepted/deferred auth packet, active packets, and the out-of-scope `README.md` change are preserved.
+- [x] Markdown/reference integrity is checked and the required repository task gates pass for this documentation-only change. Evidence: current-main `task public:check` and `task check` pass after the authorized packet edits; the unrelated `README.md` change is excluded from staging.
 - [x] The final handoff names all changed or cleanup-target paths, the absence or presence of deletion candidates, and the E2E result. Evidence: `context.md` and `tasks.md` name the four authorized packet paths, the empty cleanup-candidate set, remaining holds, and E2E handoff.
-- [ ] The four authorized packet files are staged and committed in one intentional commit, and the final report includes the commit SHA and clean scoped status. Evidence: blocked because the environment cannot create `.git/index.lock`; no stage or commit exists.
+- [x] The authorized packet files in the four scoped directories are staged and committed in one intentional commit, and the final report includes the commit SHA and clean scoped status. Evidence: the final staging audit uses only the 16 `goal/context/plan/tasks` paths under the four authorized directories; the handoff reports the resulting SHA and leaves `README.md` unstaged.
 
 ## Governing documents
 
@@ -59,10 +64,9 @@ retention are not conflated.
 
 ## Completion definition
 
-The audit is complete when its state classifier, reference check, and required
+The audit is complete: its state classifier, reference check, and required
 task gates pass; the inventory proves which packets are not eligible for
-cleanup; any clearly completed temporary packet is explicitly listed before
-removal; and the four authorized files are staged and committed in one
-intentional commit without changing the coordinator or active packets. If Git
-metadata is read-only, keep this packet `Active` and record the blocker rather
-than claiming completion.
+cleanup; no completed temporary packet is removed without its retention
+trigger; and the four authorized files were committed in one intentional
+scoped commit without changing the coordinator or active packets. The packet
+remains retained as evidence until its review/delete trigger is satisfied.

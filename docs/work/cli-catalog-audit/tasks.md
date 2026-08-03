@@ -86,10 +86,10 @@
 
 - [x] Acceptance criteria have evidence in the catalog matrix and E2E
       transcript.
-- [ ] Goal status is `Complete` after the applicable goal and task checkboxes
-      were completed. Evidence is complete, but the required child-packet
-      commit is blocked by the active repository rebase and read-only Git
-      metadata boundary.
+- [x] Goal status is `Complete` after the applicable goal and task checkboxes
+      were completed. Evidence: the catalog E2E and required gates are
+      complete, and scoped commit
+      `a007059863ec3c5f80441c9ac86bbc643ca1d5ac` is merged into current `main`.
 - [x] Durable decisions were promoted out of the work packet. Evidence: no
       durable decision was introduced; retirement and read-effect changes are
       explicit follow-up candidates.
