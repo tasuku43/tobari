@@ -30,6 +30,14 @@ feature-completion claim.
   `cc-bash-guard` project at revision `e045d15`. The parent creates disposable
   copies for each run; the source project and its working tree are never used
   as a scenario mount.
+- The parent baseline completed the core denial-to-review-to-retry loop and a
+  runtime customization replay through a real PTY. Its redacted evidence is in
+  [feedback/official/parent-baseline.md](feedback/official/parent-baseline.md);
+  it is an entry criterion and does not count as one of the four blind child
+  journeys. The baseline found three hypotheses for child comparison: a
+  missing runtime can leave a newly registered instance unrecoverable without
+  deletion/re-registration, raw review confirmation is sensitive to a human
+  pause after `a`, and `runtime build` does not refresh an existing Workspace.
 
 ## Relevant structure
 
