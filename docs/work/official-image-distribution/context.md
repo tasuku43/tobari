@@ -154,20 +154,34 @@ reviewed update.
 - [x] `latest` and `main` are moving development aliases for the Context
       customization workflow; immutable version and commit tags remain the
       release identities.
-- [ ] Which agent/tool installers and licenses permit redistribution inside a
-      public image, especially for Claude and Codex.
-- [ ] Which multi-architecture targets and base-image update SLA are supported
-      for each package.
-- [ ] Whether the first release should include provenance/SBOM attestation as a
+- [x] Which agent/tool installers and licenses permit redistribution inside a
+      public image, especially for Claude and Codex. Resolution: not accepted
+      for public redistribution yet; the first Claude/Codex slices remain
+      build-only until the `docs/06_release.md` publication gate is approved.
+- [x] Which multi-architecture targets and base-image update SLA are supported
+      for each package. Resolution: the implemented base and build-only agent
+      workflows validate Linux amd64/arm64; no stable support window or update
+      SLA is claimed for derived images.
+- [x] Whether the first release should include provenance/SBOM attestation as a
       hard gate or publish only after that capability is validated in CI.
-- [ ] Whether `runtime.lock.json` replaces `versions.env` immediately or a
-      checked compatibility bridge is kept during migration.
-- [ ] Which layer owns each neutral tool and which tools are intentionally
-      excluded from the initial toolbox to keep its size bounded.
-- [ ] Which agent distributions can use standard package manifests and which
-      require the Tobari-owned release-asset refresh updater.
-- [ ] The supported-version and deprecation window for old runtime and agent
-      images, including GHCR untagged-manifest retention.
+      Resolution: no attestation/SBOM claim is made by the current boundary;
+      public agent publication must decide this in a new reviewed packet.
+- [x] Whether `runtime.lock.json` replaces `versions.env` immediately or a
+      checked compatibility bridge is kept during migration. Resolution: both
+      remain checked; the typed runtime locks own the new family metadata while
+      the existing `versions.env` bridge remains authoritative for CLI assets.
+- [x] Which layer owns each neutral tool and which tools are intentionally
+      excluded from the initial toolbox to keep its size bounded. Resolution:
+      common tools stay in the base source inventory; there is no neutral
+      published toolbox image in this accepted slice.
+- [x] Which agent distributions can use standard package manifests and which
+      require the Tobari-owned release-asset refresh updater. Resolution: the
+      current Claude/Codex release-asset locks use Tobari-owned checksum checks;
+      automated refresh is deferred with public publication.
+- [x] The supported-version and deprecation window for old runtime and agent
+      images, including GHCR untagged-manifest retention. Resolution: the base
+      development channel has no stable SemVer support promise; derived-image
+      retention/deprecation is deferred until a public release policy exists.
 - [x] `runtimes/base` is canonical and the embedded runtime assets are a checked
       generated snapshot.
 - [x] Main pushes publish moving `latest` and `main` development tags and an

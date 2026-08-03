@@ -1,13 +1,16 @@
 # Work Goal: Define official Tobari image distribution
 
-- Status: Active
-- Retention: temporary
-- Retention reason: Design and implementation evidence for the staged official image family, package ownership, and release lifecycle.
+- Status: Accepted
+- Retention: evidence
+- Retention reason: Preserve the accepted base/build-only image boundary and the explicit release-policy deferral for public agent variants until maintainer/vendor review is available.
 - Governing contract: docs/00_theses.md, docs/02_architecture.md, docs/03_security_model.md, docs/04_harness.md, docs/05_public_repository.md, docs/06_release.md
-- Review/delete trigger: Delete after the release/public-boundary decision is promoted and implementation completes or is explicitly deferred.
-- Successor: None
+- Review/delete trigger: Delete after the release/public-boundary decision is kept current in `docs/06_release.md` and a new reviewed packet accepts public agent publication or changes the boundary.
+- Successor: `docs/06_release.md` publication gate; any public agent release must open a new reviewed packet.
 - Owner: Tobari maintainers
-- Target: Official base runtime and derived agent runtime images
+- Target: Official base runtime and build-only derived agent runtime images
+- Execution state: Base publication is accepted; Claude/Codex public publication,
+  stable support windows, and attestation/license claims are explicitly deferred
+  until their release policy is approved.
 - Related ADRs: docs/decisions/0012-own-workspace-container-lifetime.md
 
 ## Outcome
@@ -19,7 +22,9 @@ compatibility contract, an immutable release identity, a documented
 support/update cadence, and a least-privilege publication workflow. The plan keeps image releases separate
 from the CLI release train; the base development channel is published only
 after its source, license, security, and public-boundary checks, while derived
-images remain gated on their own review.
+images remain gated on their own review. The base development channel is
+publishable; Claude/Codex variants are currently build-only and are not public
+release claims.
 
 ## Why now
 
@@ -42,22 +47,26 @@ GHCR lifecycle before agent variants are added.
 
 ## Acceptance criteria
 
-- [ ] The single `tobari/runtime` package and each base/agent variant are
-      explicit in source metadata and publication rules.
-- [ ] Versioning, digest identity, aliases, deprecation, retention, and
+- [x] The single `tobari/runtime` package and each base/agent variant are
+      explicit in source metadata and publication rules. Base publication is
+      active; agent variants are build-only.
+- [x] Versioning, digest identity, aliases, deprecation, retention, and
       rollback rules are explicit and do not permit silent replacement of a
-      published release.
-- [ ] Source-of-truth files record base-image digests, agent/tool versions,
-      licenses, and the derived-image relationship.
-- [ ] PR validation, scheduled refresh, release approval, multi-architecture
-      build, compatibility tests, SBOM/provenance, and GHCR permissions are
-      separated into bounded workflows.
-- [ ] Release cadence and security-update targets are explicit for the runtime
-      foundation and derived images.
-- [ ] The user-facing contract says official images are convenience bases and
+      published release. Stable agent deprecation is deliberately not claimed.
+- [x] Source-of-truth files record base-image digests, agent/tool versions,
+      licenses/checksum inputs, and the derived-image relationship.
+- [x] PR validation, main publication, release approval, multi-architecture
+      build, compatibility tests, and GHCR permissions are separated into
+      bounded workflows. Scheduled refresh and SBOM/provenance are explicitly
+      deferred rather than implied.
+- [x] Release cadence and security-update targets are explicit as a current
+      boundary: no stable support/SLA is promised for the build-only derived
+      images until a release-policy packet is approved.
+- [x] The user-facing contract says official images are convenience bases and
       remain subject to local Tobari runtime validation.
-- [ ] `task check`, `task security`, `task public:check`, and the dedicated
-      release/image gate are required before publication.
+- [x] `task check`, `task security`, `task public:check`, and the dedicated
+      release/image gates are required before the implemented publication edge;
+      deferred agent publication has no public push claim.
 
 ## Governing documents
 
@@ -69,8 +78,10 @@ GHCR lifecycle before agent variants are added.
 
 ## Completion definition
 
-The design is complete when the package model, source of truth, release
-cadence, security boundary, workflow permissions, verification gates, and
-rollback policy are accepted and promoted into durable release/public-boundary
-documentation or an ADR. If implementation is deferred, the packet records
-the exact successor and the reason.
+The accepted design boundary is complete when the base package model, source of
+truth, security boundary, workflow permissions, verification gates, and
+rollback policy are promoted into durable release/public-boundary documentation
+or an ADR. Public derived-agent publication is intentionally deferred; its
+exact successor is the `docs/06_release.md` publication gate plus a new reviewed
+packet that must resolve redistribution rights, support/SLA, licensing, and
+attestation claims before any agent tag is pushed.

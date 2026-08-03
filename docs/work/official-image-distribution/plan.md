@@ -1,6 +1,6 @@
 # Work Plan: Define official Tobari image distribution
 
-- Status: Active
+- Status: Accepted
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -16,16 +16,16 @@ and digests as the supported release identity. The base may also publish
 customization workflow; neither alias is a stable release identity.
 
 Keep image publication in a dedicated release workflow, separate from the
-CLI's `v*` archive workflow. Pull requests build and test without push. A
-protected, manually approved image release builds the exact source revision for
-the supported architectures, pushes once, records the digest, verifies the
-runtime contract and tools, and produces SBOM/provenance evidence. A scheduled
-refresh creates update PRs; it does not publish directly.
+CLI's `v*` archive workflow. The accepted base workflow publishes only the
+development channel; Claude/Codex pull-request and main workflows build and
+verify without pushing. Protected approval, scheduled refresh, SBOM/provenance,
+support/SLA, and public derived-image release remain explicit successor
+decisions rather than implied promises.
 
-The initial cadence proposal is: monthly foundation refreshes, immediate
-security patches within a defined SLA, and derived-image releases when their
-agent/tool version or foundation digest changes. The exact SLA, architecture
-matrix, package names, and alias policy remain decisions for review.
+The initial cadence proposal is retained as design evidence only. No stable
+cadence or security-update SLA is claimed for derived images until the
+publication gate resolves redistribution rights, support windows, and release
+approval.
 
 ## Repository structure candidate
 
@@ -298,8 +298,9 @@ source and review, not additional runtime authority.
 - Manual observation: pull each published digest on amd64 and arm64, inspect
   OCI labels/config, run a terminating-`CMD` compatibility fixture, and verify
   the attestation/SBOM against the exact digest.
-- Required profiles: `task check`, `task security`, `task public:check`,
-  `task release:check`, and the dedicated image gate.
+- Required profiles for the accepted boundary: `task check`, `task security`,
+  `task public:check`, `task release:check`, and the dedicated image gate.
+  Public derived-image publication is not a current claim.
 - Generated-diff or artifact checks: digest manifest, SBOM, provenance, and
   package metadata are tied to the exact source revision.
 
@@ -315,9 +316,10 @@ is excluded from the immutable identity.
 ## Documentation promotion
 
 - Update `docs/05_public_repository.md` with image layer/license/history review.
-- Update `docs/06_release.md` with package names, versioning, cadence, gates,
-  attestations, retention, and rollback.
+- `docs/06_release.md` records package names, versioning, gates, and rollback;
+  it also records that agent publication, stable cadence, and attestation
+  claims require a new reviewed packet.
 - Update `docs/02_architecture.md` and `docs/03_security_model.md` with the
   package/publication boundary and no-added-authority rule.
-- Add a release ADR if independent image trains, aliases, or vendor
-  redistribution become durable trade-offs.
+- Add a release ADR in the successor packet if independent image trains,
+  aliases, or vendor redistribution become durable public trade-offs.
