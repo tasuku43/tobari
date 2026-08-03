@@ -81,6 +81,16 @@ feature-completion claim.
 
 ## Observation protocol
 
+Delegation mode is part of the evidence. Long scenario 1 was dispatched as a
+guided baseline before the maintainer tightened the protocol. The remaining
+three scenarios must be dispatched blind: the child receives only a user goal,
+fresh environment boundary, safety constraints, and the value signal. It must
+not receive the scenario's command sequence, README section, packet path, or
+source/harness usage instructions. The child may discover the interface through
+the installed `tobari` command and the screens/help that a new user would
+naturally reach. The comparison must label guided versus blind findings rather
+than treating their discovery counts as equivalent.
+
 Each feedback file must include:
 
 1. Environment and scenario ID, with synthetic/redacted project names.
