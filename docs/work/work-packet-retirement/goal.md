@@ -11,9 +11,10 @@
 - Related ADRs: None
 
 History note: the lifecycle audit was committed in
-`92d742c3397e7aea8a24ccc23fbfef41e33d7134`, merged by
-`966dd08841a7ccd88212dd9c8683562c99e17aa9`, and the current `main` tip is
-`ed37f805a4e2876f93c6ad86fb70beb40b6fc073`.
+`92d742c3397e7aea8a24ccc23fbfef41e33d7134`, refreshed in `1cc400e`, and this
+refresh audits the clean `main` baseline at `2810f48`. The current packet tree
+contains the runtime lifecycle, Quick Start handoff, and PTY evidence packets;
+their open/retained states are recorded in `context.md`.
 
 ## Outcome
 

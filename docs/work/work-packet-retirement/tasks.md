@@ -33,6 +33,22 @@
 - [x] Run `git diff --check` and confirm the final diff is limited to the four authorized packet directories. Evidence: final diff check passes; the unrelated `README.md` modification remains unstaged and preserved.
 - [x] Stage exactly the 16 `goal/context/plan/tasks` files in the four authorized packet directories, verify the cached path set, and create one commit. Evidence: the final handoff reports the exact staged set and resulting commit SHA; no `README.md` path is staged.
 
+## Refresh audit
+
+- [x] Re-enumerate the current packet tree after the runtime, Quick Start, and
+      PTY-evidence successors were added. Evidence: fifteen non-empty packets
+      and zero empty direct-child directories are recorded in `context.md`.
+- [x] Re-run the fail-closed classifier at the `2810f48` baseline. Evidence:
+      the recorded output includes complete, incomplete, and deferred cases;
+      the new blind/raw evidence condition remains incomplete.
+- [x] Reconcile current commit, gate, E2E, successor, and retention state for
+      the new packets without deleting any packet. Evidence: the inventory
+      names `a4e6334`, `6094f08`, and `b8e0d50`, and the deletion set remains
+      empty because coordinator and external-blocker triggers are open.
+- [x] Preserve the detached auth-broker branch and its explicit deferral while
+      refreshing the audit. Evidence: the branch remains outside `main` and no
+      implementation files are staged by this refresh.
+
 ## Hand off
 
 - [x] Mark this packet `Complete` only after every acceptance and task condition has evidence. Evidence: lifecycle E2E, current-main gates, exact staging, and the final scoped commit are reported in the handoff.
