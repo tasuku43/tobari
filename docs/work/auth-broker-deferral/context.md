@@ -105,8 +105,8 @@ previous G101 baseline finding without changing the auth boundary.
 The packet is intentionally limited to its four Markdown evidence files. The
 auth implementation remains reachable only from `codex/auth-broker`; no auth
 code, command, Catalog entry, capability, or branch ref is staged by this
-packet. The final docs-only commit SHA is recorded in `tasks.md` after the
-commit is created.
+packet. The final docs-only commit is `93e5cac`; the auth implementation
+remains outside the supported product line.
 
 ## Security and public-boundary notes
 

@@ -36,7 +36,9 @@ Evidence: `main=966dd08`, `codex/auth-broker=4ccc756c`, merge-base
 
 ## Hand off
 
-- [ ] Return commit SHA and final status.
-- [ ] Mark the packet Complete only after the four-file commit exists.
+- [x] Return commit SHA and final status. Evidence: docs-only commit `93e5cac`;
+      packet status remains `Accepted` / explicitly deferred.
+- [x] Keep the packet `Accepted`/deferred after the four-file commit; do not
+      mark the unimplemented auth branch as product-complete.
 - [x] Keep the security result explicit; clean main `task security` passed after the first-wave merge.
 - [x] Keep future restart work behind a new reviewed successor packet.
