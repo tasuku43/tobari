@@ -213,6 +213,41 @@ run_project_shell() {
   docker exec -i "$work_container" /bin/bash
 }
 
+assert_base_bash_contract() {
+  local image=$1
+  local output
+  output=$(docker run --rm --entrypoint /bin/bash "$image" -lc '
+    test -x /bin/bash
+    test "$(getent passwd tobari | cut -d: -f7)" = /bin/bash
+    test "$(id -un)" = tobari
+    printf "base-bash-ok shell=%s user=%s\\n" "$BASH" "$(id -un)"
+  ')
+  assert_contains "$output" "base-bash-ok" "base runtime Bash contract"
+  [[ $(docker image inspect --format '{{json .Config.Cmd}}' "$image") == '["sleep","infinity"]' ]] ||
+    fail "$image changed the infrastructure-owned lifetime command"
+  [[ $(docker image inspect --format '{{json .Config.Entrypoint}}' "$image") == '["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]' ]] ||
+    fail "$image changed the fixed Tobari entrypoint"
+}
+
+enter_bash_tobari_at() {
+  local root=$1
+  shift
+  local output
+  if output=$({
+    sleep 1
+    printf 'printf "tobari-shell:%s\\n" "$BASH"\n'
+    printf 'if test -t 0 && test -t 1 && test -t 2; then printf "tobari-tty:yes\\n"; else printf "tobari-tty:no\\n"; fi\n'
+    printf 'exit\n'
+  } | run_tobari_pty_at "$root" "$@" 2>&1); then
+    :
+  else
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  assert_contains "$output" "tobari-shell:" "interactive Bash entry"
+  assert_contains "$output" "tobari-tty:yes" "interactive Bash TTY"
+}
+
 run_other_project() {
   docker exec "$other_container" "$@"
 }
@@ -365,6 +400,7 @@ assert_component_resource_bounds tobari-opa 1000000000 536870912 128
 assert_component_resource_bounds tobari-gateway 2000000000 1073741824 256
 docker build --tag "$custom_image" \
   --file test/integration/custom-image.Dockerfile . >/dev/null
+assert_base_bash_contract tobari-runtime:local
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
 container_nested_root="/var/lib/tobari/${work_nested_root#"$test_root/user/"}"
 enter_tobari_at "$work_root"
@@ -382,6 +418,11 @@ other_id=$(id_for_root "$other_root" <<<"$list_json")
 work_container=$(container_for_id "$work_id")
 work_network=$(network_for_id "$work_id")
 other_container=$(container_for_id "$other_id")
+enter_bash_tobari_at "$work_root"
+[[ $(docker inspect --format '{{.State.Running}}' "$work_container") == true ]] ||
+  fail "Workspace stopped after the interactive Bash child exited"
+[[ $(docker inspect --format '{{json .Config.Cmd}}' "$work_container") == '["sleep","infinity"]' ]] ||
+  fail "Workspace lifetime command was not sleep infinity after Bash exit"
 [[ $work_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
   fail "list did not return the project's stable ID"
 [[ $work_id != "$other_id" ]] || fail "CWD projects received the same stable ID"
