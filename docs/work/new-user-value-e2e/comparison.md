@@ -138,20 +138,17 @@ without adding an in-Workspace control path.
 
 ## Successor packet candidates
 
-1. [`policy-review-tty`](../policy-review-tty/goal.md): confirmation timing,
-   cancellation, redraw, raw-PTY regression, and valid recovery output.
-2. [`runtime-lifecycle-reconcile`](../runtime-lifecycle-reconcile/goal.md):
-   missing-runtime recovery and whether build affects existing Workspaces;
-   update product/architecture/docs together.
-3. [`new-user-quickstart-handoff`](../new-user-quickstart-handoff/goal.md): Quick
-   Start, host/Workspace boundary, valid retry/re-entry wording, runtime
-   prerequisites, and cleanup ownership.
-4. [`cli-catalog-audit`](../cli-catalog-audit/goal.md): consume the keep/integrate/
-   narrow classifications; no command retirement is justified by these
-   journeys yet.
-5. [`pty-evidence-harness`](../pty-evidence-harness/goal.md): add a parent-owned
-   capture/digest/checkpoint path so future child feedback can satisfy the raw
-   transcript predicate without exposing host-specific data.
+1. Policy review: resolved in the current CLI/integration tests and the human
+   policy contract in `docs/04_harness.md`; the repeated confirmation/redraw
+   findings remain product follow-up evidence, not an unfinished packet.
+2. Runtime lifecycle: resolved in the current preflight implementation and
+   `docs/01_product_contract.md`/`docs/02_architecture.md`.
+3. Quick Start handoff: resolved in the current README and scoped help output;
+   the host/Workspace and cleanup wording is now durable public guidance.
+4. CLI catalog: the audit remains evidence in `docs/work/cli-catalog-audit/`;
+   no command retirement is justified by these journeys.
+5. PTY evidence: resolved in `scripts/pty-evidence.py`, its contract test, and
+   the durable harness section in `docs/04_harness.md`.
 
 These candidates are intentionally not created or implemented here. They are
 the explicit handoff from evidence to reviewed product work.

@@ -1,6 +1,6 @@
 # Work Plan: Keep the auth-broker experiment detached from `main`
 
-- Status: Active
+- Status: Accepted
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -65,7 +65,9 @@ public-safe output before promotion.
 - `task check`, `task public:check`, and `task build` passed on the exact `main` archive.
 - Ref reachability and branch-only `git cat-file` checks passed.
 - Built `main` help/Catalog/capability/path negative checks passed.
-- `task security` was rerun and is blocked by the existing G101 at `internal/infra/dockerruntime/gateway_image.go:20`.
+- `task security` was rerun on the current main line and passed; the auth
+  branch remains detached and no security exception is needed for the
+  deferral.
 - The required docs-only main commit is created after the governance E2E; the
   auth implementation remains on `codex/auth-broker` and is not staged.
 
@@ -81,11 +83,16 @@ Until then, `codex/auth-broker` remains an explicit experiment only.
 
 ## Commit handoff
 
-Once Git metadata write access is available, run exactly:
+The docs-only evidence was committed on `main` as `93e5cac`; no further Git
+metadata operation is required for this packet. On explicit resumption, create
+a new reviewed packet rather than reopening this accepted deferral.
+
+Historical handoff command, already completed:
 
 ```sh
 git add -- docs/work/auth-broker-deferral/goal.md docs/work/auth-broker-deferral/context.md docs/work/auth-broker-deferral/plan.md docs/work/auth-broker-deferral/tasks.md
 git commit --only -m 'docs: record auth broker deferral' -- docs/work/auth-broker-deferral/goal.md docs/work/auth-broker-deferral/context.md docs/work/auth-broker-deferral/plan.md docs/work/auth-broker-deferral/tasks.md
 ```
 
-Verify the commit changes exactly four paths and then mark this packet Complete.
+The commit changed exactly four paths and the packet remains Accepted because
+the implementation itself is deliberately not complete or merged.

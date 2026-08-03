@@ -63,7 +63,7 @@
       signal, and exit/cleanup result. The official child runs predate the
       parent capture helper and did not return raw digests; that limitation is
       recorded explicitly, while the parent-owned raw/checkpoint boundary is
-      proven by the external integration capture in `pty-evidence-harness`.
+      proven by the external integration capture described in `docs/04_harness.md`.
 - [x] Each scenario has a committed readable feedback record with a visible
       value signal and exit/cleanup result; raw digest/timing remains open in
       the preceding task. Evidence: `feedback/official/*.md`.

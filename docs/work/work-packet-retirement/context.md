@@ -1,8 +1,8 @@
 # Work Context: Audit and safely retire completed work packets
 
-This file records the repository-state audit and its evidence. It does not
-change the status of another packet or turn a partial implementation into a
-completion claim.
+This file records the repository-state audit and its evidence. The first scan
+is retained as historical evidence; the current refresh below supersedes its
+packet-state table after the integration and PTY blockers were resolved.
 
 ## Main-history reconciliation
 
@@ -101,8 +101,8 @@ printf 'empty-directories: '
 find docs/work -mindepth 1 -maxdepth 1 -type d -empty ! -name _template -print | wc -l | tr -d ' '
 ```
 
-The current scan covers fifteen non-empty packets and reports no empty direct
-child directory. The standalone `auth-broker-deferral` packet is now
+The historical scan covered fifteen non-empty packets and reported no empty
+direct child directory. The standalone `auth-broker-deferral` packet is now
 `Accepted` and explicitly deferred, with all of its governance evidence
 committed on `main`; it remains preserved under its own temporary-retention
 trigger and is not a product-completion claim. The catalog audit, architecture
@@ -195,7 +195,7 @@ separate subsequent commit.
 - **Evidence retention:** a narrow packet lifetime used when the audit record
   itself is useful and cannot be replaced by a durable product contract.
 
-## Current E2E and gate evidence
+## Historical E2E and gate evidence
 
 Audit E2E verdict: PASS
 
@@ -226,11 +226,57 @@ empty-directories: 0
 
 The detached-branch E2E additionally returned a successful branch ref lookup
 and `git merge-base --is-ancestor codex/auth-broker main` exit `1`, proving the
-experiment is not an ancestor of the supported checkout. On the audit
-baseline, `task check`, `task security`, and `task public:check` pass; the
-PTY-evidence contract is included in `task check`. The release profile stops
-at the pre-existing ShellCheck findings SC2183/SC2016 in
-`scripts/test-integration.sh:238`; the integration aggregate remains blocked
-at the existing interactive policy-review helper with exit 130. No packet is
-deleted by this refresh, and the coordinator remains the owner of the next
-blind PTY handoff.
+experiment is not an ancestor of the supported checkout. On the historical
+audit baseline, the release profile stopped at the pre-existing ShellCheck
+findings and the integration aggregate stopped at the interactive policy-review
+helper; those blockers are resolved in the current main line and are retained
+above only as historical evidence.
+
+## Current refresh: 2026-08-04
+
+The current main line includes the bounded integration-input fix (`c957401`),
+the completed policy/runtime packet handoff (`ea95421`), the PTY single-event
+contract assertion (`7f1b9ac`), the PTY/new-user evidence closure (`5568e61`),
+and the accepted runtime-image boundary (`6a5846`). The current focused and
+repository gates are green: `task check`, `task security`,
+`task public:check`, `task release:check`, and `task integration:test` all
+pass. The separate GHCR visibility check for the trusted Gateway remains an
+external owner action and is classified below rather than inferred from a
+successful CI publication.
+
+The final current tree has these non-template packets:
+
+| Packet | Current state | E2E/decision evidence | Disposition |
+|---|---|---|---|
+| `agent-integration-discovery` | `Complete`, evidence | Skill-first workflow discovery and integration proof | Retain evidence |
+| `architecture-publication` | `Complete`, evidence | Deterministic local HTML/link/render proof; Pages activation remains owner-side | Retain evidence |
+| `auth-broker-deferral` | `Accepted`, explicitly deferred | Branch/main reachability and negative Catalog E2E; implementation remains detached | Retain until deferral review trigger |
+| `cli-catalog-audit` | `Complete`, evidence | Catalog-derived inventory and no-removal disposition | Retain evidence |
+| `gateway-official-image` | `Active`, external verification pending | Official multi-architecture digest and runtime integration pass; anonymous GHCR visibility is not yet verified | Preserve until GHCR owner action or explicit deferral |
+| `new-user-value-e2e` | `Complete`, evidence | Four functional blind journeys plus parent PTY artifact boundary; child artifact absence is explicit | Retain evidence until findings are promoted |
+| `official-image-distribution` | `Accepted`, explicit deferral | Base publication accepted; Claude/Codex build-only; public release policy deferred | Retain evidence until successor decision |
+| `quickstart-runtime-docs` | `Complete`, evidence | Runnable public Quick Start/runtime evidence | Retain evidence |
+| `work-packet-retirement` | `Complete`, evidence | This current classifier and cleanup record | Retain until superseded |
+
+The following temporary packets met their deletion predicates after their
+conclusions were promoted into numbered docs, README/help, tests, or the
+current evidence packet, and were removed in the accompanying cleanup commit:
+
+- `policy-review-tty`: policy/PTY behavior is covered by the current CLI,
+  integration, `docs/04_harness.md`, and `docs/09_agent_readiness_validation.md`.
+- `runtime-bash-shell`: Bash entry and Workspace lifetime are covered by the
+  runtime image contract, integration tests, and `docs/02_architecture.md`.
+- `runtime-lifecycle-reconcile`: runtime preflight and new-Workspace-only
+  image selection are covered by the application tests and numbered contracts.
+- `new-user-quickstart-handoff`: host/Workspace recovery and cleanup wording
+  are now in README/help and the public contract.
+- `pty-evidence-harness`: the capture helper, contract test, and durable
+  capture boundary are in `scripts/` and `docs/04_harness.md`; the external
+  artifact remains outside Git.
+- `tobari-improvement-triage`: the final register and dispositions are
+  preserved by this audit; it is not retained as a second permanent roadmap.
+
+No production, branch, release, or external package state was deleted. The
+detached `codex/auth-broker` ref remains intact. The only deleted repository
+paths are the six temporary packet directories listed above; their commits
+remain recoverable in Git history.

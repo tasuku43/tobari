@@ -11,10 +11,11 @@
 - Related ADRs: None
 
 History note: the lifecycle audit was committed in
-`92d742c3397e7aea8a24ccc23fbfef41e33d7134`, refreshed in `1cc400e`, and this
-refresh audits the clean `main` baseline at `2810f48`. The current packet tree
-contains the runtime lifecycle, Quick Start handoff, and PTY evidence packets;
-their open/retained states are recorded in `context.md`.
+`92d742c3397e7aea8a24ccc23fbfef41e33d7134`, refreshed in `1cc400e`, and the
+current refresh follows `c957401`, `ea95421`, `7f1b9ac`, `5568e61`, and
+`6a5846a`. Completed temporary packets are removed only after their conclusions
+are promoted; the final inventory and deletion list are recorded in
+`context.md`.
 
 ## Outcome
 
@@ -36,8 +37,11 @@ retention are not conflated.
 
 ## Non-goals
 
-- Do not edit `docs/work/tobari-improvement-triage/*`.
-- Do not edit any active packet outside the four explicitly authorized packet directories.
+- The historical baseline did not edit `docs/work/tobari-improvement-triage/*`
+  or any active packet. The current refresh may remove only the exact temporary
+  packets listed in `context.md` after their conclusions are promoted.
+- Do not edit any retained active, accepted, or evidence packet outside this
+  audit and the explicit cleanup list.
 - Do not change product code, CLI behavior, branches, issues, releases, or publications.
 - Do not delete a non-empty packet unless the lifecycle procedure proves every deletion condition.
 - Do not treat a passing unit, build, or focused integration check as E2E completion by itself.

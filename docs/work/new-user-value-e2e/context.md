@@ -32,7 +32,8 @@ feature-completion claim.
   official child reports predate that helper, so their missing child raw
   evidence remains explicit rather than silently backfilled. A separate
   parent-owned capture around `task integration:test` completed with exit 0;
-  its external path and digests are recorded in the PTY harness packet.
+  its external path and digests are recorded in the official feedback and the
+  durable PTY contract in `docs/04_harness.md`.
 - A fresh outcome-only Medium-02 blind rerun completed bootstrap recovery,
   Workspace entry/reuse, nested cancellation, deletion, and shared cleanup in
   an 80x24 real PTY with `TERM=dumb`. The child did not receive a route or

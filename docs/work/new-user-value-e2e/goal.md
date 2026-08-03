@@ -58,7 +58,8 @@ catalog/recovery impact, not from command names alone.
       and cleanup recorded. The four official child runs predate the reusable
       raw-capture helper, so their missing child digests remain explicit; the
       parent-owned capture boundary is independently proven in
-      `pty-evidence-harness` and its external artifact is recorded there.
+      `docs/04_harness.md`; the external supporting artifact is recorded in the
+      official feedback file without making it repository content.
 - [x] Every journey has a parent-owned feedback file under `feedback/` describing the
       observed path, blockers, missing transitions, accidental complexity, and
       command integration/narrowing/retirement candidates.

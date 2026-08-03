@@ -15,12 +15,17 @@
 - [x] Define a fail-closed mechanical classifier for complete, incomplete, superseded, and deferred states. Evidence: the classifier counts goal/task open checkboxes, reads status/retention/successor, requires the packet E2E marker for complete, and reads the deferred register separately.
 - [x] Apply the classifier to the actual repository and include complete, incomplete, and deferred cases. Evidence: the final output is recorded in `context.md`: catalog/lifecycle and agent-integration evidence packets are complete, active packets are incomplete, the Quick Start packet is preserved as concurrent evidence, and the accepted auth packet remains explicitly deferred.
 - [x] Decide deletion eligibility packet-by-packet and list every candidate or explicitly prove that the candidate set is empty. Evidence: the final candidate set is empty; evidence-retention packets, accepted/deferred auth evidence, active/incomplete packets, and the concurrent Quick Start packet are all preserved.
-- [x] Confirm that the coordinator and all non-authorized packets are outside this packet's write scope. Evidence: `docs/work/tobari-improvement-triage`, auth-broker, and every other packet remain untouched; policy-review, runtime Bash, catalog, and lifecycle are the four explicitly authorized directories.
+- [x] Confirm that the coordinator and all non-authorized packets were outside
+      the historical write scope. Evidence: the baseline commit changed only
+      the four authorized directories; the current refresh has a separately
+      enumerated cleanup list.
 
 ## Implement
 
 - [x] Create only `docs/work/work-packet-retirement/{goal,context,plan,tasks}.md`. Evidence: the packet contains exactly these four files; no production file or other packet was changed.
-- [x] Do not edit or delete `docs/work/tobari-improvement-triage/*` or any out-of-scope packet. Evidence: the coordinator and all non-authorized packet paths remain present and unchanged; only the four authorized directories are edited.
+- [x] Do not edit or delete retained packet content during cleanup. Evidence:
+      only the exact temporary directories listed in the current refresh were
+      removed; retained auth/image/evidence packets remain present.
 - [x] Preserve the deferred auth-broker branch/register disposition and do not create a false completion packet. Evidence: the coordinator register remains unchanged; `codex/auth-broker` exists and is not an ancestor of `HEAD`.
 
 ## Verify
@@ -35,19 +40,23 @@
 
 ## Refresh audit
 
-- [x] Re-enumerate the current packet tree after the runtime, Quick Start, and
-      PTY-evidence successors were added. Evidence: fifteen non-empty packets
-      and zero empty direct-child directories are recorded in `context.md`.
-- [x] Re-run the fail-closed classifier at the `2810f48` baseline. Evidence:
-      the recorded output includes complete, incomplete, and deferred cases;
-      the new blind/raw evidence condition remains incomplete.
-- [x] Reconcile current commit, gate, E2E, successor, and retention state for
-      the new packets without deleting any packet. Evidence: the inventory
-      names `a4e6334`, `6094f08`, and `b8e0d50`, and the deletion set remains
-      empty because coordinator and external-blocker triggers are open.
+- [x] Re-enumerate the current packet tree after the runtime, Quick Start,
+      policy, and PTY evidence blockers were resolved. Evidence: the current
+      nine-packet inventory and the six removed temporary packets are recorded
+      in `context.md`.
+- [x] Re-run the fail-closed classifier against current `main`. Evidence:
+      current complete/accepted/external-pending states, gate results, and the
+      explicit Gateway visibility owner action are recorded in `context.md`.
+- [x] Reconcile current commit, gate, E2E, successor, and retention state and
+      delete only packets whose conclusions are promoted. Evidence: the
+      current refresh lists the exact six temporary packet directories removed;
+      auth/image evidence with unresolved external decisions is preserved.
 - [x] Preserve the detached auth-broker branch and its explicit deferral while
       refreshing the audit. Evidence: the branch remains outside `main` and no
       implementation files are staged by this refresh.
+- [x] Verify the cleanup deletion set contains no production, branch, release,
+      or external package target. Evidence: only the six named temporary
+      `docs/work` packet directories were removed; Git history retains them.
 
 ## Hand off
 
