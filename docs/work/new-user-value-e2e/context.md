@@ -74,6 +74,12 @@ feature-completion claim.
   [feedback/official/long-02.md](feedback/official/long-02.md). The child
   reported 120x40 PTYs but no raw digest, and repeated the review confirmation
   fault; packet-wide evidence remains open.
+- Official Medium-01 attempt 01 reached a healthy isolated Workspace but never
+  produced a pending Permission Inbox candidate. The child did not answer
+  repeated status requests and was closed; supported cleanup left no owned
+  resources. It is recorded as non-acceptance evidence in
+  [feedback/official/medium-01-attempt-01-stalled.md](feedback/official/medium-01-attempt-01-stalled.md);
+  the three-decision Inbox journey still requires a fresh run.
 
 ## Relevant structure
 

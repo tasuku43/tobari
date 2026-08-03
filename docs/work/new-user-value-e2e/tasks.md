@@ -41,6 +41,10 @@
       run; evidence: [feedback/official/long-02-attempt-01-stalled.md](feedback/official/long-02-attempt-01-stalled.md).
 - [x] Officially run long scenario 2 through a real pseudo-TTY and record
       parent-owned functional feedback; evidence: [feedback/official/long-02.md](feedback/official/long-02.md).
+- [x] Record the first Medium-01 attempt as a non-acceptance stalled Inbox
+      run; evidence: [feedback/official/medium-01-attempt-01-stalled.md](feedback/official/medium-01-attempt-01-stalled.md).
+- [ ] Officially run medium scenario 1 through a real pseudo-TTY and record
+      parent-owned feedback.
 - [ ] Officially run long scenario 2 through a real pseudo-TTY and record
       parent-owned feedback.
 - [ ] Officially run medium scenario 1 through a real pseudo-TTY and record
