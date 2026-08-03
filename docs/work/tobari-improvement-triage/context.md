@@ -12,12 +12,12 @@ desired fix or product direction into current repository behavior.
 - Existing unit tests cover raw selection, explicit confirmation, line fallback, EOF cancellation, opaque-ID preservation, and redirected read-only behavior. `scripts/test-integration.sh` also contains a PTY scenario that feeds an exact key sequence and verifies an interactive deny.
 - The user-reported behavior was materially different from the intended contract: an interactive `policy review` invocation appeared blank and ended with `Permission review canceled`, while `policy review --format=json` showed a pending candidate. A deterministic PTY reproduction now covers early input/EOF, explicit allow/deny, cancellation, invalid input, and JSON projection; the fix is recorded in commit `7d096bb`.
 - The local `codex/auth-broker` branch exists and is not an ancestor of `main`. Its historical commits contain the proposed host-side broker and declarative auth-profile work; the current `main` path does not include that branch.
-- The repository's current public contract includes Context runtime customization through `runtime init`, editing the active Context Dockerfile, and `runtime build`. The current first-wave worktree has no implementation diff; only the parked auth-broker packet and this coordinator packet remain uncommitted.
+- The repository's current public contract includes Context runtime customization through `runtime init`, editing the active Context Dockerfile, and `runtime build`. The current first-wave worktree has no implementation diff; only the parked auth-broker packet remains uncommitted. The coordinator reconciliation and its deferred-auth link correction are committed in `a2015c2`.
 - The requested base-runtime shell outcome is verified end to end: `runtimes/base/Dockerfile` contains Bash and the `tobari` user's `/bin/bash` shell, while the CLI and Docker adapter use an interactive `/bin/bash` exec. The regression coverage and transcript are committed in `912c602`. Full repository profiles remain blocked by the unrelated parked packet's machine-specific path, and the shared integration profile stopped at the existing policy-review scenario with exit 130.
 - The public command catalog audit is complete and committed in `a007059`. The catalog-derived inventory found no command removal candidate that can be safely deleted from the current public surface; compatibility and recovery paths remain documented.
 - The packet lifecycle audit is complete and committed in `92d742c`. It found no deletion candidate and preserves active, incomplete, uncertain, and deferred evidence.
 - Several local `docs/work/` directories had no files, including paths associated with auth-broker and older exploratory topics. Empty directories are not completion evidence and are not tracked by Git; after recording that disposition, the six empty stale directories were removed on 2026-08-02. Non-empty active packets remain in place.
-- The worktree is already dirty with user changes in runtime, Context, documentation, harness, and integration areas. The coordinator packet is additive and must preserve those changes.
+- The primary worktree is intentionally dirty only with the untracked parked auth-broker packet. Runtime, Context, documentation, harness, and integration changes from earlier work are represented by their scoped commits or remain outside this first-wave branch; no unrelated change is absorbed here.
 
 ## Issue register
 
@@ -113,8 +113,9 @@ fixed allow, deny, cancellation, invalid-input, and JSON paths.
 The first-wave history has been recovered onto `codex/first-wave`. The
 base-runtime-only slice remains separate from this wave, and the auth-broker
 experiment remains detached. Each completed first-wave child has a scoped
-commit; the coordinator packet is the only current-wave packet still awaiting
-its final documentation commit.
+commit; the coordinator reconciliation and deferred-auth link correction are
+also committed, while the auth-broker experiment remains outside the current
+line.
 
 | Child | E2E / gate result | Commit state | Disposition |
 |---|---|---|---|
@@ -126,10 +127,10 @@ its final documentation commit.
 | `work-packet-retirement` | Classifier and deferred-branch boundary E2E passed; no cleanup target found; isolated gates passed | `92d742c` | Committed as evidence; do not delete active or uncertain packets |
 | `auth-broker-deferral` | Governance E2E passed | Intentionally none | Parked and detached; no current-wave commit, merge, cherry-pick, or dependency |
 
-The current Git state is branch `codex/first-wave` at `92d742c`, with the
-first-wave commits `7d096bb`, `8e1adfa`, `912c602`, `a007059`, and `92d742c`
-in order after the recovered baseline. The worktree contains only the
-uncommitted `auth-broker-deferral` and coordinator packets. The
+The current Git state is branch `codex/first-wave` at `a2015c2`, with the
+first-wave commits `7d096bb`, `8e1adfa`, `912c602`, `a007059`, `92d742c`,
+`84789fb`, and `a2015c2` in order after the recovered baseline. The worktree
+contains only the untracked `auth-broker-deferral` packet. The
 `base-runtime-only` changes remain captured separately in `0ec04f8`, and
 `codex/auth-broker` remains detached and unmerged. No rebase, reset, or cleanup
 operation is pending.

@@ -33,9 +33,9 @@
 
 ## Verify
 
-- [ ] Focused coordinator documentation checks pass. Evidence:
-- [ ] `task check` passes. Evidence:
-- [ ] `task public:check` passes when this public work packet is checked. Evidence:
+- [x] Focused coordinator documentation checks pass. Evidence: clean detached worktree at `a2015c2` passed `task check`, `task security`, and `task public:check`; the first run's only failure was the now-removed link to the intentionally uncommitted auth packet.
+- [x] `task check` passes. Evidence: clean-checkout `task check` passed at `a2015c2` after the coordinator link correction.
+- [x] `task public:check` passes when this public work packet is checked. Evidence: clean-checkout `task public:check` returned `repoguard (public): OK` and `contractlint: OK` at `a2015c2`.
 - [ ] Each child packet records its required security, release, runtime, and integration profiles. Evidence:
 - [ ] The relevant agent-readiness scenario and discovery-round-trip budget are recorded for each child capability. Evidence:
 - [ ] Every child packet records a successful end-to-end user-journey replay, or an explicit unresolved environment blocker; no analysis-only closure is accepted. Evidence:
