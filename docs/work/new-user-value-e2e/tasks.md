@@ -33,6 +33,8 @@
       delegation; evidence: [feedback/official/parent-baseline.md](feedback/official/parent-baseline.md).
 - [x] Record the first official Long-01 attempt as an environment-blocked,
       non-acceptance run; evidence: [feedback/official/long-01-attempt-01-environment-blocked.md](feedback/official/long-01-attempt-01-environment-blocked.md).
+- [x] Record the second Long-01 attempt as a partial blind run whose allowed
+      request missed policy learning; evidence: [feedback/official/long-01-attempt-02-partial.md](feedback/official/long-01-attempt-02-partial.md).
 - [ ] Officially run long scenario 1 through a real pseudo-TTY and record
       parent-owned feedback.
 - [ ] Officially run long scenario 2 through a real pseudo-TTY and record

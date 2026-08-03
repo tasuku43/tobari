@@ -45,6 +45,13 @@ feature-completion claim.
   [feedback/official/long-01-attempt-01-environment-blocked.md](feedback/official/long-01-attempt-01-environment-blocked.md);
   the parent must repair the disposable environment and rerun from a fresh
   copy before routing the remaining scenarios.
+- Official Long-01 attempt 02 completed the prepared environment and runtime
+  recreation, but its blind first request was already allowed (`HTTP/2 200`),
+  so it never reached policy review. It is recorded as partial, non-
+  acceptance evidence in
+  [feedback/official/long-01-attempt-02-partial.md](feedback/official/long-01-attempt-02-partial.md);
+  the next attempt must express the denied-and-recovered outcome without
+  handing the child a command sequence.
 
 ## Relevant structure
 
