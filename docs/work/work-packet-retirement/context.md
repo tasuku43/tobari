@@ -252,7 +252,7 @@ The final current tree has these non-template packets:
 | `architecture-publication` | `Complete`, evidence | Deterministic local HTML/link/render proof; Pages activation remains owner-side | Retain evidence |
 | `auth-broker-deferral` | `Accepted`, explicitly deferred | Branch/main reachability and negative Catalog E2E; implementation remains detached | Retain until deferral review trigger |
 | `cli-catalog-audit` | `Complete`, evidence | Catalog-derived inventory and no-removal disposition | Retain evidence |
-| `gateway-official-image` | `Active`, external verification pending | Official multi-architecture digest and runtime integration pass; anonymous GHCR visibility is not yet verified | Preserve until GHCR owner action or explicit deferral |
+| `gateway-official-image` | `Accepted`, external owner action pending | Official multi-architecture digest and runtime integration pass; anonymous GHCR visibility returned `401` and package-scope auth refresh timed out | Retain until GHCR owner action or explicit deferral |
 | `new-user-value-e2e` | `Complete`, evidence | Four functional blind journeys plus parent PTY artifact boundary; child artifact absence is explicit | Retain evidence until findings are promoted |
 | `official-image-distribution` | `Accepted`, explicit deferral | Base publication accepted; Claude/Codex build-only; public release policy deferred | Retain evidence until successor decision |
 | `quickstart-runtime-docs` | `Complete`, evidence | Runnable public Quick Start/runtime evidence | Retain evidence |

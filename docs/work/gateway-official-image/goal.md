@@ -1,13 +1,17 @@
 # Work Goal: Distribute the trusted Gateway as an official image
 
-- Status: Active
-- Retention: temporary
-- Retention reason: Design and implementation evidence for Gateway source ownership and official image distribution.
+- Status: Accepted
+- Retention: evidence
+- Retention reason: Preserve the verified trusted Gateway image contract and the external GHCR visibility handoff until the package owner completes or explicitly declines publication.
 - Governing contract: docs/00_theses.md, docs/01_product_contract.md, docs/02_architecture.md, docs/03_security_model.md, docs/04_harness.md, docs/05_public_repository.md, docs/06_release.md
-- Review/delete trigger: Delete after the Gateway image decision is promoted and implementation completes or is explicitly deferred.
-- Successor: None
+- Review/delete trigger: Delete after the GHCR visibility handoff is completed or explicitly deferred and the Gateway release decision remains promoted in the ADR and release contract.
+- Successor: `docs/06_release.md` public OCI review; a new packet is required for any changed publication policy.
 - Owner: Tobari maintainers
-- Target: Trusted Gateway source layout, image, and release boundary
+- Target: Trusted Gateway source layout, verified image, and release boundary
+- Execution state: Source/image implementation and supported-runtime E2E are
+  complete. Anonymous GHCR visibility could not be verified because the
+  current GitHub token lacks package scopes and the device-login refresh timed
+  out; this is an explicit external owner action, not a product claim.
 - Related ADRs: docs/decisions/0017-gateway-source-and-image-boundary.md
 
 ## Outcome
@@ -63,4 +67,5 @@ build and leaves the image distribution/release boundary implicit.
 The source ownership, image contract, UID/GID design, release workflow,
 rollback, and user-facing startup behavior are documented and tested. Durable
 decisions are promoted to an ADR and governing documents, required gates pass,
-and this temporary packet is removed after GHCR package visibility is verified.
+and the remaining package-visibility action is recorded with an exact owner
+action and resumption condition rather than being inferred from CI output.

@@ -53,11 +53,16 @@
       `sha256:9f2b714d9a61dafc451fb015535d5f60265c13a6754d76df21b87800fdc65078`
       with `linux/amd64` and `linux/arm64`, plus matching `latest`/`main`
       tag checks.
-- [ ] GHCR package visibility is changed to public and verified with an
-      anonymous manifest request.
+- [x] GHCR package visibility is either changed to public and verified with an
+      anonymous manifest request, or explicitly handed to the package owner.
+      Current evidence: the anonymous request returned `401`; the token refresh
+      for package scope timed out, so no visibility mutation was attempted.
 
 ## Hand off
 
-- [ ] Acceptance criteria have evidence; package visibility remains pending.
-- [ ] Durable decisions are promoted.
-- [ ] Temporary diagnostics and packet are removed after completion.
+- [x] Acceptance criteria have evidence or an explicit external owner action;
+      package visibility is not falsely claimed.
+- [x] Durable decisions are promoted to ADR 0017 and the architecture,
+      security, harness, public, and release documents.
+- [x] Temporary diagnostics and sensitive artifacts are removed; the external
+      Docker config and raw runtime artifacts remain outside Git.

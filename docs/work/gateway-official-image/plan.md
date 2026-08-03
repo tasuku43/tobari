@@ -1,6 +1,6 @@
 # Work Plan: Distribute the trusted Gateway as an official image
 
-- Status: Active
+- Status: Accepted
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
@@ -96,7 +96,8 @@ socket, and the project-principal boundary.
 - Gateway/OPA/project-principal integration and outage tests.
 - Source snapshot/embedding drift check.
 - `task check`, `task security`, `task public:check`, `task release:check`, and
-  the relevant image/release gate.
+  the relevant image/release gate. The only remaining step is the external
+  anonymous GHCR visibility check; it is not replaced by an authenticated pull.
 
 ## Rollout and rollback
 
@@ -108,5 +109,6 @@ release identity to different bytes.
 ## Documentation promotion
 
 Promote the source-of-truth location, Gateway image contract, UID/GID decision,
-release workflow, and rollback policy into an ADR plus architecture, security,
-harness, and release documentation. Remove this temporary packet after handoff.
+release workflow, and rollback policy into ADR 0017 plus architecture,
+security, harness, and release documentation. The packet remains evidence until
+the external package-visibility handoff is completed or explicitly deferred.

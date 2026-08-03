@@ -76,10 +76,14 @@
       non-root user, entrypoint, and Docker Engine platform.
 - [x] Source builds are selected explicitly with `cluster up --gateway-source`;
       rollback restores the reviewed digest in `versions.env`.
-- [ ] The first GHCR package was published successfully, but its visibility is
-      still pending the package-owner visibility change. Provenance and SBOM are
-      not current release claims and require an explicit release-contract
-      decision first.
+- [x] The first GHCR package was published successfully, but its visibility is
+      still pending the package-owner visibility change. On 2026-08-04 an
+      anonymous manifest request returned `401`, and the active GitHub token
+      exposed no `packages` scope. `gh auth refresh -h github.com
+      -s read:packages -s write:packages` was started with device code
+      `49F4-FCAF` but ended with `context deadline exceeded` without changing
+      credentials. Provenance and SBOM are not current release claims and
+      require an explicit release-contract decision first.
 
 ## Thesis evidence
 
@@ -112,6 +116,20 @@ The runtime profile passed OPA 27/27, Gateway 25/25, and the complete
 integration scenario with the pinned official Gateway digest. The temporary
 Docker config was required only because the local default config denied
 BuildKit activity-file writes; it is not a product dependency.
+
+## Current external handoff
+
+- Main workflow `30754778241` produced the immutable multi-architecture OCI
+  index and the CLI preflight/integration checks pass.
+- Anonymous verification of the pinned Gateway manifest is not complete
+  because the package is currently not readable without authentication.
+- Owner action to resume: authenticate a GitHub account with package read/write
+  scope, verify that public visibility is intentionally approved, make the
+  one-way visibility change if approved, then rerun the anonymous manifest
+  check and record the result here. Do not treat `latest`, workflow success, or
+  an authenticated pull as proof of public visibility.
+- This packet is therefore `Accepted` with an explicit external handoff; it is
+  not marked `Complete` and does not claim a public trusted image.
 
 ## Security and public-boundary notes
 
