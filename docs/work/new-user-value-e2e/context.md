@@ -111,6 +111,14 @@ feature-completion claim.
   action. Its partial functional evidence is in
   [feedback/official/medium-02.md](feedback/official/medium-02.md); the
   cancellation branch and raw evidence remain open.
+- The parent then proved the Medium-02 lifecycle independently: premature
+  entry gave a visible cluster recovery cue, root entry reused the same
+  Workspace after `exit`, nested entry exposed an ancestor/create selector,
+  `q` canceled without creating state, and delete/status/cluster cleanup left no
+  owned resources. The redacted baseline is in
+  [feedback/official/parent-medium-02-baseline.md](feedback/official/parent-medium-02-baseline.md).
+  The selector cancel is semantically safe but rendered as a red
+  `Command failed`/`operation_canceled` result.
 
 ## Relevant structure
 

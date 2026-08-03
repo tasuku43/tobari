@@ -51,6 +51,8 @@
       parent-owned feedback; evidence: [feedback/official/medium-01.md](feedback/official/medium-01.md).
 - [x] Record the first Medium-02 run as partial functional reuse/cleanup
       evidence with the cancellation branch still open; evidence: [feedback/official/medium-02.md](feedback/official/medium-02.md).
+- [x] Prove the Medium-02 lifecycle path in a parent-owned PTY baseline before
+      another blind run; evidence: [feedback/official/parent-medium-02-baseline.md](feedback/official/parent-medium-02-baseline.md).
 - [ ] Officially run medium scenario 2 through a real pseudo-TTY and record
       parent-owned feedback.
 - [x] Do not modify production code, CLI catalog, README, or unrelated packets.
