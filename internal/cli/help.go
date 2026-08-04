@@ -217,6 +217,22 @@ func (c *CLI) renderRootHelpWithColor(color bool) []byte {
 		applyColorToken(color, colorTokenMuted, "Select structured failure presentation (default: text)"),
 	)
 	fmt.Fprintln(&output)
+	fmt.Fprintln(&output, applyColorToken(color, colorTokenAccent, "Start here:"))
+	startHere := []struct{ path, description string }{
+		{path: "cluster up", description: "Prepare the shared enforcement boundary"},
+		{path: ProgramName, description: "Enter or reuse the current project's Workspace"},
+	}
+	for _, start := range startHere {
+		command, found := c.catalog.Lookup(start.path)
+		if !found {
+			continue
+		}
+		fmt.Fprintf(&output, "  %s  %s\n",
+			applyColorToken(color, colorTokenAccent, command.Usage()),
+			applyColorToken(color, colorTokenMuted, start.description),
+		)
+	}
+	fmt.Fprintln(&output)
 	output.Write(renderRootCommandIndexWithColor(c.catalog.Commands(), color))
 	fmt.Fprintln(&output)
 	fmt.Fprintf(&output, "%s\n", applyColorToken(color, colorTokenMuted, fmt.Sprintf("Run '%s help <command-or-namespace>' for scoped details.", ProgramName)))

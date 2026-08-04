@@ -506,9 +506,6 @@ func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operat
 				previewOutput := newHumanOutput(true)
 				previewOutput.heading("!", "Delete target", colorTokenWarning)
 				previewOutput.row("Root", safeExternalText(preview.Root), colorTokenMuted)
-				previewOutput.row("ID", preview.ID, colorTokenAccent)
-				previewOutput.row("Home", safeExternalText(preview.Home), colorTokenMuted)
-				previewOutput.row("Runtime", safeExternalText(string(preview.Runtime)), humanStatusToken(string(preview.Runtime)))
 				_, _ = writeOnce(c.Err, previewOutput.bytes())
 			} else {
 				fmt.Fprintf(
@@ -1458,8 +1455,6 @@ func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool)
 		}
 		output.heading(marker, title, token)
 		output.row("Root", safeExternalText(result.Root), colorTokenMuted)
-		output.row("ID", result.ID, colorTokenAccent)
-		output.row("Home", safeExternalText(result.Home), colorTokenMuted)
 		if result.Deleted {
 			output.next("tobari", "Create or enter a Tobari from this project directory.")
 		}

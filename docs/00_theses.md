@@ -76,6 +76,11 @@ using `tobari` leaves host execution unchanged, while `delete` and
 - Host-authored Rego, raw logs, Docker diagnostics, and provider-specific
   details remain available as advanced paths; they do not define the routine
   agent workflow.
+- The human first-use route starts with the explicit shared `cluster up` and
+  CWD-first `tobari` entry. Read-only `doctor`, status/list inspection, and
+  opaque-ID policy actions remain recovery or machine paths rather than steps
+  in the normal journey. On a TTY, `policy review` is the complete human
+  review-to-decision flow; it must not be paired with a second JSON review.
 - The current explicit `cluster up` bootstrap and separate denial discovery
   commands are compatibility surfaces under review against this thesis. They
   must not be mistaken for the product's central value.

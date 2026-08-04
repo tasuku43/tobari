@@ -257,6 +257,9 @@ func TestDeleteCatalogDescribesDetachedDefaultAndAttachedForceGuard(t *testing.T
 		switch declared.Code {
 		case "project_session_attached":
 			attached = declared.Kind == fault.KindRejected && !declared.Retryable
+			if len(declared.NextActions) != 1 || declared.NextActions[0].Command != "delete" {
+				t.Fatalf("attached-session recovery = %+v, want direct delete recovery", declared.NextActions)
+			}
 		case "confirmation_required":
 			confirmation = true
 		}
@@ -474,6 +477,24 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndMutedID(t *testing.T) {
 	}
 	if strings.Contains(value, applyColorToken(true, colorTokenSelected, "  /tmp/parent")) {
 		t.Fatalf("non-selected workspace used selected color: %q", value)
+	}
+}
+
+func TestProjectDeleteHumanRendererHidesRuntimeDiagnostics(t *testing.T) {
+	t.Parallel()
+	result := tobari.ProjectDeleteResult{
+		Task: tobari.TaskDelete, Deleted: true,
+		Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
+		Home: "/tmp/state/project/home",
+	}
+	output := string(renderProjectDeleteWithColor(result, true))
+	if !strings.Contains(output, "Tobari deleted") || !strings.Contains(output, "/tmp/project") || !strings.Contains(output, "tobari") {
+		t.Fatalf("delete output lost the user-facing result: %q", output)
+	}
+	for _, internal := range []string{result.ID, result.Home, "ID", "Home"} {
+		if strings.Contains(output, internal) {
+			t.Fatalf("delete output exposed runtime diagnostic %q: %q", internal, output)
+		}
 	}
 }
 

@@ -31,7 +31,7 @@ journey is the product baseline to improve:
 
 | Journey | Current surface | Desired evidence |
 |---|---|---|
-| First isolated session | `doctor`, explicit `cluster up`, then `tobari` | One obvious CWD-first entry with cluster/bootstrap complexity guided or hidden while retaining an explicit recovery command |
+| First isolated session | Explicit `cluster up`, then `tobari`; `doctor` is recovery-only | One obvious CWD-first entry with cluster/bootstrap complexity guided or hidden while retaining an explicit recovery command |
 | Agent work | Reusable root, home, and deny-by-default Gateway | The user sets the boundary first; the agent works freely inside it without per-command supervision, host credentials, or direct egress |
 | First denied request | 403 plus host-side `policy review` | The agent can explain that the host must review the secret-free exact request; one fixed next command is available |
 | Permission growth | Human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users select, inspect, explicitly confirm, and refresh after one exact decision without OPA/Rego editing; redirected review remains read-only and the underlying action remains exact-reference-bound and tested |
@@ -46,13 +46,16 @@ external-processing count, and the exact next command separately for machine
 and human paths.
 
 The current human-path evidence supports keeping the Permission Inbox,
-CWD-owned entry, explicit cleanup, and Context runtime commands. No observed
-journey justifies deleting or merging a public command. The valid recovery
-path after an allowed permission is `tobari` re-entry; there is no `tobari retry`
-command. Runtime builds apply to new Workspaces, while existing
-Workspaces keep their selected image. Future UX work may simplify bootstrap or
-polish terminal redraws, but those observations do not change the current
-contract or authorize a second command surface.
+CWD-owned entry, explicit cleanup, and Context runtime commands. The first
+PTY replay removed `doctor` from the happy path and confirmed that TTY review
+already closes the allow/deny decision; JSON review plus `policy allow --id`
+remains the redirected or machine path. No observed journey justifies deleting
+or merging a public command. The valid recovery path after an allowed
+permission is `tobari` re-entry; there is no `tobari retry` command. Runtime
+builds apply to new Workspaces, while existing Workspaces keep their selected
+image. Future UX work may simplify bootstrap or polish terminal redraws, but
+those observations do not change the current contract or authorize a second
+command surface.
 
 Parent-owned human-path evidence uses a real-PTY capture boundary. The
 reviewable bundle records `rows`, `cols`, `TERM`, one short input event at a
@@ -72,7 +75,7 @@ go run ./cmd/tobari help --format agent
 go run ./cmd/tobari help cluster --format agent
 go run ./cmd/tobari help tobari --format agent
 go run ./cmd/tobari help status --format agent
-go run ./cmd/tobari doctor --root /absolute/test/root --format json
+go run ./cmd/tobari doctor --root /absolute/test/root --format json # optional diagnostics
 cd /absolute/test/root
 go build -o /tmp/tobari ./cmd/tobari
 (cd /absolute/test/root && /tmp/tobari)

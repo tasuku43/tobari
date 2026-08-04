@@ -280,7 +280,7 @@ func deleteSpec() CommandSpec {
 			Prerequisites: []string{"The target is the nearest CWD-owned Tobari; without --force, no session is attached."},
 			FixedTarget:   fixedCurrentDirectoryTarget(),
 			Errors: mutationCommandErrors("delete", "status",
-				declaredCommandError(fault.KindRejected, "project_session_attached", false, "help delete", "Exit the attached session or deliberately use --force."),
+				declaredCommandError(fault.KindRejected, "project_session_attached", false, "delete", "Exit the attached session, then retry; use --force only when terminating it is intentional."),
 				declaredCommandError(fault.KindNotFound, "project_not_found", false, "tobari", "Create a Tobari from the current project directory."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local CWD-owned state."),

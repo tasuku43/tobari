@@ -33,15 +33,10 @@ policy learning:
 ```sh
 cd quickstart-example
 tobari
-tobari status
-tobari list
 
 # Review is the human host-side entry point; in a TTY it offers selection,
 # detail, explicit confirmation, and exact allow/deny without editing OPA or Rego.
 tobari policy review
-# Redirected output stays read-only; use the explicit action when scripting.
-tobari policy allow --id PCY_ID
-# or: tobari policy deny --id PCY_ID
 ```
 
 The Gateway response gives the agent a fixed host-side review command and never
@@ -138,8 +133,8 @@ selected project root and make proxy-aware HTTP/HTTPS requests, but it cannot
 reach OPA, Docker, host credentials, or the Internet directly. A denial is a
 host handoff; it is never an automatic approval or retry.
 
-Host-owned actions in this walkthrough are `tobari doctor`, `tobari cluster up`,
-`tobari policy review`, `tobari policy allow --id ID`,
+Host-owned actions in this walkthrough are `tobari cluster up`,
+`tobari policy review`,
 `tobari policy deny --id ID`, `tobari context show`, `tobari runtime init`,
 `tobari runtime build`, `tobari delete`, and `tobari cluster down`.
 Workspace-owned actions are the agent's commands and file changes below the
@@ -167,7 +162,6 @@ configuration/state directory as a project root.
 ```sh
 mkdir -p quickstart-example
 cd quickstart-example
-tobari doctor --root .
 tobari cluster up
 ```
 
@@ -175,7 +169,8 @@ tobari cluster up
 Gateway image and starts Gateway, OPA, policy, and CA state. Ordinary
 `tobari` entry does not repair or start the cluster and does not pull a
 configured work image. If the reviewed Gateway image is unavailable, inspect
-the host with `tobari doctor` and retry `tobari cluster up`; the
+the host with `tobari doctor` and retry `tobari cluster up`; `doctor` is a
+diagnostic recovery command, not a prerequisite for the normal path. The
 `--gateway-source` option is only the explicit Gateway source-development or
 recovery path.
 
@@ -219,7 +214,7 @@ tobari policy review --tail 100
 
 For a redirected or scripted host flow, review is read-only. Copy the exact
 opaque `pcy_...` value for that same request unchanged, then run the explicit
-action:
+action; this is the machine path, not an additional step after the TTY flow:
 
 ```sh
 tobari policy review --tail 100 --format json
@@ -318,10 +313,12 @@ previously selected image active.
   `tobari cluster status`, and retry `tobari cluster up`; use
   `tobari cluster up --gateway-source` only for its explicit source/recovery
   purpose.
-- A learnable `403`: leave the session, run `tobari policy review`, pass one
-  exact candidate unchanged to `tobari policy allow --id ID` or
-  `tobari policy deny --id ID`, then re-enter and retry. Do not retry before a
-  confirmed host action.
+- A learnable `403`: leave the session and run `tobari policy review`. On a TTY,
+  inspect the request and explicitly confirm allow or deny; the review flow
+  applies the exact decision and tells you to re-enter. Redirected or machine
+  review remains read-only and uses one unchanged candidate ID with
+  `tobari policy allow --id ID` or `tobari policy deny --id ID`. Do not retry
+  before a confirmed host action.
 - `runtime_recipe_missing`: run `tobari runtime init`, edit the active Context
   Dockerfile, then run `tobari runtime build`.
 - `runtime_recipe_exists`: inspect the existing recipe with
@@ -716,7 +713,7 @@ Use the human review queue during normal work:
 
 ```sh
 tobari policy review
-tobari policy allow --id PCY_ID  # explicit/scripted path
+tobari policy allow --id PCY_ID  # redirected/scripted path only
 ```
 
 On a TTY, `policy review` is the complete human flow: select a request, inspect

@@ -643,7 +643,7 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 				return fault.New(
 					fault.KindRejected, "project_session_attached",
 					"an interactive session is attached to this Workspace; exit it before deleting or use --force", false,
-					fault.NextAction{Command: "help delete", Reason: "Review the attachment guard and use --force only when intentional."},
+					fault.NextAction{Command: "delete", Reason: "Exit the attached session, then retry; use --force only when terminating it is intentional."},
 				)
 			}
 		}
