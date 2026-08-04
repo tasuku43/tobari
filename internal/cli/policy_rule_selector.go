@@ -236,9 +236,9 @@ func renderPolicyRulesListRaw(
 	out io.Writer, report tobari.PolicyRuleReport, selected, top int, message string, previousLines int,
 ) int {
 	lines := []string{
-		"Tobari · Policy decisions",
+		selectorTitle("Tobari · Policy decisions"),
 		"",
-		fmt.Sprintf("%d learned decision%s", len(report.Items), pluralSuffix(len(report.Items))),
+		applyColorToken(true, colorTokenAccent, fmt.Sprintf("%d learned decision%s", len(report.Items), pluralSuffix(len(report.Items)))),
 		"",
 	}
 	end := top + selectorMaxVisibleOptions
@@ -258,9 +258,9 @@ func renderPolicyRulesListRaw(
 		lines = append(lines, line)
 	}
 	if top > 0 || end < len(report.Items) {
-		lines = append(lines, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items)))
+		lines = append(lines, applyColorToken(true, colorTokenMuted, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items))))
 	}
-	lines = append(lines, "", "↑/↓ move   Enter inspect   q cancel")
+	lines = append(lines, "", selectorHelp("↑/↓ move   Enter inspect   q cancel"))
 	if message == "" {
 		lines = append(lines, "")
 	} else {
@@ -274,20 +274,23 @@ func renderPolicyRuleDetailRaw(
 ) int {
 	rule := report.Items[selected]
 	lines := []string{
-		"Tobari · Policy decisions",
+		selectorTitle("Tobari · Policy decisions"),
 		"",
-		fmt.Sprintf("Decision %d of %d", selected+1, len(report.Items)),
+		applyColorToken(true, colorTokenAccent, fmt.Sprintf("Decision %d of %d", selected+1, len(report.Items))),
 		"",
-		"Decision  " + strings.ToUpper(rule.Decision),
-		"Scope     Current Context only",
-		"Request   " + policyRuleRequest(rule),
-		"Match     " + safeExternalText(rule.Match),
-		"Rule ID   " + rule.ID,
-		"Sources   " + strings.Join(rule.SourceCandidates, ", "),
+		selectorDetail("Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
+		selectorDetail("Scope", "Current Context only", colorTokenMuted),
+		selectorDetail("Request", policyRuleRequest(rule), colorTokenAccent),
+		selectorDetail("Match", safeExternalText(rule.Match), colorTokenMuted),
+		selectorDetail("Rule ID", rule.ID, colorTokenAccent),
+		selectorDetail("Sources", strings.Join(rule.SourceCandidates, ", "), colorTokenMuted),
 		"",
-		"Reset returns this exact effect to default deny.",
+		selectorHelp("Reset returns this exact effect to default deny."),
 		"",
-		"[r] Reset   [q] Back",
+		selectorActions(
+			colorAction("[r] Reset", colorTokenWarning),
+			colorAction("[q] Back", colorTokenMuted),
+		),
 	}
 	if message == "" {
 		lines = append(lines, "")
@@ -301,15 +304,15 @@ func renderPolicyRuleDetailRawWithMessage(
 	out io.Writer, rule tobari.PolicyRule, message string, previousLines int,
 ) int {
 	lines := []string{
-		"Tobari · Policy decisions",
+		selectorTitle("Tobari · Policy decisions"),
 		"",
-		"Decision reset confirmation",
+		applyColorToken(true, colorTokenWarning, "Decision reset confirmation"),
 		"",
-		"Decision  " + strings.ToUpper(rule.Decision),
-		"Request   " + policyRuleRequest(rule),
-		"Rule ID   " + rule.ID,
+		selectorDetail("Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
+		selectorDetail("Request", policyRuleRequest(rule), colorTokenAccent),
+		selectorDetail("Rule ID", rule.ID, colorTokenAccent),
 		"",
-		"Reset returns this exact effect to default deny.",
+		selectorHelp("Reset returns this exact effect to default deny."),
 		"",
 		applyColorToken(true, colorTokenWarning, "! "+message),
 	}
@@ -449,4 +452,11 @@ func policyRuleRequest(rule tobari.PolicyRule) string {
 		safeExternalText(rule.Host), rule.Port,
 		safeExternalText(rule.Method), safeExternalText(rule.Path),
 	)
+}
+
+func policyRuleDecisionToken(decision string) colorToken {
+	if decision == tobari.PolicyDecisionDeny {
+		return colorTokenWarning
+	}
+	return colorTokenSuccess
 }

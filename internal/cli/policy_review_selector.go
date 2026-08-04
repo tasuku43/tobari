@@ -282,9 +282,9 @@ func renderPolicyReviewListRaw(
 	out io.Writer, report tobari.PolicyCandidateReport, selected, top int, message string, previousLines int,
 ) int {
 	lines := []string{
-		"Tobari · Permission Inbox",
+		selectorTitle("Tobari · Permission Inbox"),
 		"",
-		fmt.Sprintf("%d pending permission%s", len(report.Items), pluralSuffix(len(report.Items))),
+		applyColorToken(true, colorTokenWarning, fmt.Sprintf("%d pending permission%s", len(report.Items), pluralSuffix(len(report.Items)))),
 		"",
 	}
 	end := top + selectorMaxVisibleOptions
@@ -304,9 +304,9 @@ func renderPolicyReviewListRaw(
 		lines = append(lines, line)
 	}
 	if top > 0 || end < len(report.Items) {
-		lines = append(lines, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items)))
+		lines = append(lines, applyColorToken(true, colorTokenMuted, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items))))
 	}
-	lines = append(lines, "", "↑/↓ move   Enter inspect   q cancel")
+	lines = append(lines, "", selectorHelp("↑/↓ move   Enter inspect   q cancel"))
 	if message == "" {
 		lines = append(lines, "")
 	} else {
@@ -320,19 +320,23 @@ func renderPolicyReviewDetailRaw(
 ) int {
 	candidate := report.Items[selected]
 	lines := []string{
-		"Tobari · Permission Inbox",
+		selectorTitle("Tobari · Permission Inbox"),
 		"",
-		fmt.Sprintf("Permission %d of %d", selected+1, len(report.Items)),
+		applyColorToken(true, colorTokenAccent, fmt.Sprintf("Permission %d of %d", selected+1, len(report.Items))),
 		"",
-		"Scope     Current Tobari only",
-		"Request   " + policyReviewCandidateRequest(candidate),
-		"Reason    " + safeExternalText(candidate.Reason),
-		fmt.Sprintf("Status    %d", candidate.StatusCode),
-		"Observed  " + safeExternalText(candidate.ObservedAt),
+		selectorDetail("Scope", "Current Tobari only", colorTokenMuted),
+		selectorDetail("Request", policyReviewCandidateRequest(candidate), colorTokenAccent),
+		selectorDetail("Reason", safeExternalText(candidate.Reason), colorTokenWarning),
+		selectorDetail("Status", fmt.Sprintf("%d", candidate.StatusCode), colorTokenWarning),
+		selectorDetail("Observed", safeExternalText(candidate.ObservedAt), colorTokenMuted),
 		"",
-		"This allows exactly this host, port, method, and path.",
+		selectorHelp("This allows exactly this host, port, method, and path."),
 		"",
-		"[a] Allow   [d] Deny   [q] Back",
+		selectorActions(
+			colorAction("[a] Allow", colorTokenSuccess),
+			colorAction("[d] Deny", colorTokenWarning),
+			colorAction("[q] Back", colorTokenMuted),
+		),
 	}
 	if message == "" {
 		lines = append(lines, "")
@@ -515,4 +519,27 @@ func pluralSuffix(count int) string {
 		return ""
 	}
 	return "s"
+}
+
+const selectorDetailLabelWidth = 9
+
+func selectorTitle(value string) string {
+	return applyColorToken(true, colorTokenAccent, value)
+}
+
+func selectorHelp(value string) string {
+	return applyColorToken(true, colorTokenMuted, value)
+}
+
+func selectorDetail(label, value string, token colorToken) string {
+	return applyColorToken(true, colorTokenMuted, fmt.Sprintf("%-*s", selectorDetailLabelWidth, label)) +
+		" " + applyColorToken(true, token, value)
+}
+
+func colorAction(value string, token colorToken) string {
+	return applyColorToken(true, token, value)
+}
+
+func selectorActions(actions ...string) string {
+	return strings.Join(actions, "   ")
 }

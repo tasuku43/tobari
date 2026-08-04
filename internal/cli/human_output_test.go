@@ -28,6 +28,29 @@ func TestHumanOutputUsesSemanticTokensAndVisibleAlignment(t *testing.T) {
 	}
 }
 
+func TestColorTokensUseRicherTerminalPalette(t *testing.T) {
+	t.Parallel()
+	for _, token := range []colorToken{
+		colorTokenMuted, colorTokenAccent, colorTokenSelected,
+		colorTokenSuccess, colorTokenWarning, colorTokenError,
+	} {
+		code := ansiColorTokens[token]
+		if !strings.HasPrefix(code, "\x1b[") || !strings.Contains(code, "38;5;") {
+			t.Fatalf("color token %s does not use the 256-color palette: %q", token, code)
+		}
+	}
+	if !strings.Contains(ansiColorTokens[colorTokenMuted], "2;") {
+		t.Fatalf("muted token should stay visibly secondary: %q", ansiColorTokens[colorTokenMuted])
+	}
+	for _, token := range []colorToken{
+		colorTokenAccent, colorTokenSelected, colorTokenSuccess, colorTokenWarning, colorTokenError,
+	} {
+		if !strings.Contains(ansiColorTokens[token], "1;") {
+			t.Fatalf("active token %s should have richer emphasis: %q", token, ansiColorTokens[token])
+		}
+	}
+}
+
 func TestHumanErrorUsesSemanticTokensAndExactRecovery(t *testing.T) {
 	payload := errorPayload{
 		Kind:        fault.KindUnavailable,

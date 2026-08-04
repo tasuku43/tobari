@@ -80,6 +80,42 @@ func TestPolicyReviewSelectorBackThenCancelDoesNotSelect(t *testing.T) {
 	}
 }
 
+func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
+	t.Parallel()
+	report := testPolicyReviewReport()
+
+	var listOutput bytes.Buffer
+	if lines := renderPolicyReviewListRaw(&listOutput, report, 0, 0, "", 0); lines <= 0 {
+		t.Fatalf("list render lines = %d, output = %q", lines, listOutput.String())
+	}
+	for _, want := range []string{
+		applyColorToken(true, colorTokenAccent, "Tobari · Permission Inbox"),
+		applyColorToken(true, colorTokenWarning, "2 pending permissions"),
+		applyColorToken(true, colorTokenAccent, "❯ "),
+	} {
+		if !strings.Contains(listOutput.String(), want) {
+			t.Fatalf("colored list output %q lacks %q", listOutput.String(), want)
+		}
+	}
+
+	var detailOutput bytes.Buffer
+	if lines := renderPolicyReviewDetailRaw(&detailOutput, report, 0, "", 0); lines <= 0 {
+		t.Fatalf("detail render lines = %d, output = %q", lines, detailOutput.String())
+	}
+	for _, want := range []string{
+		applyColorToken(true, colorTokenAccent, "Permission 1 of 2"),
+		applyColorToken(true, colorTokenAccent, "api.github.com:443 POST /repos/example/issues"),
+		applyColorToken(true, colorTokenWarning, "403"),
+		applyColorToken(true, colorTokenSuccess, "[a] Allow"),
+		applyColorToken(true, colorTokenWarning, "[d] Deny"),
+		applyColorToken(true, colorTokenMuted, "[q] Back"),
+	} {
+		if !strings.Contains(detailOutput.String(), want) {
+			t.Fatalf("colored detail output %q lacks %q", detailOutput.String(), want)
+		}
+	}
+}
+
 func TestPolicyReviewSelectorFinishDoesNotLeaveClearedRowsBehind(t *testing.T) {
 	t.Parallel()
 	var reviewOutput, workspaceOutput bytes.Buffer
