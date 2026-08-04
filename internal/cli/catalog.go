@@ -470,7 +470,7 @@ func defaultCatalog() Catalog {
 					{
 						Name: "--root", Source: InputSourceFlag, Required: false,
 						ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-						Description: "Validate an existing host directory as a prospective Tobari root.", AllowedValues: []string{},
+						Description: "Validate an existing host directory as a prospective Tobari root; defaults to the current directory.", AllowedValues: []string{}, DefaultValue: stringPointer("."),
 					},
 				},
 				Output: CommandOutput{

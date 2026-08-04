@@ -22,6 +22,7 @@ type policyReviewRuntimeFake struct {
 	denials    []tobari.PolicyDenial
 	rules      []tobari.LearnedPolicyRule
 	denyRules  []tobari.PolicyDenyRule
+	doctorRoot string
 	applyCalls int
 	denyCalls  int
 	terminal   bool
@@ -75,8 +76,38 @@ func (f *policyReviewRuntimeFake) ApplyPolicyDenyRules(
 	return nil
 }
 func (f *policyReviewRuntimeFake) ClusterDown(context.Context, tobari.State, bool) error { return nil }
-func (f *policyReviewRuntimeFake) Doctor(context.Context, string) (doctor.Report, error) {
-	return doctor.Report{}, nil
+func (f *policyReviewRuntimeFake) Doctor(_ context.Context, root string) (doctor.Report, error) {
+	f.doctorRoot = root
+	return doctor.Report{Checks: []doctor.Check{{
+		Name: "runtime", Status: doctor.CheckStatusPass, Detail: "ready",
+	}}}, nil
+}
+
+func TestDoctorDefaultsRootToCurrentDirectory(t *testing.T) {
+	runtime := &policyReviewRuntimeFake{}
+	command, stdout, stderr := newTestCLI(passingInspector("unused"))
+	command.tobari = tobaricmd.New(runtime)
+	if code := runCLI(command, []string{"doctor"}); code != ExitOK {
+		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.doctorRoot != "." {
+		t.Fatalf("doctor root = %q, want current directory default", runtime.doctorRoot)
+	}
+	if !strings.Contains(stdout.String(), "runtime        pass") {
+		t.Fatalf("doctor output = %q", stdout.String())
+	}
+}
+
+func TestDoctorHonorsExplicitRoot(t *testing.T) {
+	runtime := &policyReviewRuntimeFake{}
+	command, _, stderr := newTestCLI(passingInspector("unused"))
+	command.tobari = tobaricmd.New(runtime)
+	if code := runCLI(command, []string{"doctor", "--root", "/tmp/project"}); code != ExitOK {
+		t.Fatalf("Run(doctor --root /tmp/project) code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.doctorRoot != "/tmp/project" {
+		t.Fatalf("doctor root = %q, want explicit root", runtime.doctorRoot)
+	}
 }
 
 // applyPolicyReviewRuntimeFake is kept separate from the port method above so

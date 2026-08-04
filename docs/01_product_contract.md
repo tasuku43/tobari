@@ -148,6 +148,10 @@ undeclared Docker mutation by the CLI.
   only containing ancestor roots exist, `tobari` lists every valid root
   nearest-first and offers explicit creation at the current directory; it never
   creates a nested Tobari implicitly.
+- `doctor` validates the current directory as the prospective project root
+  when `--root` is omitted. `--root PATH` exists only for diagnosing another
+  host directory without changing the shell's current directory. The command
+  remains read-only and does not initialize policy or start the shared cluster.
 - Each canonical root identifies at most one Workspace. Repeated or concurrent
   explicit creation at an already indexed root is rejected as already existing;
   it never creates a second logical record for that directory.
