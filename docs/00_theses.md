@@ -40,6 +40,10 @@ interactive `policy review` presents a Permission Inbox and delegates one
 explicitly confirmed candidate to `policy allow` or `policy deny`; its
 non-interactive and machine-readable path remains read-only. Exact actions
 test and activate their private policy copy without restarting active Tobari.
+A separate `policy rules` view makes the complete current learned Allow and
+exact Deny decisions visible, and its TTY flow can explicitly reset one
+decision to default deny. Reset never grants or retries; it makes the retained
+effect eligible for `policy review` again.
 A useful denial shortens that loop without silently
 expanding authority. The loop is part of the product's adoption boundary: if
 the safe path is harder than running the agent on the host, users will bypass
@@ -80,7 +84,8 @@ using `tobari` leaves host execution unchanged, while `delete` and
   CWD-first `tobari` entry. Read-only `doctor`, status/list inspection, and
   opaque-ID policy actions remain recovery or machine paths rather than steps
   in the normal journey. On a TTY, `policy review` is the complete human
-  review-to-decision flow; it must not be paired with a second JSON review.
+  review-to-decision flow, while `policy rules` is the complete human
+  inventory-and-reset flow; neither requires a second JSON review.
 - The current explicit `cluster up` bootstrap and separate denial discovery
   commands are compatibility surfaces under review against this thesis. They
   must not be mistaken for the product's central value.
@@ -94,7 +99,9 @@ using `tobari` leaves host execution unchanged, while `delete` and
 - Human CLI help and README lead with the bounded-autonomy outcome and an
   exact next action; scoped agent help retains the complete catalog contract.
 - Integration tests prove that isolation is opt-in, reusable, recoverable, and
-  customizable through the deny-review-allow-retry loop without direct egress.
+  customizable through the deny-review-allow-retry loop without direct egress;
+  they also prove that resetting a learned decision restores default deny and
+  makes the same retained effect reviewable again.
 
 ## Thesis 1: Authorize effects at the isolation boundary
 
@@ -393,28 +400,34 @@ administration project.
   Redirected and
   machine-readable `policy review` remains read-only. `policy candidates`
   remains the machine discovery surface, and `policy tail` remains a
-  compatibility projection. All three turn only learnable retained denials
-  into unique exact host/port/method/path proposals with stable opaque IDs.
+  compatibility projection. `policy rules` is the exhaustive inventory of
+  current CLI-owned learned decisions; `policy reset --id` removes exactly one
+  Allow or exact Deny and returns that effect to default deny. The discovery
+  queue turns only learnable retained denials into unique exact
+  host/port/method/path proposals with stable opaque IDs; the current-rule
+  inventory exposes the separate rule IDs used for reset.
 - `tobari cluster denials` remains the lower-level diagnostic step: it projects
   validated denial records, reports the editable host-side policy directory,
   and points to the Permission Inbox. Raw component logs remain available.
-- `policy allow --id` and `policy deny --id` are the explicit trusted-host
-  actions that consume one candidate ID unchanged. Allow preflights and
-  atomically records one exact learned rule; deny records one exact
-  project-bound terminal rule. Both activate through the same portable OPA
-  boundary, and an exact deny wins over a learned allow for the same request.
+- `policy allow --id` and `policy deny --id` are explicit trusted-host actions
+  that consume one candidate ID unchanged. `policy reset --id` consumes one
+  current `policy-rule` ID unchanged. Allow preflights and atomically records
+  one exact learned rule; deny records one exact project-bound terminal rule;
+  reset removes one current learned rule and leaves the same request at
+  default deny. All three activate through the same portable OPA boundary, and
+  an exact deny wins over a learned allow for the same request.
 - Repeated exact learned rules may produce a `policy compactions` proposal only
   for a fixed host, port, and method beneath a sufficiently specific path prefix.
   `policy compact --id` is a separate explicit action whose positive examples
   and boundary canaries must pass before the source rules are replaced.
 - OPA watches the policy directory mounted read-only from XDG. Exact allow,
-  deny, and compaction actions test a private complete policy copy, atomically
+  deny, reset, and compaction actions test a private complete policy copy, atomically
   update CLI-owned data, and activate only the exact owned OPA component. The
   trusted host remains the only policy writer.
 - Audit evidence never includes credential values, cookies, raw bodies, or raw
   response data.
-- Tobari never changes permission from observation alone. Every learned rule or
-  compaction remains an explicit opaque-reference-bound trusted-host action;
+- Tobari never changes permission from observation alone. Every learned rule,
+  reset, or compaction remains an explicit opaque-reference-bound trusted-host action;
   interactive review is only a confirmation UI for that action and it must
   pass `opa test`; finite examples and canaries detect declared
   regressions but do not prove safety for every unknown future request.

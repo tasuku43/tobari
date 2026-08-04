@@ -117,8 +117,9 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 		validCluster := intent.Target.Kind == tobari.ClusterTargetKind && intent.Target.ID == tobari.ClusterTargetID
 		validTobari := intent.Target.Kind == tobari.TargetKind && intent.Target.ID != ""
 		validPolicyCandidate := intent.Target.Kind == tobari.PolicyCandidateKind && intent.Target.ID != ""
+		validPolicyRule := intent.Target.Kind == tobari.PolicyRuleKind && intent.Target.ID != ""
 		validPolicyCompaction := intent.Target.Kind == tobari.PolicyCompactionKind && intent.Target.ID != ""
-		if !validCluster && !validTobari && !validPolicyCandidate && !validPolicyCompaction && !validCurrentDirectory {
+		if !validCluster && !validTobari && !validPolicyCandidate && !validPolicyRule && !validPolicyCompaction && !validCurrentDirectory {
 			return fault.New(fault.KindRejected, "mutation_rejected", "mutation target is not owned by Tobari", false)
 		}
 	default:
@@ -1091,6 +1092,42 @@ func (s *Service) PolicyReview(
 	return s.policyCandidates(ctx, tail, tobari.TaskPolicyReview)
 }
 
+// PolicyRules returns the complete current learned-decision inventory. It is
+// separate from PolicyReview because covered decisions intentionally disappear
+// from the pending denial queue but remain user-manageable state.
+func (s *Service) PolicyRules(
+	ctx context.Context,
+) (tobari.PolicyRuleReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.PolicyRuleReport{}, err
+	}
+	state, rules, err := s.loadPolicyState(ctx)
+	if err != nil {
+		return tobari.PolicyRuleReport{}, err
+	}
+	denyRules, err := s.readPolicyDenyRules(ctx, state)
+	if err != nil {
+		return tobari.PolicyRuleReport{}, err
+	}
+	items, err := tobari.CurrentPolicyRules(rules, denyRules.Exact)
+	if err != nil {
+		return tobari.PolicyRuleReport{}, fault.Wrap(
+			fault.KindContract, "invalid_policy_rule_report",
+			"current policy rules are invalid", false, err,
+		)
+	}
+	result := tobari.PolicyRuleReport{
+		Task: tobari.TaskPolicyRules, PolicyDirectory: state.PolicyDirectory, Items: items,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.PolicyRuleReport{}, fault.Wrap(
+			fault.KindContract, "invalid_policy_rule_report",
+			"current policy rule report is invalid", false, err,
+		)
+	}
+	return result, nil
+}
+
 func (s *Service) loadPolicyState(
 	ctx context.Context,
 ) (tobari.State, []tobari.LearnedPolicyRule, error) {
@@ -1164,12 +1201,12 @@ func (s *Service) applyLearnedRules(
 }
 
 func (s *Service) applyPolicyDenies(
-	ctx context.Context, intent operation.Intent, state tobari.State,
+	ctx context.Context, intent operation.Intent, expectedCommand string, state tobari.State,
 	expectedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
 ) error {
 	request := execution.Request{
-		Intent: intent, ExpectedCommand: "policy deny", ExpectedEffect: operation.EffectWrite,
+		Intent: intent, ExpectedCommand: expectedCommand, ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
 	return s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
@@ -1339,7 +1376,7 @@ func (s *Service) DenyPolicyCandidate(
 			fault.KindContract, "invalid_policy_deny", "exact policy deny is invalid", false, err,
 		)
 	}
-	if err := s.applyPolicyDenies(ctx, intent, state, rules, denyRules.Exact, updatedDenies); err != nil {
+	if err := s.applyPolicyDenies(ctx, intent, "policy deny", state, rules, denyRules.Exact, updatedDenies); err != nil {
 		return tobari.PolicyDenyChange{}, err
 	}
 	result := tobari.PolicyDenyChange{
@@ -1350,6 +1387,60 @@ func (s *Service) DenyPolicyCandidate(
 		return tobari.PolicyDenyChange{}, fault.Wrap(
 			fault.KindContract, "invalid_policy_deny_result",
 			"policy deny result is invalid", false, err,
+		)
+	}
+	return result, nil
+}
+
+// ResetPolicyRule removes one current learned decision and returns the exact
+// effect to default deny. It never creates a replacement Allow or Deny.
+func (s *Service) ResetPolicyRule(
+	ctx context.Context, intent operation.Intent, id string,
+) (tobari.PolicyRuleReset, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.PolicyRuleReset{}, err
+	}
+	if err := tobari.ValidatePolicyRuleID(id); err != nil {
+		return tobari.PolicyRuleReset{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_policy_rule_id",
+			"policy rule ID is invalid", false, err,
+		)
+	}
+	if err := validatePolicyMutationTarget(intent, tobari.PolicyRuleKind, id); err != nil {
+		return tobari.PolicyRuleReset{}, err
+	}
+	state, rules, err := s.loadPolicyState(ctx)
+	if err != nil {
+		return tobari.PolicyRuleReset{}, err
+	}
+	denyRules, err := s.readPolicyDenyRules(ctx, state)
+	if err != nil {
+		return tobari.PolicyRuleReset{}, err
+	}
+	updatedRules, updatedDenies, removed, err := tobari.RemovePolicyRule(rules, denyRules.Exact, id)
+	if err != nil {
+		return tobari.PolicyRuleReset{}, fault.Wrap(
+			fault.KindInvalidInput, "policy_rule_not_found",
+			"policy rule is stale, baseline-owned, or no longer current", false, err,
+		)
+	}
+	if removed.Decision == tobari.PolicyDecisionAllow {
+		if err := s.applyLearnedRules(ctx, intent, "policy reset", state, rules, updatedRules); err != nil {
+			return tobari.PolicyRuleReset{}, err
+		}
+	} else {
+		if err := s.applyPolicyDenies(ctx, intent, "policy reset", state, rules, denyRules.Exact, updatedDenies); err != nil {
+			return tobari.PolicyRuleReset{}, err
+		}
+	}
+	result := tobari.PolicyRuleReset{
+		Task: tobari.TaskPolicyReset, PolicyDirectory: state.PolicyDirectory,
+		TargetID: id, Decision: removed.Decision, Applied: true,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.PolicyRuleReset{}, fault.Wrap(
+			fault.KindContract, "invalid_policy_rule_reset_result",
+			"policy rule reset result is invalid", false, err,
 		)
 	}
 	return result, nil

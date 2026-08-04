@@ -227,6 +227,82 @@ func runPolicyReview(
 	}
 }
 
+func runPolicyRules(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
+) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	format, formatErr := parseSuccessFormat(inputs.One("--format"))
+	if formatErr != nil {
+		return c.failUsage(
+			ctx, "invalid_arguments", formatErr.Error()+"; usage: "+command.Usage(),
+			"help "+command.Path, "Correct the command arguments.",
+		)
+	}
+	result, err := c.tobari.PolicyRules(ctx)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	reset, found := c.catalog.Lookup("policy reset")
+	if !found {
+		return c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "policy reset command is missing", false,
+		))
+	}
+	resetCommand := ProgramName + " " + reset.Path
+	if format != successFormatText || !policyReviewInteractiveAllowed(ctx, c) {
+		output, renderErr := renderPolicyRulesWithCommands(
+			result, resetCommand, format,
+			format == successFormatText && humanColorAllowed(ctx, c, c.Out),
+		)
+		if renderErr != nil {
+			return c.fail(ctx, renderErr)
+		}
+		return c.emitResult(ctx, output)
+	}
+
+	selector := newPolicyRuleSelector()
+	for {
+		if len(result.Items) == 0 {
+			output, renderErr := renderPolicyRulesWithCommands(result, resetCommand, successFormatText, true)
+			if renderErr != nil {
+				return c.fail(ctx, renderErr)
+			}
+			return c.emitResult(ctx, output)
+		}
+		decision, selectErr := selector.Select(ctx, result, c.In, c.Out)
+		if selectErr != nil {
+			return c.fail(ctx, selectErr)
+		}
+		if decision.Canceled {
+			return c.emitResult(ctx, renderPolicyRulesCanceled())
+		}
+		if !policyRuleContainsID(result, decision.RuleID) {
+			return c.fail(ctx, fault.New(
+				fault.KindContract, "invalid_policy_rule_selection",
+				"the interactive policy review selected an ID outside its validated snapshot", false,
+				fault.NextAction{Command: "policy rules", Reason: "Rediscover the current learned decisions."},
+			))
+		}
+		actionCtx := withCommandPath(ctx, reset.Path)
+		change, resetErr := resetPolicyRule(actionCtx, c, reset, decision.RuleID)
+		if resetErr != nil {
+			return c.fail(actionCtx, resetErr)
+		}
+		if code := c.emitMutationResult(
+			actionCtx, reset, renderPolicyRuleResetWithColor(change, humanColorAllowed(actionCtx, c, c.Out)),
+		); code != ExitOK {
+			return code
+		}
+		result, err = c.tobari.PolicyRules(ctx)
+
+		if err != nil {
+			return c.fail(ctx, err)
+		}
+	}
+}
+
 func policyReviewInteractiveAllowed(ctx context.Context, c *CLI) bool {
 	return invocationErrorFormat(ctx) != errorFormatJSON && c != nil && c.tobari != nil &&
 		c.tobari.IsInteractive(c.In, c.Out)
@@ -235,6 +311,15 @@ func policyReviewInteractiveAllowed(ctx context.Context, c *CLI) bool {
 func policyReviewContainsID(result tobari.PolicyCandidateReport, id string) bool {
 	for _, candidate := range result.Items {
 		if candidate.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func policyRuleContainsID(result tobari.PolicyRuleReport, id string) bool {
+	for _, rule := range result.Items {
+		if rule.ID == id {
 			return true
 		}
 	}
@@ -352,6 +437,39 @@ func denyPolicyCandidate(
 		Impact: command.Agent.Mutation.Impact,
 	}
 	return c.tobari.DenyPolicyCandidate(ctx, intent, id)
+}
+
+func runPolicyReset(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
+) int {
+	if c.tobari == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	id := inputs.One("--id")
+	result, err := resetPolicyRule(ctx, c, command, id)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, renderPolicyRuleResetWithColor(result, humanColorAllowed(ctx, c, c.Out)))
+}
+
+func resetPolicyRule(
+	ctx context.Context, c *CLI, command CommandSpec, id string,
+) (tobari.PolicyRuleReset, error) {
+	if c == nil || c.tobari == nil {
+		return tobari.PolicyRuleReset{}, missingRuntimeFault()
+	}
+	if command.Agent.Mutation == nil {
+		return tobari.PolicyRuleReset{}, fault.New(
+			fault.KindContract, "invalid_catalog", "policy reset mutation contract is missing", false,
+		)
+	}
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.PolicyRuleKind, ID: id},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	return c.tobari.ResetPolicyRule(ctx, intent, id)
 }
 
 func runPolicyCompactions(
@@ -670,6 +788,25 @@ type policyReviewDocument struct {
 	PolicyReview  []policyCandidateOutput `json:"policy_review"`
 }
 
+type policyRuleOutput struct {
+	ID               string   `json:"id"`
+	Decision         string   `json:"decision"`
+	Match            string   `json:"match"`
+	ProjectID        string   `json:"project_id"`
+	Host             string   `json:"host"`
+	Port             int      `json:"port"`
+	Method           string   `json:"method"`
+	Path             string   `json:"path"`
+	Examples         []string `json:"examples"`
+	SourceCandidates []string `json:"source_candidates"`
+	ResetCommand     string   `json:"reset_command"`
+}
+
+type policyRulesDocument struct {
+	SchemaVersion int                `json:"schema_version"`
+	PolicyRules   []policyRuleOutput `json:"policy_rules"`
+}
+
 func pairedPolicyCommand(command, from, to string) string {
 	suffix := "policy " + from
 	if strings.HasSuffix(command, suffix) {
@@ -838,6 +975,126 @@ func renderPolicyReviewCanceled() []byte {
 	output.row("Changed", "No permissions changed.", colorTokenMuted)
 	output.next("policy review", "Review pending permissions when you are ready.")
 	return output.bytes()
+}
+
+func renderPolicyRulesWithCommands(
+	result tobari.PolicyRuleReport, resetCommand string, format successFormat, color bool,
+) ([]byte, error) {
+	items := policyRuleOutputs(result, resetCommand)
+	if format == successFormatJSON {
+		output, err := json.Marshal(policyRulesDocument{SchemaVersion: 1, PolicyRules: items})
+		if err != nil {
+			return nil, fault.Wrap(
+				fault.KindContract, "output_encoding_failed",
+				"policy rules JSON could not be encoded", false, err,
+			)
+		}
+		return append(output, '\n'), nil
+	}
+	if color && format == successFormatText {
+		return renderPolicyRulesHuman(result, resetCommand), nil
+	}
+	var output bytes.Buffer
+	for _, item := range items {
+		fmt.Fprintf(
+			&output,
+			"id=%s\tdecision=%s\tmatch=%s\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\n",
+			item.ID, item.Decision, item.Match, item.ProjectID, escapeTSVCell(item.Host), item.Port,
+			escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(strings.Join(item.Examples, ",")),
+			escapeTSVCell(strings.Join(item.SourceCandidates, ",")), escapeTSVCell(item.ResetCommand),
+		)
+	}
+	return output.Bytes(), nil
+}
+
+func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []policyRuleOutput {
+	items := make([]policyRuleOutput, 0, len(result.Items))
+	for _, rule := range result.Items {
+		examples := make([]string, len(rule.Examples))
+		for index, example := range rule.Examples {
+			examples[index] = safeExternalText(example)
+		}
+		items = append(items, policyRuleOutput{
+			ID: rule.ID, Decision: rule.Decision, Match: safeExternalText(rule.Match),
+			ProjectID: rule.ProjectID, Host: safeExternalText(rule.Host), Port: rule.Port,
+			Method: safeExternalText(rule.Method), Path: safeExternalText(rule.Path),
+			Examples: examples, SourceCandidates: append([]string{}, rule.SourceCandidates...),
+			ResetCommand: resetCommand + " --id " + rule.ID,
+		})
+	}
+	return items
+}
+
+func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string) []byte {
+	if len(result.Items) == 0 {
+		output := newHumanOutput(true)
+		output.empty(
+			"No learned policy decisions",
+			"No current Allow or exact Deny decision is active.",
+			"policy review", "Review retained denied permissions when one needs a decision.",
+		)
+		return output.bytes()
+	}
+	output := newHumanOutput(true)
+	output.heading("✓", fmt.Sprintf("Learned policy decisions (%d)", len(result.Items)), colorTokenSuccess)
+	output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
+	output.row("Scope", "Current Context only", colorTokenMuted)
+	for _, decision := range []string{tobari.PolicyDecisionAllow, tobari.PolicyDecisionDeny} {
+		count := 0
+		for _, item := range result.Items {
+			if item.Decision == decision {
+				count++
+			}
+		}
+		if count == 0 {
+			continue
+		}
+		title := "Allowed"
+		if decision == tobari.PolicyDecisionDeny {
+			title = "Denied"
+		}
+		output.section(fmt.Sprintf("%s (%d)", title, count))
+		for _, item := range result.Items {
+			if item.Decision != decision {
+				continue
+			}
+			output.row("Request", policyRuleRequest(item), colorTokenAccent)
+			output.row("ID", item.ID, colorTokenAccent)
+			output.row("Match", safeExternalText(item.Match), colorTokenMuted)
+			output.row("Project", safeExternalText(item.ProjectID), colorTokenMuted)
+			output.row("Reset", resetCommand+" --id "+item.ID, colorTokenWarning)
+		}
+	}
+	output.next("policy review", "Reset an existing decision only when you want to review the effect again.")
+	return output.bytes()
+}
+
+func renderPolicyRulesCanceled() []byte {
+	output := newHumanOutput(true)
+	output.heading("·", "Policy decision review canceled", colorTokenMuted)
+	output.row("Changed", "No policy decisions changed.", colorTokenMuted)
+	output.next("policy rules", "Inspect current learned decisions when you are ready.")
+	return output.bytes()
+}
+
+func renderPolicyRuleResetWithColor(result tobari.PolicyRuleReset, color bool) []byte {
+	if color {
+		output := newHumanOutput(true)
+		output.heading("✓", "Policy decision reset", colorTokenSuccess)
+		output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
+		output.row("Target", result.TargetID, colorTokenAccent)
+		output.row("Removed", safeExternalText(result.Decision), colorTokenWarning)
+		output.row("Default deny", humanBool(result.Applied), humanBoolToken(result.Applied))
+		output.next("policy review", "Review the retained denied effect again before granting a new decision.")
+		return output.bytes()
+	}
+	var output bytes.Buffer
+	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
+	fmt.Fprintf(&output, "target_id: %s\n", result.TargetID)
+	fmt.Fprintf(&output, "decision: %s\n", escapeTSVCell(result.Decision))
+	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
+	fmt.Fprintln(&output, "next: tobari policy review")
+	return output.Bytes()
 }
 
 func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bool) []byte {

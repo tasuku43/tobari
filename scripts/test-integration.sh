@@ -794,6 +794,34 @@ child_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-allow/child)
 [[ $child_status == 403 ]] || fail "exact learned policy broadened to a child path"
 
+policy_rules_json=$(run_tobari policy rules --format json)
+assert_contains "$policy_rules_json" '"policy_rules":' "current policy decision inventory"
+allow_rule_id=$(python3 -c \
+  'import json,sys
+print(next(item["id"] for item in json.load(sys.stdin)["policy_rules"]
+           if item["decision"] == "allow" and item["path"] == "/review-allow"))' \
+  <<<"$policy_rules_json")
+[[ $allow_rule_id == plr_* ]] || fail "policy rules did not emit the learned Allow ID"
+assert_contains "$policy_rules_json" \
+  "\"reset_command\":\"tobari policy reset --id $allow_rule_id\"" \
+  "policy decision reset action"
+
+reset_allow_output=$(run_tobari policy reset --id "$allow_rule_id")
+assert_contains "$reset_allow_output" "target_id: $allow_rule_id" "learned Allow reset"
+assert_contains "$reset_allow_output" 'decision: allow' "learned Allow reset"
+assert_contains "$reset_allow_output" 'applied: true' "learned Allow reset"
+reset_allow_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/review-allow)
+[[ $reset_allow_status == 403 ]] || fail "reset Allow did not return the request to default deny"
+review_after_allow_reset=$(run_tobari policy review --tail 1000 --format json)
+assert_contains "$review_after_allow_reset" "\"id\":\"$allow_candidate_id\"" \
+  "reset Allow re-review queue"
+allow_output=$(run_tobari policy allow --id "$allow_candidate_id")
+assert_contains "$allow_output" 'applied: true' "re-allow after reset"
+reallowed_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/review-allow)
+[[ $reallowed_status == 200 ]] || fail "re-review could not restore the exact Allow"
+
 deny_output=$(run_tobari policy deny --id "$deny_candidate_id")
 assert_contains "$deny_output" "policy: $policy_directory" "exact policy rejection"
 assert_contains "$deny_output" 'path: /review-deny' "exact policy rejection"
@@ -805,6 +833,25 @@ review_after_deny=$(run_tobari policy review --tail 1000 --format json)
 if [[ $review_after_deny == *"$deny_candidate_id"* ]]; then
   fail "denied candidate remained in the review queue"
 fi
+
+policy_rules_json=$(run_tobari policy rules --format json)
+deny_rule_id=$(python3 -c \
+  'import json,sys
+print(next(item["id"] for item in json.load(sys.stdin)["policy_rules"]
+           if item["decision"] == "deny" and item["path"] == "/review-deny"))' \
+  <<<"$policy_rules_json")
+[[ $deny_rule_id == pdr_* ]] || fail "policy rules did not emit the learned Deny ID"
+reset_deny_output=$(run_tobari policy reset --id "$deny_rule_id")
+assert_contains "$reset_deny_output" "target_id: $deny_rule_id" "learned Deny reset"
+assert_contains "$reset_deny_output" 'decision: deny' "learned Deny reset"
+reset_deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/review-deny)
+[[ $reset_deny_status == 403 ]] || fail "reset Deny weakened default denial"
+review_after_deny_reset=$(run_tobari policy review --tail 1000 --format json)
+assert_contains "$review_after_deny_reset" "\"id\":\"$deny_candidate_id\"" \
+  "reset Deny re-review queue"
+deny_output=$(run_tobari policy deny --id "$deny_candidate_id")
+assert_contains "$deny_output" 'applied: true' "re-deny after reset"
 
 reject_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/rejected)

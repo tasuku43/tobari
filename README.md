@@ -52,6 +52,17 @@ opaque ID against retained denials, test the complete policy, atomically record
 one exact rule, and activate it. Tobari never turns observed traffic into
 permission automatically.
 
+To inspect or correct an earlier decision, use the current learned-decision
+inventory. It includes both Allow and exact Deny rules; resetting one returns
+that exact effect to default deny and does not retry it. The next review can
+then make a new explicit decision:
+
+```sh
+tobari policy rules
+tobari policy reset --id <exact-policy-rule-id>
+tobari policy review
+```
+
 ## Cluster and Tobari topology
 
 ```text
@@ -134,7 +145,7 @@ reach OPA, Docker, host credentials, or the Internet directly. A denial is a
 host handoff; it is never an automatic approval or retry.
 
 Host-owned actions in this walkthrough are `tobari cluster up`,
-`tobari policy review`,
+`tobari policy review`, `tobari policy rules`, `tobari policy reset --id ID`,
 `tobari policy deny --id ID`, `tobari context show`, `tobari runtime init`,
 `tobari runtime build`, `tobari delete`, and `tobari cluster down`.
 Workspace-owned actions are the agent's commands and file changes below the
@@ -319,6 +330,10 @@ previously selected image active.
   review remains read-only and uses one unchanged candidate ID with
   `tobari policy allow --id ID` or `tobari policy deny --id ID`. Do not retry
   before a confirmed host action.
+- To correct a previous decision, run `tobari policy rules`, copy its opaque
+  `policy-rule` ID unchanged into `tobari policy reset --id ID`, then use
+  `tobari policy review` to choose the next decision. Reset leaves the exact
+  effect denied by default and never retries it.
 - `runtime_recipe_missing`: run `tobari runtime init`, edit the active Context
   Dockerfile, then run `tobari runtime build`.
 - `runtime_recipe_exists`: inspect the existing recipe with
@@ -629,6 +644,8 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari policy tail [--tail N]` | Compatibility view of the bounded queue with exact allow and deny commands |
 | `tobari policy allow --id ID` | Test, store, and activate one exact observed permission |
 | `tobari policy deny --id ID` | Test, store, and activate one exact project-bound rejection |
+| `tobari policy rules [--format text\|json]` | List current learned Allow and exact Deny decisions; on a TTY, reset one explicitly |
+| `tobari policy reset --id ID` | Remove one current learned decision and return its effect to default deny |
 | `tobari policy compactions [--format text\|json]` | Discover test-backed prefix compactions and opaque IDs |
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
 | `tobari context list [--format text\|json]` | List named execution Contexts and identify the active one |
@@ -705,8 +722,9 @@ ${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/contexts/<name>/policy/t
 Use `tobari context show` to discover the exact active Context and its policy
 path. Keep the Context's policy directory separate from its credential stores;
 those stores remain outside untrusted containers. For routine exact permission
-growth, use `tobari policy review` and `tobari policy allow` or `policy deny`; direct Rego editing
-is the advanced path. Tool-native login state belongs in the selected instance
+growth, use `tobari policy review` and `tobari policy allow` or `policy deny`; use
+`tobari policy rules` and `policy reset` to correct a current learned decision;
+direct Rego editing is the advanced path. Tool-native login state belongs in the selected instance
 home instead.
 
 The initialized policy is generic HTTP policy, not a GitHub adapter. It starts
@@ -720,6 +738,8 @@ Use the human review queue during normal work:
 ```sh
 tobari policy review
 tobari policy allow --id PCY_ID  # redirected/scripted path only
+tobari policy rules
+tobari policy reset --id PLR_OR_PDR_ID  # return one decision to default deny
 ```
 
 On a TTY, `policy review` is the complete human flow: select a request, inspect
@@ -733,6 +753,13 @@ It expires when its denial falls outside retained logs or another learned rule
 already covers that exact effect. Repeating the same denied host/method/path
 retains the same ID and refreshes its evidence. Approval never accepts a host
 wildcard, method wildcard, prefix, or user-supplied pattern.
+
+`policy rules` is the exhaustive current-decision view for the active Context,
+including learned Allow and exact Deny rules that no longer appear in the
+pending queue. `policy reset --id` consumes its `policy-rule` ID unchanged,
+removes exactly that CLI-owned decision through the same tested activation
+boundary, and leaves the effect at default deny. Use `policy review` afterward
+if the retained denial should receive a different explicit decision.
 
 After at least three exact rules accumulate under the same sufficiently deep
 directory for one host and method, review an optional compaction:

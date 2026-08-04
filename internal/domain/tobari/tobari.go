@@ -16,8 +16,10 @@ const (
 	TaskPolicyCandidates  = "policy.candidates"
 	TaskPolicyTail        = "policy.tail"
 	TaskPolicyReview      = "policy.review"
+	TaskPolicyRules       = "policy.rules"
 	TaskPolicyAllow       = "policy.allow"
 	TaskPolicyDeny        = "policy.deny"
+	TaskPolicyReset       = "policy.reset"
 	TaskPolicyCompactions = "policy.compactions"
 	TaskPolicyCompact     = "policy.compact"
 	TaskAttach            = "tobari.attach"
@@ -31,6 +33,7 @@ const (
 	TargetKind           = "tobari"
 	ReferenceKind        = TargetKind
 	PolicyCandidateKind  = "policy-candidate"
+	PolicyRuleKind       = "policy-rule"
 	PolicyCompactionKind = "policy-compaction"
 
 	BuiltinImageSelector        = "builtin"

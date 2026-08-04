@@ -28,14 +28,32 @@ func TestPolicyReviewPTYChild(t *testing.T) {
 	}
 
 	caseName := os.Getenv(policyReviewPTYCaseEnv)
-	runtimeFake, candidateID := newPolicyReviewPTYRuntime(caseName != "json")
+	isPolicyRules := strings.HasPrefix(caseName, "policy-rules")
+	terminal := caseName != "json" && caseName != "policy-rules-json"
+	runtimeFake, candidateID := newPolicyReviewPTYRuntime(terminal)
+	if isPolicyRules {
+		runtimeFake, candidateID = newPolicyRulesPTYRuntime(caseName != "policy-rules-json")
+	}
 	command := newCLI(os.Stdin, os.Stdout, os.Stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtimeFake)
 	args := []string{"policy", "review"}
-	if caseName == "json" {
+	if isPolicyRules {
+		args = []string{"policy", "rules"}
+	}
+	if caseName == "json" || caseName == "policy-rules-json" {
 		args = append(args, "--format", "json")
 	}
 	code := command.RunContext(context.Background(), args)
+	if isPolicyRules {
+		fmt.Fprintf(os.Stderr,
+			"POLICY_RULES_E2E case=%s code=%d apply_calls=%d rules=%d rule=%s\n",
+			caseName, code, runtimeFake.applyCalls, len(runtimeFake.rules), candidateID,
+		)
+		if code != ExitOK {
+			t.Fatalf("policy rules returned %d", code)
+		}
+		return
+	}
 
 	sourceCandidate := ""
 	if len(runtimeFake.rules) > 0 && len(runtimeFake.rules[0].SourceCandidates) > 0 {
@@ -195,6 +213,43 @@ func TestPolicyReviewDelayedConfirmationRealPTYAndCancellation(t *testing.T) {
 	}
 }
 
+func TestPolicyRulesRealPTYResetAndReadOnlyE2E(t *testing.T) {
+	if os.Getenv(policyReviewPTYChildEnv) == "1" {
+		return
+	}
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("the supported raw-terminal test requires a Unix PTY")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Fatalf("python3 PTY helper is required: %v", err)
+	}
+
+	ruleID := policyRulesPTYRuleID()
+	output := runPolicyReviewPTYChild(t, "policy-rules-reset", "1ry")
+	for _, want := range []string{
+		"Tobari · Policy decisions",
+		"Reset returns this exact effect to default deny.",
+		"Policy decision reset",
+		"No learned policy decisions",
+		"\x1b[?25h",
+		"POLICY_RULES_E2E case=policy-rules-reset code=0 apply_calls=1 rules=0 rule=" + ruleID,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("policy rules PTY output lacks %q: %q", want, output)
+		}
+	}
+
+	output = runPolicyRulesJSONChild(t)
+	for _, want := range []string{
+		`"policy_rules"`, ruleID,
+		"POLICY_RULES_E2E case=policy-rules-json code=0 apply_calls=0 rules=1 rule=" + ruleID,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("policy rules JSON output lacks %q: %q", want, output)
+		}
+	}
+}
+
 func runPolicyReviewPTYChild(t *testing.T, caseName, input string) string {
 	t.Helper()
 	output, err := runPolicyReviewPTYChildResult(t, caseName, input)
@@ -299,6 +354,23 @@ func runPolicyReviewJSONChild(t *testing.T) string {
 	return stdout.String() + stderr.String()
 }
 
+func runPolicyRulesJSONChild(t *testing.T) string {
+	t.Helper()
+	command := exec.Command(os.Args[0], "-test.run=^TestPolicyReviewPTYChild$", "-test.v")
+	command.Env = append(os.Environ(),
+		policyReviewPTYChildEnv+"=1",
+		policyReviewPTYCaseEnv+"=policy-rules-json",
+	)
+	command.Stdin = strings.NewReader("")
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		t.Fatalf("policy rules JSON child failed: %v\nstdout=%q\nstderr=%q", err, stdout.String(), stderr.String())
+	}
+	return stdout.String() + stderr.String()
+}
+
 func newPolicyReviewPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake, string) {
 	denial := tobari.PolicyDenial{
 		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
@@ -319,7 +391,36 @@ func newPolicyReviewPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake,
 	}, candidate.ID
 }
 
+func newPolicyRulesPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake, string) {
+	denial := tobari.PolicyDenial{
+		Timestamp: "2026-08-02T10:00:00Z", RequestID: "8185da2688d7469aae9cd9068e920b0b",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", Host: "api.example.com", Port: 443,
+		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
+		StatusCode: 403, Learnable: true,
+	}
+	candidate, err := tobari.NewPolicyCandidate(denial)
+	if err != nil {
+		panic(err)
+	}
+	rule, err := tobari.NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		panic(err)
+	}
+	return &policyReviewRuntimeApplyingFake{
+		policyReviewRuntimeFake: policyReviewRuntimeFake{
+			state:    tobari.State{PolicyDirectory: "/tmp/policy"},
+			rules:    []tobari.LearnedPolicyRule{rule},
+			terminal: terminal,
+		},
+	}, rule.ID
+}
+
 func policyReviewPTYCandidateID() string {
 	_, candidateID := newPolicyReviewPTYRuntime(false)
 	return candidateID
+}
+
+func policyRulesPTYRuleID() string {
+	_, ruleID := newPolicyRulesPTYRuntime(false)
+	return ruleID
 }

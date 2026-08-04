@@ -32,6 +32,9 @@ workload is retried. A learnable denial also gives the agent a fixed host-side
 review command, and the human path enters through `policy review`; machine
 discovery remains `policy candidates` and the exact opaque reference remains
 the safety boundary for `policy allow --id` and `policy deny --id`.
+`policy rules` is the exhaustive current-decision view; `policy reset --id`
+returns one learned Allow or exact Deny to default deny so the retained effect
+can be reviewed again. Reset does not authorize or retry the request.
 Trusted-host Rego editing remains the advanced path for behavior that exact
 learned rules cannot express; ordinary permission growth must not require it.
 Exact policy actions perform the bounded activation required for their own
@@ -114,6 +117,8 @@ The public commands are:
 | `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact allow and deny commands |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
+| `policy rules [--format text|json]` | discover | read | List every current CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
+| `policy reset --id ID` | act, reference bound | write | Remove one learned decision and leave its effect at default deny |
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `context list [--format text|json]` | utility | read | List named Contexts and identify the active execution setup |
@@ -242,8 +247,10 @@ fixed secret-free host-review navigation for the agent, and an interactive
 session close may summarize the pending queue on host stderr. These are
 advisory only; the interactive `policy review` queue is the human entry point
 and delegates one explicitly confirmed opaque reference to the separate exact
-reference-bound `policy allow` action. Redirected and machine-readable review
-remains read-only.
+reference-bound `policy allow` or `policy deny` action. `policy rules` is the
+current learned-decision inventory; its TTY reset flow delegates one explicit
+opaque reference to `policy reset`. Redirected and machine-readable review and
+inventory remain read-only.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
 a small state marker, aligned detail rows, semantic color tokens, and an exact
@@ -463,7 +470,7 @@ work container is created with fixed CPU, memory, PID-count, and container-log
 bounds; a resource-contract change is treated as runtime drift and recreates
 only that work container. These limits do not claim a disk quota for the
 explicitly mounted root or network bandwidth shaping.
-`policy allow`, `policy deny`, and `policy compact` first build and test the complete candidate
+`policy allow`, `policy deny`, `policy reset`, and `policy compact` first build and test the complete candidate
 policy in a private host temporary directory. After successful tests they
 atomically replace only `policy/data.json` and invoke the same activation
 boundary. They never write Rego source, managed credential files, or tool-owned

@@ -306,9 +306,9 @@ The test suite has complementary levels:
   and automatic Context image promotion, then repeats the flow with the local
   base before cleanup.
 - Policy-learning integration projects baseline and learnable denials, proves
-  baseline denies stay out of the actionable queue, and exercises exact allow
-  and deny activation through reference-bound commands without restarting any
-  Tobari.
+  baseline denies stay out of the actionable queue, and exercises exact allow,
+  deny, reset, and re-review activation through reference-bound commands
+  without restarting any Tobari.
 - Gateway contract tests verify that a learnable denial carries only the fixed
   host-side review navigation, while non-learnable and infrastructure failures
   do not invite approval. Session lifecycle tests verify that the aggregate
@@ -323,10 +323,12 @@ The test suite has complementary levels:
   mismatch fails closed.
 - The human permission path is exercised through `policy review`; its TTY
   Permission Inbox covers bounded selection, detail inspection, explicit
-  allow/deny confirmation, cancellation, and refresh after each decision. It
-  does not require hand-editing OPA or Rego. Redirected review stays
-  read-only, and exact reference-bound allow/deny actions are the routine
-  policy mutations.
+  allow/deny confirmation, cancellation, and refresh after each decision. The
+  TTY `policy rules` path separately covers exhaustive current-decision
+  inventory, explicit reset confirmation, refresh, and re-review of the
+  retained denial. Neither path requires hand-editing OPA or Rego. Redirected
+  review and inventory stay read-only; exact reference-bound allow, deny, and
+  reset actions are the routine policy mutations.
 - Parent-owned blind E2E runs use `scripts/pty-evidence.py` when raw terminal
   evidence is required. The runner allocates a real PTY, sets explicit
   rows/columns and `TERM`, applies a timestamped short-input schedule, and
@@ -401,7 +403,7 @@ Every strong statement should identify its enforcement path.
 | Context runtime build boundary | Fixed active-Context target contracts, owner-only recipe checks, bounded Docker build argv including official-base refresh versus local-base behavior, compatibility/digest validation, source-digest status, and atomic promotion tests |
 | Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, canonical-source unit tests, stable Gateway labels, immutable digest/platform/entrypoint preflight, non-root host-UID-independent Dockerfile, and pull-request/main workflow permission separation |
 | Typed denial recovery | Strict host/port audit projection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
-| Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, project/host/port/method/path candidate/reference domain validation, discover-act graph and allow/deny round trips, human review without hand-authored OPA/Rego, strict atomic XDG writer, preflight ordering, and Docker retry |
+| Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, project/host/port/method/path candidate/reference domain validation, discover-act graph and allow/deny/reset round trips, exhaustive current-decision inventory, human review without hand-authored OPA/Rego, strict atomic XDG writer, preflight ordering, and Docker retry |
 | Bounded policy compaction | Pure deterministic same-project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |
 | Project principal and credential scope | Owner-only atomic registry schema, local-interface derivation, forged-session and unknown-principal denial, passthrough default/managed profile adapter tests, cross-project Rego canary, and two-project Docker integration |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |

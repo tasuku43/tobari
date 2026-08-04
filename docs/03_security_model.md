@@ -307,17 +307,21 @@ unconfigured cluster receives only the new host marker; Docker is not started
 implicitly. If reconciliation fails, the previous marker and state are
 restored when possible, and an unresolved journal blocks entry and policy
 operations until an explicit cluster reconciliation succeeds.
-`policy allow`, `policy deny`, and `policy compact` are access-changing writes bound to opaque
-candidate references. Discovery never mutates. An allow reference identifies
-one retained validated denial that OPA marked exact-rule learnable; a
+`policy allow`, `policy deny`, `policy reset`, and `policy compact` are
+access-changing writes bound to opaque references. Discovery never mutates. An
+allow reference identifies one retained validated denial that OPA marked
+exact-rule learnable; a
 deny reference identifies one retained validated denial and binds its exact
 project/host/port/method/path; a compaction reference identifies one current
-exact source-rule set. Scheme,
-cluster, credential-binding, unavailable-body, and body-inspection failures
+exact source-rule set; a reset reference identifies one current CLI-owned
+learned Allow or exact Deny and removes it, returning the effect to default
+deny. Scheme, cluster, credential-binding, unavailable-body, and body-inspection failures
 never become permission candidates.
-Host-authored baseline denies and CLI-owned exact deny rules are also terminal
-and are excluded from the actionable queue, while their bounded audit records
-remain visible.
+Host-authored baseline denies are terminal, excluded from both the actionable
+queue and the reversible decision inventory, while their bounded audit records
+remain visible. CLI-owned exact Deny rules remain terminal in enforcement but
+are visible in `policy rules` and can be explicitly reset; reset never makes
+the request allowed.
 The mutation rejects stale or ambiguous references, unsafe policy files,
 malformed learned data, failed preflight tests, and unrecognized compaction
 shapes before the atomic policy write.
@@ -351,10 +355,12 @@ unredacted diagnostics. `cluster denials` projects only validated deny records
 and preserves only non-secret credential-profile names. Read-only policy
 candidate commands derive opaque proposals from that evidence. `policy review`
 presents the same queue and, after explicit confirmation on a TTY, delegates
-one unchanged opaque reference to `policy allow` or `policy deny`; its
-redirected and machine-readable path remains read-only. Observation alone
-never changes authority; only an explicit reference-bound mutation can write a
-learned allow or exact deny rule.
+one unchanged opaque reference to `policy allow` or `policy deny`; `policy rules`
+projects every current CLI-owned learned Allow and exact Deny, and its TTY flow
+delegates one unchanged opaque reference to `policy reset`. All redirected and
+machine-readable paths remain read-only. Observation alone never changes
+authority; every allow, deny, reset, or compaction is an explicit
+reference-bound mutation.
 
 ## Enforcement
 

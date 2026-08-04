@@ -116,6 +116,21 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 			t.Fatalf("%s reference contract = %+v", path, command.ProducedRefs())
 		}
 	}
+	rules, found := catalog.Lookup("policy rules")
+	if !found || rules.Role != RoleDiscover ||
+		!reflect.DeepEqual(rules.ProducedRefs(), []ProducedRef{{Kind: tobari.PolicyRuleKind, Field: "id"}}) ||
+		rules.Agent.Interactive == nil || rules.Agent.Interactive.ActionCommand != "policy reset" ||
+		rules.Agent.Interactive.SelectionReferenceKind != tobari.PolicyRuleKind ||
+		rules.Agent.Interactive.NonInteractiveBehavior != "read_only" {
+		t.Fatalf("policy rules reference contract = %+v", rules)
+	}
+	reset, found := catalog.Lookup("policy reset")
+	if !found || reset.Role != RoleAct ||
+		!reflect.DeepEqual(reset.ConsumedRefs(), []ConsumedRef{{Kind: tobari.PolicyRuleKind, Argument: "--id"}}) ||
+		reset.Agent.Mutation == nil || reset.Agent.Mutation.TargetKind != tobari.PolicyRuleKind ||
+		reset.Agent.Mutation.TargetIDInput != "--id" {
+		t.Fatalf("policy reset reference contract = %+v", reset)
+	}
 	review, found := catalog.Lookup("policy review")
 	if !found || review.Agent.Interactive == nil ||
 		!reflect.DeepEqual(review.Agent.Interactive.ActionCommands, []string{"policy allow", "policy deny"}) ||
@@ -229,6 +244,83 @@ func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Allow exact") {
 		t.Fatalf("redirected review did not remain a review queue: %q", stdout.String())
 	}
+}
+
+func TestPolicyRulesTTYResetsDecisionAndRefreshesInventory(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{
+		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", Host: "api.example.com", Port: 443,
+		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
+		StatusCode: 403, Learnable: true,
+	}
+	candidate, err := tobari.NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, err := tobari.NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &policyReviewRuntimeApplyingFake{
+		policyReviewRuntimeFake: policyReviewRuntimeFake{
+			state:    tobari.State{PolicyDirectory: "/tmp/policy"},
+			rules:    []tobari.LearnedPolicyRule{rule},
+			terminal: true,
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("1\nr\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.tobari = tobaricmd.New(runtime)
+	if code := command.RunContext(context.Background(), []string{"policy", "rules"}); code != ExitOK {
+		t.Fatalf("policy rules code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.applyCalls != 1 || len(runtime.rules) != 0 {
+		t.Fatalf("policy rules reset calls=%d rules=%+v", runtime.applyCalls, runtime.rules)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "Policy decision reset") || !strings.Contains(output, "No learned policy decisions") {
+		t.Fatalf("policy rules output did not show reset and refresh: %q", output)
+	}
+}
+
+func TestPolicyRulesJSONIsReadOnlyAndMatchesCatalog(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{
+		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", Host: "api.example.com", Port: 443,
+		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
+		StatusCode: 403, Learnable: true,
+	}
+	candidate, err := tobari.NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, err := tobari.NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &policyReviewRuntimeApplyingFake{
+		policyReviewRuntimeFake: policyReviewRuntimeFake{
+			state:    tobari.State{PolicyDirectory: "/tmp/policy"},
+			rules:    []tobari.LearnedPolicyRule{rule},
+			terminal: false,
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("1\nr\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.tobari = tobaricmd.New(runtime)
+	if code := command.RunContext(context.Background(), []string{"policy", "rules", "--format", "json"}); code != ExitOK {
+		t.Fatalf("policy rules JSON code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.applyCalls != 0 || len(runtime.rules) != 1 {
+		t.Fatalf("JSON policy rules mutated state: calls=%d rules=%+v", runtime.applyCalls, runtime.rules)
+	}
+	spec, found := DefaultCatalog().Lookup("policy rules")
+	if !found {
+		t.Fatal("policy rules is absent")
+	}
+	assertJSONItemFieldsMatchCatalog(t, stdout.Bytes(), spec)
 }
 
 func TestDeleteCatalogDescribesDetachedDefaultAndAttachedForceGuard(t *testing.T) {

@@ -23,8 +23,10 @@ var (
 )
 
 const (
-	PolicyMatchExact  = "exact"
-	PolicyMatchPrefix = "prefix"
+	PolicyMatchExact    = "exact"
+	PolicyMatchPrefix   = "prefix"
+	PolicyDecisionAllow = "allow"
+	PolicyDecisionDeny  = "deny"
 )
 
 // PolicyDenial is one validated, secret-free Gateway audit decision.
@@ -190,6 +192,16 @@ func cloneStringPointer(value *string) *string {
 func ValidatePolicyCandidateID(id string) error {
 	if !policyCandidateIDPattern.MatchString(id) {
 		return fmt.Errorf("policy candidate ID is invalid")
+	}
+	return nil
+}
+
+// ValidatePolicyRuleID accepts either kind of current CLI-owned learned
+// decision. Baseline host policy has no policy-rule reference and cannot be
+// reset through this path.
+func ValidatePolicyRuleID(id string) error {
+	if !learnedRuleIDPattern.MatchString(id) && !policyDenyRuleIDPattern.MatchString(id) {
+		return fmt.Errorf("policy rule ID is invalid")
 	}
 	return nil
 }
@@ -550,6 +562,238 @@ func ValidateLearnedPolicyRules(rules []LearnedPolicyRule) error {
 			return fmt.Errorf("learned rule IDs must be unique")
 		}
 		seen[rule.ID] = true
+	}
+	return nil
+}
+
+// PolicyRule is the presentation-independent current decision shape shared by
+// learned Allow and exact learned Deny inventory. Baseline host policy is not
+// represented because it has no reversible CLI-owned decision.
+type PolicyRule struct {
+	ID               string   `json:"id"`
+	Decision         string   `json:"decision"`
+	Match            string   `json:"match"`
+	ProjectID        string   `json:"project_id"`
+	Host             string   `json:"host"`
+	Port             int      `json:"port"`
+	Method           string   `json:"method"`
+	Path             string   `json:"path"`
+	Examples         []string `json:"examples"`
+	SourceCandidates []string `json:"source_candidates"`
+}
+
+// NewPolicyRuleFromLearned converts one validated learned Allow rule into the
+// common inventory shape without changing any opaque evidence.
+func NewPolicyRuleFromLearned(rule LearnedPolicyRule) (PolicyRule, error) {
+	if err := rule.Validate(); err != nil {
+		return PolicyRule{}, err
+	}
+	result := PolicyRule{
+		ID: rule.ID, Decision: PolicyDecisionAllow, Match: rule.Match,
+		ProjectID: rule.ProjectID, Host: rule.Host, Port: rule.Port, Method: rule.Method,
+		Path: rule.Path, Examples: append([]string{}, rule.Examples...),
+		SourceCandidates: append([]string{}, rule.SourceCandidates...),
+	}
+	if err := result.Validate(); err != nil {
+		return PolicyRule{}, err
+	}
+	return result, nil
+}
+
+// NewPolicyRuleFromDeny converts one validated exact learned Deny rule into
+// the common inventory shape. Deny decisions have no positive examples, so
+// their examples collection is explicitly empty rather than unknown.
+func NewPolicyRuleFromDeny(rule PolicyDenyRule) (PolicyRule, error) {
+	if err := rule.Validate(); err != nil {
+		return PolicyRule{}, err
+	}
+	result := PolicyRule{
+		ID: rule.ID, Decision: PolicyDecisionDeny, Match: PolicyMatchExact,
+		ProjectID: rule.ProjectID, Host: rule.Host, Port: rule.Port, Method: rule.Method,
+		Path: rule.Path, Examples: []string{},
+		SourceCandidates: append([]string{}, rule.SourceCandidates...),
+	}
+	if err := result.Validate(); err != nil {
+		return PolicyRule{}, err
+	}
+	return result, nil
+}
+
+func (r PolicyRule) Validate() error {
+	if err := ValidatePolicyRuleID(r.ID); err != nil {
+		return err
+	}
+	if r.Decision != PolicyDecisionAllow && r.Decision != PolicyDecisionDeny {
+		return fmt.Errorf("policy rule decision is invalid")
+	}
+	if r.Decision == PolicyDecisionAllow {
+		learned := LearnedPolicyRule{
+			ID: r.ID, Match: r.Match, ProjectID: r.ProjectID, Host: r.Host, Port: r.Port,
+			Method: r.Method, Path: r.Path, Examples: r.Examples,
+			SourceCandidates: r.SourceCandidates,
+		}
+		if err := learned.Validate(); err != nil {
+			return fmt.Errorf("policy rule allow: %w", err)
+		}
+		return nil
+	}
+	if r.Match != PolicyMatchExact || r.Examples == nil {
+		return fmt.Errorf("policy rule deny shape is invalid")
+	}
+	deny := PolicyDenyRule{
+		ID: r.ID, ProjectID: r.ProjectID, Host: r.Host, Port: r.Port,
+		Method: r.Method, Path: r.Path, SourceCandidates: r.SourceCandidates,
+	}
+	if err := deny.Validate(); err != nil {
+		return fmt.Errorf("policy rule deny: %w", err)
+	}
+	return nil
+}
+
+// CurrentPolicyRules returns the complete learned-decision inventory for one
+// validated policy snapshot. Baseline host rules are intentionally excluded
+// because this report is the reversible CLI-owned decision surface.
+func CurrentPolicyRules(learned []LearnedPolicyRule, denies []PolicyDenyRule) ([]PolicyRule, error) {
+	if err := ValidateLearnedPolicyRules(learned); err != nil {
+		return nil, err
+	}
+	denySet := PolicyDenyRuleSet{Baseline: []PolicyBaselineDenyRule{}, Exact: denies}
+	if err := denySet.Validate(); err != nil {
+		return nil, err
+	}
+	items := make([]PolicyRule, 0, len(learned)+len(denies))
+	for _, rule := range learned {
+		item, err := NewPolicyRuleFromLearned(rule)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	for _, rule := range denies {
+		item, err := NewPolicyRuleFromDeny(rule)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Decision != items[j].Decision {
+			return items[i].Decision < items[j].Decision
+		}
+		return items[i].ID < items[j].ID
+	})
+	return items, nil
+}
+
+// PolicyRuleReport is exhaustive for the current learned-rule file at one
+// observation point. An empty Items collection is known and valid.
+type PolicyRuleReport struct {
+	Task            string       `json:"task"`
+	PolicyDirectory string       `json:"policy"`
+	Items           []PolicyRule `json:"items"`
+}
+
+func (r PolicyRuleReport) Validate() error {
+	if r.Task != TaskPolicyRules {
+		return fmt.Errorf("policy rule report task identity is invalid")
+	}
+	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
+		return fmt.Errorf("policy rule report policy directory is invalid")
+	}
+	if r.Items == nil {
+		return fmt.Errorf("policy rule collection is unknown")
+	}
+	seen := make(map[string]bool, len(r.Items))
+	for _, item := range r.Items {
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		if seen[item.ID] {
+			return fmt.Errorf("policy rule IDs must be unique")
+		}
+		seen[item.ID] = true
+	}
+	return nil
+}
+
+// RemovePolicyRule removes one current learned decision and returns the
+// resulting collections plus the removed decision. It never touches baseline
+// host policy and never synthesizes a replacement authorization.
+func RemovePolicyRule(
+	learned []LearnedPolicyRule, denies []PolicyDenyRule, id string,
+) ([]LearnedPolicyRule, []PolicyDenyRule, PolicyRule, error) {
+	if err := ValidatePolicyRuleID(id); err != nil {
+		return nil, nil, PolicyRule{}, err
+	}
+	if err := ValidateLearnedPolicyRules(learned); err != nil {
+		return nil, nil, PolicyRule{}, err
+	}
+	denySet := PolicyDenyRuleSet{Baseline: []PolicyBaselineDenyRule{}, Exact: denies}
+	if err := denySet.Validate(); err != nil {
+		return nil, nil, PolicyRule{}, err
+	}
+	updatedLearned := make([]LearnedPolicyRule, 0, len(learned))
+	var removed PolicyRule
+	found := false
+	for _, rule := range learned {
+		if rule.ID != id {
+			updatedLearned = append(updatedLearned, rule)
+			continue
+		}
+		var err error
+		removed, err = NewPolicyRuleFromLearned(rule)
+		if err != nil {
+			return nil, nil, PolicyRule{}, err
+		}
+		found = true
+	}
+	updatedDenies := make([]PolicyDenyRule, 0, len(denies))
+	for _, rule := range denies {
+		if rule.ID != id {
+			updatedDenies = append(updatedDenies, rule)
+			continue
+		}
+		if found {
+			return nil, nil, PolicyRule{}, fmt.Errorf("policy rule ID is duplicated across decisions")
+		}
+		var err error
+		removed, err = NewPolicyRuleFromDeny(rule)
+		if err != nil {
+			return nil, nil, PolicyRule{}, err
+		}
+		found = true
+	}
+	if !found {
+		return nil, nil, PolicyRule{}, fmt.Errorf("policy rule is not current")
+	}
+	return updatedLearned, updatedDenies, removed, nil
+}
+
+// PolicyRuleReset is the confirmed result of returning one learned decision
+// to the initialized default-deny behavior.
+type PolicyRuleReset struct {
+	Task            string `json:"task"`
+	PolicyDirectory string `json:"policy"`
+	TargetID        string `json:"target_id"`
+	Decision        string `json:"decision"`
+	Applied         bool   `json:"applied"`
+}
+
+func (r PolicyRuleReset) Validate() error {
+	if r.Task != TaskPolicyReset {
+		return fmt.Errorf("policy rule reset task identity is invalid")
+	}
+	if err := ValidatePolicyRuleID(r.TargetID); err != nil {
+		return err
+	}
+	if r.Decision != PolicyDecisionAllow && r.Decision != PolicyDecisionDeny {
+		return fmt.Errorf("policy rule reset decision is invalid")
+	}
+	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
+		return fmt.Errorf("policy rule reset policy directory is invalid")
+	}
+	if !r.Applied {
+		return fmt.Errorf("policy rule reset is not applied")
 	}
 	return nil
 }

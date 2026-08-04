@@ -349,3 +349,92 @@ func TestPolicyCandidateRejectsControlPathAndOpaqueKindMismatch(t *testing.T) {
 		t.Fatal("candidate reference was accepted as a compaction")
 	}
 }
+
+func TestCurrentPolicyRulesListsReversibleAllowAndDenyDecisions(t *testing.T) {
+	t.Parallel()
+	allowCandidate, err := NewPolicyCandidate(validPolicyDenial())
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow, err := NewExactLearnedPolicyRule(allowCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denyDenial := validPolicyDenial()
+	denyDenial.Path = "/repos/cli/other"
+	denyCandidate, err := NewPolicyCandidate(denyDenial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deny, err := NewExactPolicyDenyRule(denyCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := CurrentPolicyRules([]LearnedPolicyRule{allow}, []PolicyDenyRule{deny})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].Decision != PolicyDecisionAllow || items[1].Decision != PolicyDecisionDeny {
+		t.Fatalf("policy decisions = %+v", items)
+	}
+	if items[0].ID != allow.ID || items[1].ID != deny.ID {
+		t.Fatalf("policy decision IDs = %+v, want allow=%s deny=%s", items, allow.ID, deny.ID)
+	}
+	if items[1].Examples == nil || len(items[1].Examples) != 0 {
+		t.Fatalf("exact deny examples = %#v, want known empty collection", items[1].Examples)
+	}
+	report := PolicyRuleReport{
+		Task: TaskPolicyRules, PolicyDirectory: "/tmp/policy", Items: items,
+	}
+	if err := report.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemovePolicyRuleReturnsDefaultDenyAndLeavesOtherDecisions(t *testing.T) {
+	t.Parallel()
+	allowCandidate, err := NewPolicyCandidate(validPolicyDenial())
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow, err := NewExactLearnedPolicyRule(allowCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denyDenial := validPolicyDenial()
+	denyDenial.Path = "/repos/cli/other"
+	denyCandidate, err := NewPolicyCandidate(denyDenial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deny, err := NewExactPolicyDenyRule(denyCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updatedAllow, updatedDenies, removed, err := RemovePolicyRule(
+		[]LearnedPolicyRule{allow}, []PolicyDenyRule{deny}, allow.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed.Decision != PolicyDecisionAllow || len(updatedAllow) != 0 || len(updatedDenies) != 1 || updatedDenies[0].ID != deny.ID {
+		t.Fatalf("allow reset = removed:%+v learned:%+v denies:%+v", removed, updatedAllow, updatedDenies)
+	}
+
+	updatedAllow, updatedDenies, removed, err = RemovePolicyRule(updatedAllow, updatedDenies, deny.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed.Decision != PolicyDecisionDeny || len(updatedAllow) != 0 || len(updatedDenies) != 0 {
+		t.Fatalf("deny reset = removed:%+v learned:%+v denies:%+v", removed, updatedAllow, updatedDenies)
+	}
+	if _, _, _, err := RemovePolicyRule(updatedAllow, updatedDenies, deny.ID); err == nil {
+		t.Fatal("stale policy rule was reset")
+	}
+	baselineID := "pdr_0123456789abcdef0123456789abcdef"
+	if _, _, _, err := RemovePolicyRule(nil, []PolicyDenyRule{}, baselineID); err == nil {
+		t.Fatal("non-current policy rule was reset")
+	}
+}

@@ -112,6 +112,10 @@ func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testi
 		nil,
 		[]byte("default\n"),
 		nil,
+		nil,
+		nil,
+		[]byte("default\n"),
+		nil,
 	}}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	rule := learnedRuleFixture(t, "/repos/cli/cli")
@@ -163,6 +167,15 @@ func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testi
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("data.json mode = %v, error = %v", info.Mode().Perm(), err)
 	}
+	if err := runtime.ApplyLearnedPolicyRules(
+		context.Background(), state, []tobari.LearnedPolicyRule{rule}, []tobari.LearnedPolicyRule{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	read, err := runtime.ReadLearnedPolicyRules(context.Background(), state)
+	if err != nil || len(read) != 0 || len(runner.outputs) != 8 {
+		t.Fatalf("removed learned rule = %+v, error = %v, Docker calls = %v", read, err, runner.outputs)
+	}
 }
 
 func TestApplyLearnedPolicyRulesRejectsChangedDataBeforeDockerOrWrite(t *testing.T) {
@@ -212,7 +225,16 @@ func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) 
   }
 }
 `)
-	runner := &recordingRunner{outputQueue: [][]byte{nil, nil, []byte("default\n"), nil}}
+	runner := &recordingRunner{outputQueue: [][]byte{
+		nil,
+		nil,
+		[]byte("default\n"),
+		nil,
+		nil,
+		nil,
+		[]byte("default\n"),
+		nil,
+	}}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	rule := deniedRuleFixture(t, "/user/settings")
 
@@ -248,6 +270,15 @@ func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) 
 	read, err := runtime.ReadPolicyDenyRules(context.Background(), state)
 	if err != nil || len(read.Exact) != 1 || read.Exact[0].ID != rule.ID {
 		t.Fatalf("read deny rules = %+v, error = %v", read, err)
+	}
+	if err := runtime.ApplyPolicyDenyRules(
+		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.PolicyDenyRule{rule}, []tobari.PolicyDenyRule{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	read, err = runtime.ReadPolicyDenyRules(context.Background(), state)
+	if err != nil || len(read.Exact) != 0 || len(runner.outputs) != 8 {
+		t.Fatalf("removed deny rule = %+v, error = %v, Docker calls = %v", read, err, runner.outputs)
 	}
 }
 

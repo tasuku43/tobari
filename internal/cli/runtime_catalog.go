@@ -16,8 +16,10 @@ func runtimeCommandSpecs() []CommandSpec {
 		policyCandidatesSpec(),
 		policyReviewSpec(),
 		policyTailSpec(),
+		policyRulesSpec(),
 		policyAllowSpec(),
 		policyDenySpec(),
+		policyResetSpec(),
 		policyCompactionsSpec(),
 		policyCompactSpec(),
 		contextListSpec(),
@@ -522,6 +524,34 @@ func policyReviewSpec() CommandSpec {
 	}
 }
 
+func policyRulesSpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy rules", Summary: "Inspect current learned policy decisions",
+		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Inspect the complete current project-bound learned Allow and exact Deny decisions; on a TTY explicitly reset one decision",
+			Inputs:       []CommandInput{formatInput()},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Fields:   policyRuleOutputFields(),
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
+				JSONEnvelope: "policy_rules", JSONSchemaVersion: 1,
+			},
+			Prerequisites: []string{"The active Context has a validated policy store."},
+			Errors:        policyRuleReadErrors("policy rules", true),
+			Interactive: &InteractiveWorkflowContract{
+				ActionCommand:          "policy reset",
+				SelectionReferenceKind: tobari.PolicyRuleKind,
+				SelectionOutputField:   "id",
+				Confirmation:           "explicit_yes",
+				NonInteractiveBehavior: "read_only",
+			},
+		},
+		handler: runPolicyRules,
+	}
+}
+
 func policyAllowSpec() CommandSpec {
 	return CommandSpec{
 		Path: "policy allow", Summary: "Allow one exact denied effect",
@@ -599,6 +629,43 @@ func policyDenySpec() CommandSpec {
 			},
 		},
 		handler: runPolicyDeny,
+	}
+}
+
+func policyResetSpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy reset", Summary: "Return one learned decision to default deny",
+		Args: "--id <id>", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Remove one current learned Allow or exact Deny and leave the matching effect at default deny",
+			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyRuleKind, "policy rules")},
+			Output:       policyRuleResetOutput(),
+			Prerequisites: []string{
+				"The ID was emitted by policy rules and remains a current learned decision.",
+			},
+			Errors: policyMutationCommandErrors("policy reset", "policy rules",
+				declaredCommandError(fault.KindInvalidInput, "invalid_policy_rule_id", false, "policy rules", "Use a rule ID unchanged."),
+				declaredCommandError(fault.KindInvalidInput, "policy_rule_not_found", false, "policy rules", "Rediscover the current learned decisions."),
+				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
+				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
+				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "policy rules", "Rediscover after the concurrent policy change."),
+				declaredCommandError(fault.KindRejected, "policy_preflight_failed", false, "doctor", "Correct the complete candidate policy."),
+				declaredCommandError(fault.KindRejected, "policy_test_failed", false, "doctor", "Correct the policy or ensure its XDG directory is accessible to the Docker Engine before activation."),
+				declaredCommandError(fault.KindInternal, "policy_write_failed", false, "policy rules", "Inspect the unchanged or atomically updated policy data."),
+				declaredCommandError(fault.KindUnavailable, "policy_learning_failed", false, "cluster status", "Reconcile OPA and current policy state."),
+				declaredCommandError(fault.KindContract, "invalid_policy_rule_reset_result", false, "cluster status", "Reconcile the confirmed policy mutation."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.PolicyRuleKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id",
+				Impact: operation.Impact{
+					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+					AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
+				},
+			},
+		},
+		handler: runPolicyReset,
 	}
 }
 
@@ -1041,6 +1108,36 @@ func policyReferenceInput(kind, producer string) CommandInput {
 	}
 }
 
+func policyRuleOutputFields() []OutputField {
+	return []OutputField{
+		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque current learned policy-rule reference.", ReferenceKind: tobari.PolicyRuleKind},
+		{Name: "decision", Type: OutputFieldTypeString, Description: "Current learned decision: allow or deny."},
+		{Name: "match", Type: OutputFieldTypeString, Description: "Exact or prefix match mode."},
+		{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal bound to the decision."},
+		{Name: "host", Type: OutputFieldTypeString, Description: "Exact decision host."},
+		{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact decision port."},
+		{Name: "method", Type: OutputFieldTypeString, Description: "Exact uppercase HTTP method."},
+		{Name: "path", Type: OutputFieldTypeString, Description: "Exact path or safe directory prefix."},
+		{Name: "examples", Type: OutputFieldTypeArray, Description: "Positive request paths retained by an Allow rule; empty for Deny."},
+		{Name: "source_candidates", Type: OutputFieldTypeArray, Description: "Opaque denial candidates that support this decision."},
+		{Name: "reset_command", Type: OutputFieldTypeString, Description: "Exact command that returns this decision to default deny."},
+	}
+}
+
+func policyRuleResetOutput() CommandOutput {
+	return CommandOutput{
+		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+		Fields: []OutputField{
+			{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
+			{Name: "target_id", Type: OutputFieldTypeString, Description: "Opaque policy-rule ID consumed unchanged."},
+			{Name: "decision", Type: OutputFieldTypeString, Description: "Removed learned decision: allow or deny."},
+			{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Whether the tested reset is active."},
+			{Name: "next", Type: OutputFieldTypeString, Description: "Exact command to review the now-default-deny effect again."},
+		},
+		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
+	}
+}
+
 func policyCandidateOutputFields() []OutputField {
 	return []OutputField{
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque exact policy-candidate reference.", ReferenceKind: tobari.PolicyCandidateKind},
@@ -1227,6 +1324,16 @@ func policyCandidateReadErrors(path string, hasOutput bool) []CommandError {
 		declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster denials", "Inspect retained denial evidence."),
 		declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
 		declaredCommandError(fault.KindContract, "invalid_candidate_contract", false, "cluster denials", "Inspect retained denial compatibility."),
+		declaredCommandError(fault.KindContract, "output_encoding_failed", false, path, "Repair JSON projection."),
+		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+	), policyClusterReadinessErrors()...)
+}
+
+func policyRuleReadErrors(path string, hasOutput bool) []CommandError {
+	return append(readCommandErrors(path, hasOutput,
+		declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
+		declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
+		declaredCommandError(fault.KindContract, "invalid_policy_rule_report", false, "doctor", "Inspect the current policy-rule contract."),
 		declaredCommandError(fault.KindContract, "output_encoding_failed", false, path, "Repair JSON projection."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 	), policyClusterReadinessErrors()...)

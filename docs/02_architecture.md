@@ -60,14 +60,19 @@ path remains catalog-owned, effect-declared, and failure-before-side-effect
 where applicable.
 
 `cluster up`, `cluster status`, `cluster denials`, `policy candidates`,
-`policy review`, `policy tail`, `policy allow`, and `policy deny` remain valid
+`policy review`, `policy tail`, `policy allow`, `policy deny`, `policy rules`,
+and `policy reset` remain valid
 internal seams today. They are not permission to expose Docker, OPA, or opaque
 resource identifiers as the routine mental model. `policy review` is the
 ordinary human-facing Permission Inbox: on a TTY it composes selection,
 detail inspection, explicit confirmation, and the existing `policy allow` or
 `policy deny` action for one candidate; redirected and machine-readable review remains
-read-only. `policy candidates` is the machine discovery surface and
-`policy tail` is a compatibility projection. The catalog declares this
+read-only. `policy rules` is the exhaustive current learned-decision inventory;
+on a TTY it composes selection, detail inspection, explicit reset confirmation,
+and `policy reset` for one current decision, while redirected and
+machine-readable inventory remains read-only. `policy candidates` is the
+machine discovery surface and `policy tail` is a compatibility projection. The
+catalog declares this
 composition while preserving discover/act separation: the act still consumes
 exactly one validated opaque reference or one declared fixed target.
 
@@ -372,9 +377,15 @@ project/host/port/method/path rule can close the request. `policy review` and
 to opaque exact-rule references that remain stable across repeated denials of
 the same project/host/port/method/path, and remove effects already covered by
 the CLI-owned learned allow or deny data and trusted baseline deny rules.
-Baseline and exact denies remain audit-only. `policy review` is the routine human text
+Baseline denies remain audit-only. `policy review` is the routine human text
 projection and, after explicit TTY confirmation, delegates one unchanged
-candidate ID to `policy allow` or `policy deny`; redirected review is read-only. `policy tail`
+candidate ID to `policy allow` or `policy deny`; redirected review is read-only.
+`policy rules` is the exhaustive current inventory of CLI-owned learned Allows
+and exact Denies. `policy reset --id` removes exactly one such decision through
+the same preflight, atomic-write, and OPA activation boundary, leaving the
+matching effect at default deny so the retained denial can enter `policy review`
+again. It never edits baseline policy, grants permission, or retries a request.
+`policy tail`
 is a compatibility projection over the same bounded task result. Raw `cluster
 logs` remains the component-debugging interface.
 

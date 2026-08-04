@@ -893,6 +893,69 @@ func TestDenyPolicyCandidateRejectsStaleReferenceWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestPolicyRulesAndResetKeepAllowAndDenyReversible(t *testing.T) {
+	t.Parallel()
+	allowDenial := validServiceDenial()
+	allowCandidate, err := tobari.NewPolicyCandidate(allowDenial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow, err := tobari.NewExactLearnedPolicyRule(allowCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denyDenial := allowDenial
+	denyDenial.Path = "/api/v1/items/other"
+	denyCandidate, err := tobari.NewPolicyCandidate(denyDenial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deny, err := tobari.NewExactPolicyDenyRule(denyCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &fakeRuntime{
+		state: testState(t.TempDir()), rules: []tobari.LearnedPolicyRule{allow},
+		denyRules: []tobari.PolicyDenyRule{deny},
+	}
+	service := New(runtime)
+	report, err := service.PolicyRules(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Items) != 2 || report.Items[0].Decision != tobari.PolicyDecisionAllow || report.Items[1].Decision != tobari.PolicyDecisionDeny {
+		t.Fatalf("policy rule report = %+v", report)
+	}
+
+	resetAllow, err := service.ResetPolicyRule(
+		context.Background(), policyLearningIntent("policy reset", tobari.PolicyRuleKind, allow.ID), allow.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resetAllow.Decision != tobari.PolicyDecisionAllow || !resetAllow.Applied || runtime.learnedCalls != 1 || len(runtime.rules) != 0 || len(runtime.denyRules) != 1 {
+		t.Fatalf("allow reset=%+v learned calls=%d rules=%+v denies=%+v", resetAllow, runtime.learnedCalls, runtime.rules, runtime.denyRules)
+	}
+
+	resetDeny, err := service.ResetPolicyRule(
+		context.Background(), policyLearningIntent("policy reset", tobari.PolicyRuleKind, deny.ID), deny.ID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resetDeny.Decision != tobari.PolicyDecisionDeny || !resetDeny.Applied || runtime.denyCalls != 1 || len(runtime.denyRules) != 0 {
+		t.Fatalf("deny reset=%+v deny calls=%d denies=%+v", resetDeny, runtime.denyCalls, runtime.denyRules)
+	}
+	if report, err := service.PolicyRules(context.Background()); err != nil || len(report.Items) != 0 {
+		t.Fatalf("policy rules after reset = %+v, error=%v", report, err)
+	}
+	if _, err := service.ResetPolicyRule(
+		context.Background(), policyLearningIntent("policy reset", tobari.PolicyRuleKind, deny.ID), deny.ID,
+	); err == nil || runtime.denyCalls != 1 {
+		t.Fatalf("stale reset error=%v deny calls=%d", err, runtime.denyCalls)
+	}
+}
+
 func compactableServiceRules(t *testing.T) []tobari.LearnedPolicyRule {
 	t.Helper()
 	paths := []string{
