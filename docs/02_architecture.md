@@ -89,8 +89,9 @@ authentication remains in the per-Workspace home.
 
 The first implementation has one active Context for the shared cluster. Cluster
 state records the active Context and resolved paths, and project runtime
-reconciliation uses its agent-profile reference and digest. `context use` is a
-host mutation and the owner of the complete selection outcome: when the shared
+reconciliation uses its runtime image selector, agent-profile reference, and
+digest. `context use` is a host mutation and the owner of the complete
+selection outcome: when the shared
 cluster is running, it reuses the bounded `cluster up` reconciliation path and
 does not succeed until the selected policy and Gateway credential mounts are
 health-checked and persisted. When the cluster is stopped or unconfigured, it
@@ -147,9 +148,10 @@ volumes. Cluster startup obtains the verified Gateway image by digest and the
 official runtime base image through the runtime image resolver. The normal
 resolver uses published images only; the contributor `tobari_dev` resolver
 selects local development tags built by `task build:dev`. The runtime adapter
-creates each logical Tobari from the selected Context image or an exact
-configured local image and connects Gateway to its dedicated network, then
-records the Gateway interface address in the principal registry. A public-only CA volume is mounted read-only into
+creates or reconciles each logical Tobari from the active Context image, or an
+exact configured local image on the legacy named path, and connects Gateway to
+its dedicated network, then records the Gateway interface address in the
+principal registry. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
 Custom images are supported only when they preserve runtime API label
@@ -195,11 +197,13 @@ and `/opt/tobari` paths; `/var/lib/tobari` contains only per-Tobari home state
 and is safe to replace with the persistent home bind. Their workflows do not
 publish agent tags until redistribution and license review is complete.
 
-The root resolver obtains the image from the active Context's strict manifest.
-Before the default Context exists, the owner-only XDG `config.json`
-`default_image` seeds that manifest; absence falls back to `builtin`. The
-resolved selector, rather than the source of the default, is persisted on the
-logical Tobari. Project metadata is not consulted for runtime selection.
+The root resolver obtains the desired image from the active Context's strict
+manifest on each runtime reconciliation. Before the default Context exists, the
+owner-only XDG `config.json` `default_image` seeds that manifest; absence falls
+back to `builtin`. The resolved selector, rather than the source of the
+default, is persisted on the logical Tobari only as the last successful
+runtime-container image. Project metadata is not consulted for runtime
+selection.
 
 Project runtime path mapping is owned by the Docker adapter. The selected root
 is mounted read-write exactly once. If its canonical path is below the host
@@ -230,9 +234,9 @@ The MVP owns one shared cluster `tool_local` target with stable ID
 stores a canonical root and stable internal ID at
 `$XDG_STATE_HOME/tobari/roots/<hash>.json`; each instance owns
 `instances/<id>/state.json` and `instances/<id>/home`. The instance record
-contains the stable ID, canonical root, selected image, profile, and diagnostic
-container or network identifiers. Logical state, not Docker inspection,
-defines whether a Tobari exists. Docker labels include:
+contains the stable ID, canonical root, last reconciled image, profile, and
+diagnostic container or network identifiers. Logical state, not Docker
+inspection, defines whether a Tobari exists. Docker labels include:
 
 ```text
 io.tobari.owner=default
@@ -282,15 +286,17 @@ selected directly; when only ancestor records exist, the CLI presents every
 containing root nearest-first and the application accepts either one validated
 candidate or an explicit create-at-CWD choice. The choice is revalidated under
 the lifecycle lock before the selected logical record is created or reused. It
-then ensures one exact project network and work container, connects Gateway
-with the `gateway` alias, binds the Gateway interface address to the host-issued
-project principal, waits for project readiness, and enters the container. The
+then resolves the active Context image, ensures one exact project network and
+work container, connects Gateway with the `gateway` alias, binds the Gateway
+interface address to the host-issued project principal, waits for project
+readiness, and enters the container. The
 logical creation and deletion boundaries use durable journals so an interruption
 between the home, instance, index, runtime, and deletion steps is recoverable
 without treating a partial file set as a second project. Runtime convergence
-stores a hash of the desired image identity, mounts, security, environment,
-health contract, fixed resource contract, and profile revision on the project
-container; drift recreates only that container. OPA runs with
+stores a hash of the active Context's desired image identity, mounts, security,
+environment, health contract, fixed resource contract, and profile revision on
+the project container; drift recreates only that container and updates the
+stored project image only after success. OPA runs with
 `--watch` against a read-only XDG bind, so host edits reload when Docker-host
 filesystem events propagate. The principal registry is a generic host-issued
 contract: Docker currently supplies the network/address observation, while a

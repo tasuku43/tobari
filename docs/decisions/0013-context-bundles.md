@@ -67,7 +67,8 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/contexts/<name>/context.json
 
 Its non-secret fields are `name`, `agent_profile`, `image`, and `policy_mode`
 (`guided` or `advanced`). `image` is the compatible Tobari runtime image used
-for new Workspaces. Project metadata does not override it.
+for Workspace creation and runtime-container reconciliation. Project metadata
+does not override it.
 The same Context directory contains separate `policy/`,
 `credentials.json`, and `credentials/` stores. The manifest references the
 agent data store under the existing XDG data directory; it does not copy or

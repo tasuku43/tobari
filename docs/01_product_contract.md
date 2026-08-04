@@ -67,9 +67,10 @@ and explicit policy activation rather than an observed host-only approval.
 - **Tobari home:** a per-Tobari persistent owner-only XDG state directory
   mounted as the work user's home.
 - **Tobari image:** the minimal built-in runtime or one locally available
-  compatible OCI environment image selected when a Tobari is first created.
-  Its tools and bootstrap are part of the environment; its image `CMD` is not
-  the Workspace lifetime command.
+  compatible OCI environment image selected by the active Context for Workspace
+  creation and later runtime-container reconciliation. Its tools and bootstrap
+  are part of the environment; its image `CMD` is not the Workspace lifetime
+  command.
 - **Tobari ID:** a generated stable internal identity used for state, exact
   resource labels, and host-issued project-principal bindings. It is diagnostic
   output, not a routine user action input.
@@ -202,10 +203,15 @@ undeclared Docker mutation by the CLI.
   family, with tags such as
   `claude.2.1.34-base.0.1.0-r1`. They add the agent tool and only its
   agent-specific dependencies; they do not create a second authority boundary.
-- Project metadata does not select or alter the runtime image. New Workspaces
-  use the active Context image, or an explicitly supplied `--image` for the
+- Project metadata does not select or alter the runtime image. Workspaces use
+  the active Context image when created and again when their runtime container
+  is reconciled by root entry, or an explicitly supplied `--image` for the
   legacy named lifecycle command; all selected images still pass the same
-  compatibility checks before Docker mutation.
+  compatibility checks before Docker mutation. If an existing Workspace's
+  active Context image changes, the next `tobari` entry preserves the
+  Workspace home and root record, recreates only the work container when the
+  runtime spec changed, and records the new image only after reconciliation
+  succeeds.
 - Shared cluster mutations use one command-bound `tool_local` target and are
   never performed by the root `tobari` operation.
 - CWD-local lifecycle operations use one command-bound `tool_local` current
@@ -398,13 +404,17 @@ does not copy host credential values into the runtime environment.
 Image selection uses the active Context's bounded runtime image selector. The
 legacy `config.json.default_image` seeds the default Context once, and `builtin`
 is used when no legacy setting exists. Project metadata does not override the
-Context image.
+Context image; the stored project image is updated only after a successful
+runtime-container reconciliation from the active Context image.
 
 The active Context recipe is a host-side customization source, not a second
 image authority. `runtime build` derives the image reference mechanically from
 the Context name and Dockerfile source digest, validates it, and atomically
 promotes it into the existing Context image field. Editing the recipe or a
-failed build leaves the previously selected image unchanged.
+failed build leaves the previously selected image unchanged. Existing
+Workspaces pick up the promoted image on the next root entry; failed image
+validation or Docker reconciliation leaves their previous logical state and
+home in place.
 
 When the recipe's first base is the exact official
 `ghcr.io/tasuku43/tobari/runtime:latest` reference, an explicit `runtime build`
@@ -423,6 +433,9 @@ explicit host Docker build, validates the generated image, and atomically
 updates only the active Context manifest after the image digest is confirmed.
 Build, validation, or promotion failure leaves the previous selected image
 authoritative and directs the user to inspect the Context before retrying.
+Existing Workspaces are not mutated by `runtime build` itself; the next root
+entry reconciles their work container to the promoted image while preserving
+the Workspace home.
 The official moving base is refreshed only for an explicit build whose recipe
 starts from the exact official `runtime:latest`; custom and local bases retain
 their local/cache-first behavior.
@@ -446,16 +459,17 @@ state or project resources, then waits for Gateway and OPA health. The root comm
 configured and ready, reads the indexed Workspace candidates, and waits for an
 explicit choice when the canonical current directory is below an ancestor.
 After the choice is revalidated under the lifecycle lock, it creates or reuses
-the selected logical record, validates the selected image before project
-runtime mutation, reconciles its labeled container and internal network, binds
-its XDG home, joins Gateway to that network, waits for the project healthcheck,
-and enters the resulting terminal session. Docker create appends Tobari's
-fixed `sleep infinity` lifetime command after the image; the image `CMD` is
-not used to own Workspace lifetime. Shells and exact agent commands run through
-child exec sessions, so a child command's nonzero exit is returned without
-stopping the reusable Workspace. A changed image identity, runtime contract,
-mount/security/environment/health specification, or shared profile revision
-recreates only the project container and preserves its logical state and home.
+the selected logical record, resolves and validates the active Context image
+before project runtime mutation, reconciles its labeled container and internal
+network, binds its XDG home, joins Gateway to that network, waits for the
+project healthcheck, and enters the resulting terminal session. Docker create
+appends Tobari's fixed `sleep infinity` lifetime command after the image; the
+image `CMD` is not used to own Workspace lifetime. Shells and exact agent
+commands run through child exec sessions, so a child command's nonzero exit is
+returned without stopping the reusable Workspace. A changed image identity,
+runtime contract, mount/security/environment/health specification, or shared
+profile revision recreates only the project container and preserves its
+logical state and home.
 Returning from that child session, including a normal shell `exit`, performs no
 Workspace deletion: it only returns the child exit status and emits the host
 stderr guidance described above. `delete` is the separate lifecycle-ending

@@ -265,7 +265,7 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 			fmt.Fprintf(&output, "Next: edit %s, then run `tobari runtime build`.\n", safeExternalText(result.Runtime.Dockerfile))
 		}
 	case tobari.TaskRuntimeBuild:
-		fmt.Fprintln(&output, "Note: existing Workspaces keep their stored image. To use this runtime there, run `tobari delete` in that project and create it again with `tobari`.")
+		fmt.Fprintln(&output, "Note: existing Workspaces keep their home. On the next `tobari`, Tobari recreates only the work container when this runtime image changes the spec.")
 		fmt.Fprintln(&output, "Next: run `tobari` from a project directory.")
 	case tobari.TaskContextUse:
 		switch result.Cluster {

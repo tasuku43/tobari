@@ -111,6 +111,8 @@ files, credential metadata and secret files, the host home, Docker sockets, and
 Workspace mounts are outside it. The generated image must pass the same
 compatibility inspection before its reference is promoted into the Context.
 Editing the recipe or a failed build cannot replace the last selected image.
+After promotion succeeds, existing Workspaces observe the selected image only
+through the next trusted root-entry reconciliation.
 For the exact official `ghcr.io/tasuku43/tobari/runtime:latest` first base,
 the explicit build also requests a refresh of the moving base. Explicit local
 or custom bases do not receive that registry-pull request; this keeps local
@@ -142,13 +144,18 @@ The active Context's runtime image selector is strict, bounded, and stored in
 the owner-only Context manifest. The legacy XDG `config.json` image default is
 used only to seed the default Context during compatibility initialization.
 Project metadata cannot select or alter the runtime image, so untrusted project
-files cannot introduce a second image or execution-boundary authority.
+files cannot introduce a second image or execution-boundary authority. The
+stored project image is diagnostic last-success state rather than an image
+authority.
 
 Project runtime readiness is an explicit healthcheck boundary. Enter waits for
 healthy rather than treating a running or healthcheck-less container as ready;
 unhealthy, exited, and timeout outcomes remain distinct diagnostics. Desired
-runtime drift is detected from an ownership-scoped spec hash and recreates only
-the work container, preserving the logical project home and root record.
+runtime drift is detected from the active Context image and an
+ownership-scoped spec hash, and recreates only the work container, preserving
+the logical project home and root record. Missing or incompatible newly
+selected images fail before replacing an existing work container or updating
+project state.
 
 Gateway image code is root-owned and read-only in the image, while the service
 starts directly as the invoking numeric non-root identity supplied by Compose.
@@ -293,7 +300,9 @@ Neither operation accepts an ID, name, or arbitrary root selector.
 All mutations use complete intent and impact declarations before Docker
 execution. Ordinary runtime reconciliation needs no human approval;
 ordinary deletion requires no attached session, while `--force` overrides that
-guard; both affect only the selected XDG home and exact owned resources. Shared
+guard. Runtime image reconciliation validates the active Context image before
+mutating Docker resources and preserves the selected XDG home; deletion affects
+only the selected XDG home and exact owned resources. Shared
 CA purge remains separate
 and only follows an empty instance repository.
 

@@ -52,10 +52,11 @@ already closes the allow/deny decision; JSON review plus `policy allow --id`
 remains the redirected or machine path. No observed journey justifies deleting
 or merging a public command. The valid recovery path after an allowed
 permission is `tobari` re-entry; there is no `tobari retry` command. Runtime
-builds apply to new Workspaces, while existing Workspaces keep their selected
-image. Future UX work may simplify bootstrap or polish terminal redraws, but
-those observations do not change the current contract or authorize a second
-command surface. Context selection has one explicit outcome: an already
+builds apply through the active Context, and existing Workspaces pick up the
+promoted image on the next root entry while preserving their home. Future UX
+work may simplify bootstrap or polish terminal redraws, but those observations
+do not change the current contract or authorize a second command surface.
+Context selection has one explicit outcome: an already
 running cluster is reconciled synchronously, while a stopped or unconfigured
 cluster reports that `cluster up` is still required.
 
@@ -95,6 +96,7 @@ go run ./cmd/tobari context use --name default --format json # switches back thr
 go run ./cmd/tobari runtime init
 # edit the active Context's runtime/Dockerfile
 go run ./cmd/tobari runtime build --format json
+(cd /absolute/test/root && /tmp/tobari) # reconciles an existing Workspace to the new runtime image
 go run ./cmd/tobari policy review --tail 100
 go run ./cmd/tobari policy candidates --tail 100 --format json
 go run ./cmd/tobari policy allow --id PCY_ID
@@ -135,8 +137,12 @@ rules exist. The transcript must prove:
   and promotes it into the Context without a second image-selection command.
   A build or validation failure leaves the previous selected image unchanged.
   The exact official `runtime:latest` base is refreshed on this explicit build;
-  explicit local or custom bases do not request a registry pull.
-- Project metadata does not override the active Context image.
+  explicit local or custom bases do not request a registry pull. An existing
+  Workspace validates the promoted active Context image on the next root entry,
+  recreates only the work container when the runtime spec changed, preserves
+  its home, and updates the stored project image only after success.
+- Project metadata does not override the active Context image for Workspace
+  creation or existing runtime reconciliation.
 - `list` retains an explicitly exhaustive local collection, including empty,
   while preserving diagnostic IDs without making them action inputs.
 - `status` and `delete` resolve the same nearest canonical ancestor; `tobari`

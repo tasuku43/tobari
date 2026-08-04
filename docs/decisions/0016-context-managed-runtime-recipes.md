@@ -70,6 +70,10 @@ The selected image remains unchanged while a recipe is being edited or a build
 is failing. Existing Context manifests continue to use their selected `image`
 field; the recipe and build record are additive metadata during this pre-v1
 schema evolution.
+Existing Workspaces observe a successfully promoted image on the next
+`tobari` root entry. Runtime reconciliation validates that active Context
+image, recreates only the work container when the spec changed, preserves the
+Workspace home, and updates the stored project image only after success.
 
 ## Consequences
 
@@ -81,6 +85,8 @@ schema evolution.
 - Policy and credentials remain outside the Docker build context.
 - The ordinary recipe workflow gives the moving official base an explicit
   refresh point without making local bases depend on a registry.
+- Existing Workspaces can adopt a custom runtime without deleting tool-owned
+  authentication state in the Workspace home.
 - A future Dev Container or other recipe importer can target the same Context
   runtime boundary instead of becoming a second source of truth.
 
@@ -106,7 +112,8 @@ No secrets are accepted in arguments or written to the manifest.
 - Domain tests validate recipe kinds, fixed relative recipe paths, digests, and
   runtime report states.
 - Infrastructure tests validate owner-only recipe files, build-context argv,
-  image inspection, atomic promotion, and unchanged selection on failure.
+  image inspection, atomic promotion, unchanged selection on failure, and
+  existing-Workspace image reconciliation after promotion.
 - Catalog tests validate fixed targets, complete output, stable faults, and
   scoped help for both commands.
 - The capability ledger, product contract, architecture, security model, and

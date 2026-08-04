@@ -224,8 +224,9 @@ directory.
   canonical-root record or creates one at the current directory, reconciles
   only the project runtime, and enters the work container on a terminal.
 - The logical record owns a generated stable internal ID, canonical root,
-  selected compatible runtime image, profile, XDG home, and diagnostic runtime
-  identifiers. Container or network loss never changes logical existence.
+  last reconciled compatible runtime image, profile, XDG home, and diagnostic
+  runtime identifiers. Container or network loss never changes logical
+  existence.
 - The selected project root remains the only writable project mount. For a root
   below the host home, its relative path is preserved below the container's
   `/var/lib/tobari` home; home-external roots retain the `/workspace` mirror.
@@ -245,8 +246,10 @@ directory.
 - A canonical root is a unique Workspace key. Repeated or concurrent explicit
   creation at the same canonical root must yield one logical record and a
   typed already-exists outcome for losing callers.
-- The active Context is the only runtime-image authority for new Workspaces;
-  project metadata does not silently override the execution boundary.
+- The active Context is the only runtime-image authority for Workspace
+  creation and runtime-container reconciliation; project metadata records the
+  last successful image for diagnostics but does not silently override the
+  execution boundary.
 - The selected image is an environment and tool source, not the Workspace
   lifetime owner. Tobari starts the work container with its own fixed lifetime
   command; an image `CMD` such as `claude` cannot make a child-agent exit stop
@@ -282,7 +285,8 @@ directory.
   session exit, and delete only the selected instance without growing owned
   resources.
 - Context-only image selection tests prove project metadata cannot silently
-  override the execution boundary before Docker mutation.
+  override the execution boundary for new or existing Workspaces before Docker
+  mutation.
 
 ## Thesis 5: Lifecycle changes are bounded and ownership-labeled
 
@@ -473,7 +477,8 @@ profile name an authority.
 - `runtime init` and `runtime build` are the host-facing runtime customization
   surface. The active Context owns one fixed `runtime/Dockerfile`; build
   validates the resulting image and promotes it into that Context without
-  requiring a second image-selection command.
+  requiring a second image-selection command. Existing Workspaces observe that
+  promoted image on the next `tobari` entry while preserving their home.
 - Context creation initializes separate owner-only policy and credential
   stores, references a read-only agent profile, and records the compatible
   Tobari runtime image. It never accepts a secret value in an argument,
@@ -499,7 +504,9 @@ profile name an authority.
   digests.
 - Runtime tests prove the recipe build context excludes policy and credential
   stores, the generated image is checked against the runtime contract, and a
-  failed build leaves the previously selected image unchanged.
+  failed build leaves the previously selected image unchanged. Project runtime
+  tests prove existing Workspaces reconcile to the active Context image only
+  after validation and preserve their home.
 - Runtime tests prove Context secrets are never mounted into a Workspace,
   running-cluster Context switches reconcile the selected paths, and failed or
   interrupted switches block access until explicit reconciliation.

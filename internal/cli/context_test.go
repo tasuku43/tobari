@@ -170,7 +170,7 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 		t.Fatalf("runtime build code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "Runtime") ||
-		!strings.Contains(stdout.String(), "existing Workspaces keep their stored image") ||
+		!strings.Contains(stdout.String(), "existing Workspaces keep their home") ||
 		!strings.Contains(stdout.String(), "Next: run `tobari` from a project directory.") {
 		t.Fatalf("runtime build output = %q", stdout.String())
 	}

@@ -351,8 +351,12 @@ func TestEnsureProjectAgentStateMergesSharedAndLocalSettings(t *testing.T) {
 type projectReconcileRunner struct {
 	failOn          func([]string) bool
 	imageData       []byte
+	imageID         string
 	networkExists   bool
 	containerExists bool
+	containerSpec   string
+	instanceID      string
+	gatewayNetworks map[string]string
 	calls           [][]string
 }
 
@@ -446,14 +450,32 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 	}
 	switch args[0] {
 	case "image":
+		if len(args) > 3 && strings.Contains(args[3], ".Id") {
+			if r.imageID != "" {
+				return []byte(r.imageID + "\n"), nil
+			}
+			return []byte("sha256:compatible-image\n"), nil
+		}
 		if r.imageData != nil {
 			return append([]byte{}, r.imageData...), nil
 		}
-		return []byte(`{"api":"1","lifetime":"sleep infinity","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint"]}`), nil
+		return compatibleImageInspection(), nil
 	case "network":
 		if len(args) > 1 && args[1] == "inspect" {
 			if !r.networkExists {
 				return nil, errors.New("No such network")
+			}
+			format := ""
+			if len(args) > 3 {
+				format = args[3]
+			}
+			switch {
+			case strings.Contains(format, ownerLabel):
+				return []byte(ownerValue + "\n"), nil
+			case strings.Contains(format, projectIDLabel):
+				return []byte(r.instanceID + "\n"), nil
+			case strings.Contains(format, projectRoleLabel):
+				return []byte(projectNetRole + "\n"), nil
 			}
 			return []byte("network-id\n"), nil
 		}
@@ -461,18 +483,57 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 			r.networkExists = true
 			return []byte("network-id\n"), nil
 		}
+		if len(args) > 1 && args[1] == "connect" {
+			if r.gatewayNetworks == nil {
+				r.gatewayNetworks = make(map[string]string)
+			}
+			if len(args) > 5 && args[2] == "--alias" && args[3] == "gateway" && args[5] == gatewayContainer {
+				r.gatewayNetworks[args[4]] = "172.20.0.2"
+			}
+			return nil, nil
+		}
 		return nil, nil
 	case "inspect":
+		name := ""
+		if len(args) > 0 {
+			name = args[len(args)-1]
+		}
 		if len(args) > 2 && strings.Contains(args[2], ".State.Health") {
 			return []byte(`{"state":"running","health":"healthy"}`), nil
 		}
 		if len(args) > 2 && strings.Contains(args[2], ".NetworkSettings.Networks") {
+			if name == gatewayContainer {
+				entries := make([]string, 0, len(r.gatewayNetworks))
+				for network, ip := range r.gatewayNetworks {
+					entries = append(entries, fmt.Sprintf("%q:{\"IPAddress\":%q}", network, ip))
+				}
+				return []byte("{" + strings.Join(entries, ",") + "}"), nil
+			}
 			return []byte(`{}`), nil
+		}
+		if len(args) > 2 && strings.Contains(args[2], projectSpecLabel) {
+			if r.containerSpec != "" {
+				return []byte(r.containerSpec + "\n"), nil
+			}
+			return []byte("sha256:current\n"), nil
+		}
+		if len(args) > 2 && strings.Contains(args[2], ownerLabel) {
+			return []byte(ownerValue + "\n"), nil
+		}
+		if len(args) > 2 && strings.Contains(args[2], projectIDLabel) {
+			return []byte(r.instanceID + "\n"), nil
+		}
+		if len(args) > 2 && strings.Contains(args[2], projectRoleLabel) {
+			return []byte(projectWorkRole + "\n"), nil
 		}
 		if r.containerExists {
 			return []byte("container-id\n"), nil
 		}
 		return nil, errors.New("No such object")
+	case "rm":
+		r.containerExists = false
+		r.containerSpec = ""
+		return nil, nil
 	case "create":
 		r.containerExists = true
 		return []byte("container-id\n"), nil
@@ -480,6 +541,128 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 		return nil, nil
 	default:
 		return nil, nil
+	}
+}
+
+func setActiveContextImage(t *testing.T, runtime *Runtime, image string) {
+	t.Helper()
+	manifest, _, err := runtime.activeContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Image = image
+	if err := manifest.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomicJSON(runtime.contextManifestPath(manifest.Name), manifest); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEnsureProjectRuntimeReconcilesActiveContextImageForExistingWorkspace(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &projectReconcileRunner{
+		imageID:         "sha256:new-runtime",
+		networkExists:   true,
+		containerExists: true,
+		containerSpec:   "sha256:old-spec",
+	}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.images = testImageResolver{runtimeImage: "runtime-old:latest"}
+	projectRoot := filepath.Join(root, "project")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance.Image != "runtime-old:latest" {
+		t.Fatalf("created image = %q, want runtime-old:latest", instance.Image)
+	}
+	runner.instanceID = instance.ID
+	marker := filepath.Join(runtime.projectHomePath(instance.ID), "marker")
+	if err := os.WriteFile(marker, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setActiveContextImage(t, runtime, "runtime-new:latest")
+
+	updated, err := runtime.EnsureProjectRuntime(context.Background(), runtimeState(root), instance)
+	if err != nil {
+		t.Fatalf("EnsureProjectRuntime() error = %v", err)
+	}
+	if updated.Image != "runtime-new:latest" {
+		t.Fatalf("updated image = %q, want runtime-new:latest", updated.Image)
+	}
+	stored, found, err := runtime.ResolveProject(context.Background(), projectRoot)
+	if err != nil || !found || stored.Image != "runtime-new:latest" {
+		t.Fatalf("stored image after reconcile = (%+v, %t, %v)", stored, found, err)
+	}
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "preserve" {
+		t.Fatalf("home marker after reconcile = %q, err=%v", data, err)
+	}
+	var removed, created bool
+	for _, call := range runner.calls {
+		if len(call) == 0 {
+			continue
+		}
+		if call[0] == "rm" {
+			removed = true
+		}
+		if call[0] == "create" {
+			created = true
+			if !containsArgs(call, "runtime-new:latest") {
+				t.Fatalf("recreated container did not use active Context image: %v", call)
+			}
+			if containsArgs(call, "runtime-old:latest") {
+				t.Fatalf("recreated container used old stored image: %v", call)
+			}
+		}
+	}
+	if !removed || !created {
+		t.Fatalf("reconcile calls = %v, want drift removal and container creation", runner.calls)
+	}
+}
+
+func TestEnsureProjectRuntimeImageDriftFailurePreservesStoredImage(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &projectReconcileRunner{
+		failOn: func(args []string) bool {
+			return len(args) > 0 && args[0] == "create"
+		},
+		imageID: "sha256:new-runtime",
+	}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.images = testImageResolver{runtimeImage: "runtime-old:latest"}
+	projectRoot := filepath.Join(root, "project")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.instanceID = instance.ID
+	setActiveContextImage(t, runtime, "runtime-new:latest")
+
+	if _, err := runtime.EnsureProjectRuntime(context.Background(), runtimeState(root), instance); err == nil {
+		t.Fatal("EnsureProjectRuntime() unexpectedly succeeded")
+	}
+	stored, found, err := runtime.ResolveProject(context.Background(), projectRoot)
+	if err != nil || !found || stored.Image != instance.Image || stored.Runtime != (tobari.ProjectRuntime{}) {
+		t.Fatalf("logical state after failed image reconcile = (%+v, %t, %v), want old image %q", stored, found, err, instance.Image)
 	}
 }
 

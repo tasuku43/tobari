@@ -101,13 +101,16 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
-		if stored.ID != instance.ID || stored.Root != instance.Root || stored.Profile != instance.Profile || stored.Image != instance.Image {
+		if stored.ID != instance.ID || stored.Root != instance.Root || stored.Profile != instance.Profile {
 			return fmt.Errorf("project logical state changed before runtime reconciliation")
 		}
 		if resolved, resolveErr := r.ResolveProjectRoot(ctx, stored.Root); resolveErr != nil || resolved != stored.Root {
 			return fmt.Errorf("project root is no longer accessible at its canonical path")
 		}
-		image := stored.Image
+		image, err := r.resolveContextImage(ctx)
+		if err != nil {
+			return err
+		}
 		image = r.resolveBuiltinImageSelector(image)
 		if err := r.validateCompatibleImage(ctx, image); err != nil {
 			return err
@@ -134,7 +137,9 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
-		specHash, err := r.projectSpecHash(state, stored, profile, network, image, imageID)
+		desired := stored
+		desired.Image = image
+		specHash, err := r.projectSpecHash(state, desired, profile, network, image, imageID)
 		if err != nil {
 			return err
 		}
@@ -144,7 +149,7 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err := r.ensureGatewayProjectNetwork(ctx, network, stored.ID); err != nil {
 			return err
 		}
-		if err := r.ensureProjectContainer(ctx, state, stored, profile, container, network, image, specHash); err != nil {
+		if err := r.ensureProjectContainer(ctx, state, desired, profile, container, network, image, specHash); err != nil {
 			return err
 		}
 		containerID, err := r.projectResourceID(ctx, "container", container)
@@ -155,11 +160,11 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
-		stored.Runtime = tobari.ProjectRuntime{ContainerID: containerID, NetworkID: networkID}
-		if err := r.writeProjectInstance(stored); err != nil {
+		desired.Runtime = tobari.ProjectRuntime{ContainerID: containerID, NetworkID: networkID}
+		if err := r.writeProjectInstance(desired); err != nil {
 			return err
 		}
-		updated = stored
+		updated = desired
 		return nil
 	})
 	if err != nil {

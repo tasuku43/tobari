@@ -154,7 +154,8 @@ host handoff; it is never an automatic approval or retry.
 Host-owned actions in this walkthrough are `tobari cluster up`,
 `tobari policy review`, `tobari policy rules`, `tobari policy reset --id ID`,
 `tobari policy deny --id ID`, `tobari context show`, `tobari runtime init`,
-`tobari runtime build`, `tobari delete`, and `tobari cluster down`.
+`tobari runtime build`, `tobari list`, `tobari delete`, and
+`tobari cluster down`.
 Workspace-owned actions are the agent's commands and file changes below the
 selected project root. Leave the Workspace before running a host-owned
 recovery command; the Workspace does not contain a second Tobari control path.
@@ -262,22 +263,39 @@ The response is now an upstream response rather than Tobari's
 Tobari contract is that the exact learned request is allowed, while a child
 path, another project, or another method is not silently broadened.
 
-### 5. Customize the active Context runtime
+### 5. Inspect the Workspace lifecycle
+
+Back on the host, list the local Workspaces:
+
+```sh
+tobari list
+```
+
+`list` reports roots, runtime diagnostics, and stable IDs for diagnosis only;
+lifecycle commands still resolve the target from the current directory.
+`tobari delete` is the command that ends the nearest detached Workspace:
+
+```sh
+# Stop after Stage 1:
+tobari delete
+```
+
+Use that delete when you are stopping after the policy loop. The runtime
+customization stage below is more useful if you keep the policy-demo Workspace
+so the next `tobari` entry can show container-only image reconciliation. If
+you did delete it, the next `tobari` after the build simply creates a fresh
+Workspace with the same active Context image.
+
+### 6. Customize the active Context runtime
 
 Runtime customization is host-owned and explicit. Initialize the active
 Context recipe, inspect the reported Dockerfile path, and edit that file:
 
-The active Context image is checked before a new Workspace is registered. A
-missing or incompatible image returns `image_not_found`, points to
-`tobari runtime build`, and leaves no broken Workspace, project network, or
-work container behind. `runtime build` is new-Workspace-only: an existing
-Workspace keeps its stored image and is not silently refreshed. In this
-synthetic walkthrough, remove the detached policy-demo Workspace before
-building the new image:
-
-```sh
-tobari delete
-```
+The active Context image is checked before a new Workspace is registered and
+before an existing Workspace runtime is reconciled. A missing or incompatible
+image returns `image_not_found`, points to `tobari runtime build`, and leaves
+the previous Workspace state, home, project network, and work container
+unchanged.
 
 ```sh
 tobari runtime init --format json
@@ -305,6 +323,11 @@ tobari runtime build --format json
 tobari
 ```
 
+If the policy-demo Workspace still exists, this entry validates the new image,
+recreates only the work container when the runtime spec changed, and preserves
+the Workspace home. If you deleted the Workspace in the lifecycle step, this
+entry creates it again with the newly selected active Context image.
+
 Inside the new session, verify the added tool and then leave the reusable
 Workspace:
 
@@ -320,7 +343,8 @@ one deliberate host Docker build boundary: with the template's official
 the base; an explicit local or custom base does not request a registry pull.
 The build context is only the active Context runtime directory. A successful
 compatible image is promoted into the Context, and a failed build leaves the
-previously selected image active.
+previously selected image active. Existing Workspaces observe the promoted
+image on the next `tobari` entry without losing their home.
 
 ### Failure and recovery
 
@@ -354,6 +378,7 @@ When finished with this synthetic Workspace, clean up from the host. Delete the
 project Workspace first; only then remove the shared cluster:
 
 ```sh
+tobari list
 tobari delete
 tobari cluster down --purge
 ```
@@ -566,10 +591,12 @@ Then ordinary root invocations stay short:
 tobari
 ```
 
-New Workspaces use the active Context's runtime image. Before the default
+Workspaces use the active Context's runtime image when they are created and
+again when their runtime container is reconciled on entry. Before the default
 Context is initialized, `config.json.default_image` seeds it; otherwise
 `builtin` resolves to the published official runtime base in normal builds.
-Project metadata does not override the Context image.
+Project metadata does not override the Context image, and the per-Workspace
+home is preserved when only the runtime image changes.
 
 Tobari never pulls a configured image implicitly. The image must be available
 locally and preserve runtime API `1`, the `tobari` image user, the inherited
@@ -579,8 +606,8 @@ Prefer a digest selector when reproducibility matters. The compatibility check
 is not a signature or trust decision: image contents remain untrusted and run
 under the same fixed non-root user, read-only root filesystem, dropped
 capabilities, mounts, proxy, and internal network as the built-in image. If the
-image is missing or incompatible, `tobari` refuses to bring up the Workspace
-before creating its project network or work container.
+image is missing or incompatible, `tobari` refuses to bring up a new Workspace
+or replace an existing work container.
 
 The selected image's `CMD` does not own Workspace lifetime. Tobari starts the
 work container with its own long-lived `sleep infinity` command, then runs an
@@ -945,7 +972,8 @@ Common failures:
   press `n` to create explicitly at the current directory, or run `q` to leave.
 - `already_inside`: exit the current Tobari before entering another session.
 - `image_not_found`: run `tobari runtime build` on the host; a new Workspace
-  is not registered until its selected compatible image is available locally.
+  is not registered, and an existing Workspace runtime is not replaced, until
+  its selected compatible image is available locally.
 - `incompatible_image`: extend the official Tobari runtime base, or another
   compatible image, without replacing its user, lifetime-command capability, or
   entrypoint.
