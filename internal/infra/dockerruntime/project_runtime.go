@@ -31,6 +31,8 @@ const (
 	projectLogDriver         = "json-file"
 	projectLogMaxSize        = "10m"
 	projectLogMaxFiles       = "3"
+	projectInteractivePrompt = "\\h:\\w\\$ "
+	projectPromptCommand     = "PS1='" + projectInteractivePrompt + "'"
 )
 
 func projectLifetimeCommand() []string {
@@ -273,6 +275,8 @@ func (r *Runtime) EnterProjectRuntime(
 		// Docker's attached exec path owns the PTY resize and terminal signal
 		// forwarding; inherit the caller's streams without a shell wrapper.
 		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
+		"--env", "PS1=" + projectInteractivePrompt,
+		"--env", "PROMPT_COMMAND=" + projectPromptCommand,
 		"--workdir", workdir, container, "/bin/bash",
 	}
 	if err := r.runner.Run(ctx, args, os.Environ(), in, out, errOut); err == nil {

@@ -149,6 +149,8 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 	uid, gid := currentIDs()
 	wantArgs := []string{
 		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
+		"--env", "PS1=" + projectInteractivePrompt,
+		"--env", "PROMPT_COMMAND=" + projectPromptCommand,
 		"--workdir", want, container, "/bin/bash",
 	}
 	if got := strings.Join(runner.runs[0].args, " "); got != strings.Join(wantArgs, " ") {
@@ -163,6 +165,34 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		}
 	}
 	t.Fatalf("EnterProjectRuntime() args = %v, missing --workdir", runner.runs[0].args)
+}
+
+func TestEnterProjectRuntimeSetsPromptWithoutUserName(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, instance.Root, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.runs) != 1 {
+		t.Fatalf("EnterProjectRuntime() run count = %d, want 1", len(runner.runs))
+	}
+	args := strings.Join(runner.runs[0].args, "\n")
+	for _, want := range []string{
+		"PS1=" + projectInteractivePrompt,
+		"PROMPT_COMMAND=" + projectPromptCommand,
+	} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("EnterProjectRuntime() args missing %q in %v", want, runner.runs[0].args)
+		}
+	}
+	if strings.Contains(projectInteractivePrompt, "\\u") {
+		t.Fatalf("projectInteractivePrompt includes username escape: %q", projectInteractivePrompt)
+	}
 }
 
 func TestProjectContainerRootPreservesHostHomeRelativePath(t *testing.T) {
