@@ -1,7 +1,7 @@
 # ADR 0006: Send generic HTTP input to OPA
 
 - Status: Accepted
-- Date: 2026-07-29
+- Date: 2026-08-04
 - Deciders: Tobari maintainers
 - Scope: Product and architecture
 - Supersedes: None
@@ -26,10 +26,13 @@ would require incomplete and continuously changing semantic reconstruction.
 
 ## Decision
 
-Gateway sends OPA schema `v1` containing principal, scheme, normalized host and
-port, method, path and segments, multi-valued query, redacted headers, bounded
-body metadata, and the requested credential profile. OPA returns a small
-allow/deny document.
+Gateway sends OPA schema `2` containing a host-issued principal, a structured
+request authority, method, path, query, redacted headers, bounded body
+metadata, and an authorization object containing the requested credential
+profile. OPA returns a small allow/deny document with required `allow`,
+`reason`, `credential_profile`, `status_code`, and `learnable` fields. Gateway
+owns normalization, body/authentication safety, transport checks, and audit;
+OPA owns policy matching and the final authorization decision.
 
 ## Consequences
 
@@ -45,6 +48,7 @@ closed.
 
 ## Compatibility, security, and validation
 
-OPA input `v1` is a compatibility boundary. Secret headers and raw bodies are
-excluded. Reconsider only when repeated supported outcomes cannot be expressed
-or safely interpreted from generic HTTP evidence.
+OPA input schema `2` is a compatibility boundary. Secret headers and raw bodies
+are excluded, and the old flat input shape is not accepted. Reconsider only
+when repeated supported outcomes cannot be expressed or safely interpreted from
+generic HTTP evidence.

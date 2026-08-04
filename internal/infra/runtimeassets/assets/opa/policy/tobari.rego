@@ -8,16 +8,14 @@ default decision := {
 	"credential_profile": null,
 	"status_code": 403,
 	"learnable": false,
-	"audit": {"level": "metadata"},
 }
 
 decision := {
 	"allow": false,
 	"reason": "request did not match an allow rule",
-	"credential_profile": input.credential.requested_profile,
+	"credential_profile": requested_profile,
 	"status_code": 403,
 	"learnable": true,
-	"audit": {"level": "metadata"},
 } if {
 	candidate_eligible
 	not request_allowed
@@ -26,98 +24,112 @@ decision := {
 decision := {
 	"allow": true,
 	"reason": "allowed by policy",
-	"credential_profile": input.credential.requested_profile,
+	"credential_profile": requested_profile,
 	"status_code": 403,
 	"learnable": false,
-	"audit": {"level": "metadata"},
 } if {
 	candidate_eligible
 	request_allowed
 }
 
+requested_profile := input.authorization.requested_profile
+
 candidate_eligible if {
-	input.version == "v1"
+	input.schema_version == 2
+	data.tobari.schema_version == 2
 	input.principal.cluster == "default"
 	project_principal_valid
-	allowed_scheme
-	allowed_port
+	transport_port_allowed
+	candidate_scheme_allowed
 	body_is_empty
+	authorization_shape_valid
 	credential_binding_valid
 	not explicitly_denied
 }
 
 request_allowed if {
-	allowed_host
-	allowed_port
-	body_is_empty
-	allowed_method
-	not explicitly_denied
+	authority_allowed
+	method_allowed
 }
 
 request_allowed if {
-	not explicitly_denied
-	allowed_scheme
-	allowed_port
-	body_is_empty
 	learned_rule_allowed
 }
 
-allowed_host if {
-	input.request.host in data.tobari.allowed_hosts
+transport_port_allowed if {
+	ports := data.tobari.boundary.ports[input.request.authority.scheme]
+	input.request.authority.port in ports
 }
 
-allowed_scheme if {
-	input.request.scheme == "https"
+candidate_scheme_allowed if {
+	input.request.authority.scheme == "https"
 }
 
-allowed_scheme if {
-	input.request.scheme == "http"
-	input.request.host in data.tobari.allowed_http_hosts
+candidate_scheme_allowed if {
+	input.request.authority.scheme == "http"
+	authority_allowed
 }
 
-allowed_port if {
-	ports := data.tobari.allowed_ports[input.request.scheme]
-	input.request.port in ports
+authority_allowed if {
+	some authority in data.tobari.boundary.authorities
+	authority.scheme == input.request.authority.scheme
+	authority.host == input.request.authority.host
+	input.request.authority.port in authority.ports
 }
 
 body_is_empty if {
-	input.request.body.kind == "metadata"
+	input.request.body.state == "empty"
 	input.request.body.size == 0
 	input.request.body.truncated == false
 }
 
-allowed_method if {
-	input.request.method in data.tobari.read_methods
+authorization_shape_valid if {
+	requested_profile == null
 }
 
-allowed_method if {
-	input.request.method == "POST"
-	not startswith(input.request.path, "/repos/")
+authorization_shape_valid if {
+	is_string(requested_profile)
+	requested_profile != ""
+}
+
+method_allowed if {
+	input.request.method in data.tobari.boundary.methods.read
+}
+
+method_allowed if {
+	some rule in data.tobari.boundary.methods.write
+	rule.method == input.request.method
+	not write_path_excluded(rule)
+}
+
+write_path_excluded(rule) if {
+	some prefix in rule.exclude_path_prefixes
+	startswith(input.request.path.raw, prefix)
 }
 
 explicitly_denied if {
-	some rule in data.tobari.deny_rules
-	rule.host == input.request.host
+	some rule in data.tobari.rules.baseline_denies
+	rule.host == input.request.authority.host
 	rule.method == input.request.method
-	startswith(input.request.path, rule.path_prefix)
+	startswith(input.request.path.raw, rule.path_prefix)
 }
 
 explicitly_denied if {
 	some rule in learned_deny_rules
 	rule.project_id == input.principal.project_id
-	rule.host == input.request.host
-	rule.port == input.request.port
+	rule.host == input.request.authority.host
+	rule.port == input.request.authority.port
 	rule.method == input.request.method
-	rule.path == input.request.path
+	rule.path == input.request.path.raw
 }
 
 default learned_rules := []
 
-learned_rules := data.tobari.learned_allow_rules
+learned_rules := data.tobari.rules.learned_allows
 
 default learned_deny_rules := []
 
-learned_deny_rules := data.tobari.learned_deny_rules
+learned_deny_rules := data.tobari.rules.learned_denies
 
 learned_rule_allowed if {
 	some rule in learned_rules
@@ -128,20 +140,20 @@ learned_rule_allowed if {
 learned_rule_matches_request(rule, project_id, request) if {
 	rule.match == "exact"
 	rule.project_id == project_id
-	rule.host == request.host
-	rule.port == request.port
+	rule.host == request.authority.host
+	rule.port == request.authority.port
 	rule.method == request.method
-	rule.path == request.path
+	rule.path == request.path.raw
 }
 
 learned_rule_matches_request(rule, project_id, request) if {
 	rule.match == "prefix"
 	rule.project_id == project_id
-	rule.host == request.host
-	rule.port == request.port
+	rule.host == request.authority.host
+	rule.port == request.authority.port
 	rule.method == request.method
-	prefix_request_path_safe(request.path)
-	startswith(request.path, rule.path)
+	prefix_request_path_safe(request.path.raw)
+	startswith(request.path.raw, rule.path)
 }
 
 prefix_request_path_safe(path) if {
@@ -208,11 +220,11 @@ learned_rule_scope_valid(rule) if {
 }
 
 credential_binding_valid if {
-	input.credential.requested_profile == null
+	requested_profile == null
 }
 
 credential_binding_valid if {
-	profile := input.credential.requested_profile
+	profile := requested_profile
 	profile != null
-	input.request.host in data.tobari.credentials[profile].hosts
+	input.request.authority.host in data.tobari.credentials[profile].hosts
 }

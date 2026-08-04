@@ -1,21 +1,48 @@
 {
   "tobari": {
-    "allowed_hosts": [
-      "api.github.com",
-      "example.com",
-      "mock-upstream"
-    ],
-    "allowed_http_hosts": [
-      "mock-upstream"
-    ],
-    "allowed_ports": {
-      "https": [443],
-      "http": [8080]
+    "schema_version": 2,
+    "boundary": {
+      "ports": {
+        "https": [443],
+        "http": [8080]
+      },
+      "authorities": [
+        {
+          "scheme": "https",
+          "host": "api.github.com",
+          "ports": [443]
+        },
+        {
+          "scheme": "https",
+          "host": "example.com",
+          "ports": [443]
+        },
+        {
+          "scheme": "https",
+          "host": "mock-upstream",
+          "ports": [443]
+        },
+        {
+          "scheme": "http",
+          "host": "mock-upstream",
+          "ports": [8080]
+        }
+      ],
+      "methods": {
+        "read": [
+          "GET",
+          "HEAD"
+        ],
+        "write": [
+          {
+            "method": "POST",
+            "exclude_path_prefixes": [
+              "/repos/"
+            ]
+          }
+        ]
+      }
     },
-    "read_methods": [
-      "GET",
-      "HEAD"
-    ],
     "credentials": {
       "github-development": {
         "hosts": [
@@ -28,24 +55,26 @@
         ]
       }
     },
-    "deny_rules": [
-      {
-        "host": "api.github.com",
-        "method": "POST",
-        "path_prefix": "/repos/"
-      },
-      {
-        "host": "mock-upstream",
-        "method": "POST",
-        "path_prefix": "/denied"
-      },
-      {
-        "host": "mock-upstream",
-        "method": "POST",
-        "path_prefix": "/api/v1/"
-      }
-    ],
-    "learned_allow_rules": [],
-    "learned_deny_rules": []
+    "rules": {
+      "baseline_denies": [
+        {
+          "host": "api.github.com",
+          "method": "POST",
+          "path_prefix": "/repos/"
+        },
+        {
+          "host": "mock-upstream",
+          "method": "POST",
+          "path_prefix": "/denied"
+        },
+        {
+          "host": "mock-upstream",
+          "method": "POST",
+          "path_prefix": "/api/v1/"
+        }
+      ],
+      "learned_allows": [],
+      "learned_denies": []
+    }
   }
 }

@@ -222,14 +222,22 @@ def _body_metadata(
 ) -> dict[str, Any]:
     if raw is None:
         return {
-            "kind": "unavailable",
+            "state": "unavailable",
             "size": None,
             "truncated": None,
             "sha256": None,
             "content_type": content_type,
         }
+    if len(raw) == 0:
+        return {
+            "state": "empty",
+            "size": 0,
+            "truncated": False,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "content_type": content_type,
+        }
     metadata: dict[str, Any] = {
-        "kind": "metadata",
+        "state": "metadata",
         "size": len(raw),
         "truncated": len(raw) > inspection_bytes,
         "sha256": hashlib.sha256(raw).hexdigest(),
@@ -239,16 +247,15 @@ def _body_metadata(
     if media_type == "application/json" and len(raw) <= inspection_bytes:
         try:
             metadata["value"] = json.loads(raw.decode("utf-8"))
-            metadata["kind"] = "json"
+            metadata["state"] = "json"
         except (UnicodeDecodeError, json.JSONDecodeError):
-            metadata["kind"] = "invalid_json"
+            metadata["state"] = "invalid_json"
     return metadata
 
 
 def build_policy_input(
     flow: http.HTTPFlow,
     cluster: str,
-    session: str | None,
     project_id: str,
     inspection_bytes: int,
     extra_secret_names: set[str],
@@ -263,15 +270,19 @@ def build_policy_input(
     secret_names = set(DEFAULT_SECRET_HEADERS) | extra_secret_names
     raw = request.raw_content
     return {
-        "version": "v1",
-        "principal": {"cluster": cluster, "project_id": project_id, "session": session},
+        "schema_version": 2,
+        "principal": {"cluster": cluster, "project_id": project_id},
         "request": {
-            "scheme": request.scheme.lower(),
-            "host": host,
-            "port": request.port,
+            "authority": {
+                "scheme": request.scheme.lower(),
+                "host": host,
+                "port": request.port,
+            },
             "method": request.method.upper(),
-            "path": path,
-            "path_segments": [unquote(segment) for segment in path.split("/") if segment],
+            "path": {
+                "raw": path,
+                "segments": [unquote(segment) for segment in path.split("/") if segment],
+            },
             "query": parse_qs(split.query, keep_blank_values=True),
             "headers": _headers_for_policy(request.headers, secret_names),
             "body": _body_metadata(
@@ -280,7 +291,7 @@ def build_policy_input(
                 inspection_bytes,
             ),
         },
-        "credential": {"requested_profile": requested_profile},
+        "authorization": {"requested_profile": requested_profile},
     }
 
 
@@ -295,10 +306,10 @@ def _parse_decision(document: Any) -> Decision:
         raise PolicyUnavailable("OPA result has invalid allow or reason")
     if profile is not None and (not isinstance(profile, str) or not profile):
         raise PolicyUnavailable("OPA result has invalid credential_profile")
-    status = result.get("status_code", 403)
+    status = result.get("status_code")
     if not isinstance(status, int) or status != 403:
         raise PolicyUnavailable("OPA result has invalid status_code")
-    learnable = result.get("learnable", False)
+    learnable = result.get("learnable")
     if not isinstance(learnable, bool):
         raise PolicyUnavailable("OPA result has invalid learnable")
     if allow and learnable:
@@ -555,13 +566,12 @@ class TobariGateway:
             policy_input = build_policy_input(
                 flow,
                 self.cluster,
-                flow.request.headers.get("x-tobari-session"),
                 project_id,
                 self.inspection_bytes,
                 credential_request.secret_headers,
                 profile_name,
             )
-            if policy_input["request"]["body"]["kind"] == "unavailable":
+            if policy_input["request"]["body"]["state"] == "unavailable":
                 reason = "request body is unavailable"
                 _deny(flow, 403, "request_body_unavailable")
                 upstream_status = 403

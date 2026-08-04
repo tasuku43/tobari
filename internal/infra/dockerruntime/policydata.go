@@ -20,13 +20,16 @@ const (
 	maxPolicyDataBytes    = 1024 * 1024
 	maxPolicyPreflight    = 4 * 1024 * 1024
 	maxPolicyFiles        = 128
-	learnedPolicyDataName = "learned_allow_rules"
-	learnedDenyDataName   = "learned_deny_rules"
+	policySchemaVersion   = 2
+	policyRulesDataName   = "rules"
+	learnedPolicyDataName = "learned_allows"
+	learnedDenyDataName   = "learned_denies"
 )
 
 type policyDataFile struct {
 	document          map[string]json.RawMessage
 	tobari            map[string]json.RawMessage
+	ruleData          map[string]json.RawMessage
 	rules             []tobari.LearnedPolicyRule
 	baselineDenyRules []tobari.PolicyBaselineDenyRule
 	denyRules         []tobari.PolicyDenyRule
@@ -96,6 +99,69 @@ func validateNoDuplicateJSONKeys(data []byte) error {
 	return nil
 }
 
+func decodePolicyObject(raw json.RawMessage, name string) (map[string]json.RawMessage, error) {
+	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, fmt.Errorf("%s must be an object", name)
+	}
+	value := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
+		return nil, fmt.Errorf("%s must be an object", name)
+	}
+	return value, nil
+}
+
+func decodePolicyArray(object map[string]json.RawMessage, name string) ([]json.RawMessage, error) {
+	raw, exists := object[name]
+	if !exists || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, fmt.Errorf("%s must be an array", name)
+	}
+	value := []json.RawMessage{}
+	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
+		return nil, fmt.Errorf("%s must be an array", name)
+	}
+	return value, nil
+}
+
+func validatePolicyDataShape(tobariData map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+	var schemaVersion int
+	if err := json.Unmarshal(tobariData["schema_version"], &schemaVersion); err != nil || schemaVersion != policySchemaVersion {
+		return nil, fmt.Errorf("data.json schema_version must be %d", policySchemaVersion)
+	}
+	boundary, err := decodePolicyObject(tobariData["boundary"], "data.json boundary")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := decodePolicyObject(boundary["ports"], "data.json boundary.ports"); err != nil {
+		return nil, err
+	}
+	if _, err := decodePolicyArray(boundary, "authorities"); err != nil {
+		return nil, fmt.Errorf("data.json boundary: %w", err)
+	}
+	methods, err := decodePolicyObject(boundary["methods"], "data.json boundary.methods")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := decodePolicyArray(methods, "read"); err != nil {
+		return nil, fmt.Errorf("data.json boundary.methods: %w", err)
+	}
+	if _, err := decodePolicyArray(methods, "write"); err != nil {
+		return nil, fmt.Errorf("data.json boundary.methods: %w", err)
+	}
+	if _, err := decodePolicyObject(tobariData["credentials"], "data.json credentials"); err != nil {
+		return nil, err
+	}
+	ruleData, err := decodePolicyObject(tobariData[policyRulesDataName], "data.json rules")
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range []string{"baseline_denies", learnedPolicyDataName, learnedDenyDataName} {
+		if _, err := decodePolicyArray(ruleData, name); err != nil {
+			return nil, fmt.Errorf("data.json rules: %w", err)
+		}
+	}
+	return ruleData, nil
+}
+
 func readOwnerPolicyFile(path string, maximum int) ([]byte, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -161,15 +227,16 @@ func readPolicyData(policyDirectory string) (policyDataFile, error) {
 	if !exists {
 		return policyDataFile{}, fmt.Errorf("data.json must contain a tobari object")
 	}
-	tobariData := map[string]json.RawMessage{}
-	if err := json.Unmarshal(rawTobari, &tobariData); err != nil || tobariData == nil {
-		return policyDataFile{}, fmt.Errorf("decode data.json tobari object")
+	tobariData, err := decodePolicyObject(rawTobari, "data.json tobari")
+	if err != nil {
+		return policyDataFile{}, fmt.Errorf("decode data.json tobari object: %w", err)
+	}
+	ruleData, err := validatePolicyDataShape(tobariData)
+	if err != nil {
+		return policyDataFile{}, err
 	}
 	rules := []tobari.LearnedPolicyRule{}
-	if rawRules, exists := tobariData[learnedPolicyDataName]; exists {
-		if bytes.Equal(bytes.TrimSpace(rawRules), []byte("null")) {
-			return policyDataFile{}, fmt.Errorf("%s must be an array", learnedPolicyDataName)
-		}
+	if rawRules := ruleData[learnedPolicyDataName]; rawRules != nil {
 		if err := json.Unmarshal(rawRules, &rules); err != nil {
 			return policyDataFile{}, fmt.Errorf("decode %s: %w", learnedPolicyDataName, err)
 		}
@@ -179,24 +246,18 @@ func readPolicyData(policyDirectory string) (policyDataFile, error) {
 	}
 	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
 	baselineDenyRules := []tobari.PolicyBaselineDenyRule{}
-	if rawDenyRules, exists := tobariData["deny_rules"]; exists {
-		if bytes.Equal(bytes.TrimSpace(rawDenyRules), []byte("null")) {
-			return policyDataFile{}, fmt.Errorf("deny_rules must be an array")
-		}
+	if rawDenyRules := ruleData["baseline_denies"]; rawDenyRules != nil {
 		if err := json.Unmarshal(rawDenyRules, &baselineDenyRules); err != nil {
-			return policyDataFile{}, fmt.Errorf("decode deny_rules: %w", err)
+			return policyDataFile{}, fmt.Errorf("decode baseline_denies: %w", err)
 		}
 	}
 	for _, rule := range baselineDenyRules {
 		if err := rule.Validate(); err != nil {
-			return policyDataFile{}, fmt.Errorf("validate deny_rules: %w", err)
+			return policyDataFile{}, fmt.Errorf("validate baseline_denies: %w", err)
 		}
 	}
 	denyRules := []tobari.PolicyDenyRule{}
-	if rawDenyRules, exists := tobariData[learnedDenyDataName]; exists {
-		if bytes.Equal(bytes.TrimSpace(rawDenyRules), []byte("null")) {
-			return policyDataFile{}, fmt.Errorf("%s must be an array", learnedDenyDataName)
-		}
+	if rawDenyRules := ruleData[learnedDenyDataName]; rawDenyRules != nil {
 		if err := json.Unmarshal(rawDenyRules, &denyRules); err != nil {
 			return policyDataFile{}, fmt.Errorf("decode %s: %w", learnedDenyDataName, err)
 		}
@@ -207,7 +268,7 @@ func readPolicyData(policyDirectory string) (policyDataFile, error) {
 	}
 	sort.Slice(denyRules, func(i, j int) bool { return denyRules[i].ID < denyRules[j].ID })
 	return policyDataFile{
-		document: document, tobari: tobariData, rules: rules,
+		document: document, tobari: tobariData, ruleData: ruleData, rules: rules,
 		baselineDenyRules: baselineDenyRules, denyRules: denyRules,
 		source: append([]byte{}, data...),
 	}, nil
@@ -231,16 +292,25 @@ func (f policyDataFile) withPolicyRules(
 	if err != nil {
 		return nil, err
 	}
-	tobariData := make(map[string]json.RawMessage, len(f.tobari)+1)
-	for key, value := range f.tobari {
-		tobariData[key] = append(json.RawMessage{}, value...)
+	ruleData := make(map[string]json.RawMessage, len(f.ruleData)+2)
+	for key, value := range f.ruleData {
+		ruleData[key] = append(json.RawMessage{}, value...)
 	}
-	tobariData[learnedPolicyDataName] = rawRules
+	ruleData[learnedPolicyDataName] = rawRules
 	rawDenyRules, err := json.Marshal(denyRules)
 	if err != nil {
 		return nil, err
 	}
-	tobariData[learnedDenyDataName] = rawDenyRules
+	ruleData[learnedDenyDataName] = rawDenyRules
+	rawRuleData, err := json.Marshal(ruleData)
+	if err != nil {
+		return nil, err
+	}
+	tobariData := make(map[string]json.RawMessage, len(f.tobari)+1)
+	for key, value := range f.tobari {
+		tobariData[key] = append(json.RawMessage{}, value...)
+	}
+	tobariData[policyRulesDataName] = rawRuleData
 	rawTobari, err := json.Marshal(tobariData)
 	if err != nil {
 		return nil, err

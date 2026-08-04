@@ -6,15 +6,40 @@ generic HTTP request crossing Gateway.
 ## OPA input
 
 Gateway posts one JSON document to
-`http://opa:8181/v1/data/tobari/http/decision` with schema version `v1`.
-The request carries normalized scheme, host, port, method, path, path segments,
-multi-valued query, redacted headers, bounded body metadata, the host-issued
-project principal, cluster, optional caller session metadata, and an
-adapter-dependent optional requested credential profile. In the default
-passthrough adapter it is always `null`; the managed adapter may use it.
+`http://opa:8181/v1/data/tobari/http/decision` with schema version `2`. The
+document groups each semantic responsibility instead of exposing parallel
+transport fields:
+
+```json
+{
+  "schema_version": 2,
+  "principal": {
+    "cluster": "default",
+    "project_id": "01912345-6789-7abc-8def-0123456789ab"
+  },
+  "request": {
+    "authority": {"scheme": "https", "host": "api.github.com", "port": 443},
+    "method": "GET",
+    "path": {"raw": "/user", "segments": ["user"]},
+    "query": {"key": ["value"]},
+    "headers": {"content-type": "application/json"},
+    "body": {
+      "state": "empty",
+      "size": 0,
+      "truncated": false,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "content_type": ""
+    }
+  },
+  "authorization": {"requested_profile": null}
+}
+```
+
 `principal.project_id` is required to be a
 canonical UUIDv7 established from the Gateway local interface and the
 host-owned principal registry; it is not copied from a caller header.
+The default passthrough adapter emits a null requested profile; the managed
+adapter may select one after its own host/project binding checks.
 
 Header names are lowercase. Host excludes a trailing dot and uses the
 normalized request authority. Query values retain occurrence order. The body
@@ -26,10 +51,13 @@ The default inspection maximum is 1 MiB and the supported configurable range is
 1 KiB through 8 MiB. Gateway's structured inspection is limited to the
 configured size. A body above the maximum is never decoded into a JSON value and
 is marked truncated. Non-JSON bodies expose metadata only. An explicitly empty
-captured body is `kind=metadata`, `size=0`, and `truncated=false`; if mitmproxy
-reports that the body was not captured, Gateway emits `kind=unavailable` with
-unknown size/truncation/hash and denies before OPA. Gateway forwards the same
-captured bytes; policy is never evaluated over one body while another is sent.
+captured body is `state=empty`, `size=0`, and `truncated=false`; a complete
+non-empty JSON body is `state=json` and may include a bounded `value`; a
+non-empty body that is not decoded is `state=metadata`, and malformed JSON is
+`state=invalid_json`. If mitmproxy reports that the body was not captured,
+Gateway emits `state=unavailable` with unknown size/truncation/hash and denies
+before OPA. Gateway forwards the same captured bytes; policy is never evaluated
+over one body while another is sent.
 Mitmproxy rejects request and response bodies above the fixed 8 MiB transport
 cap before the Gateway addon hook. This bounds one buffered body; a total
 concurrent request-body memory limit remains a known MVP gap.
@@ -44,24 +72,24 @@ OPA must return exactly one object:
   "reason": "allowed by policy",
   "credential_profile": null,
   "status_code": 403,
-  "learnable": false,
-  "audit": {"level": "metadata"}
+  "learnable": false
 }
 ```
 
-Denied decisions may include `status_code`, restricted to 403 in the MVP.
-`learnable` is an optional boolean for compatibility and defaults to false;
-the initialized policy always emits it. It may be true only on a denial after
+`status_code` is required and restricted to 403 in the MVP. `learnable` is
+required and may be true only on a denial after
 version, cluster, scheme, fixed request port, empty-body boundary, and captured
 body pass; managed-adapter requests additionally require credential binding,
 meaning an exact host/port/method/path rule can resolve that denial. The
 initialized policy requires the configured port for the request scheme, and
-learned rules retain the observed port and scheme so an approval cannot move an
-effect to a different authority. Gateway records the value for
-candidate discovery but never treats it as authorization. Unknown keys are
-tolerated for forward compatibility, but missing or wrong-typed required
-fields deny. `allow` is the only authorization fact; no `ask` or pending state
-exists.
+learned rules retain the observed project, host, port, method, and path. The
+scheme/port boundary is evaluated before a learned rule can match, so an
+approval cannot move an effect outside the configured transport boundary.
+Gateway records the value for candidate discovery but never treats it as
+authorization. Missing or wrong-typed required fields deny. `allow` is the
+only authorization fact; no `ask` or pending state exists. The decision has no
+audit member: Gateway owns audit emission and OPA returns authorization data
+only.
 
 ## Timeouts, attempts, and retry
 
@@ -127,13 +155,19 @@ gateway error without exposing confidential content.
 
 ## Schema and compatibility
 
-The OPA input version, decision fields, audit fields, default limits, and
-configuration keys are public MVP compatibility boundaries. The trusted
+The OPA input schema version `2`, decision fields, audit fields, default limits,
+and configuration keys are public MVP compatibility boundaries. The Gateway
+does not accept the former OPA input shape or incomplete v2 decisions. The
+trusted
 `TOBARI_CREDENTIAL_ADAPTER` setting defaults to `passthrough`; `managed` keeps
 the existing credential configuration contract. The
 `principal-registry/principals.json` file uses schema version 1 with `bindings`
 containing `project_id`, `gateway_ip`, and `network`;
 credential profile schema-v1 entries require a `projects` array.
+The active policy data uses `tobari.schema_version=2`, with `boundary`,
+`credentials`, and `rules` objects; mutable rules live under
+`rules.learned_allows` and `rules.learned_denies`, while host-authored baseline
+denies live under `rules.baseline_denies`.
 Synthetic fixtures
 live with Gateway tests and are generated by this repository; no upstream
 provider schema is vendored, so `.harness/schemas.json` remains empty.
@@ -141,7 +175,8 @@ provider schema is vendored, so `.harness/schemas.json` remains empty.
 ## Policy testing
 
 Rego is formatted with the pinned OPA image and tested by `opa test`. The
-initialized policy proves deny by default, allowed hosts and ports,
+initialized policy proves deny by default, structured authority and port
+boundaries,
 plain-HTTP restriction, host/port/method/path denial, explicit-empty versus
 unavailable-body restriction, project-bound learned rules, passthrough
 redaction/forwarding, and managed credential-profile host/project binding.

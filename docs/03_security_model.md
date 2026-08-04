@@ -182,20 +182,21 @@ Workspace.
 
 ## HTTP authorization boundary
 
-Gateway constructs OPA input version `v1` from the exact buffered request that
-will be forwarded. It includes the host-issued project principal plus
-cluster/session metadata, scheme, normalized host and port, method, path and
-path segments, multi-valued query, redacted headers, bounded body metadata, and
-an adapter-dependent optional requested credential profile. The project
-principal is derived from the local Gateway interface address and an owner-only
-host registry; the session field is caller metadata only.
+Gateway constructs OPA input schema `2` from the exact buffered request that
+will be forwarded. It includes the host-issued project principal, a structured
+request authority, method, path and path segments, multi-valued query, redacted
+headers, bounded body metadata, and an authorization object containing an
+adapter-dependent requested credential profile. The project principal is
+derived from the local Gateway interface address and an owner-only host
+registry. Caller session metadata is not an authorization input.
 
 Secret header values are absent from both OPA input and logs. JSON is decoded
-only when the complete body fits the inspection limit. Oversized and non-JSON
-bodies expose size, type, truncation, and SHA-256 metadata only. Gateway never
-logs raw request or response bodies. If mitmproxy reports that the body was not
-captured, Gateway marks it unavailable and denies before OPA; it is not treated
-as an explicit empty body.
+only when the complete non-empty body fits the inspection limit. Oversized and
+non-JSON bodies expose size, type, truncation, and SHA-256 metadata only.
+Gateway distinguishes empty, metadata-only, JSON, invalid-JSON, and unavailable
+body states. Gateway never logs raw request or response bodies. If mitmproxy
+reports that the body was not captured, Gateway marks it unavailable and denies
+before OPA; it is not treated as an explicit empty body.
 The Gateway process also enforces an 8 MiB mitmproxy request/response body cap
 before the addon hook, so an oversized body cannot be forwarded before policy.
 

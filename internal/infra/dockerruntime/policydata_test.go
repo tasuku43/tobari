@@ -81,6 +81,9 @@ func writePolicyFixture(t *testing.T, state tobari.State, data string) {
 	}
 }
 
+const minimalPolicyDataFixture = `{"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}
+`
+
 func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -88,9 +91,19 @@ func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testi
 	writePolicyFixture(t, state, `{
   "host_owned": {"keep": true},
   "tobari": {
-    "allowed_hosts": ["api.github.com"],
-    "host_extension": {"keep": true},
-    "learned_allow_rules": []
+    "schema_version": 2,
+    "boundary": {
+      "ports": {"https": [443], "http": [8080]},
+      "authorities": [],
+      "methods": {"read": ["GET"], "write": []}
+    },
+    "credentials": {},
+    "rules": {
+      "baseline_denies": [],
+      "learned_allows": [],
+      "learned_denies": []
+    },
+    "host_extension": {"keep": true}
   }
 }
 `)
@@ -135,8 +148,12 @@ func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testi
 	if _, exists := tobariData["host_extension"]; !exists {
 		t.Fatalf("host-owned tobari member was removed: %s", data)
 	}
+	var ruleData map[string]json.RawMessage
+	if err := json.Unmarshal(tobariData[policyRulesDataName], &ruleData); err != nil {
+		t.Fatal(err)
+	}
 	var rules []tobari.LearnedPolicyRule
-	if err := json.Unmarshal(tobariData[learnedPolicyDataName], &rules); err != nil {
+	if err := json.Unmarshal(ruleData[learnedPolicyDataName], &rules); err != nil {
 		t.Fatal(err)
 	}
 	if len(rules) != 1 || rules[0].ID != rule.ID {
@@ -152,7 +169,7 @@ func TestApplyLearnedPolicyRulesRejectsChangedDataBeforeDockerOrWrite(t *testing
 	t.Parallel()
 	root := t.TempDir()
 	state := runtimeState(root)
-	writePolicyFixture(t, state, `{"tobari":{"learned_allow_rules":[]}}`+"\n")
+	writePolicyFixture(t, state, minimalPolicyDataFixture)
 	before, err := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -180,9 +197,18 @@ func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) 
 	state := runtimeState(root)
 	writePolicyFixture(t, state, `{
   "tobari": {
-    "allowed_hosts": ["api.github.com"],
-    "learned_allow_rules": [],
-    "learned_deny_rules": []
+    "schema_version": 2,
+    "boundary": {
+      "ports": {"https": [443], "http": [8080]},
+      "authorities": [],
+      "methods": {"read": ["GET"], "write": []}
+    },
+    "credentials": {},
+    "rules": {
+      "baseline_denies": [],
+      "learned_allows": [],
+      "learned_denies": []
+    }
   }
 }
 `)
@@ -208,8 +234,12 @@ func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) 
 	if err := json.Unmarshal(document["tobari"], &tobariData); err != nil {
 		t.Fatal(err)
 	}
+	var ruleData map[string]json.RawMessage
+	if err := json.Unmarshal(tobariData[policyRulesDataName], &ruleData); err != nil {
+		t.Fatal(err)
+	}
 	var got []tobari.PolicyDenyRule
-	if err := json.Unmarshal(tobariData[learnedDenyDataName], &got); err != nil {
+	if err := json.Unmarshal(ruleData[learnedDenyDataName], &got); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].ID != rule.ID {
@@ -225,7 +255,7 @@ func TestApplyPolicyDenyRulesRejectsChangedDenySnapshotBeforeDockerOrWrite(t *te
 	t.Parallel()
 	root := t.TempDir()
 	state := runtimeState(root)
-	writePolicyFixture(t, state, `{"tobari":{"learned_allow_rules":[],"learned_deny_rules":[]}}`+"\n")
+	writePolicyFixture(t, state, minimalPolicyDataFixture)
 	before, err := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +282,7 @@ func TestApplyLearnedPolicyRulesRejectsFailedPreflightBeforeWrite(t *testing.T) 
 	t.Parallel()
 	root := t.TempDir()
 	state := runtimeState(root)
-	writePolicyFixture(t, state, `{"tobari":{"learned_allow_rules":[]}}`+"\n")
+	writePolicyFixture(t, state, minimalPolicyDataFixture)
 	before, err := os.ReadFile(filepath.Join(state.PolicyDirectory, "data.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +309,7 @@ func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 	root := t.TempDir()
 	state := runtimeState(root)
 	dataPath := filepath.Join(state.PolicyDirectory, "data.json")
-	writePolicyFixture(t, state, `{"host_owned":{"revision":1},"tobari":{"learned_allow_rules":[]}}`+"\n")
+	writePolicyFixture(t, state, `{"host_owned":{"revision":1},"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}`+"\n")
 	runner := &recordingRunner{}
 	runner.onOutput = func(call int) {
 		if call != 1 {
@@ -287,7 +317,7 @@ func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 		}
 		if err := os.WriteFile(
 			dataPath,
-			[]byte(`{"host_owned":{"revision":2},"tobari":{"learned_allow_rules":[]}}`+"\n"),
+			[]byte(`{"host_owned":{"revision":2},"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}`+"\n"),
 			0o600,
 		); err != nil {
 			t.Fatal(err)
@@ -312,13 +342,16 @@ func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 func TestManagedPolicyDataRejectsAmbiguousOrUnsafeHostFiles(t *testing.T) {
 	t.Parallel()
 	tests := map[string]func(*testing.T, tobari.State){
+		"legacy flat shape": func(t *testing.T, state tobari.State) {
+			writePolicyFixture(t, state, `{"tobari":{"allowed_hosts":["api.github.com"],"learned_allow_rules":[]}}`)
+		},
 		"duplicate key": func(t *testing.T, state tobari.State) {
-			writePolicyFixture(t, state, `{"tobari":{"learned_allow_rules":[],"learned_allow_rules":[]}}`)
+			writePolicyFixture(t, state, `{"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_allows":[],"learned_denies":[]}}}`)
 		},
 		"data symlink": func(t *testing.T, state tobari.State) {
-			writePolicyFixture(t, state, `{"tobari":{"learned_allow_rules":[]}}`)
+			writePolicyFixture(t, state, minimalPolicyDataFixture)
 			target := filepath.Join(filepath.Dir(state.PolicyDirectory), "outside.json")
-			if err := os.WriteFile(target, []byte(`{"tobari":{"learned_allow_rules":[]}}`), 0o600); err != nil {
+			if err := os.WriteFile(target, []byte(minimalPolicyDataFixture), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.Remove(filepath.Join(state.PolicyDirectory, "data.json")); err != nil {
@@ -329,13 +362,13 @@ func TestManagedPolicyDataRejectsAmbiguousOrUnsafeHostFiles(t *testing.T) {
 			}
 		},
 		"unsafe child mode": func(t *testing.T, state tobari.State) {
-			writePolicyFixture(t, state, `{"tobari":{"learned_allow_rules":[]}}`)
+			writePolicyFixture(t, state, minimalPolicyDataFixture)
 			if err := os.Chmod(filepath.Join(state.PolicyDirectory, "tobari.rego"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 		},
 		"unsafe directory mode": func(t *testing.T, state tobari.State) {
-			writePolicyFixture(t, state, `{"tobari":{"learned_allow_rules":[]}}`)
+			writePolicyFixture(t, state, minimalPolicyDataFixture)
 			if err := os.Chmod(state.PolicyDirectory, 0o755); err != nil {
 				t.Fatal(err)
 			}

@@ -36,7 +36,9 @@ pushes only the base image; pull-request CI has no package-write permission.
 `task gateway:source:check` validates byte equality between the canonical
 `gateway/` source and the embedded snapshot. `task gateway:test` runs the
 Gateway unit suite against the canonical source, while the runtime integration
-continues to exercise the embedded snapshot used by the CLI. The Gateway image
+continues to exercise the embedded snapshot used by the CLI. The Gateway unit
+contract fixes the schema-2 grouped OPA document, strict decision fields, body
+states, and secret redaction. The Gateway image
 workflow builds both supported architectures; only its main-push publish job
 has package-write permission, and its pull-request validation job is
 cache-only. Runtime tests preflight the immutable Gateway digest, labels,
@@ -341,9 +343,9 @@ The test suite has complementary levels:
   denies learned permission when requested by the other project, and checks
   registry cleanup after network recovery and deletion. Gateway unit tests
   separately cover managed profile binding.
-- Policy-boundary tests prove the normalized request port is required by the
-  initialized scheme-port allowlist, rejected non-default ports are not
-  learnable, and learned rules do not cross ports.
+- Policy-boundary tests prove the normalized request authority and port are
+  required by the initialized structured boundary, rejected non-default ports
+  are not learnable, and learned rules do not cross ports.
 - Gateway boundary tests resolve and pin an upstream address, reject unsafe
   resolved addresses for dotted hosts, and preserve the explicit single-label
   private-service exception used by the local integration shape.

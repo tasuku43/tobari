@@ -120,20 +120,23 @@ class GatewayTests(unittest.TestCase):
     def test_policy_input_is_generic_and_redacted(self):
         flow = self.flow()
         document = gateway.build_policy_input(
-            flow, "default", None, self.project_a, 1024, set()
+            flow, "default", self.project_a, 1024, set()
         )
         self.assertEqual(document["principal"]["cluster"], "default")
         self.assertEqual(document["principal"]["project_id"], self.project_a)
+        self.assertNotIn("session", document["principal"])
         request = document["request"]
-        self.assertEqual(document["version"], "v1")
-        self.assertEqual(request["host"], "api.example.com")
-        self.assertEqual(request["port"], 443)
+        self.assertEqual(document["schema_version"], 2)
+        self.assertEqual(request["authority"]["scheme"], "https")
+        self.assertEqual(request["authority"]["host"], "api.example.com")
+        self.assertEqual(request["authority"]["port"], 443)
         self.assertEqual(request["method"], "POST")
-        self.assertEqual(request["path_segments"], ["v1", "resources"])
+        self.assertEqual(request["path"]["raw"], "/v1/resources")
+        self.assertEqual(request["path"]["segments"], ["v1", "resources"])
         self.assertEqual(request["query"], {"key": ["value"]})
         self.assertNotIn("authorization", request["headers"])
         self.assertNotIn("cookie", request["headers"])
-        self.assertEqual(request["body"]["kind"], "json")
+        self.assertEqual(request["body"]["state"], "json")
         self.assertEqual(request["body"]["value"], {"example": True})
         self.assertEqual(
             request["body"]["sha256"],
@@ -171,9 +174,9 @@ class GatewayTests(unittest.TestCase):
         flow = self.flow()
         flow.request.headers["x-tobari-credential-profile"] = "example"
         document = gateway.build_policy_input(
-            flow, "default", None, self.project_a, 1024, set(), None
+            flow, "default", self.project_a, 1024, set(), None
         )
-        self.assertIsNone(document["credential"]["requested_profile"])
+        self.assertIsNone(document["authorization"]["requested_profile"])
         self.assertNotIn("x-tobari-credential-profile", document["request"]["headers"])
 
     def test_unknown_credential_adapter_fails_closed_at_construction(self):
@@ -188,7 +191,7 @@ class GatewayTests(unittest.TestCase):
         flow.request.headers["x-auth-token"] = "token-secret"
         flow.request.headers["x-safe"] = "visible"
         document = gateway.build_policy_input(
-            flow, "default", None, self.project_a, 1024, set(), None
+            flow, "default", self.project_a, 1024, set(), None
         )
         self.assertNotIn("x-auth-token", document["request"]["headers"])
         self.assertEqual(document["request"]["headers"]["x-safe"], "visible")
@@ -197,10 +200,10 @@ class GatewayTests(unittest.TestCase):
         flow = self.flow()
         flow.request.raw_content = None
         document = gateway.build_policy_input(
-            flow, "default", None, self.project_a, 1024, set()
+            flow, "default", self.project_a, 1024, set()
         )
         body = document["request"]["body"]
-        self.assertEqual(body["kind"], "unavailable")
+        self.assertEqual(body["state"], "unavailable")
         self.assertIsNone(body["size"])
         self.assertIsNone(body["truncated"])
         self.assertIsNone(body["sha256"])
@@ -258,7 +261,14 @@ class GatewayTests(unittest.TestCase):
     def test_oversized_json_is_metadata_only(self):
         body = gateway._body_metadata(b'{"secret":"body"}', "application/json", 4)
         self.assertTrue(body["truncated"])
-        self.assertEqual(body["kind"], "metadata")
+        self.assertEqual(body["state"], "metadata")
+        self.assertNotIn("value", body)
+
+    def test_empty_json_body_has_explicit_empty_state(self):
+        body = gateway._body_metadata(b"", "application/json", 1024)
+        self.assertEqual(body["state"], "empty")
+        self.assertEqual(body["size"], 0)
+        self.assertFalse(body["truncated"])
         self.assertNotIn("value", body)
 
     def test_invalid_opa_response_fails_closed(self):
@@ -291,17 +301,17 @@ class GatewayTests(unittest.TestCase):
             }
         )
         self.assertTrue(decision.learnable)
-        legacy = gateway._parse_decision(
-            {
-                "result": {
-                    "allow": False,
-                    "reason": "denied",
-                    "credential_profile": None,
-                    "status_code": 403,
+        with self.assertRaises(gateway.PolicyUnavailable):
+            gateway._parse_decision(
+                {
+                    "result": {
+                        "allow": False,
+                        "reason": "denied",
+                        "credential_profile": None,
+                        "status_code": 403,
+                    }
                 }
-            }
-        )
-        self.assertFalse(legacy.learnable)
+            )
 
     def test_credential_is_host_bound(self):
         request = self.flow().request

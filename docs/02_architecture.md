@@ -336,7 +336,7 @@ client flow
   -> select trusted credential adapter (passthrough by default)
   -> redact client authentication and cookie headers for OPA input
   -> buffer bounded body once
-  -> normalize OPA input
+  -> normalize the schema-2 OPA input
   -> reject an unavailable body as ambiguous
   -> POST decision with finite timeout
   -> deny on any invalid/unavailable decision
@@ -383,6 +383,13 @@ validated audit state without decoding it. Infrastructure reads the bounded,
 owner-only `data.json`, preserves non-owned members, appends one deterministic
 exact learned rule, tests a private complete policy copy, atomically replaces
 the data file, and calls the existing OPA activation boundary.
+
+The active policy data is schema 2. `boundary.authorities` and
+`boundary.methods` describe the configured request boundary, `boundary.ports`
+describes the scheme-specific candidate transport boundary, and `rules` keeps
+baseline denies, learned allows, and learned denies in separate collections.
+Gateway and OPA share this structure; the CLI only owns the mutation of the
+two learned collections and never rewrites the host-authored boundary.
 
 `policy deny` resolves the same exact candidate reference and appends one
 project-bound exact deny rule through the same preflight, atomic-write, and OPA
