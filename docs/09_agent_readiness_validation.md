@@ -78,18 +78,17 @@ go run ./cmd/tobari help --format agent
 go run ./cmd/tobari help cluster --format agent
 go run ./cmd/tobari help tobari --format agent
 go run ./cmd/tobari help status --format agent
-go run ./cmd/tobari doctor --root /absolute/test/root --format json # optional diagnostics
-cd /absolute/test/root
 go build -o /tmp/tobari ./cmd/tobari
+go run ./cmd/tobari context show --format json
+go run ./cmd/tobari context list --format json
+go run ./cmd/tobari context use --name default --format json # records not_configured/not_running without starting Docker
+go run ./cmd/tobari cluster up
+(cd /absolute/test/root && /tmp/tobari doctor --format json) # optional diagnostics after cluster bootstrap
 (cd /absolute/test/root && /tmp/tobari)
 (mkdir -p /absolute/test/root/root && cd /absolute/test/root/root && /tmp/tobari)
 (cd /absolute/test/root && /tmp/tobari status --format json)
 (cd /absolute/test/root && /tmp/tobari list --format json)
 go run ./cmd/tobari cluster denials --tail 100 --format json
-go run ./cmd/tobari context show --format json
-go run ./cmd/tobari context list --format json
-go run ./cmd/tobari context use --name default --format json # records not_configured/not_running without starting Docker
-go run ./cmd/tobari cluster up
 go run ./cmd/tobari context create --name project-tools --format json
 go run ./cmd/tobari context use --name project-tools --format json # reconciles the running cluster
 go run ./cmd/tobari context use --name default --format json # switches back through the same path

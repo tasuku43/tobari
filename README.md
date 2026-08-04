@@ -390,13 +390,7 @@ state remains below each Tobari's persistent home.
 
 ### Lifecycle and image reference
 
-Validate the host and intended project directory:
-
-```sh
-tobari doctor --root .
-```
-
-Start the shared enforcement cluster explicitly:
+Start the shared enforcement cluster explicitly from the project directory:
 
 ```sh
 tobari cluster up
@@ -409,6 +403,10 @@ starting shared resources. Tobari contributors who need to test local Gateway
 or runtime-base source changes use `task build:dev` and the resulting
 `bin/tobari-dev` binary; the public `cluster up` path does not build images
 from source.
+
+If startup reports Docker, image, policy, or bind-path problems, run
+`tobari doctor` from the project directory and retry `tobari cluster up`.
+Use `tobari doctor --root PATH` only when diagnosing a different directory.
 
 In an interactive terminal, `cluster up` shows a compact colored three-phase
 checklist (`prepare environment`, `start services`, and `verify readiness`) on
@@ -946,7 +944,7 @@ cases.
 ## Troubleshooting
 
 ```sh
-tobari doctor --root .
+tobari doctor
 tobari cluster status
 tobari list
 ```
@@ -991,7 +989,7 @@ Common failures:
   flow cannot express the required behavior.
 - root bind-mount error under Colima/Lima: place the project and Tobari XDG
   configuration/state directories on paths shared with the Docker VM, then
-  rerun `tobari doctor --root .` and `tobari cluster up`.
+  rerun `tobari doctor` from the project directory and `tobari cluster up`.
 
 Schema-1 singleton state from older pre-v1 builds is intentionally not guessed
 or migrated. Remove it with the matching older binary before starting a
