@@ -256,12 +256,16 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 			fmt.Fprintf(&output, "Runtime image digest: %s\n", safeExternalText(result.Runtime.ImageDigest))
 		}
 	}
+	if result.Runtime.Status == tobari.ContextRuntimeStatusOfficial {
+		fmt.Fprintln(&output, runtimeCustomizationHint())
+	}
 	switch result.Task {
 	case tobari.TaskRuntimeInit:
 		if result.Runtime.Dockerfile != "" {
 			fmt.Fprintf(&output, "Next: edit %s, then run `tobari runtime build`.\n", safeExternalText(result.Runtime.Dockerfile))
 		}
 	case tobari.TaskRuntimeBuild:
+		fmt.Fprintln(&output, "Note: existing Workspaces keep their stored image. To use this runtime there, run `tobari delete` in that project and create it again with `tobari`.")
 		fmt.Fprintln(&output, "Next: run `tobari` from a project directory.")
 	case tobari.TaskContextUse:
 		switch result.Cluster {
@@ -275,4 +279,8 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	fmt.Fprintf(&output, "Credential metadata: %s\n", safeExternalText(result.Stores.CredentialConfig))
 	fmt.Fprintf(&output, "Credential directory: %s\n", safeExternalText(result.Stores.CredentialDirectory))
 	return []byte(output.String())
+}
+
+func runtimeCustomizationHint() string {
+	return "Tip: this Context is using the base runtime. For ongoing work, run `tobari runtime init`, edit the Dockerfile, then run `tobari runtime build` on the host."
 }

@@ -35,7 +35,7 @@ func TestInitRuntimeCreatesActiveContextRecipeWithoutChangingImage(t *testing.T)
 	if err != nil {
 		t.Fatalf("InitRuntime() error = %v", err)
 	}
-	if result.Task != tobari.TaskRuntimeInit || result.Image != tobari.BuiltinImageSelector ||
+	if result.Task != tobari.TaskRuntimeInit || result.Image != tobari.OfficialRuntimeBase ||
 		result.Runtime.Status != tobari.ContextRuntimeStatusPendingBuild {
 		t.Fatalf("InitRuntime() result = %+v", result)
 	}
@@ -89,7 +89,7 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 	}
 
 	dockerfile := filepath.Join(root, "config", "contexts", "default", "runtime", "Dockerfile")
-	if err := os.WriteFile(dockerfile, []byte(contextRuntimeTemplate+"\n# changed\n"), 0o600); err != nil {
+	if err := os.WriteFile(dockerfile, []byte(runtimeRecipeTemplate(runtime.defaultRuntimeImage())+"\n# changed\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	shown, err := runtime.ShowContext(context.Background(), "")
@@ -101,7 +101,34 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeDoesNotPullExplicitLocalBase(t *testing.T) {
+func TestInitRuntimeUsesInjectedResolverBase(t *testing.T) {
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:dev"}
+	if _, err := runtime.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.InitRuntime(context.Background())
+	if err != nil {
+		t.Fatalf("InitRuntime() error = %v", err)
+	}
+	if result.Image != "tobari-runtime:dev" || result.Runtime.BaseReference != "tobari-runtime:dev" {
+		t.Fatalf("InitRuntime() result = %+v", result)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "config", "contexts", "default", "runtime", "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "FROM tobari-runtime:dev") {
+		t.Fatalf("runtime template = %q", data)
+	}
+}
+
+func TestBuildRuntimeDoesNotPullExplicitCustomBase(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
@@ -119,7 +146,7 @@ func TestBuildRuntimeDoesNotPullExplicitLocalBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = []byte(strings.Replace(string(data), "FROM "+tobari.OfficialRuntimeBase, "FROM tobari-runtime:local", 1))
+	data = []byte(strings.Replace(string(data), "FROM "+tobari.OfficialRuntimeBase, "FROM example.com/tobari/custom-base:dev", 1))
 	if err := os.WriteFile(dockerfile, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +154,7 @@ func TestBuildRuntimeDoesNotPullExplicitLocalBase(t *testing.T) {
 		t.Fatalf("BuildRuntime() error = %v", err)
 	}
 	if len(runner.runs) != 1 || containsArgs(runner.runs[0].args, "--pull") {
-		t.Fatalf("local runtime build unexpectedly pulled a base: %+v", runner.runs)
+		t.Fatalf("custom-base runtime build unexpectedly pulled a base: %+v", runner.runs)
 	}
 }
 

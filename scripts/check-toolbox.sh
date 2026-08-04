@@ -16,8 +16,8 @@ for version_name in GH_VERSION AWS_CLI_VERSION KUBECTL_VERSION TWG_VERSION; do
   }
 done
 
-[[ $(grep -cFx 'FROM tobari-runtime:local' images/toolbox/Dockerfile) == 1 ]]
-[[ $(grep -cFx 'FROM tobari-runtime:local AS fetcher' images/toolbox/Dockerfile) == 1 ]]
+[[ $(grep -cFx 'FROM ghcr.io/tasuku43/tobari/runtime:latest AS fetcher' images/toolbox/Dockerfile) == 1 ]]
+[[ $(grep -cFx 'FROM ghcr.io/tasuku43/tobari/runtime:latest' images/toolbox/Dockerfile) == 1 ]]
 [[ $(grep -cFx 'USER tobari' images/toolbox/Dockerfile) == 1 ]]
 
 if grep -Eq '^(ENTRYPOINT|CMD)[[:space:]]' images/toolbox/Dockerfile; then

@@ -121,7 +121,7 @@ tell the user to review the permission on the trusted host:
 ```json
 {
   "error": "policy_denied",
-  "message": "Tobari blocked this network request because it is outside the current execution boundary.",
+  "message": "Tobari blocked this network request because it is outside the current execution boundary. Leave the Workspace with `exit`, then run `tobari policy review` on the trusted host.",
   "tobari": {
     "schema_version": 1,
     "event": "permission_review_available",
@@ -144,7 +144,9 @@ tell the user to review the permission on the trusted host:
 
 The response contains no query, body, headers, credentials, policy path, or
 opaque action ID. The command is fixed catalog language and is advisory only;
-the host-side retained denial queue remains the source of truth. A
+the host-side retained denial queue remains the source of truth. The learnable
+message may remind the agent to leave the Workspace before asking the host to
+run the review command. A
 non-learnable policy denial uses `event=permission_review_unavailable`,
 `review.available=false`, and a null command so it cannot be mistaken for a
 safe exact approval candidate. OPA unavailability or malformed decisions

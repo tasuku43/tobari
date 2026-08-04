@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -98,36 +97,29 @@ func TestVerifyGatewayImageRejectsEngineArchitectureMismatch(t *testing.T) {
 	}
 }
 
-func TestPrepareGatewayImageSourceBuildUsesEmbeddedSnapshotExplicitly(t *testing.T) {
+func TestPrepareGatewayImageUsesInjectedLocalResolver(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
 	runner := &gatewayImageRunner{
 		metadata: gatewayMetadata("arm64", ""),
 		server:   `{"Os":"linux","Arch":"arm64"}`,
 	}
-	runtime, err := newRuntime(
-		filepath.Join(root, "config"), filepath.Join(root, "state"), runner,
-	)
+	runtime := &Runtime{
+		runner: runner,
+		images: testImageResolver{
+			runtimeImage: "tobari-runtime:dev",
+			gateway:      gatewayImageSelection{Image: "tobari-gateway:dev", RequireDigest: false},
+		},
+	}
+	image, err := runtime.prepareGatewayImage(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := runtimeState(root)
-	image, err := runtime.prepareGatewayImage(context.Background(), state, []string{"PATH=/usr/bin"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if image != "tobari-gateway:"+state.AssetVersion {
-		t.Fatalf("source image = %q", image)
-	}
-	if len(runner.runs) != 1 || runner.runs[0].args[0] != "build" {
-		t.Fatalf("source build calls = %+v", runner.runs)
-	}
-	if !containsArgPair(runner.runs[0].args, "--tag", image) {
-		t.Fatalf("source build args = %+v", runner.runs[0].args)
+	if image != "tobari-gateway:dev" {
+		t.Fatalf("Gateway image = %q", image)
 	}
 	for _, call := range runner.outputs {
 		if len(call.args) > 0 && call.args[0] == "pull" {
-			t.Fatal("source mode pulled the official image")
+			t.Fatalf("local Gateway image was pulled: %v", runner.outputs)
 		}
 	}
 }
@@ -152,13 +144,4 @@ func gatewayMetadata(architecture, repoDigest string) string {
 		repoDigests = `["` + repoDigest + `"]`
 	}
 	return `{"RepoDigests":` + repoDigests + `,"Architecture":"` + architecture + `","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"1","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`
-}
-
-func containsArgPair(args []string, key, value string) bool {
-	for index := 0; index+1 < len(args); index++ {
-		if args[index] == key && args[index+1] == value {
-			return true
-		}
-	}
-	return false
 }

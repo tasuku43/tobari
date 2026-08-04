@@ -164,20 +164,22 @@ undeclared Docker mutation by the CLI.
   the host home retains `/workspace/<canonical-root-without-leading-slash>`;
   thus a root at `/work` and a host CWD of `/work/root` enter at
   `/workspace/work/root`. Tobari never mounts the host home wholesale.
-- The configured image accepts `builtin` or a portable OCI image reference. A
-  custom image must already exist locally and preserve runtime API `1`, the
+- The configured image accepts `builtin` or a portable OCI image reference.
+  In normal builds, `builtin` resolves to the published official runtime base.
+  A custom image must already exist locally and preserve runtime API `1`, the
   `tobari` image user, the `io.tobari.runtime-lifetime-command` capability, and
   the Tobari entrypoint. That capability is currently `sleep infinity`, which
   is required by Tobari's fixed Workspace lifetime command. Ordinary `tobari`
-  startup never pulls a configured image implicitly. Missing or incompatible
-  images fail before project runtime network or container mutation; the logical
-  Workspace remains available for repair and retry.
+  startup never pulls a configured image implicitly. `cluster up` may obtain
+  the official runtime base for an uncustomized Context; custom images still
+  fail closed if missing or incompatible before project runtime network or
+  container mutation.
 - `cluster up` obtains the embedded immutable Gateway digest when it is not
   already available locally, then validates its digest, API/role labels,
   non-root default user, entrypoint, and Docker Engine platform before running
-  policy tests or creating shared networks and containers. `--gateway-source`
-  is the explicit development/recovery path that builds the embedded Gateway
-  snapshot locally; it is never selected implicitly.
+  policy tests or creating shared networks and containers. Gateway source
+  development uses the contributor-only `task build:dev` path and a
+  `tobari_dev` binary, not a public `cluster up` option.
 - `runtime init` creates the active Context's owner-only
   `runtime/Dockerfile`. The template starts from
   `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
@@ -436,13 +438,11 @@ previous marker and persisted state when possible. If Docker may have changed,
 the recovery journal remains and entry/policy commands direct the user to an
 explicit `cluster up`.
 
-`cluster up` obtains and preflights the immutable Gateway image, then creates
-shared labeled networks, images, configuration material, Gateway, OPA, and CA
-volumes as needed. It tags the built-in runtime both by
-asset version and as the local extension base `tobari-runtime:local`, then
-reconnects Gateway to the shared networks and existing registered project
-networks without creating project state or project resources, then waits for
-Gateway and OPA health. The root command only verifies the shared cluster is
+`cluster up` obtains and preflights the immutable Gateway image and official
+runtime base, then creates shared labeled networks, configuration material,
+Gateway, OPA, and CA volumes as needed. It reconnects Gateway to the shared
+networks and existing registered project networks without creating project
+state or project resources, then waits for Gateway and OPA health. The root command only verifies the shared cluster is
 configured and ready, reads the indexed Workspace candidates, and waits for an
 explicit choice when the canonical current directory is below an ancestor.
 After the choice is revalidated under the lifecycle lock, it creates or reuses

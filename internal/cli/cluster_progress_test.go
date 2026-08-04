@@ -88,7 +88,7 @@ func TestClusterUpProgressCanDisableColor(t *testing.T) {
 		Step: tobari.ClusterUpProgressPolicy, Status: tobari.ClusterUpProgressStarted,
 	})
 	progress.Report(tobari.ClusterUpProgress{
-		Step: tobari.ClusterUpProgressBuildImage, Status: tobari.ClusterUpProgressCompleted,
+		Step: tobari.ClusterUpProgressPrepareImages, Status: tobari.ClusterUpProgressCompleted,
 	})
 	progress.Close()
 
@@ -112,7 +112,7 @@ func TestClusterUpProgressGroupsInternalStepsIntoThreePhases(t *testing.T) {
 		Step: tobari.ClusterUpProgressPolicy, Status: tobari.ClusterUpProgressStarted,
 	})
 	progress.Report(tobari.ClusterUpProgress{
-		Step: tobari.ClusterUpProgressBuildImage, Status: tobari.ClusterUpProgressCompleted,
+		Step: tobari.ClusterUpProgressPrepareImages, Status: tobari.ClusterUpProgressCompleted,
 	})
 	progress.Report(tobari.ClusterUpProgress{
 		Step: tobari.ClusterUpProgressStartServices, Status: tobari.ClusterUpProgressStarted,
@@ -134,7 +134,7 @@ func TestClusterUpProgressGroupsInternalStepsIntoThreePhases(t *testing.T) {
 			t.Fatalf("grouped progress output %q lacks %q", got, phase)
 		}
 	}
-	for _, detail := range []string{"validate policy", "build runtime image", "start Gateway and OPA", "verify cluster status"} {
+	for _, detail := range []string{"validate policy", "prepare images", "start Gateway and OPA", "verify cluster status"} {
 		if strings.Contains(got, detail) {
 			t.Fatalf("grouped progress output %q leaked internal detail %q", got, detail)
 		}

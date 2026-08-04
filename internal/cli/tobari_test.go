@@ -631,6 +631,13 @@ func TestClusterStatusTextUsesSameSummaryForUnconfiguredAndNotReadyStates(t *tes
 			want: []string{"○ Cluster not configured"},
 		},
 		{
+			name: "removed",
+			status: tobari.ClusterStatus{
+				Task: tobari.TaskClusterDown, Components: []tobari.ComponentStatus{},
+			},
+			want: []string{"✓ Cluster removed"},
+		},
+		{
 			name: "not ready",
 			status: tobari.ClusterStatus{
 				Task: tobari.TaskClusterStatus, Configured: true, Running: false,

@@ -11,6 +11,7 @@ export GOTOOLCHAIN=local
 export GOWORK=off
 
 bash -n \
+  scripts/build-dev-images.sh \
   scripts/check.sh \
   scripts/package-release.sh \
   scripts/release-archive-entries.sh \

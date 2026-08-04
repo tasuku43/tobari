@@ -25,8 +25,9 @@ Dockerfile, addon, entrypoint, and tests are checked against the embedded
 workflow publishes `ghcr.io/<owner>/tobari/gateway:latest`, `:main`, and an
 immutable `:sha-<commit>` tag for Linux amd64 and arm64. The CLI records one
 reviewed multi-architecture manifest digest in `versions.env` and uses that
-digest for routine startup; `cluster up --gateway-source` is the explicit
-source-development/recovery path.
+digest for routine startup. Contributor source-development uses `task
+build:dev` and a `tobari_dev` binary; the public `cluster up` command does not
+build Gateway source.
 
 ## Compatibility
 

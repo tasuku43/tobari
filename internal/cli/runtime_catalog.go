@@ -304,16 +304,16 @@ func deleteSpec() CommandSpec {
 
 func clusterUpSpec() CommandSpec {
 	return CommandSpec{
-		Path: "cluster up", Args: "[--gateway-source]", Summary: "Start shared Gateway and OPA",
+		Path: "cluster up", Summary: "Start shared Gateway and OPA",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "cluster.lifecycle",
 			Outcome:      "Start one healthy shared enforcement cluster without mounting a work root",
-			Inputs:       []CommandInput{gatewaySourceInput()},
+			Inputs:       []CommandInput{},
 			Output:       textClusterStatusOutput(),
 			Prerequisites: []string{
 				"Docker Engine and Docker Compose v2 are available.",
-				"The routine path uses the immutable Gateway image; --gateway-source is for explicit development or recovery.",
+				"The routine path uses the immutable Gateway image and official runtime base image.",
 			},
 			FixedTarget: fixedClusterTarget(),
 			Errors: mutationCommandErrors("cluster up", "cluster status",
@@ -328,7 +328,8 @@ func clusterUpSpec() CommandSpec {
 				declaredCommandError(fault.KindUnavailable, "cluster_start_failed", false, "cluster status", "Reconcile partial Docker state."),
 				declaredCommandError(fault.KindUnavailable, "gateway_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the verified Gateway image."),
 				declaredCommandError(fault.KindContract, "gateway_image_incompatible", false, "doctor", "Inspect the Gateway image API, digest, and architecture contract."),
-				declaredCommandError(fault.KindUnavailable, "gateway_source_build_failed", false, "doctor", "Inspect Docker and host access before retrying the explicit source build."),
+				declaredCommandError(fault.KindUnavailable, "runtime_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the official runtime base image."),
+				declaredCommandError(fault.KindRejected, "incompatible_image", false, "context show", "Inspect the active Context runtime image contract."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
@@ -1031,7 +1032,7 @@ func contextImageInput() CommandInput {
 	return CommandInput{
 		Name: "--image", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Default compatible Tobari image selector stored in the Context.",
+		Description:   "Built-in compatible Tobari image selector stored in the Context.",
 		AllowedValues: []string{}, DefaultValue: stringPointer(tobari.BuiltinImageSelector),
 	}
 }
@@ -1244,15 +1245,6 @@ func purgeInput(description string) CommandInput {
 		Name: "--purge", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
 		Description: description, AllowedValues: []string{}, DefaultValue: stringPointer("false"),
-	}
-}
-
-func gatewaySourceInput() CommandInput {
-	return CommandInput{
-		Name: "--gateway-source", Source: InputSourceFlag, Required: false,
-		ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
-		Description:   "Build the embedded Gateway source explicitly for development or recovery instead of using the verified official image.",
-		AllowedValues: []string{}, DefaultValue: stringPointer("false"),
 	}
 }
 

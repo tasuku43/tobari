@@ -47,6 +47,9 @@ func (clusterUpProgressRunner) Run(context.Context, []string, []string, io.Reade
 
 func (clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	if len(args) >= 1 && args[0] == "image" {
+		if strings.Contains(strings.Join(args, " "), tobari.RuntimeImageAPILabel) {
+			return compatibleImageInspection(), nil
+		}
 		versions, err := runtimeassets.Versions()
 		if err != nil {
 			return nil, err
@@ -84,7 +87,7 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 	wantSteps := []tobari.ClusterUpProgressStep{
 		tobari.ClusterUpProgressPrepare,
 		tobari.ClusterUpProgressPolicy,
-		tobari.ClusterUpProgressBuildImage,
+		tobari.ClusterUpProgressPrepareImages,
 		tobari.ClusterUpProgressStartServices,
 		tobari.ClusterUpProgressConnectNetworks,
 		tobari.ClusterUpProgressWaitForHealth,
@@ -124,7 +127,7 @@ func TestRunClusterUpProgressStepReportsCompletionAndFailure(t *testing.T) {
 	wantErr := errors.New("synthetic stage failure")
 	if err := runClusterUpProgressStep(
 		func(event tobari.ClusterUpProgress) { failed = append(failed, event) },
-		tobari.ClusterUpProgressBuildImage,
+		tobari.ClusterUpProgressPrepareImages,
 		func() error { return wantErr },
 	); !errors.Is(err, wantErr) {
 		t.Fatalf("failed step error = %v, want %v", err, wantErr)
@@ -395,6 +398,50 @@ func TestDoctorDiagnosesExistingPolicyBeforeClusterIsConfigured(t *testing.T) {
 		t.Fatal("doctor did not probe the existing policy directory")
 	}
 	t.Fatal("doctor report did not contain a policy check")
+}
+
+func TestDoctorDiagnosesUnsafeLearnedPolicyData(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.Mkdir(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dockerPath := filepath.Join(binDir, "docker")
+	if err := os.WriteFile(dockerPath, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+
+	runtime, err := newRuntime(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(root)
+	writePolicyFixture(t, state, `{"tobari":{"allowed_hosts":["api.github.com"],"learned_allow_rules":[]}}`)
+	if err := runtime.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := runtime.Doctor(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range report.Checks {
+		if check.Name != "policy_data" {
+			continue
+		}
+		if check.Status != doctor.CheckStatusFail {
+			t.Fatalf("policy_data check = %+v, want fail", check)
+		}
+		if !strings.Contains(check.Detail, "learned policy data is invalid or unsafe") ||
+			!strings.Contains(check.Detail, "schema_version") {
+			t.Fatalf("policy_data detail = %q", check.Detail)
+		}
+		return
+	}
+	t.Fatal("doctor report did not contain a policy_data check")
 }
 
 func TestLoadStateRejectsLegacyAndTrailingDocuments(t *testing.T) {
@@ -699,8 +746,12 @@ func TestResolveImageSelectorUsesExplicitThenXDGDefaultThenBuiltin(t *testing.T)
 	config := filepath.Join(root, "config")
 	runtime, _ := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
 	got, err := runtime.ResolveImageSelector(context.Background(), "")
-	if err != nil || got != tobari.BuiltinImageSelector {
+	if err != nil || got != tobari.OfficialRuntimeBase {
 		t.Fatalf("missing config resolved %q, %v", got, err)
+	}
+	got, err = runtime.ResolveImageSelector(context.Background(), tobari.BuiltinImageSelector)
+	if err != nil || got != tobari.OfficialRuntimeBase {
+		t.Fatalf("builtin selector resolved %q, %v", got, err)
 	}
 	if err := os.MkdirAll(config, 0o700); err != nil {
 		t.Fatal(err)
@@ -718,6 +769,21 @@ func TestResolveImageSelectorUsesExplicitThenXDGDefaultThenBuiltin(t *testing.T)
 	got, err = runtime.ResolveImageSelector(context.Background(), "explicit:dev")
 	if err != nil || got != "explicit:dev" {
 		t.Fatalf("explicit selector resolved %q, %v", got, err)
+	}
+}
+
+func TestResolveImageSelectorUsesInjectedResolverForBuiltin(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:dev"}
+	got, err := runtime.ResolveImageSelector(context.Background(), tobari.BuiltinImageSelector)
+	if err != nil || got != "tobari-runtime:dev" {
+		t.Fatalf("builtin selector resolved %q, %v", got, err)
+	}
+	got, err = runtime.ResolveImageSelector(context.Background(), "")
+	if err != nil || got != "tobari-runtime:dev" {
+		t.Fatalf("missing config resolved %q, %v", got, err)
 	}
 }
 
@@ -789,29 +855,36 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 	}
 }
 
-func TestBuildTobariImageTagsVersionAndStableExtensionBase(t *testing.T) {
+func TestPrepareActiveContextImagePullsAndValidatesOfficialRuntime(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	runner := &recordingRunner{}
+	runner := &recordingRunner{outputData: compatibleImageInspection()}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	state := runtimeState(root)
-	if err := runtime.buildTobariImage(context.Background(), state, os.Environ()); err != nil {
+	if err := runtime.prepareActiveContextImage(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.runs) != 1 {
-		t.Fatalf("build calls = %v", runner.runs)
+	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0].args, []string{"image", "pull", tobari.OfficialRuntimeBase}) {
+		t.Fatalf("runtime image pull calls = %v", runner.runs)
 	}
-	args := runner.runs[0].args
-	for _, tag := range []string{tobariImage(state), "tobari-runtime:local"} {
-		found := false
-		for index := 0; index+1 < len(args); index++ {
-			if args[index] == "--tag" && args[index+1] == tag {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("build args %v lack tag %q", args, tag)
-		}
+	if len(runner.outputs) != 1 || runner.outputs[0].args[0] != "image" || runner.outputs[0].args[1] != "inspect" {
+		t.Fatalf("runtime image inspect calls = %v", runner.outputs)
+	}
+}
+
+func TestPrepareActiveContextImageDoesNotPullInjectedLocalRuntime(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{outputData: compatibleImageInspection()}
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:dev"}
+	if err := runtime.prepareActiveContextImage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("local runtime image was pulled: %v", runner.runs)
+	}
+	if len(runner.outputs) != 1 || runner.outputs[0].args[len(runner.outputs[0].args)-1] != "tobari-runtime:dev" {
+		t.Fatalf("runtime image inspect calls = %v", runner.outputs)
 	}
 }
 

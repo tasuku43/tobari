@@ -65,6 +65,7 @@ type Runtime struct {
 	stateDirectory  string
 	dataDirectory   string
 	runner          commandRunner
+	images          imageResolver
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
 	projectStateWriter func(tobari.ProjectInstance) error
@@ -308,7 +309,7 @@ func (r *Runtime) ResolveImageSelector(ctx context.Context, explicit string) (st
 		return "", err
 	}
 	if explicit != "" {
-		return explicit, nil
+		return r.resolveBuiltinImageSelector(explicit), nil
 	}
 	if _, err := os.Lstat(r.activeContextPath()); err == nil {
 		name, activeErr := r.readActiveContext()
@@ -319,7 +320,7 @@ func (r *Runtime) ResolveImageSelector(ctx context.Context, explicit string) (st
 		if manifestErr != nil {
 			return "", manifestErr
 		}
-		return manifest.Image, nil
+		return r.resolveBuiltinImageSelector(manifest.Image), nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("inspect active Context: %w", err)
 	}
@@ -330,7 +331,7 @@ func (r *Runtime) configuredDefaultImage() (string, error) {
 	path := filepath.Join(r.configDirectory, "config.json")
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return tobari.BuiltinImageSelector, nil
+		return r.defaultRuntimeImage(), nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("inspect config.json: %w", err)
@@ -364,12 +365,15 @@ func (r *Runtime) configuredDefaultImage() (string, error) {
 	if err := tobari.ValidateImageSelector(document.DefaultImage); err != nil {
 		return "", fmt.Errorf("config.json default_image: %w", err)
 	}
+	if document.DefaultImage == tobari.BuiltinImageSelector {
+		return r.defaultRuntimeImage(), nil
+	}
 	return document.DefaultImage, nil
 }
 
 // ClusterUp materializes assets and reconciles shared Gateway and OPA.
 func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
-	return r.ClusterUpWithProgressMode(ctx, false, nil)
+	return r.ClusterUpWithProgress(ctx, nil)
 }
 
 // ClusterUpWithProgress materializes assets and reconciles shared Gateway and
@@ -377,21 +381,11 @@ func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 func (r *Runtime) ClusterUpWithProgress(
 	ctx context.Context, progress tobari.ClusterUpProgressSink,
 ) (tobari.State, error) {
-	return r.ClusterUpWithProgressMode(ctx, false, progress)
-}
-
-// ClusterUpWithProgressMode is the explicit development/recovery extension
-// for callers that need to build the embedded Gateway source. The routine
-// path keeps this false and consumes the verified immutable image from
-// versions.env.
-func (r *Runtime) ClusterUpWithProgressMode(
-	ctx context.Context, gatewaySourceBuild bool, progress tobari.ClusterUpProgressSink,
-) (tobari.State, error) {
-	return r.clusterUpWithProgressMode(ctx, gatewaySourceBuild, progress, false)
+	return r.clusterUpWithProgressMode(ctx, progress, false)
 }
 
 func (r *Runtime) clusterUpWithProgressMode(
-	ctx context.Context, gatewaySourceBuild bool, progress tobari.ClusterUpProgressSink, forceRecreate bool,
+	ctx context.Context, progress tobari.ClusterUpProgressSink, forceRecreate bool,
 ) (tobari.State, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.State{}, err
@@ -434,7 +428,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 		})
 		return tobari.State{}, err
 	}
-	gatewayImage, err = r.prepareGatewayImage(ctx, state, environment, gatewaySourceBuild)
+	gatewayImage, err = r.prepareGatewayImage(ctx)
 	if err != nil {
 		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
 			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
@@ -462,11 +456,11 @@ func (r *Runtime) clusterUpWithProgressMode(
 		return tobari.State{}, err
 	}
 
-	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressBuildImage, func() error {
+	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressPrepareImages, func() error {
 		if err := r.writeState(state); err != nil {
 			return fmt.Errorf("persist Tobari state: %w", err)
 		}
-		return r.buildTobariImage(ctx, state, environment)
+		return r.prepareActiveContextImage(ctx)
 	}); err != nil {
 		return tobari.State{}, err
 	}
@@ -603,34 +597,42 @@ func (r *Runtime) waitForClusterReady(
 	return fmt.Errorf("cluster components did not become healthy")
 }
 
-func (r *Runtime) buildTobariImage(ctx context.Context, state tobari.State, environment []string) error {
-	versions, err := runtimeassets.Versions()
+func (r *Runtime) prepareActiveContextImage(ctx context.Context) error {
+	manifest, _, err := r.activeContext()
 	if err != nil {
 		return err
 	}
-	uid, gid := currentIDs()
+	image := r.resolveBuiltinImageSelector(manifest.Image)
+	if r.imageResolver().ShouldPullRuntimeImage(image) {
+		if err := r.pullOfficialRuntimeImage(ctx, image); err != nil {
+			return err
+		}
+	}
+	return r.validateCompatibleImage(ctx, image)
+}
+
+func (r *Runtime) pullOfficialRuntimeImage(ctx context.Context, image string) error {
 	var output bytes.Buffer
-	err = r.runner.Run(
+	err := r.runner.Run(
 		ctx,
-		[]string{
-			"build",
-			"--build-arg", "DEBIAN_IMAGE=" + versions["DEBIAN_IMAGE"],
-			"--build-arg", "TOBARI_UID=" + strconv.Itoa(uid),
-			"--build-arg", "TOBARI_GID=" + strconv.Itoa(gid),
-			"--tag", tobariImage(state),
-			"--tag", "tobari-runtime:local",
-			filepath.Join(state.RuntimeDirectory, "tobari"),
-		},
-		environment, nil, &output, &output,
+		[]string{"image", "pull", image},
+		os.Environ(), nil, &output, &output,
 	)
 	if err != nil {
-		return fmt.Errorf("build Tobari image: %w: %s", err, boundedDiagnostic(output.Bytes()))
+		return fault.Wrap(
+			fault.KindUnavailable, "runtime_image_unavailable",
+			"official Tobari runtime image is not available; inspect Docker registry access before startup", false, err,
+			fault.NextAction{Command: "doctor", Reason: "Inspect Docker registry access and the selected Context image."},
+		)
 	}
 	return nil
 }
 
-func tobariImage(state tobari.State) string {
-	return "tobari-runtime:" + state.AssetVersion
+func (r *Runtime) resolveBuiltinImageSelector(image string) string {
+	if image == tobari.BuiltinImageSelector {
+		return r.defaultRuntimeImage()
+	}
+	return image
 }
 
 func (r *Runtime) prepareState() (tobari.State, error) {
@@ -660,7 +662,7 @@ func (r *Runtime) prepareState() (tobari.State, error) {
 	}
 	if err := initializeBytes(
 		filepath.Join(r.configDirectory, "config.json"),
-		[]byte("{\n  \"version\": \"v1\",\n  \"default_image\": \"builtin\"\n}\n"), 0o600,
+		[]byte("{\n  \"version\": \"v1\",\n  \"default_image\": \""+r.defaultRuntimeImage()+"\"\n}\n"), 0o600,
 	); err != nil {
 		return tobari.State{}, err
 	}
@@ -835,9 +837,7 @@ func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root, im
 		return tobari.State{}, err
 	}
 	image := imageSelector
-	if image == tobari.BuiltinImageSelector {
-		image = tobariImage(state)
-	}
+	image = r.resolveBuiltinImageSelector(image)
 	if err := r.validateCompatibleImage(ctx, image); err != nil {
 		return tobari.State{}, err
 	}
@@ -1450,6 +1450,7 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 		} else {
 			add("policy", doctor.CheckStatusPass, "OPA policy tests passed")
 		}
+		r.addPolicyDataDiagnostic(add, state.PolicyDirectory)
 	} else {
 		add("state", doctor.CheckStatusWarn, "cluster is not configured")
 		policyDirectory := storePaths.PolicyDirectory
@@ -1463,6 +1464,9 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 			add("policy", doctor.CheckStatusFail, policyTestFailureMessage)
 		} else {
 			add("policy", doctor.CheckStatusPass, "OPA policy tests passed")
+		}
+		if _, err := os.Lstat(policyDirectory); err == nil {
+			r.addPolicyDataDiagnostic(add, policyDirectory)
 		}
 	}
 	if err := r.checkCredentialPermissionsAt(storePaths.CredentialDirectory); err != nil {
@@ -1491,6 +1495,19 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 		add("owned_resources", doctor.CheckStatusWarn, "owned containers exist: "+strings.Join(strings.Fields(string(output)), ","))
 	}
 	return doctor.Report{Checks: checks}, nil
+}
+
+func (r *Runtime) addPolicyDataDiagnostic(
+	add func(string, doctor.CheckStatus, string), policyDirectory string,
+) {
+	if _, err := readPolicyData(policyDirectory); err != nil {
+		add(
+			"policy_data", doctor.CheckStatusFail,
+			"learned policy data is invalid or unsafe; inspect the active Context policy data: "+err.Error(),
+		)
+		return
+	}
+	add("policy_data", doctor.CheckStatusPass, "learned policy data is safe for guided review")
 }
 
 func (r *Runtime) checkCredentialConfig() (string, doctor.CheckStatus) {

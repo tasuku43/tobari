@@ -93,7 +93,7 @@ func (r *Runtime) ensureContextStore() error {
 	if err := r.ensurePrivateDirectory(r.contextsDirectory()); err != nil {
 		return fmt.Errorf("prepare Context directory: %w", err)
 	}
-	image := tobari.BuiltinImageSelector
+	image := r.defaultRuntimeImage()
 	if _, err := os.Lstat(r.contextManifestPath(tobari.DefaultContextName)); errors.Is(err, os.ErrNotExist) {
 		if configured, err := r.configuredDefaultImage(); err != nil {
 			return err
@@ -259,9 +259,9 @@ func (r *Runtime) readContextManifest(name string) (tobari.ContextManifest, erro
 		return tobari.ContextManifest{}, fmt.Errorf("Context manifest contains trailing data")
 	}
 	// Context manifests written before runtime image selection was promoted
-	// into the bundle inherit the safe built-in image.
-	if manifest.Image == "" {
-		manifest.Image = tobari.BuiltinImageSelector
+	// into the bundle inherit the resolver's default base runtime.
+	if manifest.Image == "" || manifest.Image == tobari.BuiltinImageSelector {
+		manifest.Image = r.defaultRuntimeImage()
 	}
 	if err := manifest.Validate(); err != nil {
 		return tobari.ContextManifest{}, err
@@ -410,7 +410,7 @@ func (r *Runtime) CreateContext(ctx context.Context, name string, image string, 
 	}
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
-		AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: mode,
+		AgentProfile: tobari.DefaultProfile, Image: r.resolveBuiltinImageSelector(image), PolicyMode: mode,
 	}
 	if err := manifest.Validate(); err != nil {
 		return tobari.ContextReport{}, err
@@ -506,7 +506,7 @@ func (r *Runtime) UseContextWithProgress(
 		return tobari.ContextReport{}, err
 	}
 
-	if _, err := r.clusterUpWithProgressMode(ctx, false, progress, true); err != nil {
+	if _, err := r.clusterUpWithProgressMode(ctx, progress, true); err != nil {
 		restoreErr := r.restoreContextSelection(storedContext, state)
 		if restoreErr != nil {
 			return tobari.ContextReport{}, fmt.Errorf("Context reconcile failed: %w; restore previous Context: %v", err, restoreErr)

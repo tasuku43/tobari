@@ -2,7 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-binary=$PWD/bin/tobari
+binary=${TOBARI_INTEGRATION_BINARY:-$PWD/bin/tobari}
+custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-ghcr.io/tasuku43/tobari/runtime:latest}
 mock_name=tobari-mock-upstream
 custom_image="tobari-integration-custom-$$"
 test_root=
@@ -17,10 +18,6 @@ runtime_image=
 official_runtime_image=
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
 host_docker_context=${DOCKER_CONTEXT:-$(docker context show)}
-gateway_source_args=()
-if [[ ${TOBARI_INTEGRATION_GATEWAY_SOURCE:-0} == 1 ]]; then
-  gateway_source_args+=(--gateway-source)
-fi
 
 fail() {
   echo "integration: $*" >&2
@@ -317,11 +314,7 @@ run_other_project() {
 }
 
 start_cluster() {
-  if ((${#gateway_source_args[@]} == 0)); then
-    run_tobari cluster up
-  else
-    run_tobari cluster up "${gateway_source_args[@]}"
-  fi
+  run_tobari cluster up
 }
 
 assert_resource_bounds() {
@@ -448,12 +441,20 @@ config_directory=$test_root/config/tobari
 policy_directory=$config_directory/contexts/default/policy
 tool_auth_value=tobari-tool-auth-canary
 
-go build -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
+if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then
+  [[ -x $binary ]] || fail "TOBARI_INTEGRATION_BINARY is not executable: $binary"
+else
+  go build -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
+fi
 work_root=$test_root/user/workspace
 work_nested_root=$work_root/root
 other_root=$test_root/user/other-workspace
 mkdir -p "$work_root" "$work_nested_root" "$other_root"
 printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
+docker build --tag "$custom_image" \
+  --file test/integration/custom-image.Dockerfile \
+  --build-arg "TOBARI_RUNTIME_BASE=$custom_base_image" . >/dev/null
+assert_base_bash_contract "$custom_base_image"
 printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
   >"$config_directory/config.json"
 chmod 0600 "$config_directory/config.json"
@@ -464,9 +465,6 @@ assert_component_log_bounds tobari-opa
 assert_component_log_bounds tobari-gateway
 assert_component_resource_bounds tobari-opa 1000000000 536870912 128
 assert_component_resource_bounds tobari-gateway 2000000000 1073741824 256
-docker build --tag "$custom_image" \
-  --file test/integration/custom-image.Dockerfile . >/dev/null
-assert_base_bash_contract tobari-runtime:local
 run_tobari context create --name project-tools --image "$custom_image" --format json >/dev/null
 running_context_use=$(run_tobari context use --name project-tools --format json)
 assert_contains "$running_context_use" '"cluster":"reconciled"' "running Context switch"
@@ -482,7 +480,7 @@ if [[ $gateway_context_mounts != *"$config_directory/contexts/project-tools/cred
 fi
 running_context_use_pty=$(run_tobari_pty_at "$test_root/user" context use --name default)
 assert_contains "$running_context_use_pty" "Cluster: reconciled" "PTY running Context switch"
-assert_contains "$running_context_use_pty" 'Next: run `tobari` from a project directory.' "PTY Context switch continuation"
+assert_contains "$running_context_use_pty" "Next: run \`tobari\` from a project directory." "PTY Context switch continuation"
 docker stop tobari-gateway tobari-opa >/dev/null
 stopped_context_use=$(run_tobari context use --name project-tools --format json)
 assert_contains "$stopped_context_use" '"cluster":"not_running"' "stopped Context selection"
@@ -1040,16 +1038,18 @@ official_runtime_image=$(python3 -c 'import json,sys; d=json.load(sys.stdin)["co
 official_runtime_context=$(run_tobari context show --format json)
 assert_contains "$official_runtime_context" "\"image\":\"$official_runtime_image\"" "Official Context runtime promotion"
 assert_contains "$official_runtime_context" '"status":"ready"' "Official Context runtime status"
-python3 - "$runtime_dockerfile" <<'PY'
+runtime_template_base=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["runtime"]["base_reference"])' <<<"$runtime_init_json")
+python3 - "$runtime_dockerfile" "$runtime_template_base" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
+base = sys.argv[2]
 text = path.read_text(encoding="utf-8")
-official = "FROM ghcr.io/tasuku43/tobari/runtime:latest"
-if text.count(official) != 1:
-    raise SystemExit("runtime template did not contain one official base reference")
-path.write_text(text.replace(official, "FROM tobari-runtime:local", 1), encoding="utf-8")
+expected = f"FROM {base}"
+if text.count(expected) != 1:
+    raise SystemExit(f"runtime template did not contain one base reference: {expected}")
+path.write_text(text + "\n# integration custom runtime rebuild\n", encoding="utf-8")
 PY
 runtime_build_json=$(run_tobari runtime build --format json)
 runtime_image=$(python3 -c 'import json,sys; d=json.load(sys.stdin)["context"]; assert d["runtime"]["status"] == "ready"; print(d["image"])' <<<"$runtime_build_json")

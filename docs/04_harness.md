@@ -19,13 +19,21 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, and integration profiles |
 
 The optional `task toolbox:build` workflow is not a completion profile. It
-requires Docker and the locally materialized `tobari-runtime:local` base,
+requires Docker and the official Tobari runtime base,
 downloads the version-pinned specialized CLI artifacts, builds
 `tobari-toolbox:local`, validates inherited runtime metadata, and executes each
 named tool. The base runtime check separately verifies the common Git, HTTP,
 JSON, Python, SSH, and command-line tool contract. The fast profile statically
 checks that versions, official sources, integrity checks, final user, and the
 inherited entrypoint contract cannot silently disappear.
+
+`task build:dev` is a contributor feedback path, not a completion profile. It
+builds local Tobari-managed images `tobari-gateway:dev` and
+`tobari-runtime:dev`, then builds `bin/tobari-dev` with the `tobari_dev` image
+resolver. The normal `task build` binary keeps using the published Gateway
+digest and official runtime base. To run the integration script against the
+dev resolver, set `TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev` and
+`TOBARI_INTEGRATION_CUSTOM_BASE=tobari-runtime:dev`.
 
 The focused `task runtime:base:check` workflow validates the canonical
 `runtimes/base` metadata and digest lock, the Dockerfile's common tool and
@@ -42,8 +50,9 @@ states, and secret redaction. The Gateway image
 workflow builds both supported architectures; only its main-push publish job
 has package-write permission, and its pull-request validation job is
 cache-only. Runtime tests preflight the immutable Gateway digest, labels,
-entrypoint, default user, and Docker Engine platform before shared resources;
-the explicit source-build integration path exercises the checked fallback.
+entrypoint, default user, Docker Engine platform, and selected runtime base
+before shared resources; local source image feedback is covered by the explicit
+contributor `task build:dev` path.
 
 The focused Claude and Codex runtime checks validate their pinned agent
 artifacts and inherited contract. Their local build fixtures also replace

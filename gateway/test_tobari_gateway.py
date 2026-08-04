@@ -179,6 +179,32 @@ class GatewayTests(unittest.TestCase):
         self.assertIsNone(document["authorization"]["requested_profile"])
         self.assertNotIn("x-tobari-credential-profile", document["request"]["headers"])
 
+    def test_intercepted_connect_request_uses_https_scheme_for_policy(self):
+        flow = self.flow("http://example.com:443/quickstart", "PUT")
+        flow.request.raw_content = b""
+        flow.client_conn = SimpleNamespace(
+            sockname=("172.29.0.2", 8080),
+            tls_established=True,
+        )
+        document = gateway.build_policy_input(
+            flow, "default", self.project_a, 1024, set(), None
+        )
+        self.assertEqual(document["request"]["authority"]["scheme"], "https")
+        self.assertEqual(document["request"]["authority"]["port"], 443)
+        self.assertEqual(document["request"]["body"]["state"], "empty")
+
+    def test_plain_http_on_port_443_keeps_http_scheme_for_policy(self):
+        flow = self.flow("http://example.com:443/quickstart", "PUT")
+        flow.request.raw_content = b""
+        flow.client_conn = SimpleNamespace(
+            sockname=("172.29.0.2", 8080),
+            tls_established=False,
+        )
+        document = gateway.build_policy_input(
+            flow, "default", self.project_a, 1024, set(), None
+        )
+        self.assertEqual(document["request"]["authority"]["scheme"], "http")
+
     def test_unknown_credential_adapter_fails_closed_at_construction(self):
         with mock.patch.dict(
             os.environ, {"TOBARI_CREDENTIAL_ADAPTER": "unknown"}, clear=False
@@ -435,6 +461,7 @@ class GatewayTests(unittest.TestCase):
 
         document = json.loads(flow.response.content)
         self.assertEqual(document["error"], "policy_denied")
+        self.assertIn("Leave the Workspace with `exit`", document["message"])
         self.assertEqual(document["tobari"]["schema_version"], 1)
         self.assertEqual(document["tobari"]["event"], "permission_review_available")
         self.assertEqual(document["tobari"]["run_on"], "host")

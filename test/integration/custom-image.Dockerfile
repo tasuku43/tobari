@@ -1,4 +1,5 @@
-FROM tobari-runtime:local
+ARG TOBARI_RUNTIME_BASE=ghcr.io/tasuku43/tobari/runtime:latest
+FROM ${TOBARI_RUNTIME_BASE}
 
 USER root
 RUN apt-get update \

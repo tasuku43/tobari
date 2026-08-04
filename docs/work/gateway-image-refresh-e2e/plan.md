@@ -7,7 +7,7 @@
 ## Investigation
 
 1. Compare the pinned Gateway digest and image labels/API contract with the
-   current Gateway source and the image built by `--gateway-source`.
+   current Gateway source and the image built by the contributor dev path.
 2. Inspect the release workflow and its artifact timing to determine whether
    the digest is stale, mis-selected, or locally cached incorrectly.
 3. Reproduce on the supported Docker architecture without modifying policy

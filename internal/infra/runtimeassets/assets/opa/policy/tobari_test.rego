@@ -43,6 +43,16 @@ test_deny_by_default if {
 	result.learnable
 }
 
+test_readme_quickstart_put_is_learnable if {
+	request := object.union(
+		request_with_authority({"host": "example.com"}),
+		{"method": "PUT", "path": {"raw": "/quickstart", "segments": ["quickstart"]}},
+	)
+	result := decision with input as input_with_request(request)
+	not result.allow
+	result.learnable
+}
+
 test_deny_missing_authorization_shape if {
 	malformed := object.remove(base_input, ["authorization"])
 	result := decision with input as malformed

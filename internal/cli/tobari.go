@@ -30,8 +30,7 @@ func runClusterUp(ctx context.Context, c *CLI, command CommandSpec, _ operation.
 		progressSink = progress.Report
 		defer progress.Close()
 	}
-	gatewaySourceBuild, _ := inputs.Boolean("--gateway-source")
-	status, err := c.tobari.ClusterUpWithProgressMode(ctx, intent, gatewaySourceBuild, progressSink)
+	status, err := c.tobari.ClusterUpWithProgress(ctx, intent, progressSink)
 	if err != nil {
 		if progress != nil {
 			progress.Fail()
@@ -558,6 +557,14 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	// The child interactive process owns stdout. Keep the host-side lifecycle
 	// guidance on stderr so shell output from the session remains untouched.
 	message := renderProjectSessionClosed()
+	if c.context != nil {
+		if report, contextErr := c.context.Show(ctx, ""); contextErr == nil &&
+			report.Runtime.Status == tobari.ContextRuntimeStatusOfficial {
+			message = append(message, '\n')
+			message = append(message, runtimeCustomizationHint()...)
+			message = append(message, '\n')
+		}
+	}
 	if pending, reviewErr := c.tobari.PolicyReview(ctx, 10_000); reviewErr == nil {
 		message = append(message, renderPendingPolicyNotification(pending)...)
 	}
@@ -1461,6 +1468,8 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 
 func clusterStatusHeading(status tobari.ClusterStatus) (string, string, colorToken) {
 	switch {
+	case status.Task == tobari.TaskClusterDown && !status.Configured:
+		return "✓", "Cluster removed", colorTokenSuccess
 	case !status.Configured:
 		return "○", "Cluster not configured", colorTokenMuted
 	case !status.Running:

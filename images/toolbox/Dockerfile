@@ -1,4 +1,4 @@
-FROM tobari-runtime:local AS fetcher
+FROM ghcr.io/tasuku43/tobari/runtime:latest AS fetcher
 
 ARG TARGETARCH
 ARG GH_VERSION
@@ -63,7 +63,7 @@ RUN set -eu; \
     unzip -q /tmp/awscliv2.zip -d /tmp/aws-installer; \
     /tmp/aws-installer/aws/install --install-dir /opt/aws-cli --bin-dir /opt/aws-bin
 
-FROM tobari-runtime:local
+FROM ghcr.io/tasuku43/tobari/runtime:latest
 
 LABEL org.opencontainers.image.title="Tobari toolbox" \
       org.opencontainers.image.description="Optional local work image for common network-facing CLIs"

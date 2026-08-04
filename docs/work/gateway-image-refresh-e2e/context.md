@@ -3,9 +3,10 @@
 ## Verified facts
 
 - The policy decision management change is committed on `main` as `b6327e1`.
-- `TOBARI_INTEGRATION_GATEWAY_SOURCE=1 ./scripts/test-integration.sh` completes
-  with `integration: OK`, including Allow reset, Deny reset, default-deny
-  checks, and re-review.
+- The previous source-built Gateway replay completed with `integration: OK`,
+  including Allow reset, Deny reset, default-deny checks, and re-review. That
+  public fallback has now been replaced by the contributor-only `task
+  build:dev` / `bin/tobari-dev` path.
 - The default `./scripts/test-integration.sh` fails at
   `GET http://mock-upstream:8080/allowed` with HTTP 403 and Gateway audit
   reason `request did not match an allow rule`.
@@ -14,14 +15,24 @@
 - The default failure reproduces from the pre-feature commit `4f087fd`.
 - `./scripts/check-gateway-source.sh` and the full `task check` pass, so the
   checked-in source and embedded snapshot are internally equal.
-- The explicit source-build path is the documented development/recovery path;
-  it must not become an implicit fallback for ordinary startup.
+- The explicit local development path is `task build:dev`; it must not become
+  an implicit fallback for ordinary startup.
+- During the first-use repair, ordinary `cluster up` with the pinned image
+  returned `permission_review_unavailable` for
+  `PUT https://example.com/quickstart`, while the current Gateway source
+  returned `permission_review_available` for the same request and produced a
+  `policy review` candidate.
+- The running pinned Gateway container did not contain the new source markers
+  for TLS-established scheme normalization or the host-only review message.
+- Static OPA evaluation with `scheme:"https", port:443, method:"PUT",
+  path:"/quickstart"` is learnable; static OPA evaluation with `scheme:"http",
+  port:443` is intentionally non-learnable.
 
 ## Constraints
 
 - Preserve deny-by-default and the verified-image boundary.
 - Keep the regular integration gate meaningful: it must exercise the pinned
-  image, not a source build hidden inside the test.
+  image, not a local dev image hidden inside the test.
 - Treat image publication, digest changes, and release metadata as separate
   authority-sensitive work.
 
@@ -38,8 +49,9 @@
 
 ```sh
 ./scripts/test-integration.sh
-TOBARI_INTEGRATION_GATEWAY_SOURCE=1 ./scripts/test-integration.sh
+task build:dev
+bin/tobari-dev cluster up
 ```
 
-Expected after repair: both commands reach and pass the same policy-learning
-assertions; source mode remains an explicit diagnostic comparison.
+Expected after repair: the default integration reaches and passes the same
+policy-learning assertions as the contributor local Gateway image path.

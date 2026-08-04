@@ -102,15 +102,15 @@ metadata is rejected before project home, network, or container mutation. Users
 remain responsible for image contents and should prefer immutable digest
 references.
 
-The active Context's runtime recipe is a trusted-host build input. `runtime
-build` is the only supported path that may obtain a missing base image, and that
-network effect occurs only because the user explicitly requested the build.
-Docker receives the owner-only Context `runtime/` directory as its complete build
-context; policy files, credential metadata and secret files, the host home,
-Docker sockets, and Workspace mounts are outside it. The generated image must
-pass the same compatibility inspection before its reference is promoted into
-the Context. Editing the recipe or a failed build cannot replace the last
-selected image.
+The active Context's runtime recipe is a trusted-host build input. Explicit
+`cluster up` may obtain the published official runtime base for an
+uncustomized Context; `runtime build` may obtain the declared base image only
+because the user explicitly requested a host build. Docker receives the
+owner-only Context `runtime/` directory as its complete build context; policy
+files, credential metadata and secret files, the host home, Docker sockets, and
+Workspace mounts are outside it. The generated image must pass the same
+compatibility inspection before its reference is promoted into the Context.
+Editing the recipe or a failed build cannot replace the last selected image.
 For the exact official `ghcr.io/tasuku43/tobari/runtime:latest` first base,
 the explicit build also requests a refresh of the moving base. Explicit local
 or custom bases do not receive that registry-pull request; this keeps local
@@ -155,9 +155,9 @@ starts directly as the invoking numeric non-root identity supplied by Compose.
 Routine startup pulls only the reviewed immutable Gateway digest recorded in
 the embedded asset metadata and rejects missing labels, a root default user,
 the wrong entrypoint, or a Docker Engine platform mismatch before cluster
-resources are created. The explicit `cluster up --gateway-source` recovery
-path builds only the checked embedded snapshot and runs the same compatibility
-preflight. The image does not bake in a host UID/GID. The private CA named volume is
+resources are created. Contributor source testing uses the separate
+`task build:dev` path and a `tobari_dev` binary that selects local image tags;
+the public `cluster up` command never builds Gateway source. The image does not bake in a host UID/GID. The private CA named volume is
 mounted only into Gateway and its initialization directory is writable by that
 service; the public CA named volume is written by Gateway and mounted
 read-only into each Tobari. Gateway opens no root entrypoint and receives no

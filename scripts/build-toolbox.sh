@@ -13,13 +13,8 @@ for version_name in GH_VERSION AWS_CLI_VERSION KUBECTL_VERSION TWG_VERSION; do
   fi
 done
 
-if ! docker image inspect tobari-runtime:local >/dev/null 2>&1; then
-  echo "tobari-runtime:local is missing; run 'tobari cluster up' first" >&2
-  exit 1
-fi
-
 docker build \
-  --pull=false \
+  --pull=true \
   --tag "$tag" \
   --file images/toolbox/Dockerfile \
   --build-arg "GH_VERSION=$GH_VERSION" \

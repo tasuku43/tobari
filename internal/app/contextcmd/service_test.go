@@ -65,7 +65,7 @@ func (f *contextRuntimeFake) BuildRuntime(context.Context) (tobari.ContextReport
 func contextReport(task, name string) tobari.ContextReport {
 	return tobari.ContextReport{
 		Task: task, Name: name, Active: task == tobari.TaskContextUse,
-		AgentProfile: tobari.DefaultProfile, Image: "tobari-runtime:local",
+		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
 		PolicyMode: tobari.ContextPolicyModeGuided,
 		Cluster:    tobari.ContextClusterStatusNotApplicable,
 		Stores: tobari.ContextStorePaths{
@@ -93,12 +93,12 @@ func TestCreateValidatesIntentAndPassesRuntimeImageToPort(t *testing.T) {
 		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
 		Impact: contextImpact(),
 	}
-	result, err := service.Create(context.Background(), intent, "project-tools", "tobari-runtime:local", tobari.ContextPolicyModeAdvanced)
+	result, err := service.Create(context.Background(), intent, "project-tools", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if result.Name != "project-tools" || fake.createCalls != 1 || fake.lastName != "project-tools" ||
-		fake.lastImage != "tobari-runtime:local" || fake.lastMode != tobari.ContextPolicyModeAdvanced {
+		fake.lastImage != tobari.OfficialRuntimeBase || fake.lastMode != tobari.ContextPolicyModeAdvanced {
 		t.Fatalf("result/call = %+v, calls=%d name=%q image=%q mode=%q", result, fake.createCalls, fake.lastName, fake.lastImage, fake.lastMode)
 	}
 }

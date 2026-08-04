@@ -10,7 +10,7 @@ type ClusterUpProgressStep string
 const (
 	ClusterUpProgressPrepare           ClusterUpProgressStep = "prepare"
 	ClusterUpProgressPolicy            ClusterUpProgressStep = "policy"
-	ClusterUpProgressBuildImage        ClusterUpProgressStep = "build_image"
+	ClusterUpProgressPrepareImages     ClusterUpProgressStep = "prepare_images"
 	ClusterUpProgressStartServices     ClusterUpProgressStep = "start_services"
 	ClusterUpProgressConnectNetworks   ClusterUpProgressStep = "connect_networks"
 	ClusterUpProgressWaitForHealth     ClusterUpProgressStep = "wait_for_health"
@@ -44,7 +44,7 @@ func (p ClusterUpProgress) Validate() error {
 	switch p.Step {
 	case ClusterUpProgressPrepare,
 		ClusterUpProgressPolicy,
-		ClusterUpProgressBuildImage,
+		ClusterUpProgressPrepareImages,
 		ClusterUpProgressStartServices,
 		ClusterUpProgressConnectNetworks,
 		ClusterUpProgressWaitForHealth,

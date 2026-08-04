@@ -11,7 +11,7 @@ func validContextManifest() ContextManifest {
 		SchemaVersion: ContextSchemaVersion,
 		Name:          "project-tools",
 		AgentProfile:  DefaultProfile,
-		Image:         "tobari-runtime:local",
+		Image:         OfficialRuntimeBase,
 		PolicyMode:    ContextPolicyModeAdvanced,
 	}
 }
@@ -114,8 +114,8 @@ func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {
 
 func TestContextListRequiresOneMatchingActiveItem(t *testing.T) {
 	items := []ContextSummary{
-		{Name: "default", Active: true, AgentProfile: DefaultProfile, Image: BuiltinImageSelector, PolicyMode: ContextPolicyModeGuided},
-		{Name: "project-tools", AgentProfile: DefaultProfile, Image: "tobari-runtime:local", PolicyMode: ContextPolicyModeAdvanced},
+		{Name: "default", Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided},
+		{Name: "project-tools", AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced},
 	}
 	result := ContextListResult{Task: TaskContextList, Active: "default", Items: items}
 	if err := result.Validate(); err != nil {

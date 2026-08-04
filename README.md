@@ -124,16 +124,23 @@ Container bases are pinned by immutable digest in
 git clone https://github.com/tasuku43/tobari.git
 cd tobari
 task build
-install -m 0755 bin/tobari ~/.local/bin/tobari
+tobari version # works immediately when this repository's bin/ is on PATH
 ```
 
 Alternatively:
 
 ```sh
+install -m 0755 bin/tobari ~/.local/bin/tobari
+```
+
+Or build through Go's install path:
+
+```sh
 go install ./cmd/tobari
 ```
 
-Ensure the destination is on `PATH`.
+Ensure the destination is on `PATH`; for the `install` example above, that
+usually means `~/.local/bin` is on `PATH`.
 
 ## Quick start
 
@@ -161,8 +168,9 @@ Prerequisites:
   configuration/state directories must be visible through the Docker VM's
   shared paths; an unshared bind path stops setup before a Workspace can start;
   and
-- access to the reviewed Gateway image if it is not already local. The
-  explicit `runtime build` step may obtain its declared base image.
+- access to the reviewed Gateway image and official runtime base image if they
+  are not already local. The explicit `runtime build` step may obtain its
+  declared base image.
 
 ### 1. Start from a project directory
 
@@ -177,13 +185,11 @@ tobari cluster up
 ```
 
 `cluster up` is explicit shared-cluster startup. It preflights the reviewed
-Gateway image and starts Gateway, OPA, policy, and CA state. Ordinary
-`tobari` entry does not repair or start the cluster and does not pull a
-configured work image. If the reviewed Gateway image is unavailable, inspect
+Gateway image, obtains the official runtime base image for the default Context,
+and starts Gateway, OPA, policy, and CA state. Ordinary `tobari` entry does not
+repair or start the cluster. If either published image is unavailable, inspect
 the host with `tobari doctor` and retry `tobari cluster up`; `doctor` is a
-diagnostic recovery command, not a prerequisite for the normal path. The
-`--gateway-source` option is only the explicit Gateway source-development or
-recovery path.
+diagnostic recovery command, not a prerequisite for the normal path.
 
 ### 2. Observe a denied request inside Tobari
 
@@ -319,11 +325,10 @@ previously selected image active.
 ### Failure and recovery
 
 - `tty_required`: run the root `tobari` command from an interactive terminal.
-- `cluster_start_failed`, `gateway_image_unavailable`, or
-  `gateway_image_incompatible`: run `tobari doctor`, inspect
-  `tobari cluster status`, and retry `tobari cluster up`; use
-  `tobari cluster up --gateway-source` only for its explicit source/recovery
-  purpose.
+- `cluster_start_failed`, `gateway_image_unavailable`,
+  `runtime_image_unavailable`, `gateway_image_incompatible`, or
+  `incompatible_image`: run `tobari doctor`, inspect `tobari cluster status`,
+  and retry `tobari cluster up`.
 - A learnable `403`: leave the session and run `tobari policy review`. On a TTY,
   inspect the request and explicitly confirm allow or deny; the review flow
   applies the exact decision and tells you to re-enter. Redirected or machine
@@ -372,17 +377,13 @@ Start the shared enforcement cluster explicitly:
 tobari cluster up
 ```
 
-`cluster up` obtains the reviewed immutable Gateway image when it is not
-already local, checks its digest, enforcement labels, non-root entrypoint, and
-Docker Engine architecture before starting shared resources. For Gateway
-source development or recovery, use the explicit fallback:
-
-```sh
-tobari cluster up --gateway-source
-```
-
-The fallback builds only the checked-in embedded Gateway snapshot; it is never
-selected automatically when the official image is unavailable.
+`cluster up` obtains the reviewed immutable Gateway image and official runtime
+base image when they are not already local, then checks the Gateway digest,
+enforcement labels, non-root entrypoint, and Docker Engine architecture before
+starting shared resources. Tobari contributors who need to test local Gateway
+or runtime-base source changes use `task build:dev` and the resulting
+`bin/tobari-dev` binary; the public `cluster up` path does not build images
+from source.
 
 In an interactive terminal, `cluster up` shows a compact colored three-phase
 checklist (`prepare environment`, `start services`, and `verify readiness`) on
@@ -506,11 +507,21 @@ egress route.
 
 ### Explicit image compatibility path
 
-`cluster up` also builds `tobari-runtime:local`, the local base work runtime.
-Add agent-specific tools without replacing its user or entrypoint:
+The default Context starts from the published Tobari runtime base image. This
+is a bootstrap runtime: it is useful for first entry, but ongoing work normally
+needs a Context-specific runtime image with project tools installed. Create
+that image without creating a new Context:
+
+```sh
+tobari runtime init
+# edit the active Context runtime/Dockerfile
+tobari runtime build
+```
+
+The generated Dockerfile starts from the official base:
 
 ```dockerfile
-FROM tobari-runtime:local
+FROM ghcr.io/tasuku43/tobari/runtime:latest
 
 USER root
 RUN apt-get update \
@@ -519,14 +530,22 @@ RUN apt-get update \
 USER tobari
 ```
 
-Build it explicitly on the trusted host, then select it in the owner-only XDG
-`config.json` before the first root invocation:
+`runtime build` builds a machine-managed local image for the active Context,
+validates the Tobari runtime contract, and selects it only after a successful
+build. Editing the Dockerfile alone does not change the selected image.
+
+If you already maintain a compatible image outside `runtime build`, build it
+explicitly on the trusted host, then select it in a Context:
 
 ```sh
 docker build --tag my-tobari:dev .
+tobari context create --name project-tools --image my-tobari:dev
+tobari context use --name project-tools
+tobari context show
 ```
 
-For a one-time default, the legacy XDG setting seeds the `default` Context:
+Before the default Context is initialized, the owner-only XDG setting can seed
+its image:
 
 ```json
 {
@@ -535,18 +554,11 @@ For a one-time default, the legacy XDG setting seeds the `default` Context:
 }
 ```
 
-The first Context initialization copies this selector into its manifest. For a
-named execution setup, store the runtime image directly in the Context and
-select it on the host. If a shared cluster is already running, selection also
-applies the Context's policy and Gateway credential mounts and waits for
-health. A stopped or unconfigured cluster is not started implicitly; the
-command reports that `cluster up` is still required.
-
-```sh
-tobari context create --name project-tools --image my-tobari:dev
-tobari context use --name project-tools
-tobari context show
-```
+The first Context initialization copies this selector into its manifest. If a
+shared cluster is already running, Context selection also applies the Context's
+policy and Gateway credential mounts and waits for health. A stopped or
+unconfigured cluster is not started implicitly; the command reports that
+`cluster up` is still required.
 
 Then ordinary root invocations stay short:
 
@@ -555,8 +567,9 @@ tobari
 ```
 
 New Workspaces use the active Context's runtime image. Before the default
-Context is initialized, `config.json.default_image` seeds it, then `builtin`
-is used. Project metadata does not override the Context image.
+Context is initialized, `config.json.default_image` seeds it; otherwise
+`builtin` resolves to the published official runtime base in normal builds.
+Project metadata does not override the Context image.
 
 Tobari never pulls a configured image implicitly. The image must be available
 locally and preserve runtime API `1`, the `tobari` image user, the inherited
@@ -574,6 +587,23 @@ work container with its own long-lived `sleep infinity` command, then runs an
 interactive `/bin/bash` shell or an agent as a child session. Run an exact agent command
 from inside the current `tobari` session; a child exit returns its status while
 the Workspace remains reusable.
+
+### Contributor local image path
+
+When developing Tobari itself, use the development build task:
+
+```sh
+task build:dev
+bin/tobari-dev cluster up
+TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev \
+  TOBARI_INTEGRATION_CUSTOM_BASE=tobari-runtime:dev \
+  ./scripts/test-integration.sh
+```
+
+That task builds `tobari-gateway:dev`, `tobari-runtime:dev`, and a
+`tobari_dev`-tagged CLI binary. Only that binary resolves Tobari-managed images
+to those local tags. The normal `task build` binary keeps using the published
+Gateway digest and official runtime base.
 
 ### Runtime customization
 
@@ -596,11 +626,10 @@ the template includes a harmless package-install example. `runtime build` uses
 only that Context runtime directory, refreshes the official
 `ghcr.io/tasuku43/tobari/runtime:latest` base because the build was explicitly
 requested, validates the Tobari runtime contract, and selects a machine-managed
-local image. A local or custom base such as
-`tobari-runtime:local` also works without a registry pull. No image name,
-Context name, or manifest edit is needed. If editing or building fails, the
-previously selected image remains active. Inspect the exact active path and
-status with:
+local image. A local or custom base also works without an extra refresh pull.
+No image name, Context name, or manifest edit is needed. If editing or building
+fails, the previously selected image remains active. Inspect the exact active
+path and status with:
 
 ```sh
 tobari context show
@@ -634,7 +663,7 @@ tobari cluster down --purge # also removes shared CA volumes
 
 | Command | Outcome |
 |---|---|
-| `tobari cluster up [--gateway-source]` | Preflight the verified Gateway image, test policy, and reconcile shared Gateway and OPA |
+| `tobari cluster up` | Preflight the verified Gateway image and runtime base, test policy, and reconcile shared Gateway and OPA |
 | `tobari cluster status [--format text\|json]` | Show shared readiness, component health, policy, project count, and diagnostics |
 | `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and review command |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
@@ -902,8 +931,9 @@ Common failures:
   corresponding action. If tests pass outside Tobari, verify that the XDG
   policy directory is shared with the Docker VM.
 - `gateway_image_unavailable`: inspect Docker registry access with `tobari
-  doctor`, then retry `tobari cluster up`; use `--gateway-source` only for
-  explicit source development or recovery.
+  doctor`, then retry `tobari cluster up`.
+- `runtime_image_unavailable`: inspect Docker registry access and the selected
+  Context image with `tobari doctor`, then retry `tobari cluster up`.
 - `gateway_image_incompatible`: inspect the Gateway image digest, labels,
   entrypoint, and architecture with `tobari doctor` before retrying.
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
@@ -916,8 +946,9 @@ Common failures:
 - `already_inside`: exit the current Tobari before entering another session.
 - `image_not_found`: run `tobari runtime build` on the host; a new Workspace
   is not registered until its selected compatible image is available locally.
-- `incompatible_image`: extend `tobari-runtime:local` without replacing its
-  user, lifetime-command capability, or entrypoint.
+- `incompatible_image`: extend the official Tobari runtime base, or another
+  compatible image, without replacing its user, lifetime-command capability, or
+  entrypoint.
 - `runtime_recipe_missing`: run `tobari runtime init`, edit the active Context
   Dockerfile, and run `tobari runtime build`.
 - `runtime_build_failed`: inspect `tobari context show`; the previous selected

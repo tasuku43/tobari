@@ -12,8 +12,8 @@
 - `compose.yaml` consumes `TOBARI_GATEWAY_IMAGE` and explicitly uses
   `--no-build`; the normal path does not build Gateway on the host.
 - `cluster up` preflights the immutable Gateway digest before policy tests or
-  cluster mutation. `cluster up --gateway-source` explicitly builds the
-  materialized snapshot as a development/recovery path.
+  cluster mutation. Local Gateway source testing now uses `task build:dev` and
+  a `tobari_dev` binary that selects the local development image tag.
 - The Gateway Dockerfile no longer receives host UID/GID build arguments. Image
   code is root-owned/read-only, the default image user is numeric non-root, and
   Compose supplies the invoking host UID/GID at runtime. The CA initialization
@@ -74,8 +74,9 @@
       enforce before compose startup? The CLI verifies the immutable digest,
       `io.tobari.gateway-api=1`, `io.tobari.gateway-role=enforcement`, the
       non-root user, entrypoint, and Docker Engine platform.
-- [x] Source builds are selected explicitly with `cluster up --gateway-source`;
-      rollback restores the reviewed digest in `versions.env`.
+- [x] Contributor source builds are selected explicitly with `task build:dev`
+      and `bin/tobari-dev`; rollback restores the reviewed digest in
+      `versions.env`.
 - [x] The first GHCR package was published successfully, but its visibility is
       still pending the package-owner visibility change. On 2026-08-04 an
       anonymous manifest request returned `401`, and the active GitHub token

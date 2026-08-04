@@ -264,6 +264,10 @@ def build_policy_input(
     request = flow.request
     split = urlsplit(request.url)
     host = request.host.rstrip(".").lower()
+    scheme = request.scheme.lower()
+    client = getattr(flow, "client_conn", None)
+    if scheme == "http" and request.port == 443 and getattr(client, "tls_established", False):
+        scheme = "https"
     path = split.path or "/"
     if requested_profile is _REQUESTED_PROFILE_UNSET:
         requested_profile = request.headers.get(PROFILE_HEADER)
@@ -274,7 +278,7 @@ def build_policy_input(
         "principal": {"cluster": cluster, "project_id": project_id},
         "request": {
             "authority": {
-                "scheme": request.scheme.lower(),
+                "scheme": scheme,
                 "host": host,
                 "port": request.port,
             },
@@ -468,9 +472,17 @@ def _policy_denied(flow: http.HTTPFlow, status: int, learnable: bool) -> None:
         "automatic_retry": False,
         "retry_after_review": review_available,
     }
+    message = (
+        "Tobari blocked this network request because it is outside the current execution boundary."
+    )
+    if review_available:
+        message = (
+            "Tobari blocked this network request because it is outside the current execution boundary. "
+            "Leave the Workspace with `exit`, then run `tobari policy review` on the trusted host."
+        )
     document = {
         "error": "policy_denied",
-        "message": "Tobari blocked this network request because it is outside the current execution boundary.",
+        "message": message,
         "tobari": {
             "schema_version": 1,
             "event": "permission_review_available"

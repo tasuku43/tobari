@@ -14,14 +14,15 @@ stored below the Go CLI's embedded runtime asset tree. That layout keeps the
 CLI self-contained and keeps the Compose contract close to its consumer, but it
 also makes Gateway source ownership and image publication difficult to see.
 The product needs a simple first startup and should not require every user to
-build the trusted proxy implementation locally forever. At the same time, the
-CLI must retain an embedded source fallback while an official image digest and
-its volume contract are being verified.
+build the trusted proxy implementation locally. At the same time, contributors
+must be able to test Gateway source changes locally without waiting for a
+main-push image publication and digest pin.
 
 ## Decision drivers
 
 - Keep one editable Gateway source of truth inside the monorepo.
-- Preserve a self-contained CLI and an explicit source-development path.
+- Preserve a self-contained CLI and an explicit contributor
+  source-development path.
 - Publish a reviewed multi-architecture image without granting it policy,
   credential, project-root, or project-principal authority.
 - Keep pull requests free of package-write permissions.
@@ -72,8 +73,9 @@ package-write permission. No provenance or SBOM claim is added by this ADR.
 The CLI records one reviewed multi-architecture Gateway manifest digest in the
 embedded `versions.env` and consumes that digest during routine `cluster up`.
 Startup verifies the digest, API/role labels, non-root entrypoint, and Docker
-Engine platform before policy tests or cluster resources. `cluster up --gateway-source`
-is the explicit source-development/recovery path and runs
+Engine platform before policy tests or cluster resources. Contributor source
+development uses `task build:dev`, which builds `tobari-gateway:dev` and a
+`tobari_dev` CLI binary whose image resolver selects that local tag and runs
 the same compatibility preflight. Moving tags are never that authority.
 
 ## Consequences
@@ -81,17 +83,17 @@ the same compatibility preflight. Moving tags are never that authority.
 ### Positive
 
 - Gateway source, tests, and Docker packaging have an obvious monorepo home.
-- The CLI remains self-contained and can recover through an explicit source
-  build while the image release path evolves.
+- The CLI remains self-contained while contributor source changes can still be
+  verified locally through an explicit development build.
 - Snapshot drift is a mechanical gate rather than a code-review convention.
 - The official image can be built and published independently from CLI archive
   releases without moving policy or credential authority into the image.
 
 ### Negative
 
-- The routine path now depends on the published immutable Gateway digest; the
-  explicit source-build flag remains available when registry access or image
-  publication is being repaired.
+- The routine path now depends on the published immutable Gateway digest;
+  registry access or image-publication failures are repaired through the
+  publication path rather than a public local-build option.
 - The repository carries one generated embed snapshot in addition to the
   canonical source.
 - The volume directory permission design must be tested on each supported
@@ -106,6 +108,8 @@ the same compatibility preflight. Moving tags are never that authority.
   main-push publication permissions and verifies the pinned parent reference.
 - The Gateway runtime preflight verifies the immutable digest, API/role labels,
   non-root user, entrypoint, and Docker Engine platform before cluster mutation.
+- `task build:dev` builds the local Gateway and runtime-base development tags
+  and compiles the `tobari_dev` image resolver.
 - The runtime and integration gates retain the embedded snapshot and private /
   public CA volume checks.
 

@@ -21,7 +21,7 @@ const (
 
 const contextRuntimeTemplate = `# This file defines the runtime for the active Tobari Context.
 # Add the tools and configuration your coding agent needs.
-FROM ghcr.io/tasuku43/tobari/runtime:latest
+FROM %s
 
 USER root
 
@@ -32,6 +32,10 @@ USER root
 
 USER tobari
 `
+
+func runtimeRecipeTemplate(baseImage string) string {
+	return fmt.Sprintf(contextRuntimeTemplate, baseImage)
+}
 
 func (r *Runtime) contextRuntimeDirectory(name string) string {
 	return filepath.Join(r.contextDirectory(name), "runtime")
@@ -70,7 +74,7 @@ func (r *Runtime) contextRuntimeSourceDigest(name string) (string, error) {
 	return "sha256:" + hex.EncodeToString(hash[:]), nil
 }
 
-func (r *Runtime) contextRuntimeUsesOfficialBase(name string) (bool, error) {
+func (r *Runtime) contextRuntimeUsesRefreshableBase(name string) (bool, error) {
 	data, err := os.ReadFile(r.contextRuntimeDockerfile(name)) // #nosec G304 -- path is the fixed child of a validated Context.
 	if err != nil {
 		return false, fmt.Errorf("read runtime Dockerfile for base refresh: %w", err)
@@ -87,7 +91,7 @@ func (r *Runtime) contextRuntimeUsesOfficialBase(name string) (bool, error) {
 			if strings.HasPrefix(field, "--") {
 				continue
 			}
-			return field == tobari.OfficialRuntimeBase, nil
+			return field == r.defaultRuntimeImage() && r.imageResolver().ShouldPullRuntimeImage(field), nil
 		}
 	}
 	return false, nil
@@ -96,8 +100,9 @@ func (r *Runtime) contextRuntimeUsesOfficialBase(name string) (bool, error) {
 func (r *Runtime) contextRuntimeReport(manifest tobari.ContextManifest) (tobari.ContextRuntimeReport, error) {
 	if manifest.Runtime == nil {
 		return tobari.ContextRuntimeReport{
-			Kind:   tobari.ContextRuntimeKindOfficial,
-			Status: tobari.ContextRuntimeStatusOfficial,
+			Kind:          tobari.ContextRuntimeKindOfficial,
+			Status:        tobari.ContextRuntimeStatusOfficial,
+			BaseReference: r.defaultRuntimeImage(),
 		}, nil
 	}
 	recipe := *manifest.Runtime
@@ -185,7 +190,7 @@ func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ContextReport, error)
 		manifest.Runtime = &tobari.ContextRuntimeRecipe{
 			Kind:          tobari.ContextRuntimeKindDockerfile,
 			File:          tobari.ContextRuntimeRecipeFile,
-			BaseReference: tobari.OfficialRuntimeBase,
+			BaseReference: r.defaultRuntimeImage(),
 		}
 		if err := manifest.Validate(); err != nil {
 			return err
@@ -193,7 +198,7 @@ func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ContextReport, error)
 		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
 			return fmt.Errorf("write runtime recipe metadata: %w", err)
 		}
-		if err := initializeBytes(path, []byte(contextRuntimeTemplate), contextRuntimeFileMode); err != nil {
+		if err := initializeBytes(path, []byte(runtimeRecipeTemplate(r.defaultRuntimeImage())), contextRuntimeFileMode); err != nil {
 			_ = writeAtomicJSON(r.contextManifestPath(previous.Name), previous)
 			return fmt.Errorf("write runtime Dockerfile: %w", err)
 		}
@@ -236,12 +241,12 @@ func (r *Runtime) BuildRuntime(ctx context.Context) (tobari.ContextReport, error
 		}
 		image := managedRuntimeImage(manifest.Name, sourceDigest)
 		var output bytes.Buffer
-		pullOfficialBase, err := r.contextRuntimeUsesOfficialBase(manifest.Name)
+		pullBase, err := r.contextRuntimeUsesRefreshableBase(manifest.Name)
 		if err != nil {
 			return err
 		}
 		buildArgs := []string{"build"}
-		if pullOfficialBase {
+		if pullBase {
 			buildArgs = append(buildArgs, "--pull")
 		}
 		buildArgs = append(

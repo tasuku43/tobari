@@ -12,15 +12,15 @@
 
 ## Outcome
 
-The default integration path using the verified pinned Gateway image reaches the
-same policy-learning assertions as the explicit source-build path. The test
-must continue to reject a stale or incompatible image rather than silently
-switching to source mode.
+The default integration path using the verified pinned Gateway image reaches
+the same policy-learning assertions as the contributor local Gateway image
+path. The test must continue to reject a stale or incompatible image rather
+than silently switching to local development images.
 
 ## Current boundary
 
-`TOBARI_INTEGRATION_GATEWAY_SOURCE=1 ./scripts/test-integration.sh` passes the
-full current lifecycle, policy, reset, and re-review scenario. The default
+The previous explicit source-Gateway integration comparison passed the full
+current lifecycle, policy, reset, and re-review scenario. The default
 `./scripts/test-integration.sh` fails at the initial allowed GET with a Gateway
 403 before policy-learning assertions. The same failure reproduces at commit
 `4f087fd`, while the Gateway source snapshot check passes. This is a separate
@@ -29,7 +29,7 @@ image/release freshness issue, not a regression from `b6327e1`.
 ## Non-goals
 
 - Do not weaken the default policy or change `/allowed` into an implicit grant.
-- Do not make integration tests silently select `--gateway-source`.
+- Do not make integration tests silently select a local dev image path.
 - Do not publish an image or change the pinned digest without the release
   contract and appropriate publication authority.
 

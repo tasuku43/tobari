@@ -27,7 +27,7 @@ const (
 var clusterUpProgressPhases = map[tobari.ClusterUpProgressStep]clusterUpProgressPhase{
 	tobari.ClusterUpProgressPrepare:           clusterUpPhasePrepare,
 	tobari.ClusterUpProgressPolicy:            clusterUpPhasePrepare,
-	tobari.ClusterUpProgressBuildImage:        clusterUpPhasePrepare,
+	tobari.ClusterUpProgressPrepareImages:     clusterUpPhasePrepare,
 	tobari.ClusterUpProgressStartServices:     clusterUpPhaseStart,
 	tobari.ClusterUpProgressConnectNetworks:   clusterUpPhaseStart,
 	tobari.ClusterUpProgressWaitForHealth:     clusterUpPhaseVerify,
@@ -37,7 +37,7 @@ var clusterUpProgressPhases = map[tobari.ClusterUpProgressStep]clusterUpProgress
 }
 
 var clusterUpProgressPhaseLastSteps = map[tobari.ClusterUpProgressStep]bool{
-	tobari.ClusterUpProgressBuildImage:      true,
+	tobari.ClusterUpProgressPrepareImages:   true,
 	tobari.ClusterUpProgressConnectNetworks: true,
 	tobari.ClusterUpProgressVerifyStatus:    true,
 }

@@ -8,12 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
-	"github.com/tasuku43/tobari/internal/domain/tobari"
-	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 const (
@@ -39,56 +36,15 @@ type dockerServerMetadata struct {
 	OS           string `json:"Os"`
 }
 
-func (r *Runtime) prepareGatewayImage(
-	ctx context.Context, state tobari.State, environment []string, sourceBuild bool,
-) (string, error) {
-	if sourceBuild {
-		image := "tobari-gateway:" + state.AssetVersion
-		if err := r.buildGatewayImage(ctx, state, environment, image); err != nil {
-			return "", err
-		}
-		if err := r.verifyGatewayImage(ctx, image, false); err != nil {
-			return "", err
-		}
-		return image, nil
-	}
-	versions, err := runtimeassets.Versions()
+func (r *Runtime) prepareGatewayImage(ctx context.Context) (string, error) {
+	selection, err := r.imageResolver().GatewayImage(ctx, r)
 	if err != nil {
 		return "", err
 	}
-	image := versions["GATEWAY_IMAGE"]
-	if err := r.verifyGatewayImage(ctx, image, true); err != nil {
+	if err := r.verifyGatewayImage(ctx, selection.Image, selection.RequireDigest); err != nil {
 		return "", err
 	}
-	return image, nil
-}
-
-func (r *Runtime) buildGatewayImage(
-	ctx context.Context, state tobari.State, environment []string, image string,
-) error {
-	versions, err := runtimeassets.Versions()
-	if err != nil {
-		return err
-	}
-	var output bytes.Buffer
-	err = r.runner.Run(
-		ctx,
-		[]string{
-			"build",
-			"--build-arg", "MITMPROXY_IMAGE=" + versions["MITMPROXY_IMAGE"],
-			"--tag", image,
-			filepath.Join(state.RuntimeDirectory, "gateway"),
-		},
-		environment, nil, &output, &output,
-	)
-	if err != nil {
-		return fault.Wrap(
-			fault.KindUnavailable, "gateway_source_build_failed",
-			"The Gateway source build did not complete; inspect Docker and retry.", false, err,
-			fault.NextAction{Command: "doctor", Reason: "Inspect Docker and host access before retrying."},
-		)
-	}
-	return nil
+	return selection.Image, nil
 }
 
 func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireDigest bool) error {
@@ -115,6 +71,13 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 		metadata, err = r.inspectGatewayImage(ctx, image)
 	}
 	if err != nil {
+		if !requireDigest {
+			return fault.Wrap(
+				fault.KindUnavailable, "gateway_image_unavailable",
+				"The selected Gateway image could not be inspected; build the development image and retry.", true, err,
+				fault.NextAction{Command: "doctor", Reason: "Inspect Docker image availability."},
+			)
+		}
 		return fault.Wrap(
 			fault.KindContract, "gateway_image_incompatible",
 			"The Gateway image does not satisfy Tobari's verified image contract.", false, err,

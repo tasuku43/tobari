@@ -73,9 +73,7 @@ func (r *Runtime) ValidateProjectRuntime(ctx context.Context, state tobari.State
 	if err != nil {
 		return err
 	}
-	if image == tobari.BuiltinImageSelector {
-		image = tobariImage(state)
-	}
+	image = r.resolveBuiltinImageSelector(image)
 	return r.validateCompatibleImage(ctx, image)
 }
 
@@ -110,9 +108,7 @@ func (r *Runtime) EnsureProjectRuntime(
 			return fmt.Errorf("project root is no longer accessible at its canonical path")
 		}
 		image := stored.Image
-		if image == tobari.BuiltinImageSelector {
-			image = tobariImage(state)
-		}
+		image = r.resolveBuiltinImageSelector(image)
 		if err := r.validateCompatibleImage(ctx, image); err != nil {
 			return err
 		}

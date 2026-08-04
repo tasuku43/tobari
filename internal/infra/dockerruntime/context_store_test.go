@@ -30,6 +30,9 @@ func (r *contextSwitchRunner) Run(_ context.Context, args, _ []string, _ io.Read
 
 func (r *contextSwitchRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	if len(args) > 0 && args[0] == "image" {
+		if strings.Contains(strings.Join(args, " "), tobari.RuntimeImageAPILabel) {
+			return compatibleImageInspection(), nil
+		}
 		versions, err := runtimeassets.Versions()
 		if err != nil {
 			return nil, err
@@ -63,7 +66,7 @@ func newContextSwitchRuntime(t *testing.T, runner *contextSwitchRunner) *Runtime
 	if _, err := runtime.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "project-tools", "tobari-runtime:local", tobari.ContextPolicyModeAdvanced); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "project-tools", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced); err != nil {
 		t.Fatal(err)
 	}
 	return runtime
@@ -263,11 +266,11 @@ func TestContextStoreMigratesLegacyStoresAndPersistsRuntimeImage(t *testing.T) {
 		t.Fatalf("legacy policy was removed: %v", err)
 	}
 
-	created, err := runtime.CreateContext(context.Background(), "project-tools", "tobari-runtime:local", tobari.ContextPolicyModeAdvanced)
+	created, err := runtime.CreateContext(context.Background(), "project-tools", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced)
 	if err != nil {
 		t.Fatalf("CreateContext() error = %v", err)
 	}
-	if created.Image != "tobari-runtime:local" || created.PolicyMode != tobari.ContextPolicyModeAdvanced {
+	if created.Image != tobari.OfficialRuntimeBase || created.PolicyMode != tobari.ContextPolicyModeAdvanced {
 		t.Fatalf("created Context = %+v", created)
 	}
 	if _, err := runtime.UseContext(context.Background(), "project-tools"); err != nil {
@@ -277,7 +280,7 @@ func TestContextStoreMigratesLegacyStoresAndPersistsRuntimeImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ShowContext() error = %v", err)
 	}
-	if !shown.Active || shown.Name != "project-tools" || shown.Image != "tobari-runtime:local" {
+	if !shown.Active || shown.Name != "project-tools" || shown.Image != tobari.OfficialRuntimeBase {
 		t.Fatalf("active Context = %+v", shown)
 	}
 	manifestData, err := os.ReadFile(filepath.Join(config, "contexts", "project-tools", "context.json"))

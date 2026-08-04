@@ -403,7 +403,7 @@ func (r *Runtime) removeIncompleteProject(journal projectJournal, indexPath stri
 
 func (r *Runtime) resolveContextImage(ctx context.Context) (string, error) {
 	manifest, _, contextErr := r.activeContext()
-	image := tobari.BuiltinImageSelector
+	image := r.defaultRuntimeImage()
 	if contextErr == nil {
 		image = manifest.Image
 	} else {
@@ -413,7 +413,7 @@ func (r *Runtime) resolveContextImage(ctx context.Context) (string, error) {
 			return "", imageErr
 		}
 	}
-	return image, nil
+	return r.resolveBuiltinImageSelector(image), nil
 }
 
 // ListProjects returns every valid logical Tobari record ordered by root.

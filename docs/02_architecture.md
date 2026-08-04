@@ -143,21 +143,20 @@ The root ensure operation materializes exact embedded bytes under the Tobari sta
 writes generated non-secret runtime configuration, including the owner-only
 project-principal registry, and invokes Docker through
 the runtime port. Compose owns only Gateway, OPA, shared networks, and CA
-volumes. The built-in image receives an asset-version tag and the stable local
-extension tag `tobari-runtime:local`; this tag is the local base work runtime
-with the common tools shared by supported agents. Cluster startup obtains the
-verified Gateway image by digest, while `cluster up --gateway-source` builds
-the embedded snapshot only when explicitly requested. The runtime adapter
-creates each logical Tobari from the built-in image or an exact configured
-local image and connects Gateway to its dedicated network, then records the
-Gateway interface address in the principal registry. A public-only CA volume is mounted read-only into
+volumes. Cluster startup obtains the verified Gateway image by digest and the
+official runtime base image through the runtime image resolver. The normal
+resolver uses published images only; the contributor `tobari_dev` resolver
+selects local development tags built by `task build:dev`. The runtime adapter
+creates each logical Tobari from the selected Context image or an exact
+configured local image and connects Gateway to its dedicated network, then
+records the Gateway interface address in the principal registry. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
 Custom images are supported only when they preserve runtime API label
 `io.tobari.runtime-api=1`, the `tobari` image user, and the exact built-in
 entrypoint, including the `io.tobari.runtime-lifetime-command=sleep infinity`
 capability needed for Tobari's fixed Workspace lifetime command. The intended
-construction is `FROM tobari-runtime:local`; a runtime-API label is a
+construction is `FROM ghcr.io/tasuku43/tobari/runtime:latest`; a runtime-API label is a
 compatibility assertion, not an image provenance or trust signature. The
 selected image's `CMD` is ignored for Workspace lifetime: Docker create receives
 the explicit `sleep infinity` command after the image. Tobari validates
@@ -169,7 +168,7 @@ check.
 
 `images/toolbox` remains a transitional optional custom derivation for tools
 outside the common base set, such as kubectl and TWG. A separate host task
-builds it from `tobari-runtime:local`, verifies pinned official artifacts, and
+builds it from the official Tobari runtime base, verifies pinned official artifacts, and
 leaves only the local `tobari-toolbox:local` tag. It is not embedded runtime
 state, an official published artifact, or an implicit cluster dependency.
 
@@ -180,10 +179,11 @@ plus an
 immutable `sha-<commit>` tag. Future agent variants use the same package with
 variant-qualified tags such as
 `ghcr.io/<owner>/tobari/runtime:codex.0.42.0-base.0.1.0-r1`. Pull requests and
-ordinary local startup do not push or pull images; an explicit `runtime build`
-refreshes the exact official `runtime:latest` base when the recipe starts from
-it, while explicit local or custom bases do not receive a registry-pull
-request.
+ordinary local startup do not push images. Explicit `cluster up` may pull the
+official runtime base for the selected uncustomized Context; an explicit
+`runtime build` refreshes the exact official `runtime:latest` base when the
+recipe starts from it, while explicit local or custom bases do not receive a
+registry-pull request.
 
 The first Claude and Codex variants are build-only children under
 `runtimes/claude` and `runtimes/codex`. Each downloads a pinned official agent
@@ -270,10 +270,12 @@ Workspace; an attached exec makes ordinary deletion fail, and `delete --force`
 is the explicit host-side override.
 
 Explicit `cluster up` validates configuration, obtains and preflights the
-Gateway image, tests policy, reconciles OPA and Gateway, and reconnects Gateway
-to every existing registered project network. Image preflight fails before the
-policy test, cluster journal, shared network, or service-container mutation;
-the source-build flag is the only deliberate local-build path.
+Gateway image and official runtime base image, tests policy, reconciles OPA and
+Gateway, and reconnects Gateway to every existing registered project network.
+Image preflight fails before the policy test, cluster journal, shared network,
+or service-container mutation. Local Tobari-managed image development uses
+`task build:dev` and the `tobari_dev` image resolver instead of a public
+cluster option.
 Root invocation only verifies that configured cluster is ready and reads the
 canonical CWD's indexed Workspace candidates. An exact current-root record is
 selected directly; when only ancestor records exist, the CLI presents every
