@@ -190,12 +190,13 @@ func TestDoctorOutputContract(t *testing.T) {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
 	}
 	want := "✓ Environment check\n" +
-		"  runtime        pass\n" +
-		"  Details        runtime-version\\ttest/test\\nlocal\n" +
-		"  configuration  warn\n" +
-		"  Details        path\\\\value\\u001B\n"
+		"  runtime        pass   runtime-version\\ttest/test\\nlocal\n" +
+		"  configuration  warn   path\\\\value\\u001B\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("doctor output = %q, want %q", got, want)
+	}
+	if strings.Contains(stdout.String(), "\n  Details") {
+		t.Fatalf("doctor output repeats detail labels: %q", stdout.String())
 	}
 	if stderr.Len() != 0 || inspector.calls != 1 {
 		t.Fatalf("stderr = %q, inspector calls = %d", stderr.String(), inspector.calls)

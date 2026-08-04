@@ -15,6 +15,7 @@ const (
 	maxDoctorChecks      = 100
 	maxDoctorNameBytes   = 256
 	maxDoctorDetailBytes = 64 * 1024
+	doctorStatusWidth    = 6
 )
 
 func runDoctor(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
@@ -104,10 +105,7 @@ func renderDoctorReportWithColor(report doctor.Report, format successFormat, col
 			return output.bytes(), nil
 		}
 		for _, check := range report.Checks {
-			output.row(check.Name, escapeTSVCell(string(check.Status)), humanStatusToken(string(check.Status)))
-			if check.Detail != "" {
-				output.row("Details", escapeTSVCell(check.Detail), colorTokenMuted)
-			}
+			output.doctorCheck(check)
 		}
 		return output.bytes(), nil
 	}
@@ -118,6 +116,27 @@ func renderDoctorReportWithColor(report doctor.Report, format successFormat, col
 		fmt.Fprintf(&output, "%s\t%s\t%s\n", escapeTSVCell(check.Name), check.Status, escapeTSVCell(check.Detail))
 	}
 	return output.Bytes(), nil
+}
+
+func (o *humanOutput) doctorCheck(check doctor.Check) {
+	name := escapeTSVCell(check.Name)
+	status := escapeTSVCell(string(check.Status))
+	paddedName := fmt.Sprintf("%-*s", humanOutputLabelWidth, name)
+	if check.Detail == "" {
+		fmt.Fprintf(
+			&o.Buffer, "  %s %s\n",
+			applyColorToken(o.color, colorTokenMuted, paddedName),
+			applyColorToken(o.color, humanStatusToken(status), status),
+		)
+		return
+	}
+	paddedStatus := fmt.Sprintf("%-*s", doctorStatusWidth, status)
+	fmt.Fprintf(
+		&o.Buffer, "  %s %s %s\n",
+		applyColorToken(o.color, colorTokenMuted, paddedName),
+		applyColorToken(o.color, humanStatusToken(status), paddedStatus),
+		applyColorToken(o.color, colorTokenMuted, escapeTSVCell(check.Detail)),
+	)
 }
 
 func outputContractExceeded(message, command string) *fault.Error {
