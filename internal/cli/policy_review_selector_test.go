@@ -80,6 +80,25 @@ func TestPolicyReviewSelectorBackThenCancelDoesNotSelect(t *testing.T) {
 	}
 }
 
+func TestPolicyReviewSelectorFinishDoesNotLeaveClearedRowsBehind(t *testing.T) {
+	t.Parallel()
+	var reviewOutput, workspaceOutput bytes.Buffer
+
+	finishPolicyReviewSelector(&reviewOutput, 3)
+	finishWorkspaceSelector(&workspaceOutput, 3)
+
+	want := "\x1b[3A\r\x1b[J\x1b[?25h"
+	if reviewOutput.String() != want {
+		t.Fatalf("policy review finish = %q, want %q", reviewOutput.String(), want)
+	}
+	if workspaceOutput.String() != reviewOutput.String() {
+		t.Fatalf("selector finish differs: workspace=%q review=%q", workspaceOutput.String(), reviewOutput.String())
+	}
+	if strings.Contains(reviewOutput.String(), "\n") {
+		t.Fatalf("selector finish writes blank rows: %q", reviewOutput.String())
+	}
+}
+
 func TestPolicyReviewSelectorFallsBackToLineConfirmation(t *testing.T) {
 	t.Parallel()
 	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}}

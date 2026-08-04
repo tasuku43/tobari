@@ -437,15 +437,12 @@ func writeSelectorLine(out io.Writer, line string) error {
 }
 
 func finishWorkspaceSelector(out io.Writer, lines int) {
+	finishSelectorScreen(out, lines)
+}
+
+func finishSelectorScreen(out io.Writer, lines int) {
 	if lines > 0 {
-		_, _ = fmt.Fprintf(out, "\x1b[%dA", lines)
-		for index := 0; index < lines; index++ {
-			_, _ = io.WriteString(out, "\x1b[2K\r")
-			if index < lines-1 {
-				_, _ = io.WriteString(out, "\n")
-			}
-		}
-		_, _ = io.WriteString(out, "\n")
+		_, _ = fmt.Fprintf(out, "\x1b[%dA\r\x1b[J", lines)
 	}
 	_, _ = io.WriteString(out, "\x1b[?25h")
 }

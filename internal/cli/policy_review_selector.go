@@ -361,17 +361,7 @@ func renderPolicyReviewScreen(out io.Writer, lines []string, previousLines int) 
 }
 
 func finishPolicyReviewSelector(out io.Writer, lines int) {
-	if lines > 0 {
-		_, _ = fmt.Fprintf(out, "\x1b[%dA", lines)
-		for index := 0; index < lines; index++ {
-			_, _ = io.WriteString(out, "\x1b[2K\r")
-			if index < lines-1 {
-				_, _ = io.WriteString(out, "\n")
-			}
-		}
-		_, _ = io.WriteString(out, "\n")
-	}
-	_, _ = io.WriteString(out, "\x1b[?25h")
+	finishSelectorScreen(out, lines)
 }
 
 func selectPolicyReviewLine(
