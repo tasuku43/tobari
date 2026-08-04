@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-02
+- Revised: 2026-08-04
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, authentication, and harness
 - Supersedes: None
@@ -75,10 +76,15 @@ the installation-local shared cluster.
 
 The first slice keeps one active Context for the shared cluster. Cluster state
 records the selected Context and its resolved stores. A Context change is an
-explicit host mutation; it does not silently restart Docker resources. If the
-running cluster still has another Context, entry and access-changing actions
-fail closed with `cluster up` as the recovery action. Project runtime
-reconciliation uses the selected Context's agent profile and profile digest.
+explicit host mutation. If the shared cluster is already running,
+`context use` reuses the bounded `cluster up` reconciliation path, applies the
+selected policy and Gateway credential stores, waits for health, and reports
+success only after the state is persisted. It never starts an unconfigured or
+stopped cluster implicitly; those outcomes update only the host marker and
+direct the user to `cluster up`. Entry and access-changing actions fail closed
+while an interrupted reconcile journal or active-context mismatch remains.
+Project runtime reconciliation uses the selected Context's agent profile and
+profile digest.
 Per-Workspace Context routing is deferred until Gateway/OPA routing and
 project-principal semantics are designed explicitly.
 
@@ -105,8 +111,11 @@ files are not deleted.
   Context per Workspace.
 - Migration temporarily leaves legacy top-level stores for compatibility and
   diagnosis.
-- Switching Context while a cluster is running requires an explicit reconcile
-  step and may recreate project containers when agent configuration changes.
+- Switching Context while a cluster is running may recreate shared enforcement
+  resources and takes as long as the bounded health wait, but no second manual
+  reconcile command is required. A failed switch restores the previous marker
+  and state when possible and leaves explicit recovery when Docker may have
+  changed.
 
 ## Security and public-boundary impact
 
@@ -124,9 +133,11 @@ OPA decisions, never from a Context or profile display name.
   selection, legacy migration, and separate policy/credential paths.
 - Catalog tests validate four Context command contracts and mutation targets.
 - Runtime tests prove active Context paths reach OPA and the selected agent
-  profile mount while secret values remain outside the Workspace.
-- Agent-readiness validation includes Context discovery, selection, and the
-  explicit cluster-reconcile recovery path.
+  profile mount while secret values remain outside the Workspace, and cover
+  stopped, already-ready, running-switch, rollback, and interrupted-journal
+  Context selection states.
+- Agent-readiness validation includes Context discovery, synchronous selection,
+  and explicit cluster-reconcile recovery after interruption or failure.
 
 ## Compatibility and migration
 
@@ -139,6 +150,9 @@ migration and can be used by an older binary after a rollback.
 ## Validation
 
 - `go test ./internal/domain/tobari ./internal/app/contextcmd ./internal/infra/dockerruntime ./internal/cli`
+- The state-matrix replay covers unconfigured, stopped, already-ready, running
+  switch, failed switch, interrupted recovery, and repeat selection; the
+  running switch was also replayed through the real-PTY harness.
 - `task check`
 - `task security`
 - `task public:check`

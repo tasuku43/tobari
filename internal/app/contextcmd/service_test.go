@@ -67,6 +67,7 @@ func contextReport(task, name string) tobari.ContextReport {
 		Task: task, Name: name, Active: task == tobari.TaskContextUse,
 		AgentProfile: tobari.DefaultProfile, Image: "tobari-runtime:local",
 		PolicyMode: tobari.ContextPolicyModeGuided,
+		Cluster:    tobari.ContextClusterStatusNotApplicable,
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials.json"),

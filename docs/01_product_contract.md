@@ -119,7 +119,7 @@ The public commands are:
 | `context list [--format text|json]` | utility | read | List named Contexts and identify the active execution setup |
 | `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's agent, policy, and credential-store references |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced]` | act, fixed target | create | Create one named Context with a runtime image and separate owner-only stores |
-| `context use --name NAME` | act, fixed target | write | Select one Context on the trusted host for the shared cluster |
+| `context use --name NAME` | act, fixed target | write | Select one Context and apply it to a running shared cluster; leave a stopped or unconfigured cluster for explicit `cluster up` |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the active Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the active Context's generated local runtime image |
 
@@ -276,6 +276,13 @@ endpoint, and the full recent diagnostic remain available in JSON or failure
 detail. A successful `cluster up` additionally points to the next `tobari`
 command.
 
+`context use` reports a `cluster` result in its Context output. `reconciled`
+means the selected policy and Gateway credential mounts were applied and
+health-checked; `already_ready` means the running cluster already used that
+Context; `not_running` and `not_configured` mean the host selection was saved
+but an explicit `cluster up` is still required. A failed switch is not a
+successful selection result.
+
 Project runtime diagnostics may report `incomplete` when a durable root index
 survives without its instance state. This preserves logical existence for safe
 cleanup, prevents runtime recreation, and directs the user to delete the exact
@@ -371,9 +378,10 @@ Cluster state contains the active Context name, resolved store paths, and
 Docker resource names or identifiers, never credential contents; managed
 credential paths are reserved for the managed adapter, while the per-Tobari
 home may contain tool credentials by design.
-Project and cluster mutation journals are durable recovery markers;
-an interrupted marker makes the next observation fail closed or reconcile only
-the exact incomplete record.
+Project and cluster mutation journals are durable recovery markers. An
+interrupted cluster marker, active-context mismatch, or failed Context
+reconciliation makes entry and policy operations fail closed until the exact
+shared cluster operation completes.
 Environment variables select only XDG locations and test/runtime overrides
 documented in scoped help; they do not carry managed token values and Tobari
 does not copy host credential values into the runtime environment.
@@ -409,6 +417,17 @@ authoritative and directs the user to inspect the Context before retrying.
 The official moving base is refreshed only for an explicit build whose recipe
 starts from the exact official `runtime:latest`; custom and local bases retain
 their local/cache-first behavior.
+
+`context use` validates the target Context before changing the active marker. If
+the shared cluster is running, it writes the existing reconcile journal, applies
+the selected Context's policy and Gateway credential paths through the same
+reconciliation path as `cluster up`, waits for Gateway and OPA health, and only
+then reports `reconciled`. If the cluster is stopped or unconfigured, it records
+the selection without starting Docker and reports `not_running` or
+`not_configured`; the next action is `cluster up`. A failed switch restores the
+previous marker and persisted state when possible. If Docker may have changed,
+the recovery journal remains and entry/policy commands direct the user to an
+explicit `cluster up`.
 
 `cluster up` obtains and preflights the immutable Gateway image, then creates
 shared labeled networks, images, configuration material, Gateway, OPA, and CA

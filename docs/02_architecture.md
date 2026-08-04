@@ -85,10 +85,16 @@ authentication remains in the per-Workspace home.
 The first implementation has one active Context for the shared cluster. Cluster
 state records the active Context and resolved paths, and project runtime
 reconciliation uses its agent-profile reference and digest. `context use` is a
-host mutation; changing the marker while a cluster is running creates a
-declared active-context mismatch until `cluster up` reconciles the exact shared
-components. Per-Workspace Context routing is deferred because it would require
-explicit OPA routing, learned-rule scope, and project-principal decisions.
+host mutation and the owner of the complete selection outcome: when the shared
+cluster is running, it reuses the bounded `cluster up` reconciliation path and
+does not succeed until the selected policy and Gateway credential mounts are
+health-checked and persisted. When the cluster is stopped or unconfigured, it
+updates only the host marker and reports that explicit `cluster up` is needed;
+it never starts Docker implicitly. A reconcile journal is written before the
+marker changes, and failure restores the previous marker/state when possible;
+an unresolved journal or active-context mismatch blocks entry and policy paths.
+Per-Workspace Context routing is deferred because it would require explicit OPA
+routing, learned-rule scope, and project-principal decisions.
 
 ## Runtime assets
 

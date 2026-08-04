@@ -97,13 +97,24 @@ func runContextUse(
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.ContextTargetKind, ID: tobari.ActiveContextTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
-	result, err := c.context.Use(ctx, intent, inputs.One("--name"))
-	if err != nil {
-		return c.fail(ctx, err)
-	}
 	format, err := parseSuccessFormat(inputs.One("--format"))
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context use", "Correct the command arguments.")
+	}
+	var progress *clusterUpProgress
+	var progressSink tobari.ClusterUpProgressSink
+	if format == successFormatText && c.tobari != nil && c.tobari.IsTerminal(c.Err) && clusterUpProgressAllowed(ctx) {
+		progress = newClusterUpProgress(c.Err, true)
+		progress.Start()
+		progressSink = progress.Report
+		defer progress.Close()
+	}
+	result, err := c.context.UseWithProgress(ctx, intent, inputs.One("--name"), progressSink)
+	if err != nil {
+		if progress != nil {
+			progress.Fail()
+		}
+		return c.fail(ctx, err)
 	}
 	output, err := renderContextReport(result, format, format == successFormatText && humanColorAllowed(ctx, c, c.Out))
 	if err != nil {
@@ -227,6 +238,9 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	fmt.Fprintf(&output, "Image: %s\n", safeExternalText(result.Image))
 	fmt.Fprintf(&output, "Agent profile: %s\n", safeExternalText(result.AgentProfile))
 	fmt.Fprintf(&output, "Policy mode: %s\n", result.PolicyMode)
+	if result.Task == tobari.TaskContextUse {
+		fmt.Fprintf(&output, "Cluster: %s\n", result.Cluster)
+	}
 	if result.Runtime.Kind != "" {
 		fmt.Fprintf(&output, "Runtime: %s (%s)\n", result.Runtime.Kind, result.Runtime.Status)
 		if result.Runtime.Dockerfile != "" {
@@ -249,6 +263,13 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		}
 	case tobari.TaskRuntimeBuild:
 		fmt.Fprintln(&output, "Next: run `tobari` from a project directory.")
+	case tobari.TaskContextUse:
+		switch result.Cluster {
+		case tobari.ContextClusterStatusReconciled, tobari.ContextClusterStatusAlreadyReady:
+			fmt.Fprintln(&output, "Next: run `tobari` from a project directory.")
+		case tobari.ContextClusterStatusNotConfigured, tobari.ContextClusterStatusNotRunning:
+			fmt.Fprintln(&output, "Next: run `tobari cluster up`, then `tobari` from a project directory.")
+		}
 	}
 	fmt.Fprintf(&output, "Policy: %s\n", safeExternalText(result.Stores.PolicyDirectory))
 	fmt.Fprintf(&output, "Credential metadata: %s\n", safeExternalText(result.Stores.CredentialConfig))

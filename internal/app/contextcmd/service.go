@@ -23,6 +23,14 @@ type RuntimePort interface {
 	BuildRuntime(context.Context) (tobari.ContextReport, error)
 }
 
+type contextUseProgressRuntimePort interface {
+	UseContextWithProgress(context.Context, string, tobari.ClusterUpProgressSink) (tobari.ContextReport, error)
+}
+
+type contextLifecycleRuntimePort interface {
+	WithLifecycleLock(context.Context, func(context.Context) error) error
+}
+
 type ownedPolicy struct{}
 
 func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
@@ -147,6 +155,15 @@ func (s *Service) Create(
 }
 
 func (s *Service) Use(ctx context.Context, intent operation.Intent, name string) (tobari.ContextReport, error) {
+	return s.UseWithProgress(ctx, intent, name, nil)
+}
+
+// UseWithProgress selects a Context and optionally forwards the bounded
+// cluster-reconcile lifecycle to the human CLI. The application owns the
+// mutation and lifecycle lock; infrastructure owns the actual reconciliation.
+func (s *Service) UseWithProgress(
+	ctx context.Context, intent operation.Intent, name string, progress tobari.ClusterUpProgressSink,
+) (tobari.ContextReport, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ContextReport{}, err
 	}
@@ -162,25 +179,40 @@ func (s *Service) Use(ctx context.Context, intent operation.Intent, name string)
 		ExpectedImpact: intent.Impact,
 	}
 	var result tobari.ContextReport
-	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		used, useErr := s.runtime.UseContext(actionContext, name)
-		if errors.Is(useErr, tobari.ErrContextNotFound) {
-			return fault.New(
-				fault.KindNotFound, "context_not_found", "the named Context does not exist", false,
-				fault.NextAction{Command: "context list", Reason: "Choose an existing Context or create it first."},
-			)
-		}
-		if useErr != nil {
-			return fault.Wrap(fault.KindRejected, "context_use_failed", "Context selection could not be changed", false, useErr,
-				fault.NextAction{Command: "context show", Reason: "Inspect the active Context selection."})
-		}
-		result = used
-		return nil
+	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			var used tobari.ContextReport
+			var useErr error
+			if runtime, ok := s.runtime.(contextUseProgressRuntimePort); ok {
+				used, useErr = runtime.UseContextWithProgress(actionContext, name, progress)
+			} else {
+				used, useErr = s.runtime.UseContext(actionContext, name)
+			}
+			if errors.Is(useErr, tobari.ErrContextNotFound) {
+				return fault.New(
+					fault.KindNotFound, "context_not_found", "the named Context does not exist", false,
+					fault.NextAction{Command: "context list", Reason: "Choose an existing Context or create it first."},
+				)
+			}
+			if useErr != nil {
+				return fault.Wrap(fault.KindRejected, "context_use_failed", "Context selection and cluster reconciliation could not be completed", false, useErr,
+					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared cluster with the selected Context."})
+			}
+			result = used
+			return nil
+		})
 	})
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
 	return result, nil
+}
+
+func (s *Service) withLifecycleLock(ctx context.Context, action func(context.Context) error) error {
+	if runtime, ok := s.runtime.(contextLifecycleRuntimePort); ok && !portcheck.IsNil(runtime) {
+		return runtime.WithLifecycleLock(ctx, action)
+	}
+	return action(ctx)
 }
 
 // InitRuntime creates the active Context's recipe template without changing

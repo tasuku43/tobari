@@ -30,6 +30,7 @@ func (f *contextCLI) CreateContext(
 }
 
 func (f *contextCLI) UseContext(context.Context, string) (tobari.ContextReport, error) {
+	f.useCalls++
 	f.report.Task = tobari.TaskContextUse
 	f.report.Active = true
 	return f.report, nil
@@ -46,14 +47,43 @@ func (f *contextCLI) BuildRuntime(context.Context) (tobari.ContextReport, error)
 }
 
 type fakeContextRuntime struct {
-	list   tobari.ContextListResult
-	report tobari.ContextReport
+	list     tobari.ContextListResult
+	report   tobari.ContextReport
+	useCalls int
+}
+
+func TestContextUseReportsReconciliationStatusAndParsesBeforeMutation(t *testing.T) {
+	t.Parallel()
+	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "project-tools", false, "builtin", tobari.ContextPolicyModeGuided)}
+	fake.report.Cluster = tobari.ContextClusterStatusReconciled
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{"context", "use", "--name", "project-tools", "--format", "yaml"}); code != ExitUsage {
+		t.Fatalf("invalid format code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.useCalls != 0 {
+		t.Fatalf("UseContext() calls after invalid format = %d, want 0", fake.useCalls)
+	}
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "use", "--name", "project-tools", "--format", "json"}); code != ExitOK {
+		t.Fatalf("context use code = %d, stderr = %q", code, stderr.String())
+	}
+	var document struct {
+		Context tobari.ContextReport `json:"context"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
+		t.Fatalf("context use JSON = %q, error = %v", stdout.String(), err)
+	}
+	if document.Context.Cluster != tobari.ContextClusterStatusReconciled || fake.useCalls != 1 {
+		t.Fatalf("context use document/calls = %+v/%d", document.Context, fake.useCalls)
+	}
 }
 
 func contextCLIReport(task, name string, active bool, image string, mode tobari.ContextPolicyMode) tobari.ContextReport {
 	return tobari.ContextReport{
 		Task: task, Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
-		Image: image, PolicyMode: mode,
+		Image: image, PolicyMode: mode, Cluster: tobari.ContextClusterStatusNotApplicable,
 		Runtime: tobari.ContextRuntimeReport{Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial},
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),

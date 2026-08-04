@@ -522,7 +522,10 @@ For a one-time default, the legacy XDG setting seeds the `default` Context:
 
 The first Context initialization copies this selector into its manifest. For a
 named execution setup, store the runtime image directly in the Context and
-select it on the host:
+select it on the host. If a shared cluster is already running, selection also
+applies the Context's policy and Gateway credential mounts and waits for
+health. A stopped or unconfigured cluster is not started implicitly; the
+command reports that `cluster up` is still required.
 
 ```sh
 tobari context create --name project-tools --image my-tobari:dev
@@ -631,7 +634,7 @@ tobari cluster down --purge # also removes shared CA volumes
 | `tobari context list [--format text\|json]` | List named execution Contexts and identify the active one |
 | `tobari context show [--name NAME] [--format text\|json]` | Inspect a Context's runtime image, agent profile, and separated stores |
 | `tobari context create --name NAME [--image IMAGE] [--mode guided\|advanced]` | Create a named execution Context without secrets |
-| `tobari context use --name NAME` | Select the active Context on the trusted host |
+| `tobari context use --name NAME` | Select and apply the active Context when the shared cluster is running; otherwise record the selection for explicit `cluster up` |
 | `tobari runtime init [--format text\|json]` | Create the active Context's runtime/Dockerfile template |
 | `tobari runtime build [--format text\|json]` | Build, validate, and select the active Context runtime image |
 | `tobari` | Choose or create the current-directory Workspace, enter it, and leave it reusable after `exit` |
@@ -678,10 +681,13 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/tobari/
 ```
 
 OPA sees the active Context's `contexts/<name>/policy/` through a read-only bind
-and runs with file watch enabled. `context use` changes the host selection; it
-does not silently restart a running cluster. If the cluster still uses the
-previous Context, the next root invocation fails closed and points to
-`tobari cluster up`.
+and runs with file watch enabled. `context use` synchronously reconciles a
+running cluster through the same bounded path as `cluster up`; its output says
+`reconciled` or `already_ready`. With no running cluster it records the host
+selection as `not_configured` or `not_running` and points to `tobari cluster up`.
+If reconciliation fails or is interrupted, the previous marker/state is
+restored when possible and entry plus policy operations fail closed until an
+explicit `tobari cluster up` completes.
 A read-only bind still reflects host changes; OPA does not need write authority
 over trusted policy. Some Docker hosts do not propagate host filesystem events
 to OPA watch reliably. Exact allow, deny, and compaction actions test their

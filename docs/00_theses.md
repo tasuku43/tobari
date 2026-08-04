@@ -465,9 +465,11 @@ profile name an authority.
   stores, references a read-only agent profile, and records the compatible
   Tobari runtime image. It never accepts a secret value in an argument,
   environment variable, or manifest.
-- A Context switch is an explicit configuration mutation. It does not silently
-  restart Docker; a running cluster using another Context fails closed until
-  the user runs the declared reconciliation action.
+- A Context switch is an explicit configuration mutation. When the shared
+  cluster is already running, `context use` synchronously reconciles the
+  selected policy and Gateway credential mounts and waits for health. It never
+  starts an unconfigured or stopped cluster implicitly; its result says when
+  an explicit `cluster up` is still required.
 - The ordinary guided mode keeps deny/review/allow exact permission growth as
   the default. Advanced mode keeps trusted-host Rego and tests available for
   policy that cannot be expressed as an exact learned rule.
@@ -485,8 +487,9 @@ profile name an authority.
 - Runtime tests prove the recipe build context excludes policy and credential
   stores, the generated image is checked against the runtime contract, and a
   failed build leaves the previously selected image unchanged.
-- Runtime tests prove Context secrets are never mounted into a Workspace and
-  that active-context drift blocks access until explicit reconciliation.
+- Runtime tests prove Context secrets are never mounted into a Workspace,
+  running-cluster Context switches reconcile the selected paths, and failed or
+  interrupted switches block access until explicit reconciliation.
 - Agent-readiness validation records Context discovery and selection as part of
   the bounded-autonomy setup path.
 

@@ -457,6 +457,8 @@ printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
 printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
   >"$config_directory/config.json"
 chmod 0600 "$config_directory/config.json"
+unconfigured_context_use=$(run_tobari context use --name default --format json)
+assert_contains "$unconfigured_context_use" '"cluster":"not_configured"' "unconfigured Context selection"
 start_cluster >/dev/null
 assert_component_log_bounds tobari-opa
 assert_component_log_bounds tobari-gateway
@@ -465,6 +467,31 @@ assert_component_resource_bounds tobari-gateway 2000000000 1073741824 256
 docker build --tag "$custom_image" \
   --file test/integration/custom-image.Dockerfile . >/dev/null
 assert_base_bash_contract tobari-runtime:local
+run_tobari context create --name project-tools --image "$custom_image" --format json >/dev/null
+running_context_use=$(run_tobari context use --name project-tools --format json)
+assert_contains "$running_context_use" '"cluster":"reconciled"' "running Context switch"
+opa_context_mounts=$(docker inspect --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' tobari-opa)
+if [[ $opa_context_mounts != *"$config_directory/contexts/project-tools/policy => /policy"* ]]; then
+  printf 'selected OPA policy mounts:\n%s\n' "$opa_context_mounts" >&2
+  fail "selected OPA policy mount did not point to project-tools"
+fi
+gateway_context_mounts=$(docker inspect --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' tobari-gateway)
+if [[ $gateway_context_mounts != *"$config_directory/contexts/project-tools/credentials.json => /run/tobari/config/credentials.json"* ]]; then
+  printf 'selected Gateway mounts:\n%s\n' "$gateway_context_mounts" >&2
+  fail "selected Gateway credential config mount did not point to project-tools"
+fi
+running_context_use_pty=$(run_tobari_pty_at "$test_root/user" context use --name default)
+assert_contains "$running_context_use_pty" "Cluster: reconciled" "PTY running Context switch"
+assert_contains "$running_context_use_pty" 'Next: run `tobari` from a project directory.' "PTY Context switch continuation"
+docker stop tobari-gateway tobari-opa >/dev/null
+stopped_context_use=$(run_tobari context use --name project-tools --format json)
+assert_contains "$stopped_context_use" '"cluster":"not_running"' "stopped Context selection"
+[[ $(docker inspect --format '{{.State.Running}}' tobari-gateway) == false ]] || fail "Context selection started the stopped Gateway"
+start_cluster >/dev/null
+default_context_use=$(run_tobari context use --name default --format json)
+assert_contains "$default_context_use" '"cluster":"reconciled"' "running Context switch back"
+default_context=$(run_tobari context show --format json)
+assert_contains "$default_context" '"active":true' "Context selection after explicit recovery"
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
 container_nested_root="/var/lib/tobari/${work_nested_root#"$test_root/user/"}"
 enter_tobari_at "$work_root"

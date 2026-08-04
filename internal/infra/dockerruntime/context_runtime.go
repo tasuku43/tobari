@@ -145,6 +145,7 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		PolicyMode:   manifest.PolicyMode,
 		Stores:       r.contextPaths(manifest.Name),
 		Runtime:      runtimeReport,
+		Cluster:      tobari.ContextClusterStatusNotApplicable,
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.ContextReport{}, err

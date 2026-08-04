@@ -430,8 +430,18 @@ func (r *Runtime) CreateContext(ctx context.Context, name string, image string, 
 	return r.contextReport(ctx, tobari.TaskContextCreate, manifest, active)
 }
 
-// UseContext changes only the host-owned active marker.
+// UseContext selects a Context and, when the shared cluster is running,
+// reconciles its policy and credential mounts before reporting success.
 func (r *Runtime) UseContext(ctx context.Context, name string) (tobari.ContextReport, error) {
+	return r.UseContextWithProgress(ctx, name, nil)
+}
+
+// UseContextWithProgress is the interactive extension of UseContext. A
+// stopped or unconfigured cluster is never started implicitly; the result
+// tells the caller whether an explicit cluster up is still required.
+func (r *Runtime) UseContextWithProgress(
+	ctx context.Context, name string, progress tobari.ClusterUpProgressSink,
+) (tobari.ContextReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.ContextReport{}, err
 	}
@@ -442,10 +452,103 @@ func (r *Runtime) UseContext(ctx context.Context, name string) (tobari.ContextRe
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
-	if err := r.writeActiveContext(name); err != nil {
+	active, err := r.readActiveContext()
+	if err != nil {
 		return tobari.ContextReport{}, err
 	}
-	return r.contextReport(ctx, tobari.TaskContextUse, manifest, name)
+	state, configured, err := r.LoadState(ctx)
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if !configured {
+		if err := r.requireNoInterruptedClusterReconcile(ctx); err != nil {
+			return tobari.ContextReport{}, err
+		}
+		if err := r.selectContext(active, name); err != nil {
+			return tobari.ContextReport{}, err
+		}
+		return r.contextUseReport(ctx, manifest, name, tobari.ContextClusterStatusNotConfigured)
+	}
+
+	clusterStatus, err := r.InspectCluster(ctx, state)
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if !clusterStatus.Running {
+		if err := r.selectContext(active, name); err != nil {
+			return tobari.ContextReport{}, err
+		}
+		return r.contextUseReport(ctx, manifest, name, tobari.ContextClusterStatusNotRunning)
+	}
+
+	storedContext := state.ContextName
+	if storedContext == "" {
+		storedContext = tobari.DefaultContextName
+	}
+	if name == storedContext {
+		if err := r.selectContext(active, name); err != nil {
+			return tobari.ContextReport{}, err
+		}
+		return r.contextUseReport(ctx, manifest, name, tobari.ContextClusterStatusAlreadyReady)
+	}
+
+	// Write the recovery journal before changing the host marker. If the
+	// process stops after this point, entry and policy commands remain blocked
+	// until an explicit cluster operation reconciles the shared resources.
+	if err := r.startClusterReconcile(clusterOperationUp); err != nil {
+		return tobari.ContextReport{}, fmt.Errorf("start Context reconcile journal: %w", err)
+	}
+	if err := r.selectContext(active, name); err != nil {
+		clearErr := r.clearClusterJournal()
+		if clearErr != nil {
+			return tobari.ContextReport{}, fmt.Errorf("select Context: %w; clear reconcile journal: %v", err, clearErr)
+		}
+		return tobari.ContextReport{}, err
+	}
+
+	if _, err := r.clusterUpWithProgressMode(ctx, false, progress, true); err != nil {
+		restoreErr := r.restoreContextSelection(storedContext, state)
+		if restoreErr != nil {
+			return tobari.ContextReport{}, fmt.Errorf("Context reconcile failed: %w; restore previous Context: %v", err, restoreErr)
+		}
+		return tobari.ContextReport{}, err
+	}
+	return r.contextUseReport(ctx, manifest, name, tobari.ContextClusterStatusReconciled)
+}
+
+func (r *Runtime) contextUseReport(
+	ctx context.Context, manifest tobari.ContextManifest, active string,
+	clusterStatus tobari.ContextClusterStatus,
+) (tobari.ContextReport, error) {
+	result, err := r.contextReport(ctx, tobari.TaskContextUse, manifest, active)
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	result.Cluster = clusterStatus
+	if err := result.Validate(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	return result, nil
+}
+
+func (r *Runtime) selectContext(previous, next string) error {
+	if previous == next {
+		return nil
+	}
+	return r.writeActiveContext(next)
+}
+
+func (r *Runtime) restoreContextSelection(name string, state tobari.State) error {
+	if _, err := r.readContextManifest(name); err != nil {
+		return fmt.Errorf("previous Context is unavailable: %w", err)
+	}
+	if err := r.writeActiveContext(name); err != nil {
+		return fmt.Errorf("restore active Context marker: %w", err)
+	}
+	if err := r.writeState(state); err != nil {
+		return fmt.Errorf("restore shared state: %w", err)
+	}
+	return nil
 }
 
 // ActiveContextName exposes only the trusted selected name to the application

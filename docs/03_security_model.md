@@ -295,6 +295,17 @@ ordinary deletion requires no attached session, while `--force` overrides that
 guard; both affect only the selected XDG home and exact owned resources. Shared
 CA purge remains separate
 and only follows an empty instance repository.
+
+`context use` is also a trusted-host fixed-target write. It may select only an
+existing validated Context. If the shared cluster is running, the operation
+writes the cluster recovery journal before changing the active marker and then
+reuses the same policy test, ownership checks, read-only OPA bind, Gateway-only
+credential binds, labels, and health wait as `cluster up`. It never mounts a
+Context directory wholesale into an untrusted Workspace. A stopped or
+unconfigured cluster receives only the new host marker; Docker is not started
+implicitly. If reconciliation fails, the previous marker and state are
+restored when possible, and an unresolved journal blocks entry and policy
+operations until an explicit cluster reconciliation succeeds.
 `policy allow`, `policy deny`, and `policy compact` are access-changing writes bound to opaque
 candidate references. Discovery never mutates. An allow reference identifies
 one retained validated denial that OPA marked exact-rule learnable; a

@@ -387,6 +387,12 @@ func (r *Runtime) ClusterUpWithProgress(
 func (r *Runtime) ClusterUpWithProgressMode(
 	ctx context.Context, gatewaySourceBuild bool, progress tobari.ClusterUpProgressSink,
 ) (tobari.State, error) {
+	return r.clusterUpWithProgressMode(ctx, gatewaySourceBuild, progress, false)
+}
+
+func (r *Runtime) clusterUpWithProgressMode(
+	ctx context.Context, gatewaySourceBuild bool, progress tobari.ClusterUpProgressSink, forceRecreate bool,
+) (tobari.State, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.State{}, err
 	}
@@ -467,13 +473,15 @@ func (r *Runtime) ClusterUpWithProgressMode(
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressStartServices, func() error {
 		var output bytes.Buffer
+		composeUpArgs := []string{"compose", "--project-directory", state.RuntimeDirectory,
+			"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
+			"up", "-d", "--no-build", "--remove-orphans"}
+		if forceRecreate {
+			composeUpArgs = append(composeUpArgs, "--force-recreate")
+		}
 		err := r.runner.Run(
 			ctx,
-			[]string{
-				"compose", "--project-directory", state.RuntimeDirectory,
-				"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
-				"up", "-d", "--no-build", "--remove-orphans",
-			},
+			composeUpArgs,
 			environment, nil, &output, &output,
 		)
 		if err != nil {

@@ -116,11 +116,11 @@ func contextCreateSpec() CommandSpec {
 
 func contextUseSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context use", Summary: "Select the active execution Context",
+		Path: "context use", Summary: "Select and apply the active execution Context",
 		Args: "--name <name> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
-			Outcome:       "Select one existing Context in the host active marker for the shared cluster",
+			Outcome:       "Select one existing Context and synchronously apply it to a running shared cluster; leave stopped or unconfigured clusters for explicit cluster up",
 			Inputs:        []CommandInput{contextNameInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The named Context already exists."},
@@ -128,7 +128,7 @@ func contextUseSpec() CommandSpec {
 			Errors: mutationCommandErrors("context use", "context show",
 				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
 				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context or create it first."),
-				declaredCommandError(fault.KindRejected, "context_use_failed", false, "context show", "Inspect the active Context selection."),
+				declaredCommandError(fault.KindRejected, "context_use_failed", false, "cluster up", "Reconcile the shared cluster with the selected Context."),
 				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context selection."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
@@ -406,15 +406,14 @@ func clusterDenialsSpec() CommandSpec {
 				JSONEnvelope: "denials", JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{"The cluster has been created."},
-			Errors: readCommandErrors("cluster denials", true,
+			Errors: append(readCommandErrors("cluster denials", true,
 				declaredCommandError(fault.KindInvalidInput, "invalid_denial_request", false, "help cluster denials", "Select a valid bounded window."),
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
 				declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster logs", "Inspect raw Gateway logs."),
 				declaredCommandError(fault.KindContract, "invalid_denial_contract", false, "cluster logs", "Inspect raw Gateway logs and audit compatibility."),
 				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "cluster denials", "Repair JSON projection."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
+			), policyClusterReadinessErrors()...),
 		},
 		handler: runClusterDenials,
 	}
@@ -535,11 +534,10 @@ func policyAllowSpec() CommandSpec {
 			Prerequisites: []string{
 				"The ID was emitted by policy candidates, policy review, or policy tail and remains in retained Gateway logs.",
 			},
-			Errors: mutationCommandErrors("policy allow", "policy candidates",
+			Errors: policyMutationCommandErrors("policy allow", "policy candidates",
 				declaredCommandError(fault.KindInvalidInput, "invalid_policy_candidate_id", false, "policy candidates", "Use a candidate ID unchanged."),
 				declaredCommandError(fault.KindInvalidInput, "policy_candidate_not_found", false, "policy candidates", "Rediscover the current pending queue."),
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
 				declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster denials", "Inspect retained denial evidence."),
 				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
 				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "policy candidates", "Rediscover after the concurrent policy change."),
@@ -576,11 +574,10 @@ func policyDenySpec() CommandSpec {
 			Prerequisites: []string{
 				"The ID was emitted by policy candidates, policy review, or policy tail and remains an actionable pending candidate.",
 			},
-			Errors: mutationCommandErrors("policy deny", "policy review",
+			Errors: policyMutationCommandErrors("policy deny", "policy review",
 				declaredCommandError(fault.KindInvalidInput, "invalid_policy_candidate_id", false, "policy review", "Use a candidate ID unchanged."),
 				declaredCommandError(fault.KindInvalidInput, "policy_candidate_not_found", false, "policy review", "Rediscover the current pending queue."),
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
 				declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster denials", "Inspect retained denial evidence."),
 				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
 				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "policy review", "Rediscover after the concurrent policy change."),
@@ -632,14 +629,13 @@ func policyCompactionsSpec() CommandSpec {
 				JSONEnvelope: "policy_compactions", JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{"At least three exact learned rules share one sufficiently deep directory."},
-			Errors: readCommandErrors("policy compactions", true,
+			Errors: append(readCommandErrors("policy compactions", true,
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
 				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
 				declaredCommandError(fault.KindContract, "invalid_compaction_contract", false, "doctor", "Repair the learned-rule contract."),
 				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "policy compactions", "Repair JSON projection."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
+			), policyClusterReadinessErrors()...),
 		},
 		handler: runPolicyCompactions,
 	}
@@ -657,11 +653,10 @@ func policyCompactSpec() CommandSpec {
 			Prerequisites: []string{
 				"The ID was emitted by policy compactions and its exact source rules remain unchanged.",
 			},
-			Errors: mutationCommandErrors("policy compact", "policy compactions",
+			Errors: policyMutationCommandErrors("policy compact", "policy compactions",
 				declaredCommandError(fault.KindInvalidInput, "invalid_policy_compaction_id", false, "policy compactions", "Use a compaction ID unchanged."),
 				declaredCommandError(fault.KindInvalidInput, "policy_compaction_not_found", false, "policy compactions", "Rediscover current compactions."),
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
 				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
 				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "policy compactions", "Rediscover after the concurrent policy change."),
 				declaredCommandError(fault.KindRejected, "policy_preflight_failed", false, "doctor", "Correct the complete compacted policy."),
@@ -994,6 +989,7 @@ func contextReportOutput() CommandOutput {
 			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Guided or advanced policy-development mode."},
 			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."},
 			{Name: "runtime", Type: OutputFieldTypeObject, Description: "Selected runtime source, recipe status, source digest, and image digest."},
+			{Name: "cluster", Type: OutputFieldTypeString, Description: "For context use, whether the running shared cluster was reconciled, was already aligned, or still needs explicit cluster up; otherwise not_applicable."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 		JSONEnvelope: "context", JSONSchemaVersion: 2,
@@ -1214,17 +1210,30 @@ func readCommandErrors(path string, hasOutput bool, extra ...CommandError) []Com
 	return errors
 }
 
+func policyClusterReadinessErrors() []CommandError {
+	return []CommandError{
+		declaredCommandError(fault.KindUnavailable, "cluster_not_configured", false, "cluster up", "Create the shared cluster explicitly."),
+		declaredCommandError(fault.KindUnavailable, "cluster_status_failed", false, "cluster status", "Inspect the shared cluster before using policy data."),
+		declaredCommandError(fault.KindUnavailable, "cluster_not_ready", false, "cluster up", "Reconcile the shared cluster explicitly."),
+		declaredCommandError(fault.KindInternal, "context_read_failed", false, "context show", "Inspect the selected Context before using policy data."),
+		declaredCommandError(fault.KindRejected, "context_mismatch", false, "cluster up", "Reconcile the shared cluster with the selected Context."),
+	}
+}
+
 func policyCandidateReadErrors(path string, hasOutput bool) []CommandError {
-	return readCommandErrors(path, hasOutput,
+	return append(readCommandErrors(path, hasOutput,
 		declaredCommandError(fault.KindInvalidInput, "invalid_candidate_request", false, "help "+path, "Select a valid bounded denial window."),
 		declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-		declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
 		declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster denials", "Inspect retained denial evidence."),
 		declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
 		declaredCommandError(fault.KindContract, "invalid_candidate_contract", false, "cluster denials", "Inspect retained denial compatibility."),
 		declaredCommandError(fault.KindContract, "output_encoding_failed", false, path, "Repair JSON projection."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-	)
+	), policyClusterReadinessErrors()...)
+}
+
+func policyMutationCommandErrors(path, recovery string, extra ...CommandError) []CommandError {
+	return append(mutationCommandErrors(path, recovery, extra...), policyClusterReadinessErrors()...)
 }
 
 func mutationCommandErrors(path, recovery string, extra ...CommandError) []CommandError {

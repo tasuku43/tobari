@@ -312,10 +312,13 @@ The test suite has complementary levels:
   do not invite approval. Session lifecycle tests verify that the aggregate
   pending-permission summary stays on host stderr and is best-effort.
 - Context contract tests verify named manifest validation, owner-only separate
-  stores, one-time legacy default migration, active selection, and explicit
-  cluster-reconcile recovery after a Context change. Runtime tests verify that
-  Context policy reaches OPA, the selected agent profile reaches the project
-  as read-only data, and managed credential values remain Gateway-only.
+  stores, one-time legacy default migration, and the full Context-use state
+  matrix: unconfigured, stopped, already aligned, running-cluster
+  reconciliation, failure rollback, and interrupted-journal recovery. Runtime
+  tests verify that Context policy reaches OPA, the selected agent profile
+  reaches the project as read-only data, and managed credential values remain
+  Gateway-only. Policy discovery and mutation tests also prove active-context
+  mismatch fails closed.
 - The human permission path is exercised through `policy review`; its TTY
   Permission Inbox covers bounded selection, detail inspection, explicit
   allow/deny confirmation, cancellation, and refresh after each decision. It

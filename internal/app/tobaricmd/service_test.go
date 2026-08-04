@@ -206,6 +206,15 @@ func (f *fakeRuntime) Doctor(context.Context, string) (doctor.Report, error) {
 	return doctor.Report{Checks: []doctor.Check{{Name: "docker", Status: doctor.CheckStatusPass, Detail: "available"}}}, nil
 }
 
+type activeContextFake struct {
+	*fakeRuntime
+	active string
+}
+
+func (f *activeContextFake) ActiveContextName(context.Context) (string, error) {
+	return f.active, nil
+}
+
 type projectRuntimeFake struct {
 	*fakeRuntime
 	cwd             string
@@ -733,6 +742,21 @@ func TestClusterDenialsReturnsPolicyAndEmptyBoundedScope(t *testing.T) {
 		result.PolicyDirectory != runtime.state.PolicyDirectory ||
 		result.WindowLines != 75 || result.Items == nil || len(result.Items) != 0 {
 		t.Fatalf("denial result = %+v", result)
+	}
+}
+
+func TestPolicyCandidatesFailClosedWhenActiveContextDiffersFromClusterState(t *testing.T) {
+	t.Parallel()
+	state := testState(t.TempDir())
+	state.ContextName = tobari.DefaultContextName
+	runtime := &activeContextFake{fakeRuntime: &fakeRuntime{state: state}, active: "project-tools"}
+	_, err := New(runtime).PolicyCandidates(context.Background(), 75)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindRejected || public.Code != "context_mismatch" {
+		t.Fatalf("PolicyCandidates() fault = %#v, ok=%t", public, ok)
+	}
+	if runtime.denials != nil {
+		t.Fatalf("policy denials were read during context mismatch: %+v", runtime.denials)
 	}
 }
 

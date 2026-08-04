@@ -990,16 +990,9 @@ func (s *Service) ClusterDenials(ctx context.Context, tail int) (tobari.DenialRe
 			fault.KindInvalidInput, "invalid_denial_request", "denial request is invalid", false, err,
 		)
 	}
-	state, exists, err := s.runtime.LoadState(ctx)
+	state, err := s.readyCluster(ctx)
 	if err != nil {
-		return tobari.DenialReport{}, fault.Wrap(
-			fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err,
-		)
-	}
-	if !exists {
-		return tobari.DenialReport{}, fault.New(
-			fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false,
-		)
+		return tobari.DenialReport{}, err
 	}
 	items, err := s.runtime.ClusterDenials(ctx, state, tail)
 	if err != nil {
@@ -1032,16 +1025,9 @@ func (s *Service) policyCandidates(
 			"policy candidate request is invalid", false, err,
 		)
 	}
-	state, exists, err := s.runtime.LoadState(ctx)
+	state, err := s.readyCluster(ctx)
 	if err != nil {
-		return tobari.PolicyCandidateReport{}, fault.Wrap(
-			fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err,
-		)
-	}
-	if !exists {
-		return tobari.PolicyCandidateReport{}, fault.New(
-			fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false,
-		)
+		return tobari.PolicyCandidateReport{}, err
 	}
 	denials, err := s.runtime.ClusterDenials(ctx, state, tail)
 	if err != nil {
@@ -1108,16 +1094,9 @@ func (s *Service) PolicyReview(
 func (s *Service) loadPolicyState(
 	ctx context.Context,
 ) (tobari.State, []tobari.LearnedPolicyRule, error) {
-	state, exists, err := s.runtime.LoadState(ctx)
+	state, err := s.readyCluster(ctx)
 	if err != nil {
-		return tobari.State{}, nil, fault.Wrap(
-			fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err,
-		)
-	}
-	if !exists {
-		return tobari.State{}, nil, fault.New(
-			fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false,
-		)
+		return tobari.State{}, nil, err
 	}
 	rules, err := s.runtime.ReadLearnedPolicyRules(ctx, state)
 	if err != nil {

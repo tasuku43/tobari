@@ -84,6 +84,7 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 	contextReport := ContextReport{
 		Task: TaskRuntimeBuild, Name: manifest.Name, Active: true,
 		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
+		Cluster: ContextClusterStatusNotApplicable,
 		Stores: ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials.json"),
@@ -93,6 +94,21 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 	}
 	if err := contextReport.Validate(); err != nil {
 		t.Fatalf("valid runtime Context report rejected: %v", err)
+	}
+}
+
+func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {
+	for _, status := range []ContextClusterStatus{
+		ContextClusterStatusNotApplicable, ContextClusterStatusNotConfigured,
+		ContextClusterStatusNotRunning, ContextClusterStatusAlreadyReady,
+		ContextClusterStatusReconciled,
+	} {
+		if err := status.Validate(); err != nil {
+			t.Fatalf("status %q rejected: %v", status, err)
+		}
+	}
+	if err := ContextClusterStatus("failed").Validate(); err == nil {
+		t.Fatal("unknown Context cluster status was accepted")
 	}
 }
 

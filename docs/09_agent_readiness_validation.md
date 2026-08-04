@@ -36,7 +36,7 @@ journey is the product baseline to improve:
 | First denied request | 403 plus host-side `policy review` | The agent can explain that the host must review the secret-free exact request; one fixed next command is available |
 | Permission growth | Human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users select, inspect, explicitly confirm, and refresh after one exact decision without OPA/Rego editing; redirected review remains read-only and the underlying action remains exact-reference-bound and tested |
 | Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
-| Execution setup | `context list`, `context show`, `context use --name NAME` | The user can inspect and select one logical setup while policy, agent configuration, and credential stores remain physically separated |
+| Execution setup | `context list`, `context show`, `context use --name NAME` | The user can inspect and select one logical setup; a running shared cluster is reconciled during selection while policy, agent configuration, and credential stores remain physically separated |
 | Runtime customization | `runtime init`, edit the active Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
 
@@ -55,7 +55,9 @@ permission is `tobari` re-entry; there is no `tobari retry` command. Runtime
 builds apply to new Workspaces, while existing Workspaces keep their selected
 image. Future UX work may simplify bootstrap or polish terminal redraws, but
 those observations do not change the current contract or authorize a second
-command surface.
+command surface. Context selection has one explicit outcome: an already
+running cluster is reconciled synchronously, while a stopped or unconfigured
+cluster reports that `cluster up` is still required.
 
 Parent-owned human-path evidence uses a real-PTY capture boundary. The
 reviewable bundle records `rows`, `cols`, `TERM`, one short input event at a
@@ -85,7 +87,11 @@ go build -o /tmp/tobari ./cmd/tobari
 go run ./cmd/tobari cluster denials --tail 100 --format json
 go run ./cmd/tobari context show --format json
 go run ./cmd/tobari context list --format json
-go run ./cmd/tobari context use --name default
+go run ./cmd/tobari context use --name default --format json # records not_configured/not_running without starting Docker
+go run ./cmd/tobari cluster up
+go run ./cmd/tobari context create --name project-tools --format json
+go run ./cmd/tobari context use --name project-tools --format json # reconciles the running cluster
+go run ./cmd/tobari context use --name default --format json # switches back through the same path
 go run ./cmd/tobari runtime init
 # edit the active Context's runtime/Dockerfile
 go run ./cmd/tobari runtime build --format json
@@ -108,6 +114,12 @@ rules exist. The transcript must prove:
   failures, and recovery commands.
 - Context discovery identifies the active Context and its separated agent,
   policy, and credential stores without exposing secret values.
+- Context selection reports `not_configured`, `not_running`, `already_ready`, or
+  `reconciled` explicitly; it never starts a stopped cluster implicitly.
+- Switching a running cluster updates the OPA policy and Gateway credential
+  mounts before success is reported. A failed or interrupted switch restores
+  the previous marker/state where possible and directs entry and policy paths
+  to explicit `cluster up` recovery.
 - Cluster startup mounts no work root.
 - The root command binds the canonical current directory and a compatible local
   image selector without a name or root flag; an ancestor-root entry exposes all

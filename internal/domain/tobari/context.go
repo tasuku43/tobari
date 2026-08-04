@@ -94,6 +94,30 @@ func (s ContextRuntimeStatus) Validate() error {
 	}
 }
 
+// ContextClusterStatus reports how context use relates to the installation-wide
+// shared cluster. It is explicit in the result so callers do not have to infer
+// whether selecting a Context also applied its policy and credential mounts.
+type ContextClusterStatus string
+
+const (
+	ContextClusterStatusNotApplicable ContextClusterStatus = "not_applicable"
+	ContextClusterStatusNotConfigured ContextClusterStatus = "not_configured"
+	ContextClusterStatusNotRunning    ContextClusterStatus = "not_running"
+	ContextClusterStatusAlreadyReady  ContextClusterStatus = "already_ready"
+	ContextClusterStatusReconciled    ContextClusterStatus = "reconciled"
+)
+
+func (s ContextClusterStatus) Validate() error {
+	switch s {
+	case ContextClusterStatusNotApplicable, ContextClusterStatusNotConfigured,
+		ContextClusterStatusNotRunning, ContextClusterStatusAlreadyReady,
+		ContextClusterStatusReconciled:
+		return nil
+	default:
+		return fmt.Errorf("context cluster status is invalid: %q", s)
+	}
+}
+
 // ContextRuntimeBuild is the last successful build record for a recipe.
 // Image is a Tobari-managed local reference; ImageDigest is the immutable
 // Docker image identity used for diagnostics and drift detection.
@@ -361,6 +385,7 @@ type ContextReport struct {
 	PolicyMode   ContextPolicyMode    `json:"policy_mode"`
 	Stores       ContextStorePaths    `json:"stores"`
 	Runtime      ContextRuntimeReport `json:"runtime"`
+	Cluster      ContextClusterStatus `json:"cluster"`
 }
 
 func (r ContextReport) Validate() error {
@@ -381,5 +406,8 @@ func (r ContextReport) Validate() error {
 	if err := r.Stores.Validate(); err != nil {
 		return err
 	}
-	return r.Runtime.Validate()
+	if err := r.Runtime.Validate(); err != nil {
+		return err
+	}
+	return r.Cluster.Validate()
 }
