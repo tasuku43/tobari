@@ -419,6 +419,24 @@ func TestCheckWorkPacketsRejectsUnknownAndInconsistentCompleteState(t *testing.T
 	}
 }
 
+func TestCheckWorkPacketsRejectsTerminalTemporaryRetention(t *testing.T) {
+	root := t.TempDir()
+	goal := strings.Replace(workGoal("Complete", "", "- [x] Done\n"), "- Status: Complete\n", "- Status: Complete\n- Retention: temporary\n", 1)
+	writeRepositoryFixture(t, root, "docs/work/complete/goal.md", goal)
+	writeRepositoryFixture(t, root, "docs/work/complete/tasks.md", "# Tasks\n\n- [x] Done\n")
+
+	issues, err := checkWorkPackets(root, []string{
+		"docs/work/complete/goal.md",
+		"docs/work/complete/tasks.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || !strings.Contains(issues[0].Message, "cannot use Retention: temporary") {
+		t.Fatalf("terminal temporary retention issues = %#v", issues)
+	}
+}
+
 func TestCheckWorkPacketsChecksEveryVisibleAcceptanceSection(t *testing.T) {
 	root := t.TempDir()
 	goal := workGoal("Complete", "", "- [x] First acceptance\n") + "\n## Notes\n\nVisible notes.\n\n## Acceptance criteria\n\n- [ ] Later acceptance remains\n"

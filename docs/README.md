@@ -1,65 +1,101 @@
-# Documentation Map
+# Documentation map
 
-This directory contains the durable reasoning for Tobari. Read the numbered
-documents in order when making a change that crosses product, architecture,
-security, harness, publication, or release boundaries. Recurring capability
-work uses [`$add-capability`](../.agents/skills/add-capability/SKILL.md).
+This repository separates current product knowledge from work-in-progress
+notes. The current contract is the numbered documentation and accepted
+decision records; `docs/work` is not a second specification.
 
-| Document | Purpose | Primary readers |
+## Start here
+
+| Need | Read | What it answers |
 |---|---|---|
-| [00_theses.md](00_theses.md) | North star, thesis-learning lifecycle, and principles used to resolve ambiguous decisions | Everyone |
-| [01_product_contract.md](01_product_contract.md) | Users, supported outcomes, public vocabulary, compatibility, and non-goals | Product owners, contributors, agents |
-| [02_architecture.md](02_architecture.md) | Four layers, catalog, typed effects and intent, and execution flow | Contributors, agents, reviewers |
-| [03_security_model.md](03_security_model.md) | Assets, actors, trust boundaries, abuse cases, and required controls | Everyone changing side effects or data handling |
-| [04_harness.md](04_harness.md) | How written claims become local and CI checks | Contributors, agents, maintainers |
-| [05_public_repository.md](05_public_repository.md) | Clean-room derivation, sanitization, licensing, and public-readiness review | Maintainers and release owners |
-| [06_release.md](06_release.md) | Versioning, artifact construction, provenance decisions, and release procedure | Release owners |
-| [07_authentication.md](07_authentication.md) | Pluggable Gateway authentication and deliberate authentication exclusions | Security owners, adapter authors, agents |
-| [08_external_api_contracts.md](08_external_api_contracts.md) | Generic HTTP Gateway and OPA request contracts | Adapter authors, agents, reviewers |
-| [09_agent_readiness_validation.md](09_agent_readiness_validation.md) | Scenario-based discovery, execution, interpretation, and recovery validation | Product owners, agents, reviewers |
+| Use Tobari | [`README.md`](../README.md) | What the product does and how to run the first bounded workflow |
+| Understand the current contract | [`00_theses.md`](00_theses.md) through [`09_agent_readiness_validation.md`](09_agent_readiness_validation.md) | Product outcome, public CLI, architecture, security, checks, release, authentication, external contracts, and readiness |
+| Review a long-lived design choice | [`decisions/`](decisions/0000-template.md) | Why an accepted architecture or security decision exists, and what it superseded |
+| Review abuse cases | [`THREAT_MODEL.md`](THREAT_MODEL.md) | Assets, trust assumptions, abuse cases, accepted risks, and reconsideration triggers |
+| See the system visually | [`architecture-site/index.html`](architecture-site/index.html) | A read-only public presentation derived from the current contract |
+| See unfinished work | [`work/_template/goal.md`](work/_template/goal.md) | Only active or explicitly deferred work with a named owner and review trigger |
 
-Additional directories serve different lifetimes:
+Read the numbered documents in order when a change crosses several boundaries.
+The short purpose of each document is:
 
-- The [architecture presentation](architecture-site/index.html) is a public-safe static map of the current product line.
-- The [decision template](decisions/0000-template.md) starts durable architecture decision records. An ADR is never edited to hide an old decision; a later ADR supersedes it.
-- The [work-packet goal template](work/_template/goal.md) starts bounded work packets. Facts and plans there are temporary unless promoted into a durable document.
-
-Root community documents have stable conventional locations:
-
-| Document | Purpose |
+| Document | Current role |
 |---|---|
-| [`README.md`](../README.md) | User entry point |
-| [`AGENTS.md`](../AGENTS.md) | Canonical contribution policy for humans and agents |
-| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Contribution workflow and review expectations |
-| [`CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md) | Participation standards and private conduct reporting |
-| [`SUPPORT.md`](../SUPPORT.md) | Support channels, required evidence, and boundaries |
-| [`SECURITY.md`](../SECURITY.md) | Supported versions and private vulnerability reporting |
-| [`LICENSE`](../LICENSE) | Repository license terms |
+| [`00_theses.md`](00_theses.md) | North star, product hypotheses, and deliberate non-goals |
+| [`01_product_contract.md`](01_product_contract.md) | Supported outcomes, public vocabulary, CLI behavior, lifecycle, and compatibility |
+| [`02_architecture.md`](02_architecture.md) | Layers, catalog ownership, runtime topology, and execution flow |
+| [`03_security_model.md`](03_security_model.md) | Trust boundaries, assets, side-effect controls, credentials, and fail-closed rules |
+| [`04_harness.md`](04_harness.md) | Executable checks, E2E evidence, and completion gates |
+| [`05_public_repository.md`](05_public_repository.md) | Public-boundary, license, and publication review |
+| [`06_release.md`](06_release.md) | CLI and OCI image release boundaries and required gates |
+| [`07_authentication.md`](07_authentication.md) | Tool-native authentication, retained managed mode, and deferred experiments |
+| [`08_external_api_contracts.md`](08_external_api_contracts.md) | Gateway and OPA protocol contracts |
+| [`09_agent_readiness_validation.md`](09_agent_readiness_validation.md) | New-user and coding-agent readiness scenarios |
+
+## Current open work
+
+The current tree has one active external handoff:
+
+- [Gateway official image](work/gateway-official-image/goal.md): source,
+  image, digest, and runtime validation are complete; anonymous GHCR package
+  visibility still needs an owner-side verification or an explicit deferral.
+
+The following are deliberate product boundaries, not completed features:
+
+- Public Claude and Codex image publication is deferred until redistribution,
+  licensing, support, and provenance decisions are accepted. See
+  [Release Model](06_release.md).
+- The provider-facing auth-broker experiment remains outside `main` and is not
+  a supported capability. Any restart requires a new reviewed work packet. See
+  [Authentication handling](07_authentication.md).
+- Simplifying explicit cluster bootstrap remains a product hypothesis under
+  the bounded-autonomy thesis, not an unreviewed command change. See
+  [Agent Readiness Validation](09_agent_readiness_validation.md).
+
+## How to distinguish current and historical material
+
+- The numbered documents and ADRs with `Status: Accepted` state the current
+  contract. An ADR with `Status: Superseded` is historical reasoning; follow
+  its `Superseded by` link instead of treating it as current behavior.
+- `README.md` is the current user-facing route. The architecture site is an
+  explanatory projection and cannot add a command, permission, or guarantee.
+- A work packet is task-time material. Its `goal.md` status identifies whether
+  it is `Draft`, `Accepted`, or `Active`; completed temporary packets are
+  removed rather than used as a history archive. Evidence packets are retained
+  only when their raw experiment or release observation cannot be replaced by
+  a contract or executable test, and each one must state its deletion trigger.
+- Closed implementation history belongs in Git. Do not preserve a plan,
+  transcript, or handoff in the normal documentation path solely because it
+  records how a completed change was made.
 
 ## Decision precedence
 
 When two documents disagree, use this order:
 
-1. Theses
+1. Project theses
 2. Security and architecture invariants
 3. Accepted ADRs
-4. Active work packet goal and context
+4. Active work-packet goal and context
 5. Active plan
 6. Task checklist
 
-The root [AGENTS.md](../AGENTS.md) turns this order into contribution policy. A lower-level document cannot grant an exception to a higher-level invariant.
+The root [`AGENTS.md`](../AGENTS.md) turns this order into contribution policy.
+A lower-level document cannot grant an exception to a higher-level invariant.
 
-## Stable reasoning and task-time instructions
+## Work packet lifecycle
 
-Durable documentation explains **why the system has its current shape**. Task-time instructions explain **how to perform a recurring change safely**. Keep long procedural checklists out of a thesis or architecture overview; place them in a focused work template, repository tool, or agent skill and link back to the governing invariant.
+Create a packet from [`work/_template/goal.md`](work/_template/goal.md) for a
+non-trivial change. Keep it small and delete it in the same handoff that
+promotes its durable conclusions. Use `Retention: evidence` only for a narrow
+raw experiment, incident, or release observation that the product contract and
+tests cannot replace. Do not create a separate backlog or an index of finished
+packets; the active packet links above are enough.
 
-Conversely, do not leave a durable product or security decision only in a work plan. Promote it to a numbered document or ADR before closing the work packet.
+`task check` runs the repository guard that validates packet status, completion
+checklists, successor paths, and the terminal-retention rule. A terminal packet
+with temporary retention is a lifecycle error, not a reason to keep it around.
 
 ## Documentation language
 
-All repository documentation is public and written in English. Changing the
-language requires an explicit thesis or product-contract decision and the
-matching `.harness/project.json` `public_guard.documentation_locale`. The
-repository guard has only a narrow English/Japanese trusted-Markdown canary;
-maintainers remain responsible for broader linguistic review and understandable
-public-boundary checks.
+Repository documentation is public and written in English. Stable command
+paths, flags, output keys, and reference kinds remain language-neutral; output
+received from external systems remains untrusted data.

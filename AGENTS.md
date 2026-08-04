@@ -105,10 +105,14 @@ Durable conclusions belong in theses, architecture, security, or an ADR. Do not 
 
 Work packets are active-change artifacts, not a second permanent knowledge
 base. Use `Retention: temporary` by default and remove a completed packet from
-the final tree after promoting its conclusions. `Retention: evidence` is a
-narrow exception for raw experiments, incident/release observations, or other
-facts that Git history and durable contracts cannot usefully replace; its goal
-must name the reason, governing contract, and review/delete trigger.
+the final tree after promoting its conclusions. A terminal `Complete` packet
+must not retain temporary material; the repository guard rejects that state.
+`Retention: evidence` is a narrow exception for raw experiments,
+incident/release observations, or other facts that Git history and durable
+contracts cannot usefully replace; its goal must name the reason, governing
+contract, and review/delete trigger. Delete a temporary packet in the same
+handoff that closes the change rather than leaving a completed plan as a
+roadmap or archive.
 
 When the same design choice, workaround, or point of confusion appears twice, treat it as thesis evidence. Record it before adding another local special case.
 

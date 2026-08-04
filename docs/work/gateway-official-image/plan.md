@@ -1,6 +1,6 @@
 # Work Plan: Distribute the trusted Gateway as an official image
 
-- Status: Accepted
+- Status: Active
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)

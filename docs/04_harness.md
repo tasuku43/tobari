@@ -168,7 +168,11 @@ Work-goal status is one of `Draft`, `Accepted`, `Active`, `Complete`, or
 histories; new work may move directly from Draft to Active. Complete
 requires every acceptance checkbox in every visible Acceptance section and
 every task checkbox to be checked across the standard GFM unordered and ordered
-list markers. Metadata is read only from the contiguous top-level
+list markers. A terminal `Complete` packet must not declare
+`Retention: temporary`; it is removed after its conclusions are promoted.
+`Retention: evidence` is a narrow exception and must name why the evidence
+cannot be replaced and when it may be deleted. Metadata is read only from the
+contiguous top-level
 `- Key: value` block directly below the first top-level ATX H1 (`# ...`).
 Fenced examples and HTML comments do not supply metadata, headings, or
 checkboxes; valid top-level and list-container CommonMark fences are
@@ -405,7 +409,7 @@ Every strong statement should identify its enforcement path.
 | Agent recovery | Catalog fault declarations, exact-path/help-selector executable grammar tests, and structured error snapshots |
 | Bounded agent discovery | Fixed root-index shape, 512-byte per-command entry validation, 100-command growth/selection tests, and a derived-scale grouped-workflow whole-response budget with edge-equivalence checks |
 | Bounded-autonomy adoption | Agent-readiness first-use and denial-to-retry transcripts record command count, discovery rounds, external-processing count, and the concrete next action; a reviewed human-handoff scorecard identifies setup friction as product evidence |
-| Work-packet lifecycle consistency | Repository validation of finite status, all GFM completion checkboxes, CommonMark fence handling, explicit non-template acyclic supersession, and regular-file paths |
+| Work-packet lifecycle consistency | Repository validation of finite status, terminal-retention rule, all GFM completion checkboxes, CommonMark fence handling, explicit non-template acyclic supersession, and regular-file paths |
 | Local Go consistency | Gate preflight comparison of required/reported/compiler versions and GOROOT/GOTOOLDIR, with a mixed-installation shell fixture |
 | External text structure | Visible-projection unit/E2E tests plus scoped I/O trust metadata; printable meaning remains explicitly out of scope |
 | Documentation locale | Versioned project policy, explicit schema-1 migration diagnostic, locale preservation test, and narrow English/Japanese trusted-Markdown fixtures; broader linguistic conformance remains manual |

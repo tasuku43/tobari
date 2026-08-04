@@ -1,8 +1,8 @@
 # Work Goal: Distribute the trusted Gateway as an official image
 
-- Status: Accepted
-- Retention: evidence
-- Retention reason: Preserve the verified trusted Gateway image contract and the external GHCR visibility handoff until the package owner completes or explicitly declines publication.
+- Status: Active
+- Retention: temporary
+- Retention reason: Track the one remaining owner-side GHCR visibility handoff for the otherwise verified Gateway image publication.
 - Governing contract: docs/00_theses.md, docs/01_product_contract.md, docs/02_architecture.md, docs/03_security_model.md, docs/04_harness.md, docs/05_public_repository.md, docs/06_release.md
 - Review/delete trigger: Delete after the GHCR visibility handoff is completed or explicitly deferred and the Gateway release decision remains promoted in the ADR and release contract.
 - Successor: `docs/06_release.md` public OCI review; a new packet is required for any changed publication policy.

@@ -8,6 +8,22 @@ must be easier to choose than running the agent on the host. Human entry below
 ancestor roots explicitly chooses reuse or creation; that interaction is
 outside the machine help contract.
 
+## Agent integration boundary
+
+The current CLI and its catalog already close the supported agent workflow:
+read-only discovery exposes the denial and an opaque candidate, a trusted host
+performs one exact allow or deny action, and the agent retries only after that
+action succeeds. The same catalog owns runtime initialization and build as
+explicit host-side actions. No official Codex or Claude Code plugin, MCP
+server, generic executor, or auth broker is required for this local outcome.
+
+A future integration should be a thin skill or wrapper over scoped catalog
+help and existing commands. It must not copy command metadata, create a second
+permission registry, accept credentials, or expose Docker/OPA authority. A
+plugin becomes worthwhile only when repeated cross-repository distribution
+creates a real packaging need; an MCP surface requires a separate live-service
+or authenticated-action contract.
+
 ## Experience scorecard
 
 The current implementation is safe and catalog-complete, but the following
@@ -28,6 +44,15 @@ The table is a review baseline, not a claim that the desired command count is
 already met. Readiness evidence records command count, discovery rounds,
 external-processing count, and the exact next command separately for machine
 and human paths.
+
+The current human-path evidence supports keeping the Permission Inbox,
+CWD-owned entry, explicit cleanup, and Context runtime commands. No observed
+journey justifies deleting or merging a public command. The valid recovery
+path after an allowed permission is `tobari` re-entry; there is no `tobari retry`
+command. Runtime builds apply to new Workspaces, while existing
+Workspaces keep their selected image. Future UX work may simplify bootstrap or
+polish terminal redraws, but those observations do not change the current
+contract or authorize a second command surface.
 
 Parent-owned human-path evidence uses a real-PTY capture boundary. The
 reviewable bundle records `rows`, `cols`, `TERM`, one short input event at a

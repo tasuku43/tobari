@@ -56,6 +56,16 @@ checksums, multi-architecture build, and inherited runtime contract without
 publishing an agent tag. Public agent publication remains blocked until the
 agent redistribution terms and image-layer license review are recorded.
 
+The current publication boundary therefore has one supported runtime family
+edge: the base image may use its reviewed moving development channels and
+immutable commit tag, while Claude and Codex variants are local/CI build
+artifacts only. The repository does not claim a public agent image, stable
+support window, SBOM/attestation, or redistribution approval until a new
+release decision accepts those claims. The Gateway source and image checks are
+implemented; anonymous package visibility is the remaining owner-side
+publication handoff recorded in the active
+[Gateway image packet](work/gateway-official-image/goal.md).
+
 Tobari does not yet claim code signing, notarization, SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact
 integrity but do not identify the builder.

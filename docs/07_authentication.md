@@ -34,6 +34,20 @@ login state, and its display name or credential-profile name is not an
 authority. Project-principal and normalized-host binding checks remain the
 source of managed credential authority.
 
+## Deferred auth-broker experiment
+
+The provider-facing auth-broker experiment is not part of the supported
+`main` product surface. Its implementation and branch-only decision records
+remain on `codex/auth-broker`; no broker command, provider login flow, or
+broker-owned credential authority is present in the current Catalog. This is
+an explicit deferral while Tobari's bounded-autonomy and policy-learning value
+is established, not a partially supported authentication mode.
+
+Resuming the experiment requires a new reviewed work packet and fresh product,
+architecture, security, public-boundary, and harness decisions. The detached
+branch must not be merged or cherry-picked as a routine documentation or
+authentication update.
+
 ## Tool-native runtime flow
 
 1. The runtime mounts one private persistent home at `/var/lib/tobari` for the

@@ -4,7 +4,7 @@
 - Date: 2026-08-02
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, and security
-- Supersedes: The initial credential-injection method in `docs/07_authentication.md`
+- Supersedes: [ADR 0003: Inject credentials after authorization](0003-inject-credentials-after-authorization.md)
 - Superseded by: None
 
 ## Context

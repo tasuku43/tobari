@@ -203,6 +203,9 @@ func checkWorkPackets(root string, repositoryPaths []string) ([]issue, error) {
 			issues = append(issues, issue{Path: goalPath, Line: status.Line, Message: "work goal Status must be one of Draft, Accepted, Active, Complete, or Superseded"})
 			continue
 		}
+		if status.Value == "Complete" || status.Value == "Superseded" {
+			issues = append(issues, checkTerminalWorkPacketRetention(goalPath, text, status.Value)...)
+		}
 
 		successors := workMetadata(text, "Successor")
 		if len(successors) > 1 {
@@ -221,6 +224,18 @@ func checkWorkPackets(root string, repositoryPaths []string) ([]issue, error) {
 	}
 	issues = append(issues, checkWorkSuccessorCycles(successorEdges)...)
 	return issues, nil
+}
+
+func checkTerminalWorkPacketRetention(goalPath, goalText, status string) []issue {
+	retentions := workMetadata(goalText, "Retention")
+	if len(retentions) != 1 || !strings.EqualFold(retentions[0].Value, "temporary") {
+		return nil
+	}
+	return []issue{{
+		Path:    goalPath,
+		Line:    retentions[0].Line,
+		Message: fmt.Sprintf("%s work goal cannot use Retention: temporary; delete the packet or retain irreplaceable evidence with a review/delete trigger", status),
+	}}
 }
 
 // historicalWorkPacketLocaleExemptions returns only packet roots whose goal
