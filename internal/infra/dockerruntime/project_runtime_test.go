@@ -245,6 +245,67 @@ func TestProjectContainerRootKeepsHostHomeExternalPathMapping(t *testing.T) {
 	}
 }
 
+func TestEnsureProjectHomeMountTargetCreatesOwnerOnlyScaffold(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := ensureProjectHomeMountTarget(home, "/var/lib/tobari/workspace/child-workspace"); err != nil {
+		t.Fatalf("ensureProjectHomeMountTarget() error = %v", err)
+	}
+	for _, relative := range []string{"workspace", filepath.Join("workspace", "child-workspace")} {
+		info, err := os.Lstat(filepath.Join(home, relative))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.IsDir() || info.Mode().Perm() != 0o700 {
+			t.Fatalf("mount scaffold %q mode = %v, want owner-only directory", relative, info.Mode())
+		}
+	}
+}
+
+func TestEnsureProjectHomeMountTargetRejectsUnsafeExistingPath(t *testing.T) {
+	t.Parallel()
+	for _, setup := range []struct {
+		name string
+		make func(string) error
+	}{
+		{name: "symlink", make: func(path string) error { return os.Symlink("elsewhere", path) }},
+		{name: "broad directory", make: func(path string) error {
+			if err := os.Mkdir(path, 0o700); err != nil {
+				return err
+			}
+			return os.Chmod(path, 0o755)
+		}},
+		{name: "regular file", make: func(path string) error { return os.WriteFile(path, []byte("fixture"), 0o600) }},
+	} {
+		setup := setup
+		t.Run(setup.name, func(t *testing.T) {
+			t.Parallel()
+			home := t.TempDir()
+			if err := setup.make(filepath.Join(home, "workspace")); err != nil {
+				t.Fatal(err)
+			}
+			if err := ensureProjectHomeMountTarget(home, "/var/lib/tobari/workspace/project"); err == nil {
+				t.Fatal("ensureProjectHomeMountTarget() accepted an unsafe existing path")
+			}
+		})
+	}
+}
+
+func TestEnsureProjectHomeMountTargetIgnoresExternalMount(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := ensureProjectHomeMountTarget(home, "/workspace/tmp/project"); err != nil {
+		t.Fatalf("ensureProjectHomeMountTarget() external target error = %v", err)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("external mount created Workspace-home entries: %v", entries)
+	}
+}
+
 func TestProjectContainerRootRejectsHostHomeOrAncestor(t *testing.T) {
 	t.Parallel()
 	hostHome := t.TempDir()

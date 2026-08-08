@@ -3,7 +3,8 @@
 1. Run the synthetic TLS upstream with the host fixture owner's explicit
    UID/GID.
 2. Retain owner-only fixture modes and document the harness ownership rule.
-3. Run local runtime and repository gates.
-4. Push and verify the GitHub container gate.
-5. Remove this temporary packet after promoting the conclusion.
-
+3. Pre-create HOME-relative project bind targets under the host owner and add
+   unit coverage for unsafe substitutions.
+4. Run local runtime and repository gates.
+5. Push and verify the GitHub container gate.
+6. Remove this temporary packet after promoting the conclusion.

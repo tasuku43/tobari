@@ -14,3 +14,8 @@
   membership after service health. The initial three-second convergence bound
   was insufficient on Colima, so the positive read uses the harness-standard
   thirty-second bound; negative attachment checks remain immediate.
+- After the TLS fixture started successfully, Linux CI reached final Workspace
+  deletion and exposed a product-runtime ownership bug: Docker had created the
+  HOME-relative bind target as the engine user, so the host CLI could not
+  remove the persistent home. Tobari must create that target under the host
+  owner before container creation and reject unsafe existing components.

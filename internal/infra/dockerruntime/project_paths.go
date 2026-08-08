@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,4 +79,52 @@ func mapProjectCWDToContainer(root, cwd, containerRoot string) (string, error) {
 		return filepath.ToSlash(filepath.Clean(containerRoot)), nil
 	}
 	return filepath.ToSlash(filepath.Join(containerRoot, relative)), nil
+}
+
+// ensureProjectHomeMountTarget creates a home-relative project bind target
+// before Docker can create it as the engine user. This keeps the persistent
+// home removable by the host user on Linux while rejecting Workspace-created
+// symlink or mode substitutions at the mount boundary.
+func ensureProjectHomeMountTarget(home, containerRoot string) error {
+	containerHome := filepath.Clean(filepath.FromSlash(projectContainerHome))
+	containerTarget := filepath.Clean(filepath.FromSlash(containerRoot))
+	relative, err := filepath.Rel(containerHome, containerTarget)
+	if err != nil {
+		return fmt.Errorf("derive project mount target below Workspace home: %w", err)
+	}
+	if relative == "." {
+		return fmt.Errorf("project mount target must not replace Workspace home")
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return nil
+	}
+	homeRoot, err := os.OpenRoot(home)
+	if err != nil {
+		return fmt.Errorf("open Workspace home for project mount target: %w", err)
+	}
+	defer homeRoot.Close()
+	current := ""
+	for _, component := range strings.Split(filepath.ToSlash(relative), "/") {
+		if component == "" || component == "." || component == ".." {
+			return fmt.Errorf("project mount target has an unsafe path component")
+		}
+		current = filepath.Join(current, component)
+		info, statErr := homeRoot.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			if mkdirErr := homeRoot.Mkdir(current, 0o700); mkdirErr != nil {
+				return fmt.Errorf("create project mount target: %w", mkdirErr)
+			}
+			info, statErr = homeRoot.Lstat(current)
+		}
+		if statErr != nil {
+			return fmt.Errorf("inspect project mount target: %w", statErr)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("project mount target is not a regular directory")
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("project mount target is not owner-only")
+		}
+	}
+	return nil
 }

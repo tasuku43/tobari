@@ -457,7 +457,11 @@ The test suite has complementary levels:
   topology assertions remain immediate so an unwanted attachment cannot be
   hidden by retry. The owner-only synthetic TLS key is generated and consumed
   under one explicit fixture UID/GID; the harness does not broaden its file or
-  parent-directory modes to accommodate an image-default user.
+  parent-directory modes to accommodate an image-default user. Linux
+  integration deletion also proves that HOME-relative project bind targets are
+  pre-created by Tobari as owner-only directories rather than left for Docker
+  to create as the engine user; symlink, non-directory, and broad-mode
+  substitutions fail before container creation.
 - Parent-owned blind E2E runs use `scripts/pty-evidence.py` when raw terminal
   evidence is required. The runner allocates a real PTY, sets explicit
   rows/columns and `TERM`, applies a timestamped short-input schedule, and

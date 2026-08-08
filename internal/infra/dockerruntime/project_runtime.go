@@ -156,6 +156,13 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err := r.ensurePrivateDirectory(r.projectHomePath(stored.ID)); err != nil {
 			return fmt.Errorf("prepare project home: %w", err)
 		}
+		workspaceRoot, err := r.projectContainerRoot(stored.Root)
+		if err != nil {
+			return err
+		}
+		if err := ensureProjectHomeMountTarget(r.projectHomePath(stored.ID), workspaceRoot); err != nil {
+			return fmt.Errorf("prepare project mount target: %w", err)
+		}
 		agentProfile := manifest.AgentProfile
 		profile, err := r.ensureSharedProfile(agentProfile)
 		if err != nil {
