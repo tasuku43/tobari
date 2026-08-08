@@ -976,8 +976,9 @@ import json
 import sys
 
 index = sys.argv[1]
+selection = "\x1b[B" * (int(index) - 1) + "\r"
 print(json.dumps([
-    {"after_ms": 5000, "data": index},
+    {"after_ms": 5000, "data": selection},
     {"after_ms": 750, "data": "d"},
     {"after_ms": 750, "data": "y"},
     {"after_ms": 750, "data": "q"},
@@ -989,7 +990,10 @@ if ! interactive_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
   printf '%s\n' "$interactive_output" >&2
   fail "interactive policy review PTY session failed"
 fi
-assert_contains "$interactive_output" 'Permission denied' "interactive policy review"
+if [[ $interactive_output != *'Permission denied'* ]]; then
+  printf '%s\n' "$interactive_output" >&2
+  fail "interactive policy review did not contain the expected value"
+fi
 interactive_review=$(run_tobari policy review --tail 1000 --format json)
 if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/review-interactive" for item in json.load(sys.stdin)["policy_review"]) else 1)' <<<"$interactive_review"; then
   fail "interactive deny did not remove the candidate from the review queue"
