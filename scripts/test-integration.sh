@@ -504,7 +504,6 @@ chmod 0700 "$test_root/config/tobari/auth" "$test_root/config/tobari/auth/provid
 chmod 0700 "$test_root/state"
 
 config_directory=$test_root/config/tobari
-policy_directory=$config_directory/contexts/default/policy
 tool_auth_value=tobari-tool-auth-canary
 synthetic_default_secret=synthetic-real-default-canary
 synthetic_restricted_secret=synthetic-real-restricted-canary
@@ -933,6 +932,8 @@ PY
 # which would need to reopen and decrypt this file.
 chmod 000 "$default_vault"
 set +e
+# SYNTHETIC_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
 default_broker_denial=$(run_project sh -c \
   'curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-default')
 default_broker_curl_status=$?
@@ -956,6 +957,8 @@ default_broker_candidate_id=$(candidate_id_for_effect \
 default_broker_allow=$(run_tobari policy allow --id "$default_broker_candidate_id")
 assert_contains "$default_broker_allow" 'applied: true' \
   "default Context brokered policy approval"
+# SYNTHETIC_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
 default_broker_response=$(run_project sh -c \
   'curl -fsS -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-default')
 default_broker_digest=$(printf 'Bearer %s' "$synthetic_default_secret" | shasum -a 256 | awk '{print $1}')
@@ -995,6 +998,8 @@ assert_contains "$body_only_handle_response" '"method":"GET"' \
 assert_contains "$body_only_handle_response" '"path":"/brokered-default"' \
   "body-only handle upstream path"
 
+# SYNTHETIC_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
 restricted_broker_denial=$(run_restricted_project sh -c \
   'curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-restricted')
 restricted_broker_denial_status=${restricted_broker_denial##*$'\n'}
@@ -1013,6 +1018,8 @@ restricted_broker_candidate_id=$(candidate_id_for_effect \
 restricted_broker_allow=$(run_tobari policy allow --id "$restricted_broker_candidate_id")
 assert_contains "$restricted_broker_allow" 'applied: true' \
   "restricted Context brokered policy approval"
+# SYNTHETIC_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
 restricted_broker_response=$(run_restricted_project sh -c \
   'curl -fsS -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-restricted')
 restricted_broker_digest=$(printf 'Bearer %s' "$synthetic_restricted_secret" | shasum -a 256 | awk '{print $1}')
@@ -1043,6 +1050,8 @@ copied_project_status=${copied_project_result##*$'\n'}
 assert_contains "${copied_project_result%$'\n'*}" '"error":"credential_handle_invalid"' \
   "copied cross-project handle rejection"
 
+# SYNTHETIC_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
 wrong_header_result=$(run_project sh -c \
   'curl -sS -w "\n%{http_code}" -H "X-Wrong-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/wrong-header')
 wrong_header_status=${wrong_header_result##*$'\n'}
@@ -1051,6 +1060,8 @@ wrong_header_status=${wrong_header_result##*$'\n'}
 assert_contains "${wrong_header_result%$'\n'*}" '"error":"credential_handle_invalid"' \
   "unsupported handle header rejection"
 
+# SYNTHETIC_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
 wrong_format_result=$(run_project sh -c \
   'curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: Bearer $SYNTHETIC_TOKEN" https://api.synthetic.example/wrong-format')
 wrong_format_status=${wrong_format_result##*$'\n'}
@@ -1059,6 +1070,8 @@ wrong_format_status=${wrong_format_result##*$'\n'}
 assert_contains "${wrong_format_result%$'\n'*}" '"error":"credential_handle_invalid"' \
   "unsupported handle format rejection"
 
+# SYNTHETIC_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
 embedded_header_result=$(run_project sh -c \
   'curl -sS -w "\n%{http_code}" -H "X-Wrong-Auth: prefix=$SYNTHETIC_TOKEN" https://api.synthetic.example/embedded-header')
 embedded_header_status=${embedded_header_result##*$'\n'}
@@ -1067,6 +1080,8 @@ embedded_header_status=${embedded_header_result##*$'\n'}
 assert_contains "${embedded_header_result%$'\n'*}" '"error":"credential_handle_invalid"' \
   "embedded handle header rejection"
 
+# SYNTHETIC_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
 cookie_handle_result=$(run_project sh -c \
   'curl -sS -w "\n%{http_code}" -H "Cookie: auth=$SYNTHETIC_TOKEN" https://api.synthetic.example/cookie-handle')
 cookie_handle_status=${cookie_handle_result##*$'\n'}
@@ -1075,6 +1090,8 @@ cookie_handle_status=${cookie_handle_result##*$'\n'}
 assert_contains "${cookie_handle_result%$'\n'*}" '"error":"credential_handle_invalid"' \
   "cookie handle rejection"
 
+# SYNTHETIC_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
 query_handle_result=$(run_project sh -c \
   'curl -sS -w "\n%{http_code}" "https://api.synthetic.example/query-handle?auth=$SYNTHETIC_TOKEN"')
 query_handle_status=${query_handle_result##*$'\n'}
@@ -1083,6 +1100,8 @@ query_handle_status=${query_handle_result##*$'\n'}
 assert_contains "${query_handle_result%$'\n'*}" '"error":"credential_handle_invalid"' \
   "query handle rejection"
 
+# SYNTHETIC_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
 path_handle_result=$(run_project sh -c \
   'curl -sS -w "\n%{http_code}" "https://api.synthetic.example/path-handle/$SYNTHETIC_TOKEN"')
 path_handle_status=${path_handle_result##*$'\n'}
@@ -1621,7 +1640,7 @@ wait "$second_pid"
 
 docker rm -f "$mock_name" >/dev/null
 set +e
-down_with_projects=$(run_tobari cluster down 2>&1)
+run_tobari cluster down >/dev/null 2>&1
 down_with_projects_status=$?
 set -e
 [[ $down_with_projects_status != 0 ]] || fail "cluster down succeeded while Context-bound Tobari remained"

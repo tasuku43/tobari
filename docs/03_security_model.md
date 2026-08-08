@@ -204,11 +204,9 @@ Docker Desktop-specific behavior is outside the current macOS release contract.
 
 Auth Broker image code is likewise root-owned and read-only, with a fixed
 non-root default user, entrypoint, API/role labels, dropped capabilities,
-read-only root, and no host UID baked into the image. After the first
-publication, routine startup uses only the reviewed immutable
-multi-architecture digest. While `AUTH_BROKER_IMAGE=unpublished`, the official
-resolver fails before Docker mutation and only the explicit contributor dev
-image path is usable. The writable Context-vault
+read-only root, and no host UID baked into the image. Routine startup uses only
+the reviewed immutable multi-architecture digest; the explicit contributor dev
+image path cannot replace that authority in a normal binary. The writable Context-vault
 mount, Gateway-visible runtime-socket mount, private control/login tmpfs, and
 provider projection are distinct paths. The image contains pinned GitHub CLI
 artifacts and reviewed license material but no credential, configuration,
@@ -595,6 +593,6 @@ embedded snapshot, pinned GitHub CLI 2.96.0 archives, checksums, MIT license,
 third-party notice, and published multi-architecture image are checked against
 that source. Pull-request image jobs have no package-write permission. GHCR
 moving tags are development conveniences, not a trusted runtime identity;
-routine Gateway consumption and post-publication Auth Broker consumption use
-reviewed immutable digests recorded in `versions.env`. The pre-publication
-`unpublished` marker is a fail-closed bootstrap state, not an image reference.
+routine Gateway and Auth Broker consumption use reviewed immutable digests
+recorded in `versions.env`. A marker or moving tag is not an accepted image
+reference.

@@ -130,13 +130,11 @@ and standard Linux Docker Engine use the same Docker CLI adapter.
 Container bases are pinned by immutable digest in
 [`versions.env`](internal/infra/runtimeassets/assets/versions.env).
 
-The Auth Broker image is currently at its first-publication bootstrap boundary:
-`AUTH_BROKER_IMAGE=unpublished` is intentional. A normal binary fails
-`cluster up` before Docker mutation until the main workflow publishes the
-Linux amd64/arm64 manifest and a reviewed digest replaces that marker.
-Contributors can exercise the complete local source path with `task build:dev`
-and `bin/tobari-dev`; `task public:check` reports the bootstrap state, while
-`task release:check` blocks a release that still contains it.
+Gateway and Auth Broker are published as Linux amd64/arm64 OCI indexes and
+selected by reviewed immutable manifest digests. Moving `main` and `latest`
+tags are development publication channels only. Contributors can exercise the
+complete local source path with `task build:dev` and `bin/tobari-dev` without
+changing the official digest authority.
 
 ## Install from source
 
@@ -215,10 +213,9 @@ the supported host root-key backend. Ordinary `tobari` entry does not repair or
 start the cluster. If a published image is unavailable, inspect
 the host with `tobari doctor` and retry `tobari cluster up`; `doctor` is a
 diagnostic recovery command, not a prerequisite for the normal path.
-While the checked-in Auth Broker selector is the explicit `unpublished`
-bootstrap marker, use `task build:dev` and repeat this walkthrough with
-`bin/tobari-dev`; official startup is intentionally unavailable until the first
-published manifest digest is reviewed and pinned.
+For canonical Gateway or Auth Broker source development, use `task build:dev`
+and repeat this walkthrough with `bin/tobari-dev`. The normal binary continues
+to use the reviewed published digests.
 
 ### 2. Observe a denied request inside Tobari
 
@@ -1124,10 +1121,9 @@ Common failures:
   policy directory is shared with the Docker VM.
 - `gateway_image_unavailable`: inspect Docker registry access with `tobari
   doctor`, then retry `tobari cluster up`.
-- `auth_broker_image_unavailable`: if `AUTH_BROKER_IMAGE` is `unpublished`, use
-  the contributor `task build:dev`/`bin/tobari-dev` path or complete the
-  owner-side image publication and digest-pin handoff. Otherwise inspect
-  registry access and retry `cluster up`.
+- `auth_broker_image_unavailable`: inspect registry access with `tobari
+  doctor`, then retry `tobari cluster up`; contributors testing unpublished
+  source use `task build:dev` and `bin/tobari-dev` explicitly.
 - `runtime_image_unavailable`: inspect Docker registry access and the selected
   Context image with `tobari doctor`, then retry `tobari cluster up`.
 - `gateway_image_incompatible`: inspect the Gateway image digest, labels,

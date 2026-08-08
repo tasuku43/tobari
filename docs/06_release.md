@@ -36,10 +36,9 @@ license, and third-party notice are byte-checked against
 workflow publishes `ghcr.io/<owner>/tobari/auth-broker:latest`, `:main`, and an
 immutable `:sha-<commit>` tag for Linux amd64 and arm64. The CLI records one
 reviewed multi-architecture manifest digest in `versions.env` and uses that
-digest for routine startup after publication. The current first-publication
-state is the exact `AUTH_BROKER_IMAGE=unpublished` marker: official startup
-fails before Docker mutation, the public gate reports it, and the release gate
-rejects it until the workflow-reported manifest digest is reviewed and pinned.
+digest for routine startup. The first public index and its anonymous registry
+access, platform members, image labels, non-root user, entrypoint, and source
+revision were reviewed before the digest replaced the bootstrap state.
 Contributor source development uses
 `tobari-auth-broker:dev` through `task build:dev`; public `cluster up` never
 builds broker source.
@@ -101,9 +100,11 @@ immutable commit tag, while Claude and Codex variants are local/CI build
 artifacts only. The repository does not claim a public agent image, stable
 support window, SBOM/attestation, or redistribution approval until a new
 release decision accepts those claims. The Gateway and Auth Broker source/image
-checks are implemented. Registry visibility and immutable digest promotion
-remain explicit owner-side publication handoffs; a moving tag or successful
-workflow does not make a digest reviewed runtime authority by itself.
+checks are implemented, and the current Gateway and Auth Broker indexes are
+public and digest-pinned. Each future registry visibility or immutable digest
+promotion remains an explicit owner-side publication handoff; a moving tag or
+successful workflow does not make a digest reviewed runtime authority by
+itself.
 
 Tobari does not yet claim code signing, notarization, SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact

@@ -201,13 +201,10 @@ snapshot at `internal/infra/runtimeassets/assets/authbroker/`.
 `scripts/check-authbroker-source.sh` rejects byte drift. The source and image
 checks run the broker unit suite, validate the pinned GitHub CLI artifacts, and
 build the fixed non-root image. The main-only image workflow builds Linux amd64
-and arm64 and publishes moving development tags plus an immutable commit tag;
-after publication, routine startup uses the reviewed multi-architecture digest
-in `versions.env`. Until that first owner-side handoff,
-`AUTH_BROKER_IMAGE=unpublished` is deliberate: the official resolver fails
-before Docker mutation, release validation blocks, public validation reports
-the bootstrap state, and the contributor resolver uses
-`tobari-auth-broker:dev`.
+and arm64 and publishes moving development tags plus an immutable commit tag.
+Routine startup uses the reviewed multi-architecture digest in `versions.env`;
+the moving tags never select runtime authority. The contributor resolver uses
+`tobari-auth-broker:dev` for explicit local source validation.
 
 Compose mounts owner-only host state
 `auth/contexts` at `/var/lib/tobari-auth/contexts` and `auth/runtime` at

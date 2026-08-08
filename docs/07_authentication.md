@@ -394,11 +394,10 @@ managed adapter.
 - Auth Broker source/snapshot and image checks verify exact bytes, pinned
   GitHub CLI checksums and license, non-root labels/entrypoint, and Linux
   amd64/arm64 construction.
-- Before first official image publication,
-  `AUTH_BROKER_IMAGE=unpublished` makes normal cluster startup fail before
-  Docker mutation. Contributors use `task build:dev` and
-  `tobari-auth-broker:dev`; the release gate blocks until the workflow-reported
-  multi-architecture digest is reviewed and pinned.
+- The official Auth Broker is a reviewed Linux amd64/arm64 OCI index selected
+  by immutable manifest digest. Contributors use `task build:dev` and
+  `tobari-auth-broker:dev` for explicit source validation; a development image
+  or moving tag cannot become normal runtime authority.
 - A release candidate requires a manual trusted-host GitHub check: login to a
   test account, confirm only secret-free status, re-enter a Workspace, verify
   without printing either value that `GH_TOKEN` has the `tobari-h1_` shape and

@@ -238,12 +238,11 @@ undeclared Docker mutation by the CLI.
   creating shared networks and containers. Gateway and Auth Broker source
   development use the contributor-only `task build:dev` path and a
   `tobari_dev` binary, not a public `cluster up` option.
-  Before the first Auth Broker publication, `AUTH_BROKER_IMAGE=unpublished` is
-  an explicit bootstrap state: official startup fails before Docker mutation,
-  `task public:check` reports the state, and `task release:check` blocks release.
-  The main image workflow must publish a Linux amd64/arm64 manifest and a
-  reviewed immutable digest must replace the marker. Contributor validation
-  uses `tobari-auth-broker:dev` through `task build:dev` meanwhile.
+  Both official images are published as Linux amd64/arm64 OCI indexes and the
+  checked runtime metadata contains their reviewed immutable manifest digests.
+  Moving `main` and `latest` tags never become runtime authority. Contributor
+  validation uses `tobari-gateway:dev` and `tobari-auth-broker:dev` through
+  `task build:dev` without changing the normal binary's selectors.
 - Authentication commands accept only an existing Context name and installed
   provider ID. `auth login` is currently interactive and supports the built-in
   `github` helper. `auth import` accepts a non-empty credential of at most

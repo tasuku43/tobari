@@ -186,21 +186,10 @@ func TestPublishedVersionsAreDigestPinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
+	for _, key := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "AUTH_BROKER_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
 		if value := versions[key]; validateImmutableImageReference(value) != nil {
 			t.Fatalf("%s is not digest pinned: %q", key, value)
 		}
-	}
-}
-
-func TestAuthBrokerVersionUsesExplicitFailClosedBootstrapMarker(t *testing.T) {
-	t.Parallel()
-	versions, err := Versions()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := versions["AUTH_BROKER_IMAGE"]; got != UnpublishedAuthBrokerImage {
-		t.Fatalf("AUTH_BROKER_IMAGE = %q, want the explicit pre-publication marker", got)
 	}
 }
 

@@ -156,7 +156,7 @@ run_security() {
 }
 
 run_release() {
-  require_published_auth_broker_image
+  require_pinned_auth_broker_image
   ./scripts/lint-release.sh
   go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 }
@@ -164,7 +164,7 @@ run_release() {
 run_public() {
   go run ./tools/repoguard --scope public
   go run ./tools/contractlint
-  report_auth_broker_publication_state
+  require_pinned_auth_broker_image
 }
 
 load_runtime_versions() {
@@ -177,17 +177,10 @@ load_runtime_versions() {
   }
 }
 
-report_auth_broker_publication_state() {
+require_pinned_auth_broker_image() {
   load_runtime_versions
-  if [[ $AUTH_BROKER_IMAGE == unpublished ]]; then
-    echo "public check: Auth Broker source may be published, but official startup remains fail-closed until the first workflow manifest digest is pinned" >&2
-  fi
-}
-
-require_published_auth_broker_image() {
-  load_runtime_versions
-  if [[ $AUTH_BROKER_IMAGE == unpublished ]]; then
-    echo "release check: AUTH_BROKER_IMAGE is unpublished; publish the reviewed multi-architecture image and pin the workflow-reported manifest digest first" >&2
+  if [[ ! $AUTH_BROKER_IMAGE =~ ^ghcr\.io/tasuku43/tobari/auth-broker@sha256:[0-9a-f]{64}$ ]]; then
+    echo "Auth Broker image must be the reviewed immutable ghcr.io/tasuku43/tobari/auth-broker manifest digest" >&2
     return 1
   fi
 }

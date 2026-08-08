@@ -138,12 +138,12 @@ validation is cache-only and has no package-write permission; only the
 main-push job may publish moving `latest`/`main` and immutable
 `sha-<commit>` development identities. Routine CLI startup must use a reviewed
 manifest digest rather than those moving tags.
-Before first publication, the exact `AUTH_BROKER_IMAGE=unpublished` marker is
-the honest public state. `task public:check` reports that bootstrap handoff,
-official startup fails before Docker mutation, and `task release:check` rejects
-a release until the workflow-reported multi-architecture digest is reviewed
-and pinned. Replacing the marker with an invented or moving identity is a
-public-boundary failure.
+The first Auth Broker publication is complete. Public and release validation
+now require its reviewed `ghcr.io/tasuku43/tobari/auth-broker@sha256:...`
+manifest reference; an unpublished marker, invented digest, wrong repository,
+or moving identity is a public-boundary failure. Future promotion still
+requires independent platform, metadata, anonymous-readability, and digest
+review rather than trusting a moving tag or successful workflow alone.
 
 See [Release](06_release.md) for the artifact workflow.
 

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
-	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 const testAuthBrokerDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
@@ -115,7 +114,7 @@ func TestAuthBrokerBootstrapMarkerFailsBeforeDocker(t *testing.T) {
 	t.Parallel()
 	runner := &gatewayImageRunner{}
 	runtime := &Runtime{runner: runner}
-	err := runtime.verifyAuthBrokerImage(context.Background(), runtimeassets.UnpublishedAuthBrokerImage, true)
+	err := runtime.verifyAuthBrokerImage(context.Background(), "unpublished", true)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "auth_broker_image_incompatible" || public.Retryable {
 		t.Fatalf("error = %v, public = %+v", err, public)
@@ -138,7 +137,7 @@ func TestClusterStartupRejectsAuthBrokerBootstrapMarkerBeforeDockerMutation(t *t
 	runtime.images = testImageResolver{
 		runtimeImage: "tobari-runtime:dev",
 		authBroker: sharedImageSelection{
-			Image: runtimeassets.UnpublishedAuthBrokerImage, RequireDigest: true,
+			Image: "unpublished", RequireDigest: true,
 		},
 		gateway: sharedImageSelection{Image: "tobari-gateway:dev"},
 	}

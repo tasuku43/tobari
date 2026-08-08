@@ -33,20 +33,20 @@ The short purpose of each document is:
 
 ## Current open work
 
-The current tree has one active external handoff:
-
-- [Gateway official image](work/gateway-official-image/goal.md): source,
-  image, digest, and runtime validation are complete; anonymous GHCR package
-  visibility still needs an owner-side verification or an explicit deferral.
+There is no retained active implementation packet in the current tree. Gateway
+and Auth Broker image publication, anonymous visibility, immutable digest
+promotion, and runtime validation are complete; future promotions require a
+new temporary packet and the same public/release review.
 
 The following are deliberate product boundaries, not completed features:
 
 - Public Claude and Codex image publication is deferred until redistribution,
   licensing, support, and provenance decisions are accepted. See
   [Release Model](06_release.md).
-- The provider-facing auth-broker experiment remains outside `main` and is not
-  a supported capability. Any restart requires a new reviewed work packet. See
-  [Authentication handling](07_authentication.md).
+- Provider-specific policy operations, arbitrary helper code, automatic token
+  refresh, signing, and multiple-account selection remain excluded from the
+  supported schema-v1 Auth Broker slice. See [Authentication
+  handling](07_authentication.md).
 - Simplifying explicit cluster bootstrap remains a product hypothesis under
   the bounded-autonomy thesis, not an unreviewed command change. See
   [Agent Readiness Validation](09_agent_readiness_validation.md).

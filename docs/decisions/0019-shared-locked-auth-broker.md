@@ -255,11 +255,11 @@ live login output, vault, root key, or runtime-issued handle may enter source,
 logs, test artifacts, or published images. Deterministic synthetic handle
 canaries remain permitted only in tests.
 
-Before first publication, the exact `AUTH_BROKER_IMAGE=unpublished` marker is
-the accepted bootstrap state. Official startup fails before Docker mutation,
-public validation reports the handoff, and release validation blocks. The
-main-push workflow must publish the manifest before a reviewer replaces the
-marker with its immutable digest. The synthetic provider-v1 fixture is pinned
+The initial `AUTH_BROKER_IMAGE=unpublished` bootstrap state was replaced only
+after the main-push workflow published the public multi-architecture manifest
+and a reviewer independently verified and pinned its immutable digest. Current
+public and release validation reject that marker, a moving tag, or a malformed
+official reference. The synthetic provider-v1 fixture is pinned
 in `.harness/schemas.json`; no live provider response is vendored.
 
 ## Validation

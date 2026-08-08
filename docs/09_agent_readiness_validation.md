@@ -133,10 +133,10 @@ task integration:test # required reproducible synthetic Auth Broker proof
 go run ./cmd/tobari cluster down --purge
 ```
 
-Until first Auth Broker image publication, run the Docker portions with the
-`task build:dev` output `bin/tobari-dev`. The official binary must instead fail
-before Docker mutation while `AUTH_BROKER_IMAGE=unpublished`; release evidence
-cannot treat that expected bootstrap failure as a successful cluster run.
+Run the ordinary scenario with the official binary and its reviewed Gateway
+and Auth Broker manifest digests. Use the `task build:dev` output
+`bin/tobari-dev` only when the scenario deliberately validates unpublished
+canonical source; development-image success is not official-image evidence.
 The required scenario delegates synthetic credential, handle, broker, and
 Gateway manipulation to `task integration:test`; the surrounding manual CLI
 transcript does not reproduce those synthetic operations.

@@ -16,12 +16,6 @@ import (
 //go:embed all:assets
 var embedded embed.FS
 
-// UnpublishedAuthBrokerImage is the explicit fail-closed bootstrap value used
-// until the first reviewed multi-platform Auth Broker manifest is published.
-// It must be replaced by the workflow-reported immutable digest immediately
-// after publication.
-const UnpublishedAuthBrokerImage = "unpublished"
-
 // Version returns a deterministic digest prefix over every embedded runtime file.
 func Version() (string, error) {
 	names, err := assetNames()
@@ -119,9 +113,6 @@ func Versions() (map[string]string, error) {
 	for _, required := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "AUTH_BROKER_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
 		if values[required] == "" {
 			return nil, fmt.Errorf("embedded versions.env is missing %s", required)
-		}
-		if required == "AUTH_BROKER_IMAGE" && values[required] == UnpublishedAuthBrokerImage {
-			continue
 		}
 		if err := validateImmutableImageReference(values[required]); err != nil {
 			return nil, fmt.Errorf("embedded versions.env %s: %w", required, err)

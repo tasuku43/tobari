@@ -72,11 +72,11 @@ only the main-push job has package-write permission.
 `task authbroker:image:check` is the focused image metadata/artifact check, and
 `task authbroker:source:sync` is the explicit maintainer operation that
 refreshes the embedded snapshot.
-The version contract recognizes exactly one pre-publication bootstrap state:
-`AUTH_BROKER_IMAGE=unpublished`. Runtime preflight fails before Docker mutation,
-the public profile reports that handoff, and the release profile rejects it.
-After the first workflow publication, the reviewed Linux amd64/arm64 manifest
-digest replaces the marker and receives the ordinary immutable-image checks.
+The version contract requires every production image selector, including Auth
+Broker, to be an immutable digest reference. The public and release profiles
+reject a marker, moving tag, wrong repository, or malformed digest. The
+reviewed Linux amd64/arm64 manifest receives the same runtime preflight and
+ordinary immutable-image checks as Gateway.
 
 The focused Claude and Codex runtime checks validate their pinned agent
 artifacts and inherited contract. Their local build fixtures also replace

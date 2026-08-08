@@ -19,7 +19,6 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
-	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 type runnerCall struct{ args []string }
@@ -997,14 +996,11 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(environment, "\n")
-	for _, key := range []string{"TOBARI_MITMPROXY_IMAGE=", "TOBARI_GATEWAY_IMAGE=", "TOBARI_OPA_IMAGE=", "TOBARI_DEBIAN_IMAGE="} {
+	for _, key := range []string{"TOBARI_MITMPROXY_IMAGE=", "TOBARI_GATEWAY_IMAGE=", "TOBARI_AUTH_BROKER_IMAGE=", "TOBARI_OPA_IMAGE=", "TOBARI_DEBIAN_IMAGE="} {
 		index := strings.LastIndex(joined, key)
 		if index < 0 || !strings.Contains(joined[index:], "@sha256:") {
 			t.Fatalf("%s is not digest pinned", key)
 		}
-	}
-	if !strings.Contains(joined, "TOBARI_AUTH_BROKER_IMAGE="+runtimeassets.UnpublishedAuthBrokerImage) {
-		t.Fatalf("compose environment does not preserve the fail-closed Auth Broker bootstrap marker: %s", joined)
 	}
 	if !strings.Contains(joined, "TOBARI_PRINCIPAL_DIR="+runtime.principalRegistryDirectory()) {
 		t.Fatalf("compose environment does not expose the dedicated principal directory: %s", joined)
