@@ -484,6 +484,8 @@ client request headers
   -> normalize the body-free schema-5 OPA input
   -> POST one fixed decision endpoint with finite timeout
   -> route by trusted Context ID inside the Tobari-owned OPA package
+  -> require an exact learned L7 rule for a broker-provider request rather
+     than inheriting a broad static host/method allow
   -> deny on any invalid/unavailable decision
   -> on brokered allow, resolve the same revision exactly once and replace only
      the declared destination header
@@ -547,10 +549,11 @@ owner-only `data.json`, preserves non-owned members, appends one deterministic
 exact learned rule, tests a private complete policy copy, atomically replaces
 the data file, and calls the existing OPA activation boundary.
 
-Each authoritative Context policy data source is schema 2 and current Rego
-source targets input schema 4. Aggregate generation accepts legacy source input
-schema 3 only for compatibility, rewrites both supported source versions to
-Gateway runtime input schema 5, and rejects any other shape. The aggregate
+Each authoritative Context policy data source is schema 2. Guided Contexts
+contribute only that data; aggregate generation loads the current shared Rego
+evaluator and tests from Tobari's embedded runtime assets. Advanced Context
+source targets input schema 4, may retain source schema 3 for compatibility,
+is rewritten to Gateway runtime input schema 5, and rejects any other shape. The aggregate
 projection is schema 1 and stores those sources below
 `tobari_contexts[context_id]`; the Tobari-owned router is the only
 `tobari.http` decision entrypoint. `boundary.authorities` and
@@ -560,7 +563,7 @@ baseline denies, learned allows, and learned denies in separate collections.
 Gateway and OPA share this structure; the CLI only owns the mutation of the
 two learned collections and never rewrites the host-authored boundary.
 
-Guided Contexts use one identical Tobari-owned evaluator, projected once, with
+Guided Contexts use one current Tobari-owned evaluator, projected once, with
 Context-specific authorities, methods, ports, baseline decisions, learned
 decisions, and credential metadata supplied as data. Advanced source retains
 the editable `package tobari.http` source contract, but projection rewrites it

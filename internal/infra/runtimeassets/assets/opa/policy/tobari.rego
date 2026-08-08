@@ -48,6 +48,7 @@ candidate_eligible if {
 }
 
 request_allowed if {
+	broker_provider == null
 	authority_allowed
 	method_allowed
 }

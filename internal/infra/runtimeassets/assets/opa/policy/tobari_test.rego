@@ -70,8 +70,25 @@ test_deny_unknown_authorization_field if {
 	not result.learnable
 }
 
-test_allow_provider_neutral_broker_authorization if {
-	result := decision with input as object.union(base_input, {"authorization": {"requested_profile": null, "broker_provider": "github"}})
+test_broker_authorization_requires_exact_learned_permission if {
+	request := object.union(request_with_path({"raw": "/graphql", "segments": ["graphql"]}), {"method": "POST"})
+	result := decision with input as object.union(
+		input_with_request(request),
+		{"authorization": {"requested_profile": null, "broker_provider": "github"}},
+	)
+	not result.allow
+	result.learnable
+	result.credential_profile == null
+}
+
+test_allow_provider_neutral_broker_authorization_after_learning if {
+	request := object.union(request_with_path({"raw": "/graphql", "segments": ["graphql"]}), {"method": "POST"})
+	allow_rule := object.union(learned_exact_fixture, {"method": "POST"})
+	result := decision with input as object.union(
+		input_with_request(request),
+		{"authorization": {"requested_profile": null, "broker_provider": "github"}},
+	)
+		with data.tobari.rules.learned_allows as [allow_rule]
 	result.allow
 	result.credential_profile == null
 }

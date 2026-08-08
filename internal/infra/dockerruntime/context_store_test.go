@@ -204,6 +204,13 @@ func TestContextStoreMigratesLegacyStoresAndPersistsRuntimeImage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(config, "policy", "tobari.rego"), legacyPolicy, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	legacyPolicyData, err := runtimeassets.Read("opa/policy/data.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(config, "policy", "data.json"), legacyPolicyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	legacyCredentials := []byte(`{"version":"v1","profiles":{}}`)
 	if err := os.WriteFile(filepath.Join(config, "credentials.json"), legacyCredentials, 0o600); err != nil {
 		t.Fatal(err)
@@ -224,10 +231,15 @@ func TestContextStoreMigratesLegacyStoresAndPersistsRuntimeImage(t *testing.T) {
 		t.Fatalf("initial Contexts = %+v", contexts)
 	}
 
-	defaultPolicy := filepath.Join(config, "contexts", "default", "policy", "tobari.rego")
-	data, err := os.ReadFile(defaultPolicy)
-	if err != nil || string(data) != string(legacyPolicy) {
-		t.Fatalf("migrated policy = %q, error = %v", data, err)
+	defaultPolicyDirectory := filepath.Join(config, "contexts", "default", "policy")
+	data, err := os.ReadFile(filepath.Join(defaultPolicyDirectory, "data.json"))
+	if err != nil || string(data) != string(legacyPolicyData) {
+		t.Fatalf("migrated policy data = %q, error = %v", data, err)
+	}
+	for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
+		if _, err := os.Stat(filepath.Join(defaultPolicyDirectory, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("guided Context owns %s: %v", name, err)
+		}
 	}
 	migratedCredentials, err := os.ReadFile(filepath.Join(config, "contexts", "default", "credentials", "legacy-token"))
 	if err != nil || string(migratedCredentials) != "synthetic-secret" {
@@ -243,6 +255,11 @@ func TestContextStoreMigratesLegacyStoresAndPersistsRuntimeImage(t *testing.T) {
 	}
 	if created.Image != tobari.OfficialRuntimeBase || created.PolicyMode != tobari.ContextPolicyModeAdvanced {
 		t.Fatalf("created Context = %+v", created)
+	}
+	for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
+		if _, err := os.Stat(filepath.Join(config, "contexts", "project-tools", "policy", name)); err != nil {
+			t.Fatalf("advanced Context is missing %s: %v", name, err)
+		}
 	}
 	if _, err := runtime.UseContext(context.Background(), "project-tools"); err != nil {
 		t.Fatalf("UseContext() error = %v", err)
@@ -272,6 +289,30 @@ func TestContextStoreMigratesLegacyStoresAndPersistsRuntimeImage(t *testing.T) {
 		if info.Mode().Perm()&0o077 != 0 {
 			t.Fatalf("Context path %s is not owner-only: %o", path, info.Mode().Perm())
 		}
+	}
+}
+
+func TestLegacyGuidedPolicyDataMigrationRejectsSymlinkDirectory(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	config := filepath.Join(root, "config")
+	target := filepath.Join(root, "policy-target")
+	if err := os.MkdirAll(config, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(config, "policy")); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ListContexts(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "legacy policy store must be an owner-only directory") {
+		t.Fatalf("unsafe legacy policy directory was accepted: %v", err)
 	}
 }
 

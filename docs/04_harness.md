@@ -447,6 +447,10 @@ The test suite has complementary levels:
   copied/stale/malformed/misplaced/ambiguous/mismatched handle rejection,
   non-learnable structural denials, broker-unavailable failure, and fallback
   only when every inspected URL/header position contains no Tobari marker.
+- Guided-policy projection tests prove a Context owns `data.json` only, stale
+  Context-local Rego cannot change the aggregate revision or evaluator, the
+  shared evaluator makes first brokered use learnable until an exact rule is
+  installed, and Advanced Context Rego remains isolated and schema-checked.
 - Doctor tests prove the full report is emitted, failures produce
   `diagnostic_failed`, warnings alone remain healthy, and provider/root-key/
   vault/broker/project-binding observation does not create a key, start or

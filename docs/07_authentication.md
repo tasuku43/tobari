@@ -316,8 +316,11 @@ order:
    metadata.
 4. Send body-free OPA input schema 5. The authorization object contains the
    null managed profile and the non-secret broker provider ID.
-5. On deny, stop without calling `resolve` or reaching upstream.
-6. On allow, require OPA's managed `credential_profile` selection to remain
+5. Until one exact learned rule covers the ordinary L7 effect, return a
+   learnable deny for host review even when a broader static host/method rule
+   would allow an unauthenticated or fallback-adapter request.
+6. On deny, stop without calling `resolve` or reaching upstream.
+7. On allow, require OPA's managed `credential_profile` selection to remain
    null, resolve the same handle and revision exactly once, replace only the
    declared destination header, and perform the existing single upstream
    attempt.

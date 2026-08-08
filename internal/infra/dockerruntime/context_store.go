@@ -194,7 +194,11 @@ func (r *Runtime) ensureContext(manifest tobari.ContextManifest, migrateLegacy b
 			return err
 		}
 	}
-	for _, name := range []string{"data.json", "tobari.rego", "tobari_test.rego"} {
+	policyFiles := []string{"data.json"}
+	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
+		policyFiles = append(policyFiles, "tobari.rego", "tobari_test.rego")
+	}
+	for _, name := range policyFiles {
 		if err := initializeFile(filepath.Join(r.contextPolicyDirectory(manifest.Name), name), "opa/policy/"+name, 0o600); err != nil {
 			return err
 		}
@@ -217,7 +221,13 @@ func (r *Runtime) ensureContext(manifest tobari.ContextManifest, migrateLegacy b
 
 func (r *Runtime) migrateLegacyDefaultStores() error {
 	legacyPolicy := filepath.Join(r.configDirectory, "policy")
-	if err := r.copyStoreFilesIfPresent(legacyPolicy, r.contextPolicyDirectory(tobari.DefaultContextName)); err != nil {
+	// Guided Contexts own policy data, not executable Rego. Preserve only the
+	// learned/boundary data when migrating the former singleton store.
+	if err := r.copyLegacyPolicyDataIfPresent(
+		legacyPolicy,
+		filepath.Join(legacyPolicy, "data.json"),
+		filepath.Join(r.contextPolicyDirectory(tobari.DefaultContextName), "data.json"),
+	); err != nil {
 		return fmt.Errorf("migrate legacy policy: %w", err)
 	}
 	legacyCredentials := filepath.Join(r.configDirectory, "credentials")
@@ -229,6 +239,20 @@ func (r *Runtime) migrateLegacyDefaultStores() error {
 		return fmt.Errorf("migrate legacy credential metadata: %w", err)
 	}
 	return nil
+}
+
+func (r *Runtime) copyLegacyPolicyDataIfPresent(sourceDirectory, source, destination string) error {
+	info, err := os.Lstat(sourceDirectory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("legacy policy store must be an owner-only directory")
+	}
+	return r.copyFileIfPresent(source, destination)
 }
 
 func (r *Runtime) copyStoreFilesIfPresent(source, destination string) error {

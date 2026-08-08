@@ -101,7 +101,9 @@ non-learnable and cannot become policy candidates.
 - **Workspace credential handle:** a versioned random opaque value bound to one
   Context, project, provider, credential revision, and exact HTTP binding. It
   is not the real credential and is not authority without the trusted
-  principal and OPA allow.
+  principal and OPA allow. Broker metadata never inherits a broad static
+  host/method allow; the first exact L7 effect remains reviewable until an
+  exact learned rule exists.
 - **provider manifest:** strict schema-v1 non-secret data declaring acquisition,
   Workspace handle projections, and exact HTTPS header transformations. It
   declares no executable shell, arbitrary route, HTTP method/path policy,
@@ -474,8 +476,11 @@ Configuration is resolved from
 - `contexts/<name>/runtime/Dockerfile`: optional owner-only Context runtime
   recipe created by `runtime init`; its source digest and last successful
   managed image build are recorded additively in `context.json`;
-- `contexts/<name>/policy/`: authoritative Rego and data source for that
-  Context; it is never mounted directly as the shared OPA's complete policy;
+- `contexts/<name>/policy/data.json`: authoritative boundary, baseline, and
+  learned allow/deny data for that Context; Guided Contexts own no Rego files,
+  while Advanced Contexts additionally own `tobari.rego` and
+  `tobari_test.rego`; the directory is never mounted directly as the shared
+  OPA's complete policy;
 - `contexts/<name>/credentials.json`: reserved schema-v1 profile metadata for
   the explicitly selected managed Gateway adapter;
 - `contexts/<name>/credentials/`: reserved managed-adapter secret files for
@@ -554,9 +559,10 @@ registry-pull request, so local-only base images remain usable.
 OPA reads one cluster-owned aggregate policy projection with `--watch`. The
 projection has one fixed `tobari.http/decision` router, Context-ID data
 namespaces, one shared guided evaluator, and isolated Advanced package names.
-Current Context policy source targets input schema 4; projection accepts legacy
-source schema 3 only for compatibility and rewrites both source shapes to
-Gateway runtime input schema 5 before testing and activation.
+Guided Contexts own policy data but no executable Rego source; projection uses
+the current Tobari-owned shared evaluator and tests. Advanced Context source
+targets input schema 4, may retain source schema 3 for compatibility, and is
+rewritten to Gateway runtime input schema 5 before testing and activation.
 Exact policy mutations lock aggregate generation, test the changed Context
 source privately, generate and test the complete all-Context candidate, publish
 it atomically, recreate only the exact owned OPA component, and retain the prior

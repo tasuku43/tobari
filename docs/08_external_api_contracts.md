@@ -56,7 +56,9 @@ The authorization object is always present:
 These fields are metadata for policy and validation. Neither selects a real
 credential. OPA may select a managed `credential_profile` only for the managed
 path. A brokered allow with a non-null selected profile is rejected before
-secret resolution.
+secret resolution. A non-null `broker_provider` also prevents the request from
+inheriting a broad static host/method allow: one exact learned
+Context/project/host/port/method/path rule is required before broker resolution.
 
 ## Body-independent authorization and streaming
 
@@ -240,10 +242,11 @@ socket, handle, and backend inventory is in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
 
 The principal registry remains schema version 2. Each Context policy data
-source uses `tobari.schema_version=2`; current Rego source targets OPA input
-schema 4. Aggregate projection schema 1 accepts legacy source input schema 3
-only for compatibility, rewrites both source versions to runtime schema 5,
-stores Context data below `tobari_contexts[context_id]`, and rejects other
+source uses `tobari.schema_version=2`. Aggregate projection schema 1 loads one
+current shared evaluator for every data-only Guided Context. Advanced Rego
+source targets OPA input schema 4, accepts source schema 3 only for
+compatibility, and rewrites either source version to runtime schema 5. It
+stores Context data below `tobari_contexts[context_id]` and rejects other
 shapes. Guided Contexts share one system evaluator, while Advanced source is
 projected into a Context-ID package and cannot claim router or system
 namespaces.

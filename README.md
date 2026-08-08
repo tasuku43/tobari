@@ -810,9 +810,9 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
       runtime/
         Dockerfile         # optional Context runtime recipe
       policy/
-        data.json
-        tobari.rego
-        tobari_test.rego
+        data.json          # Guided and Advanced Context policy data
+        tobari.rego        # Advanced Contexts only
+        tobari_test.rego   # Advanced Contexts only
       credentials.json     # reserved managed-adapter metadata
       credentials/         # reserved managed-adapter secret files
 
@@ -857,15 +857,18 @@ compaction actions derive Context and Tobari authority solely from their opaque
 reference and recreate only the exact shared OPA component. Advanced
 host-authored edits remain explicit and are not part of the routine queue.
 
-Use the policy directory as a trusted-host path when editing policy; do not
-mount its parent configuration directory into a Tobari:
+Only an Advanced Context owns editable Rego. Use its policy directory as a
+trusted-host path and do not mount the parent configuration directory into a
+Tobari:
 
 ```sh
 ${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/contexts/<name>/policy/tobari.rego"
 ```
 
-Use `tobari context show` to discover the exact current Context and its policy
-path. Keep the Context's policy directory separate from its credential stores;
+Use `tobari context show` to confirm `advanced` mode before editing. A Guided
+Context owns only `data.json`; its shared evaluator comes from Tobari and is
+changed through a Tobari release, not a Context-local Rego copy. Keep the
+Context's policy directory separate from its credential stores;
 managed and broker vault stores remain outside untrusted containers. Only
 manifest-declared opaque handles may enter a Workspace. For routine exact permission
 growth, use `tobari policy review` and `tobari policy allow` or `policy deny`; use
@@ -876,9 +879,12 @@ home instead.
 The initialized policy is generic HTTP policy, not a GitHub operation adapter. It starts
 deny-by-default, distinguishes HTTPS from explicitly allowed test-only HTTP,
 restricts methods and paths, and validates credential profile or non-secret
-broker-provider metadata without selecting a real credential. Current Context
-policy source targets input schema 4; aggregate generation also accepts legacy
-source schema 3 and rewrites both to Gateway runtime schema 5 before activation.
+broker-provider metadata without selecting a real credential. Guided Contexts
+store only `data.json`; one current Tobari-owned evaluator is projected for all
+of them. Advanced Context source targets input schema 4; aggregate generation
+also accepts legacy source schema 3 and rewrites either to Gateway runtime
+schema 5 before activation. A brokered request requires an exact learned allow,
+even when the same host and method exist in the static boundary.
 
 ### Grow and compact learned policy
 

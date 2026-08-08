@@ -250,10 +250,11 @@ interface address and an owner-only host registry. Caller headers, environment,
 URLs, session metadata, profile names, and supplied Context/project IDs are not
 authorization inputs. Missing, unknown, stale, ambiguous, or mismatched Context
 bindings deny before OPA and upstream I/O.
-Current Context Rego sources target input schema 4. Aggregate generation accepts
-legacy source schema 3 only for compatibility and rewrites both supported
-source versions to the runtime schema-5 document; other input shapes fail
-before policy activation.
+Guided Contexts supply no executable Rego: aggregate generation uses the
+current Tobari-owned shared evaluator and tests with each Context's policy
+data. Only Advanced Contexts own Rego source; schema 4 is current, schema 3 is
+the sole compatibility input, both are rewritten to the runtime schema-5
+document, and other input shapes fail before policy activation.
 
 Secret header values, handles, credential revisions, queries, headers, and
 request/response body content are absent from denial audit. Audit retains the
@@ -535,7 +536,9 @@ and raw bodies are excluded. URL/header handle-structure failures remain
 non-learnable and cannot become policy candidates.
 For brokered requests, the provider ID may be retained as non-secret adapter
 metadata, while the handle, credential revision, vault data, and resolved
-primary secret are excluded.
+primary secret are excluded. Provider metadata never grants permission and
+does not inherit a broad static host/method allow; the brokered request remains
+a learnable denial until an exact Context/project-bound L7 rule exists.
 CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
 and preserves only non-secret credential-profile names. Read-only policy

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 const aggregateSchemaVersion = 1
@@ -34,6 +35,7 @@ type aggregateContext struct {
 	manifest tobari.ContextManifest
 	paths    tobari.ContextStorePaths
 	data     map[string]any
+	dataJSON []byte
 	rego     []byte
 	creds    map[string]any
 }
@@ -65,15 +67,23 @@ func (r *Runtime) readAggregateContexts(ctx context.Context) ([]aggregateContext
 		if !ok {
 			return nil, fmt.Errorf("Context %q policy data has no tobari object", manifest.Name)
 		}
-		rego, err := readOwnerPolicyFile(filepath.Join(paths.PolicyDirectory, "tobari.rego"), maxPolicyPreflight)
+		var rego []byte
+		if manifest.PolicyMode == tobari.ContextPolicyModeGuided {
+			rego, err = runtimeassets.Read("opa/policy/tobari.rego")
+		} else {
+			rego, err = readOwnerPolicyFile(filepath.Join(paths.PolicyDirectory, "tobari.rego"), maxPolicyPreflight)
+		}
 		if err != nil {
-			return nil, fmt.Errorf("Context %q policy module: %w", manifest.Name, err)
+			return nil, fmt.Errorf("Context %q policy evaluator: %w", manifest.Name, err)
 		}
 		creds, err := readContextCredentialDocument(paths.CredentialConfig)
 		if err != nil {
 			return nil, fmt.Errorf("Context %q credentials: %w", manifest.Name, err)
 		}
-		items = append(items, aggregateContext{manifest: manifest, paths: paths, data: contextData, rego: rego, creds: creds})
+		items = append(items, aggregateContext{
+			manifest: manifest, paths: paths, data: contextData,
+			dataJSON: append([]byte{}, policy.source...), rego: rego, creds: creds,
+		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].manifest.ID < items[j].manifest.ID })
 	return items, nil
@@ -111,6 +121,11 @@ func transformContextRego(item aggregateContext) ([]byte, error) {
 	}
 	if bytes.Contains(item.rego, []byte("data.tobari_contexts")) || bytes.Contains(item.rego, []byte("package tobari.system")) || bytes.Contains(item.rego, []byte("package tobari.contexts")) {
 		return nil, fmt.Errorf("Context %q policy crosses the reserved routing namespace", item.manifest.Name)
+	}
+	schema3 := bytes.Contains(item.rego, []byte("input.schema_version == 3"))
+	schema4 := bytes.Contains(item.rego, []byte("input.schema_version == 4"))
+	if schema3 == schema4 {
+		return nil, fmt.Errorf("Context %q policy must target exactly one supported source input schema (3 or 4)", item.manifest.Name)
 	}
 	packageName := "package tobari.contexts." + aggregateNamespace(item.manifest.ID) + ".http"
 	if item.manifest.PolicyMode == tobari.ContextPolicyModeGuided {
@@ -240,8 +255,14 @@ func (r *Runtime) buildAggregateProjection(ctx context.Context) (aggregateProjec
 	credentialContexts := map[string]any{}
 	hash := sha256.New()
 	for _, item := range items {
-		if err := r.testPolicyDirectory(ctx, item.paths.PolicyDirectory); err != nil {
-			return aggregateProjection{}, fmt.Errorf("Context %q policy tests: %w", item.manifest.Name, err)
+		preflight, err := prepareContextPolicyPreflight(item.manifest, item.paths.PolicyDirectory, item.dataJSON)
+		if err != nil {
+			return aggregateProjection{}, fmt.Errorf("Context %q policy preflight: %w", item.manifest.Name, err)
+		}
+		testErr := r.testPolicyDirectory(ctx, preflight)
+		_ = os.RemoveAll(preflight)
+		if testErr != nil {
+			return aggregateProjection{}, fmt.Errorf("Context %q policy tests: %w", item.manifest.Name, testErr)
 		}
 		encoded, err := json.Marshal(item.data)
 		if err != nil {

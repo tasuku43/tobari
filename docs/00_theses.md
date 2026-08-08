@@ -213,7 +213,10 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   every associated project handle; existing sessions receive a concrete
   re-entry action because their environment cannot change retroactively.
 - Brokered login does not grant network authority. OPA remains the sole
-  authority for Context, project, scheme, host, port, method, and path.
+  authority for Context, project, scheme, host, port, method, and path. A
+  brokered request does not inherit a broad static host/method allow; its first
+  exact L7 effect remains reviewable until the host installs one exact learned
+  rule.
 - Refresh, signing, Git credential helpers, and provider-specific operation
   inference remain outside this slice. A tool may still implement its own
   native OAuth, SigV4, or keychain-compatible flow inside the home.

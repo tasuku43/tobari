@@ -61,6 +61,68 @@ func TestAdvancedPolicyMigratesPreviousSourceInputSchema(t *testing.T) {
 	}
 }
 
+func TestAggregateRejectsUnsupportedOrAmbiguousSourceInputSchema(t *testing.T) {
+	t.Parallel()
+	manifest := tobari.ContextManifest{
+		SchemaVersion: tobari.ContextSchemaVersion,
+		ID:            "01912345-6789-7abc-8def-0123456789ad",
+		Name:          "restricted",
+		AgentProfile:  tobari.DefaultProfile,
+		PolicyMode:    tobari.ContextPolicyModeAdvanced,
+		Image:         tobari.BuiltinImageSelector,
+	}
+	for _, source := range []string{
+		"package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 2 }\n",
+		"package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 3; input.schema_version == 4 }\n",
+	} {
+		if _, err := transformContextRego(aggregateContext{manifest: manifest, rego: []byte(source)}); err == nil {
+			t.Fatalf("unsupported policy source was accepted:\n%s", source)
+		}
+	}
+}
+
+func TestGuidedAggregateUsesCanonicalEvaluatorInsteadOfContextRego(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if _, err := runtime.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, paths, err := runtime.resolveContext(tobari.DefaultContextName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	regoPath := filepath.Join(paths.PolicyDirectory, "tobari.rego")
+	if _, err := os.Lstat(regoPath); !os.IsNotExist(err) {
+		t.Fatalf("guided Context unexpectedly owns Rego: %v", err)
+	}
+	first, err := runtime.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Even if a former installation left a stale Context-local evaluator, it
+	// has no authority in guided mode and cannot change the aggregate revision.
+	if err := os.WriteFile(regoPath, []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 2 }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := runtime.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Revision != second.Revision || first.PolicyDirectory != second.PolicyDirectory {
+		t.Fatalf("stale guided Rego changed aggregate: first=%q second=%q", first.Revision, second.Revision)
+	}
+	projected, err := os.ReadFile(filepath.Join(second.PolicyDirectory, "guided.rego"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(projected, []byte("input.schema_version == 2")) ||
+		!bytes.Contains(projected, []byte("input.schema_version == 5")) ||
+		!bytes.Contains(projected, []byte("broker_provider")) {
+		t.Fatalf("guided aggregate did not use the current evaluator:\n%s", projected)
+	}
+}
+
 func TestAggregateRevisionIncludesCredentialSecretContent(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

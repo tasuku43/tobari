@@ -17,6 +17,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 const (
@@ -501,6 +502,53 @@ func copyPolicyForPreflight(sourceDirectory string, dataJSON []byte) (string, er
 	return temporary, nil
 }
 
+func prepareContextPolicyPreflight(
+	manifest tobari.ContextManifest, sourceDirectory string, dataJSON []byte,
+) (string, error) {
+	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
+		return copyPolicyForPreflight(sourceDirectory, dataJSON)
+	}
+	if manifest.PolicyMode != tobari.ContextPolicyModeGuided {
+		return "", fmt.Errorf("Context policy mode is invalid")
+	}
+	if err := validateOwnerPolicyDirectory(sourceDirectory); err != nil {
+		return "", err
+	}
+	if _, err := readPolicyData(sourceDirectory); err != nil {
+		return "", err
+	}
+	rego, err := runtimeassets.Read("opa/policy/tobari.rego")
+	if err != nil {
+		return "", err
+	}
+	tests, err := runtimeassets.Read("opa/policy/tobari_test.rego")
+	if err != nil {
+		return "", err
+	}
+	if len(dataJSON)+len(rego)+len(tests) > maxPolicyPreflight {
+		return "", fmt.Errorf("guided policy preflight exceeds %d bytes", maxPolicyPreflight)
+	}
+	temporary, err := os.MkdirTemp(filepath.Dir(sourceDirectory), ".tobari-guided-preflight-*")
+	if err != nil {
+		return "", fmt.Errorf("create guided policy preflight directory: %w", err)
+	}
+	cleanup := func(cause error) (string, error) {
+		_ = os.RemoveAll(temporary)
+		return "", cause
+	}
+	if err := os.Chmod(temporary, 0o700); err != nil { // #nosec G302 -- guided preflight must remain owner-only.
+		return cleanup(err)
+	}
+	for name, data := range map[string][]byte{
+		"data.json": dataJSON, "tobari.rego": rego, "tobari_test.rego": tests,
+	} {
+		if err := os.WriteFile(filepath.Join(temporary, name), data, 0o600); err != nil { // #nosec G306 -- preflight is owner-only.
+			return cleanup(err)
+		}
+	}
+	return temporary, nil
+}
+
 func atomicWriteOwnerFile(path string, data []byte) error {
 	directory := filepath.Dir(path)
 	file, err := os.CreateTemp(directory, ".data.json.tobari-*")
@@ -805,7 +853,7 @@ func (r *Runtime) applyAggregatePolicyData(
 		if err != nil {
 			return err
 		}
-		preflight, err := copyPolicyForPreflight(paths.PolicyDirectory, data)
+		preflight, err := prepareContextPolicyPreflight(manifest, paths.PolicyDirectory, data)
 		if err != nil {
 			return err
 		}

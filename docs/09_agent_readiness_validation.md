@@ -37,7 +37,7 @@ journey is the product baseline to improve:
 |---|---|---|
 | First isolated session | Explicit `cluster up`, then `tobari`; `doctor` is recovery-only | One obvious CWD-first entry with cluster/bootstrap complexity guided or hidden while retaining an explicit recovery command |
 | Agent work | Reusable root, home, and deny-by-default Gateway | The user sets the boundary first; the agent works freely inside it without per-command supervision, host credentials, or direct egress |
-| First denied request | 403 plus host-side `policy review` | The agent can explain that the host must review the secret-free exact request; one fixed next command is available |
+| First denied request | 403 plus host-side `policy review` | The agent can explain that the host must review the secret-free exact request; brokered authentication inherits no broad static allow and one fixed next command is available |
 | Permission growth | Installation-wide human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users see Context/root/request at selection, detail, and confirmation; redirected review remains read-only and the action remains bound to one Context-scoped opaque reference |
 | Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
 | Execution setup | `context list`, `context show`, `context use --name NAME`, `tobari --context NAME` | The user can inspect stable Contexts, change only the omitted-Context default, and create same-root Tobari in different Contexts while one Gateway/OPA/Auth Broker cluster routes trusted principals and bound handles |
@@ -317,7 +317,9 @@ calls.
   same profile-name cross-Context rejection, and post-allow injection tests.
 - A configured broker provider gives same-Context projects distinct handles;
   neither Workspace can read the primary secret or use the other's handle.
-  OPA denial makes zero resolve calls, allow makes one, and secret/handle
+  Its first exact L7 effect is a reviewable denial rather than inheriting a
+  broad static host/method allow. OPA denial makes zero resolve calls, the
+  exact learned allow makes one, and secret/handle
   canaries remain absent from OPA, audit, denial, CLI, and component-log output.
   Audit omits query/headers, replaces a handle-bearing path wholly with
   `/[redacted-auth-handle]`, and keeps structural handle rejections
