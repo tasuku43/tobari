@@ -149,10 +149,20 @@ trusted interactive host command runs these fixed GitHub CLI operations in an
 ephemeral configuration directory:
 
 ```text
-gh auth login --hostname github.com --git-protocol https --web
+gh auth login --hostname github.com --web
 gh auth status --active --hostname github.com --json hosts
 gh auth token --hostname github.com
 ```
+
+`GH_PROMPT_DISABLED=1`, `GH_BROWSER=/bin/true`, and `NO_COLOR=1` are fixed for
+the ephemeral helper environment. Ambient browser selectors are removed. The
+trusted host output boundary recognizes only the exact
+`https://github.com/login/device` constant and invokes the platform opener once;
+failure retains a manual fixed-URL instruction and does not fail acquisition.
+Omitting `--git-protocol` is intentional: Auth Broker is acquiring GitHub API
+authentication and must not ask about, configure, or require Git credential
+handling. The temporary GitHub CLI plaintext-storage warning is expected for
+the private tmpfs and is the only fixed helper line withheld from public output.
 
 Ambient `GH_TOKEN`, `GITHUB_TOKEN`, enterprise-token, host, and repository
 variables are removed. The login call owns the ordinary GitHub CLI web/device

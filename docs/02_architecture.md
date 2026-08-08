@@ -6,6 +6,8 @@
 host
   tobari CLI ---- Docker CLI ---- Docker Engine
       |
+      +-- fixed GitHub device URL --> host browser (best effort)
+      |
       +-- fixed control exec/stdin --> tobari-auth-broker (locked)
       |                                      |
       |                               encrypted Context vaults
@@ -216,6 +218,17 @@ through fixed `docker exec` argv and stdin. Gateway mounts only the runtime
 directory read-only. The provider projection is generated atomically from the
 built-in documents plus owner-only XDG user manifests and is mounted read-only
 into Gateway; neither the projection nor a provider manifest contains a secret.
+
+The built-in GitHub helper keeps browser and Git responsibilities on their
+own sides of this boundary. GitHub CLI prompting and in-container browser
+launch are disabled. When the pinned helper stream reaches the exact fixed
+GitHub device URL, the trusted host CLI invokes only the platform browser
+opener for that constant; failure leaves the same URL visible for manual use.
+No URL supplied by a provider, manifest, repository, or helper argument can
+select another host target. The helper requests no Git protocol and performs
+no Git credential setup. Repository `.git/config` and any user-authored global
+Git configuration remain inside the project/Workspace boundary; authenticated
+Git transport is not part of the API-authentication slice.
 
 Custom images are supported only when they preserve runtime API label
 `io.tobari.runtime-api=1`, the `tobari` image user, and the exact built-in

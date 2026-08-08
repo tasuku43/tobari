@@ -515,7 +515,7 @@ class ProtocolTests(unittest.TestCase):
 
 
 class GitHubHelperTests(unittest.TestCase):
-    def test_github_login_uses_tty_then_captures_token_and_cleans_tmpfs(self) -> None:
+    def test_github_login_avoids_container_browser_and_git_setup_then_cleans_tmpfs(self) -> None:
         calls: list[tuple[list[str], dict[str, object]]] = []
 
         def runner(argv: list[str], **kwargs: object) -> SimpleNamespace:
@@ -545,8 +545,6 @@ class GitHubHelperTests(unittest.TestCase):
                 "login",
                 "--hostname",
                 "github.com",
-                "--git-protocol",
-                "https",
                 "--web",
             ],
         )
@@ -565,7 +563,9 @@ class GitHubHelperTests(unittest.TestCase):
         )
         self.assertEqual(calls[2][0], ["/mock/gh", "auth", "token", "--hostname", "github.com"])
         self.assertNotIn("GH_TOKEN", calls[0][1]["env"])
-        self.assertNotIn("GH_PROMPT_DISABLED", calls[0][1]["env"])
+        self.assertEqual(calls[0][1]["env"]["GH_PROMPT_DISABLED"], "1")
+        self.assertEqual(calls[0][1]["env"]["GH_BROWSER"], "/bin/true")
+        self.assertEqual(calls[0][1]["env"]["NO_COLOR"], "1")
 
     def test_cancel_never_attempts_token_capture(self) -> None:
         calls = 0

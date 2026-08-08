@@ -86,9 +86,17 @@ def _safe_environment(config_directory: str) -> dict[str, str]:
         "GH_HOST",
         "GH_REPO",
         "GH_PROMPT_DISABLED",
+        "GH_BROWSER",
+        "BROWSER",
     ):
         environment.pop(name, None)
     environment["GH_CONFIG_DIR"] = config_directory
+    # The trusted host owns the one fixed browser-open side effect. Disabling
+    # gh prompts also prevents its unrelated Git credential-setup question;
+    # this helper acquires API authentication only.
+    environment["GH_PROMPT_DISABLED"] = "1"
+    environment["GH_BROWSER"] = "/bin/true"
+    environment["NO_COLOR"] = "1"
     return environment
 
 
@@ -97,7 +105,7 @@ def acquire_github_credential(
     gh_command: str = GH_COMMAND,
     temporary_root: str = LOGIN_TMP_ROOT,
 ) -> tuple[bytes, str]:
-    """Run interactive web login, then capture token and bounded account label."""
+    """Run device login on the trusted-host TTY, then capture token and account."""
 
     root = Path(temporary_root)
     acquired: tuple[bytes, str] | None = None
@@ -120,8 +128,6 @@ def acquire_github_credential(
                     "login",
                     "--hostname",
                     GITHUB_HOST,
-                    "--git-protocol",
-                    "https",
                     "--web",
                 ],
                 env=environment,

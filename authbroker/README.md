@@ -59,3 +59,10 @@ Runtime `introspect` has exact keys `schema_version`, `op`, `handle`,
 `context_id`, `project_id`, `provider`, `target`, `source_header`, and
 `source_format`. `resolve` repeats every one of those fields and adds the exact
 credential `revision` returned by introspection.
+
+The built-in GitHub control login is API-authentication-only. It runs
+`gh auth login --hostname github.com --web` with prompts and container browser
+launch disabled, writes only to the private login tmpfs, and requests no Git
+protocol or credential helper. The trusted host CLI opens only the fixed GitHub
+device URL when available; Auth Broker receives no host browser, GUI socket,
+Git configuration, or Git executable requirement.

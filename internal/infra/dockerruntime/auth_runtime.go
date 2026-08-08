@@ -7,20 +7,88 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 )
 
-const loginResultPrefix = "\x1eTOBARI_AUTH_BROKER_RESULT:"
+const (
+	loginResultPrefix               = "\x1eTOBARI_AUTH_BROKER_RESULT:"
+	githubEphemeralPlaintextWarning = "! Authentication credentials saved in plain text"
+	githubManualBrowserFallback     = "The host browser did not open; visit " + githubDeviceURL + " manually to continue.\n"
+	maxLoginVisibleLine             = 64 * 1024
+	hostBrowserOpenTimeout          = 5 * time.Second
+)
 
-// loginOutputFilter preserves the helper's interactive TTY stream while
-// withholding the broker's final machine response from public CLI output.
-// The response prefix is emitted only by the trusted control helper.
+type loginVisibleOutput struct {
+	destination io.Writer
+	openBrowser func(string) error
+	pending     []byte
+	overflow    bool
+	opened      bool
+}
+
+func (w *loginVisibleOutput) Write(data []byte) (int, error) {
+	for _, value := range data {
+		if w.overflow {
+			if _, err := w.destination.Write([]byte{value}); err != nil {
+				return 0, err
+			}
+			if value == '\n' {
+				w.overflow = false
+			}
+			continue
+		}
+		w.pending = append(w.pending, value)
+		if len(w.pending) > maxLoginVisibleLine {
+			if _, err := w.destination.Write(w.pending); err != nil {
+				return 0, err
+			}
+			w.pending = nil
+			w.overflow = value != '\n'
+			continue
+		}
+		if value == '\n' {
+			if err := w.flushPending(); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return len(data), nil
+}
+
+func (w *loginVisibleOutput) flushPending() error {
+	if len(w.pending) == 0 {
+		return nil
+	}
+	line := append([]byte(nil), w.pending...)
+	w.pending = nil
+	normalized := strings.TrimSuffix(strings.TrimSuffix(string(line), "\n"), "\r")
+	if normalized == githubEphemeralPlaintextWarning {
+		return nil
+	}
+	if _, err := w.destination.Write(line); err != nil {
+		return err
+	}
+	if !w.opened && strings.Contains(normalized, githubDeviceURL) && w.openBrowser != nil {
+		w.opened = true
+		if err := w.openBrowser(githubDeviceURL); err != nil {
+			_, writeErr := io.WriteString(w.destination, githubManualBrowserFallback)
+			return writeErr
+		}
+	}
+	return nil
+}
+
+// loginOutputFilter owns the fixed GitHub acquisition UX while withholding the
+// broker's final machine response from public CLI output. The response prefix
+// is emitted only by the trusted control helper.
 type loginOutputFilter struct {
 	mu             sync.Mutex
-	destination    io.Writer
+	destination    *loginVisibleOutput
 	prefixPosition int
 	prefixPending  []byte
 	atLineStart    bool
@@ -30,8 +98,11 @@ type loginOutputFilter struct {
 	overflow       bool
 }
 
-func newLoginOutputFilter(destination io.Writer) *loginOutputFilter {
-	return &loginOutputFilter{destination: destination, atLineStart: true}
+func newLoginOutputFilter(destination io.Writer, openBrowser func(string) error) *loginOutputFilter {
+	return &loginOutputFilter{
+		destination: &loginVisibleOutput{destination: destination, openBrowser: openBrowser},
+		atLineStart: true,
+	}
 }
 
 func (w *loginOutputFilter) Write(data []byte) (int, error) {
@@ -89,6 +160,7 @@ func (w *loginOutputFilter) responseLine() ([]byte, bool) {
 		w.prefixPending = nil
 		w.prefixPosition = 0
 	}
+	_ = w.destination.flushPending()
 	return bytes.TrimSpace(append([]byte(nil), w.response...)),
 		w.responseCount == 1 && !w.capturing && !w.overflow
 }
@@ -132,9 +204,17 @@ func (r *Runtime) runInteractiveBrokerLogin(
 		"python", "-m", "authbroker.control", "login",
 		"--context-id", contextID, "--provider", provider,
 	}
-	filter := newLoginOutputFilter(errOut)
 	loginContext, cancel := context.WithTimeout(ctx, brokerLoginTimeout)
 	defer cancel()
+	opener := r.browser
+	if opener == nil {
+		opener = osHostBrowserOpener{}
+	}
+	filter := newLoginOutputFilter(errOut, func(target string) error {
+		openContext, stopOpen := context.WithTimeout(loginContext, hostBrowserOpenTimeout)
+		defer stopOpen()
+		return opener.Open(openContext, target)
+	})
 	_ = r.runner.Run(loginContext, args, os.Environ(), input, filter, filter)
 	responseLine, found := filter.responseLine()
 	if found {

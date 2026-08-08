@@ -100,9 +100,15 @@ func TestBuildAuthResultDeclaresContextCredentialActivationContract(t *testing.T
 
 func TestLoginOutputFilterPreservesTTYStreamAndSuppressesMachineResult(t *testing.T) {
 	var visible bytes.Buffer
-	filter := newLoginOutputFilter(&visible)
+	opened := []string{}
+	filter := newLoginOutputFilter(&visible, func(target string) error {
+		opened = append(opened, target)
+		return nil
+	})
 	chunks := []string{
-		"Open this URL in your browser:\nhttps://github.com/login/device\n",
+		"! First copy your one-time code: SYNTH-ETIC\nOpen this URL in your browser:\nhttps://github.com/login/de",
+		"vice\n! Authentication credentials saved in plain text\n",
+		"diagnostic: ! Authentication credentials saved in plain text\n",
 		"Waiting for authentication...\n",
 		loginResultPrefix[:9],
 		loginResultPrefix[9:] + `{"schema_version":1,"ok":true,"provider":"github"}` + "\r\n",
@@ -118,9 +124,66 @@ func TestLoginOutputFilterPreservesTTYStreamAndSuppressesMachineResult(t *testin
 	if !strings.Contains(visible.String(), "https://github.com/login/device") || !strings.Contains(visible.String(), "Waiting for authentication") {
 		t.Fatalf("interactive helper output was lost: %q", visible.String())
 	}
+	if strings.Contains(visible.String(), "saved in plain text") {
+		if !strings.Contains(visible.String(), "diagnostic: ! Authentication credentials saved in plain text") ||
+			strings.Count(visible.String(), "saved in plain text") != 1 {
+			t.Fatalf("ephemeral storage warning filtering was too broad: %q", visible.String())
+		}
+	}
+	if len(opened) != 1 || opened[0] != githubDeviceURL {
+		t.Fatalf("browser opens = %q", opened)
+	}
 	line, found := filter.responseLine()
 	if !found || string(line) != `{"schema_version":1,"ok":true,"provider":"github"}` {
 		t.Fatalf("captured result = %q, found=%t", line, found)
+	}
+}
+
+func TestLoginOutputFilterFallsBackToOneFixedManualURL(t *testing.T) {
+	var visible bytes.Buffer
+	opens := 0
+	filter := newLoginOutputFilter(&visible, func(target string) error {
+		opens++
+		if target != githubDeviceURL {
+			t.Fatalf("browser target = %q", target)
+		}
+		return os.ErrNotExist
+	})
+	if _, err := filter.Write([]byte(
+		"Open https://example.com/login manually\n" + githubDeviceURL + "\n" + githubDeviceURL + "\n",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = filter.responseLine()
+	if opens != 1 {
+		t.Fatalf("browser opens = %d, want 1", opens)
+	}
+	if strings.Count(visible.String(), githubManualBrowserFallback) != 1 || !strings.Contains(visible.String(), "https://example.com/login") {
+		t.Fatalf("visible output = %q", visible.String())
+	}
+}
+
+func TestHostBrowserCommandAcceptsOnlyFixedGitHubDeviceURL(t *testing.T) {
+	tests := []struct {
+		goos       string
+		executable string
+	}{
+		{goos: "darwin", executable: "/usr/bin/open"},
+		{goos: "linux", executable: "xdg-open"},
+	}
+	for _, test := range tests {
+		executable, args, err := hostBrowserCommand(test.goos, githubDeviceURL)
+		if err != nil || executable != test.executable || len(args) != 1 || args[0] != githubDeviceURL {
+			t.Fatalf("hostBrowserCommand(%q) = %q, %q, %v", test.goos, executable, args, err)
+		}
+	}
+	for _, target := range []string{"https://example.com/login", githubDeviceURL + "?next=example"} {
+		if _, _, err := hostBrowserCommand("darwin", target); err == nil {
+			t.Fatalf("unsafe browser target %q was accepted", target)
+		}
+	}
+	if _, _, err := hostBrowserCommand("windows", githubDeviceURL); err == nil {
+		t.Fatal("unsupported host OS was accepted")
 	}
 }
 

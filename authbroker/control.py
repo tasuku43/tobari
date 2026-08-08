@@ -141,8 +141,8 @@ def main(argv: list[str] | None = None) -> int:
         }
     encoded = json.dumps(response, separators=(",", ":"), sort_keys=True)
     if arguments.operation == "login":
-        # The trusted host filters this framed machine result while preserving
-        # the interactive gh TTY stream byte-for-byte.
+        # The trusted host consumes this framed result and owns the fixed
+        # browser/manual-fallback presentation around the gh device flow.
         sys.stdout.write("\n" + LOGIN_RESULT_PREFIX + encoded + "\n")
     else:
         sys.stdout.write(encoded + "\n")

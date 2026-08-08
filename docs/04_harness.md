@@ -427,6 +427,12 @@ The test suite has complementary levels:
   SHA-256-only live handle lookup, deterministic handle reuse for one revision,
   cross-Context/project/binding rejection, rotation, logout, and restart/unlock
   rehydration. Tests use synthetic values and make no network call.
+- GitHub acquisition UX tests split the trusted host and Broker boundaries:
+  streamed output opens only the fixed GitHub device URL once, unsupported
+  targets are rejected, desktop-opener failure retains one exact manual URL,
+  the helper disables its own prompts/browser, and its argv contains no Git
+  protocol or credential-setup request. Only the expected private-tmpfs
+  plaintext warning is withheld; unrelated helper failures remain visible.
 - Workspace auth projection tests prove one configured Context credential
   produces distinct project-bound handles, injects only declared environment
   or complete-file data, refuses to overwrite unowned/modified/symlinked files,
@@ -558,7 +564,7 @@ Every strong statement should identify its enforcement path.
 | Project-bound broker handles | Full Context/project/provider/revision/target/header round trips, hash-only live index assertions, copied/stale/rotated/revoked negative tests, exact Context-wide eligibility and next-entry semantics, and Workspace projection reconciliation |
 | Broker fallback requires marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and passthrough/managed fallback tests with no marker anywhere inspected |
 | Post-policy credential resolution | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve on deny, one same-revision resolve after allow, exact header replacement, and no-secret canaries |
-| Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, fixed GitHub CLI argv/environment/ephemeral-directory tests, TTY enforcement, complete fault inventory, all non-retryable mutation-unknown reconciliation paths, cancellation/failure preservation, required synthetic integration proof, and manual live GitHub exact-handle validation |
+| Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, fixed GitHub CLI prompt-disabled/no-Git argv and environment, exact fixed-URL host opener and manual fallback tests, ephemeral-directory cleanup, TTY enforcement, complete fault inventory, all non-retryable mutation-unknown reconciliation paths, cancellation/failure preservation, required synthetic integration proof, and manual live GitHub exact-handle validation |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/host/port/method/path candidate aggregation with latest/count and legacy-count compatibility, Context-scoped reference validation, discover-act graph and allow/deny/reset round trips, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Bounded policy compaction | Pure deterministic same-Context/project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale/cross-Context reference rejection, and Docker canary |

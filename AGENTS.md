@@ -168,8 +168,10 @@ Observe runtime-only behavior before changing it. Add bounded diagnostics, repro
     locked startup, root-key/vault integrity, project-specific handles,
     deny-before-resolution, exact post-allow replacement, rotation/logout,
     Workspace re-entry, source/snapshot equality, pinned artifact licensing,
-    and secret-free logs/output. Live provider login remains a recorded manual
-    release check and never supplies a repository fixture.
+    purpose-limited fixed-URL host browser opening with manual fallback,
+    absence of Broker Git credential setup, and secret-free logs/output. Live
+    provider login remains a recorded manual release check and never supplies
+    a repository fixture.
 11. Propagate any thesis change through product, architecture, security, Skill, and harness documents.
 12. Run `task check` and replay the relevant agent-readiness scenario.
 

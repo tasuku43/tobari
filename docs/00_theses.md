@@ -201,6 +201,11 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   strict schema-v1 parser. Manifests contain no secrets or executable shell;
   v1 user providers acquire one opaque token through protected non-terminal
   stdin; terminal input is refused before reading.
+- The built-in GitHub acquisition helper is API-authentication-only. It asks
+  the trusted host CLI to open exactly the fixed GitHub device page, retains a
+  manual URL fallback, and configures no Git protocol or credential helper in
+  Auth Broker. Host GUI sockets, browser state, and Git configuration never
+  enter the broker.
 - The macOS root-key provider stores one installation key in Keychain. Linux
   uses an owner-only XDG state file and makes no host-user-compromise claim.
 - A recognized malformed, copied, stale, or mismatched Tobari handle fails
@@ -223,6 +228,9 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   recovery, is unavailable to another Tobari, and is removed by exact delete.
   Broker tests prove encrypted Context ownership, project-specific handles,
   restart locking, rotation, revocation, and canary-free output.
+- Acquisition tests fix the prompt-disabled GitHub CLI argv/environment,
+  purpose-limited host browser target, manual fallback, and absence of Broker
+  Git credential setup.
 
 ## Thesis 4: One shared cluster hosts multiple CWD-owned Tobari
 

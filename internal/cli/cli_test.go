@@ -728,11 +728,16 @@ func TestDoctorRejectsArgumentsBeforeInspection(t *testing.T) {
 func TestE2EDoctorUsesProductionRuntimeAdapter(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := New(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"doctor"}); code != ExitOK && code != ExitRejected {
+	code := runCLI(command, []string{"doctor"})
+	if code != ExitOK && code != ExitRejected {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	if !strings.HasPrefix(output, "✓ Environment check\n  docker_cli     pass") {
+	marker := "✓"
+	if code == ExitRejected {
+		marker = "✗"
+	}
+	if !strings.HasPrefix(output, marker+" Environment check\n  docker_cli     pass") {
 		t.Fatalf("doctor output = %q", output)
 	}
 	if !strings.Contains(output, "\n  docker_engine  pass") || !strings.Contains(output, "\n  docker_context pass") {

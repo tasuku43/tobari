@@ -245,7 +245,11 @@ undeclared Docker mutation by the CLI.
   `task build:dev` without changing the normal binary's selectors.
 - Authentication commands accept only an existing Context name and installed
   provider ID. `auth login` is currently interactive and supports the built-in
-  `github` helper. `auth import` accepts a non-empty credential of at most
+  `github` helper. The helper shows the GitHub device code and the trusted host
+  CLI opens exactly `https://github.com/login/device` when the host desktop
+  supports it; an unavailable opener leaves that exact URL as the manual next
+  action and does not fail the login. Auth Broker configures no Git protocol or
+  credential helper. `auth import` accepts a non-empty credential of at most
   32 KiB from non-terminal stdin only; terminal stdin is rejected before any
   byte is read. Non-terminal bytes are read only after public Context/provider
   argument, intent, and mutation validation; infrastructure then validates the
@@ -642,7 +646,13 @@ discovery excludes other denials, preventing a successful no-op approval.
 
 `auth login`, `auth import`, and `auth logout` validate the fixed installation
 credential-catalog target and mutation impact before acquisition or vault I/O.
-Login runs the fixed provider helper interactively on the trusted host. Import
+Login runs the fixed provider helper through an interactive trusted-host
+terminal. The host may perform one purpose-limited open of the fixed GitHub
+device page; browser-open failure is a recoverable presentation fallback, not
+an acquisition failure. The helper disables GitHub CLI prompts, selects no Git
+protocol, and writes only temporary GitHub CLI authentication state below the
+private login tmpfs. It never reads or writes host, project, or Workspace Git
+configuration. Import
 rejects terminal stdin before reading and reads bounded non-terminal input only
 after public argument/intent/mutation validation; infrastructure validates the
 selected Context, installed provider/acquisition mode, and broker readiness

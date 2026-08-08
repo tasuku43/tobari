@@ -42,7 +42,7 @@ journey is the product baseline to improve:
 | Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
 | Execution setup | `context list`, `context show`, `context use --name NAME`, `tobari --context NAME` | The user can inspect stable Contexts, change only the omitted-Context default, and create same-root Tobari in different Contexts while one Gateway/OPA/Auth Broker cluster routes trusted principals and bound handles |
 | Runtime customization | `runtime init`, edit the current Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image and other Contexts are unchanged |
-| Context authentication | `auth status`; built-in `auth login github`; protected non-terminal stdin `auth import`; `auth logout` | The user acquires one Context credential on the trusted host, sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing the primary secret |
+| Context authentication | `auth status`; built-in `auth login github`; protected non-terminal stdin `auth import`; `auth logout` | The host opens the fixed GitHub device page when possible, otherwise gives one exact manual URL; no Broker browser/Git setup error intervenes. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing the primary secret |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
 
 The table is a review baseline, not a claim that the desired command count is
@@ -217,6 +217,9 @@ rules exist. The transcript must prove:
   built-in helper; logout makes no remote-revocation claim. Every success
   reports the credential revision only when configured and requires Workspace
   re-entry.
+- Built-in GitHub login opens only the fixed device URL through the trusted
+  host, retains that URL as the fallback on a headless host, and never asks to
+  authenticate Git or configure a Git credential helper in Auth Broker.
 - Each Context/provider credential makes every permanently bound project
   eligible for a different opaque handle on its next matching Workspace entry.
   Handles remain stable across ordinary root entry and broker
@@ -439,8 +442,11 @@ tobari auth logout github --context default --format json
 (cd /absolute/test/root && tobari) # reconcile the revoked projection
 ```
 
-The reviewer verifies the login uses the ordinary GitHub.com web flow, status
-shows exactly one secret-free account label/revision, `GH_TOKEN` has the
+The reviewer verifies the login uses the ordinary GitHub.com web flow, opens
+the device page through the host (or shows the exact fixed manual URL), and
+shows no container browser error, Git credential prompt, Git executable
+failure, or persistent-plaintext warning. Status shows exactly one secret-free
+account label/revision, `GH_TOKEN` has the
 `tobari-h1_` handle shape, and the no-print equality test proves `gh auth token
 --hostname github.com` returns that exact projected handle rather than the
 primary credential. The allowed API call succeeds only after OPA allow, logout returns

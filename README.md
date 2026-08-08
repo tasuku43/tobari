@@ -978,8 +978,13 @@ tobari auth logout github --context default
 ```
 
 `auth login github` runs the pinned GitHub CLI's ordinary web login inside the
-broker with ephemeral configuration. The token is captured internally; only a
-bounded account label and opaque credential revision may appear in output.
+broker with ephemeral configuration. Tobari opens the fixed GitHub device page
+from the trusted host when possible; on a headless host it leaves the exact URL
+for manual use. The broker neither opens a host browser nor configures Git, and
+the expected temporary plaintext GitHub CLI file is deleted after capture
+without being presented as persistent storage. The token is captured
+internally; only a bounded account label and opaque credential revision may
+appear in output.
 The real credential is encrypted at
 `auth/contexts/<context-id>/vault.enc`. macOS stores the installation root key
 in Keychain service `io.tobari.auth-root.v1`; Linux uses owner-only XDG state
@@ -1000,6 +1005,14 @@ performs non-secret introspection, asks OPA about the body-free HTTP effect,
 and resolves the primary secret exactly once only after allow. Denial performs
 no resolution. A copied, stale, malformed, revoked, or mismatched handle fails
 with `credential_handle_invalid` and is never forwarded.
+
+The built-in broker route authenticates GitHub API operations, not Git
+transport. `gh api`, `gh issue`, and `gh pr` use the projected handle. Public
+unauthenticated Git-over-HTTPS may still follow ordinary policy, but private
+`git clone`, `fetch`, and `push` need a credential-helper capability that is
+not yet supported. Repository `.git/config` and optional global Git identity
+configuration belong to the Workspace; no host or Broker Git configuration is
+copied into it.
 
 Login, import, replacement, and logout cannot rewrite a running process, so
 successful output says `workspace_reentry_required`. Leave and re-enter the

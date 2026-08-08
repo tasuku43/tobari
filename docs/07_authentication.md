@@ -42,10 +42,17 @@ Login is currently supported only for the built-in `github` provider and
 requires an interactive terminal. The trusted host executes the pinned GitHub
 CLI inside the Auth Broker container with an ephemeral
 `GH_CONFIG_DIR=/run/tobari-auth/login`. It runs the ordinary GitHub.com web
-login, verifies the active account through bounded JSON output, captures the
-token internally, and destroys the temporary CLI state. The real account label
-may appear in the secret-free result. The credential itself never crosses CLI
-stdout/stderr, argv, environment, or a Workspace.
+login with GitHub CLI prompting and container browser launch disabled. When the
+fixed device page appears in the helper stream, the host CLI opens exactly
+`https://github.com/login/device` through the platform opener. If that is
+unavailable, the same visible URL is the manual next action and login continues.
+The helper requests no Git protocol, performs no Git credential setup, verifies
+the active account through bounded JSON output, captures the token internally,
+and destroys the temporary CLI state. Its expected plaintext fallback exists
+only in the private tmpfs and is withheld from public output because it is not
+persistent credential storage. The real account label may appear in the
+secret-free result. The credential itself never crosses CLI stdout/stderr,
+argv, environment, or a Workspace.
 
 Import is available only to installed providers whose manifest declares
 `stdin_import`. Replace `secret-source-command` with a trusted password-manager
@@ -241,6 +248,14 @@ The built-in provider is `github`. Its reviewed contract is:
 - `Authorization` source syntax `Bearer` or `token`, replaced after allow while
   preserving the recognized scheme.
 
+This contract supports `gh api`, `gh issue`, `gh pr`, and other GitHub API
+operations. It does not authenticate `git clone`, `fetch`, or `push`.
+Repository `.git/config` and optional global Git identity/configuration belong
+to the Workspace and its persistent home. Auth Broker never owns either. A
+future authenticated Git-over-HTTPS slice would require a separately reviewed
+exact credential-helper and HTTP-binding design; the current handle contract
+must not be repurposed implicitly.
+
 Owner-controlled manifests are regular, non-symlink, owner-only JSON files
 below:
 
@@ -381,7 +396,8 @@ vault path/content, root key, primary secret, or handle.
 The supported slice has one built-in GitHub.com account per Context and
 owner-controlled single-secret import providers. It does not implement token
 refresh, provider logout/revocation, multiple accounts per Context, GitHub App
-tokens, Git credential helpers, arbitrary OAuth, browser bridges, AWS SigV4,
+tokens, Git credential helpers, arbitrary OAuth, provider-selected or general
+browser bridges, AWS SigV4,
 request signing, dynamic short-lived credentials, provider SDK operations, or
 provider-specific policy semantics. A tool may still implement its own native
 flow inside its Workspace home, and advanced static users may retain the
@@ -399,7 +415,9 @@ managed adapter.
   `tobari-auth-broker:dev` for explicit source validation; a development image
   or moving tag cannot become normal runtime authority.
 - A release candidate requires a manual trusted-host GitHub check: login to a
-  test account, confirm only secret-free status, re-enter a Workspace, verify
+  test account, confirm the host opens the fixed device page without a Git
+  credential prompt, Broker browser error, persistent-plaintext warning, or
+  Git configuration, confirm only secret-free status, re-enter a Workspace, verify
   without printing either value that `GH_TOKEN` has the `tobari-h1_` shape and
   `gh auth token --hostname github.com` returns that exact handle, perform one
   OPA-allowed `gh api` request, logout, and prove the prior handle fails.

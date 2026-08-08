@@ -32,6 +32,12 @@ process in it, coding agents, project files, Workspace home, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
 
+The host browser opener used by built-in GitHub login is a trusted,
+purpose-limited CLI side effect. It accepts only the fixed
+`https://github.com/login/device` target. Provider text, repository content,
+manifests, environment variables, and broker responses cannot choose a URL or
+executable.
+
 ```text
 host root A (rw) ---> Tobari A --+
                                   +--explicit proxy--> Gateway --OPA--> upstream
@@ -374,7 +380,13 @@ transformations, rejects target and projection collisions, and prohibits user
 manifests from overriding built-ins or selecting a helper. The built-in
 `github` provider alone may run the pinned GitHub CLI in an ephemeral private
 tmpfs to acquire a GitHub.com token and bounded account label. Ambient GitHub
-credential variables are removed. User providers use protected non-terminal
+credential and browser variables are removed. GitHub CLI prompting and its
+container browser launch are disabled; the trusted host opens only the fixed
+device URL on a best-effort basis and otherwise presents that URL for manual
+use. The helper supplies no Git protocol, never invokes Git credential setup,
+and deletes the expected temporary plaintext GitHub CLI state after capture.
+It receives no host GUI socket, browser state, Git configuration, or Git
+executable requirement. User providers use protected non-terminal
 stdin import only. A terminal stream is refused before reading. Non-terminal
 bytes are read after public Context/provider argument, intent, and mutation
 validation; infrastructure validates the selected existing Context, installed
@@ -501,9 +513,12 @@ each resulting request is independently authorized.
 
 Gateway applies a finite broker-socket timeout and performs at most one
 introspection plus one post-allow resolution. It never retries or resolves on
-deny. The built-in GitHub acquisition helper runs one interactive `gh auth
-login` followed by one bounded account-status capture and one token capture in
-an ephemeral configuration directory. It performs no pagination or automatic
+deny. The built-in GitHub acquisition helper runs one `gh auth login` through
+a trusted-host terminal with GitHub CLI prompting disabled, followed by one
+bounded account-status capture and one token capture in an ephemeral
+configuration directory. The host may open the one fixed device URL once;
+opener failure falls back to manual navigation and is not a provider mutation
+failure. The helper performs no Git configuration, pagination, or automatic
 retry; user cancellation or any failed capture preserves the previous Context
 credential. Tobari does not parse provider endpoints or redirect responses
 itself, and automated tests make no live provider call.
@@ -549,6 +564,7 @@ reference-bound mutation.
 | Policy denial cannot resolve a brokered secret | Gateway call-count and ordering tests proving zero resolve calls before or on deny and exactly one after allow |
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
+| GitHub login cannot turn helper text into host execution or Broker Git authority | Exact fixed-URL host opener tests, unsupported-target rejection, manual fallback, prompt-disabled helper argv/environment tests, and no-Git-protocol assertions |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
 | Broker fallback cannot accept a Tobari-looking handle | Marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
 | Cluster cleanup preserves authentication authority until explicit logout | Down/purge tests proving vault and root-key preservation plus exact logout/revocation tests |
