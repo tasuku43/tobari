@@ -97,6 +97,7 @@ run_tobari_pty_at() {
   shift
   (
     cd "$root"
+    unset NO_COLOR
     env \
       HOME="$test_root/user" \
       DOCKER_CONFIG="$host_docker_config" \
