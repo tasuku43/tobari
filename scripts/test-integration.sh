@@ -84,6 +84,19 @@ network_contains_container() {
   grep -Fx "$container_id" <<<"$member_ids" >/dev/null
 }
 
+wait_network_membership() {
+  local network=$1
+  local container=$2
+  local _
+  for _ in $(seq 1 30); do
+    if network_contains_container "$network" "$container"; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
 wait_network_connection() {
   local source_container=$1
   local target_host=$2
@@ -131,6 +144,7 @@ run_tobari_pty_at() {
       XDG_CONFIG_HOME="$test_root/config" \
       XDG_STATE_HOME="$test_root/state" \
       XDG_DATA_HOME="$test_root/data" \
+      NO_COLOR=1 \
       TERM=xterm-256color \
       python3 -c '
 import errno
@@ -600,9 +614,9 @@ assert_component_resource_bounds tobari-auth-broker 1000000000 536870912 128
   fail "Auth Broker root filesystem is writable"
 [[ $(docker inspect --format '{{join .HostConfig.CapDrop ","}}' tobari-auth-broker) == ALL ]] ||
   fail "Auth Broker did not drop every capability"
-network_contains_container tobari-control tobari-auth-broker ||
+wait_network_membership tobari-control tobari-auth-broker ||
   fail "Auth Broker is not attached to the shared control network"
-network_contains_container tobari-egress tobari-auth-broker ||
+wait_network_membership tobari-egress tobari-auth-broker ||
   fail "Auth Broker is not attached to the login egress network"
 created_context=$(run_tobari context create --name restricted --image "$custom_image" --format json)
 assert_contains "$created_context" '"cluster":"requires_reconcile"' "running Context creation"

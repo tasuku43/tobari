@@ -449,6 +449,13 @@ The test suite has complementary levels:
   retained denial. Neither path requires hand-editing OPA or Rego. Redirected
   review and inventory stay read-only; exact reference-bound allow, deny, and
   reset actions are the routine policy mutations.
+- Container integration PTY helpers set `NO_COLOR` explicitly so semantic
+  assertions do not depend on a developer or runner environment or split a
+  plain-text canary across independently styled spans. CLI unit tests retain
+  ownership of ANSI and styling behavior. Positive Docker network-membership
+  assertions use a bounded convergence read after service health; negative
+  topology assertions remain immediate so an unwanted attachment cannot be
+  hidden by retry.
 - Parent-owned blind E2E runs use `scripts/pty-evidence.py` when raw terminal
   evidence is required. The runner allocates a real PTY, sets explicit
   rows/columns and `TERM`, applies a timestamped short-input schedule, and
