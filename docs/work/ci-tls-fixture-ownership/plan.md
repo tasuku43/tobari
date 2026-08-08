@@ -6,5 +6,7 @@
 3. Pre-create HOME-relative project bind targets under the host owner and add
    unit coverage for unsafe substitutions.
 4. Run local runtime and repository gates.
-5. Push and verify the GitHub container gate.
-6. Remove this temporary packet after promoting the conclusion.
+5. Make the dev-resolver runtime prerequisite explicit without replacing a
+   contributor's existing dev tag.
+6. Push and verify the GitHub container gate.
+7. Remove this temporary packet after promoting the conclusion.

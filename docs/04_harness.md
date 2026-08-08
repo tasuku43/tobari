@@ -36,6 +36,10 @@ resolver. The normal `task build` binary keeps using the published Gateway
 digest and official runtime base. To run the integration script against the
 dev resolver, set `TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev` and
 `TOBARI_INTEGRATION_CUSTOM_BASE=tobari-runtime:dev`.
+The integration script owns its dev-resolver prerequisites: when
+`tobari-runtime:dev` is absent, it creates a temporary alias to the selected
+compatible integration base and removes only that alias during cleanup. It
+never overwrites or deletes a contributor's pre-existing dev tag.
 
 The focused `task runtime:base:check` workflow validates the canonical
 `runtimes/base` metadata and digest lock, the Dockerfile's common tool and

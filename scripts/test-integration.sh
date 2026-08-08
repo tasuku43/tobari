@@ -22,6 +22,7 @@ other_container=
 restricted_container=
 runtime_image=
 official_runtime_image=
+created_dev_runtime_tag=false
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
 host_docker_context=${DOCKER_CONTEXT:-$(docker context show)}
 
@@ -469,6 +470,9 @@ cleanup() {
   if [[ -n ${official_runtime_image:-} ]]; then
     docker image rm -f "$official_runtime_image" >/dev/null 2>&1 || true
   fi
+  if [[ $created_dev_runtime_tag == true ]]; then
+    docker image rm tobari-runtime:dev >/dev/null 2>&1 || true
+  fi
 }
 
 finish() {
@@ -595,6 +599,10 @@ docker build --tag "$custom_image" \
   --file test/integration/custom-image.Dockerfile \
   --build-arg "TOBARI_RUNTIME_BASE=$custom_base_image" . >/dev/null
 assert_base_bash_contract "$custom_base_image"
+if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
+  docker tag "$custom_base_image" tobari-runtime:dev
+  created_dev_runtime_tag=true
+fi
 printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
   >"$config_directory/config.json"
 chmod 0600 "$config_directory/config.json"

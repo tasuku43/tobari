@@ -19,3 +19,8 @@
   HOME-relative bind target as the engine user, so the host CLI could not
   remove the persistent home. Tobari must create that target under the host
   owner before container creation and reject unsafe existing components.
+- With deletion fixed, CI reached `runtime build` and exposed an unrelated
+  undeclared harness prerequisite: the integration binary uses the dev image
+  resolver, but CI had never created its `tobari-runtime:dev` base tag. The
+  harness can alias its already validated compatible base only when that tag is
+  absent and remove only the alias it created.
