@@ -954,11 +954,23 @@ if [[ $remaining_review == *"$reject_candidate_id"* ]]; then
   fail "denied candidate remained in the review queue"
 fi
 
+pending_before_interactive=$(run_tobari policy review --tail 1000 --format json)
+while IFS= read -r pending_id; do
+  [[ -n $pending_id ]] || continue
+  run_tobari policy deny --id "$pending_id" >/dev/null
+done < <(python3 -c '
+import json
+import sys
+
+for item in json.load(sys.stdin)["policy_review"]:
+    print(item["id"])
+' <<<"$pending_before_interactive")
+
 interactive_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-interactive)
 [[ $interactive_status == 403 ]] || fail "interactive review candidate returned $interactive_status instead of 403"
 if ! interactive_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
-  TOBARI_TEST_PTY_EVENTS='[{"after_ms":5000,"data":"3"},{"after_ms":750,"data":"d"},{"after_ms":750,"data":"y"},{"after_ms":750,"data":"q"}]' \
+  TOBARI_TEST_PTY_EVENTS='[{"after_ms":5000,"data":"1"},{"after_ms":750,"data":"d"},{"after_ms":750,"data":"y"},{"after_ms":750,"data":"q"}]' \
   run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1); then
   printf '%s\n' "$interactive_output" >&2
   fail "interactive policy review PTY session failed"
