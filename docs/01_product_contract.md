@@ -265,14 +265,23 @@ opaque reference to `policy reset`. Redirected and machine-readable review and
 inventory remain read-only.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
-a small state marker, aligned detail rows, semantic color tokens, and an exact
-next action when the result has a useful recovery or continuation. Success is
-green, warnings are yellow, failures are red, active or navigational emphasis
-is cyan, and secondary labels/details are muted. Color is applied only when
-the corresponding output stream is an interactive terminal; redirected text
-has the same semantic order without ANSI control sequences. `doctor` defaults
-to this human text view; `doctor --format tsv` remains the tab-separated
-projection for scripts, and JSON/agent help remain schema contracts.
+a small state marker, aligned detail rows, semantic style tokens, and an exact
+next action when the result has a useful recovery or continuation. The complete
+token vocabulary is `text`, `muted`, `accent`, `success`, `warning`, and
+`danger`. Ordinary values and explanations use `text`; readable secondary
+labels and auxiliary detail use `muted`; only primary headings and the next
+operation use `accent`. The `success`, `warning`, and `danger` tokens are
+reserved for state. A path or opaque ID is not accented merely because it is a
+path or ID. Concrete colors and emphasis belong only to the shared
+presentation layer, never to an individual command renderer.
+
+Terminal styling is applied only when the corresponding output stream is an
+interactive terminal and `NO_COLOR` is absent. Redirected text and any
+invocation with `NO_COLOR` present contain no ANSI style sequences and preserve
+the established non-interactive structure. Markers, words, and layout carry
+the same status meaning without color. `doctor` defaults to this human text
+view; `doctor --format tsv` remains the tab-separated projection for scripts,
+and JSON/agent help remain schema contracts.
 Empty collections are explicit rather than silent. Opaque IDs remain byte-for-
 byte exact, while external evidence remains subject to the existing safe text
 projection before it is displayed. Root, namespace, and exact human help use

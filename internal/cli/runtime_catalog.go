@@ -44,7 +44,7 @@ func contextListSpec() CommandSpec {
 			Outcome:      "List the complete local Context collection and identify the active Context",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "active", Type: OutputFieldTypeString, Description: "Name of the host-selected active Context."},
 					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with active state, image, agent profile, policy mode, and runtime status."},
@@ -233,7 +233,7 @@ func statusSpec() CommandSpec {
 			Outcome:      "Report whether a Tobari exists for the current directory and its recoverable runtime diagnostic",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "exists", Type: OutputFieldTypeBoolean, Description: "Whether logical Tobari state exists for the current directory."},
 					{Name: "root", Type: OutputFieldTypeString, Description: "Nearest canonical project root when one exists."},
@@ -270,7 +270,7 @@ func deleteSpec() CommandSpec {
 				Description: "Override the attached-session safety guard and delete anyway.", AllowedValues: []string{}, DefaultValue: stringPointer("false"),
 			}},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Whether the selected logical Tobari was deleted."},
 					{Name: "root", Type: OutputFieldTypeString, Description: "Deleted canonical project root."},
@@ -353,7 +353,7 @@ func clusterStatusSpec() CommandSpec {
 			Outcome:      "Observe cluster health, proxy, XDG policy path, attached count, and recent errors",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether schema-2 cluster state exists."},
 					{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether Gateway and OPA are healthy."},
@@ -395,7 +395,7 @@ func clusterDenialsSpec() CommandSpec {
 				formatInput(),
 			},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
 					{Name: "window_lines", Type: OutputFieldTypeInteger, Description: "Maximum recent Gateway lines inspected."},
@@ -463,7 +463,7 @@ func policyCandidatesSpec() CommandSpec {
 			Outcome:      "Return unique pending exact host, port, method, and path proposals with opaque approval IDs",
 			Inputs:       []CommandInput{denialTailInput(), formatInput()},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
 				JSONEnvelope: "policy_candidates", JSONSchemaVersion: 2,
@@ -485,7 +485,7 @@ func policyTailSpec() CommandSpec {
 			Outcome:      "Review the bounded pending policy queue with exact approval commands",
 			Inputs:       []CommandInput{denialTailInput()},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
 			},
@@ -505,7 +505,7 @@ func policyReviewSpec() CommandSpec {
 			Outcome:      "Review the bounded pending exact network-permission queue; an interactive terminal can explicitly allow or deny one exact permission",
 			Inputs:       []CommandInput{reviewTailInput(), formatInput()},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
 				JSONEnvelope: "policy_review", JSONSchemaVersion: 2,
@@ -534,7 +534,7 @@ func policyRulesSpec() CommandSpec {
 			Outcome:      "Inspect the complete current project-bound learned Allow and exact Deny decisions; on a TTY explicitly reset one decision",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyRuleOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
 				JSONEnvelope: "policy_rules", JSONSchemaVersion: 1,
@@ -680,7 +680,7 @@ func policyCompactionsSpec() CommandSpec {
 			Outcome:      "Return current same-host, port, and method exact-rule groups eligible for bounded prefix compaction",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "id", Type: OutputFieldTypeString, Description: "Opaque current compaction reference.", ReferenceKind: tobari.PolicyCompactionKind},
 					{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal bound to every source rule."},
@@ -807,7 +807,7 @@ func attachSpec() CommandSpec {
 				},
 			},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "name", Type: OutputFieldTypeString, Description: "Attached display name."},
 					{Name: "root", Type: OutputFieldTypeString, Description: "Canonical attached host root."},
@@ -854,7 +854,7 @@ func listSpec() CommandSpec {
 			Outcome:      "Return every configured Workspace root with diagnostic runtime state",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "root", Type: OutputFieldTypeString, Description: "Canonical Workspace root."},
 					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic; incomplete means the logical state record is missing and must be deleted before recreation."},
@@ -953,7 +953,7 @@ func detachSpec() CommandSpec {
 			Outcome:      "Remove one exact container and network while preserving its home unless purge is explicit",
 			Inputs:       []CommandInput{idInput(), purgeInput("Also remove the selected Tobari home volume.")},
 			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   []OutputField{{Name: "detached", Type: OutputFieldTypeBoolean, Description: "Whether the exact target is detached."}},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 			},
@@ -1048,7 +1048,7 @@ func contextModeInput() CommandInput {
 
 func contextReportOutput() CommandOutput {
 	return CommandOutput{
-		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText,
+		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "name", Type: OutputFieldTypeString, Description: "Named Context identifier."},
 			{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the host-selected active Context."},
@@ -1127,7 +1127,7 @@ func policyRuleOutputFields() []OutputField {
 
 func policyRuleResetOutput() CommandOutput {
 	return CommandOutput{
-		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
 			{Name: "target_id", Type: OutputFieldTypeString, Description: "Opaque policy-rule ID consumed unchanged."},
@@ -1158,7 +1158,7 @@ func policyCandidateOutputFields() []OutputField {
 
 func policyDenyChangeOutput() CommandOutput {
 	return CommandOutput{
-		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
 			{Name: "target_id", Type: OutputFieldTypeString, Description: "Opaque candidate ID consumed unchanged."},
@@ -1177,7 +1177,7 @@ func policyDenyChangeOutput() CommandOutput {
 
 func policyLearningChangeOutput() CommandOutput {
 	return CommandOutput{
-		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
 			{Name: "target_id", Type: OutputFieldTypeString, Description: "Opaque target ID consumed unchanged."},
@@ -1258,7 +1258,7 @@ func noOutput() CommandOutput {
 
 func textClusterStatusOutput() CommandOutput {
 	return CommandOutput{
-		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether cluster state remains configured."},
 			{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether shared components are running."},
@@ -1269,7 +1269,7 @@ func textClusterStatusOutput() CommandOutput {
 
 func logOutput() CommandOutput {
 	return CommandOutput{
-		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields:   []OutputField{{Name: "line", Type: OutputFieldTypeString, Description: "One visibly escaped component log line."}},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
 	}

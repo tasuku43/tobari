@@ -39,9 +39,10 @@ internal/cli  ------> internal/app
 - `internal/app`: lifecycle, status, entry, diagnostics, and doctor use cases with
   consumer-owned ports.
 - `internal/infra`: Docker CLI runner, local state/config filesystem, embedded
-asset materialization, and platform inspection.
+  asset materialization, platform inspection, and terminal/environment
+  capability adapters.
 - `internal/cli`: the canonical catalog, typed argv parsing, rendering, signal
-  handoff, and composition root.
+  handoff, shared semantic style presentation, and composition root.
 
 Domain performs no I/O. Application imports neither infrastructure nor CLI.
 Infrastructure satisfies ports structurally without importing application.
@@ -341,6 +342,18 @@ target. `list` reports IDs as diagnostic fields but no public lifecycle action
 consumes them. The dependency-free terminal capability is an infrastructure
 adapter used only by the CLI's human selector; a line-input fallback keeps
 raw-mode availability out of the public command contract.
+
+Every catalog command that supports human text explicitly declares the shared
+semantic-token presentation. The CLI presentation layer owns the exact
+`text`, `muted`, `accent`, `success`, `warning`, and `danger` vocabulary and is
+the only production location that maps those meanings to ANSI color or
+emphasis. Command renderers select tokens by information meaning; they do not
+own escape sequences or concrete colors. Infrastructure reports terminal
+capability and the presence-only `NO_COLOR` environment preference. The CLI
+combines those facts per output stream, keeping redirected and machine output
+free of ANSI styling. Cursor-control sequences used by bounded interactive
+selectors remain a separate terminal mechanism and do not define visual
+styles.
 
 ## Gateway request flow
 

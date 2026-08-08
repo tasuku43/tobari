@@ -45,9 +45,9 @@ func TestClusterUpProgressRendersActiveUpdatesAndCompletion(t *testing.T) {
 
 	got := output.String()
 	for _, expected := range []string{
-		applyColorToken(true, colorTokenAccent, "⠋"),
-		applyColorToken(true, colorTokenAccent, "⠙"),
-		applyColorToken(true, colorTokenSuccess, "✓"),
+		applyStyleToken(true, styleAccent, "⠋"),
+		applyStyleToken(true, styleAccent, "⠙"),
+		applyStyleToken(true, styleSuccess, "✓"),
 		"verify readiness",
 	} {
 		if !strings.Contains(got, expected) {
@@ -69,7 +69,7 @@ func TestClusterUpProgressRendersFailureWithoutRuntimeDiagnostics(t *testing.T) 
 	progress.Close()
 
 	got := output.String()
-	if !strings.Contains(got, applyColorToken(true, colorTokenError, "✗")+" start services") {
+	if !strings.Contains(got, applyStyleToken(true, styleDanger, "✗")+" start services") {
 		t.Fatalf("failure output = %q", got)
 	}
 	if strings.Contains(got, "docker") || strings.Contains(got, "secret") {
@@ -93,7 +93,7 @@ func TestClusterUpProgressCanDisableColor(t *testing.T) {
 	progress.Close()
 
 	got := output.String()
-	if strings.Contains(got, ansiColorTokens[colorTokenAccent]) || strings.Contains(got, ansiColorTokens[colorTokenSuccess]) {
+	if strings.Contains(got, ansiStyleTokens[styleAccent]) || strings.Contains(got, ansiStyleTokens[styleSuccess]) {
 		t.Fatalf("color escape remained in disabled output: %q", got)
 	}
 	if !strings.Contains(got, "⠋ prepare environment") || !strings.Contains(got, "✓ prepare environment") {
@@ -153,7 +153,7 @@ func TestClusterUpProgressStartAdvancesWithoutRuntimeUpdate(t *testing.T) {
 
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(output.String(), applyColorToken(true, colorTokenAccent, "⠙")) {
+		if strings.Contains(output.String(), applyStyleToken(true, styleAccent, "⠙")) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

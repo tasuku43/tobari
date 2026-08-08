@@ -441,6 +441,40 @@ func run() {
 	}
 }
 
+func TestInspectSourceRejectsCLIStyleBypass(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "internal", "cli")
+	bypass := filepath.Join(directory, "render.go")
+	writeTestFile(t, directory, "render.go", `package cli
+const danger = "\x1b[1;31m"
+const formattedDanger = "\x1b[%dm"
+const cursor = "\x1b[2K"
+`)
+	got, err := inspectSourceFile("cli", bypass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("violations = %#v, want direct and formatted semantic-style violations", got)
+	}
+	for _, item := range got {
+		if item.To != "ANSI SGR" || !strings.Contains(item.Reason, "semantic tokens") {
+			t.Fatalf("violation = %#v, want semantic-style violation", item)
+		}
+	}
+
+	styleFile := filepath.Join(directory, "styles.go")
+	writeTestFile(t, directory, "styles.go", `package cli
+const sharedStyle = "\x1b[38;5;203m"
+`)
+	got, err = inspectSourceFile("cli", styleFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("shared style layer violations = %#v", got)
+	}
+}
+
 func TestLoadPackagesIncludesPlatformSpecificProductionFiles(t *testing.T) {
 	t.Setenv("GOCACHE", t.TempDir())
 	root := t.TempDir()

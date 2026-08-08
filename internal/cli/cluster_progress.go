@@ -118,23 +118,23 @@ func (p *clusterUpProgress) Report(event tobari.ClusterUpProgress) {
 		if p.current != phase {
 			p.current = phase
 			p.frame = 0
-			p.writeLineLocked(p.spinner(), string(phase), false, colorTokenAccent)
+			p.writeLineLocked(p.spinner(), string(phase), false, styleAccent)
 		}
 		p.failed = false
 	case tobari.ClusterUpProgressUpdated:
 		if p.current == phase {
 			p.frame++
-			p.writeLineLocked(p.spinner(), string(phase), false, colorTokenAccent)
+			p.writeLineLocked(p.spinner(), string(phase), false, styleAccent)
 		}
 	case tobari.ClusterUpProgressCompleted:
 		if clusterUpProgressPhaseLastSteps[event.Step] && p.current == phase {
-			p.finishLocked(phase, "✓", colorTokenSuccess, false)
+			p.finishLocked(phase, "✓", styleSuccess, false)
 		}
 	case tobari.ClusterUpProgressFailed:
 		if p.current != phase {
 			p.current = phase
 		}
-		p.finishLocked(phase, "✗", colorTokenError, true)
+		p.finishLocked(phase, "✗", styleDanger, true)
 	}
 }
 
@@ -148,10 +148,10 @@ func (p *clusterUpProgress) Fail() {
 		return
 	}
 	if p.current != "" {
-		p.finishLocked(p.current, "✗", colorTokenError, true)
+		p.finishLocked(p.current, "✗", styleDanger, true)
 		return
 	}
-	p.writeLineLocked("✗", "cluster startup failed", true, colorTokenError)
+	p.writeLineLocked("✗", "cluster startup failed", true, styleDanger)
 	p.failed = true
 }
 
@@ -165,7 +165,7 @@ func (p *clusterUpProgress) Close() {
 		return
 	}
 	if p.current != "" && !p.failed {
-		p.finishLocked(p.current, "✗", colorTokenError, true)
+		p.finishLocked(p.current, "✗", styleDanger, true)
 	}
 	p.closed = true
 	stop, done := p.stop, p.done
@@ -186,10 +186,10 @@ func (p *clusterUpProgress) tick() {
 		return
 	}
 	p.frame++
-	p.writeLineLocked(p.spinner(), string(p.current), false, colorTokenAccent)
+	p.writeLineLocked(p.spinner(), string(p.current), false, styleAccent)
 }
 
-func (p *clusterUpProgress) finishLocked(label clusterUpProgressPhase, marker string, token colorToken, failed bool) {
+func (p *clusterUpProgress) finishLocked(label clusterUpProgressPhase, marker string, token styleToken, failed bool) {
 	p.current = ""
 	p.failed = failed
 	p.writeLineLocked(marker, string(label), true, token)
@@ -199,12 +199,12 @@ func (p *clusterUpProgress) spinner() string {
 	return clusterUpSpinnerFrames[p.frame%len(clusterUpSpinnerFrames)]
 }
 
-func (p *clusterUpProgress) writeLineLocked(marker, label string, newline bool, token colorToken) {
+func (p *clusterUpProgress) writeLineLocked(marker, label string, newline bool, token styleToken) {
 	if p.interactive {
 		_, _ = fmt.Fprint(p.out, "\r\x1b[2K")
 	}
 	if p.color {
-		_, _ = fmt.Fprint(p.out, applyColorToken(true, token, marker))
+		_, _ = fmt.Fprint(p.out, applyStyleToken(true, token, marker))
 	} else {
 		_, _ = fmt.Fprint(p.out, marker)
 	}

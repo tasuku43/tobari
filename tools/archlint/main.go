@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -436,6 +437,18 @@ func inspectSourceFile(layer, path string) ([]violation, error) {
 
 	var found []violation
 	ast.Inspect(file, func(node ast.Node) bool {
+		if literal, ok := node.(*ast.BasicLit); ok && literal.Kind == token.STRING &&
+			layer == "cli" && !isSharedCLIStyleFile(path) {
+			value, err := strconv.Unquote(literal.Value)
+			if err == nil && containsForbiddenCLIANSI(value) {
+				position := set.Position(literal.Pos())
+				found = append(found, violation{
+					From:   fmt.Sprintf("%s:%d", path, position.Line),
+					To:     "ANSI SGR",
+					Reason: "CLI color and emphasis must use semantic tokens from internal/cli/styles.go",
+				})
+			}
+		}
 		if call, ok := node.(*ast.CallExpr); ok {
 			if identifier, ok := call.Fun.(*ast.Ident); ok && (identifier.Name == "print" || identifier.Name == "println") {
 				position := set.Position(call.Pos())
@@ -511,6 +524,24 @@ func inspectSourceFile(layer, path string) ([]violation, error) {
 		return true
 	})
 	return found, nil
+}
+
+func isSharedCLIStyleFile(path string) bool {
+	directory := filepath.Dir(path)
+	return filepath.Base(path) == "styles.go" &&
+		filepath.Base(directory) == "cli" &&
+		filepath.Base(filepath.Dir(directory)) == "internal"
+}
+
+func containsForbiddenCLIANSI(value string) bool {
+	withoutReviewedControls := strings.NewReplacer(
+		"\x1b[2K", "",
+		"\x1b[%dA", "",
+		"\x1b[?25l", "",
+		"\x1b[?25h", "",
+		"\x1b[J", "",
+	).Replace(value)
+	return strings.Contains(withoutReviewedControls, "\x1b[")
 }
 
 func forbiddenApplicationFMT(name string) bool {

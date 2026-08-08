@@ -34,7 +34,7 @@ func testPolicyReviewReport() tobari.PolicyCandidateReport {
 
 func TestPolicyReviewSelectorRawInspectConfirmAndPreservesOpaqueID(t *testing.T) {
 	t.Parallel()
-	selector := &policyReviewSelector{mode: &selectorModeFake{}}
+	selector := &policyReviewSelector{mode: &selectorModeFake{}, style: true}
 	var output bytes.Buffer
 	decision, err := selector.Select(
 		context.Background(), testPolicyReviewReport(),
@@ -61,7 +61,7 @@ func TestPolicyReviewSelectorRawInspectConfirmAndPreservesOpaqueID(t *testing.T)
 func TestPolicyReviewSelectorBackThenCancelDoesNotSelect(t *testing.T) {
 	t.Parallel()
 	mode := &selectorModeFake{}
-	selector := &policyReviewSelector{mode: mode}
+	selector := &policyReviewSelector{mode: mode, style: true}
 	var output bytes.Buffer
 	decision, err := selector.Select(
 		context.Background(), testPolicyReviewReport(), strings.NewReader("\rqq"), &output,
@@ -85,13 +85,13 @@ func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
 	report := testPolicyReviewReport()
 
 	var listOutput bytes.Buffer
-	if lines := renderPolicyReviewListRaw(&listOutput, report, 0, 0, "", 0); lines <= 0 {
+	if lines := renderPolicyReviewListRaw(&listOutput, report, 0, 0, "", 0, true); lines <= 0 {
 		t.Fatalf("list render lines = %d, output = %q", lines, listOutput.String())
 	}
 	for _, want := range []string{
-		applyColorToken(true, colorTokenAccent, "Tobari · Permission Inbox"),
-		applyColorToken(true, colorTokenWarning, "2 pending permissions"),
-		applyColorToken(true, colorTokenAccent, "❯ "),
+		applyStyleToken(true, styleAccent, "Tobari · Permission Inbox"),
+		applyStyleToken(true, styleWarning, "2 pending permissions"),
+		"❯ ",
 	} {
 		if !strings.Contains(listOutput.String(), want) {
 			t.Fatalf("colored list output %q lacks %q", listOutput.String(), want)
@@ -99,16 +99,16 @@ func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
 	}
 
 	var detailOutput bytes.Buffer
-	if lines := renderPolicyReviewDetailRaw(&detailOutput, report, 0, "", 0); lines <= 0 {
+	if lines := renderPolicyReviewDetailRaw(&detailOutput, report, 0, "", 0, true); lines <= 0 {
 		t.Fatalf("detail render lines = %d, output = %q", lines, detailOutput.String())
 	}
 	for _, want := range []string{
-		applyColorToken(true, colorTokenAccent, "Permission 1 of 2"),
-		applyColorToken(true, colorTokenAccent, "api.github.com:443 POST /repos/example/issues"),
-		applyColorToken(true, colorTokenWarning, "403"),
-		applyColorToken(true, colorTokenSuccess, "[a] Allow"),
-		applyColorToken(true, colorTokenWarning, "[d] Deny"),
-		applyColorToken(true, colorTokenMuted, "[q] Back"),
+		applyStyleToken(true, styleAccent, "Permission 1 of 2"),
+		"api.github.com:443 POST /repos/example/issues",
+		applyStyleToken(true, styleWarning, "403"),
+		applyStyleToken(true, styleAccent, "[a] Allow"),
+		applyStyleToken(true, styleAccent, "[d] Deny"),
+		applyStyleToken(true, styleMuted, "[q] Back"),
 	} {
 		if !strings.Contains(detailOutput.String(), want) {
 			t.Fatalf("colored detail output %q lacks %q", detailOutput.String(), want)
@@ -137,7 +137,7 @@ func TestPolicyReviewSelectorFinishDoesNotLeaveClearedRowsBehind(t *testing.T) {
 
 func TestPolicyReviewSelectorFallsBackToLineConfirmation(t *testing.T) {
 	t.Parallel()
-	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}}
+	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}, style: true}
 	var output bytes.Buffer
 	decision, err := selector.Select(
 		context.Background(), testPolicyReviewReport(), strings.NewReader("2\na\ny\n"), &output,
@@ -160,7 +160,7 @@ func TestPolicyReviewSelectorFallsBackToLineConfirmation(t *testing.T) {
 
 func TestPolicyReviewSelectorLineCanConfirmExactDeny(t *testing.T) {
 	t.Parallel()
-	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}}
+	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}, style: true}
 	var output bytes.Buffer
 	decision, err := selector.Select(
 		context.Background(), testPolicyReviewReport(), strings.NewReader("1\nd\ny\n"), &output,
@@ -179,7 +179,7 @@ func TestPolicyReviewSelectorLineCanConfirmExactDeny(t *testing.T) {
 
 func TestPolicyReviewSelectorRawEOFIsSafeCancellation(t *testing.T) {
 	t.Parallel()
-	selector := &policyReviewSelector{mode: &selectorModeFake{}}
+	selector := &policyReviewSelector{mode: &selectorModeFake{}, style: true}
 	var output bytes.Buffer
 	decision, err := selector.Select(
 		context.Background(), testPolicyReviewReport(), strings.NewReader(""), &output,
@@ -194,7 +194,7 @@ func TestPolicyReviewSelectorRawEOFIsSafeCancellation(t *testing.T) {
 
 func TestPolicyReviewSelectorEOFIsSafeCancellation(t *testing.T) {
 	t.Parallel()
-	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}}
+	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}, style: true}
 	var output bytes.Buffer
 	decision, err := selector.Select(
 		context.Background(), testPolicyReviewReport(), strings.NewReader(""), &output,

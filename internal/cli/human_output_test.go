@@ -2,25 +2,27 @@ package cli
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 func TestHumanOutputUsesSemanticTokensAndVisibleAlignment(t *testing.T) {
 	output := newHumanOutput(true)
-	output.heading("✓", "Ready", colorTokenSuccess)
-	output.row("State", "healthy", colorTokenSuccess)
-	output.row("Details", "secondary", colorTokenMuted)
+	output.heading("✓", "Ready", styleSuccess)
+	output.row("State", "healthy", styleSuccess)
+	output.row("Details", "secondary", styleMuted)
 
 	value := output.String()
 	for _, want := range []string{
-		applyColorToken(true, colorTokenSuccess, "✓"),
-		applyColorToken(true, colorTokenSuccess, "healthy"),
-		applyColorToken(true, colorTokenMuted, fmt.Sprintf("%-*s", humanOutputLabelWidth, "State")),
-		applyColorToken(true, colorTokenMuted, fmt.Sprintf("%-*s", humanOutputLabelWidth, "Details")),
+		applyStyleToken(true, styleSuccess, "✓"),
+		applyStyleToken(true, styleSuccess, "healthy"),
+		applyStyleToken(true, styleMuted, fmt.Sprintf("%-*s", humanOutputLabelWidth, "State")),
+		applyStyleToken(true, styleMuted, fmt.Sprintf("%-*s", humanOutputLabelWidth, "Details")),
 	} {
 		if !strings.Contains(value, want) {
 			t.Fatalf("human output %q lacks %q", value, want)
@@ -28,25 +30,126 @@ func TestHumanOutputUsesSemanticTokensAndVisibleAlignment(t *testing.T) {
 	}
 }
 
-func TestColorTokensUseRicherTerminalPalette(t *testing.T) {
+func TestSemanticStyleTokensRenderWithAndWithoutTerminalStyles(t *testing.T) {
 	t.Parallel()
-	for _, token := range []colorToken{
-		colorTokenMuted, colorTokenAccent, colorTokenSelected,
-		colorTokenSuccess, colorTokenWarning, colorTokenError,
-	} {
-		code := ansiColorTokens[token]
-		if !strings.HasPrefix(code, "\x1b[") || !strings.Contains(code, "38;5;") {
-			t.Fatalf("color token %s does not use the 256-color palette: %q", token, code)
+	want := []styleToken{
+		styleText, styleMuted, styleAccent,
+		styleSuccess, styleWarning, styleDanger,
+	}
+	if !reflect.DeepEqual(semanticStyleTokens, want) {
+		t.Fatalf("semantic style tokens = %#v, want %#v", semanticStyleTokens, want)
+	}
+	for _, token := range semanticStyleTokens {
+		plain := applyStyleToken(false, token, "value")
+		if plain != "value" || strings.Contains(plain, "\x1b[") {
+			t.Fatalf("disabled token %s = %q", token, plain)
+		}
+		styled := applyStyleToken(true, token, "value")
+		if stripANSIStyles(styled) != "value" {
+			t.Fatalf("enabled token %s changed content: %q", token, styled)
+		}
+		if token == styleText && strings.Contains(styled, "\x1b[") {
+			t.Fatalf("text token must preserve the terminal default: %q", styled)
+		}
+		if token != styleText && !strings.Contains(styled, "\x1b[") {
+			t.Fatalf("enabled token %s has no shared terminal style: %q", token, styled)
 		}
 	}
-	if !strings.Contains(ansiColorTokens[colorTokenMuted], "2;") {
-		t.Fatalf("muted token should stay visibly secondary: %q", ansiColorTokens[colorTokenMuted])
+	if got := ansiStyleTokens[styleMuted]; strings.Contains(got, "[2;") {
+		t.Fatalf("muted token must not use dim/faint styling: %q", got)
 	}
-	for _, token := range []colorToken{
-		colorTokenAccent, colorTokenSelected, colorTokenSuccess, colorTokenWarning, colorTokenError,
+	if got := ansiStyleTokens[styleAccent]; !strings.Contains(got, "[1;") {
+		t.Fatalf("accent token should own primary emphasis: %q", got)
+	}
+	for _, token := range []styleToken{styleSuccess, styleWarning, styleDanger} {
+		if got := ansiStyleTokens[token]; strings.Contains(got, "[1;") || strings.Contains(got, "[2;") {
+			t.Fatalf("state token %s should not add emphasis: %q", token, got)
+		}
+	}
+}
+
+func stripANSIStyles(value string) string {
+	for _, prefix := range ansiStyleTokens {
+		value = strings.ReplaceAll(value, prefix, "")
+	}
+	return strings.ReplaceAll(value, ansiStyleReset, "")
+}
+
+func TestNoColorSuppressesANSIWithoutRemovingStateMeaning(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	runtime := &policyReviewRuntimeFake{terminal: true}
+	command, stdout, stderr := newTestCLI(passingInspector("ready"))
+	command.tobari = tobaricmd.New(runtime)
+	command.noColor = noColorFromEnvironment()
+
+	if code := runCLI(command, []string{"doctor"}); code != ExitOK {
+		t.Fatalf("doctor exit = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	if strings.Contains(output, "\x1b[") {
+		t.Fatalf("NO_COLOR output contains ANSI: %q", output)
+	}
+	for _, want := range []string{"✓ Environment check", "runtime", "pass", "ready"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("NO_COLOR output %q lacks semantic canary %q", output, want)
+		}
+	}
+	if code := runCLI(command, []string{"missing"}); code != ExitUsage {
+		t.Fatalf("missing command exit = %d", code)
+	}
+	if strings.Contains(stderr.String(), "\x1b[") {
+		t.Fatalf("NO_COLOR stderr contains ANSI: %q", stderr.String())
+	}
+	for _, want := range []string{"error:", "Unknown command", "next_action:"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("NO_COLOR stderr %q lacks semantic canary %q", stderr.String(), want)
+		}
+	}
+}
+
+func TestNewCapturesNoColorForEveryOutputStream(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	command := New(strings.NewReader(""), &strings.Builder{}, &strings.Builder{})
+	if !command.noColor {
+		t.Fatal("New did not propagate the presence-only NO_COLOR policy")
+	}
+}
+
+func TestNonTTYOutputRemainsANSIStyleFree(t *testing.T) {
+	runtime := &policyReviewRuntimeFake{terminal: false}
+	command, stdout, stderr := newTestCLI(passingInspector("ready"))
+	command.tobari = tobaricmd.New(runtime)
+	if code := runCLI(command, []string{"doctor"}); code != ExitOK {
+		t.Fatalf("doctor exit = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "\x1b[") {
+		t.Fatalf("non-TTY output contains ANSI: %q", stdout.String())
+	}
+	if code := runCLI(command, []string{"missing"}); code != ExitUsage {
+		t.Fatalf("missing command exit = %d", code)
+	}
+	if strings.Contains(stderr.String(), "\x1b[") {
+		t.Fatalf("non-TTY error output contains ANSI: %q", stderr.String())
+	}
+}
+
+func TestStateMeaningDoesNotDependOnColor(t *testing.T) {
+	output := newHumanOutput(false)
+	output.heading("✓", "Ready", styleSuccess)
+	output.row("State", "healthy", styleSuccess)
+	output.heading("!", "Needs attention", styleWarning)
+	output.row("State", "pending", styleWarning)
+	output.heading("✗", "Failed", styleDanger)
+	output.row("State", "rejected", styleDanger)
+	value := output.String()
+	if strings.Contains(value, "\x1b[") {
+		t.Fatalf("color-free state output contains ANSI: %q", value)
+	}
+	for _, want := range []string{
+		"✓ Ready", "healthy", "! Needs attention", "pending", "✗ Failed", "rejected",
 	} {
-		if !strings.Contains(ansiColorTokens[token], "1;") {
-			t.Fatalf("active token %s should have richer emphasis: %q", token, ansiColorTokens[token])
+		if !strings.Contains(value, want) {
+			t.Fatalf("color-free state output %q lacks %q", value, want)
 		}
 	}
 }
@@ -61,9 +164,9 @@ func TestHumanErrorUsesSemanticTokensAndExactRecovery(t *testing.T) {
 	}
 	output := string(renderTextErrorWithColor(payload, true))
 	for _, want := range []string{
-		applyColorToken(true, colorTokenError, "✗"),
-		applyColorToken(true, colorTokenError, "cluster is not running"),
-		applyColorToken(true, colorTokenAccent, "tobari cluster up — Start the shared cluster."),
+		applyStyleToken(true, styleDanger, "✗"),
+		applyStyleToken(true, styleDanger, "cluster is not running"),
+		applyStyleToken(true, styleAccent, "tobari cluster up — Start the shared cluster."),
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("colored error %q lacks %q", output, want)

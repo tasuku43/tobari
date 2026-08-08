@@ -271,6 +271,16 @@ func (c CollectionCoverage) validate() error {
 	}
 }
 
+// TextPresentation classifies CLI-owned text before rendering. Text-producing
+// commands must opt in explicitly so a new command cannot bypass the shared
+// semantic-token presentation boundary by omission.
+type TextPresentation uint8
+
+const (
+	TextPresentationUnknown TextPresentation = iota
+	TextPresentationSemanticTokens
+)
+
 // CommandOutput is the stable logical result and its supported presentations.
 // Fields describe values inside JSONEnvelope, never top-level metadata.
 type CommandOutput struct {
@@ -281,6 +291,7 @@ type CommandOutput struct {
 	CollectionCoverage CollectionCoverage `json:"collection_coverage"`
 	JSONEnvelope       string             `json:"json_envelope,omitempty"`
 	JSONSchemaVersion  int                `json:"json_schema_version,omitempty"`
+	TextPresentation   TextPresentation   `json:"-"`
 }
 
 // PaginationCompletion states the one machine-readable condition that marks
@@ -475,7 +486,7 @@ func defaultCatalog() Catalog {
 				},
 				Output: CommandOutput{
 					Formats:       []OutputFormat{OutputFormatText, OutputFormatTSV, OutputFormatJSON},
-					DefaultFormat: OutputFormatText,
+					DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 					Fields: []OutputField{
 						{Name: "check", Type: OutputFieldTypeString, Description: "Stable diagnostic name with unsafe structural runes rendered as visible escapes."},
 						{Name: "status", Type: OutputFieldTypeString, Description: "Diagnostic result: pass, warn, or fail."},
@@ -526,7 +537,7 @@ func defaultCatalog() Catalog {
 				},
 				Output: CommandOutput{
 					Formats:       []OutputFormat{OutputFormatText, OutputFormatJSON},
-					DefaultFormat: OutputFormatText,
+					DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 					Fields: []OutputField{
 						{Name: "path", Type: OutputFieldTypeString, Description: "Exact command path accepted as a scoped help selector."},
 						{Name: "namespace", Type: OutputFieldTypeString, Description: "Canonical top-level namespace accepted as a scoped help selector."},
@@ -562,7 +573,7 @@ func defaultCatalog() Catalog {
 				Inputs:       []CommandInput{},
 				Output: CommandOutput{
 					Formats:       []OutputFormat{OutputFormatText},
-					DefaultFormat: OutputFormatText,
+					DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 					Fields: []OutputField{
 						{Name: "version", Type: OutputFieldTypeString, Description: "Release version embedded in the executable."},
 						{Name: "commit", Type: OutputFieldTypeString, Description: "Optional source commit embedded in the executable."},
@@ -1003,6 +1014,10 @@ func validateAgentContract(command CommandSpec) error {
 	}
 	if err := contract.Output.CollectionCoverage.validate(); err != nil {
 		return err
+	}
+	_, supportsText := seenFormats[OutputFormatText]
+	if supportsText && contract.Output.TextPresentation != TextPresentationSemanticTokens {
+		return fmt.Errorf("text output requires semantic-token presentation")
 	}
 	if _, none := seenFormats[OutputFormatNone]; none && contract.Output.CollectionCoverage != CollectionCoverageNotApplicable {
 		return fmt.Errorf("none output format requires collection coverage %q", CollectionCoverageNotApplicable)

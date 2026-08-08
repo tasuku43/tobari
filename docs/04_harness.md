@@ -156,6 +156,12 @@ cannot import `log`, `log/slog`, or Cgo. Reviewed user-facing presentation
 belongs in CLI and must use its injected streams. Any allowed exception must be
 narrow, named, and tested.
 
+CLI source inspection also rejects ANSI SGR color or emphasis literals outside
+the single shared semantic-style file. It deliberately permits non-style
+terminal controls such as bounded selector cursor movement. A negative fixture
+adds a direct ANSI style literal to an ordinary CLI renderer and proves the
+lint reports the bypass.
+
 Tobari rejects every third-party import from `cmd` and `internal/cli` by
 default. Reviewed effectful dependencies belong in `internal/infra`. A
 presentation-only exception requires an accepted ADR or thesis consequence,
@@ -256,6 +262,11 @@ The test suite has complementary levels:
   argv parser, and the distinction among absent, defaulted, and explicitly
   supplied values. Negative fixtures cover type/range/enumeration,
   repeatability, dependency/conflict, duplicate scalar, and syntax drift. The
+  exact six semantic style tokens are tested with styling enabled and disabled;
+  `NO_COLOR` and non-TTY tests reject ANSI style sequences, while marker and
+  wording canaries prove status remains distinguishable without color. Catalog
+  validation rejects every text-producing command that omits the shared
+  semantic-token presentation declaration. The
   Workspace selector tests cover the dependency-free raw key state machine,
   bounded scrolling, terminal restoration, English status rendering, and
   ANSI-free numbered-input fallback. Interactive entry tests preserve the
@@ -394,6 +405,7 @@ Every strong statement should identify its enforcement path.
 | Layer dependency | Go-aware architecture lint and import-boundary tests |
 | Finite domain state | Types, constructors, and table-driven negative tests |
 | Catalog completeness | Whole-catalog contract tests |
+| Semantic terminal presentation | Exact six-token rendering tests, catalog-wide text-presentation declarations, `NO_COLOR`/non-TTY ANSI-free tests, color-independent state canaries, and AST lint that rejects direct ANSI SGR outside the shared style layer |
 | Output delivery versus collection coverage | Independent finite enums and catalog tests, including complete bounded/differential windows and paged exhaustive traversal |
 | Operationally closed supported outcome | Reviewed agent-readiness transcript with zero undeclared external reconstruction, plus task-owned deterministic-composition tests and declared field extraction |
 | Request-bound semantic result | Per-capability domain/application tests for declared task identity and every applicable request dimension, including scope, state, contextual-kind, empty-result, no-partial-result, and negative-inference fixtures where applicable |

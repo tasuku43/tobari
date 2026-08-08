@@ -14,6 +14,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
 	"github.com/tasuku43/tobari/internal/infra/systemdoctor"
+	"github.com/tasuku43/tobari/internal/infra/terminalstyle"
 )
 
 // CLI contains injected streams and application services.
@@ -28,17 +29,26 @@ type CLI struct {
 	doctor  *doctorcmd.Service
 	tobari  *tobaricmd.Service
 	context *contextcmd.Service
+	noColor bool
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
 func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
+	command.noColor = noColorFromEnvironment()
 	runtime, err := dockerruntime.New()
 	if err == nil {
-		command.tobari = tobaricmd.NewWithWorkspaceSelector(runtime, newWorkspaceSelector())
+		command.tobari = tobaricmd.NewWithWorkspaceSelector(
+			runtime,
+			newWorkspaceSelectorWithStyle(!command.noColor),
+		)
 		command.context = contextcmd.New(runtime)
 	}
 	return command
+}
+
+func noColorFromEnvironment() bool {
+	return terminalstyle.NoColorRequested()
 }
 
 func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doctorcmd.InspectorPort) *CLI {

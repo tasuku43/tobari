@@ -396,7 +396,7 @@ func TestProjectSessionClosedSummaryStaysOnHostLifecycleStream(t *testing.T) {
 	t.Parallel()
 	var hostStderr bytes.Buffer
 	childStdout := &bytes.Buffer{}
-	if _, err := writeOnce(&hostStderr, renderProjectSessionClosed()); err != nil {
+	if _, err := writeOnce(&hostStderr, renderProjectSessionClosed(false)); err != nil {
 		t.Fatalf("writeOnce() error = %v", err)
 	}
 	if childStdout.Len() != 0 {
@@ -417,7 +417,7 @@ func TestPendingPolicyNotificationStaysOnHostAndOmitsProjectIdentity(t *testing.
 			Method: "POST", Path: "/token", Reason: "request did not match an allow rule", StatusCode: 403,
 		}},
 	}
-	output := string(renderPendingPolicyNotification(result))
+	output := string(renderPendingPolicyNotification(result, false))
 	for _, expected := range []string{
 		"⚠ 1 pending network permission is waiting for review.",
 		"Latest: api.example.com:443 POST /token",
@@ -441,7 +441,7 @@ func TestPendingPolicyNotificationProjectsHostileEvidence(t *testing.T) {
 			Port: 443, Method: "POST\x1b", Path: "/token\u2028", StatusCode: 403,
 		}},
 	}
-	output := string(renderPendingPolicyNotification(result))
+	output := string(renderPendingPolicyNotification(result, false))
 	if strings.ContainsAny(output, "\x1b\u2028\u2029") || strings.Contains(output, "\nSYSTEM") {
 		t.Fatalf("notification contains raw structural evidence: %q", output)
 	}
@@ -580,13 +580,13 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndMutedID(t *testing.T) {
 	}
 	value := string(output)
 	for _, want := range []string{
-		applyColorToken(true, colorTokenSuccess, "✓"),
-		applyColorToken(true, colorTokenAccent, "Workspaces (2)"),
-		applyColorToken(true, colorTokenAccent, "  /tmp/parent"),
-		applyColorToken(true, colorTokenSelected, "▸ /tmp/project"),
-		applyColorToken(true, colorTokenSuccess, "ready"),
-		applyColorToken(true, colorTokenWarning, "missing"),
-		applyColorToken(true, colorTokenMuted, "01912345-6789-7abc-8def-0123456789ab"),
+		applyStyleToken(true, styleSuccess, "✓"),
+		applyStyleToken(true, styleAccent, "Workspaces (2)"),
+		"  /tmp/parent",
+		"▸ /tmp/project",
+		applyStyleToken(true, styleSuccess, "ready"),
+		applyStyleToken(true, styleWarning, "missing"),
+		applyStyleToken(true, styleMuted, "01912345-6789-7abc-8def-0123456789ab"),
 	} {
 		if !strings.Contains(value, want) {
 			t.Fatalf("workspace list output %q lacks %q", value, want)
@@ -595,10 +595,10 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndMutedID(t *testing.T) {
 	if strings.Contains(value, "Project 1") || strings.Contains(value, "current") {
 		t.Fatalf("workspace list output retained retired labels: %q", value)
 	}
-	if strings.Contains(value, applyColorToken(true, colorTokenAccent, "01912345-6789-7abc-8def-0123456789ab")) {
+	if strings.Contains(value, applyStyleToken(true, styleAccent, "01912345-6789-7abc-8def-0123456789ab")) {
 		t.Fatalf("workspace ID used accent instead of muted: %q", value)
 	}
-	if strings.Contains(value, applyColorToken(true, colorTokenSelected, "  /tmp/parent")) {
+	if strings.Contains(value, applyStyleToken(true, styleAccent, "  /tmp/parent")) {
 		t.Fatalf("non-selected workspace used selected color: %q", value)
 	}
 }
@@ -703,16 +703,16 @@ func TestClusterStatusTextUsesSemanticColorTokens(t *testing.T) {
 	}
 	output := string(renderClusterStatusTextWithColor(status, true))
 	for _, expected := range []string{
-		applyColorToken(true, colorTokenSuccess, "✓"),
-		applyColorToken(true, colorTokenSuccess, "healthy"),
-		ansiColorTokens[colorTokenMuted] + "Tobari",
-		ansiColorTokens[colorTokenMuted] + "Policy",
+		applyStyleToken(true, styleSuccess, "✓"),
+		applyStyleToken(true, styleSuccess, "healthy"),
+		ansiStyleTokens[styleMuted] + "Tobari",
+		ansiStyleTokens[styleMuted] + "Policy",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("colored status output %q lacks %q", output, expected)
 		}
 	}
-	if strings.Contains(output, applyColorToken(true, colorTokenError, "healthy")) {
+	if strings.Contains(output, applyStyleToken(true, styleDanger, "healthy")) {
 		t.Fatalf("healthy status used error color: %q", output)
 	}
 }
@@ -725,9 +725,9 @@ func TestClusterStatusTextColorsWarningAndFailureStates(t *testing.T) {
 	}
 	output := string(renderClusterStatusTextWithColor(status, true))
 	for _, expected := range []string{
-		applyColorToken(true, colorTokenWarning, "!"),
-		applyColorToken(true, colorTokenError, "unhealthy"),
-		applyColorToken(true, colorTokenMuted, "running"),
+		applyStyleToken(true, styleWarning, "!"),
+		applyStyleToken(true, styleDanger, "unhealthy"),
+		applyStyleToken(true, styleSuccess, "running"),
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("warning/failure output %q lacks %q", output, expected)

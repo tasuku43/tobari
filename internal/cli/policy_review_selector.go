@@ -31,11 +31,16 @@ const (
 )
 
 type policyReviewSelector struct {
-	mode terminal.Mode
+	mode  terminal.Mode
+	style bool
 }
 
 func newPolicyReviewSelector() *policyReviewSelector {
-	return &policyReviewSelector{mode: terminal.New()}
+	return newPolicyReviewSelectorWithStyle(true)
+}
+
+func newPolicyReviewSelectorWithStyle(enabled bool) *policyReviewSelector {
+	return &policyReviewSelector{mode: terminal.New(), style: enabled}
 }
 
 func (s *policyReviewSelector) Select(
@@ -51,7 +56,7 @@ func (s *policyReviewSelector) Select(
 	if s != nil && s.mode != nil {
 		restore, rawErr := s.mode.Enter(in)
 		if rawErr == nil {
-			decision, selectErr := selectPolicyReviewRaw(ctx, report, in, out)
+			decision, selectErr := selectPolicyReviewRaw(ctx, report, in, out, s.style)
 			restoreErr := restore()
 			if selectErr != nil {
 				return policyReviewDecision{}, selectErr
@@ -76,6 +81,7 @@ type policyReviewDetailResult struct {
 
 func selectPolicyReviewRaw(
 	ctx context.Context, report tobari.PolicyCandidateReport, in io.Reader, out io.Writer,
+	style bool,
 ) (policyReviewDecision, error) {
 	selected := 0
 	message := ""
@@ -88,7 +94,7 @@ func selectPolicyReviewRaw(
 		}
 		if needsRender {
 			top := selectorWindowTop(selected, len(report.Items), selectorMaxVisibleOptions)
-			currentLines := renderPolicyReviewListRaw(out, report, selected, top, message, lineCount)
+			currentLines := renderPolicyReviewListRaw(out, report, selected, top, message, lineCount, style)
 			if currentLines < 0 {
 				finishPolicyReviewSelector(out, lineCount)
 				return policyReviewDecision{}, fmt.Errorf("render policy review selector")
@@ -129,7 +135,7 @@ func selectPolicyReviewRaw(
 			selected = key.index
 			fallthrough
 		case selectorKeyEnter:
-			detail := selectPolicyReviewDetailRaw(ctx, report, selected, in, out, lineCount)
+			detail := selectPolicyReviewDetailRaw(ctx, report, selected, in, out, lineCount, style)
 			if detail.err != nil {
 				return policyReviewDecision{}, detail.err
 			}
@@ -164,7 +170,7 @@ type policyReviewDetailRawResult struct {
 
 func selectPolicyReviewDetailRaw(
 	ctx context.Context, report tobari.PolicyCandidateReport, selected int,
-	in io.Reader, out io.Writer, previousLines int,
+	in io.Reader, out io.Writer, previousLines int, style bool,
 ) policyReviewDetailRawResult {
 	if selected < 0 || selected >= len(report.Items) {
 		return policyReviewDetailRawResult{err: fmt.Errorf("selected policy permission is outside the snapshot")}
@@ -179,7 +185,7 @@ func selectPolicyReviewDetailRaw(
 			return policyReviewDetailRawResult{err: err}
 		}
 		if needsRender {
-			currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount)
+			currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount, style)
 			if currentLines < 0 {
 				finishPolicyReviewSelector(out, lineCount)
 				return policyReviewDetailRawResult{err: fmt.Errorf("render policy permission detail")}
@@ -196,7 +202,7 @@ func selectPolicyReviewDetailRaw(
 		case selectorKeyNone:
 			continue
 		case selectorKeyAllow:
-			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, policyReviewActionAllow, in, out, lineCount)
+			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, policyReviewActionAllow, in, out, lineCount, style)
 			if confirmErr != nil {
 				return policyReviewDetailRawResult{err: confirmErr}
 			}
@@ -209,7 +215,7 @@ func selectPolicyReviewDetailRaw(
 			message = ""
 			needsRender = true
 		case selectorKeyDeny:
-			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, policyReviewActionDeny, in, out, lineCount)
+			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, policyReviewActionDeny, in, out, lineCount, style)
 			if confirmErr != nil {
 				return policyReviewDetailRawResult{err: confirmErr}
 			}
@@ -235,7 +241,7 @@ func selectPolicyReviewDetailRaw(
 func confirmPolicyReviewRaw(
 	ctx context.Context, report tobari.PolicyCandidateReport, selected int,
 	action policyReviewAction,
-	in io.Reader, out io.Writer, previousLines int,
+	in io.Reader, out io.Writer, previousLines int, style bool,
 ) (bool, int, error) {
 	actionName := "Allow"
 	if action == policyReviewActionDeny {
@@ -243,7 +249,7 @@ func confirmPolicyReviewRaw(
 	}
 	message := actionName + " this exact permission? Type y to continue; default is no."
 	lineCount := previousLines
-	currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount)
+	currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount, style)
 	if currentLines < 0 {
 		finishPolicyReviewSelector(out, lineCount)
 		return false, lineCount, fmt.Errorf("render policy permission confirmation")
@@ -268,7 +274,7 @@ func confirmPolicyReviewRaw(
 			return false, lineCount, nil
 		default:
 			message = "Type y to confirm, or n to keep this permission blocked."
-			currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount)
+			currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount, style)
 			if currentLines < 0 {
 				finishPolicyReviewSelector(out, lineCount)
 				return false, lineCount, fmt.Errorf("render policy permission confirmation")
@@ -280,11 +286,12 @@ func confirmPolicyReviewRaw(
 
 func renderPolicyReviewListRaw(
 	out io.Writer, report tobari.PolicyCandidateReport, selected, top int, message string, previousLines int,
+	style bool,
 ) int {
 	lines := []string{
-		selectorTitle("Tobari · Permission Inbox"),
+		selectorTitle(style, "Tobari · Permission Inbox"),
 		"",
-		applyColorToken(true, colorTokenWarning, fmt.Sprintf("%d pending permission%s", len(report.Items), pluralSuffix(len(report.Items)))),
+		applyStyleToken(style, styleWarning, fmt.Sprintf("%d pending permission%s", len(report.Items), pluralSuffix(len(report.Items)))),
 		"",
 	}
 	end := top + selectorMaxVisibleOptions
@@ -295,53 +302,54 @@ func renderPolicyReviewListRaw(
 		candidate := report.Items[index]
 		prefix := "  "
 		if index == selected {
-			prefix = applyColorToken(true, colorTokenAccent, "❯ ")
+			prefix = applyStyleToken(style, styleText, "❯ ")
 		}
 		line := prefix + policyReviewCandidateRequest(candidate)
 		if index != selected {
-			line = applyColorToken(true, colorTokenMuted, line)
+			line = applyStyleToken(style, styleMuted, line)
 		}
 		lines = append(lines, line)
 	}
 	if top > 0 || end < len(report.Items) {
-		lines = append(lines, applyColorToken(true, colorTokenMuted, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items))))
+		lines = append(lines, applyStyleToken(style, styleMuted, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items))))
 	}
-	lines = append(lines, "", selectorHelp("↑/↓ move   Enter inspect   q cancel"))
+	lines = append(lines, "", selectorHelp(style, "↑/↓ move   Enter inspect   q cancel"))
 	if message == "" {
 		lines = append(lines, "")
 	} else {
-		lines = append(lines, applyColorToken(true, colorTokenWarning, "! "+message))
+		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
 	}
 	return renderPolicyReviewScreen(out, lines, previousLines)
 }
 
 func renderPolicyReviewDetailRaw(
 	out io.Writer, report tobari.PolicyCandidateReport, selected int, message string, previousLines int,
+	style bool,
 ) int {
 	candidate := report.Items[selected]
 	lines := []string{
-		selectorTitle("Tobari · Permission Inbox"),
+		selectorTitle(style, "Tobari · Permission Inbox"),
 		"",
-		applyColorToken(true, colorTokenAccent, fmt.Sprintf("Permission %d of %d", selected+1, len(report.Items))),
+		applyStyleToken(style, styleAccent, fmt.Sprintf("Permission %d of %d", selected+1, len(report.Items))),
 		"",
-		selectorDetail("Scope", "Current Tobari only", colorTokenMuted),
-		selectorDetail("Request", policyReviewCandidateRequest(candidate), colorTokenAccent),
-		selectorDetail("Reason", safeExternalText(candidate.Reason), colorTokenWarning),
-		selectorDetail("Status", fmt.Sprintf("%d", candidate.StatusCode), colorTokenWarning),
-		selectorDetail("Observed", safeExternalText(candidate.ObservedAt), colorTokenMuted),
+		selectorDetail(style, "Scope", "Current Tobari only", styleMuted),
+		selectorDetail(style, "Request", policyReviewCandidateRequest(candidate), styleText),
+		selectorDetail(style, "Reason", safeExternalText(candidate.Reason), styleWarning),
+		selectorDetail(style, "Status", fmt.Sprintf("%d", candidate.StatusCode), styleWarning),
+		selectorDetail(style, "Observed", safeExternalText(candidate.ObservedAt), styleMuted),
 		"",
-		selectorHelp("This allows exactly this host, port, method, and path."),
+		selectorHelp(style, "This allows exactly this host, port, method, and path."),
 		"",
 		selectorActions(
-			colorAction("[a] Allow", colorTokenSuccess),
-			colorAction("[d] Deny", colorTokenWarning),
-			colorAction("[q] Back", colorTokenMuted),
+			styleAction(style, "[a] Allow", styleAccent),
+			styleAction(style, "[d] Deny", styleAccent),
+			styleAction(style, "[q] Back", styleMuted),
 		),
 	}
 	if message == "" {
 		lines = append(lines, "")
 	} else {
-		lines = append(lines, applyColorToken(true, colorTokenWarning, "! "+message))
+		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
 	}
 	return renderPolicyReviewScreen(out, lines, previousLines)
 }
@@ -523,21 +531,21 @@ func pluralSuffix(count int) string {
 
 const selectorDetailLabelWidth = 9
 
-func selectorTitle(value string) string {
-	return applyColorToken(true, colorTokenAccent, value)
+func selectorTitle(enabled bool, value string) string {
+	return applyStyleToken(enabled, styleAccent, value)
 }
 
-func selectorHelp(value string) string {
-	return applyColorToken(true, colorTokenMuted, value)
+func selectorHelp(enabled bool, value string) string {
+	return applyStyleToken(enabled, styleMuted, value)
 }
 
-func selectorDetail(label, value string, token colorToken) string {
-	return applyColorToken(true, colorTokenMuted, fmt.Sprintf("%-*s", selectorDetailLabelWidth, label)) +
-		" " + applyColorToken(true, token, value)
+func selectorDetail(enabled bool, label, value string, token styleToken) string {
+	return applyStyleToken(enabled, styleMuted, fmt.Sprintf("%-*s", selectorDetailLabelWidth, label)) +
+		" " + applyStyleToken(enabled, token, value)
 }
 
-func colorAction(value string, token colorToken) string {
-	return applyColorToken(true, token, value)
+func styleAction(enabled bool, value string, token styleToken) string {
+	return applyStyleToken(enabled, token, value)
 }
 
 func selectorActions(actions ...string) string {

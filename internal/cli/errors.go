@@ -129,7 +129,7 @@ func (c *CLI) fail(ctx context.Context, err error) int {
 		output, _ = json.Marshal(errorDocument{SchemaVersion: 1, Error: payload})
 		output = append(output, '\n')
 	} else {
-		output = renderTextErrorWithColor(payload, humanColorAllowed(ctx, c, c.Err))
+		output = renderTextErrorWithColor(payload, humanStyleAllowed(ctx, c, c.Err))
 	}
 	_, _ = writeOnce(c.Err, output)
 	return exitCodeForKind(structured.Kind)
@@ -209,19 +209,23 @@ func renderTextError(payload errorPayload) []byte {
 func renderTextErrorWithColor(payload errorPayload, color bool) []byte {
 	if color {
 		output := newHumanOutput(true)
-		output.heading("✗", "Command failed", colorTokenError)
-		output.row("Message", escapeTSVCell(payload.Message), colorTokenError)
-		output.row("Kind", string(payload.Kind), colorTokenMuted)
-		output.row("Code", payload.Code, colorTokenAccent)
-		output.row("Retryable", humanBool(payload.Retryable), humanBoolToken(payload.Retryable))
+		output.heading("✗", "Command failed", styleDanger)
+		output.row("Message", escapeTSVCell(payload.Message), styleDanger)
+		output.row("Kind", string(payload.Kind), styleMuted)
+		output.row("Code", payload.Code, styleText)
+		retryToken := styleMuted
+		if payload.Retryable {
+			retryToken = styleWarning
+		}
+		output.row("Retryable", humanBool(payload.Retryable), retryToken)
 		if payload.RetryAfter == nil {
 			if payload.Kind == fault.KindRateLimited {
-				output.row("Retry after", "unknown", colorTokenWarning)
+				output.row("Retry after", "unknown", styleWarning)
 			} else {
-				output.row("Retry after", "none", colorTokenMuted)
+				output.row("Retry after", "none", styleMuted)
 			}
 		} else {
-			output.row("Retry after", *payload.RetryAfter, colorTokenWarning)
+			output.row("Retry after", *payload.RetryAfter, styleWarning)
 		}
 		for _, action := range payload.NextActions {
 			output.next(action.Command, action.Reason)
@@ -230,9 +234,9 @@ func renderTextErrorWithColor(payload errorPayload, color bool) []byte {
 	}
 
 	var output strings.Builder
-	fmt.Fprintf(&output, "error: %s\n", escapeTSVCell(payload.Message))
-	fmt.Fprintf(&output, "kind: %s\n", payload.Kind)
-	fmt.Fprintf(&output, "code: %s\n", payload.Code)
+	fmt.Fprintf(&output, "error: %s\n", applyStyleToken(color, styleDanger, escapeTSVCell(payload.Message)))
+	fmt.Fprintf(&output, "kind: %s\n", applyStyleToken(color, styleText, string(payload.Kind)))
+	fmt.Fprintf(&output, "code: %s\n", applyStyleToken(color, styleText, payload.Code))
 	fmt.Fprintf(&output, "retryable: %t\n", payload.Retryable)
 	if payload.RetryAfter == nil {
 		if payload.Kind == fault.KindRateLimited {
@@ -244,7 +248,11 @@ func renderTextErrorWithColor(payload errorPayload, color bool) []byte {
 		fmt.Fprintf(&output, "retry_after: %s\n", *payload.RetryAfter)
 	}
 	for _, action := range payload.NextActions {
-		fmt.Fprintf(&output, "next_action: %s — %s\n", recoveryCommand(action.Command), escapeTSVCell(action.Reason))
+		fmt.Fprintf(
+			&output, "next_action: %s — %s\n",
+			applyStyleToken(color, styleAccent, recoveryCommand(action.Command)),
+			applyStyleToken(color, styleText, escapeTSVCell(action.Reason)),
+		)
 	}
 	return []byte(output.String())
 }

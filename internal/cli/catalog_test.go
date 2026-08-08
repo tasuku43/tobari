@@ -30,6 +30,7 @@ func utilitySpec(path string) CommandSpec {
 			Output: CommandOutput{
 				Formats:            []OutputFormat{OutputFormatText},
 				DefaultFormat:      OutputFormatText,
+				TextPresentation:   TextPresentationSemanticTokens,
 				Fields:             []OutputField{{Name: "result", Type: OutputFieldTypeString, Description: "Stable test result."}},
 				Delivery:           OutputDeliveryComplete,
 				CollectionCoverage: CollectionCoverageNotApplicable,
@@ -172,6 +173,29 @@ func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 			command.Agent.Output.CollectionCoverage != coverage {
 			t.Errorf("%s output = %+v, want delivery complete and coverage %q", path, command.Agent.Output, coverage)
 		}
+	}
+}
+
+func TestDefaultCatalogRequiresSemanticTokensForEveryTextCommand(t *testing.T) {
+	for _, command := range DefaultCatalog().Commands() {
+		supportsText := false
+		for _, format := range command.Agent.Output.Formats {
+			if format == OutputFormatText {
+				supportsText = true
+				break
+			}
+		}
+		if supportsText && command.Agent.Output.TextPresentation != TextPresentationSemanticTokens {
+			t.Errorf("%s text presentation = %d, want semantic tokens", command.Path, command.Agent.Output.TextPresentation)
+		}
+	}
+}
+
+func TestCatalogRejectsMissingSemanticTokenPresentation(t *testing.T) {
+	missing := utilitySpec("missing-semantic-presentation")
+	missing.Agent.Output.TextPresentation = TextPresentationUnknown
+	if err := NewCatalog(missing).Validate(); err == nil || !strings.Contains(err.Error(), "text output requires semantic-token presentation") {
+		t.Fatalf("missing semantic presentation Validate() error = %v", err)
 	}
 }
 

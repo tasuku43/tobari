@@ -222,9 +222,11 @@ func TestScopedAgentHelpIsACompleteProjectionOfEveryCatalogCommand(t *testing.T)
 				t.Fatalf("selected commands = %+v", document.Commands)
 			}
 			got := document.Commands[0]
+			wantContract := spec.Agent
+			wantContract.Output.TextPresentation = TextPresentationUnknown
 			if got.Path != spec.Path || got.Summary != spec.Summary || got.Usage != spec.Usage() || got.Args != spec.Args ||
 				got.Effect != spec.Effect.String() || got.Role != spec.Role.String() ||
-				!reflect.DeepEqual(got.Contract, spec.Agent) ||
+				!reflect.DeepEqual(got.Contract, wantContract) ||
 				!reflect.DeepEqual(got.ProducesRefs, spec.ProducedRefs()) ||
 				!reflect.DeepEqual(got.ConsumesRefs, spec.ConsumedRefs()) {
 				t.Errorf("agent command = %+v, want catalog %+v", got, spec)

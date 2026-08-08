@@ -23,11 +23,16 @@ var errSelectorTimeout = errors.New("selector input timeout")
 var errSelectorEOF = errors.New("selector input reached EOF")
 
 type workspaceSelector struct {
-	mode terminal.Mode
+	mode  terminal.Mode
+	style bool
 }
 
 func newWorkspaceSelector() *workspaceSelector {
-	return &workspaceSelector{mode: terminal.New()}
+	return newWorkspaceSelectorWithStyle(true)
+}
+
+func newWorkspaceSelectorWithStyle(enabled bool) *workspaceSelector {
+	return &workspaceSelector{mode: terminal.New(), style: enabled}
 }
 
 func (s *workspaceSelector) Select(
@@ -48,7 +53,7 @@ func (s *workspaceSelector) Select(
 	if s != nil && s.mode != nil {
 		restore, rawErr := s.mode.Enter(in)
 		if rawErr == nil {
-			choice, selectErr := selectWorkspaceRaw(ctx, selection, in, out)
+			choice, selectErr := selectWorkspaceRaw(ctx, selection, in, out, s.style)
 			restoreErr := restore()
 			if selectErr != nil {
 				return tobari.ProjectSelectionChoice{}, selectErr
@@ -99,6 +104,7 @@ type selectorKey struct {
 
 func selectWorkspaceRaw(
 	ctx context.Context, selection tobari.ProjectSelection, in io.Reader, out io.Writer,
+	style bool,
 ) (tobari.ProjectSelectionChoice, error) {
 	options := workspaceSelectorOptions(selection)
 	selected := firstSelectableOption(options)
@@ -110,7 +116,7 @@ func selectWorkspaceRaw(
 			return tobari.ProjectSelectionChoice{}, err
 		}
 		top := selectorWindowTop(selected, len(options), selectorMaxVisibleOptions)
-		currentLines := renderWorkspaceSelector(out, selection, options, selected, top, message, lineCount)
+		currentLines := renderWorkspaceSelector(out, selection, options, selected, top, message, lineCount, style)
 		if currentLines < 0 {
 			finishWorkspaceSelector(out, lineCount)
 			return tobari.ProjectSelectionChoice{}, fmt.Errorf("render Workspace selector")
@@ -309,7 +315,7 @@ func selectorWindowTop(selected, optionCount, window int) int {
 
 func renderWorkspaceSelector(
 	out io.Writer, selection tobari.ProjectSelection, options []workspaceSelectorOption,
-	selected, top int, message string, previousLines int,
+	selected, top int, message string, previousLines int, style bool,
 ) int {
 	lines := []string{
 		"Select a Workspace for " + safeExternalText(selection.CWD),
@@ -322,7 +328,7 @@ func renderWorkspaceSelector(
 		end = len(options)
 	}
 	for index := top; index < end; index++ {
-		lines = append(lines, ansiWorkspaceOption(options[index], index == selected))
+		lines = append(lines, ansiWorkspaceOption(options[index], index == selected, style))
 	}
 	if top > 0 || end < len(options) {
 		lines = append(lines, fmt.Sprintf("  Showing %d-%d of %d options", top+1, end, len(options)))
@@ -330,7 +336,7 @@ func renderWorkspaceSelector(
 	if message == "" {
 		lines = append(lines, "")
 	} else {
-		lines = append(lines, applyColorToken(true, colorTokenWarning, "! "+message))
+		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
 	}
 	for index, line := range lines {
 		if index == 0 && previousLines > 0 {
@@ -349,17 +355,17 @@ func renderWorkspaceSelector(
 	return len(lines)
 }
 
-func ansiWorkspaceOption(option workspaceSelectorOption, selected bool) string {
+func ansiWorkspaceOption(option workspaceSelectorOption, selected, style bool) string {
 	marker := "●"
 	if option.create {
 		marker = "＋"
 	}
 	prefix := "  "
 	if selected {
-		prefix = applyColorToken(true, colorTokenAccent, "❯ ")
+		prefix = applyStyleToken(style, styleText, "❯ ")
 	}
 	if option.create {
-		return prefix + applyColorToken(true, colorTokenAccent, marker+" Create a new Workspace here")
+		return prefix + applyStyleToken(style, styleText, marker+" Create a new Workspace here")
 	}
 	path := truncateSelectorPath(option.candidate.Root, selectorPathWidth)
 	status := string(option.candidate.Runtime)
@@ -370,11 +376,11 @@ func ansiWorkspaceOption(option workspaceSelectorOption, selected bool) string {
 	if option.candidate.Runtime == tobari.RuntimeDiagnosticIncomplete {
 		detail += " · unavailable"
 	}
-	pathText := applyColorToken(true, colorTokenMuted, path)
-	statusText := applyColorToken(true, humanStatusToken(status), detail)
-	line := prefix + applyColorToken(true, colorTokenMuted, marker) + " " + pathText + "  " + statusText
+	pathText := applyStyleToken(style, styleText, path)
+	statusText := applyStyleToken(style, humanStatusToken(status), detail)
+	line := prefix + applyStyleToken(style, styleMuted, marker) + " " + pathText + "  " + statusText
 	if !option.selectable {
-		line = applyColorToken(true, colorTokenMuted, line)
+		line = applyStyleToken(style, styleMuted, line)
 	}
 	return line
 }

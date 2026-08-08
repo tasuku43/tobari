@@ -42,7 +42,7 @@ func testWorkspaceSelection() tobari.ProjectSelection {
 func TestWorkspaceSelectorUsesArrowKeysAndRestoresRawMode(t *testing.T) {
 	t.Parallel()
 	mode := &selectorModeFake{}
-	selector := &workspaceSelector{mode: mode}
+	selector := &workspaceSelector{mode: mode, style: true}
 	var output bytes.Buffer
 	choice, err := selector.Select(
 		context.Background(), testWorkspaceSelection(),
@@ -70,7 +70,7 @@ func TestWorkspaceSelectorUsesArrowKeysAndRestoresRawMode(t *testing.T) {
 
 func TestWorkspaceSelectorFallsBackToEnglishLineInput(t *testing.T) {
 	t.Parallel()
-	selector := &workspaceSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}}
+	selector := &workspaceSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}, style: true}
 	var output bytes.Buffer
 	choice, err := selector.Select(
 		context.Background(), testWorkspaceSelection(), strings.NewReader("n\n"), &output,
@@ -95,7 +95,7 @@ func TestWorkspaceSelectorFallsBackToEnglishLineInput(t *testing.T) {
 func TestWorkspaceSelectorCancelReturnsWithoutSummary(t *testing.T) {
 	t.Parallel()
 	mode := &selectorModeFake{}
-	selector := &workspaceSelector{mode: mode}
+	selector := &workspaceSelector{mode: mode, style: true}
 	var output bytes.Buffer
 	_, err := selector.Select(context.Background(), testWorkspaceSelection(), strings.NewReader("q"), &output)
 	if !errors.Is(err, context.Canceled) {
@@ -113,7 +113,7 @@ func TestWorkspaceSelectorDoesNotSelectIncompleteCandidate(t *testing.T) {
 	t.Parallel()
 	selection := testWorkspaceSelection()
 	selection.Candidates[0].Runtime = tobari.RuntimeDiagnosticIncomplete
-	selector := &workspaceSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}}
+	selector := &workspaceSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}, style: true}
 	var output bytes.Buffer
 	choice, err := selector.Select(context.Background(), selection, strings.NewReader("1\n2\n"), &output)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestWorkspaceSelectorScrollsLongCandidateLists(t *testing.T) {
 			Runtime: tobari.RuntimeDiagnosticReady,
 		})
 	}
-	selector := &workspaceSelector{mode: &selectorModeFake{}}
+	selector := &workspaceSelector{mode: &selectorModeFake{}, style: true}
 	var output bytes.Buffer
 	_, err := selector.Select(context.Background(), selection, strings.NewReader("\x1b[F\r"), &output)
 	if err != nil {
@@ -163,7 +163,7 @@ func TestWorkspaceSelectorProjectsControlCharactersInPaths(t *testing.T) {
 	t.Parallel()
 	selection := testWorkspaceSelection()
 	selection.CWD = "/work/root/app\nnext"
-	selector := &workspaceSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}}
+	selector := &workspaceSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}, style: true}
 	var output bytes.Buffer
 	_, err := selector.Select(context.Background(), selection, strings.NewReader("q\n"), &output)
 	if !errors.Is(err, context.Canceled) {

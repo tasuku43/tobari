@@ -28,7 +28,7 @@ func runContextList(
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context list", "Correct the command arguments.")
 	}
-	output, err := renderContextList(result, format, format == successFormatText && humanColorAllowed(ctx, c, c.Out))
+	output, err := renderContextList(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -52,7 +52,7 @@ func runContextShow(
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context show", "Correct the command arguments.")
 	}
-	output, err := renderContextReport(result, format, format == successFormatText && humanColorAllowed(ctx, c, c.Out))
+	output, err := renderContextReport(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -79,7 +79,7 @@ func runContextCreate(
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context create", "Correct the command arguments.")
 	}
-	output, err := renderContextReport(result, format, humanColorAllowed(ctx, c, c.Out))
+	output, err := renderContextReport(result, format, humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -104,7 +104,7 @@ func runContextUse(
 	var progress *clusterUpProgress
 	var progressSink tobari.ClusterUpProgressSink
 	if format == successFormatText && c.tobari != nil && c.tobari.IsTerminal(c.Err) && clusterUpProgressAllowed(ctx) {
-		progress = newClusterUpProgress(c.Err, true)
+		progress = newClusterUpProgress(c.Err, humanStyleAllowed(ctx, c, c.Err))
 		progress.Start()
 		progressSink = progress.Report
 		defer progress.Close()
@@ -116,7 +116,7 @@ func runContextUse(
 		}
 		return c.fail(ctx, err)
 	}
-	output, err := renderContextReport(result, format, format == successFormatText && humanColorAllowed(ctx, c, c.Out))
+	output, err := renderContextReport(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -142,7 +142,7 @@ func runRuntimeInit(
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help runtime init", "Correct the command arguments.")
 	}
-	output, err := renderContextReport(result, format, humanColorAllowed(ctx, c, c.Out))
+	output, err := renderContextReport(result, format, humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -168,7 +168,7 @@ func runRuntimeBuild(
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help runtime build", "Correct the command arguments.")
 	}
-	output, err := renderContextReport(result, format, humanColorAllowed(ctx, c, c.Out))
+	output, err := renderContextReport(result, format, humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -203,16 +203,26 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		return append(output, '\n'), nil
 	}
 	var output strings.Builder
-	output.WriteString("Active Context: ")
-	output.WriteString(safeExternalText(result.Active))
-	output.WriteString("\n\nContexts:\n")
+	writeStyledLine(&output, color, "Active Context:", safeExternalText(result.Active), styleText)
+	output.WriteString("\n")
+	output.WriteString(applyStyleToken(color, styleAccent, "Contexts:"))
+	output.WriteString("\n")
 	for _, item := range result.Items {
 		marker := " "
+		markerToken := styleMuted
 		if item.Active {
 			marker = "*"
+			markerToken = styleSuccess
 		}
-		fmt.Fprintf(&output, "%s %s\tmode=%s\timage=%s\truntime=%s\tagent=%s\n", marker,
-			safeExternalText(item.Name), item.PolicyMode, safeExternalText(item.Image), item.RuntimeStatus, safeExternalText(item.AgentProfile))
+		fmt.Fprintf(
+			&output, "%s %s\t%s=%s\t%s=%s\t%s=%s\t%s=%s\n",
+			applyStyleToken(color, markerToken, marker),
+			applyStyleToken(color, styleText, safeExternalText(item.Name)),
+			applyStyleToken(color, styleMuted, "mode"), applyStyleToken(color, styleText, string(item.PolicyMode)),
+			applyStyleToken(color, styleMuted, "image"), applyStyleToken(color, styleText, safeExternalText(item.Image)),
+			applyStyleToken(color, styleMuted, "runtime"), applyStyleToken(color, humanStatusToken(string(item.RuntimeStatus)), string(item.RuntimeStatus)),
+			applyStyleToken(color, styleMuted, "agent"), applyStyleToken(color, styleText, safeExternalText(item.AgentProfile)),
+		)
 	}
 	return []byte(output.String()), nil
 }
@@ -233,52 +243,68 @@ func renderContextReport(result tobari.ContextReport, format successFormat, colo
 
 func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	var output strings.Builder
-	fmt.Fprintf(&output, "Context: %s\n", safeExternalText(result.Name))
-	fmt.Fprintf(&output, "Active: %t\n", result.Active)
-	fmt.Fprintf(&output, "Image: %s\n", safeExternalText(result.Image))
-	fmt.Fprintf(&output, "Agent profile: %s\n", safeExternalText(result.AgentProfile))
-	fmt.Fprintf(&output, "Policy mode: %s\n", result.PolicyMode)
+	writeStyledLine(&output, color, "Context:", safeExternalText(result.Name), styleText)
+	writeStyledLine(&output, color, "Active:", fmt.Sprintf("%t", result.Active), humanBoolToken(result.Active))
+	writeStyledLine(&output, color, "Image:", safeExternalText(result.Image), styleText)
+	writeStyledLine(&output, color, "Agent profile:", safeExternalText(result.AgentProfile), styleText)
+	writeStyledLine(&output, color, "Policy mode:", string(result.PolicyMode), styleText)
 	if result.Task == tobari.TaskContextUse {
-		fmt.Fprintf(&output, "Cluster: %s\n", result.Cluster)
+		writeStyledLine(&output, color, "Cluster:", string(result.Cluster), humanStatusToken(string(result.Cluster)))
 	}
 	if result.Runtime.Kind != "" {
-		fmt.Fprintf(&output, "Runtime: %s (%s)\n", result.Runtime.Kind, result.Runtime.Status)
+		writeStyledLine(
+			&output, color, "Runtime:",
+			string(result.Runtime.Kind)+" ("+string(result.Runtime.Status)+")",
+			humanStatusToken(string(result.Runtime.Status)),
+		)
 		if result.Runtime.Dockerfile != "" {
-			fmt.Fprintf(&output, "Runtime Dockerfile: %s\n", safeExternalText(result.Runtime.Dockerfile))
+			writeStyledLine(&output, color, "Runtime Dockerfile:", safeExternalText(result.Runtime.Dockerfile), styleText)
 		}
 		if result.Runtime.BaseReference != "" {
-			fmt.Fprintf(&output, "Runtime base: %s\n", safeExternalText(result.Runtime.BaseReference))
+			writeStyledLine(&output, color, "Runtime base:", safeExternalText(result.Runtime.BaseReference), styleText)
 		}
 		if result.Runtime.SourceDigest != "" {
-			fmt.Fprintf(&output, "Runtime source digest: %s\n", safeExternalText(result.Runtime.SourceDigest))
+			writeStyledLine(&output, color, "Runtime source digest:", safeExternalText(result.Runtime.SourceDigest), styleText)
 		}
 		if result.Runtime.ImageDigest != "" {
-			fmt.Fprintf(&output, "Runtime image digest: %s\n", safeExternalText(result.Runtime.ImageDigest))
+			writeStyledLine(&output, color, "Runtime image digest:", safeExternalText(result.Runtime.ImageDigest), styleText)
 		}
 	}
 	if result.Runtime.Status == tobari.ContextRuntimeStatusOfficial {
-		fmt.Fprintln(&output, runtimeCustomizationHint())
+		writeStyledLine(
+			&output, color, "Tip:",
+			strings.TrimPrefix(runtimeCustomizationHint(), "Tip: "),
+			styleText,
+		)
 	}
 	switch result.Task {
 	case tobari.TaskRuntimeInit:
 		if result.Runtime.Dockerfile != "" {
-			fmt.Fprintf(&output, "Next: edit %s, then run `tobari runtime build`.\n", safeExternalText(result.Runtime.Dockerfile))
+			fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Next: edit "+safeExternalText(result.Runtime.Dockerfile)+", then run `tobari runtime build`."))
 		}
 	case tobari.TaskRuntimeBuild:
-		fmt.Fprintln(&output, "Note: existing Workspaces keep their home. On the next `tobari`, Tobari recreates only the work container when this runtime image changes the spec.")
-		fmt.Fprintln(&output, "Next: run `tobari` from a project directory.")
+		writeStyledLine(&output, color, "Note:", "existing Workspaces keep their home. On the next `tobari`, Tobari recreates only the work container when this runtime image changes the spec.", styleText)
+		fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Next: run `tobari` from a project directory."))
 	case tobari.TaskContextUse:
 		switch result.Cluster {
 		case tobari.ContextClusterStatusReconciled, tobari.ContextClusterStatusAlreadyReady:
-			fmt.Fprintln(&output, "Next: run `tobari` from a project directory.")
+			fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Next: run `tobari` from a project directory."))
 		case tobari.ContextClusterStatusNotConfigured, tobari.ContextClusterStatusNotRunning:
-			fmt.Fprintln(&output, "Next: run `tobari cluster up`, then `tobari` from a project directory.")
+			fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Next: run `tobari cluster up`, then `tobari` from a project directory."))
 		}
 	}
-	fmt.Fprintf(&output, "Policy: %s\n", safeExternalText(result.Stores.PolicyDirectory))
-	fmt.Fprintf(&output, "Credential metadata: %s\n", safeExternalText(result.Stores.CredentialConfig))
-	fmt.Fprintf(&output, "Credential directory: %s\n", safeExternalText(result.Stores.CredentialDirectory))
+	writeStyledLine(&output, color, "Policy:", safeExternalText(result.Stores.PolicyDirectory), styleText)
+	writeStyledLine(&output, color, "Credential metadata:", safeExternalText(result.Stores.CredentialConfig), styleText)
+	writeStyledLine(&output, color, "Credential directory:", safeExternalText(result.Stores.CredentialDirectory), styleText)
 	return []byte(output.String())
+}
+
+func writeStyledLine(output *strings.Builder, enabled bool, label, value string, token styleToken) {
+	fmt.Fprintf(
+		output, "%s %s\n",
+		applyStyleToken(enabled, styleMuted, label),
+		applyStyleToken(enabled, token, value),
+	)
 }
 
 func runtimeCustomizationHint() string {

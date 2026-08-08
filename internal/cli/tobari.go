@@ -25,7 +25,7 @@ func runClusterUp(ctx context.Context, c *CLI, command CommandSpec, _ operation.
 	var progress *clusterUpProgress
 	var progressSink tobari.ClusterUpProgressSink
 	if c.tobari.IsTerminal(c.Err) && clusterUpProgressAllowed(ctx) {
-		progress = newClusterUpProgress(c.Err, true)
+		progress = newClusterUpProgress(c.Err, humanStyleAllowed(ctx, c, c.Err))
 		progress.Start()
 		progressSink = progress.Report
 		defer progress.Close()
@@ -37,7 +37,7 @@ func runClusterUp(ctx context.Context, c *CLI, command CommandSpec, _ operation.
 		}
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderClusterUpText(status, clusterColorAllowed(ctx, c)))
+	return c.emitMutationResult(ctx, command, renderClusterUpText(status, clusterStyleAllowed(ctx, c)))
 }
 
 func runClusterStatus(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
@@ -52,7 +52,7 @@ func runClusterStatus(ctx context.Context, c *CLI, command CommandSpec, _ operat
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help cluster status", "Correct the command arguments.")
 	}
-	output, err := renderClusterStatus(status, format, clusterColorAllowed(ctx, c))
+	output, err := renderClusterStatus(status, format, clusterStyleAllowed(ctx, c))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -70,7 +70,7 @@ func runClusterLogs(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Inte
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitResult(ctx, renderSafeLogs(output))
+	return c.emitResult(ctx, renderSafeLogs(output, humanStyleAllowed(ctx, c, c.Out)))
 }
 
 func runClusterDenials(
@@ -99,7 +99,7 @@ func runClusterDenials(
 	}
 	output, err := renderClusterDenialsWithReviewCommand(
 		result, ProgramName+" "+review.Path,
-		format, format == successFormatText && humanColorAllowed(ctx, c, c.Out),
+		format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out),
 	)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -154,7 +154,7 @@ func runPolicyReview(
 	if format != successFormatText || !policyReviewInteractiveAllowed(ctx, c) {
 		output, renderErr := renderPolicyReviewWithCommands(
 			result, allowCommand, denyCommand, format,
-			format == successFormatText && humanColorAllowed(ctx, c, c.Out),
+			format == successFormatText && humanStyleAllowed(ctx, c, c.Out),
 		)
 		if renderErr != nil {
 			return c.fail(ctx, renderErr)
@@ -162,10 +162,13 @@ func runPolicyReview(
 		return c.emitResult(ctx, output)
 	}
 
-	selector := newPolicyReviewSelector()
+	selector := newPolicyReviewSelectorWithStyle(humanStyleAllowed(ctx, c, c.Out))
 	for {
 		if len(result.Items) == 0 {
-			output, renderErr := renderPolicyReviewWithCommands(result, allowCommand, denyCommand, successFormatText, true)
+			output, renderErr := renderPolicyReviewWithCommands(
+				result, allowCommand, denyCommand, successFormatText,
+				humanStyleAllowed(ctx, c, c.Out),
+			)
 			if renderErr != nil {
 				return c.fail(ctx, renderErr)
 			}
@@ -176,7 +179,7 @@ func runPolicyReview(
 			return c.fail(ctx, selectErr)
 		}
 		if decision.Canceled {
-			return c.emitResult(ctx, renderPolicyReviewCanceled())
+			return c.emitResult(ctx, renderPolicyReviewCanceled(humanStyleAllowed(ctx, c, c.Out)))
 		}
 		if !policyReviewContainsID(result, decision.CandidateID) {
 			return c.fail(ctx, fault.New(
@@ -203,7 +206,7 @@ func runPolicyReview(
 				return c.fail(actionCtx, denyErr)
 			}
 			if code := c.emitMutationResult(
-				actionCtx, actionCommand, renderPolicyDenyChangeWithColor(change, humanColorAllowed(actionCtx, c, c.Out)),
+				actionCtx, actionCommand, renderPolicyDenyChangeWithColor(change, humanStyleAllowed(actionCtx, c, c.Out)),
 			); code != ExitOK {
 				return code
 			}
@@ -213,7 +216,7 @@ func runPolicyReview(
 				return c.fail(actionCtx, allowErr)
 			}
 			if code := c.emitMutationResult(
-				actionCtx, actionCommand, renderPolicyReviewAllowSuccess(change, humanColorAllowed(actionCtx, c, c.Out)),
+				actionCtx, actionCommand, renderPolicyReviewAllowSuccess(change, humanStyleAllowed(actionCtx, c, c.Out)),
 			); code != ExitOK {
 				return code
 			}
@@ -253,7 +256,7 @@ func runPolicyRules(
 	if format != successFormatText || !policyReviewInteractiveAllowed(ctx, c) {
 		output, renderErr := renderPolicyRulesWithCommands(
 			result, resetCommand, format,
-			format == successFormatText && humanColorAllowed(ctx, c, c.Out),
+			format == successFormatText && humanStyleAllowed(ctx, c, c.Out),
 		)
 		if renderErr != nil {
 			return c.fail(ctx, renderErr)
@@ -261,10 +264,13 @@ func runPolicyRules(
 		return c.emitResult(ctx, output)
 	}
 
-	selector := newPolicyRuleSelector()
+	selector := newPolicyRuleSelectorWithStyle(humanStyleAllowed(ctx, c, c.Out))
 	for {
 		if len(result.Items) == 0 {
-			output, renderErr := renderPolicyRulesWithCommands(result, resetCommand, successFormatText, true)
+			output, renderErr := renderPolicyRulesWithCommands(
+				result, resetCommand, successFormatText,
+				humanStyleAllowed(ctx, c, c.Out),
+			)
 			if renderErr != nil {
 				return c.fail(ctx, renderErr)
 			}
@@ -275,7 +281,7 @@ func runPolicyRules(
 			return c.fail(ctx, selectErr)
 		}
 		if decision.Canceled {
-			return c.emitResult(ctx, renderPolicyRulesCanceled())
+			return c.emitResult(ctx, renderPolicyRulesCanceled(humanStyleAllowed(ctx, c, c.Out)))
 		}
 		if !policyRuleContainsID(result, decision.RuleID) {
 			return c.fail(ctx, fault.New(
@@ -290,7 +296,7 @@ func runPolicyRules(
 			return c.fail(actionCtx, resetErr)
 		}
 		if code := c.emitMutationResult(
-			actionCtx, reset, renderPolicyRuleResetWithColor(change, humanColorAllowed(actionCtx, c, c.Out)),
+			actionCtx, reset, renderPolicyRuleResetWithColor(change, humanStyleAllowed(actionCtx, c, c.Out)),
 		); code != ExitOK {
 			return code
 		}
@@ -360,7 +366,7 @@ func runPolicyCandidateQueue(
 			fault.KindContract, "invalid_catalog", "policy allow command is missing", false,
 		))
 	}
-	output, err := renderPolicyCandidatesWithColor(result, ProgramName+" "+allow.Path, format, format == successFormatText && humanColorAllowed(ctx, c, c.Out))
+	output, err := renderPolicyCandidatesWithColor(result, ProgramName+" "+allow.Path, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -378,7 +384,7 @@ func runPolicyAllow(
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderPolicyLearningChangeWithColor(result, humanColorAllowed(ctx, c, c.Out)))
+	return c.emitMutationResult(ctx, command, renderPolicyLearningChangeWithColor(result, humanStyleAllowed(ctx, c, c.Out)))
 }
 
 func runPolicyDeny(
@@ -397,7 +403,7 @@ func runPolicyDeny(
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderPolicyDenyChangeWithColor(result, humanColorAllowed(ctx, c, c.Out)))
+	return c.emitMutationResult(ctx, command, renderPolicyDenyChangeWithColor(result, humanStyleAllowed(ctx, c, c.Out)))
 }
 
 func allowPolicyCandidate(
@@ -449,7 +455,7 @@ func runPolicyReset(
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderPolicyRuleResetWithColor(result, humanColorAllowed(ctx, c, c.Out)))
+	return c.emitMutationResult(ctx, command, renderPolicyRuleResetWithColor(result, humanStyleAllowed(ctx, c, c.Out)))
 }
 
 func resetPolicyRule(
@@ -494,7 +500,7 @@ func runPolicyCompactions(
 			fault.KindContract, "invalid_catalog", "policy compact command is missing", false,
 		))
 	}
-	output, err := renderPolicyCompactionsWithColor(result, ProgramName+" "+compact.Path, format, format == successFormatText && humanColorAllowed(ctx, c, c.Out))
+	output, err := renderPolicyCompactionsWithColor(result, ProgramName+" "+compact.Path, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -517,7 +523,7 @@ func runPolicyCompact(
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderPolicyLearningChangeWithColor(result, humanColorAllowed(ctx, c, c.Out)))
+	return c.emitMutationResult(ctx, command, renderPolicyLearningChangeWithColor(result, humanStyleAllowed(ctx, c, c.Out)))
 }
 
 func runClusterDown(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
@@ -534,11 +540,11 @@ func runClusterDown(ctx context.Context, c *CLI, command CommandSpec, _ operatio
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderClusterStatusTextWithColor(status, clusterColorAllowed(ctx, c)))
+	return c.emitMutationResult(ctx, command, renderClusterStatusTextWithColor(status, clusterStyleAllowed(ctx, c)))
 }
 
-func clusterColorAllowed(ctx context.Context, c *CLI) bool {
-	return c != nil && c.tobari != nil && c.tobari.IsTerminal(c.Out) && clusterUpProgressAllowed(ctx)
+func clusterStyleAllowed(ctx context.Context, c *CLI) bool {
+	return humanStyleAllowed(ctx, c, c.Out) && clusterUpProgressAllowed(ctx)
 }
 
 func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, _ ParsedInputs) int {
@@ -556,45 +562,60 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	}
 	// The child interactive process owns stdout. Keep the host-side lifecycle
 	// guidance on stderr so shell output from the session remains untouched.
-	message := renderProjectSessionClosed()
+	style := humanStyleAllowed(ctx, c, c.Err)
+	message := renderProjectSessionClosed(style)
 	if c.context != nil {
 		if report, contextErr := c.context.Show(ctx, ""); contextErr == nil &&
 			report.Runtime.Status == tobari.ContextRuntimeStatusOfficial {
 			message = append(message, '\n')
-			message = append(message, runtimeCustomizationHint()...)
+			message = append(message, renderRuntimeCustomizationHint(style)...)
 			message = append(message, '\n')
 		}
 	}
 	if pending, reviewErr := c.tobari.PolicyReview(ctx, 10_000); reviewErr == nil {
-		message = append(message, renderPendingPolicyNotification(pending)...)
+		message = append(message, renderPendingPolicyNotification(pending, style)...)
 	}
 	_, _ = writeOnce(c.Err, message)
 	return code
 }
 
-func renderProjectSessionClosed() []byte {
-	return []byte("Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete\nIf another session is attached: tobari delete --force\n")
+func renderProjectSessionClosed(style bool) []byte {
+	var output strings.Builder
+	fmt.Fprintln(&output, applyStyleToken(style, styleSuccess, "Workspace session closed."))
+	fmt.Fprintln(&output, applyStyleToken(style, styleSuccess, "Workspace remains available."))
+	output.WriteByte('\n')
+	fmt.Fprintln(&output, applyStyleToken(style, styleAccent, "Resume: tobari"))
+	fmt.Fprintln(&output, applyStyleToken(style, styleAccent, "Remove: tobari delete"))
+	fmt.Fprintln(&output, applyStyleToken(style, styleMuted, "If another session is attached: tobari delete --force"))
+	return []byte(output.String())
 }
 
-func renderPendingPolicyNotification(result tobari.PolicyCandidateReport) []byte {
+func renderPendingPolicyNotification(result tobari.PolicyCandidateReport, style bool) []byte {
 	if len(result.Items) == 0 {
 		return nil
 	}
 	latest := result.Items[len(result.Items)-1]
 	var output strings.Builder
-	fmt.Fprintf(&output, "\n⚠ %d pending network permission", len(result.Items))
+	var status strings.Builder
+	fmt.Fprintf(&status, "⚠ %d pending network permission", len(result.Items))
 	if len(result.Items) == 1 {
-		output.WriteString(" is")
+		status.WriteString(" is")
 	} else {
-		output.WriteString("s are")
+		status.WriteString("s are")
 	}
-	output.WriteString(" waiting for review.\n")
-	fmt.Fprintf(
-		&output, "Latest: %s:%d %s %s\n",
+	status.WriteString(" waiting for review.")
+	fmt.Fprintf(&output, "\n%s\n", applyStyleToken(style, styleWarning, status.String()))
+	request := fmt.Sprintf(
+		"Latest: %s:%d %s %s",
 		safeExternalText(latest.Host), latest.Port, safeExternalText(latest.Method), safeExternalText(latest.Path),
 	)
-	output.WriteString("Review on the host: tobari policy review\n")
+	fmt.Fprintln(&output, applyStyleToken(style, styleText, request))
+	fmt.Fprintln(&output, applyStyleToken(style, styleAccent, "Review on the host: tobari policy review"))
 	return []byte(output.String())
+}
+
+func renderRuntimeCustomizationHint(style bool) []byte {
+	return []byte(applyStyleToken(style, styleText, runtimeCustomizationHint()))
 }
 
 func runProjectStatus(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
@@ -609,7 +630,7 @@ func runProjectStatus(ctx context.Context, c *CLI, command CommandSpec, _ operat
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help status", "Correct the command arguments.")
 	}
-	output, err := renderProjectStatusWithColor(result, format, format == successFormatText && humanColorAllowed(ctx, c, c.Out))
+	output, err := renderProjectStatusWithColor(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -627,10 +648,10 @@ func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operat
 			return c.fail(ctx, err)
 		}
 		if preview.Exists && c.Err != nil {
-			if humanColorAllowed(ctx, c, c.Err) {
+			if humanStyleAllowed(ctx, c, c.Err) {
 				previewOutput := newHumanOutput(true)
-				previewOutput.heading("!", "Delete target", colorTokenWarning)
-				previewOutput.row("Root", safeExternalText(preview.Root), colorTokenMuted)
+				previewOutput.heading("!", "Delete target", styleWarning)
+				previewOutput.row("Root", safeExternalText(preview.Root), styleMuted)
 				_, _ = writeOnce(c.Err, previewOutput.bytes())
 			} else {
 				fmt.Fprintf(
@@ -650,7 +671,7 @@ func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operat
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderProjectDeleteWithColor(result, humanColorAllowed(ctx, c, c.Out)))
+	return c.emitMutationResult(ctx, command, renderProjectDeleteWithColor(result, humanStyleAllowed(ctx, c, c.Out)))
 }
 
 func runAttach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
@@ -669,7 +690,7 @@ func runAttach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Int
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderAttachResult(instance, humanColorAllowed(ctx, c, c.Out)))
+	return c.emitMutationResult(ctx, command, renderAttachResult(instance, humanStyleAllowed(ctx, c, c.Out)))
 }
 
 func runList(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
@@ -684,7 +705,7 @@ func runList(ctx context.Context, c *CLI, command CommandSpec, _ operation.Inten
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help list", "Correct the command arguments.")
 	}
-	output, err := renderProjectListWithColor(result, format, format == successFormatText && humanColorAllowed(ctx, c, c.Out))
+	output, err := renderProjectListWithColor(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -733,7 +754,7 @@ func runTobariLogs(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Inten
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitResult(ctx, renderSafeLogs(output))
+	return c.emitResult(ctx, renderSafeLogs(output, humanStyleAllowed(ctx, c, c.Out)))
 }
 
 func runDetach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
@@ -750,7 +771,7 @@ func runDetach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Int
 	if err := c.tobari.Detach(ctx, intent, id, purge); err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderDetachedResult(humanColorAllowed(ctx, c, c.Out)))
+	return c.emitMutationResult(ctx, command, renderDetachedResult(humanStyleAllowed(ctx, c, c.Out)))
 }
 
 type clusterStatusDocument struct {
@@ -846,7 +867,7 @@ func renderPolicyCandidatesWithColor(
 		return append(output, '\n'), nil
 	}
 	if color && format == successFormatText {
-		return renderPolicyCandidatesHuman(result, allowCommand), nil
+		return renderPolicyCandidatesHuman(result, allowCommand, color), nil
 	}
 	var output bytes.Buffer
 	for _, item := range result.Items {
@@ -863,7 +884,7 @@ func renderPolicyCandidatesWithColor(
 			item.StatusCode, escapeTSVCell(profile), escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
 		)
 	}
-	return output.Bytes(), nil
+	return semanticTextBytes(color, output.Bytes()), nil
 }
 
 func policyCandidateOutputs(
@@ -885,32 +906,32 @@ func policyCandidateOutputs(
 	return items
 }
 
-func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowCommand string) []byte {
+func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowCommand string, color bool) []byte {
 	if len(result.Items) == 0 {
-		output := newHumanOutput(true)
+		output := newHumanOutput(color)
 		output.empty("No policy candidates", "No retained denied request is ready for approval.", "cluster denials", "Inspect the recent bounded denial evidence.")
 		return output.bytes()
 	}
-	output := newHumanOutput(true)
-	output.heading("✓", fmt.Sprintf("Policy candidates (%d)", len(result.Items)), colorTokenSuccess)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
-	output.row("Window", fmt.Sprintf("%d lines", result.WindowLines), colorTokenMuted)
+	output := newHumanOutput(color)
+	output.heading("✓", fmt.Sprintf("Policy candidates (%d)", len(result.Items)), styleSuccess)
+	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	output.row("Window", fmt.Sprintf("%d lines", result.WindowLines), styleMuted)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Candidate %d", index+1))
 		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
-		output.row("Request", request, colorTokenAccent)
-		output.row("ID", item.ID, colorTokenAccent)
-		output.row("Project", safeExternalText(item.ProjectID), colorTokenMuted)
-		output.row("Observed", safeExternalText(item.ObservedAt), colorTokenMuted)
-		output.row("Reason", safeExternalText(item.Reason), colorTokenWarning)
-		output.row("Status", fmt.Sprintf("%d", item.StatusCode), colorTokenWarning)
+		output.row("Request", request, styleText)
+		output.row("ID", item.ID, styleText)
+		output.row("Project", safeExternalText(item.ProjectID), styleMuted)
+		output.row("Observed", safeExternalText(item.ObservedAt), styleMuted)
+		output.row("Reason", safeExternalText(item.Reason), styleWarning)
+		output.row("Status", fmt.Sprintf("%d", item.StatusCode), styleWarning)
 		profile := "none"
 		if item.CredentialProfile != nil {
 			profile = safeExternalText(*item.CredentialProfile)
 		}
-		output.row("Credential", profile, colorTokenMuted)
-		output.row("Allow", allowCommand+" --id "+item.ID, colorTokenAccent)
-		output.row("Deny", pairedPolicyCommand(allowCommand, "allow", "deny")+" --id "+item.ID, colorTokenAccent)
+		output.row("Credential", profile, styleMuted)
+		output.row("Allow", allowCommand+" --id "+item.ID, styleAccent)
+		output.row("Deny", pairedPolicyCommand(allowCommand, "allow", "deny")+" --id "+item.ID, styleAccent)
 	}
 	return output.bytes()
 }
@@ -960,26 +981,26 @@ func renderPolicyReviewHuman(
 		return output.bytes()
 	}
 	output := newHumanOutput(color)
-	output.heading("⚠", fmt.Sprintf("Pending network permissions (%d)", len(result.Items)), colorTokenWarning)
-	output.row("Scope", "Current Tobari only", colorTokenMuted)
-	output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), colorTokenMuted)
+	output.heading("⚠", fmt.Sprintf("Pending network permissions (%d)", len(result.Items)), styleWarning)
+	output.row("Scope", "Current Tobari only", styleMuted)
+	output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleMuted)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Permission %d", index+1))
 		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
-		output.row("Request", request, colorTokenAccent)
-		output.row("Observed", safeExternalText(item.ObservedAt), colorTokenMuted)
-		output.row("Reason", safeExternalText(item.Reason), colorTokenWarning)
-		output.row("Status", fmt.Sprintf("%d", item.StatusCode), colorTokenWarning)
-		output.row("Allow exact", allowCommand+" --id "+item.ID, colorTokenAccent)
-		output.row("Deny exact", denyCommand+" --id "+item.ID, colorTokenAccent)
+		output.row("Request", request, styleText)
+		output.row("Observed", safeExternalText(item.ObservedAt), styleMuted)
+		output.row("Reason", safeExternalText(item.Reason), styleWarning)
+		output.row("Status", fmt.Sprintf("%d", item.StatusCode), styleWarning)
+		output.row("Allow exact", allowCommand+" --id "+item.ID, styleAccent)
+		output.row("Deny exact", denyCommand+" --id "+item.ID, styleAccent)
 	}
 	return output.bytes()
 }
 
-func renderPolicyReviewCanceled() []byte {
-	output := newHumanOutput(true)
-	output.heading("·", "Permission review canceled", colorTokenMuted)
-	output.row("Changed", "No permissions changed.", colorTokenMuted)
+func renderPolicyReviewCanceled(color bool) []byte {
+	output := newHumanOutput(color)
+	output.heading("·", "Permission review canceled", styleMuted)
+	output.row("Changed", "No permissions changed.", styleText)
 	output.next("policy review", "Review pending permissions when you are ready.")
 	return output.bytes()
 }
@@ -999,7 +1020,7 @@ func renderPolicyRulesWithCommands(
 		return append(output, '\n'), nil
 	}
 	if color && format == successFormatText {
-		return renderPolicyRulesHuman(result, resetCommand), nil
+		return renderPolicyRulesHuman(result, resetCommand, color), nil
 	}
 	var output bytes.Buffer
 	for _, item := range items {
@@ -1011,7 +1032,7 @@ func renderPolicyRulesWithCommands(
 			escapeTSVCell(strings.Join(item.SourceCandidates, ",")), escapeTSVCell(item.ResetCommand),
 		)
 	}
-	return output.Bytes(), nil
+	return semanticTextBytes(color, output.Bytes()), nil
 }
 
 func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []policyRuleOutput {
@@ -1032,9 +1053,9 @@ func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []po
 	return items
 }
 
-func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string) []byte {
+func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string, color bool) []byte {
 	if len(result.Items) == 0 {
-		output := newHumanOutput(true)
+		output := newHumanOutput(color)
 		output.empty(
 			"No learned policy decisions",
 			"No current Allow or exact Deny decision is active.",
@@ -1042,10 +1063,10 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string)
 		)
 		return output.bytes()
 	}
-	output := newHumanOutput(true)
-	output.heading("✓", fmt.Sprintf("Learned policy decisions (%d)", len(result.Items)), colorTokenSuccess)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
-	output.row("Scope", "Current Context only", colorTokenMuted)
+	output := newHumanOutput(color)
+	output.heading("✓", fmt.Sprintf("Learned policy decisions (%d)", len(result.Items)), styleSuccess)
+	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	output.row("Scope", "Current Context only", styleMuted)
 	for _, decision := range []string{tobari.PolicyDecisionAllow, tobari.PolicyDecisionDeny} {
 		count := 0
 		for _, item := range result.Items {
@@ -1065,21 +1086,21 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string)
 			if item.Decision != decision {
 				continue
 			}
-			output.row("Request", policyRuleRequest(item), colorTokenAccent)
-			output.row("ID", item.ID, colorTokenAccent)
-			output.row("Match", safeExternalText(item.Match), colorTokenMuted)
-			output.row("Project", safeExternalText(item.ProjectID), colorTokenMuted)
-			output.row("Reset", resetCommand+" --id "+item.ID, colorTokenWarning)
+			output.row("Request", policyRuleRequest(item), styleText)
+			output.row("ID", item.ID, styleText)
+			output.row("Match", safeExternalText(item.Match), styleText)
+			output.row("Project", safeExternalText(item.ProjectID), styleMuted)
+			output.row("Reset", resetCommand+" --id "+item.ID, styleAccent)
 		}
 	}
 	output.next("policy review", "Reset an existing decision only when you want to review the effect again.")
 	return output.bytes()
 }
 
-func renderPolicyRulesCanceled() []byte {
-	output := newHumanOutput(true)
-	output.heading("·", "Policy decision review canceled", colorTokenMuted)
-	output.row("Changed", "No policy decisions changed.", colorTokenMuted)
+func renderPolicyRulesCanceled(color bool) []byte {
+	output := newHumanOutput(color)
+	output.heading("·", "Policy decision review canceled", styleMuted)
+	output.row("Changed", "No policy decisions changed.", styleText)
 	output.next("policy rules", "Inspect current learned decisions when you are ready.")
 	return output.bytes()
 }
@@ -1087,20 +1108,20 @@ func renderPolicyRulesCanceled() []byte {
 func renderPolicyRuleResetWithColor(result tobari.PolicyRuleReset, color bool) []byte {
 	if color {
 		output := newHumanOutput(true)
-		output.heading("✓", "Policy decision reset", colorTokenSuccess)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
-		output.row("Target", result.TargetID, colorTokenAccent)
-		output.row("Removed", safeExternalText(result.Decision), colorTokenWarning)
+		output.heading("✓", "Policy decision reset", styleSuccess)
+		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		output.row("Target", result.TargetID, styleText)
+		output.row("Removed", safeExternalText(result.Decision), styleText)
 		output.row("Default deny", humanBool(result.Applied), humanBoolToken(result.Applied))
 		output.next("policy review", "Review the retained denied effect again before granting a new decision.")
 		return output.bytes()
 	}
 	var output bytes.Buffer
-	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
-	fmt.Fprintf(&output, "target_id: %s\n", result.TargetID)
-	fmt.Fprintf(&output, "decision: %s\n", escapeTSVCell(result.Decision))
+	fmt.Fprintf(&output, "policy: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.PolicyDirectory)))
+	fmt.Fprintf(&output, "target_id: %s\n", applyStyleToken(color, styleText, result.TargetID))
+	fmt.Fprintf(&output, "decision: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Decision)))
 	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
-	fmt.Fprintln(&output, "next: tobari policy review")
+	fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "next: tobari policy review"))
 	return output.Bytes()
 }
 
@@ -1110,23 +1131,23 @@ func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bo
 		fmt.Fprintln(&output, "testing_policy: passed")
 		fmt.Fprintln(&output, "applying_exact_rule: applied")
 		fmt.Fprintln(&output, "permission_allowed: true")
-		fmt.Fprintln(&output, "host: "+escapeTSVCell(result.Rule.Host))
+		fmt.Fprintln(&output, "host: "+applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Host)))
 		fmt.Fprintln(&output, "port: "+strconv.Itoa(result.Rule.Port))
-		fmt.Fprintln(&output, "method: "+escapeTSVCell(result.Rule.Method))
-		fmt.Fprintln(&output, "path: "+escapeTSVCell(result.Rule.Path))
-		fmt.Fprintln(&output, "next: tobari")
+		fmt.Fprintln(&output, "method: "+applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Method)))
+		fmt.Fprintln(&output, "path: "+applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Path)))
+		fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "next: tobari"))
 		return output.Bytes()
 	}
 
 	output := newHumanOutput(true)
-	output.heading("✓", "Permission allowed", colorTokenSuccess)
-	output.row("Testing policy", "passed", colorTokenSuccess)
-	output.row("Applying exact rule", "applied", colorTokenSuccess)
-	output.row("Scope", "Current Tobari only", colorTokenMuted)
+	output.heading("✓", "Permission allowed", styleSuccess)
+	output.row("Testing policy", "passed", styleSuccess)
+	output.row("Applying exact rule", "applied", styleSuccess)
+	output.row("Scope", "Current Tobari only", styleMuted)
 	output.row("Request", fmt.Sprintf(
 		"%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port,
 		safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
-	), colorTokenAccent)
+	), styleText)
 	output.next("tobari", "Re-enter the Workspace and retry the same request.")
 	return output.bytes()
 }
@@ -1184,7 +1205,7 @@ func renderPolicyCompactionsWithColor(
 		return append(output, '\n'), nil
 	}
 	if color && format == successFormatText {
-		return renderPolicyCompactionsHuman(result, compactCommand), nil
+		return renderPolicyCompactionsHuman(result, compactCommand, color), nil
 	}
 	var output bytes.Buffer
 	for _, item := range result.Items {
@@ -1198,32 +1219,32 @@ func renderPolicyCompactionsWithColor(
 			escapeTSVCell(action),
 		)
 	}
-	return output.Bytes(), nil
+	return semanticTextBytes(color, output.Bytes()), nil
 }
 
-func renderPolicyCompactionsHuman(result tobari.PolicyCompactionReport, compactCommand string) []byte {
+func renderPolicyCompactionsHuman(result tobari.PolicyCompactionReport, compactCommand string, color bool) []byte {
 	if len(result.Items) == 0 {
-		output := newHumanOutput(true)
+		output := newHumanOutput(color)
 		output.empty("No policy compactions", "No compatible exact rules are ready to be compacted.", "policy candidates", "Review the current exact policy candidates.")
 		return output.bytes()
 	}
-	output := newHumanOutput(true)
-	output.heading("✓", fmt.Sprintf("Policy compactions (%d)", len(result.Items)), colorTokenSuccess)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
+	output := newHumanOutput(color)
+	output.heading("✓", fmt.Sprintf("Policy compactions (%d)", len(result.Items)), styleSuccess)
+	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Compaction %d", index+1))
 		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.PathPrefix))
-		output.row("Request", request, colorTokenAccent)
-		output.row("ID", item.ID, colorTokenAccent)
-		output.row("Project", safeExternalText(item.ProjectID), colorTokenMuted)
-		output.row("Source rules", fmt.Sprintf("%d", len(item.SourceRuleIDs)), colorTokenMuted)
+		output.row("Request", request, styleText)
+		output.row("ID", item.ID, styleText)
+		output.row("Project", safeExternalText(item.ProjectID), styleMuted)
+		output.row("Source rules", fmt.Sprintf("%d", len(item.SourceRuleIDs)), styleMuted)
 		examples := make([]string, len(item.Examples))
 		for exampleIndex, example := range item.Examples {
 			examples[exampleIndex] = safeExternalText(example)
 		}
-		output.row("Examples", strings.Join(examples, ", "), colorTokenMuted)
-		output.row("Canary", safeExternalText(item.OutsideCanary), colorTokenWarning)
-		output.row("Compact", compactCommand+" --id "+item.ID, colorTokenAccent)
+		output.row("Examples", strings.Join(examples, ", "), styleText)
+		output.row("Canary", safeExternalText(item.OutsideCanary), styleText)
+		output.row("Compact", compactCommand+" --id "+item.ID, styleAccent)
 	}
 	return output.bytes()
 }
@@ -1235,18 +1256,18 @@ func renderPolicyLearningChange(result tobari.PolicyLearningChange) []byte {
 func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, color bool) []byte {
 	if color {
 		output := newHumanOutput(true)
-		marker, title, token := "✓", "Policy rule updated", colorTokenSuccess // #nosec G101 -- human-readable status text contains no credential.
+		marker, title, token := "✓", "Policy rule updated", styleSuccess // #nosec G101 -- human-readable status text contains no credential.
 		if !result.Applied {
-			marker, title, token = "!", "Policy rule recorded", colorTokenWarning // #nosec G101 -- human-readable status text contains no credential.
+			marker, title, token = "!", "Policy rule recorded", styleWarning // #nosec G101 -- human-readable status text contains no credential.
 		}
 		output.heading(marker, title, token)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
-		output.row("Target", result.TargetID, colorTokenAccent)
-		output.row("Rule", result.Rule.ID, colorTokenAccent)
-		output.row("Match", safeExternalText(result.Rule.Match), colorTokenMuted)
-		output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port, safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path)), colorTokenAccent)
-		output.row("Project", safeExternalText(result.Rule.ProjectID), colorTokenMuted)
-		output.row("Source rules", fmt.Sprintf("%d", result.SourceRuleCount), colorTokenMuted)
+		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		output.row("Target", result.TargetID, styleText)
+		output.row("Rule", result.Rule.ID, styleText)
+		output.row("Match", safeExternalText(result.Rule.Match), styleText)
+		output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port, safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path)), styleText)
+		output.row("Project", safeExternalText(result.Rule.ProjectID), styleMuted)
+		output.row("Source rules", fmt.Sprintf("%d", result.SourceRuleCount), styleMuted)
 		output.row("Applied", humanBool(result.Applied), humanBoolToken(result.Applied))
 		if result.Task == tobari.TaskPolicyAllow {
 			output.next("tobari", "Re-enter the Workspace and retry the same request.")
@@ -1256,15 +1277,15 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 		return output.bytes()
 	}
 	var output bytes.Buffer
-	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
-	fmt.Fprintf(&output, "target_id: %s\n", result.TargetID)
-	fmt.Fprintf(&output, "rule_id: %s\n", result.Rule.ID)
-	fmt.Fprintf(&output, "match: %s\n", escapeTSVCell(result.Rule.Match))
-	fmt.Fprintf(&output, "project_id: %s\n", result.Rule.ProjectID)
-	fmt.Fprintf(&output, "host: %s\n", escapeTSVCell(result.Rule.Host))
+	fmt.Fprintf(&output, "policy: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.PolicyDirectory)))
+	fmt.Fprintf(&output, "target_id: %s\n", applyStyleToken(color, styleText, result.TargetID))
+	fmt.Fprintf(&output, "rule_id: %s\n", applyStyleToken(color, styleText, result.Rule.ID))
+	fmt.Fprintf(&output, "match: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Match)))
+	fmt.Fprintf(&output, "project_id: %s\n", applyStyleToken(color, styleMuted, result.Rule.ProjectID))
+	fmt.Fprintf(&output, "host: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Host)))
 	fmt.Fprintf(&output, "port: %d\n", result.Rule.Port)
-	fmt.Fprintf(&output, "method: %s\n", escapeTSVCell(result.Rule.Method))
-	fmt.Fprintf(&output, "path: %s\n", escapeTSVCell(result.Rule.Path))
+	fmt.Fprintf(&output, "method: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Method)))
+	fmt.Fprintf(&output, "path: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Path)))
 	fmt.Fprintf(&output, "source_rule_count: %d\n", result.SourceRuleCount)
 	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
 	return output.Bytes()
@@ -1273,28 +1294,28 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 func renderPolicyDenyChangeWithColor(result tobari.PolicyDenyChange, color bool) []byte {
 	if color {
 		output := newHumanOutput(true)
-		output.heading("✓", "Permission denied", colorTokenSuccess)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
-		output.row("Target", result.TargetID, colorTokenAccent)
-		output.row("Rule", result.Rule.ID, colorTokenAccent)
+		output.heading("✓", "Permission denied", styleDanger)
+		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		output.row("Target", result.TargetID, styleText)
+		output.row("Rule", result.Rule.ID, styleText)
 		output.row("Request", fmt.Sprintf(
 			"%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port,
 			safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
-		), colorTokenAccent)
-		output.row("Project", safeExternalText(result.Rule.ProjectID), colorTokenMuted)
+		), styleText)
+		output.row("Project", safeExternalText(result.Rule.ProjectID), styleMuted)
 		output.row("Applied", humanBool(result.Applied), humanBoolToken(result.Applied))
 		output.next("policy review", "Review the remaining pending permissions.")
 		return output.bytes()
 	}
 	var output bytes.Buffer
-	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
-	fmt.Fprintf(&output, "target_id: %s\n", result.TargetID)
-	fmt.Fprintf(&output, "rule_id: %s\n", result.Rule.ID)
-	fmt.Fprintf(&output, "project_id: %s\n", escapeTSVCell(result.Rule.ProjectID))
-	fmt.Fprintf(&output, "host: %s\n", escapeTSVCell(result.Rule.Host))
+	fmt.Fprintf(&output, "policy: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.PolicyDirectory)))
+	fmt.Fprintf(&output, "target_id: %s\n", applyStyleToken(color, styleText, result.TargetID))
+	fmt.Fprintf(&output, "rule_id: %s\n", applyStyleToken(color, styleText, result.Rule.ID))
+	fmt.Fprintf(&output, "project_id: %s\n", applyStyleToken(color, styleMuted, escapeTSVCell(result.Rule.ProjectID)))
+	fmt.Fprintf(&output, "host: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Host)))
 	fmt.Fprintf(&output, "port: %d\n", result.Rule.Port)
-	fmt.Fprintf(&output, "method: %s\n", escapeTSVCell(result.Rule.Method))
-	fmt.Fprintf(&output, "path: %s\n", escapeTSVCell(result.Rule.Path))
+	fmt.Fprintf(&output, "method: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Method)))
+	fmt.Fprintf(&output, "path: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Path)))
 	fmt.Fprintf(&output, "source_rule_count: %d\n", result.SourceRuleCount)
 	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
 	return output.Bytes()
@@ -1343,7 +1364,7 @@ func renderClusterDenialsWithReviewCommand(
 		return append(output, '\n'), nil
 	}
 	if color && format == successFormatText {
-		return renderClusterDenialsHuman(result, reviewCommand), nil
+		return renderClusterDenialsHuman(result, reviewCommand, color), nil
 	}
 	var output bytes.Buffer
 	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
@@ -1359,28 +1380,28 @@ func renderClusterDenialsWithReviewCommand(
 		)
 	}
 	fmt.Fprintf(&output, "review_command: %s\n", escapeTSVCell(reviewCommand))
-	return output.Bytes(), nil
+	return semanticTextBytes(color, output.Bytes()), nil
 }
 
-func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string) []byte {
+func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string, color bool) []byte {
 	if len(result.Items) == 0 {
-		output := newHumanOutput(true)
+		output := newHumanOutput(color)
 		output.empty("No policy denials", "The selected Gateway log window contains no denied requests.", "policy candidates", "Check whether a new denied request has been retained.")
 		return output.bytes()
 	}
-	output := newHumanOutput(true)
-	output.heading("✓", fmt.Sprintf("Policy denials (%d)", len(result.Items)), colorTokenSuccess)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), colorTokenMuted)
-	output.row("Window", fmt.Sprintf("%d lines", result.WindowLines), colorTokenMuted)
-	output.row("Review", reviewCommand, colorTokenAccent)
+	output := newHumanOutput(color)
+	output.heading("!", fmt.Sprintf("Policy denials (%d)", len(result.Items)), styleDanger)
+	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	output.row("Window", fmt.Sprintf("%d lines", result.WindowLines), styleMuted)
+	output.row("Review", reviewCommand, styleAccent)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Denial %d", index+1))
-		output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path)), colorTokenAccent)
-		output.row("Timestamp", safeExternalText(item.Timestamp), colorTokenMuted)
-		output.row("Request ID", item.RequestID, colorTokenMuted)
-		output.row("Project", safeExternalText(item.ProjectID), colorTokenMuted)
-		output.row("Status", fmt.Sprintf("%d", item.StatusCode), colorTokenWarning)
-		output.row("Reason", safeExternalText(item.Reason), colorTokenWarning)
+		output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path)), styleText)
+		output.row("Timestamp", safeExternalText(item.Timestamp), styleMuted)
+		output.row("Request ID", item.RequestID, styleMuted)
+		output.row("Project", safeExternalText(item.ProjectID), styleMuted)
+		output.row("Status", fmt.Sprintf("%d", item.StatusCode), styleDanger)
+		output.row("Reason", safeExternalText(item.Reason), styleDanger)
 		learnable := "no"
 		if item.Learnable {
 			learnable = "yes"
@@ -1434,7 +1455,7 @@ func renderClusterUpText(status tobari.ClusterStatus, color bool) []byte {
 	withNext.Write(output)
 	fmt.Fprintf(
 		&withNext, "\n%s from a project directory, run `tobari`.\n",
-		applyColorToken(color, colorTokenAccent, "Next:"),
+		applyStyleToken(color, styleAccent, "Next:"),
 	)
 	return withNext.Bytes()
 }
@@ -1442,7 +1463,11 @@ func renderClusterUpText(status tobari.ClusterStatus, color bool) []byte {
 func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) []byte {
 	var output bytes.Buffer
 	marker, heading, headingToken := clusterStatusHeading(status)
-	fmt.Fprintf(&output, "%s %s\n", applyColorToken(color, headingToken, marker), heading)
+	fmt.Fprintf(
+		&output, "%s %s\n",
+		applyStyleToken(color, headingToken, marker),
+		applyStyleToken(color, styleAccent, heading),
+	)
 	if !status.Configured {
 		renderClusterRecentError(&output, status.RecentError, color)
 		return output.Bytes()
@@ -1453,42 +1478,44 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 	}
 	fmt.Fprintf(
 		&output, "  %s %d\n",
-		applyColorToken(color, colorTokenMuted, fmt.Sprintf("%-8s", "Tobari")), status.TobariCount,
+		applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Tobari")),
+		status.TobariCount,
 	)
 	if status.Policy != "" {
 		fmt.Fprintln(&output)
 		fmt.Fprintf(
 			&output, "  %s %s\n",
-			applyColorToken(color, colorTokenMuted, fmt.Sprintf("%-8s", "Policy")), escapeTSVCell(status.Policy),
+			applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Policy")),
+			applyStyleToken(color, styleText, escapeTSVCell(status.Policy)),
 		)
 	}
 	renderClusterRecentError(&output, status.RecentError, color)
 	return output.Bytes()
 }
 
-func clusterStatusHeading(status tobari.ClusterStatus) (string, string, colorToken) {
+func clusterStatusHeading(status tobari.ClusterStatus) (string, string, styleToken) {
 	switch {
 	case status.Task == tobari.TaskClusterDown && !status.Configured:
-		return "✓", "Cluster removed", colorTokenSuccess
+		return "✓", "Cluster removed", styleSuccess
 	case !status.Configured:
-		return "○", "Cluster not configured", colorTokenMuted
+		return "○", "Cluster not configured", styleMuted
 	case !status.Running:
-		return "!", "Cluster not ready", colorTokenWarning
+		return "!", "Cluster not ready", styleWarning
 	default:
-		return "✓", "Cluster ready", colorTokenSuccess
+		return "✓", "Cluster ready", styleSuccess
 	}
 }
 
 func renderClusterComponent(output *bytes.Buffer, component tobari.ComponentStatus, ready, color bool) {
 	name := clusterComponentName(component.Name)
 	health := escapeTSVCell(component.Health)
-	healthOutput := applyColorToken(color, clusterHealthColorToken(component.Health), health)
+	healthOutput := applyStyleToken(color, clusterHealthStyleToken(component.Health), health)
 	if ready && component.Health == "healthy" {
-		fmt.Fprintf(output, "  %-8s %s\n", name, healthOutput)
+		fmt.Fprintf(output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", name)), healthOutput)
 		return
 	}
-	state := applyColorToken(color, colorTokenMuted, escapeTSVCell(component.State))
-	fmt.Fprintf(output, "  %-8s %s · %s\n", name, state, healthOutput)
+	state := applyStyleToken(color, humanStatusToken(component.State), escapeTSVCell(component.State))
+	fmt.Fprintf(output, "  %s %s · %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", name)), state, healthOutput)
 }
 
 func clusterComponentName(name string) string {
@@ -1502,16 +1529,16 @@ func clusterComponentName(name string) string {
 	}
 }
 
-func clusterHealthColorToken(health string) colorToken {
+func clusterHealthStyleToken(health string) styleToken {
 	switch strings.ToLower(health) {
 	case "healthy":
-		return colorTokenSuccess
+		return styleSuccess
 	case "starting", "pending", "unknown":
-		return colorTokenWarning
+		return styleWarning
 	case "unhealthy", "exited", "dead", "failed":
-		return colorTokenError
+		return styleDanger
 	default:
-		return colorTokenMuted
+		return styleMuted
 	}
 }
 
@@ -1524,8 +1551,8 @@ func renderClusterRecentError(output *bytes.Buffer, recentError string, color bo
 	}
 	fmt.Fprintf(
 		output, "  %s  %s\n",
-		applyColorToken(color, colorTokenMuted, "Recent error"),
-		applyColorToken(color, colorTokenError, escapeTSVCell(recentError)),
+		applyStyleToken(color, styleMuted, "Recent error"),
+		applyStyleToken(color, styleDanger, escapeTSVCell(recentError)),
 	)
 }
 
@@ -1555,19 +1582,19 @@ func renderTobariListWithColor(result tobari.ListResult, format successFormat, c
 	}
 	if color && format == successFormatText {
 		if len(result.Items) == 0 {
-			output := newHumanOutput(true)
+			output := newHumanOutput(color)
 			output.empty("No Tobari attached", "The shared cluster has no attached Tobari.", "tobari", "Create or enter a Tobari from the current project directory.")
 			return output.bytes(), nil
 		}
-		output := newHumanOutput(true)
-		output.heading("✓", fmt.Sprintf("Tobari (%d)", len(result.Items)), colorTokenSuccess)
+		output := newHumanOutput(color)
+		output.heading("✓", fmt.Sprintf("Tobari (%d)", len(result.Items)), styleSuccess)
 		for index, item := range result.Items {
 			output.section(fmt.Sprintf("Tobari %d", index+1))
-			output.row("Name", safeExternalText(item.Name), colorTokenAccent)
-			output.row("ID", item.ID, colorTokenAccent)
-			output.row("Root", safeExternalText(item.Root), colorTokenMuted)
-			output.row("Image", safeExternalText(item.Image), colorTokenMuted)
-			output.row("Container", safeExternalText(item.Container), colorTokenMuted)
+			output.row("Name", safeExternalText(item.Name), styleText)
+			output.row("ID", item.ID, styleText)
+			output.row("Root", safeExternalText(item.Root), styleText)
+			output.row("Image", safeExternalText(item.Image), styleText)
+			output.row("Container", safeExternalText(item.Container), styleText)
 			output.row("Running", humanBool(item.Running), humanBoolToken(item.Running))
 		}
 		return output.bytes(), nil
@@ -1580,7 +1607,7 @@ func renderTobariListWithColor(result tobari.ListResult, format successFormat, c
 			item.Running, escapeTSVCell(item.Container),
 		)
 	}
-	return output.Bytes(), nil
+	return semanticTextBytes(color, output.Bytes()), nil
 }
 
 type projectStatusOutput struct {
@@ -1617,20 +1644,20 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 	}
 	if color && format == successFormatText {
 		if !result.Exists {
-			output := newHumanOutput(true)
+			output := newHumanOutput(color)
 			output.empty("No Tobari for this directory", "The current directory is not associated with a CWD-owned Tobari.", "tobari", "Create or enter the current directory's Tobari.")
 			return output.bytes(), nil
 		}
-		output := newHumanOutput(true)
-		marker, title, token := "✓", "Tobari ready", colorTokenSuccess
+		output := newHumanOutput(color)
+		marker, title, token := "✓", "Tobari ready", styleSuccess
 		if result.Runtime != tobari.RuntimeDiagnosticReady {
-			marker, title, token = "!", "Tobari needs attention", colorTokenWarning
+			marker, title, token = "!", "Tobari needs attention", styleWarning
 		}
 		output.heading(marker, title, token)
-		output.row("Root", safeExternalText(result.Root), colorTokenMuted)
+		output.row("Root", safeExternalText(result.Root), styleText)
 		output.row("Runtime", safeExternalText(string(result.Runtime)), humanStatusToken(string(result.Runtime)))
-		output.row("ID", result.ID, colorTokenAccent)
-		output.row("Home", safeExternalText(result.Home), colorTokenMuted)
+		output.row("ID", result.ID, styleText)
+		output.row("Home", safeExternalText(result.Home), styleText)
 		if result.Runtime != tobari.RuntimeDiagnosticReady {
 			output.next("doctor", "Inspect the local runtime before entering the project.")
 		} else {
@@ -1644,7 +1671,7 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 	var output bytes.Buffer
 	fmt.Fprintf(&output, "Tobari exists at %s\n", escapeTSVCell(result.Root))
 	fmt.Fprintf(&output, "Runtime: %s\n", escapeTSVCell(string(result.Runtime)))
-	return output.Bytes(), nil
+	return semanticTextBytes(color, output.Bytes()), nil
 }
 
 type projectListOutput struct {
@@ -1681,22 +1708,20 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 	}
 	if color && format == successFormatText {
 		if len(items) == 0 {
-			empty := newHumanOutput(true)
+			empty := newHumanOutput(color)
 			empty.empty("No Workspaces", "No Workspace state is configured.", "tobari", "Create or enter a Workspace from the current directory.")
 			return empty.bytes(), nil
 		}
-		output := newHumanOutput(true)
-		output.heading("✓", fmt.Sprintf("Workspaces (%d)", len(items)), colorTokenSuccess)
+		output := newHumanOutput(color)
+		output.heading("✓", fmt.Sprintf("Workspaces (%d)", len(items)), styleSuccess)
 		for _, item := range items {
 			marker := "  "
-			rootToken := colorTokenAccent
 			if item.ID == result.CurrentID {
 				marker = "▸ "
-				rootToken = colorTokenSelected
 			}
-			output.sectionWithToken(marker+item.Root, rootToken)
+			output.sectionWithToken(marker+item.Root, styleText)
 			output.row("Runtime", item.Runtime, humanStatusToken(item.Runtime))
-			output.row("ID", item.ID, colorTokenMuted)
+			output.row("ID", item.ID, styleMuted)
 		}
 		return output.bytes(), nil
 	}
@@ -1705,7 +1730,7 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 	for _, item := range items {
 		fmt.Fprintf(&output, "%s\t%s\t%s\n", escapeTSVCell(item.Root), item.Runtime, item.ID)
 	}
-	return output.Bytes(), nil
+	return semanticTextBytes(color, output.Bytes()), nil
 }
 
 func renderProjectDelete(result tobari.ProjectDeleteResult) []byte {
@@ -1715,12 +1740,12 @@ func renderProjectDelete(result tobari.ProjectDeleteResult) []byte {
 func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool) []byte {
 	if color {
 		output := newHumanOutput(true)
-		marker, title, token := "✓", "Tobari deleted", colorTokenSuccess
+		marker, title, token := "✓", "Tobari deleted", styleSuccess
 		if !result.Deleted {
-			marker, title, token = "!", "Tobari not deleted", colorTokenWarning // #nosec G101 -- human-readable status text contains no credential.
+			marker, title, token = "!", "Tobari not deleted", styleWarning // #nosec G101 -- human-readable status text contains no credential.
 		}
 		output.heading(marker, title, token)
-		output.row("Root", safeExternalText(result.Root), colorTokenMuted)
+		output.row("Root", safeExternalText(result.Root), styleText)
 		if result.Deleted {
 			output.next("tobari", "Create or enter a Tobari from this project directory.")
 		}
@@ -1728,46 +1753,46 @@ func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool)
 	}
 	var output bytes.Buffer
 	fmt.Fprintf(&output, "deleted: %t\n", result.Deleted)
-	fmt.Fprintf(&output, "root: %s\n", escapeTSVCell(result.Root))
-	fmt.Fprintf(&output, "id: %s\n", result.ID)
-	fmt.Fprintf(&output, "home: %s\n", escapeTSVCell(result.Home))
+	fmt.Fprintf(&output, "root: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Root)))
+	fmt.Fprintf(&output, "id: %s\n", applyStyleToken(color, styleText, result.ID))
+	fmt.Fprintf(&output, "home: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Home)))
 	return output.Bytes()
 }
 
 func renderAttachResult(instance tobari.Instance, color bool) []byte {
 	if color {
 		output := newHumanOutput(true)
-		output.heading("✓", "Tobari attached", colorTokenSuccess)
-		output.row("Name", safeExternalText(instance.Name), colorTokenAccent)
-		output.row("Root", safeExternalText(instance.Root), colorTokenMuted)
-		output.row("Image", safeExternalText(instance.Image), colorTokenMuted)
+		output.heading("✓", "Tobari attached", styleSuccess)
+		output.row("Name", safeExternalText(instance.Name), styleText)
+		output.row("Root", safeExternalText(instance.Root), styleText)
+		output.row("Image", safeExternalText(instance.Image), styleText)
 		output.next("list", "Review configured Tobari projects.")
 		return output.bytes()
 	}
 	var output bytes.Buffer
-	fmt.Fprintf(&output, "name: %s\n", escapeTSVCell(instance.Name))
-	fmt.Fprintf(&output, "root: %s\n", escapeTSVCell(instance.Root))
-	fmt.Fprintf(&output, "image: %s\n", escapeTSVCell(instance.Image))
+	fmt.Fprintf(&output, "name: %s\n", applyStyleToken(color, styleText, escapeTSVCell(instance.Name)))
+	fmt.Fprintf(&output, "root: %s\n", applyStyleToken(color, styleText, escapeTSVCell(instance.Root)))
+	fmt.Fprintf(&output, "image: %s\n", applyStyleToken(color, styleText, escapeTSVCell(instance.Image)))
 	return output.Bytes()
 }
 
 func renderDetachedResult(color bool) []byte {
 	if color {
 		output := newHumanOutput(true)
-		output.heading("✓", "Tobari detached", colorTokenSuccess)
+		output.heading("✓", "Tobari detached", styleSuccess)
 		output.next("list", "Review the remaining configured Tobari projects.")
 		return output.bytes()
 	}
-	return []byte("detached: true\n")
+	return []byte(applyStyleToken(color, styleSuccess, "detached: true") + "\n")
 }
 
-func renderSafeLogs(raw []byte) []byte {
+func renderSafeLogs(raw []byte, style bool) []byte {
 	var output strings.Builder
 	for _, line := range strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n") {
 		output.WriteString(safeExternalText(line))
 		output.WriteByte('\n')
 	}
-	return []byte(output.String())
+	return semanticTextBytes(style, []byte(output.String()))
 }
 
 func missingRuntimeFault() *fault.Error {

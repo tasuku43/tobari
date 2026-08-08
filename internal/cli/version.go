@@ -8,18 +8,27 @@ import (
 )
 
 func runVersion(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, _ ParsedInputs) int {
-	color := humanColorAllowed(ctx, c, c.Out)
-	if color {
+	style := humanStyleAllowed(ctx, c, c.Out)
+	if style {
 		output := newHumanOutput(true)
-		output.heading("•", "Tobari", colorTokenAccent)
-		output.row("Version", c.Version, colorTokenSuccess)
+		output.heading("•", "Tobari", styleAccent)
+		output.row("Version", c.Version, styleText)
 		if c.Commit != "" {
-			output.row("Commit", c.Commit, colorTokenMuted)
+			output.row("Commit", c.Commit, styleMuted)
 		}
 		return c.emitResult(ctx, output.bytes())
 	}
 	if c.Commit == "" {
-		return c.emitResult(ctx, []byte(fmt.Sprintf("%s %s\n", applyColorToken(color, colorTokenAccent, ProgramName), applyColorToken(color, colorTokenSuccess, c.Version))))
+		return c.emitResult(ctx, []byte(fmt.Sprintf(
+			"%s %s\n",
+			applyStyleToken(style, styleText, ProgramName),
+			applyStyleToken(style, styleText, c.Version),
+		)))
 	}
-	return c.emitResult(ctx, []byte(fmt.Sprintf("%s %s (%s)\n", applyColorToken(color, colorTokenAccent, ProgramName), applyColorToken(color, colorTokenSuccess, c.Version), applyColorToken(color, colorTokenMuted, c.Commit))))
+	return c.emitResult(ctx, []byte(fmt.Sprintf(
+		"%s %s (%s)\n",
+		applyStyleToken(style, styleText, ProgramName),
+		applyStyleToken(style, styleText, c.Version),
+		applyStyleToken(style, styleMuted, c.Commit),
+	)))
 }

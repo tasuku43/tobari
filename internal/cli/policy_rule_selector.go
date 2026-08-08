@@ -21,11 +21,16 @@ type policyRuleDecision struct {
 }
 
 type policyRuleSelector struct {
-	mode terminal.Mode
+	mode  terminal.Mode
+	style bool
 }
 
 func newPolicyRuleSelector() *policyRuleSelector {
-	return &policyRuleSelector{mode: terminal.New()}
+	return newPolicyRuleSelectorWithStyle(true)
+}
+
+func newPolicyRuleSelectorWithStyle(enabled bool) *policyRuleSelector {
+	return &policyRuleSelector{mode: terminal.New(), style: enabled}
 }
 
 func (s *policyRuleSelector) Select(
@@ -40,7 +45,7 @@ func (s *policyRuleSelector) Select(
 	if s != nil && s.mode != nil {
 		restore, rawErr := s.mode.Enter(in)
 		if rawErr == nil {
-			decision, selectErr := selectPolicyRulesRaw(ctx, report, in, out)
+			decision, selectErr := selectPolicyRulesRaw(ctx, report, in, out, s.style)
 			restoreErr := restore()
 			if selectErr != nil {
 				return policyRuleDecision{}, selectErr
@@ -56,6 +61,7 @@ func (s *policyRuleSelector) Select(
 
 func selectPolicyRulesRaw(
 	ctx context.Context, report tobari.PolicyRuleReport, in io.Reader, out io.Writer,
+	style bool,
 ) (policyRuleDecision, error) {
 	selected := 0
 	message := ""
@@ -68,7 +74,7 @@ func selectPolicyRulesRaw(
 		}
 		if needsRender {
 			top := selectorWindowTop(selected, len(report.Items), selectorMaxVisibleOptions)
-			currentLines := renderPolicyRulesListRaw(out, report, selected, top, message, lineCount)
+			currentLines := renderPolicyRulesListRaw(out, report, selected, top, message, lineCount, style)
 			if currentLines < 0 {
 				finishPolicyReviewSelector(out, lineCount)
 				return policyRuleDecision{}, fmt.Errorf("render policy rule selector")
@@ -109,7 +115,7 @@ func selectPolicyRulesRaw(
 			selected = key.index
 			fallthrough
 		case selectorKeyEnter:
-			detail := selectPolicyRuleDetailRaw(ctx, report, selected, in, out, lineCount)
+			detail := selectPolicyRuleDetailRaw(ctx, report, selected, in, out, lineCount, style)
 			if detail.err != nil {
 				return policyRuleDecision{}, detail.err
 			}
@@ -144,7 +150,7 @@ type policyRuleDetailRawResult struct {
 
 func selectPolicyRuleDetailRaw(
 	ctx context.Context, report tobari.PolicyRuleReport, selected int,
-	in io.Reader, out io.Writer, previousLines int,
+	in io.Reader, out io.Writer, previousLines int, style bool,
 ) policyRuleDetailRawResult {
 	if selected < 0 || selected >= len(report.Items) {
 		return policyRuleDetailRawResult{err: fmt.Errorf("selected policy rule is outside the snapshot")}
@@ -159,7 +165,7 @@ func selectPolicyRuleDetailRaw(
 			return policyRuleDetailRawResult{err: err}
 		}
 		if needsRender {
-			currentLines := renderPolicyRuleDetailRaw(out, report, selected, message, lineCount)
+			currentLines := renderPolicyRuleDetailRaw(out, report, selected, message, lineCount, style)
 			if currentLines < 0 {
 				finishPolicyReviewSelector(out, lineCount)
 				return policyRuleDetailRawResult{err: fmt.Errorf("render policy rule detail")}
@@ -176,7 +182,7 @@ func selectPolicyRuleDetailRaw(
 		case selectorKeyNone:
 			continue
 		case selectorKeyReset:
-			confirmed, confirmLines, confirmErr := confirmPolicyRuleResetRaw(ctx, rule, in, out, lineCount)
+			confirmed, confirmLines, confirmErr := confirmPolicyRuleResetRaw(ctx, rule, in, out, lineCount, style)
 			if confirmErr != nil {
 				return policyRuleDetailRawResult{err: confirmErr}
 			}
@@ -196,10 +202,10 @@ func selectPolicyRuleDetailRaw(
 }
 
 func confirmPolicyRuleResetRaw(
-	ctx context.Context, rule tobari.PolicyRule, in io.Reader, out io.Writer, previousLines int,
+	ctx context.Context, rule tobari.PolicyRule, in io.Reader, out io.Writer, previousLines int, style bool,
 ) (bool, int, error) {
 	message := "Reset this " + rule.Decision + " decision? Type y to continue; default is no."
-	lineCount := renderPolicyRuleDetailRawWithMessage(out, rule, message, previousLines)
+	lineCount := renderPolicyRuleDetailRawWithMessage(out, rule, message, previousLines, style)
 	if lineCount < 0 {
 		finishPolicyReviewSelector(out, previousLines)
 		return false, previousLines, fmt.Errorf("render policy rule reset confirmation")
@@ -223,7 +229,7 @@ func confirmPolicyRuleResetRaw(
 			return false, lineCount, nil
 		default:
 			message = "Type y to confirm, or n to keep this decision."
-			lineCount = renderPolicyRuleDetailRawWithMessage(out, rule, message, lineCount)
+			lineCount = renderPolicyRuleDetailRawWithMessage(out, rule, message, lineCount, style)
 			if lineCount < 0 {
 				finishPolicyReviewSelector(out, previousLines)
 				return false, previousLines, fmt.Errorf("render policy rule reset confirmation")
@@ -234,11 +240,12 @@ func confirmPolicyRuleResetRaw(
 
 func renderPolicyRulesListRaw(
 	out io.Writer, report tobari.PolicyRuleReport, selected, top int, message string, previousLines int,
+	style bool,
 ) int {
 	lines := []string{
-		selectorTitle("Tobari · Policy decisions"),
+		selectorTitle(style, "Tobari · Policy decisions"),
 		"",
-		applyColorToken(true, colorTokenAccent, fmt.Sprintf("%d learned decision%s", len(report.Items), pluralSuffix(len(report.Items)))),
+		applyStyleToken(style, styleText, fmt.Sprintf("%d learned decision%s", len(report.Items), pluralSuffix(len(report.Items)))),
 		"",
 	}
 	end := top + selectorMaxVisibleOptions
@@ -249,72 +256,74 @@ func renderPolicyRulesListRaw(
 		rule := report.Items[index]
 		prefix := "  "
 		if index == selected {
-			prefix = applyColorToken(true, colorTokenAccent, "❯ ")
+			prefix = applyStyleToken(style, styleText, "❯ ")
 		}
 		line := prefix + strings.ToUpper(rule.Decision) + " " + policyRuleRequest(rule)
 		if index != selected {
-			line = applyColorToken(true, colorTokenMuted, line)
+			line = applyStyleToken(style, styleMuted, line)
 		}
 		lines = append(lines, line)
 	}
 	if top > 0 || end < len(report.Items) {
-		lines = append(lines, applyColorToken(true, colorTokenMuted, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items))))
+		lines = append(lines, applyStyleToken(style, styleMuted, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items))))
 	}
-	lines = append(lines, "", selectorHelp("↑/↓ move   Enter inspect   q cancel"))
+	lines = append(lines, "", selectorHelp(style, "↑/↓ move   Enter inspect   q cancel"))
 	if message == "" {
 		lines = append(lines, "")
 	} else {
-		lines = append(lines, applyColorToken(true, colorTokenWarning, "! "+message))
+		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
 	}
 	return renderPolicyReviewScreen(out, lines, previousLines)
 }
 
 func renderPolicyRuleDetailRaw(
 	out io.Writer, report tobari.PolicyRuleReport, selected int, message string, previousLines int,
+	style bool,
 ) int {
 	rule := report.Items[selected]
 	lines := []string{
-		selectorTitle("Tobari · Policy decisions"),
+		selectorTitle(style, "Tobari · Policy decisions"),
 		"",
-		applyColorToken(true, colorTokenAccent, fmt.Sprintf("Decision %d of %d", selected+1, len(report.Items))),
+		applyStyleToken(style, styleAccent, fmt.Sprintf("Decision %d of %d", selected+1, len(report.Items))),
 		"",
-		selectorDetail("Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
-		selectorDetail("Scope", "Current Context only", colorTokenMuted),
-		selectorDetail("Request", policyRuleRequest(rule), colorTokenAccent),
-		selectorDetail("Match", safeExternalText(rule.Match), colorTokenMuted),
-		selectorDetail("Rule ID", rule.ID, colorTokenAccent),
-		selectorDetail("Sources", strings.Join(rule.SourceCandidates, ", "), colorTokenMuted),
+		selectorDetail(style, "Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
+		selectorDetail(style, "Scope", "Current Context only", styleMuted),
+		selectorDetail(style, "Request", policyRuleRequest(rule), styleText),
+		selectorDetail(style, "Match", safeExternalText(rule.Match), styleText),
+		selectorDetail(style, "Rule ID", rule.ID, styleText),
+		selectorDetail(style, "Sources", strings.Join(rule.SourceCandidates, ", "), styleMuted),
 		"",
-		selectorHelp("Reset returns this exact effect to default deny."),
+		selectorHelp(style, "Reset returns this exact effect to default deny."),
 		"",
 		selectorActions(
-			colorAction("[r] Reset", colorTokenWarning),
-			colorAction("[q] Back", colorTokenMuted),
+			styleAction(style, "[r] Reset", styleAccent),
+			styleAction(style, "[q] Back", styleMuted),
 		),
 	}
 	if message == "" {
 		lines = append(lines, "")
 	} else {
-		lines = append(lines, applyColorToken(true, colorTokenWarning, "! "+message))
+		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
 	}
 	return renderPolicyReviewScreen(out, lines, previousLines)
 }
 
 func renderPolicyRuleDetailRawWithMessage(
 	out io.Writer, rule tobari.PolicyRule, message string, previousLines int,
+	style bool,
 ) int {
 	lines := []string{
-		selectorTitle("Tobari · Policy decisions"),
+		selectorTitle(style, "Tobari · Policy decisions"),
 		"",
-		applyColorToken(true, colorTokenWarning, "Decision reset confirmation"),
+		applyStyleToken(style, styleWarning, "Decision reset confirmation"),
 		"",
-		selectorDetail("Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
-		selectorDetail("Request", policyRuleRequest(rule), colorTokenAccent),
-		selectorDetail("Rule ID", rule.ID, colorTokenAccent),
+		selectorDetail(style, "Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
+		selectorDetail(style, "Request", policyRuleRequest(rule), styleText),
+		selectorDetail(style, "Rule ID", rule.ID, styleText),
 		"",
-		selectorHelp("Reset returns this exact effect to default deny."),
+		selectorHelp(style, "Reset returns this exact effect to default deny."),
 		"",
-		applyColorToken(true, colorTokenWarning, "! "+message),
+		applyStyleToken(style, styleWarning, "! "+message),
 	}
 	return renderPolicyReviewScreen(out, lines, previousLines)
 }
@@ -454,9 +463,9 @@ func policyRuleRequest(rule tobari.PolicyRule) string {
 	)
 }
 
-func policyRuleDecisionToken(decision string) colorToken {
+func policyRuleDecisionToken(decision string) styleToken {
 	if decision == tobari.PolicyDecisionDeny {
-		return colorTokenWarning
+		return styleWarning
 	}
-	return colorTokenSuccess
+	return styleSuccess
 }
