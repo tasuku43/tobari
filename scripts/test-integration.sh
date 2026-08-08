@@ -954,23 +954,37 @@ if [[ $remaining_review == *"$reject_candidate_id"* ]]; then
   fail "denied candidate remained in the review queue"
 fi
 
-pending_before_interactive=$(run_tobari policy review --tail 1000 --format json)
-while IFS= read -r pending_id; do
-  [[ -n $pending_id ]] || continue
-  run_tobari policy deny --id "$pending_id" >/dev/null
-done < <(python3 -c '
-import json
-import sys
-
-for item in json.load(sys.stdin)["policy_review"]:
-    print(item["id"])
-' <<<"$pending_before_interactive")
-
 interactive_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-interactive)
 [[ $interactive_status == 403 ]] || fail "interactive review candidate returned $interactive_status instead of 403"
+interactive_index=
+for _ in $(seq 1 30); do
+  interactive_review=$(run_tobari policy review --tail 1000 --format json)
+  interactive_index=$(python3 -c '
+import json
+import sys
+
+items = json.load(sys.stdin)["policy_review"]
+print(next((index for index, item in enumerate(items, 1) if item["path"] == "/review-interactive"), ""))
+' <<<"$interactive_review")
+  [[ -n $interactive_index ]] && break
+  sleep 0.2
+done
+[[ -n $interactive_index ]] || fail "interactive review candidate did not reach the review queue"
+interactive_events=$(python3 -c '
+import json
+import sys
+
+index = sys.argv[1]
+print(json.dumps([
+    {"after_ms": 5000, "data": index},
+    {"after_ms": 750, "data": "d"},
+    {"after_ms": 750, "data": "y"},
+    {"after_ms": 750, "data": "q"},
+]))
+' "$interactive_index")
 if ! interactive_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
-  TOBARI_TEST_PTY_EVENTS='[{"after_ms":5000,"data":"1"},{"after_ms":750,"data":"d"},{"after_ms":750,"data":"y"},{"after_ms":750,"data":"q"}]' \
+  TOBARI_TEST_PTY_EVENTS="$interactive_events" \
   run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1); then
   printf '%s\n' "$interactive_output" >&2
   fail "interactive policy review PTY session failed"
