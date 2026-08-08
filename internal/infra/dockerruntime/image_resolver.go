@@ -2,7 +2,7 @@ package dockerruntime
 
 import "context"
 
-type gatewayImageSelection struct {
+type sharedImageSelection struct {
 	Image         string
 	RequireDigest bool
 }
@@ -10,7 +10,8 @@ type gatewayImageSelection struct {
 type imageResolver interface {
 	DefaultRuntimeImage() string
 	ShouldPullRuntimeImage(string) bool
-	GatewayImage(context.Context, *Runtime) (gatewayImageSelection, error)
+	GatewayImage(context.Context, *Runtime) (sharedImageSelection, error)
+	AuthBrokerImage(context.Context, *Runtime) (sharedImageSelection, error)
 }
 
 func (r *Runtime) imageResolver() imageResolver {

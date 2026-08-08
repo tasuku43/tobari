@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "id": "github",
+  "display_name": "GitHub.com",
+  "acquisition": {
+    "mode": "builtin_helper",
+    "helper": "github-gh"
+  },
+  "credential": {
+    "kind": "primary_secret"
+  },
+  "workspace_projections": [
+    {
+      "kind": "env",
+      "name": "GH_TOKEN",
+      "template": "${HANDLE}"
+    },
+    {
+      "kind": "env",
+      "name": "GH_HOST",
+      "template": "github.com"
+    }
+  ],
+  "header_bindings": [
+    {
+      "target": {
+        "scheme": "https",
+        "host": "api.github.com",
+        "port": 443
+      },
+      "source": {
+        "header": "authorization",
+        "formats": [
+          "bearer",
+          "token"
+        ]
+      },
+      "destination": {
+        "header": "authorization",
+        "format": "preserve_scheme",
+        "secret_field": "primary_secret"
+      },
+      "secret_headers": [
+        "authorization"
+      ]
+    }
+  ]
+}

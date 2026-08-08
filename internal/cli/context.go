@@ -238,7 +238,7 @@ func renderContextReport(result tobari.ContextReport, format successFormat, colo
 		return nil, fault.Wrap(fault.KindContract, "invalid_context_report", "Context report is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(contextReportDocument{SchemaVersion: 3, Context: result})
+		output, err := json.Marshal(contextReportDocument{SchemaVersion: 4, Context: result})
 		if err != nil {
 			return nil, err
 		}
@@ -258,6 +258,18 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	writeStyledLine(&output, color, "Image:", safeExternalText(result.Image), styleText)
 	writeStyledLine(&output, color, "Agent profile:", safeExternalText(result.AgentProfile), styleText)
 	writeStyledLine(&output, color, "Policy mode:", string(result.PolicyMode), styleText)
+	if result.Task == tobari.TaskContextShow {
+		writeStyledLine(&output, color, "Auth Broker:", result.Authentication.BrokerState, humanStatusToken(result.Authentication.BrokerState))
+		writeStyledLine(&output, color, "Authentication scope:", "Context-wide eligibility; each permanently bound project receives a distinct handle on its next Workspace entry.", styleText)
+		for _, provider := range result.Authentication.Providers {
+			value := provider.State
+			if provider.AccountLabel != nil {
+				value += " (account " + safeExternalText(*provider.AccountLabel) + ")"
+			}
+			writeStyledLine(&output, color, "Auth provider "+safeExternalText(provider.Provider)+":", value, humanStatusToken(provider.State))
+		}
+		writeStyledLine(&output, color, "Next:", "run `tobari auth status --context "+safeExternalText(result.Name)+"` for activation guidance.", styleText)
+	}
 	if result.Task == tobari.TaskContextUse {
 		writeStyledLine(&output, color, "Cluster:", string(result.Cluster), humanStatusToken(string(result.Cluster)))
 	}

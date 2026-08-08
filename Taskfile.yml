@@ -16,7 +16,7 @@ tasks:
       - ./scripts/build-dev-images.sh
       - mkdir -p bin
       - go build -tags=tobari_dev -buildvcs=false -trimpath -o bin/tobari-dev ./cmd/tobari
-      - 'printf "Built %s using local images tobari-gateway:dev and tobari-runtime:dev\nRun it directly, or install it with: install -m 0755 bin/tobari-dev ~/.local/bin/tobari-dev\n" bin/tobari-dev'
+      - 'printf "Built %s using local images tobari-auth-broker:dev, tobari-gateway:dev, and tobari-runtime:dev\nRun it directly, or install it with: install -m 0755 bin/tobari-dev ~/.local/bin/tobari-dev\n" bin/tobari-dev'
 
   test:
     desc: Run the Go test suite.
@@ -53,8 +53,28 @@ tasks:
     cmds:
       - ./scripts/sync-gateway-source.sh
 
+  authbroker:test:
+    desc: Test the Auth Broker in the pinned Python base image.
+    cmds:
+      - ./scripts/check.sh authbroker
+
+  authbroker:image:check:
+    desc: Verify the Auth Broker image source contract.
+    cmds:
+      - ./scripts/check-authbroker-image.sh
+
+  authbroker:source:check:
+    desc: Verify the embedded Auth Broker snapshot matches the canonical source.
+    cmds:
+      - ./scripts/check-authbroker-source.sh
+
+  authbroker:source:sync:
+    desc: Synchronize the canonical Auth Broker source into the embedded snapshot.
+    cmds:
+      - ./scripts/sync-authbroker-source.sh
+
   integration:test:
-    desc: Run the real three-container network, TLS, policy, credential, and lifecycle tests.
+    desc: Run the real four-container network, TLS, policy, credential, and lifecycle tests.
     cmds:
       - ./scripts/check.sh integration
 
@@ -94,7 +114,7 @@ tasks:
       - ./scripts/build-runtime-codex.sh
 
   runtime:test:
-    desc: Run all container runtime tests.
+    desc: Run policy, Gateway, Auth Broker, and four-container integration tests.
     cmds:
       - ./scripts/check.sh runtime
 

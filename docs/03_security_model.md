@@ -7,11 +7,14 @@ catalog and operational limits are in [Threat Model](THREAT_MODEL.md).
 
 Tobari makes bounded autonomous work practical: untrusted Tobari processes may
 freely execute and may modify their explicitly mounted root, but they cannot
-access other host files, another Tobari, Docker control, host authentication
-state, OPA administration, or direct Internet egress through the supported
-configuration. Tool-owned credentials may exist inside one Tobari's exact home
-by explicit user action. Every supported HTTP/HTTPS request is normalized,
-authorized by OPA, and enforced by the shared Gateway before forwarding.
+access other host files, another Tobari, Docker control, real host-managed
+credentials, OPA administration, or direct Internet egress through the
+supported configuration. Tool-owned credentials may exist inside one Tobari's
+exact home by explicit user action. A brokered Workspace receives only an
+opaque project-bound handle; its Context secret remains in an authenticated
+encrypted vault and is resolved by trusted infrastructure after OPA allow.
+Every supported HTTP/HTTPS request is normalized, authorized by OPA, and
+enforced by the shared Gateway before forwarding.
 
 Adoption is part of this security objective. A boundary that is too difficult
 to create or customize will be bypassed by running the agent on the host. The
@@ -21,30 +24,37 @@ growth easier than manually operating Docker, OPA, or host policy files.
 
 ## Trust boundaries
 
-Trusted components are the host OS, Docker Engine or its Linux VM, Tobari CLI,
-Gateway, OPA, Rego policy, and reserved host credential storage used only by
-the managed adapter. Tobari, every process in
-it, coding agents, generated code, downloaded packages, request data, and
-upstream responses are untrusted.
+Trusted components are the host OS and user, Docker Engine or its Linux VM,
+Tobari CLI, Gateway, OPA, Rego policy, Auth Broker, host root-key provider,
+owner-controlled XDG provider manifests, encrypted Context vaults, and reserved
+host credential storage used by the managed adapter. Every Workspace and
+process in it, coding agents, project files, Workspace home, copied opaque
+handles, generated code, downloaded packages, request data, upstream responses,
+and user/provider text displayed by CLIs are untrusted.
 
 ```text
 host root A (rw) ---> Tobari A --+
                                   +--explicit proxy--> Gateway --OPA--> upstream
 host root B (rw) ---> Tobari B --+                       |
-                no cross-route                           +-- redacted policy data
-                                                          +-- optional managed adapter inputs (ro)
+                no cross-route                           +-- post-allow runtime socket
+                                                                  |
+host CLI --fixed control exec/stdin--> locked Auth Broker --encrypted Context vaults
 ```
 
 Each Tobari joins only its dedicated internal network. OPA joins only an
 internal control network. Gateway has separate interfaces for every Tobari
-proxy network, control, and egress.
+proxy network, control, and egress. Auth Broker joins control and egress but
+has no TCP listener and never joins a Tobari network. Only Gateway mounts its
+runtime Unix socket; host control uses a separate socket through fixed
+in-container operations.
 
 ## Assets
 
 - Host files outside the selected root.
 - Docker Engine and socket.
-- Tool-owned authentication state inside a Tobari home, plus the reserved host
-  authentication material used by the managed adapter.
+- Tool-owned authentication state and broker handles inside a Tobari home or
+  environment, plus real brokered credentials in encrypted Context vaults,
+  the installation root key, and reserved managed-adapter material.
 - OPA policy, decision API, and Gateway management surface.
 - Denial of direct Internet connectivity.
 - Integrity of request normalization, policy decisions, and audit records.
@@ -60,6 +70,17 @@ same-Tobari process interference, and malware detection are outside the MVP
 guarantee. Mutable learned permissions are bound to the host-issued project
 principal described below. A tool credential is intentionally available to all
 processes in the same Tobari and may be sent to any policy-allowed destination.
+A broker handle is also readable by every same-Workspace process, but it is
+usable only with its exact trusted Context/project/provider/revision/HTTP
+binding and an OPA allow. That does not protect against a malicious process in
+the same Workspace exercising an already allowed brokered capability.
+
+The Linux owner-only XDG root-key file does not protect against compromise of
+the host user or complete XDG state tree. It separates the key from encrypted
+vault files, keeps the primary secret out of Workspaces, and provides a future
+migration point. macOS Keychain provides stronger at-rest separation, but a
+compromised trusted host, Tobari CLI, Docker Engine, Gateway, Auth Broker, or
+root-key provider can still exercise or recover the credential.
 
 ## Resource and process boundary
 
@@ -71,10 +92,10 @@ specification;
 the desired resource contract is part of the spec hash, so drift or an older
 unbounded container is recreated before reuse. These bounds do not provide a
 quota for the explicitly mounted project root or shape network bandwidth.
-The shared Gateway and OPA services use fixed JSON-file log rotation of 10 MiB
+The shared Gateway, OPA, and Auth Broker services use fixed JSON-file log rotation of 10 MiB
 per file and three files, plus fixed CPU, memory-plus-swap, and PID ceilings.
 Those ceilings bound shared-service exhaustion but do not provide per-project
-fairness inside one shared Gateway or OPA.
+fairness inside one shared Gateway, OPA, or Auth Broker.
 Tobari uses a non-root work user mapped to the invoking UID/GID where Docker
 supports it.
 Only the selected root and that Tobari's exact XDG-owned home directory are
@@ -110,8 +131,9 @@ The current Context's runtime recipe is a trusted-host build input. Explicit
 uncustomized Context; `runtime build` may obtain the declared base image only
 because the user explicitly requested a host build. Docker receives the
 owner-only Context `runtime/` directory as its complete build context; policy
-files, credential metadata and secret files, the host home, Docker sockets, and
-Workspace mounts are outside it. The generated image must pass the same
+files, provider manifests, credential metadata, encrypted vaults, root keys,
+secret files, the host home, Docker sockets, and Workspace mounts are outside
+it. The generated image must pass the same
 compatibility inspection before its reference is promoted into the Context.
 Editing the recipe or a failed build cannot replace the last selected image.
 After promotion succeeds, only Workspaces permanently bound to that Context
@@ -180,6 +202,18 @@ read-only into each Tobari. Gateway opens no root entrypoint and receives no
 added capability. Host credential files remain owner-only read-only binds, and
 Docker Desktop-specific behavior is outside the current macOS release contract.
 
+Auth Broker image code is likewise root-owned and read-only, with a fixed
+non-root default user, entrypoint, API/role labels, dropped capabilities,
+read-only root, and no host UID baked into the image. After the first
+publication, routine startup uses only the reviewed immutable
+multi-architecture digest. While `AUTH_BROKER_IMAGE=unpublished`, the official
+resolver fails before Docker mutation and only the explicit contributor dev
+image path is usable. The writable Context-vault
+mount, Gateway-visible runtime-socket mount, private control/login tmpfs, and
+provider projection are distinct paths. The image contains pinned GitHub CLI
+artifacts and reviewed license material but no credential, configuration,
+handle, root key, or vault.
+
 All resources carry `io.tobari.owner=default`; per-Tobari resources also carry
 the exact stable Tobari ID and a resource role. Destructive lifecycle code
 resolves the nearest canonical CWD root, selects exact stored names, and
@@ -187,6 +221,10 @@ confirms owner, ID, and role labels before removal. `delete` removes that
 instance's persistent XDG home and records after the session-attachment guard;
 `--force` explicitly overrides an attached-session warning.
 Shared cluster removal is rejected while any Tobari record remains.
+Both `cluster down` and `cluster down --purge` preserve encrypted Context vaults
+and the installation root key. Purge removes only the shared CA volumes in
+addition to transient cluster resources; it is not credential deletion or
+revocation.
 
 No Context directory is mounted wholesale into OPA or a Workspace. OPA sees
 only one read-only content-addressed projection generated from every Context
@@ -198,19 +236,29 @@ rewrite source or projection.
 
 ## HTTP authorization boundary
 
-Gateway constructs body-free OPA input schema `4` in mitmproxy's request-header
+Gateway constructs body-free OPA input schema `5` in mitmproxy's request-header
 hook. It includes the host-issued Context/project principal, a structured request
 authority, method, path and path segments, multi-valued query, redacted headers,
 and an authorization object containing an adapter-dependent requested
-credential profile. Both stable IDs are derived from the local Gateway
+credential profile plus a non-secret broker provider ID when a handle has been
+successfully introspected. Both stable IDs are derived from the local Gateway
 interface address and an owner-only host registry. Caller headers, environment,
 URLs, session metadata, profile names, and supplied Context/project IDs are not
 authorization inputs. Missing, unknown, stale, ambiguous, or mismatched Context
 bindings deny before OPA and upstream I/O.
+Current Context Rego sources target input schema 4. Aggregate generation accepts
+legacy source schema 3 only for compatibility and rewrites both supported
+source versions to the runtime schema-5 document; other input shapes fail
+before policy activation.
 
-Secret header values and request/response body content are absent from both OPA
-input and logs. Gateway enables request streaming only after principal,
-credential binding, OPA decision, and credential application succeed. It
+Secret header values, handles, credential revisions, queries, headers, and
+request/response body content are absent from denial audit. Audit retains the
+path component, but replaces the whole path with
+`/[redacted-auth-handle]` when it contains a Tobari handle marker. Structural
+URL/header handle rejections are non-learnable and cannot enter policy
+candidate discovery. Gateway enables request
+streaming only after principal, credential binding or non-secret handle
+introspection, OPA decision, and credential application succeed. It
 enables response streaming only for a flow that carries authorized-upstream
 audit state. A local denial therefore cannot become an upstream request.
 Mitmproxy retains an 8 MiB `body_size_limit`; a request or response with a known
@@ -276,14 +324,75 @@ exactly match the established principal and normalized host. Gateway checks
 the Context/project binding before OPA and repeats it before reading the secret. The
 value is never returned to Tobari, OPA, CLI output, errors, or audit logs.
 
-OAuth, refresh tokens, provider SDKs, OS keychains, request signing, and
-process-level identity are not used. The optional `session` value remains
-caller metadata, not authentication. Gateway performs project- and host-bound
- post-authorization handling inside the trusted infrastructure boundary. The
- selected policy belongs to the trusted Context principal; learned-rule and
- managed-secret namespaces remain Context- and project-bound. A missing,
-malformed, ambiguous, or stale principal registry entry denies before OPA and
-upstream I/O.
+The Auth Broker route stores one opaque primary secret per Context/provider in
+`auth/contexts/<context-id>/vault.enc`. Schema-1 vaults use AES-256-GCM with a
+random 12-byte nonce and associated data binding schema plus stable Context ID.
+All parent directories, files, ownership, modes, and symlink status are checked
+before use; updates use a durable atomic replace. The broker starts locked and
+retains the 32-byte installation root key only in memory. macOS stores that key
+in Keychain service `io.tobari.auth-root.v1`, account `tobari`; Linux stores it
+as owner-only XDG state `auth/keys/root.key`. A missing key alongside a vault is
+never replaced automatically.
+Public auth results name the Linux backend `xdg_file`, while macOS uses
+`macos_keychain`; cluster status may additionally report `unavailable`.
+`linux_xdg_file` is an infrastructure/doctor diagnostic label, not a public
+auth or cluster JSON value. The complete compatibility table is in
+[Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
+
+The daemon exposes strict 64 KiB schema-1 NDJSON over separate control and
+runtime Unix sockets. Key and import bytes enter through bounded stdin after a
+declared length; they never use argv or environment. The live handle index is
+SHA-256-only. Raw handles persist only inside authenticated ciphertext and bind
+the Context, project, provider, credential revision, exact HTTPS target, source
+header/syntax, destination transformation, and redaction headers. Login,
+replacement, and logout atomically revoke all old handles for that
+Context/provider.
+
+Gateway recognizes exactly one handle position from the owner-only normalized
+provider projection. It rejects URL, cookie, header-name, unsupported-value,
+and ambiguous header occurrences, removes the declared placeholder header,
+and performs non-secret introspection. OPA sees only the provider ID. Denial makes
+zero resolve calls. Allow permits exactly one same-revision resolve and one
+declared header replacement. A copied, malformed, stale, revoked, ambiguous,
+or mismatched handle returns secret-free HTTP 403
+`credential_handle_invalid`; a locked, unavailable, timed-out, or invalid
+broker returns HTTP 503 `credential_broker_unavailable`. Neither failure falls
+back to forwarding the handle. More precisely, configured passthrough or
+managed fallback is selected only when no Tobari broker-handle marker occurs in
+any inspected URL/header position. Every Tobari-looking marker that is
+malformed, misplaced, ambiguous, or binding-mismatched fails as
+`credential_handle_invalid`; it is never forwarded and never falls back.
+
+The request body is opaque, streamed data and is never a credential source or
+replacement surface. Tobari deliberately does not search arbitrary body bytes.
+Because a Workspace can read its own handle, a malicious Workspace can include
+those bytes as ordinary payload when the surrounding L7 effect is allowed;
+this grants no broker authority but is outside Tobari's payload-exfiltration
+guarantee. The real primary secret remains unavailable to that Workspace.
+
+Provider manifests contain no secrets or executable paths. The strict schema-1
+contract accepts only bounded handle templates and exact HTTPS/header
+transformations, rejects target and projection collisions, and prohibits user
+manifests from overriding built-ins or selecting a helper. The built-in
+`github` provider alone may run the pinned GitHub CLI in an ephemeral private
+tmpfs to acquire a GitHub.com token and bounded account label. Ambient GitHub
+credential variables are removed. User providers use protected non-terminal
+stdin import only. A terminal stream is refused before reading. Non-terminal
+bytes are read after public Context/provider argument, intent, and mutation
+validation; infrastructure validates the selected existing Context, installed
+provider/acquisition mode, and broker readiness before sending the credential
+to the broker. Provider collections with overlapping exact
+scheme/host/port/source-header/source-format recognition fail completely as
+`ambiguous_provider_http_binding`; no partial projection becomes active.
+
+Arbitrary OAuth orchestration, token refresh, multiple provider accounts per
+Context, provider SDK operations, remote logout/revocation, Git credential
+helpers, GitHub App tokens, AWS SigV4, request signing, and process-level
+identity are not implemented. The optional `session` value remains caller
+metadata, not authentication. Gateway performs all selected credential
+handling inside the trusted infrastructure boundary. A missing, malformed,
+ambiguous, or stale principal registry entry denies before broker resolution,
+OPA authorization, and upstream I/O.
 
 ## Mutation policy
 
@@ -323,13 +432,38 @@ guard. Runtime image reconciliation validates the bound Context image before
 mutating Docker resources and preserves the selected XDG home; deletion affects
 only the selected XDG home and exact owned resources. Shared
 CA purge remains separate
-and only follows an empty instance repository.
+and only follows an empty instance repository. It removes the shared CA
+volumes, not encrypted Context vaults or the installation root key.
 
 `context use` is also a trusted-host fixed-target write. It may select only an
 existing validated Context and atomically changes only the current/default
 marker. It does not touch Docker, the aggregate projection, an existing Tobari,
 or any enforcement authority. `context create` likewise does not start Docker;
 an explicit `cluster up` validates and activates the new all-Context candidate.
+`auth login`, `auth import`, and `auth logout` are trusted-host fixed-target
+writes against the installation credential catalog. They resolve one existing
+explicit or current Context and one installed provider before acquisition or
+vault I/O. Login uses only the reviewed built-in helper; import reads one
+bounded secret from non-terminal stdin only under the ordering above. One
+credential belongs to one Context/provider, and every permanently bound project
+is eligible for a distinct handle only on its next matching Workspace entry.
+Replacement and logout atomically revoke prior handles. No auth mutation
+rewrites a running Workspace process, calls policy, grants a network permission,
+or makes logout a claim of remote provider revocation. Confirmed output
+therefore requires Workspace re-entry. Logout's next entry omits the environment
+projection and deletes only unchanged Tobari-owned complete files. The
+non-retryable `auth_mutation_outcome_unknown`,
+`unclassified_mutation_outcome`, and `mutation_output_write_failed` faults all
+require `auth status` reconciliation before another auth mutation; none permits
+replay.
+
+`doctor` is a read-only recovery observation. It reports the full diagnostic
+set and fails with `diagnostic_failed` when any check fails; warnings alone are
+healthy. Authentication checks validate provider manifests, vault path safety,
+the fixed root-key backend without creating a key, broker state, vault
+integrity, and project binding consistency when the broker is ready. Doctor
+does not start/reconcile/unlock services, create or replace a key, repair a
+manifest, or mutate vault, credential, handle, or project-auth state.
 `policy allow`, `policy deny`, `policy reset`, and `policy compact` are
 access-changing writes bound to opaque references. Discovery never mutates. An
 allow reference identifies one retained validated denial that OPA marked
@@ -367,12 +501,28 @@ attempt. It does not retry requests because arbitrary HTTP methods and bodies
 may be unsafe or non-idempotent. Redirect handling remains in the proxy flow and
 each resulting request is independently authorized.
 
+Gateway applies a finite broker-socket timeout and performs at most one
+introspection plus one post-allow resolution. It never retries or resolves on
+deny. The built-in GitHub acquisition helper runs one interactive `gh auth
+login` followed by one bounded account-status capture and one token capture in
+an ephemeral configuration directory. It performs no pagination or automatic
+retry; user cancellation or any failed capture preserves the previous Context
+credential. Tobari does not parse provider endpoints or redirect responses
+itself, and automated tests make no live provider call.
+
 ## Logging
 
 Audit JSON includes timestamp, request ID, cluster, stable Context ID and name,
-project ID, safe project root, host, port, method, path, decision, reason, selected credential profile name, upstream
-status, and duration. A
-profile name is non-secret metadata; secret values and raw bodies are excluded.
+project ID, safe project root, host, port, method, redacted path, decision,
+reason, selected credential profile name, upstream status, and duration. It
+emits no query or headers. Ordinarily the redacted path is the URL path
+component; if that component contains a Tobari handle marker, the whole value is
+`/[redacted-auth-handle]`. A profile name is non-secret metadata; secret values
+and raw bodies are excluded. URL/header handle-structure failures remain
+non-learnable and cannot become policy candidates.
+For brokered requests, the provider ID may be retained as non-secret adapter
+metadata, while the handle, credential revision, vault data, and resolved
+primary secret are excluded.
 CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
 and preserves only non-secret credential-profile names. Read-only policy
@@ -396,7 +546,15 @@ reference-bound mutation.
 | Tobari cannot access OPA or peers | Separate internal networks and integration test |
 | OPA outage denies | Gateway unit and integration tests |
 | Host-managed secrets stay outside Tobari; tool-owned state stays in its home | Mount-spec tests and integration canaries |
-| Secret headers and bodies stay out of logs | Gateway unit tests and log scans |
+| Brokered primary secrets stay outside every Workspace and OPA | Socket/mount topology tests, encrypted-vault tests, Gateway canaries, and integration log/output scans |
+| Broker handles cannot cross Context, project, provider, revision, or HTTP binding | Broker introspect/resolve negative tests, principal-derived Gateway calls, rotation/logout tests, and cross-Workspace integration |
+| Policy denial cannot resolve a brokered secret | Gateway call-count and ordering tests proving zero resolve calls before or on deny and exactly one after allow |
+| The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
+| Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
+| Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
+| Broker fallback cannot accept a Tobari-looking handle | Marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
+| Cluster cleanup preserves authentication authority until explicit logout | Down/purge tests proving vault and root-key preservation plus exact logout/revocation tests |
+| Doctor observes but never repairs authentication state | Recording-runner and filesystem canaries for provider, root-key, vault, broker, and project-binding diagnostics |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Attached sessions are not removed accidentally | Exact work-container Exec ID observation, guard-before-delete tests, and explicit force-override tests |
 | Each root and XDG home are its Tobari's only host write scopes | Mount-spec and path-containment tests |
@@ -432,6 +590,11 @@ credentials and `example.com` identities only. Publication still requires
 `task security` and `task public:check`; neither replaces a human history and
 confidentiality review. The canonical Gateway source is the public `gateway/`
 tree; its embedded snapshot and published image are checked against that
-source. GHCR moving tags are development conveniences, not a trusted runtime
-identity; routine consumption uses the reviewed immutable digest recorded in
-`versions.env`.
+source. The canonical Auth Broker source is the public `authbroker/` tree; its
+embedded snapshot, pinned GitHub CLI 2.96.0 archives, checksums, MIT license,
+third-party notice, and published multi-architecture image are checked against
+that source. Pull-request image jobs have no package-write permission. GHCR
+moving tags are development conveniences, not a trusted runtime identity;
+routine Gateway consumption and post-publication Auth Broker consumption use
+reviewed immutable digests recorded in `versions.env`. The pre-publication
+`unpublished` marker is a fail-closed bootstrap state, not an image reference.

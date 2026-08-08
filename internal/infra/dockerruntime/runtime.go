@@ -22,6 +22,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
+	"github.com/tasuku43/tobari/internal/infra/terminal"
 )
 
 const (
@@ -33,10 +34,17 @@ const (
 	defaultLogTail           = 200
 	gatewayContainer         = "tobari-gateway"
 	opaContainer             = "tobari-opa"
+	authBrokerContainer      = "tobari-auth-broker"
 	policyTestFailureMessage = "OPA policy tests failed; check Rego syntax and ensure the XDG policy directory is accessible to the Docker Engine VM"
 )
 
-var clusterContainers = map[string]string{"gateway": gatewayContainer, "opa": opaContainer}
+var clusterContainers = map[string]string{
+	"auth-broker": authBrokerContainer,
+	"gateway":     gatewayContainer,
+	"opa":         opaContainer,
+}
+
+var clusterComponentOrder = []string{"auth-broker", "gateway", "opa"}
 
 var errOwnedResourceMissing = errors.New("owned Docker resource is missing")
 
@@ -295,12 +303,7 @@ func (r *Runtime) IsInputTerminal(reader io.Reader) bool {
 }
 
 func isTerminalFile(value interface{}) bool {
-	file, ok := value.(*os.File)
-	if !ok {
-		return false
-	}
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return terminal.IsTerminal(value)
 }
 
 // ResolveImageSelector applies explicit CLI input before the XDG default.
@@ -371,13 +374,14 @@ func (r *Runtime) configuredDefaultImage() (string, error) {
 	return document.DefaultImage, nil
 }
 
-// ClusterUp materializes assets and reconciles shared Gateway and OPA.
+// ClusterUp materializes assets and reconciles the shared Gateway, OPA, and
+// Auth Broker.
 func (r *Runtime) ClusterUp(ctx context.Context) (tobari.State, error) {
 	return r.ClusterUpWithProgress(ctx, nil)
 }
 
-// ClusterUpWithProgress materializes assets and reconciles shared Gateway and
-// OPA while emitting only fixed, secret-free lifecycle signals.
+// ClusterUpWithProgress materializes assets and reconciles the shared Gateway,
+// OPA, and Auth Broker while emitting only fixed, secret-free lifecycle signals.
 func (r *Runtime) ClusterUpWithProgress(
 	ctx context.Context, progress tobari.ClusterUpProgressSink,
 ) (tobari.State, error) {
@@ -400,6 +404,22 @@ func (r *Runtime) clusterUpWithProgressMode(
 		})
 		return tobari.State{}, err
 	}
+	if exists && len(existing.Tobari) != 0 {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+		})
+		return tobari.State{}, fault.New(
+			fault.KindRejected, "legacy_named_state",
+			"the shared state contains legacy named Tobari records; remove them with the older binary before continuing", false,
+		)
+	}
+	authBrokerSelection, err := r.selectAuthBrokerImage(ctx)
+	if err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+		})
+		return tobari.State{}, err
+	}
 	state, err := r.prepareState(ctx)
 	if err != nil {
 		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
@@ -408,15 +428,6 @@ func (r *Runtime) clusterUpWithProgressMode(
 		return tobari.State{}, err
 	}
 	if exists {
-		if len(existing.Tobari) != 0 {
-			emitClusterUpProgress(progress, tobari.ClusterUpProgress{
-				Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
-			})
-			return tobari.State{}, fault.New(
-				fault.KindRejected, "legacy_named_state",
-				"the shared state contains legacy named Tobari records; remove them with the older binary before continuing", false,
-			)
-		}
 		state.RecentError = existing.RecentError
 	}
 	recordAttemptError := func(message string) {
@@ -426,6 +437,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 	}
 	activationAttempted := false
 	activationCommitted := false
+	var gatewayImage string
 	defer func() {
 		if !activationAttempted || activationCommitted || !exists || existing.AggregateRevision == state.AggregateRevision {
 			return
@@ -436,6 +448,12 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if environmentErr != nil {
 			return
 		}
+		rollbackEnvironment = replaceEnvironmentValue(
+			rollbackEnvironment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image,
+		)
+		rollbackEnvironment = replaceEnvironmentValue(
+			rollbackEnvironment, "TOBARI_GATEWAY_IMAGE", gatewayImage,
+		)
 		_ = r.runner.Run(
 			rollbackContext,
 			[]string{"compose", "--project-directory", existing.RuntimeDirectory,
@@ -445,7 +463,6 @@ func (r *Runtime) clusterUpWithProgressMode(
 		)
 	}()
 	var environment []string
-	var gatewayImage string
 	environment, err = r.composeEnvironment(state)
 	if err != nil {
 		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
@@ -453,6 +470,13 @@ func (r *Runtime) clusterUpWithProgressMode(
 		})
 		return tobari.State{}, err
 	}
+	if err = r.verifyAuthBrokerImage(ctx, authBrokerSelection.Image, authBrokerSelection.RequireDigest); err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+		})
+		return tobari.State{}, err
+	}
+	environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image)
 	gatewayImage, err = r.prepareGatewayImage(ctx)
 	if err != nil {
 		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
@@ -504,6 +528,10 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if err != nil {
 			recordAttemptError("Cluster startup did not complete; inspect component logs.")
 			return fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
+		}
+		if err := r.unlockAuthBroker(ctx); err != nil {
+			recordAttemptError("Auth Broker did not unlock; inspect root-key and broker state.")
+			return err
 		}
 		return nil
 	}); err != nil {
@@ -596,7 +624,7 @@ func (r *Runtime) waitForClusterReady(
 	for attempt := 0; attempt < attempts; attempt++ {
 		ready := true
 		statuses := make([]tobari.ComponentStatus, 0, len(clusterContainers))
-		for _, name := range []string{"gateway", "opa"} {
+		for _, name := range clusterComponentOrder {
 			component, err := r.inspectContainer(ctx, name, clusterContainers[name])
 			if err != nil {
 				return err
@@ -605,6 +633,9 @@ func (r *Runtime) waitForClusterReady(
 			if component.State != "running" || component.Health != "healthy" {
 				ready = false
 			}
+		}
+		if brokerState, err := r.brokerState(ctx); err != nil || brokerState != "ready" {
+			ready = false
 		}
 		if ready {
 			return nil
@@ -693,6 +724,9 @@ func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 		if err := r.ensurePrivateDirectory(path); err != nil {
 			return tobari.State{}, fmt.Errorf("prepare %s directory: %w", name, err)
 		}
+	}
+	if _, err := r.prepareAuthProjection(); err != nil {
+		return tobari.State{}, fmt.Errorf("prepare Auth Broker provider projection: %w", err)
 	}
 	version, err := runtimeassets.Version()
 	if err != nil {
@@ -1143,9 +1177,9 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 	if _, err := r.runner.Output(ctx, []string{"version", "--format", "{{.Server.Version}}"}, os.Environ()); err != nil {
 		return tobari.ClusterStatus{}, fmt.Errorf("Docker Engine is unavailable: %w", err)
 	}
-	components := make([]tobari.ComponentStatus, 0, 2)
+	components := make([]tobari.ComponentStatus, 0, len(clusterComponentOrder))
 	running := true
-	for _, name := range []string{"gateway", "opa"} {
+	for _, name := range clusterComponentOrder {
 		component, err := r.inspectContainer(ctx, name, clusterContainers[name])
 		if err != nil {
 			return tobari.ClusterStatus{}, err
@@ -1162,11 +1196,24 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 	policyIntegrity := r.inspectAggregatePolicyIntegrity(ctx, state)
 	principalIntegrity := r.inspectPrincipalRegistryIntegrity(projects)
 	credentialIntegrity := r.inspectCredentialProjectionIntegrity(state)
+	brokerState, brokerErr := r.brokerState(ctx)
+	if brokerErr != nil {
+		brokerState = "unavailable"
+	}
+	if brokerState != "ready" {
+		running = false
+	}
+	backend := "unavailable"
+	if selected, backendErr := authStorageBackend(); backendErr == nil {
+		backend = string(selected)
+	}
 	return tobari.ClusterStatus{
 		Configured: true, Running: running, Proxy: state.ProxyEndpoint,
 		Policy: state.PolicyDirectory, TobariCount: len(projects), ContextCount: state.ContextCount,
 		PolicyRevision: state.AggregateRevision, PolicyProjection: policyIntegrity,
 		PrincipalRegistry: principalIntegrity, CredentialProjection: credentialIntegrity,
+		AuthProviderProjection: r.inspectAuthProviderProjectionIntegrity(),
+		AuthBrokerState:        string(brokerState), RootKeyBackend: backend,
 		Components: components, RecentError: state.RecentError,
 	}, nil
 }
@@ -1365,7 +1412,7 @@ func (r *Runtime) ClusterLogs(ctx context.Context, state tobari.State, request t
 	}
 	names := []string{request.Component}
 	if request.Component == "all" {
-		names = []string{"gateway", "opa"}
+		names = clusterComponentOrder
 	}
 	var output bytes.Buffer
 	for _, name := range names {
@@ -1600,10 +1647,14 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_CREDENTIAL_CONFIG="+state.CredentialConfig,
 		"TOBARI_CREDENTIAL_DIR="+state.CredentialDir,
 		"TOBARI_PRINCIPAL_DIR="+r.principalRegistryDirectory(),
+		"TOBARI_AUTH_PROVIDER_CONFIG="+r.authProviderProjectionPath(),
+		"TOBARI_AUTH_CONTEXTS_DIR="+r.authContextsDirectory(),
+		"TOBARI_AUTH_RUNTIME_DIR="+r.authRuntimeDirectory(),
 		"TOBARI_ASSET_VERSION="+state.AssetVersion,
 		"TOBARI_UID="+strconv.Itoa(uid), "TOBARI_GID="+strconv.Itoa(gid),
 		"TOBARI_MITMPROXY_IMAGE="+versions["MITMPROXY_IMAGE"],
 		"TOBARI_GATEWAY_IMAGE="+versions["GATEWAY_IMAGE"],
+		"TOBARI_AUTH_BROKER_IMAGE="+versions["AUTH_BROKER_IMAGE"],
 		"TOBARI_OPA_IMAGE="+versions["OPA_IMAGE"],
 		"TOBARI_DEBIAN_IMAGE="+versions["DEBIAN_IMAGE"],
 	)
@@ -1628,7 +1679,7 @@ func (r *Runtime) recordRecentError(state tobari.State, message string) error {
 
 // Doctor reports locally testable prerequisites without repairing them.
 func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error) {
-	checks := make([]doctor.Check, 0, 14)
+	checks := make([]doctor.Check, 0, 20)
 	add := func(name string, status doctor.CheckStatus, detail string) {
 		checks = append(checks, doctor.Check{Name: name, Status: status, Detail: detail})
 	}
@@ -1731,6 +1782,7 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 	} else {
 		add("image_config", doctor.CheckStatusPass, "default image configuration is valid")
 	}
+	r.addAuthDiagnostics(ctx, add)
 	output, err := r.runner.Output(
 		ctx, []string{"ps", "-a", "--filter", "label=" + ownerLabel + "=" + ownerValue, "--format", "{{.Names}}"}, os.Environ(),
 	)

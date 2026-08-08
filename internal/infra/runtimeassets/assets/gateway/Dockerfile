@@ -17,9 +17,10 @@ RUN mkdir -p \
 
 COPY addon/tobari_gateway.py /opt/tobari/tobari_gateway.py
 COPY addon/credential_adapters.py /opt/tobari/credential_adapters.py
+COPY addon/broker_credentials.py /opt/tobari/broker_credentials.py
 COPY entrypoint.sh /opt/tobari/entrypoint.sh
 
-RUN chmod 0444 /opt/tobari/tobari_gateway.py /opt/tobari/credential_adapters.py \
+RUN chmod 0444 /opt/tobari/tobari_gateway.py /opt/tobari/credential_adapters.py /opt/tobari/broker_credentials.py \
     && chmod 0555 /opt/tobari/entrypoint.sh
 
 # Compose supplies the invoking host's numeric non-root identity. This default

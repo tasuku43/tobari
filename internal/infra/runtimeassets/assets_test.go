@@ -62,6 +62,7 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 	for _, required := range []string{
 		"internal: true",
 		"image: ${TOBARI_GATEWAY_IMAGE}",
+		"image: ${TOBARI_AUTH_BROKER_IMAGE}",
 		"user: \"${TOBARI_UID}:${TOBARI_GID}\"",
 		"http://127.0.0.1:8181/health",
 		"http://opa:8181/health",
@@ -71,6 +72,9 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"${TOBARI_POLICY_DIR}:/policy:ro",
 		"${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro",
 		"TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json",
+		"TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json",
+		"TOBARI_AUTH_BROKER_SOCKET: /run/tobari-auth/runtime/broker.sock",
+		"TOBARI_AUTH_BROKER_TIMEOUT_SECONDS: ${TOBARI_AUTH_BROKER_TIMEOUT_SECONDS:-2}",
 	} {
 		if !strings.Contains(spec, required) {
 			t.Errorf("compose spec is missing %q", required)
@@ -104,8 +108,8 @@ func TestComposeSpecCapsSharedServiceLogs(t *testing.T) {
 		"      options:\n" +
 		"        max-size: \"10m\"\n" +
 		"        max-file: \"3\"\n"
-	if count := strings.Count(spec, fragment); count != 2 {
-		t.Fatalf("compose spec has %d fixed shared log blocks, want 2", count)
+	if count := strings.Count(spec, fragment); count != 3 {
+		t.Fatalf("compose spec has %d fixed shared log blocks, want 3", count)
 	}
 }
 
@@ -121,6 +125,10 @@ func TestComposeSpecCapsSharedServiceResources(t *testing.T) {
 	}{
 		{
 			name: "opa",
+			body: "    cpus: \"1.0\"\n    mem_limit: 512m\n    memswap_limit: 512m\n    pids_limit: 128\n",
+		},
+		{
+			name: "auth-broker",
 			body: "    cpus: \"1.0\"\n    mem_limit: 512m\n    memswap_limit: 512m\n    pids_limit: 128\n",
 		},
 		{
@@ -172,15 +180,44 @@ func TestGatewayDockerfileDeclaresStableContractAndHostIndependentRuntime(t *tes
 	}
 }
 
-func TestVersionsAreDigestPinned(t *testing.T) {
+func TestPublishedVersionsAreDigestPinned(t *testing.T) {
 	t.Parallel()
 	versions, err := Versions()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, key := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
-		if value := versions[key]; len(value) < 72 || value[len(value)-71:len(value)-64] != "sha256:" {
+		if value := versions[key]; validateImmutableImageReference(value) != nil {
 			t.Fatalf("%s is not digest pinned: %q", key, value)
+		}
+	}
+}
+
+func TestAuthBrokerVersionUsesExplicitFailClosedBootstrapMarker(t *testing.T) {
+	t.Parallel()
+	versions, err := Versions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := versions["AUTH_BROKER_IMAGE"]; got != UnpublishedAuthBrokerImage {
+		t.Fatalf("AUTH_BROKER_IMAGE = %q, want the explicit pre-publication marker", got)
+	}
+}
+
+func TestImmutableImageReferenceValidation(t *testing.T) {
+	t.Parallel()
+	valid := "registry.example.com/component@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	if err := validateImmutableImageReference(valid); err != nil {
+		t.Fatalf("valid reference rejected: %v", err)
+	}
+	for _, invalid := range []string{
+		"unpublished",
+		"registry.example.com/component:latest",
+		"registry.example.com/component@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		"registry.example.com/component@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdeg",
+	} {
+		if err := validateImmutableImageReference(invalid); err == nil {
+			t.Fatalf("invalid reference accepted: %q", invalid)
 		}
 	}
 }

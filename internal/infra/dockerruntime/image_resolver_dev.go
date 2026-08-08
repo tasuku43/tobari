@@ -5,8 +5,9 @@ package dockerruntime
 import "context"
 
 const (
-	localDevGatewayImage = "tobari-gateway:dev"
-	localDevRuntimeImage = "tobari-runtime:dev"
+	localDevAuthBrokerImage = "tobari-auth-broker:dev"
+	localDevGatewayImage    = "tobari-gateway:dev"
+	localDevRuntimeImage    = "tobari-runtime:dev"
 )
 
 type localDevImageResolver struct{}
@@ -23,6 +24,10 @@ func (localDevImageResolver) ShouldPullRuntimeImage(string) bool {
 	return false
 }
 
-func (localDevImageResolver) GatewayImage(context.Context, *Runtime) (gatewayImageSelection, error) {
-	return gatewayImageSelection{Image: localDevGatewayImage, RequireDigest: false}, nil
+func (localDevImageResolver) GatewayImage(context.Context, *Runtime) (sharedImageSelection, error) {
+	return sharedImageSelection{Image: localDevGatewayImage, RequireDigest: false}, nil
+}
+
+func (localDevImageResolver) AuthBrokerImage(context.Context, *Runtime) (sharedImageSelection, error) {
+	return sharedImageSelection{Image: localDevAuthBrokerImage, RequireDigest: false}, nil
 }

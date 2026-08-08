@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -169,7 +170,11 @@ func (r *Runtime) EnsureProjectRuntime(
 		}
 		desired := stored
 		desired.Image = image
-		specHash, err := r.projectSpecHash(state, desired, profile, network, image, imageID)
+		authProjection, err := r.reconcileProjectAuth(ctx, desired)
+		if err != nil {
+			return err
+		}
+		specHash, err := r.projectSpecHashWithAuth(state, desired, profile, network, image, imageID, authProjection)
 		if err != nil {
 			return err
 		}
@@ -179,7 +184,7 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err := r.ensureGatewayProjectNetwork(ctx, network, stored); err != nil {
 			return err
 		}
-		if err := r.ensureProjectContainer(ctx, state, desired, profile, container, network, image, specHash); err != nil {
+		if err := r.ensureProjectContainerWithAuth(ctx, state, desired, profile, container, network, image, specHash, authProjection); err != nil {
 			return err
 		}
 		containerID, err := r.projectResourceID(ctx, "container", container)
@@ -411,6 +416,9 @@ func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.ProjectInst
 		if err := r.removeProjectInstanceDirectory(stored.ID); err != nil {
 			return err
 		}
+		if err := os.Remove(r.projectAuthRegistryPath(stored.ID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove Workspace authentication file registry: %w", err)
+		}
 		journal.Phase = projectPhaseInstance
 		if err := r.writeProjectJournal(journal); err != nil {
 			return err
@@ -447,6 +455,17 @@ func (r *Runtime) ensureProjectNetwork(ctx context.Context, network, id string) 
 func (r *Runtime) ensureProjectContainer(
 	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
 	profile, container, network, image, specHash string,
+) error {
+	return r.ensureProjectContainerWithAuth(
+		ctx, state, instance, profile, container, network, image, specHash,
+		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}},
+	)
+}
+
+func (r *Runtime) ensureProjectContainerWithAuth(
+	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
+	profile, container, network, image, specHash string,
+	auth projectAuthProjection,
 ) error {
 	workspaceRoot, err := r.projectContainerRoot(instance.Root)
 	if err != nil {
@@ -494,6 +513,7 @@ func (r *Runtime) ensureProjectContainer(
 		"--tmpfs", "/tmp:size=512m,mode=1777", "--tmpfs", "/run:size=16m,mode=1777",
 		"--env", "HOME=/var/lib/tobari",
 		"--env", "TOBARI_INSIDE=1", "--env", "TOBARI_ID=" + instance.ID, "--env", "TOBARI_ROOT=" + workspaceRoot,
+		"--env", "TOBARI_CONTEXT_ID=" + instance.ContextID,
 		"--env", "TOBARI_PROFILE=/opt/tobari/profile",
 		"--env", "HTTP_PROXY=http://gateway:8080", "--env", "HTTPS_PROXY=http://gateway:8080",
 		"--env", "http_proxy=http://gateway:8080", "--env", "https_proxy=http://gateway:8080",
@@ -517,6 +537,9 @@ func (r *Runtime) ensureProjectContainer(
 		"--label", projectIDLabel + "=" + instance.ID,
 		"--label", projectRoleLabel + "=" + projectWorkRole,
 		"--label", projectSpecLabel + "=" + specHash,
+	}
+	for _, environment := range auth.Environment {
+		args = append(args, "--env", environment)
 	}
 	args = append(args, projectResourceDockerArgs()...)
 	args = append(args, image)
@@ -590,6 +613,7 @@ type projectRuntimeSpec struct {
 	Network         string   `json:"network"`
 	User            string   `json:"user"`
 	Environment     []string `json:"environment"`
+	AuthFiles       []string `json:"auth_files"`
 	Mounts          []string `json:"mounts"`
 	ReadOnly        bool     `json:"read_only"`
 	Capabilities    string   `json:"capabilities"`
@@ -604,11 +628,34 @@ type projectRuntimeSpec struct {
 func (r *Runtime) projectSpecHash(
 	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
 ) (string, error) {
-	return r.projectSpecHashWithCommand(state, instance, profile, network, image, imageID, projectLifetimeCommand())
+	return r.projectSpecHashWithAuth(
+		state, instance, profile, network, image, imageID,
+		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}},
+	)
+}
+
+func (r *Runtime) projectSpecHashWithAuth(
+	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	auth projectAuthProjection,
+) (string, error) {
+	return r.projectSpecHashWithAuthAndCommand(
+		state, instance, profile, network, image, imageID, auth, projectLifetimeCommand(),
+	)
 }
 
 func (r *Runtime) projectSpecHashWithCommand(
 	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	command []string,
+) (string, error) {
+	return r.projectSpecHashWithAuthAndCommand(
+		state, instance, profile, network, image, imageID,
+		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}, Providers: []projectAuthProviderBinding{}}, command,
+	)
+}
+
+func (r *Runtime) projectSpecHashWithAuthAndCommand(
+	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	auth projectAuthProjection,
 	command []string,
 ) (string, error) {
 	workspaceRoot, err := r.projectContainerRoot(instance.Root)
@@ -633,6 +680,7 @@ func (r *Runtime) projectSpecHashWithCommand(
 			"NO_PROXY=", "no_proxy=", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
 			"REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
 		},
+		AuthFiles: []string{},
 		Mounts: []string{
 			"bind:" + r.projectHomePath(instance.ID) + "->/var/lib/tobari",
 			"bind:" + instance.Root + "->" + workspaceRoot,
@@ -648,6 +696,12 @@ func (r *Runtime) projectSpecHashWithCommand(
 		LifetimeCommand: append([]string(nil), command...),
 		HealthCommand:   "test -f /tmp/tobari-ready", HealthInterval: "2s", ProfileDigest: profileDigest,
 	}
+	spec.Environment = append(spec.Environment, auth.Environment...)
+	for _, file := range auth.Files {
+		spec.AuthFiles = append(spec.AuthFiles, file.Path+"="+file.Digest)
+	}
+	sort.Strings(spec.Environment)
+	sort.Strings(spec.AuthFiles)
 	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", err

@@ -210,19 +210,22 @@ type ComponentStatus struct {
 
 // ClusterStatus is a task-bound observation of shared enforcement.
 type ClusterStatus struct {
-	Task                 string            `json:"task"`
-	Configured           bool              `json:"configured"`
-	Running              bool              `json:"running"`
-	Proxy                string            `json:"proxy"`
-	Policy               string            `json:"policy"`
-	TobariCount          int               `json:"tobari_count"`
-	ContextCount         int               `json:"context_count"`
-	PolicyRevision       string            `json:"policy_revision"`
-	PolicyProjection     string            `json:"policy_projection"`
-	PrincipalRegistry    string            `json:"principal_registry"`
-	CredentialProjection string            `json:"credential_projection"`
-	Components           []ComponentStatus `json:"components"`
-	RecentError          string            `json:"recent_error"`
+	Task                   string            `json:"task"`
+	Configured             bool              `json:"configured"`
+	Running                bool              `json:"running"`
+	Proxy                  string            `json:"proxy"`
+	Policy                 string            `json:"policy"`
+	TobariCount            int               `json:"tobari_count"`
+	ContextCount           int               `json:"context_count"`
+	PolicyRevision         string            `json:"policy_revision"`
+	PolicyProjection       string            `json:"policy_projection"`
+	PrincipalRegistry      string            `json:"principal_registry"`
+	CredentialProjection   string            `json:"credential_projection"`
+	AuthProviderProjection string            `json:"auth_provider_projection"`
+	AuthBrokerState        string            `json:"auth_broker_state"`
+	RootKeyBackend         string            `json:"root_key_backend"`
+	Components             []ComponentStatus `json:"components"`
+	RecentError            string            `json:"recent_error"`
 }
 
 // Validate binds status to the requested cluster task and scope.
@@ -238,8 +241,18 @@ func (s ClusterStatus) Validate() error {
 	}
 	if !filepath.IsAbs(s.Policy) || s.Proxy == "" || s.TobariCount < 0 || s.ContextCount < 1 ||
 		!regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.PolicyRevision) || s.Components == nil ||
-		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.CredentialProjection == "" {
+		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.CredentialProjection == "" ||
+		s.AuthProviderProjection == "" || s.AuthBrokerState == "" || s.RootKeyBackend == "" {
 		return fmt.Errorf("configured cluster status is incomplete")
+	}
+	if s.AuthBrokerState != "ready" && s.AuthBrokerState != "locked" && s.AuthBrokerState != "unavailable" {
+		return fmt.Errorf("configured cluster Auth Broker state is invalid")
+	}
+	if s.AuthProviderProjection != "valid" && s.AuthProviderProjection != "invalid" {
+		return fmt.Errorf("configured cluster auth provider projection is invalid")
+	}
+	if s.RootKeyBackend != "macos_keychain" && s.RootKeyBackend != "xdg_file" && s.RootKeyBackend != "unavailable" {
+		return fmt.Errorf("configured cluster root-key backend is invalid")
 	}
 	return nil
 }
@@ -334,7 +347,7 @@ type LogRequest struct {
 
 func (r LogRequest) ValidateCluster() error {
 	switch r.Component {
-	case "all", "gateway", "opa":
+	case "all", "auth-broker", "gateway", "opa":
 	default:
 		return fmt.Errorf("cluster log component is invalid")
 	}

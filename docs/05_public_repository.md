@@ -7,7 +7,8 @@ licensing, workflows, and release metadata as one public boundary.
 
 ## Material that must not cross the boundary
 
-- Credentials, tokens, keys, certificates, cookies, or authenticated URLs.
+- Credentials, tokens, root keys, encrypted vaults, project handles, device
+  codes, certificates, cookies, or authenticated URLs.
 - Private domains, tenant names, repository names, organization identifiers, or internal documentation links.
 - Real customer, employee, account, calendar, message, file, or operational data.
 - Private incident details, vulnerability information, or security assumptions useful to an attacker.
@@ -96,6 +97,12 @@ support promises before maintainers invite external users.
 - Separate untrusted pull-request execution from privileged release jobs.
 - Do not expose secrets to forked pull requests.
 - Verify dependency integrity, licenses, and known vulnerabilities.
+- For the Auth Broker image, verify the pinned GitHub CLI version, both Linux
+  architecture checksums, bundled MIT license, and third-party notice; never
+  substitute a network-fetched checksum during the build.
+- Keep the pinned `auth-provider.v1` schema fixture repository-authored,
+  synthetic, MIT-licensed, and digest-matched. It must contain no real account,
+  hostname, file path, or credential.
 - Treat automated dependency or schema pull requests as untrusted changes that must pass the same checks.
 
 ## Public release review
@@ -119,6 +126,25 @@ tag behavior. The main-channel base workflow is a continuous development
 publication; it must not be described as a stable SemVer release or grant the
 image any authority beyond its declared root filesystem.
 
+The Auth Broker is a credential-bearing runtime, so its public image requires
+additional negative evidence: no credential, live account fixture, GitHub CLI
+configuration, root key, vault, runtime-issued handle, device code, or
+authenticated output is present in source, layers, workflow artifacts, logs,
+or notices. Deterministic synthetic handle canaries are permitted only in
+tests. Its canonical
+source/snapshot drift check, pinned GitHub CLI checksums and license, fixed
+non-root labels/entrypoint, and Linux amd64/arm64 build must pass. Pull-request
+validation is cache-only and has no package-write permission; only the
+main-push job may publish moving `latest`/`main` and immutable
+`sha-<commit>` development identities. Routine CLI startup must use a reviewed
+manifest digest rather than those moving tags.
+Before first publication, the exact `AUTH_BROKER_IMAGE=unpublished` marker is
+the honest public state. `task public:check` reports that bootstrap handoff,
+official startup fails before Docker mutation, and `task release:check` rejects
+a release until the workflow-reported multi-architecture digest is reviewed
+and pinned. Replacing the marker with an invented or moving identity is a
+public-boundary failure.
+
 See [Release](06_release.md) for the artifact workflow.
 
 ## Automated and manual gates
@@ -133,6 +159,8 @@ Minimum first-public-push checklist:
 - [ ] License and contribution terms were approved.
 - [ ] Private reporting and maintainer contacts exist.
 - [ ] Fixtures and docs contain only synthetic data.
+- [ ] Auth Broker source, image layers, tests, and manual validation evidence
+      contain no real account material, device code, handle, key, or vault.
 - [ ] Full history and artifacts passed secret and identifier review.
 - [ ] `task check`, `task security`, and `task public:check` passed.
 - [ ] A human reviewer approved publication.

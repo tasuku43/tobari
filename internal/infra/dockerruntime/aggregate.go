@@ -117,7 +117,10 @@ func transformContextRego(item aggregateContext) ([]byte, error) {
 		packageName = "package tobari.system.guided"
 	}
 	transformed := regoPackagePattern.ReplaceAll(item.rego, []byte(packageName))
-	transformed = bytes.ReplaceAll(transformed, []byte("input.schema_version == 3"), []byte("input.schema_version == 4"))
+	// Source schema 3 is retained as an exact migration input for Contexts
+	// created before Auth Broker metadata extended the Gateway boundary.
+	transformed = bytes.ReplaceAll(transformed, []byte("input.schema_version == 3"), []byte("input.schema_version == 5"))
+	transformed = bytes.ReplaceAll(transformed, []byte("input.schema_version == 4"), []byte("input.schema_version == 5"))
 	transformed = bytes.ReplaceAll(transformed, []byte("data.tobari"), []byte("data.tobari_contexts[input.principal.context_id]"))
 	return transformed, nil
 }
@@ -131,7 +134,7 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 			return nil, err
 		}
 		builder.WriteString("decision := result if {\n")
-		builder.WriteString("  input.schema_version == 4\n")
+		builder.WriteString("  input.schema_version == 5\n")
 		builder.WriteString("  input.principal.cluster == \"default\"\n")
 		builder.WriteString("  input.principal.context_id == \"")
 		builder.WriteString(item.manifest.ID)

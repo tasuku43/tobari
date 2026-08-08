@@ -11,6 +11,12 @@ from mitmproxy import http
 from mitmproxy.test import tflow
 
 import tobari_gateway as gateway
+from broker_credentials import (
+    BrokerCredentialBindingError,
+    BrokerCredentialUnavailable,
+    BrokeredCredentialAdapter,
+    validate_provider_projection,
+)
 
 
 class GatewayTests(unittest.TestCase):
@@ -27,6 +33,9 @@ class GatewayTests(unittest.TestCase):
             handle.write("example-token\n")
         self.principal_a = {"project_id": self.project_a, "context_id": self.context_a, "context": "default", "project_root": "/workspace/project-a"}
         self.principal_b = {"project_id": self.project_b, "context_id": self.context_b, "context": "restricted", "project_root": "/workspace/project-b"}
+        self.handle = "tobari-h1_" + "A" * 43
+        self.real_token = "real-token-canary"
+        self.provider_projection = self.github_provider_projection()
         self.config = {
             "version": "v2",
             "contexts": {self.context_a: {"name": "default", "profiles": {
@@ -77,6 +86,92 @@ class GatewayTests(unittest.TestCase):
 
         self.addCleanup(restore)
         return gateway.TobariGateway()
+
+    @staticmethod
+    def github_provider_projection():
+        provider = {
+            "schema_version": 1,
+            "id": "github",
+            "display_name": "GitHub.com",
+            "acquisition": {"mode": "builtin_helper", "helper": "github-gh"},
+            "credential": {"kind": "primary_secret"},
+            "workspace_projections": [
+                {"kind": "env", "name": "GH_HOST", "template": "github.com"},
+                {"kind": "env", "name": "GH_TOKEN", "template": "${HANDLE}"},
+            ],
+            "header_bindings": [
+                {
+                    "target": {"scheme": "https", "host": "api.github.com", "port": 443},
+                    "source": {"header": "authorization", "formats": ["bearer", "token"]},
+                    "destination": {
+                        "header": "authorization",
+                        "format": "preserve_scheme",
+                        "secret_field": "primary_secret",
+                    },
+                    "secret_headers": ["authorization"],
+                }
+            ],
+        }
+        bindings = []
+        for source_format in ("bearer", "token"):
+            bindings.append(
+                {
+                    "provider_id": "github",
+                    "target": {"scheme": "https", "host": "api.github.com", "port": 443},
+                    "source": {"header": "authorization", "format": source_format},
+                    "destination": {
+                        "header": "authorization",
+                        "format": "preserve_scheme",
+                        "secret_field": "primary_secret",
+                    },
+                    "secret_headers": ["authorization"],
+                }
+            )
+        return {
+            "schema_version": 1,
+            "providers": [provider],
+            "environment": [
+                {"provider_id": "github", "name": "GH_HOST", "template": "github.com"},
+                {"provider_id": "github", "name": "GH_TOKEN", "template": "${HANDLE}"},
+            ],
+            "complete_files": [],
+            "header_bindings": bindings,
+            "secret_headers": ["authorization"],
+        }
+
+    def broker_gateway(self, broker_call):
+        addon = gateway.TobariGateway()
+        addon.credential_adapter = BrokeredCredentialAdapter(
+            addon.credential_adapter,
+            "/run/tobari/auth/providers.json",
+            "/run/tobari-auth/runtime/broker.sock",
+            2.0,
+            projection_loader=lambda _: self.provider_projection,
+            caller=lambda _path, request, _timeout: broker_call(request),
+        )
+        return addon
+
+    def broker_response(self, request):
+        binding = self.provider_projection["header_bindings"][0]
+        response = {
+            "schema_version": 1,
+            "ok": True,
+            "provider": "github",
+            "revision": "revision_example",
+            "target": binding["target"],
+            "source": binding["source"],
+            "destination": binding["destination"],
+            "secret_headers": binding["secret_headers"],
+        }
+        if request["op"] == "resolve":
+            import base64
+
+            response["secret"] = {
+                "field": "primary_secret",
+                "encoding": "base64url",
+                "value": base64.urlsafe_b64encode(self.real_token.encode()).rstrip(b"=").decode(),
+            }
+        return response
 
     def flow(self, url="https://api.example.com/v1/resources?key=value", method="POST"):
         flow = tflow.tflow()
@@ -134,7 +229,11 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(document["principal"]["project_id"], self.project_a)
         self.assertNotIn("session", document["principal"])
         request = document["request"]
-        self.assertEqual(document["schema_version"], 4)
+        self.assertEqual(document["schema_version"], 5)
+        self.assertEqual(
+            document["authorization"],
+            {"requested_profile": None, "broker_provider": None},
+        )
         self.assertEqual(document["principal"]["context_id"], self.context_a)
         self.assertEqual(request["authority"]["scheme"], "https")
         self.assertEqual(request["authority"]["host"], "api.example.com")
@@ -183,6 +282,380 @@ class GatewayTests(unittest.TestCase):
         )
         self.assertIsNone(document["authorization"]["requested_profile"])
         self.assertNotIn("x-tobari-credential-profile", document["request"]["headers"])
+
+    def test_provider_projection_is_strict_and_self_consistent(self):
+        self.assertEqual(
+            validate_provider_projection(self.provider_projection),
+            self.provider_projection,
+        )
+        invalid_documents = []
+        unknown = json.loads(json.dumps(self.provider_projection))
+        unknown["providers"][0]["shell"] = "printenv"
+        invalid_documents.append(unknown)
+        inconsistent = json.loads(json.dumps(self.provider_projection))
+        inconsistent["header_bindings"][0]["target"]["host"] = "evil.example.com"
+        invalid_documents.append(inconsistent)
+        cookie = json.loads(json.dumps(self.provider_projection))
+        cookie["providers"][0]["header_bindings"][0]["source"]["header"] = "cookie"
+        invalid_documents.append(cookie)
+        ambiguous = json.loads(json.dumps(self.provider_projection))
+        ambiguous["header_bindings"].append(ambiguous["header_bindings"][0])
+        invalid_documents.append(ambiguous)
+        for document in invalid_documents:
+            with self.subTest(document=document):
+                with self.assertRaises(BrokerCredentialUnavailable):
+                    validate_provider_projection(document)
+
+    def test_broker_denial_introspects_but_never_resolves_or_leaks_auth(self):
+        flow = self.flow("https://api.github.com/user", "GET")
+        flow.request.headers["authorization"] = f"Bearer {self.handle}"
+        calls = []
+
+        def broker_call(request):
+            calls.append(request)
+            return self.broker_response(request)
+
+        addon = self.broker_gateway(broker_call)
+        captured = {}
+
+        def deny(_url, policy_input, _timeout):
+            captured.update(policy_input)
+            return gateway.Decision(False, "denied", None, 403, True)
+
+        output = io.StringIO()
+        with mock.patch.object(gateway, "query_opa", side_effect=deny):
+            with redirect_stdout(output):
+                addon.requestheaders(flow)
+        self.assertEqual([request["op"] for request in calls], ["introspect"])
+        self.assertEqual(
+            captured["authorization"],
+            {"requested_profile": None, "broker_provider": "github"},
+        )
+        self.assertNotIn("authorization", captured["request"]["headers"])
+        self.assertNotIn("authorization", flow.request.headers)
+        rendered = output.getvalue() + flow.response.content.decode()
+        self.assertNotIn(self.handle, rendered)
+        self.assertNotIn(self.real_token, rendered)
+        self.assertEqual(flow.response.status_code, 403)
+
+    def test_broker_allow_resolves_once_and_replaces_exact_header(self):
+        flow = self.flow("https://api.github.com/graphql", "POST")
+        flow.request.headers["authorization"] = f"token {self.handle}"
+        flow.request.headers["x-tobari-credential-profile"] = "untrusted-selector"
+        flow.request.headers["proxy-authorization"] = "proxy-secret"
+        calls = []
+
+        def broker_call(request):
+            calls.append(request)
+            response = self.broker_response(request)
+            # The fixture helper defaults to the bearer normalized binding;
+            # echo the independently selected token binding for this request.
+            binding = self.provider_projection["header_bindings"][1]
+            response["source"] = binding["source"]
+            return response
+
+        addon = self.broker_gateway(broker_call)
+        captured = {}
+
+        def allow(_url, policy_input, _timeout):
+            captured.update(policy_input)
+            self.assertNotIn(self.handle, json.dumps(policy_input))
+            self.assertNotIn(self.real_token, json.dumps(policy_input))
+            return gateway.Decision(True, "allowed", None, 403, False)
+
+        with mock.patch.object(gateway, "query_opa", side_effect=allow):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+        self.assertEqual([request["op"] for request in calls], ["introspect", "resolve"])
+        self.assertEqual(flow.request.headers["authorization"], f"token {self.real_token}")
+        self.assertNotIn(self.handle, flow.request.headers["authorization"])
+        self.assertNotIn("x-tobari-credential-profile", flow.request.headers)
+        self.assertNotIn("proxy-authorization", flow.request.headers)
+        self.assertEqual(calls[1]["revision"], "revision_example")
+        self.assertTrue(flow.request.stream)
+
+    def test_broker_path_rejects_opa_static_profile_before_resolution(self):
+        flow = self.flow("https://api.github.com/user", "GET")
+        flow.request.headers["authorization"] = f"Bearer {self.handle}"
+        calls = []
+
+        def broker_call(request):
+            calls.append(request)
+            return self.broker_response(request)
+
+        addon = self.broker_gateway(broker_call)
+        with mock.patch.object(
+            gateway,
+            "query_opa",
+            return_value=gateway.Decision(True, "allowed", "example", 403, False),
+        ):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+        self.assertEqual([request["op"] for request in calls], ["introspect"])
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertEqual(
+            json.loads(flow.response.content), {"error": "credential_handle_invalid"}
+        )
+
+    def test_tobari_handle_wrong_host_header_format_and_shape_fail_before_opa(self):
+        cases = [
+            ("https://uploads.github.com/user", "authorization", f"Bearer {self.handle}"),
+            ("http://api.github.com/user", "authorization", f"Bearer {self.handle}"),
+            ("https://api.github.com:444/user", "authorization", f"Bearer {self.handle}"),
+            ("https://api.github.com/user", "x-api-key", self.handle),
+            ("https://api.github.com/user", "authorization", f"Basic {self.handle}"),
+            ("https://api.github.com/user", "authorization", "Bearer tobari-h1_short"),
+        ]
+        for url, header, value in cases:
+            with self.subTest(url=url, header=header, value=value):
+                flow = self.flow(url, "GET")
+                flow.request.headers.pop("authorization", None)
+                flow.request.headers[header] = value
+                calls = []
+                addon = self.broker_gateway(lambda request: calls.append(request))
+                with mock.patch.object(gateway, "query_opa") as query:
+                    with redirect_stdout(io.StringIO()):
+                        addon.requestheaders(flow)
+                query.assert_not_called()
+                self.assertEqual(calls, [])
+                self.assertEqual(flow.response.status_code, 403)
+                self.assertEqual(
+                    json.loads(flow.response.content),
+                    {"error": "credential_handle_invalid"},
+                )
+
+    def test_handle_in_url_cookie_or_embedded_header_is_rejected_and_redacted(self):
+        cases = [
+            (f"https://api.github.com/{self.handle}", "x-safe", "visible"),
+            (
+                "https://api.github.com/%2574obari-h1_" + "A" * 43,
+                "x-safe",
+                "visible",
+            ),
+            (
+                f"https://api.github.com/user?capability={self.handle}",
+                "x-safe",
+                "visible",
+            ),
+            (
+                "https://api.github.com/user",
+                "cookie",
+                f"session={self.handle}",
+            ),
+            (
+                "https://api.github.com/user",
+                "x-safe",
+                f"prefix={self.handle}:suffix",
+            ),
+        ]
+        for url, header, value in cases:
+            with self.subTest(url=url, header=header):
+                flow = self.flow(url, "GET")
+                flow.request.headers.pop("authorization", None)
+                flow.request.headers[header] = value
+                output = io.StringIO()
+                addon = self.broker_gateway(
+                    lambda _request: (_ for _ in ()).throw(
+                        AssertionError("unsupported handle position reached broker")
+                    )
+                )
+                with mock.patch.object(gateway, "query_opa") as query:
+                    with redirect_stdout(output):
+                        addon.requestheaders(flow)
+                query.assert_not_called()
+                self.assertEqual(flow.response.status_code, 403)
+                self.assertNotIn(self.handle, output.getvalue())
+                self.assertNotIn("tobari-h1_", output.getvalue())
+
+    def test_handle_only_in_body_uses_passthrough_without_broker_or_replacement(self):
+        flow = self.flow("https://api.github.com/body-only", "POST")
+        flow.request.headers.pop("authorization", None)
+        body = f'{{"capability":"{self.handle}"}}'.encode()
+        flow.request.content = body
+        broker_calls = []
+
+        def broker_call(request):
+            broker_calls.append(request)
+            raise AssertionError("request body selected the Auth Broker")
+
+        addon = self.broker_gateway(broker_call)
+        captured = {}
+
+        def allow(_url, policy_input, _timeout):
+            captured.update(policy_input)
+            return gateway.Decision(True, "allowed", None, 403, False)
+
+        with mock.patch.object(gateway, "query_opa", side_effect=allow) as query:
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+
+        query.assert_called_once()
+        self.assertEqual(broker_calls, [])
+        self.assertIsNone(flow.response)
+        self.assertEqual(flow.request.content, body)
+        self.assertNotIn("authorization", flow.request.headers)
+        self.assertIsNone(captured["authorization"]["broker_provider"])
+        self.assertNotIn("body", captured["request"])
+        self.assertTrue(flow.request.stream)
+
+        flow.response = http.Response.make(200, b"upstream response")
+        addon.responseheaders(flow)
+        self.assertTrue(flow.response.stream)
+
+    def test_broker_repeats_principal_binding_and_maps_rejection_without_handle(self):
+        flow = self.flow("https://api.github.com/user", "GET")
+        flow.request.headers["authorization"] = f"Bearer {self.handle}"
+        requests = []
+
+        def reject(request):
+            requests.append(request)
+            raise BrokerCredentialBindingError(
+                "credential handle is not valid for this request"
+            )
+
+        addon = self.broker_gateway(reject)
+        output = io.StringIO()
+        with mock.patch.object(gateway, "query_opa") as query:
+            with redirect_stdout(output):
+                addon.requestheaders(flow)
+        query.assert_not_called()
+        self.assertEqual(requests[0]["context_id"], self.context_a)
+        self.assertEqual(requests[0]["project_id"], self.project_a)
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertNotIn(self.handle, output.getvalue() + flow.response.content.decode())
+
+    def test_one_broker_keeps_concurrent_context_credentials_separate(self):
+        second_handle = "tobari-h1_" + "B" * 43
+        flows = [
+            self.flow("https://api.github.com/user", "GET"),
+            self.flow("https://api.github.com/user", "GET"),
+        ]
+        flows[0].request.headers["authorization"] = f"Bearer {self.handle}"
+        flows[1].request.headers["authorization"] = f"Bearer {second_handle}"
+        flows[1].client_conn = SimpleNamespace(sockname=("172.29.1.2", 8080))
+        seen = []
+
+        def broker_call(request):
+            seen.append((request["op"], request["context_id"], request["project_id"]))
+            response = self.broker_response(request)
+            if request["op"] == "resolve":
+                import base64
+
+                token = (
+                    "context-a-token"
+                    if request["context_id"] == self.context_a
+                    else "context-b-token"
+                )
+                response["secret"]["value"] = base64.urlsafe_b64encode(
+                    token.encode()
+                ).rstrip(b"=").decode()
+            return response
+
+        addon = self.broker_gateway(broker_call)
+        principals = {
+            "172.29.0.2": self.principal_a,
+            "172.29.1.2": self.principal_b,
+        }
+        with mock.patch.object(gateway, "load_project_principals", return_value=principals):
+            with mock.patch.object(
+                gateway,
+                "query_opa",
+                return_value=gateway.Decision(True, "allowed", None, 403, False),
+            ):
+                with redirect_stdout(io.StringIO()):
+                    addon.requestheaders(flows[0])
+                    addon.requestheaders(flows[1])
+        self.assertEqual(flows[0].request.headers["authorization"], "Bearer context-a-token")
+        self.assertEqual(flows[1].request.headers["authorization"], "Bearer context-b-token")
+        self.assertEqual(
+            seen,
+            [
+                ("introspect", self.context_a, self.project_a),
+                ("resolve", self.context_a, self.project_a),
+                ("introspect", self.context_b, self.project_b),
+                ("resolve", self.context_b, self.project_b),
+            ],
+        )
+
+    def test_broker_enabled_gateway_retains_passthrough_for_non_handle_auth(self):
+        flow = self.flow("https://api.github.com/user", "GET")
+        flow.request.headers["authorization"] = "Bearer workspace-owned-token"
+        addon = self.broker_gateway(
+            lambda _request: (_ for _ in ()).throw(
+                AssertionError("ordinary auth reached broker")
+            )
+        )
+        captured = {}
+
+        def allow(_url, policy_input, _timeout):
+            captured.update(policy_input)
+            return gateway.Decision(True, "allowed", None, 403, False)
+
+        with mock.patch.object(gateway, "query_opa", side_effect=allow):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+        self.assertEqual(flow.request.headers["authorization"], "Bearer workspace-owned-token")
+        self.assertIsNone(captured["authorization"]["broker_provider"])
+
+    def test_broker_enabled_gateway_retains_managed_profile_fallback(self):
+        flow = self.flow()
+        flow.request.headers["x-tobari-credential-profile"] = "example"
+        addon = self.managed_gateway()
+        addon.credential_adapter = BrokeredCredentialAdapter(
+            addon.credential_adapter,
+            "/run/tobari/auth/providers.json",
+            "/run/tobari-auth/runtime/broker.sock",
+            2.0,
+            projection_loader=lambda _: self.provider_projection,
+            caller=lambda _path, _request, _timeout: (_ for _ in ()).throw(
+                AssertionError("managed profile reached broker")
+            ),
+        )
+        with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
+            with mock.patch.object(
+                gateway,
+                "load_project_principals",
+                return_value={"172.29.0.2": self.principal_a},
+            ):
+                with mock.patch.object(
+                    gateway,
+                    "query_opa",
+                    return_value=gateway.Decision(True, "allowed", "example", 403, False),
+                ):
+                    with mock.patch(
+                        "builtins.open", return_value=io.BytesIO(b"example-token\n")
+                    ):
+                        with redirect_stdout(io.StringIO()):
+                            addon.requestheaders(flow)
+        self.assertEqual(flow.request.headers["authorization"], "Bearer example-token")
+
+    def test_redirected_handle_is_independently_rejected_outside_binding(self):
+        first = self.flow("https://api.github.com/redirect", "GET")
+        first.request.headers["authorization"] = f"Bearer {self.handle}"
+        calls = []
+
+        def broker_call(request):
+            calls.append(request)
+            return self.broker_response(request)
+
+        addon = self.broker_gateway(broker_call)
+        with mock.patch.object(
+            gateway,
+            "query_opa",
+            return_value=gateway.Decision(True, "allowed", None, 403, False),
+        ):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(first)
+        self.assertEqual(first.request.headers["authorization"], f"Bearer {self.real_token}")
+
+        redirected = self.flow("https://redirect.example.com/user", "GET")
+        redirected.request.headers["authorization"] = f"Bearer {self.handle}"
+        with mock.patch.object(gateway, "query_opa") as query:
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(redirected)
+        query.assert_not_called()
+        self.assertEqual(redirected.response.status_code, 403)
+        self.assertEqual([request["op"] for request in calls], ["introspect", "resolve"])
 
     def test_intercepted_connect_request_uses_https_scheme_for_policy(self):
         flow = self.flow("http://example.com:443/quickstart", "PUT")

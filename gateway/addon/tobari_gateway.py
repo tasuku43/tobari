@@ -24,6 +24,13 @@ from credential_adapters import (
     CredentialAdapterError,
     build_credential_adapter,
 )
+from broker_credentials import (
+    BrokerCredentialBindingError,
+    BrokerCredentialUnavailable,
+    BrokeredCredentialAdapter,
+    redacted_audit_path,
+)
+
 MAX_CREDENTIAL_CONFIG_BYTES = 256 * 1024
 MAX_SECRET_BYTES = 64 * 1024
 MAX_PRINCIPAL_CONFIG_BYTES = 256 * 1024
@@ -234,26 +241,33 @@ def _headers_for_policy(headers: http.Headers, secret_names: set[str]) -> dict[s
     return {name: ", ".join(values) for name, values in sorted(safe.items())}
 
 
+def request_authority(flow: http.HTTPFlow) -> tuple[str, str, int]:
+    """Return the exact authority used by both credential and policy checks."""
+    request = flow.request
+    scheme = request.scheme.lower()
+    client = getattr(flow, "client_conn", None)
+    if scheme == "http" and request.port == 443 and getattr(client, "tls_established", False):
+        scheme = "https"
+    return scheme, request.host.rstrip(".").lower(), request.port
+
+
 def build_policy_input(
     flow: http.HTTPFlow,
     cluster: str,
     principal: dict[str, str],
     extra_secret_names: set[str],
     requested_profile: str | None | object = _REQUESTED_PROFILE_UNSET,
+    broker_provider: str | None = None,
 ) -> dict[str, Any]:
     request = flow.request
     split = urlsplit(request.url)
-    host = request.host.rstrip(".").lower()
-    scheme = request.scheme.lower()
-    client = getattr(flow, "client_conn", None)
-    if scheme == "http" and request.port == 443 and getattr(client, "tls_established", False):
-        scheme = "https"
+    scheme, host, port = request_authority(flow)
     path = split.path or "/"
     if requested_profile is _REQUESTED_PROFILE_UNSET:
         requested_profile = request.headers.get(PROFILE_HEADER)
     secret_names = set(DEFAULT_SECRET_HEADERS) | extra_secret_names
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "principal": {
             "cluster": cluster,
             "context_id": principal["context_id"],
@@ -263,7 +277,7 @@ def build_policy_input(
             "authority": {
                 "scheme": scheme,
                 "host": host,
-                "port": request.port,
+                "port": port,
             },
             "method": request.method.upper(),
             "path": {
@@ -273,7 +287,10 @@ def build_policy_input(
             "query": parse_qs(split.query, keep_blank_values=True),
             "headers": _headers_for_policy(request.headers, secret_names),
         },
-        "authorization": {"requested_profile": requested_profile},
+        "authorization": {
+            "requested_profile": requested_profile,
+            "broker_provider": broker_provider,
+        },
     }
 
 
@@ -512,7 +529,7 @@ class TobariGateway:
         self.credential_adapter_name = os.getenv(
             "TOBARI_CREDENTIAL_ADAPTER", "passthrough"
         )
-        self.credential_adapter = build_credential_adapter(
+        base_credential_adapter = build_credential_adapter(
             self.credential_adapter_name,
             credential_path=self.credential_path,
             # Resolve these callbacks when the request runs so the adapter
@@ -527,6 +544,25 @@ class TobariGateway:
                 request, config, name, host, context, project
             ),
         )
+        self.auth_provider_projection_path = os.getenv(
+            "TOBARI_AUTH_PROVIDER_PROJECTION", ""
+        )
+        self.auth_broker_socket = os.getenv(
+            "TOBARI_AUTH_BROKER_SOCKET",
+            "/run/tobari-auth/runtime/broker.sock",
+        )
+        self.auth_broker_timeout = float(
+            _positive_int("TOBARI_AUTH_BROKER_TIMEOUT_SECONDS", 2, 1, 10)
+        )
+        if self.auth_provider_projection_path:
+            self.credential_adapter = BrokeredCredentialAdapter(
+                base_credential_adapter,
+                self.auth_provider_projection_path,
+                self.auth_broker_socket,
+                self.auth_broker_timeout,
+            )
+        else:
+            self.credential_adapter = base_credential_adapter
         self.principal_path = os.getenv(
             "TOBARI_PRINCIPAL_REGISTRY",
             "/run/tobari/principal-registry/principals.json",
@@ -545,8 +581,7 @@ class TobariGateway:
     def requestheaders(self, flow: http.HTTPFlow) -> None:
         started = time.monotonic()
         request_id = uuid.uuid4().hex
-        host = flow.request.host.rstrip(".").lower()
-        port = flow.request.port
+        scheme, host, port = request_authority(flow)
         profile_name: str | None = None
         project_id: str | None = None
         context_id: str | None = None
@@ -556,6 +591,7 @@ class TobariGateway:
         decision_name = "deny"
         reason = "gateway rejected request"
         learnable = False
+        audit_path = redacted_audit_path(flow.request.url)
         try:
             principal = resolve_project_principal(
                 flow, load_project_principals(self.principal_path)
@@ -565,7 +601,7 @@ class TobariGateway:
             context_name = principal["context"]
             project_root = principal["project_root"]
             credential_request = self.credential_adapter.prepare(
-                flow.request, host, context_id, project_id
+                flow.request, scheme, host, port, context_id, project_id
             )
             profile_name = credential_request.requested_profile
             policy_input = build_policy_input(
@@ -574,6 +610,7 @@ class TobariGateway:
                 principal,
                 credential_request.secret_headers,
                 profile_name,
+                credential_request.broker_provider,
             )
             decision = query_opa(self.opa_url, policy_input, self.opa_timeout)
             reason = decision.reason
@@ -598,7 +635,7 @@ class TobariGateway:
                 "host": host,
                 "port": port,
                 "method": flow.request.method.upper(),
-                "path": urlsplit(flow.request.url).path or "/",
+                "path": audit_path,
                 "decision": decision_name,
                 "reason": reason,
                 "credential_profile": profile_name,
@@ -616,6 +653,14 @@ class TobariGateway:
             reason = str(error)
             _deny(flow, 403, "credential_profile_not_bound")
             upstream_status = 403
+        except BrokerCredentialBindingError as error:
+            reason = str(error)
+            _deny(flow, 403, "credential_handle_invalid")
+            upstream_status = 403
+        except BrokerCredentialUnavailable as error:
+            reason = str(error)
+            _deny(flow, 503, "credential_broker_unavailable")
+            upstream_status = 503
         except (CredentialAdapterError, CredentialError) as error:
             reason = str(error)
             _deny(flow, 503, "credential_unavailable")
@@ -645,7 +690,7 @@ class TobariGateway:
                     host=host,
                     port=port,
                     method=flow.request.method.upper(),
-                    path=urlsplit(flow.request.url).path or "/",
+                    path=audit_path,
                     decision=decision_name,
                     reason=reason,
                     credential_profile=profile_name,

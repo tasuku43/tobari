@@ -82,7 +82,7 @@ func (r *Runtime) requireNoInterruptedClusterReconcile(ctx context.Context) erro
 		return fault.New(
 			fault.KindUnavailable, "cluster_reconcile_interrupted",
 			"the shared cluster reconcile was interrupted; rerun an explicit cluster operation", false,
-			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster."},
+			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster."},
 			fault.NextAction{Command: "cluster down", Reason: "Explicitly clean up the shared cluster instead."},
 		)
 	}

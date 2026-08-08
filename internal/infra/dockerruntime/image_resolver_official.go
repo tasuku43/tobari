@@ -23,10 +23,18 @@ func (officialImageResolver) ShouldPullRuntimeImage(image string) bool {
 	return image == tobari.OfficialRuntimeBase
 }
 
-func (officialImageResolver) GatewayImage(context.Context, *Runtime) (gatewayImageSelection, error) {
+func (officialImageResolver) GatewayImage(context.Context, *Runtime) (sharedImageSelection, error) {
 	versions, err := runtimeassets.Versions()
 	if err != nil {
-		return gatewayImageSelection{}, err
+		return sharedImageSelection{}, err
 	}
-	return gatewayImageSelection{Image: versions["GATEWAY_IMAGE"], RequireDigest: true}, nil
+	return sharedImageSelection{Image: versions["GATEWAY_IMAGE"], RequireDigest: true}, nil
+}
+
+func (officialImageResolver) AuthBrokerImage(context.Context, *Runtime) (sharedImageSelection, error) {
+	versions, err := runtimeassets.Versions()
+	if err != nil {
+		return sharedImageSelection{}, err
+	}
+	return sharedImageSelection{Image: versions["AUTH_BROKER_IMAGE"], RequireDigest: true}, nil
 }

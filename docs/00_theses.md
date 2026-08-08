@@ -17,16 +17,17 @@ authorized as a normalized request by one shared OPA-backed Gateway.
 The primary users are developers who run Claude Code, Codex, shells, tests, and
 other arbitrary programs against project roots. Success has two inseparable
 parts: each Tobari can host concurrent processes, cannot reach the Internet or
-another Tobari directly, never receives host-managed credentials, and is
+another Tobari directly, never receives a real host-managed credential, and is
 selected from the canonical current directory rather than a user-managed name,
 root flag, or container identifier; and the user can reach that boundary
 without becoming a Docker or policy operator. A user may deliberately create
 tool-owned authentication state in that Tobari's own persistent home; this is
 not host credential inheritance. One installation-local cluster shares one
-Gateway, one OPA, an atomic all-Context policy projection, and CA state without
+Gateway, one OPA, one locked Auth Broker, an atomic all-Context policy projection, and CA state without
 sharing Tobari homes or runtime networks. Host-issued Context/project principals
-bind mutable learned permissions to the exact current-directory network that
-originated a request; they do not select credentials on their own.
+bind mutable learned permissions and brokered credential handles to the exact
+current-directory network that originated a request; they do not select a real
+credential on their own.
 
 The first testable slice is one local mock upstream reached through the
 Gateway: an allowed request succeeds, a denied request does not reach upstream,
@@ -119,8 +120,10 @@ brand.
   body bytes; body presence and content do not split approval candidates.
 - Allowed request and response bodies stream through Gateway without entering
   OPA input, retained policy evidence, learned rules, or audit records.
-- Provider-specific adapters are not part of the MVP. GitHub, AWS, Claude, and
-  other tools use their own native flows through the generic boundary.
+- Provider-specific HTTP semantics are not part of policy. The first supported
+  Auth Broker provider uses a declarative exact host/header contract for
+  GitHub.com, but Gateway and OPA still authorize only the normalized HTTP
+  effect rather than a GitHub operation.
 - HTTP methods are evidence supplied to policy, not a CLI effect classifier.
 
 ### Mechanical enforcement
@@ -164,16 +167,16 @@ egress networks; OPA joins only control.
   replace the CLI-owned isolation arguments. Runtime API compatibility includes
   the bootstrap needed to execute Tobari's fixed Workspace lifetime command.
 
-## Thesis 3: Authentication handling is pluggable and tool-owned by default
+## Thesis 3: Authentication handling is pluggable and real credentials stay outside Workspaces
 
-Tobari does not inherit host authentication material. A user may run a tool's
-normal login or configuration flow inside a Tobari, and the tool may write its
-credential state below that Tobari's exact persistent home. Gateway credential
-handling is selected through an explicit adapter boundary. The default
-`passthrough` adapter does not load or inject managed profiles; it continues to
-authorize the generic HTTP/HTTPS effect and forwards tool/client authentication
-only after allow. The existing `managed` profile-injection adapter remains
-available for a later trusted runtime switch.
+Tobari does not inherit host authentication material. Tool-native login inside
+one Tobari home remains the universal default, and the retained static
+`managed` adapter remains compatible. The supported Auth Broker route adds one
+Context-owned credential acquired on the trusted host and stores it in an
+authenticated encrypted vault. Each eligible Workspace receives only a
+distinct random handle bound to its stable Context, project, provider,
+credential revision, and exact HTTP binding. Gateway resolves the real value
+from one shared locked broker only after OPA allows the ordinary HTTP effect.
 
 ### Consequences
 
@@ -186,25 +189,46 @@ available for a later trusted runtime switch.
   audit, denial projections, and CLI output. After policy allow, the selected
   adapter forwards or injects authentication; proxy and Tobari control headers
   are not forwarded upstream.
-- Gateway-managed profile selection is not the default. Its existing static
-  injection adapter remains reserved and keeps its host/project/host binding
-  checks. Refresh, signing, and OS-keychain integration remain outside the
-  product boundary. A tool may implement its own native OAuth, SigV4, or
-  keychain-compatible flow inside the home without Tobari interpreting it.
+- One shared Auth Broker joins only control and egress, never a Workspace
+  network. Workspaces and OPA cannot address its runtime socket; only Gateway
+  mounts that socket. Host auth commands use bounded in-container control
+  operations and never expose a public broker TCP API.
+- The broker starts locked and retains the installation root key only in
+  memory. Cluster reconciliation unlocks it with key bytes transferred through
+  stdin. Context vaults are keyed by stable Context ID and bind their version
+  and Context ID as authenticated data.
+- The built-in GitHub provider and owner-controlled user manifests use one
+  strict schema-v1 parser. Manifests contain no secrets or executable shell;
+  v1 user providers acquire one opaque token through protected non-terminal
+  stdin; terminal input is refused before reading.
+- The macOS root-key provider stores one installation key in Keychain. Linux
+  uses an owner-only XDG state file and makes no host-user-compromise claim.
+- A recognized malformed, copied, stale, or mismatched Tobari handle fails
+  closed and is never forwarded upstream. Login and logout rotate or revoke
+  every associated project handle; existing sessions receive a concrete
+  re-entry action because their environment cannot change retroactively.
+- Brokered login does not grant network authority. OPA remains the sole
+  authority for Context, project, scheme, host, port, method, and path.
+- Refresh, signing, Git credential helpers, and provider-specific operation
+  inference remain outside this slice. A tool may still implement its own
+  native OAuth, SigV4, or keychain-compatible flow inside the home.
 
 ### Mechanical enforcement
 
 - Runtime mount tests reject host-home mounts and verify the selected default
-  adapter. Gateway tests use canary secrets to prove redaction and client-header
-  forwarding only after allow, while managed adapter tests retain binding and
-  injection coverage.
+  adapter. Gateway tests use canary secrets to prove redaction, deny-before-
+  resolution, exact replacement, and client-header forwarding only after
+  allow, while managed adapter tests retain binding and injection coverage.
 - Integration tests prove one Tobari's tool-owned state persists through runtime
   recovery, is unavailable to another Tobari, and is removed by exact delete.
+  Broker tests prove encrypted Context ownership, project-specific handles,
+  restart locking, rotation, revocation, and canary-free output.
 
 ## Thesis 4: One shared cluster hosts multiple CWD-owned Tobari
 
 MVP manages one installation-local enforcement cluster and multiple logical
-Tobari. The shared cluster is one host trust domain with a host-issued
+Tobari. The shared cluster contains exactly one Gateway, one OPA, and one Auth
+Broker in one host trust domain with a host-issued
 Context/project-principal boundary: stable Tobari and Context IDs are not
 trusted merely because they appear in caller data, but the host binds both to
 the exact Gateway network interface that received the request. Context policy,
@@ -320,9 +344,9 @@ name prefix or broad Docker query as authority.
 - The project runtime spec hash includes the fixed Workspace lifetime command,
   and image compatibility is rejected before project runtime resources are
   mutated.
-- Shared Gateway and OPA services use the same fixed JSON log rotation bounds;
+- Shared Gateway, OPA, and Auth Broker services use the same fixed JSON log rotation bounds;
   a project cannot fill their host-side Docker logs without a cap.
-- Shared Gateway and OPA services also carry fixed CPU, memory-plus-swap, and
+- Shared Gateway, OPA, and Auth Broker services also carry fixed CPU, memory-plus-swap, and
   PID bounds; those limits protect the Docker VM but do not promise per-project
   fairness inside the shared service.
 - `status`, `list`, and `doctor` never reconcile Docker or create/delete
@@ -471,14 +495,16 @@ stores. Each Context has a stable opaque identity; its name is a human selector,
 not authority. Each Tobari permanently records one Context identity, and the
 host derives that binding for Gateway and OPA from its network principal.
 
-The installation runs one shared Gateway and one shared OPA for every Context.
+The installation runs one shared Gateway, one shared OPA, and one shared locked
+Auth Broker for every Context.
 The current Context is only the default when a host invocation omits a Context;
 changing it cannot migrate or mutate existing Tobari or shared enforcement.
-Tool-native authentication state
-remains below each Workspace home and is not a Context secret. The default
-passthrough adapter remains the universal path for tools that own their login
-flow; a Context may reference managed credential metadata without making a
-profile name an authority.
+Tool-native authentication state remains below each Workspace home and is not a
+Context secret. A brokered credential is owned once by the stable Context and
+enables every permanently bound Workspace to receive a different project-bound
+handle on its next reconciliation. The default passthrough adapter remains the
+universal path for tools that own their login flow; neither a provider name nor
+a handle selects authority without the trusted principal and OPA allow.
 
 ### Consequences
 
@@ -495,6 +521,10 @@ profile name an authority.
   stores, references a read-only agent profile, and records the compatible
   Tobari runtime image. It never accepts a secret value in an argument,
   environment variable, or manifest.
+- Auth login/import affects one explicit or current Context and makes the
+  Context-wide Workspace eligibility explicit. Login does not rewrite running
+  Workspaces; their next matching entry issues or refreshes project-bound
+  handles and recreates only a changed work container while preserving home.
 - Context source changes become active only through an explicit `cluster up` or
   policy mutation. The host generates and validates one atomic projection of
   every Context for the shared OPA and Gateway; a failed candidate preserves
@@ -520,7 +550,7 @@ profile name an authority.
   failed build leaves the previously selected image unchanged. Project runtime
   tests prove existing Workspaces reconcile to their bound Context image only
   after validation and preserve their home.
-- Runtime, Gateway, OPA, and integration tests prove Context secrets and learned
+- Runtime, Gateway, OPA, Auth Broker, and integration tests prove Context secrets and learned
   permissions do not cross Context/project principals, aggregate activation is
   all-or-nothing, and forged or stale Context bindings fail closed.
 - Agent-readiness validation records current-default discovery, explicit
@@ -530,7 +560,7 @@ profile name an authority.
 
 MVP does not support multiple clusters, process-level identity, a per-project
 static baseline policy, transparent proxying, non-HTTP protocols, Git
-SSH, provider-specific semantic adapters,
-Gateway-managed OAuth refresh, Gateway-managed SigV4, Gateway-managed Keychain
-integration, approval workflows, Kubernetes,
+SSH, provider-specific policy semantics, Git-over-HTTPS credential helpers,
+Gateway-managed OAuth refresh, Gateway-managed SigV4, arbitrary provider OAuth,
+multiple provider accounts per Context, approval workflows, Kubernetes,
 filesystem overlays, GUIs, remote execution, or multi-tenant production use.

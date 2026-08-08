@@ -1,18 +1,18 @@
-# External HTTP Contract
+# External HTTP and provider contract
 
-Tobari exposes no provider-specific API adapter. Its external contract is the
-generic HTTP request crossing Gateway.
+Tobari's enforcement contract remains the generic HTTP request crossing
+Gateway. The Auth Broker adds one bounded provider-facing acquisition helper
+for GitHub.com; it does not add provider-specific policy operations or a raw
+provider API surface.
 
 ## OPA input
 
 Gateway posts one JSON document to
-`http://opa:8181/v1/data/tobari/http/decision` with schema version `4`. The
-document groups each semantic responsibility instead of exposing parallel
-transport fields:
+`http://opa:8181/v1/data/tobari/http/decision` with schema version `5`:
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "principal": {
     "cluster": "default",
     "context_id": "01912345-6789-7abc-8def-0123456789ad",
@@ -25,44 +25,89 @@ transport fields:
     "query": {"key": ["value"]},
     "headers": {"content-type": "application/json"}
   },
-  "authorization": {"requested_profile": null}
+  "authorization": {
+    "requested_profile": null,
+    "broker_provider": "github"
+  }
 }
 ```
 
 `principal.context_id` and `principal.project_id` are required canonical UUIDv7
-values established together from the Gateway local interface and host-owned
-principal registry; neither is copied from a caller header, environment,
-request URL, session field, or profile name. OPA uses the Context ID at this one
-fixed endpoint to select the Context policy. Unknown, absent, or mismatched IDs
-deny without falling back to the current/default Context.
-The default passthrough adapter emits a null requested profile; the managed
-adapter may select one after its own Context/host/project binding checks.
+values established together from the Gateway local interface and owner-only
+principal registry. Neither value is copied from a caller header, environment,
+request URL, session field, provider ID, handle, or profile name. OPA uses the
+Context ID at the fixed endpoint to select policy and denies an unknown,
+absent, or mismatched principal without falling back to the current/default
+Context.
 
 Header names are lowercase. Host excludes a trailing dot and uses the
 normalized request authority. Query values retain occurrence order. Request
-and response body bytes and derived metadata, such as decoded values or hashes,
-are outside this contract. Media-type and framing headers remain ordinary
-redacted header fields, but are not learned-rule identity dimensions.
+and response bodies, decoded values, and hashes are outside the policy
+contract.
+
+The authorization object is always present:
+
+- passthrough uses null `requested_profile` and null `broker_provider`;
+- managed mode may provide a non-secret requested profile only after its
+  Context/project/host precheck and keeps `broker_provider` null; and
+- a recognized broker handle uses null `requested_profile` and the validated
+  provider ID returned by non-secret broker introspection.
+
+These fields are metadata for policy and validation. Neither selects a real
+credential. OPA may select a managed `credential_profile` only for the managed
+path. A brokered allow with a non-null selected profile is rejected before
+secret resolution.
 
 ## Body-independent authorization and streaming
 
-Gateway evaluates OPA from request headers before any body byte is forwarded.
-It enables mitmproxy request streaming only after the Context/project principal,
-credential binding, policy decision, and credential application succeed. It
+Gateway evaluates OPA from request headers before forwarding a body byte. It
+enables request streaming only after principal validation, credential
+preparation, policy allow, and any post-allow credential action succeed. It
 streams the corresponding upstream response after its headers arrive. Body
 presence and content therefore do not alter or split the exact
-Context/project/host/port/method/path candidate or learned rule, and body data is never
-copied into OPA input, denial evidence, policy data, or audit output.
+Context/project/host/port/method/path candidate or learned rule.
 
 Mitmproxy retains a fixed 8 MiB `body_size_limit`. A message with a known
 `Content-Length` above that value is rejected before the ordinary addon header
-hook. An allowed unknown-length body, such as a chunked upload or streaming
-response, has no total-byte limit in this contract and is forwarded
-incrementally rather than buffered in full.
+hook. An allowed unknown-length body has no total-byte limit in this contract
+and is forwarded incrementally rather than buffered in full.
 
-## Decision
+## Brokered-request ordering
 
-OPA must return exactly one object:
+A brokered request is recognized only from the schema-1 provider projection and
+an exact HTTPS authority/header/syntax match. A Tobari handle marker in a URL,
+cookie, header name, unsupported header value, or ambiguous syntax is rejected
+before OPA. A malformed, misplaced, ambiguous, or binding-mismatched marker
+fails as `credential_handle_invalid`; it never falls back or reaches upstream.
+Only complete absence of a Tobari marker from every inspected URL/header
+position selects the configured passthrough or managed fallback. Gateway
+removes a valid declared placeholder header from the forwardable request, then
+sends one schema-1 `introspect`
+request over `/run/tobari-auth/runtime/broker.sock`. The request binds the
+handle, stable Context/project/provider IDs, target, source header, and source
+format. The response contains only the opaque credential revision and repeated
+normalized target/source/destination/redaction metadata.
+
+If OPA denies, Gateway never sends `resolve`. If OPA allows, Gateway sends
+exactly one schema-1 `resolve` request with every introspection dimension plus
+the returned revision. A valid response repeats the metadata and returns one
+bounded `primary_secret` as unpadded base64url. Gateway validates the entire
+response, replaces only the declared destination header, and makes one upstream
+attempt. The secret is request-local and is never included in policy input,
+audit, denial output, logs, or retry state.
+
+The request body is never a credential source or replacement surface and is
+not scanned for handle-shaped bytes. A body containing a Workspace-readable
+handle has no broker meaning and follows the ordinary body-streaming contract.
+
+The broker protocol uses strict exact-key newline-delimited JSON frames of at
+most 64 KiB and a finite Gateway timeout of 2 seconds by default, configurable
+only from 1 through 10 seconds. A protocol, timeout, socket, lock, or integrity
+failure is unavailable, not permission to fall back with the same handle.
+
+## OPA decision
+
+OPA must return exactly one result object:
 
 ```json
 {
@@ -74,118 +119,140 @@ OPA must return exactly one object:
 }
 ```
 
-`status_code` is required and restricted to 403 in the MVP. `learnable` is
-required and may be true only on a denial after version, cluster, scheme, and
-fixed request port pass; managed-adapter requests additionally require
-credential binding,
-meaning an exact Context/project/host/port/method/path rule can resolve that denial. The
-initialized policy requires the configured port for the request scheme, and
-learned rules retain the observed Context, project, host, port, method, and path. The
-scheme/port boundary is evaluated before a learned rule can match, so an
-approval cannot move an effect outside the configured transport boundary.
-Gateway records the value for candidate discovery but never treats it as
-authorization. Missing or wrong-typed required fields deny. `allow` is the
-only authorization fact; no `ask` or pending state exists. The decision has no
-audit member: Gateway owns audit emission and OPA returns authorization data
-only.
+`status_code` is required and restricted to 403. `learnable` is required and
+may be true only on a denial after version, cluster, scheme, fixed request port,
+and trusted principal checks pass; managed requests additionally require their
+profile binding. A broker provider is not itself permission and does not make a
+denial learnable outside those same HTTP boundaries. Missing or wrong-typed
+fields deny. `allow` is the only authorization fact; there is no `ask` or
+pending state. Gateway owns audit emission.
 
-## Timeouts, attempts, and retry
+## Timeouts, attempts, redirect, and retry
 
 - OPA decision timeout: 2 seconds by default, configurable up to 10 seconds.
+- Auth Broker runtime timeout: 2 seconds by default, configurable from 1 to 10
+  seconds.
 - Upstream connection/request timeout: 30 seconds by default, configurable up
   to 120 seconds.
-- Maximum attempt count: one.
+- Maximum upstream attempt count: one.
 - Gateway never retries because it cannot infer idempotency from an arbitrary
   HTTP request.
-- Cancellation closes the proxy flow; it does not turn an unknown upstream
-  mutation outcome into permission to replay.
+- Each proxy redirect request is independently normalized and authorized; a
+  prior allow does not authorize the redirected authority or path.
+- Cancellation closes the proxy flow and does not convert an unknown upstream
+  mutation outcome into replay permission.
+
+## GitHub.com acquisition helper
+
+`auth login github` is the only supported provider-facing acquisition flow. A
+trusted interactive host command runs these fixed GitHub CLI operations in an
+ephemeral configuration directory:
+
+```text
+gh auth login --hostname github.com --git-protocol https --web
+gh auth status --active --hostname github.com --json hosts
+gh auth token --hostname github.com
+```
+
+Ambient `GH_TOKEN`, `GITHUB_TOKEN`, enterprise-token, host, and repository
+variables are removed. The login call owns the ordinary GitHub CLI web/device
+interaction. Tobari neither interprets OAuth endpoints nor follows provider
+responses itself. It validates exactly one active successful GitHub.com account
+from bounded status JSON, captures one token of at most 32 KiB internally, and
+removes the temporary directory even on failure. The sequence has no
+pagination or automatic retry. It is bounded by the user's interactive
+completion and command cancellation; cancellation or any failed capture leaves
+the previous Context credential unchanged.
+
+This helper does not refresh tokens, select among multiple Context accounts,
+revoke a token remotely on logout, inspect scopes, call the GitHub REST API as
+an application adapter, or interpret GitHub business operations. The GitHub CLI
+is pinned to version 2.96.0 in the Auth Broker image and its Linux amd64/arm64
+archives are checksum-verified.
+
+Owner-controlled providers use `auth import` and make no external call during
+acquisition. Their schema-1 manifests may declare an exact HTTPS header
+transformation, but they cannot declare executable helpers, methods, paths,
+pagination, retries, signing, or refresh behavior. Terminal stdin is refused
+before reading. Non-terminal input is read after public Context/provider
+argument, intent, and mutation validation; infrastructure validates the
+selected existing Context, installed provider/acquisition mode, and broker
+readiness before broker send. A provider collection with overlapping exact
+scheme/host/port/source-header/source-format recognition fails completely as
+`ambiguous_provider_http_binding` rather than partially activating.
 
 ## Gateway audit
 
-Every validated allow/deny audit record uses `schema_version: 2` and contains `context_id`, the human
-`context` name, `project_id`, and safe `project_root` alongside the cluster,
-request authority, method, path, decision, reason, adapter-dependent
-credential profile name, and upstream outcome. In passthrough mode the profile
-name is `null`. Context and project IDs are metadata for host-side policy
-learning and diagnostics; secret values and request bodies remain excluded.
-Host-side denial, candidate, learned-rule, and compaction projections retain
-the same Context/project pair so an opaque approval cannot lose its authority scope.
+Every validated allow/deny audit record uses `schema_version: 2` and contains
+Context name and stable ID, project ID and safe root, cluster, request
+authority, method, redacted path, decision, reason, adapter-dependent credential
+profile name, upstream outcome, and timing. It contains no query or headers.
+The ordinary value is only the URL path component; when that path contains a
+Tobari handle marker, the whole value is `/[redacted-auth-handle]`. Structural
+URL/header handle rejections are non-learnable and cannot become policy
+candidates. A broker provider may be present only as secret-free authorization
+metadata; a handle, credential revision, primary secret, request body, and raw
+authorization value are excluded. Host-side
+denial, candidate, learned-rule, and compaction projections retain the same
+Context/project pair so an opaque approval cannot lose its authority scope.
 
 ## Errors
 
-Policy denial returns 403. When OPA marks the denial as learnable, the response
-also carries a fixed, secret-free `tobari` navigation object so an agent can
-tell the user to review the permission on the trusted host:
+Policy denial returns 403. A learnable response contains only the existing
+fixed secret-free `tobari policy review` navigation; it has no candidate ID,
+query, body, header, provider handle, credential, policy path, or dynamic
+command argument. Non-learnable policy denial advertises no review command.
 
-```json
-{
-  "error": "policy_denied",
-  "message": "Tobari blocked this network request because it is outside the current execution boundary. Leave the Workspace with `exit`, then run `tobari policy review` on the trusted host.",
-  "tobari": {
-    "schema_version": 1,
-    "event": "permission_review_available",
-    "run_on": "host",
-    "review": {
-      "available": true,
-      "command": "tobari policy review",
-      "automatic_retry": false,
-      "retry_after_review": true
-    },
-    "request": {
-      "host": "api.example.com",
-      "port": 443,
-      "method": "POST",
-      "path": "/token"
-    }
-  }
-}
-```
-
-The response contains no query, body, headers, credentials, policy path, or
-opaque action ID. The command is fixed catalog language and is advisory only;
-the host-side retained denial queue remains the source of truth. The learnable
-message may remind the agent to leave the Workspace before asking the host to
-run the review command. A
-non-learnable policy denial uses `event=permission_review_unavailable`,
-`review.available=false`, and a null command so it cannot be mistaken for a
-safe exact approval candidate. OPA unavailability or malformed decisions
-return 503 with a generic message. Gateway internal normalization failure
-returns 502. Responses contain no OPA body, upstream error body, secret value,
-or raw request body. Audit records distinguish deny, policy unavailable, and
-gateway error without exposing confidential content.
+A copied, malformed, stale, revoked, ambiguous, or Context/project/provider/
+target/header-mismatched or structurally misplaced handle returns HTTP 403 with
+`credential_handle_invalid`. A locked or unavailable broker, socket timeout,
+invalid response, inconsistent revision, or malformed secret returns HTTP 503
+with `credential_broker_unavailable`. Every Tobari-looking marker follows one of
+those fail-closed paths unless it is a valid exact broker candidate; fallback
+requires that no marker exists anywhere inspected. Gateway removes a valid
+candidate before broker/OPA processing, so a failed candidate cannot reach OPA
+logs, denial output, or upstream.
+OPA unavailability or malformed decisions return 503 `policy_unavailable`.
+Other Gateway normalization failures remain secret-free 4xx/5xx failures.
 
 ## Schema and compatibility
 
-The OPA input schema version `4`, audit schema version `2`, decision fields, default limits,
-and configuration keys are public MVP compatibility boundaries. The Gateway
-does not accept the former OPA input shapes or incomplete decisions. The
-trusted
-`TOBARI_CREDENTIAL_ADAPTER` setting defaults to `passthrough`; `managed` keeps
-the existing credential configuration contract. The
-`principal-registry/principals.json` uses schema version 2 with `bindings`
-containing `project_id`, `context_id`, `context`, `project_root`, `gateway_ip`,
-and `network`. Gateway credential projection schema v2 contains `contexts`
-keyed by Context ID; each projected profile still requires a `projects` array
-and its secret path is below that Context ID. Context source credentials remain
-schema v1.
-Each Context policy source uses `tobari.schema_version=2`, with `boundary`,
-`credentials`, and `rules` objects; mutable rules live under
-`rules.learned_allows` and `rules.learned_denies`, while host-authored baseline
-denies live under `rules.baseline_denies`. Aggregate policy projection schema 1
-places Context data under `tobari_contexts[context_id]`, supplies one
-Tobari-owned router, and content-addresses the complete candidate. Guided
-Contexts share one system evaluator; Advanced source is projected to a
-Context-ID package and cannot claim system/router namespaces.
-Synthetic fixtures
-live with Gateway tests and are generated by this repository; no upstream
-provider schema is vendored, so `.harness/schemas.json` remains empty.
+The OPA input schema version `5`, audit schema version `2`, decision fields,
+timeouts, attempt count, provider manifest/projection schema `1`, broker
+control/runtime schema `1`, encrypted vault schema `1`, handle prefix
+`tobari-h1_`, and Auth Broker image API label `1` are explicit pre-v1
+compatibility boundaries. Gateway does not accept former OPA input shapes,
+incomplete decisions, or unknown broker frames.
+Public auth backend values are exactly `macos_keychain|xdg_file`, and cluster
+status may additionally report `unavailable`; the infrastructure/doctor label
+`linux_xdg_file` is not a public JSON enum. The canonical schema, state-path,
+socket, handle, and backend inventory is in
+[Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
+
+The principal registry remains schema version 2. Each Context policy data
+source uses `tobari.schema_version=2`; current Rego source targets OPA input
+schema 4. Aggregate projection schema 1 accepts legacy source input schema 3
+only for compatibility, rewrites both source versions to runtime schema 5,
+stores Context data below `tobari_contexts[context_id]`, and rejects other
+shapes. Guided Contexts share one system evaluator, while Advanced source is
+projected into a Context-ID package and cannot claim router or system
+namespaces.
+
+No upstream provider response fixture is vendored. The repository-authored
+synthetic provider manifest is pinned as `auth-provider.v1` in
+`.harness/schemas.json` with MIT provenance and an exact digest. GitHub status
+tests use synthetic JSON and mock subprocess results. A live GitHub login is
+manual release evidence and may not be recorded with tokens, device codes,
+vaults, or raw authenticated output.
 
 ## Policy testing
 
-Rego is formatted with the pinned OPA image and tested by `opa test`. The
-initialized policy proves deny by default, structured authority and port
-boundaries,
-plain-HTTP restriction, host/port/method/path denial, body-independent
-decisions, Context/project-bound learned rules, passthrough
-redaction/forwarding, unknown-Context denial, and managed credential-profile
-Context/host/project binding.
+Pinned OPA tests prove schema-5 rejection of older or incomplete input,
+deny-by-default behavior, structured authority and port boundaries,
+body-independent decisions, Context/project-bound learned rules, null versus
+broker-provider authorization metadata, and managed profile binding. Gateway
+tests independently prove handle removal, deny-before-resolve, exact
+post-allow replacement, and fallback compatibility.
+Fallback tests require marker absence in every inspected URL/header position;
+audit tests require query/header omission, whole-path marker redaction, and
+non-learnable structural handle rejection.

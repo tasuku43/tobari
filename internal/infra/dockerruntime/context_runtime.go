@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -143,21 +145,102 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		return tobari.ContextReport{}, err
 	}
 	result := tobari.ContextReport{
-		Task:         task,
-		ID:           manifest.ID,
-		Name:         manifest.Name,
-		Active:       manifest.Name == active,
-		AgentProfile: manifest.AgentProfile,
-		Image:        manifest.Image,
-		PolicyMode:   manifest.PolicyMode,
-		Stores:       r.contextPaths(manifest.Name),
-		Runtime:      runtimeReport,
-		Cluster:      tobari.ContextClusterStatusNotApplicable,
+		Task:           task,
+		ID:             manifest.ID,
+		Name:           manifest.Name,
+		Active:         manifest.Name == active,
+		AgentProfile:   manifest.AgentProfile,
+		Image:          manifest.Image,
+		PolicyMode:     manifest.PolicyMode,
+		Stores:         r.contextPaths(manifest.Name),
+		Runtime:        runtimeReport,
+		Cluster:        tobari.ContextClusterStatusNotApplicable,
+		Authentication: tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable},
+	}
+	if task == tobari.TaskContextShow {
+		result.Authentication, err = r.contextAuthentication(ctx, manifest.ID)
+		if err != nil {
+			return tobari.ContextReport{}, err
+		}
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.ContextReport{}, err
 	}
 	return result, nil
+}
+
+func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (tobari.ContextAuthentication, error) {
+	projection, err := r.loadAuthProviders()
+	if err != nil {
+		return tobari.ContextAuthentication{}, err
+	}
+	var state authbroker.BrokerState
+	var stateErr error
+	report := tobari.ContextAuthentication{
+		BrokerState: tobari.ContextAuthBrokerUnavailable,
+		Providers:   make([]tobari.ContextAuthProvider, 0, len(projection.Providers)),
+	}
+	_, configured, loadErr := r.LoadState(ctx)
+	if loadErr != nil {
+		return tobari.ContextAuthentication{}, loadErr
+	}
+	if !configured {
+		stateErr = nil
+		state = authbroker.BrokerStateUnavailable
+	} else {
+		state, stateErr = r.brokerState(ctx)
+	}
+	if stateErr == nil {
+		switch state {
+		case authbroker.BrokerStateReady:
+			report.BrokerState = tobari.ContextAuthBrokerReady
+		case authbroker.BrokerStateLocked:
+			report.BrokerState = tobari.ContextAuthBrokerLocked
+		}
+	}
+	for _, provider := range projection.Providers {
+		item := tobari.ContextAuthProvider{
+			Provider: provider.ID,
+			State:    tobari.ContextAuthProviderUnavailable,
+		}
+		if report.BrokerState == tobari.ContextAuthBrokerReady {
+			response, statusErr := r.runBrokerControl(
+				ctx, nil, "status", "--context-id", contextID, "--provider", provider.ID,
+			)
+			if statusErr != nil {
+				return tobari.ContextAuthentication{}, classifyBrokerError(statusErr, "context show")
+			}
+			if response.Provider != provider.ID {
+				return tobari.ContextAuthentication{}, fault.New(
+					fault.KindContract, "invalid_auth_broker_metadata",
+					"The Auth Broker returned provider status for the wrong provider.", false,
+					fault.NextAction{Command: "doctor", Reason: "Inspect Auth Broker and provider projection consistency."},
+				)
+			}
+			switch response.State {
+			case "ready":
+				item.State = tobari.ContextAuthProviderConfigured
+				item.CredentialRevision = response.Revision
+				item.AccountLabel, err = validatedAccountLabel(response.AccountLabel)
+				if err != nil {
+					return tobari.ContextAuthentication{}, err
+				}
+			case "not_configured":
+				item.State = tobari.ContextAuthProviderNotConfigured
+			default:
+				return tobari.ContextAuthentication{}, fault.New(
+					fault.KindContract, "invalid_auth_broker_metadata",
+					"The Auth Broker returned an invalid provider status.", false,
+					fault.NextAction{Command: "doctor", Reason: "Inspect Auth Broker and provider projection consistency."},
+				)
+			}
+		}
+		report.Providers = append(report.Providers, item)
+	}
+	if err := report.Validate(true); err != nil {
+		return tobari.ContextAuthentication{}, fmt.Errorf("Context authentication report is invalid: %w", err)
+	}
+	return report, nil
 }
 
 // InitRuntime creates the active Context's recipe without changing its

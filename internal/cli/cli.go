@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/tasuku43/tobari/internal/app/authcmd"
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
@@ -29,6 +30,7 @@ type CLI struct {
 	doctor  *doctorcmd.Service
 	tobari  *tobaricmd.Service
 	context *contextcmd.Service
+	auth    *authcmd.Service
 	noColor bool
 }
 
@@ -43,6 +45,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 			newWorkspaceSelectorWithStyle(!command.noColor),
 		)
 		command.context = contextcmd.New(runtime)
+		command.auth = authcmd.New(runtime)
 	}
 	return command
 }

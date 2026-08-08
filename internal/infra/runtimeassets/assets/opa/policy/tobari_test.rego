@@ -3,7 +3,7 @@ package tobari.http
 import rego.v1
 
 base_input := {
-	"schema_version": 3,
+	"schema_version": 4,
 	"principal": {
 		"cluster": "default",
 		"context_id": "01912345-6789-7abc-8def-0123456789ad",
@@ -20,7 +20,7 @@ base_input := {
 		"query": {},
 		"headers": {},
 	},
-	"authorization": {"requested_profile": null},
+	"authorization": {"requested_profile": null, "broker_provider": null},
 }
 
 input_with_request(request) := object.union(base_input, {"request": request})
@@ -53,9 +53,27 @@ test_deny_missing_authorization_shape if {
 }
 
 test_deny_invalid_requested_profile_shape if {
-	result := decision with input as object.union(base_input, {"authorization": {"requested_profile": 17}})
+	result := decision with input as object.union(base_input, {"authorization": {"requested_profile": 17, "broker_provider": null}})
 	not result.allow
 	not result.learnable
+}
+
+test_deny_invalid_broker_provider_shape if {
+	result := decision with input as object.union(base_input, {"authorization": {"requested_profile": null, "broker_provider": "GitHub.com"}})
+	not result.allow
+	not result.learnable
+}
+
+test_deny_unknown_authorization_field if {
+	result := decision with input as object.union(base_input, {"authorization": {"requested_profile": null, "broker_provider": null, "handle": "redacted"}})
+	not result.allow
+	not result.learnable
+}
+
+test_allow_provider_neutral_broker_authorization if {
+	result := decision with input as object.union(base_input, {"authorization": {"requested_profile": null, "broker_provider": "github"}})
+	result.allow
+	result.credential_profile == null
 }
 
 test_allow_https_get if {
@@ -121,7 +139,7 @@ test_deny_github_write_path if {
 
 test_learnable_denial_preserves_bound_credential_profile if {
 	request := object.union(request_with_path({"raw": "/graphql", "segments": ["graphql"]}), {"method": "PUT"})
-	result := decision with input as object.union(input_with_request(request), {"authorization": {"requested_profile": "github-development"}})
+	result := decision with input as object.union(input_with_request(request), {"authorization": {"requested_profile": "github-development", "broker_provider": null}})
 	not result.allow
 	result.learnable
 	result.credential_profile == "github-development"
@@ -273,13 +291,13 @@ test_learned_rule_does_not_cross_project if {
 }
 
 test_allow_bound_credential if {
-	result := decision with input as object.union(base_input, {"authorization": {"requested_profile": "github-development"}})
+	result := decision with input as object.union(base_input, {"authorization": {"requested_profile": "github-development", "broker_provider": null}})
 	result.allow
 }
 
 test_deny_credential_on_other_host if {
 	request := request_with_authority({"host": "example.com"})
-	result := decision with input as object.union(input_with_request(request), {"authorization": {"requested_profile": "github-development"}})
+	result := decision with input as object.union(input_with_request(request), {"authorization": {"requested_profile": "github-development", "broker_provider": null}})
 	not result.allow
 	not result.learnable
 }

@@ -1457,32 +1457,38 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 }
 
 type clusterStatusOutput struct {
-	Configured           bool                     `json:"configured"`
-	Running              bool                     `json:"running"`
-	Proxy                string                   `json:"proxy"`
-	Policy               string                   `json:"policy"`
-	TobariCount          int                      `json:"tobari_count"`
-	ContextCount         int                      `json:"context_count"`
-	PolicyRevision       string                   `json:"policy_revision"`
-	PolicyProjection     string                   `json:"policy_projection"`
-	PrincipalRegistry    string                   `json:"principal_registry"`
-	CredentialProjection string                   `json:"credential_projection"`
-	Components           []tobari.ComponentStatus `json:"components"`
-	RecentError          string                   `json:"recent_error"`
+	Configured             bool                     `json:"configured"`
+	Running                bool                     `json:"running"`
+	Proxy                  string                   `json:"proxy"`
+	Policy                 string                   `json:"policy"`
+	TobariCount            int                      `json:"tobari_count"`
+	ContextCount           int                      `json:"context_count"`
+	PolicyRevision         string                   `json:"policy_revision"`
+	PolicyProjection       string                   `json:"policy_projection"`
+	PrincipalRegistry      string                   `json:"principal_registry"`
+	CredentialProjection   string                   `json:"credential_projection"`
+	AuthProviderProjection string                   `json:"auth_provider_projection"`
+	AuthBrokerState        string                   `json:"auth_broker_state"`
+	RootKeyBackend         string                   `json:"root_key_backend"`
+	Components             []tobari.ComponentStatus `json:"components"`
+	RecentError            string                   `json:"recent_error"`
 }
 
 func renderClusterStatus(status tobari.ClusterStatus, format successFormat, color bool) ([]byte, error) {
 	if format == successFormatJSON {
 		document := clusterStatusDocument{
-			SchemaVersion: 2,
+			SchemaVersion: 3,
 			Cluster: clusterStatusOutput{
 				Configured: status.Configured, Running: status.Running,
 				Proxy: safeExternalText(status.Proxy), Policy: safeExternalText(status.Policy),
 				TobariCount: status.TobariCount, ContextCount: status.ContextCount,
 				PolicyRevision: status.PolicyRevision, PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
-				CredentialProjection: safeExternalText(status.CredentialProjection),
-				Components:           append([]tobari.ComponentStatus{}, status.Components...),
-				RecentError:          safeExternalText(status.RecentError),
+				CredentialProjection:   safeExternalText(status.CredentialProjection),
+				AuthProviderProjection: safeExternalText(status.AuthProviderProjection),
+				AuthBrokerState:        safeExternalText(status.AuthBrokerState),
+				RootKeyBackend:         safeExternalText(status.RootKeyBackend),
+				Components:             append([]tobari.ComponentStatus{}, status.Components...),
+				RecentError:            safeExternalText(status.RecentError),
 			},
 		}
 		output, err := json.Marshal(document)
@@ -1538,7 +1544,10 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 	)
 	if status.PolicyRevision != "" {
 		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Revision")), status.PolicyRevision[:12])
-		fmt.Fprintf(&output, "  %s policy %s / principals %s / credentials %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Integrity")), safeExternalText(status.PolicyProjection), safeExternalText(status.PrincipalRegistry), safeExternalText(status.CredentialProjection))
+		fmt.Fprintf(&output, "  %s policy %s / principals %s / credentials %s / providers %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Integrity")), safeExternalText(status.PolicyProjection), safeExternalText(status.PrincipalRegistry), safeExternalText(status.CredentialProjection), safeExternalText(status.AuthProviderProjection))
+	}
+	if status.AuthBrokerState != "" || status.RootKeyBackend != "" {
+		fmt.Fprintf(&output, "  %s broker %s / root key %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Auth")), safeExternalText(status.AuthBrokerState), safeExternalText(status.RootKeyBackend))
 	}
 	if status.Policy != "" {
 		fmt.Fprintln(&output)
@@ -1583,6 +1592,8 @@ func clusterComponentName(name string) string {
 		return "Gateway"
 	case "opa":
 		return "OPA"
+	case "auth-broker":
+		return "Auth"
 	default:
 		return escapeTSVCell(name)
 	}

@@ -85,11 +85,16 @@ func (f *contextRuntimeFake) BuildRuntimeWithProgress(
 }
 
 func contextReport(task, name string) tobari.ContextReport {
+	authentication := tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
+	if task == tobari.TaskContextShow {
+		authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerReady, Providers: []tobari.ContextAuthProvider{}}
+	}
 	return tobari.ContextReport{
 		Task: task, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: task == tobari.TaskContextUse,
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-		PolicyMode: tobari.ContextPolicyModeGuided,
-		Cluster:    tobari.ContextClusterStatusNotApplicable,
+		PolicyMode:     tobari.ContextPolicyModeGuided,
+		Cluster:        tobari.ContextClusterStatusNotApplicable,
+		Authentication: authentication,
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials.json"),

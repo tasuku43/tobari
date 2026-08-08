@@ -251,7 +251,7 @@ func (s *Service) readyCluster(ctx context.Context) (tobari.State, error) {
 		return tobari.State{}, fault.New(
 			fault.KindUnavailable, "cluster_not_configured",
 			"the shared cluster is not configured; run cluster up before entering a Tobari", false,
-			fault.NextAction{Command: "cluster up", Reason: "Create the shared Gateway and OPA cluster explicitly."},
+			fault.NextAction{Command: "cluster up", Reason: "Create the shared Gateway, OPA, and Auth Broker cluster explicitly."},
 		)
 	}
 	clusterStatus, statusErr := s.runtime.InspectCluster(ctx, state)
@@ -263,7 +263,7 @@ func (s *Service) readyCluster(ctx context.Context) (tobari.State, error) {
 		return tobari.State{}, fault.New(
 			fault.KindUnavailable, "cluster_not_ready",
 			"the shared cluster is not ready; repair it with an explicit cluster operation", false,
-			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster explicitly."},
+			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster explicitly."},
 		)
 	}
 	return state, nil

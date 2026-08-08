@@ -22,20 +22,42 @@ func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *t
 			PolicyMode:    tobari.ContextPolicyModeAdvanced,
 			Image:         tobari.BuiltinImageSelector,
 		},
-		rego: []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 3; data.tobari.schema_version == 2 }\n"),
+		rego: []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 4; data.tobari.schema_version == 2 }\n"),
 	}
 	transformed, err := transformContextRego(item)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(transformed, []byte("package tobari.contexts.c0191234567897abc8def0123456789ad.http")) ||
-		!bytes.Contains(transformed, []byte("input.schema_version == 4")) ||
+		!bytes.Contains(transformed, []byte("input.schema_version == 5")) ||
 		!bytes.Contains(transformed, []byte("data.tobari_contexts[input.principal.context_id]")) {
 		t.Fatalf("advanced Context policy was not safely namespaced:\n%s", transformed)
 	}
 	item.rego = []byte("package tobari.system\n")
 	if _, err := transformContextRego(item); err == nil {
 		t.Fatal("user policy claimed the system package")
+	}
+}
+
+func TestAdvancedPolicyMigratesPreviousSourceInputSchema(t *testing.T) {
+	item := aggregateContext{
+		manifest: tobari.ContextManifest{
+			SchemaVersion: tobari.ContextSchemaVersion,
+			ID:            "01912345-6789-7abc-8def-0123456789ad",
+			Name:          "restricted",
+			AgentProfile:  tobari.DefaultProfile,
+			PolicyMode:    tobari.ContextPolicyModeAdvanced,
+			Image:         tobari.BuiltinImageSelector,
+		},
+		rego: []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 3; data.tobari.schema_version == 2 }\n"),
+	}
+	transformed, err := transformContextRego(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(transformed, []byte("input.schema_version == 3")) ||
+		!bytes.Contains(transformed, []byte("input.schema_version == 5")) {
+		t.Fatalf("previous Context input schema was not migrated:\n%s", transformed)
 	}
 }
 

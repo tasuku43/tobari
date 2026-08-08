@@ -429,6 +429,7 @@ func (r *Runtime) ReadPolicyDenyRules(
 			result.Exact = append(result.Exact, rule)
 		}
 	}
+	sort.Slice(result.Exact, func(i, j int) bool { return result.Exact[i].ID < result.Exact[j].ID })
 	return result, result.Validate()
 }
 

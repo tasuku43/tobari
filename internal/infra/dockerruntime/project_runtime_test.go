@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -466,7 +467,16 @@ type projectExitError struct{ code int }
 func (e projectExitError) Error() string { return fmt.Sprintf("child exited with status %d", e.code) }
 func (e projectExitError) ExitCode() int { return e.code }
 
-func (r *projectReconcileRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+func (r *projectReconcileRunner) Run(_ context.Context, args []string, _ []string, _ io.Reader, out, _ io.Writer) error {
+	if slices.Contains(args, "authbroker.control") {
+		state := "unlocked"
+		if slices.Contains(args, "status") {
+			state = "not_configured"
+			_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"`+state+`","provider":"github"}`+"\n")
+			return nil
+		}
+		_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"`+state+`"}`+"\n")
+	}
 	return nil
 }
 

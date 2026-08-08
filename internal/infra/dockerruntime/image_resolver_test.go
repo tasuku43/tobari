@@ -5,7 +5,8 @@ import "context"
 type testImageResolver struct {
 	runtimeImage string
 	pullRuntime  bool
-	gateway      gatewayImageSelection
+	gateway      sharedImageSelection
+	authBroker   sharedImageSelection
 }
 
 func (r testImageResolver) DefaultRuntimeImage() string {
@@ -16,6 +17,10 @@ func (r testImageResolver) ShouldPullRuntimeImage(string) bool {
 	return r.pullRuntime
 }
 
-func (r testImageResolver) GatewayImage(context.Context, *Runtime) (gatewayImageSelection, error) {
+func (r testImageResolver) GatewayImage(context.Context, *Runtime) (sharedImageSelection, error) {
 	return r.gateway, nil
+}
+
+func (r testImageResolver) AuthBrokerImage(context.Context, *Runtime) (sharedImageSelection, error) {
+	return r.authBroker, nil
 }

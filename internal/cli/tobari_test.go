@@ -739,14 +739,19 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 	status := tobari.ClusterStatus{
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
 		Proxy: "http://gateway:8080", Policy: "/tmp/config/tobari/policy",
+		PolicyRevision: strings.Repeat("a", 64), PolicyProjection: "valid",
+		PrincipalRegistry: "valid", CredentialProjection: "valid",
+		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
 		TobariCount: 2, Components: []tobari.ComponentStatus{
+			{Name: "auth-broker", State: "running", Health: "healthy"},
 			{Name: "gateway", State: "running", Health: "healthy"},
 			{Name: "opa", State: "running", Health: "healthy"},
 		},
 	}
 	output := string(renderClusterStatusText(status))
 	for _, expected := range []string{
-		"✓ Cluster ready", "  Gateway  healthy", "  OPA      healthy",
+		"✓ Cluster ready", "  Auth     healthy", "  Gateway  healthy", "  OPA      healthy",
+		"providers valid", "broker ready / root key xdg_file",
 		"  Policy   /tmp/config/tobari/policy", "  Tobari   2",
 	} {
 		if !strings.Contains(output, expected) {
@@ -883,6 +888,41 @@ func TestClusterStatusJSONDoesNotContainTerminalColors(t *testing.T) {
 	}
 	if strings.Contains(string(output), "\x1b[") {
 		t.Fatalf("cluster status JSON contains terminal colors: %q", output)
+	}
+}
+
+func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
+	t.Parallel()
+	status := tobari.ClusterStatus{
+		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
+		Proxy: "http://gateway:8080", Policy: "/tmp/config/tobari/policy",
+		TobariCount: 1, ContextCount: 1, PolicyRevision: strings.Repeat("a", 64),
+		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
+		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
+		Components: []tobari.ComponentStatus{{Name: "auth-broker", State: "running", Health: "healthy"}},
+	}
+	output, err := renderClusterStatus(status, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		SchemaVersion int                        `json:"schema_version"`
+		Cluster       map[string]json.RawMessage `json:"cluster"`
+	}
+	if err := json.Unmarshal(output, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != 3 {
+		t.Fatalf("schema version = %d, want 3", document.SchemaVersion)
+	}
+	for key, want := range map[string]string{
+		"auth_provider_projection": `"valid"`,
+		"auth_broker_state":        `"ready"`,
+		"root_key_backend":         `"xdg_file"`,
+	} {
+		if got := string(document.Cluster[key]); got != want {
+			t.Errorf("cluster.%s = %s, want %s", key, got, want)
+		}
 	}
 }
 

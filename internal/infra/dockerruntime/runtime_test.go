@@ -41,22 +41,38 @@ type policyProbeRunner struct {
 	outputs []runnerCall
 }
 
-type clusterUpProgressRunner struct{}
+type clusterUpProgressRunner struct {
+	events             []string
+	composeEnvironment []string
+}
 
-func (clusterUpProgressRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, _ io.Writer) error {
+	if len(args) > 0 && args[0] == "compose" {
+		r.events = append(r.events, "compose")
+		r.composeEnvironment = append([]string{}, environment...)
+	}
+	if slices.Contains(args, "authbroker.control") {
+		_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"unlocked"}`+"\n")
+	}
 	return nil
 }
 
-func (clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	if len(args) >= 1 && args[0] == "image" {
 		if strings.Contains(strings.Join(args, " "), tobari.RuntimeImageAPILabel) {
 			return compatibleImageInspection(), nil
 		}
-		versions, err := runtimeassets.Versions()
-		if err != nil {
-			return nil, err
+		image := args[len(args)-1]
+		switch image {
+		case "tobari-auth-broker:dev":
+			r.events = append(r.events, "auth-broker-image")
+			return []byte(authBrokerMetadata("arm64", "")), nil
+		case "tobari-gateway:dev":
+			r.events = append(r.events, "gateway-image")
+			return []byte(gatewayMetadata("arm64", "")), nil
+		default:
+			return nil, fmt.Errorf("unexpected shared image inspection: %s", image)
 		}
-		return []byte(fmt.Sprintf(`{"RepoDigests":[%q],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"1","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`, versions["GATEWAY_IMAGE"])), nil
 	}
 	if len(args) >= 1 && args[0] == "version" {
 		return []byte(`{"Os":"linux","Arch":"arm64"}`), nil
@@ -73,12 +89,18 @@ func (clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]by
 func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	runner := &clusterUpProgressRunner{}
 	runtime, err := newRuntimeWithData(
 		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"),
-		clusterUpProgressRunner{},
+		runner,
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	runtime.images = testImageResolver{
+		runtimeImage: "tobari-runtime:dev",
+		gateway:      sharedImageSelection{Image: "tobari-gateway:dev"},
+		authBroker:   sharedImageSelection{Image: "tobari-auth-broker:dev"},
 	}
 	var events []tobari.ClusterUpProgress
 	if _, err := runtime.ClusterUpWithProgress(context.Background(), func(event tobari.ClusterUpProgress) {
@@ -104,6 +126,21 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 		if start != (tobari.ClusterUpProgress{Step: step, Status: tobari.ClusterUpProgressStarted}) ||
 			complete != (tobari.ClusterUpProgress{Step: step, Status: tobari.ClusterUpProgressCompleted}) {
 			t.Fatalf("stage %q events = %+v, %+v", step, start, complete)
+		}
+	}
+	authIndex := slices.Index(runner.events, "auth-broker-image")
+	gatewayIndex := slices.Index(runner.events, "gateway-image")
+	composeIndex := slices.Index(runner.events, "compose")
+	if authIndex < 0 || gatewayIndex <= authIndex || composeIndex <= gatewayIndex {
+		t.Fatalf("shared image preparation order = %v", runner.events)
+	}
+	joinedEnvironment := strings.Join(runner.composeEnvironment, "\n")
+	for _, binding := range []string{
+		"TOBARI_AUTH_BROKER_IMAGE=tobari-auth-broker:dev",
+		"TOBARI_GATEWAY_IMAGE=tobari-gateway:dev",
+	} {
+		if strings.Count(joinedEnvironment, binding) != 1 {
+			t.Fatalf("compose environment lacks one verified %q binding: %s", binding, joinedEnvironment)
 		}
 	}
 }
@@ -184,8 +221,11 @@ func (r *policyProbeRunner) Output(_ context.Context, args, _ []string) ([]byte,
 	return nil, nil
 }
 
-func (r *recordingRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
+func (r *recordingRunner) Run(_ context.Context, args, _ []string, _ io.Reader, out, _ io.Writer) error {
 	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
+	if slices.Contains(args, "authbroker.control") {
+		_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"unlocked"}`+"\n")
+	}
 	return nil
 }
 func (r *recordingRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
@@ -957,11 +997,14 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(environment, "\n")
-	for _, key := range []string{"TOBARI_MITMPROXY_IMAGE=", "TOBARI_OPA_IMAGE=", "TOBARI_DEBIAN_IMAGE="} {
+	for _, key := range []string{"TOBARI_MITMPROXY_IMAGE=", "TOBARI_GATEWAY_IMAGE=", "TOBARI_OPA_IMAGE=", "TOBARI_DEBIAN_IMAGE="} {
 		index := strings.LastIndex(joined, key)
 		if index < 0 || !strings.Contains(joined[index:], "@sha256:") {
 			t.Fatalf("%s is not digest pinned", key)
 		}
+	}
+	if !strings.Contains(joined, "TOBARI_AUTH_BROKER_IMAGE="+runtimeassets.UnpublishedAuthBrokerImage) {
+		t.Fatalf("compose environment does not preserve the fail-closed Auth Broker bootstrap marker: %s", joined)
 	}
 	if !strings.Contains(joined, "TOBARI_PRINCIPAL_DIR="+runtime.principalRegistryDirectory()) {
 		t.Fatalf("compose environment does not expose the dedicated principal directory: %s", joined)

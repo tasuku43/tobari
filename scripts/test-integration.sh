@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 
 binary=${TOBARI_INTEGRATION_BINARY:-$PWD/bin/tobari}
 custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-ghcr.io/tasuku43/tobari/runtime:latest}
 mock_name=tobari-mock-upstream
+auth_mock_name=tobari-auth-mock-upstream
+auth_network=tobari-auth-integration
 custom_image="tobari-integration-custom-$$"
+gateway_base_image="tobari-gateway-integration-base-$$"
+test_keychain_service=
 test_root=
 work_root=
 work_nested_root=
@@ -25,6 +29,16 @@ fail() {
   echo "integration: $*" >&2
   exit 1
 }
+
+report_unexpected_failure() {
+  local status=$?
+  if [[ $- == *e* ]]; then
+    echo "integration: unexpected command failure near lines ${BASH_LINENO[*]}" >&2
+  fi
+  return "$status"
+}
+
+trap report_unexpected_failure ERR
 
 assert_contains() {
   local value=$1
@@ -58,6 +72,16 @@ wait_listening() {
     sleep 0.5
   done
   fail "$container did not listen on port $port"
+}
+
+network_contains_container() {
+  local network=$1
+  local container=$2
+  local container_id
+  local member_ids
+  container_id=$(docker inspect --format '{{.Id}}' "$container")
+  member_ids=$(docker network inspect --format '{{range $id, $_ := .Containers}}{{println $id}}{{end}}' "$network")
+  grep -Fx "$container_id" <<<"$member_ids" >/dev/null
 }
 
 wait_network_connection() {
@@ -409,6 +433,8 @@ print(next(item["id"] for item in json.load(sys.stdin)["policy_compactions"]
 
 cleanup() {
   docker rm -f "$mock_name" >/dev/null 2>&1 || true
+  docker rm -f "$auth_mock_name" >/dev/null 2>&1 || true
+  docker network rm "$auth_network" >/dev/null 2>&1 || true
   if [[ -n ${test_root:-} && -x $binary && -n ${work_root:-} ]]; then
     run_tobari_at "$work_root" delete --force >/dev/null 2>&1 || true
 		run_tobari_at "$work_root" delete --context restricted --force >/dev/null 2>&1 || true
@@ -418,6 +444,11 @@ cleanup() {
     run_tobari cluster down --purge >/dev/null 2>&1 || true
   fi
   docker image rm -f "$custom_image" >/dev/null 2>&1 || true
+  docker image rm -f "$gateway_base_image" >/dev/null 2>&1 || true
+  if [[ -n $test_keychain_service ]]; then
+    /usr/bin/security delete-generic-password \
+      -a tobari -s "$test_keychain_service" >/dev/null 2>&1 || true
+  fi
   if [[ -n ${runtime_image:-} ]]; then
     docker image rm -f "$runtime_image" >/dev/null 2>&1 || true
   fi
@@ -430,7 +461,7 @@ finish() {
   local status=$?
   trap - EXIT
   if ((status != 0)); then
-    for container in tobari-gateway tobari-opa "$mock_name" "$work_container" "$other_container" "$restricted_container"; do
+    for container in tobari-auth-broker tobari-gateway tobari-opa "$mock_name" "$auth_mock_name" "$work_container" "$other_container" "$restricted_container"; do
       [[ -n $container ]] || continue
       if docker inspect "$container" >/dev/null 2>&1; then
         echo "integration diagnostics: $container" >&2
@@ -450,25 +481,96 @@ trap finish EXIT
 command -v docker >/dev/null || fail "docker is required"
 command -v python3 >/dev/null || fail "python3 is required"
 docker version >/dev/null 2>&1 || fail "Docker Engine is unavailable"
-for name in tobari-gateway tobari-opa "$mock_name"; do
+if [[ $(uname -s) == Darwin ]]; then
+  test_keychain_service="io.tobari.integration.$$"
+  export TOBARI_TEST_KEYCHAIN_SERVICE=$test_keychain_service
+fi
+for name in tobari-auth-broker tobari-gateway tobari-opa "$mock_name" "$auth_mock_name"; do
   if docker inspect "$name" >/dev/null 2>&1; then
     fail "container $name already exists; stop the active Tobari cluster before integration tests"
   fi
 done
+if docker network inspect "$auth_network" >/dev/null 2>&1; then
+  fail "network $auth_network already exists; remove the stale integration fixture"
+fi
 
 test_root=$(mktemp -d "$PWD/.tobari-integration.XXXXXX")
-mkdir -p "$test_root/user/workspace" "$test_root/config/tobari" "$test_root/state"
+mkdir -p \
+  "$test_root/user/workspace" \
+  "$test_root/config/tobari/auth/providers" \
+  "$test_root/state" \
+  "$test_root/tls"
+chmod 0700 "$test_root/config/tobari/auth" "$test_root/config/tobari/auth/providers" "$test_root/tls"
+chmod 0700 "$test_root/state"
 
 config_directory=$test_root/config/tobari
 policy_directory=$config_directory/contexts/default/policy
 tool_auth_value=tobari-tool-auth-canary
+synthetic_default_secret=synthetic-real-default-canary
+synthetic_restricted_secret=synthetic-real-restricted-canary
+synthetic_provider=synthetic-ci
+cat >"$config_directory/auth/providers/$synthetic_provider.json" <<'JSON'
+{
+  "schema_version": 1,
+  "id": "synthetic-ci",
+  "display_name": "Synthetic CI Provider",
+  "acquisition": {"mode": "stdin_import"},
+  "credential": {"kind": "primary_secret"},
+  "workspace_projections": [
+    {"kind": "env", "name": "SYNTHETIC_TOKEN", "template": "${HANDLE}"}
+  ],
+  "header_bindings": [
+    {
+      "target": {"scheme": "https", "host": "api.synthetic.example", "port": 443},
+      "source": {"header": "x-synthetic-auth", "formats": ["raw"]},
+      "destination": {
+        "header": "authorization",
+        "format": "bearer",
+        "secret_field": "primary_secret"
+      },
+      "secret_headers": ["authorization", "x-synthetic-auth"]
+    }
+  ]
+}
+JSON
+chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
 
 if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then
   [[ -x $binary ]] || fail "TOBARI_INTEGRATION_BINARY is not executable: $binary"
 else
   mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
-  docker build --tag tobari-gateway:dev --file gateway/Dockerfile \
+  debian_image=$(awk -F= '$1 == "DEBIAN_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
+  docker_arch=$(docker info --format '{{.Architecture}}')
+  case $docker_arch in
+    amd64 | x86_64) auth_target_arch=amd64 ;;
+    arm64 | aarch64) auth_target_arch=arm64 ;;
+    *) fail "unsupported Docker architecture for Auth Broker integration: $docker_arch" ;;
+  esac
+  docker build --tag "$gateway_base_image" --file gateway/Dockerfile \
     --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" gateway >/dev/null
+  docker run --rm --user "$(id -u):$(id -g)" \
+    -v "$test_root/tls:/tls" \
+    --entrypoint sh "$mitmproxy_image" -eu -c '
+      openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
+        -subj /CN=api.synthetic.example \
+        -addext subjectAltName=DNS:api.synthetic.example \
+        -addext basicConstraints=critical,CA:TRUE \
+        -addext keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign \
+        -addext extendedKeyUsage=serverAuth \
+        -keyout /tls/synthetic-server.key \
+        -out /tls/synthetic-ca.crt >/dev/null 2>&1
+      chmod 0600 /tls/synthetic-server.key
+      chmod 0644 /tls/synthetic-ca.crt
+    '
+  docker build --tag tobari-gateway:dev \
+    --file test/integration/gateway-auth.Dockerfile \
+    --build-arg "TOBARI_GATEWAY_BASE=$gateway_base_image" \
+    "$test_root/tls" >/dev/null
+  docker build --tag tobari-auth-broker:dev --file authbroker/Dockerfile \
+    --build-arg "DEBIAN_IMAGE=$debian_image" \
+    --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" \
+    --build-arg "TARGETARCH=$auth_target_arch" \
+    authbroker >/dev/null
   go build -tags=tobari_dev -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
 fi
 work_root=$test_root/user/workspace
@@ -488,10 +590,21 @@ assert_contains "$unconfigured_context_use" '"cluster":"already_ready"' "unconfi
 start_cluster >/dev/null
 assert_component_log_bounds tobari-opa
 assert_component_log_bounds tobari-gateway
+assert_component_log_bounds tobari-auth-broker
 assert_component_resource_bounds tobari-opa 1000000000 536870912 128
 assert_component_resource_bounds tobari-gateway 2000000000 1073741824 256
+assert_component_resource_bounds tobari-auth-broker 1000000000 536870912 128
 [[ $(docker ps -a --filter name='^/tobari-gateway$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Gateway"
 [[ $(docker ps -a --filter name='^/tobari-opa$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one OPA"
+[[ $(docker ps -a --filter name='^/tobari-auth-broker$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Auth Broker"
+[[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' tobari-auth-broker) == true ]] ||
+  fail "Auth Broker root filesystem is writable"
+[[ $(docker inspect --format '{{join .HostConfig.CapDrop ","}}' tobari-auth-broker) == ALL ]] ||
+  fail "Auth Broker did not drop every capability"
+network_contains_container tobari-control tobari-auth-broker ||
+  fail "Auth Broker is not attached to the shared control network"
+network_contains_container tobari-egress tobari-auth-broker ||
+  fail "Auth Broker is not attached to the login egress network"
 created_context=$(run_tobari context create --name restricted --image "$custom_image" --format json)
 assert_contains "$created_context" '"cluster":"requires_reconcile"' "running Context creation"
 start_cluster >/dev/null
@@ -511,6 +624,17 @@ if [[ $gateway_context_mounts != *"$test_root/state/tobari/cluster-projections/"
   printf 'selected Gateway mounts:\n%s\n' "$gateway_context_mounts" >&2
   fail "Gateway credential mount did not point to the aggregate projection"
 fi
+assert_contains "$gateway_context_mounts" "/run/tobari/auth/providers.json" \
+  "Gateway provider projection mount"
+assert_contains "$gateway_context_mounts" "/run/tobari-auth/runtime" \
+  "Gateway Auth Broker runtime socket mount"
+gateway_environment=$(docker inspect --format '{{json .Config.Env}}' tobari-gateway)
+assert_contains "$gateway_environment" \
+  'TOBARI_AUTH_PROVIDER_PROJECTION=/run/tobari/auth/providers.json' \
+  "Gateway provider projection environment"
+gateway_projection_mode=$(docker exec tobari-gateway stat -c '%a:%u' /run/tobari/auth/providers.json)
+[[ $gateway_projection_mode == "600:$(id -u)" ]] ||
+  fail "Gateway provider projection ownership/mode is $gateway_projection_mode instead of 600:$(id -u)"
 running_context_use_pty=$(run_tobari_pty_at "$test_root/user" context use --name default)
 assert_contains "$running_context_use_pty" "Cluster: default_updated" "PTY current Context change"
 docker stop tobari-gateway tobari-opa >/dev/null
@@ -522,6 +646,27 @@ default_context_use=$(run_tobari context use --name default --format json)
 assert_contains "$default_context_use" '"cluster":"default_updated"' "running current Context change back"
 default_context=$(run_tobari context show --format json)
 assert_contains "$default_context" '"active":true' "Context selection after explicit recovery"
+default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["id"])' <<<"$default_context")
+default_auth_import=$(printf '%s' "$synthetic_default_secret" | \
+  run_tobari auth import "$synthetic_provider" --context default --format json)
+restricted_auth_import=$(printf '%s' "$synthetic_restricted_secret" | \
+  run_tobari auth import "$synthetic_provider" --context restricted --format json)
+assert_contains "$default_auth_import" '"provider":"synthetic-ci"' \
+  "default Context synthetic auth import"
+assert_contains "$default_auth_import" '"configured":true' \
+  "default Context synthetic auth import"
+assert_contains "$restricted_auth_import" '"configured":true' \
+  "restricted Context synthetic auth import"
+if [[ $default_auth_import == *"$synthetic_default_secret"* || \
+  $restricted_auth_import == *"$synthetic_restricted_secret"* ]]; then
+  fail "auth import output exposed a synthetic real credential"
+fi
+default_auth_status=$(run_tobari auth status --context default --format json)
+restricted_auth_status=$(run_tobari auth status --context restricted --format json)
+assert_contains "$default_auth_status" '"provider":"synthetic-ci","state":"configured"' \
+  "default Context auth status"
+assert_contains "$restricted_auth_status" '"provider":"synthetic-ci","state":"configured"' \
+  "restricted Context auth status"
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
 container_nested_root="/var/lib/tobari/${work_nested_root#"$test_root/user/"}"
 enter_tobari_at "$work_root"
@@ -541,6 +686,8 @@ other_id=$(id_for_root "$other_root" restricted <<<"$list_json")
 work_container=$(container_for_id "$work_id")
 restricted_container=$(container_for_id "$restricted_id")
 work_network=$(network_for_id "$work_id")
+restricted_network=$(network_for_id "$restricted_id")
+other_network=$(network_for_id "$other_id")
 other_container=$(container_for_id "$other_id")
 enter_bash_tobari_at "$work_root"
 [[ $(docker inspect --format '{{.State.Running}}' "$work_container") == true ]] ||
@@ -584,6 +731,60 @@ assert_resource_bounds "$other_container"
 [[ $(run_project printenv HOME) == /var/lib/tobari ]] || fail "project HOME is not /var/lib/tobari"
 [[ $(run_project sh -c 'command -v gh') == /usr/local/bin/gh ]] || fail "GitHub CLI disappeared behind the project mount"
 [[ $(run_project sh -c 'command -v aws') == /usr/local/bin/aws ]] || fail "AWS CLI disappeared behind the project mount"
+work_auth_handle=$(run_project printenv SYNTHETIC_TOKEN)
+restricted_auth_handle=$(run_restricted_project printenv SYNTHETIC_TOKEN)
+other_auth_handle=$(run_other_project printenv SYNTHETIC_TOKEN)
+for projected_handle in "$work_auth_handle" "$restricted_auth_handle" "$other_auth_handle"; do
+  [[ $projected_handle =~ ^tobari-h1_[A-Za-z0-9_-]{43}$ ]] ||
+    fail "Workspace did not receive one versioned opaque authentication handle"
+done
+[[ $work_auth_handle != "$restricted_auth_handle" ]] ||
+  fail "same-root Workspaces in different Contexts received the same handle"
+[[ $restricted_auth_handle != "$other_auth_handle" ]] ||
+  fail "different projects in one Context received the same handle"
+[[ $(docker inspect --format '{{len .NetworkSettings.Networks}}' tobari-auth-broker) == 2 ]] ||
+  fail "Auth Broker joined a network outside the shared control and login-egress pair"
+for project_network in "$work_network" "$restricted_network" "$other_network"; do
+  if network_contains_container "$project_network" tobari-auth-broker; then
+    fail "Auth Broker joined Workspace network $project_network"
+  fi
+done
+for credential_canary in "$synthetic_default_secret" "$synthetic_restricted_secret"; do
+  if docker inspect "$work_container" "$restricted_container" "$other_container" | \
+    grep -F "$credential_canary" >/dev/null; then
+    fail "Docker inspection exposed a synthetic real credential"
+  fi
+  for project_container in "$work_container" "$restricted_container" "$other_container"; do
+    if docker exec "$project_container" sh -c \
+      'env; find /var/lib/tobari -maxdepth 5 -type f -exec grep -a -H . {} + 2>/dev/null; ps -ef' | \
+      grep -F "$credential_canary" >/dev/null; then
+      fail "Workspace environment, home, or process state exposed a synthetic real credential"
+    fi
+  done
+done
+
+workspace_gh_token=$(docker exec \
+  -e GH_TOKEN="$work_auth_handle" -e GH_HOST=github.com \
+  "$work_container" gh auth token)
+[[ $workspace_gh_token == "$work_auth_handle" ]] ||
+  fail "gh auth token did not return only the opaque Workspace handle"
+pinned_gh_version=$(docker exec tobari-auth-broker gh version | sed -n '1p')
+assert_contains "$pinned_gh_version" "gh version 2.96.0" "Auth Broker pinned GitHub CLI"
+set +e
+pinned_gh_debug=$(docker exec \
+  -e GH_TOKEN="$work_auth_handle" \
+  -e GH_DEBUG=api \
+  -e HTTPS_PROXY=http://127.0.0.1:9 \
+  tobari-auth-broker gh api user 2>&1)
+pinned_gh_status=$?
+set -e
+[[ $pinned_gh_status != 0 ]] || fail "pinned gh contract probe unexpectedly reached GitHub"
+assert_contains "$pinned_gh_debug" '> Authorization: token ' \
+  "pinned gh Authorization source format"
+if [[ $pinned_gh_debug == *"$work_auth_handle"* || \
+  $pinned_gh_debug == *"$synthetic_default_secret"* ]]; then
+  fail "pinned gh debug output exposed authentication material"
+fi
 if run_project test -e /var/lib/tobari/host-home-canary; then
   fail "Tobari mounted the host home wholesale"
 fi
@@ -633,7 +834,7 @@ second_enter_pid=$!
 wait "$first_enter_pid"
 wait "$second_enter_pid"
 owned_containers=$(docker ps -a --filter label=io.tobari.owner=default --format '{{.Names}}' | wc -l | tr -d ' ')
-[[ $owned_containers == 5 ]] || fail "idempotent reconciliation left $owned_containers owned containers"
+[[ $owned_containers == 6 ]] || fail "idempotent reconciliation left $owned_containers owned containers"
 
 docker rm -f "$work_container" >/dev/null
 enter_tobari_at "$work_root"
@@ -684,9 +885,219 @@ wait_listening "$mock_name" 8080
 wait_network_connection tobari-gateway mock-upstream 8080
 start_cluster >/dev/null
 wait_healthy tobari-gateway
+docker network create --internal --subnet 11.254.43.0/24 "$auth_network" >/dev/null
+docker network connect "$auth_network" tobari-gateway
+docker run -d \
+  --name "$auth_mock_name" \
+  --network "$auth_network" \
+  --network-alias api.synthetic.example \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --entrypoint python3 \
+  -e TOBARI_MOCK_PORT=443 \
+  -e TOBARI_MOCK_TLS_CERT=/tls/synthetic-ca.crt \
+  -e TOBARI_MOCK_TLS_KEY=/tls/synthetic-server.key \
+  -v "$PWD/test/integration/mock_upstream.py:/mock_upstream.py:ro" \
+  -v "$test_root/tls:/tls:ro" \
+  "$tobari_image" -u /mock_upstream.py >/dev/null
+wait_listening "$auth_mock_name" 443
+wait_network_connection tobari-gateway api.synthetic.example 443
 
 plain_response=$(run_project curl -fsS http://mock-upstream:8080/allowed)
 assert_contains "$plain_response" '"authorization_present":false' "allowed HTTP response"
+
+# Refresh the reconciliation-owned projections after the container/network
+# recovery above. Stable credential revisions preserve each project handle.
+work_auth_handle=$(run_project printenv SYNTHETIC_TOKEN)
+restricted_auth_handle=$(run_restricted_project printenv SYNTHETIC_TOKEN)
+other_auth_handle=$(run_other_project printenv SYNTHETIC_TOKEN)
+
+default_vault="$test_root/state/tobari/auth/contexts/$default_context_id/vault.enc"
+python3 - "$default_vault" "$(id -u)" <<'PY'
+import os
+import stat
+import sys
+
+info = os.lstat(sys.argv[1])
+if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+    raise SystemExit("default Context vault is not a regular non-symlink file")
+if info.st_uid != int(sys.argv[2]) or stat.S_IMODE(info.st_mode) != 0o600:
+    raise SystemExit(
+        f"default Context vault ownership/mode is {info.st_uid}:{stat.S_IMODE(info.st_mode):03o}"
+    )
+PY
+
+# Introspection is deliberately non-secret. Making the encrypted vault
+# unreadable proves that a policy denial completes without the resolve step,
+# which would need to reopen and decrypt this file.
+chmod 000 "$default_vault"
+set +e
+default_broker_denial=$(run_project sh -c \
+  'curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-default')
+default_broker_curl_status=$?
+set -e
+chmod 0600 "$default_vault"
+[[ $default_broker_curl_status == 0 ]] ||
+  fail "brokered denial request failed before receiving an HTTP decision"
+default_broker_denial_status=${default_broker_denial##*$'\n'}
+default_broker_denial_body=${default_broker_denial%$'\n'*}
+[[ $default_broker_denial_status == 403 ]] ||
+  fail "brokered request with an unreadable vault returned $default_broker_denial_status instead of policy denial"
+assert_contains "$default_broker_denial_body" '"error":"policy_denied"' \
+  "brokered deny-before-resolution response"
+if docker logs "$auth_mock_name" 2>&1 | grep -F '"/brokered-default"' >/dev/null; then
+  fail "policy-denied brokered request reached the synthetic upstream"
+fi
+
+broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
+default_broker_candidate_id=$(candidate_id_for_effect \
+  "$work_id" api.synthetic.example GET /brokered-default <<<"$broker_candidates")
+default_broker_allow=$(run_tobari policy allow --id "$default_broker_candidate_id")
+assert_contains "$default_broker_allow" 'applied: true' \
+  "default Context brokered policy approval"
+default_broker_response=$(run_project sh -c \
+  'curl -fsS -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-default')
+default_broker_digest=$(printf 'Bearer %s' "$synthetic_default_secret" | shasum -a 256 | awk '{print $1}')
+assert_contains "$default_broker_response" '"authorization_present":true' \
+  "default Context brokered upstream response"
+assert_contains "$default_broker_response" \
+  "\"authorization_sha256\":\"$default_broker_digest\"" \
+  "default Context brokered credential digest"
+assert_contains "$default_broker_response" '"placeholder_present":false' \
+  "default Context placeholder removal"
+
+# A handle in body bytes is ordinary Workspace-controlled payload, never a
+# broker selector. Keep the vault unreadable so an accidental post-policy
+# resolve fails, while the already allowed effect must still stream upstream
+# without either the placeholder or the real credential header.
+chmod 000 "$default_vault"
+set +e
+body_only_handle_result=$(printf '%s' "$work_auth_handle" | \
+  docker exec -i "$work_container" curl -sS -w $'\n%{http_code}' \
+    -X GET -H 'content-type: application/octet-stream' --data-binary @- \
+    https://api.synthetic.example/brokered-default)
+body_only_handle_curl_status=$?
+set -e
+chmod 0600 "$default_vault"
+[[ $body_only_handle_curl_status == 0 ]] ||
+  fail "body-only handle request failed before receiving an upstream response"
+body_only_handle_status=${body_only_handle_result##*$'\n'}
+body_only_handle_response=${body_only_handle_result%$'\n'*}
+[[ $body_only_handle_status == 200 ]] ||
+  fail "body-only handle request returned $body_only_handle_status instead of 200"
+assert_contains "$body_only_handle_response" '"authorization_present":false' \
+  "body-only handle upstream response"
+assert_contains "$body_only_handle_response" '"placeholder_present":false' \
+  "body-only handle upstream response"
+assert_contains "$body_only_handle_response" '"method":"GET"' \
+  "body-only handle upstream method"
+assert_contains "$body_only_handle_response" '"path":"/brokered-default"' \
+  "body-only handle upstream path"
+
+restricted_broker_denial=$(run_restricted_project sh -c \
+  'curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-restricted')
+restricted_broker_denial_status=${restricted_broker_denial##*$'\n'}
+restricted_broker_denial_body=${restricted_broker_denial%$'\n'*}
+[[ $restricted_broker_denial_status == 403 ]] ||
+  fail "restricted Context brokered request returned $restricted_broker_denial_status instead of policy denial"
+assert_contains "$restricted_broker_denial_body" '"error":"policy_denied"' \
+  "restricted Context brokered denial"
+if docker logs "$auth_mock_name" 2>&1 | grep -F '"/brokered-restricted"' >/dev/null; then
+  fail "restricted policy-denied brokered request reached the synthetic upstream"
+fi
+
+broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
+restricted_broker_candidate_id=$(candidate_id_for_effect \
+  "$restricted_id" api.synthetic.example GET /brokered-restricted <<<"$broker_candidates")
+restricted_broker_allow=$(run_tobari policy allow --id "$restricted_broker_candidate_id")
+assert_contains "$restricted_broker_allow" 'applied: true' \
+  "restricted Context brokered policy approval"
+restricted_broker_response=$(run_restricted_project sh -c \
+  'curl -fsS -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-restricted')
+restricted_broker_digest=$(printf 'Bearer %s' "$synthetic_restricted_secret" | shasum -a 256 | awk '{print $1}')
+assert_contains "$restricted_broker_response" \
+  "\"authorization_sha256\":\"$restricted_broker_digest\"" \
+  "restricted Context brokered credential digest"
+assert_contains "$restricted_broker_response" '"placeholder_present":false' \
+  "restricted Context placeholder removal"
+if [[ $restricted_broker_response == *"$default_broker_digest"* ]]; then
+  fail "one shared Auth Broker crossed Context credential authority"
+fi
+
+copied_context_result=$(printf '%s\n' "$work_auth_handle" | \
+  docker exec -i "$restricted_container" sh -c \
+    'IFS= read -r copied; curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $copied" https://api.synthetic.example/copied-context')
+copied_context_status=${copied_context_result##*$'\n'}
+[[ $copied_context_status == 403 ]] ||
+  fail "handle copied across Contexts returned $copied_context_status instead of 403"
+assert_contains "${copied_context_result%$'\n'*}" '"error":"credential_handle_invalid"' \
+  "copied cross-Context handle rejection"
+
+copied_project_result=$(printf '%s\n' "$restricted_auth_handle" | \
+  docker exec -i "$other_container" sh -c \
+    'IFS= read -r copied; curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $copied" https://api.synthetic.example/copied-project')
+copied_project_status=${copied_project_result##*$'\n'}
+[[ $copied_project_status == 403 ]] ||
+  fail "handle copied across projects returned $copied_project_status instead of 403"
+assert_contains "${copied_project_result%$'\n'*}" '"error":"credential_handle_invalid"' \
+  "copied cross-project handle rejection"
+
+wrong_header_result=$(run_project sh -c \
+  'curl -sS -w "\n%{http_code}" -H "X-Wrong-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/wrong-header')
+wrong_header_status=${wrong_header_result##*$'\n'}
+[[ $wrong_header_status == 403 ]] ||
+  fail "handle in an unsupported header returned $wrong_header_status instead of 403"
+assert_contains "${wrong_header_result%$'\n'*}" '"error":"credential_handle_invalid"' \
+  "unsupported handle header rejection"
+
+wrong_format_result=$(run_project sh -c \
+  'curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: Bearer $SYNTHETIC_TOKEN" https://api.synthetic.example/wrong-format')
+wrong_format_status=${wrong_format_result##*$'\n'}
+[[ $wrong_format_status == 403 ]] ||
+  fail "handle in an unsupported format returned $wrong_format_status instead of 403"
+assert_contains "${wrong_format_result%$'\n'*}" '"error":"credential_handle_invalid"' \
+  "unsupported handle format rejection"
+
+embedded_header_result=$(run_project sh -c \
+  'curl -sS -w "\n%{http_code}" -H "X-Wrong-Auth: prefix=$SYNTHETIC_TOKEN" https://api.synthetic.example/embedded-header')
+embedded_header_status=${embedded_header_result##*$'\n'}
+[[ $embedded_header_status == 403 ]] ||
+  fail "handle embedded in an unsupported header returned $embedded_header_status instead of 403"
+assert_contains "${embedded_header_result%$'\n'*}" '"error":"credential_handle_invalid"' \
+  "embedded handle header rejection"
+
+cookie_handle_result=$(run_project sh -c \
+  'curl -sS -w "\n%{http_code}" -H "Cookie: auth=$SYNTHETIC_TOKEN" https://api.synthetic.example/cookie-handle')
+cookie_handle_status=${cookie_handle_result##*$'\n'}
+[[ $cookie_handle_status == 403 ]] ||
+  fail "handle in a cookie returned $cookie_handle_status instead of 403"
+assert_contains "${cookie_handle_result%$'\n'*}" '"error":"credential_handle_invalid"' \
+  "cookie handle rejection"
+
+query_handle_result=$(run_project sh -c \
+  'curl -sS -w "\n%{http_code}" "https://api.synthetic.example/query-handle?auth=$SYNTHETIC_TOKEN"')
+query_handle_status=${query_handle_result##*$'\n'}
+[[ $query_handle_status == 403 ]] ||
+  fail "handle in a query returned $query_handle_status instead of 403"
+assert_contains "${query_handle_result%$'\n'*}" '"error":"credential_handle_invalid"' \
+  "query handle rejection"
+
+path_handle_result=$(run_project sh -c \
+  'curl -sS -w "\n%{http_code}" "https://api.synthetic.example/path-handle/$SYNTHETIC_TOKEN"')
+path_handle_status=${path_handle_result##*$'\n'}
+[[ $path_handle_status == 403 ]] ||
+  fail "handle in a request path returned $path_handle_status instead of 403"
+assert_contains "${path_handle_result%$'\n'*}" '"error":"credential_handle_invalid"' \
+  "request-path handle rejection"
+
+for rejected_path in \
+  copied-context copied-project wrong-header wrong-format embedded-header \
+  cookie-handle query-handle path-handle; do
+  if docker logs "$auth_mock_name" 2>&1 | grep -F "\"/$rejected_path\"" >/dev/null; then
+    fail "invalid broker handle request /$rejected_path reached the synthetic upstream"
+  fi
+done
 
 wrong_port_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   http://mock-upstream:8081/wrong-port)
@@ -1117,6 +1528,37 @@ policy_help=$(run_tobari help policy)
 if [[ $policy_help == *"policy apply"* ]]; then
   fail "retired policy apply command remains in public policy help"
 fi
+
+final_default_auth_status=$(run_tobari auth status --context default --format json)
+final_restricted_auth_status=$(run_tobari auth status --context restricted --format json)
+final_context_status=$(run_tobari context show --format json)
+final_cluster_status=$(run_tobari cluster status --format json)
+assert_contains "$final_cluster_status" '"auth_broker_state":"ready"' \
+  "shared Auth Broker readiness status"
+final_doctor_status=$(run_tobari doctor --root "$work_root" --format json)
+final_gateway_logs=$(run_tobari cluster logs --component gateway --tail 1000)
+final_broker_logs=$(run_tobari cluster logs --component auth-broker --tail 1000)
+final_opa_logs=$(run_tobari cluster logs --component opa --tail 1000)
+final_policy_diagnostics=$(run_tobari policy candidates --tail 1000 --format json)
+final_mock_logs=$(docker logs "$mock_name" 2>&1)
+final_auth_mock_logs=$(docker logs "$auth_mock_name" 2>&1)
+diagnostic_surface=$(printf '%s\n' \
+  "$default_auth_import" "$restricted_auth_import" \
+  "$final_default_auth_status" "$final_restricted_auth_status" \
+  "$final_context_status" "$final_cluster_status" "$final_doctor_status" \
+  "$final_gateway_logs" "$final_broker_logs" "$final_opa_logs" \
+  "$final_policy_diagnostics" "$final_mock_logs" "$final_auth_mock_logs")
+for authentication_canary in \
+  "$synthetic_default_secret" "$synthetic_restricted_secret" \
+  "$work_auth_handle" "$restricted_auth_handle" "$other_auth_handle"; do
+  if [[ $diagnostic_surface == *"$authentication_canary"* ]]; then
+    fail "CLI, Gateway, Broker, OPA, policy, or upstream diagnostics exposed authentication material"
+  fi
+  if grep -R -a -F -- "$authentication_canary" "$test_root/state/tobari" \
+    >/dev/null 2>&1; then
+    fail "host machine state stored authentication material outside the encrypted vault contract"
+  fi
+done
 
 https_status=$(run_project curl -fsS -o /dev/null -w '%{http_code}' https://example.com/)
 [[ $https_status == 200 ]] || fail "intercepted HTTPS returned $https_status instead of 200"

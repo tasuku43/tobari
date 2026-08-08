@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -125,6 +126,25 @@ func contextRuleFixture(t *testing.T, manifest tobari.ContextManifest, projectID
 	return rule
 }
 
+func contextDenyFixture(t *testing.T, manifest tobari.ContextManifest, projectID, path string) tobari.PolicyDenyRule {
+	t.Helper()
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{
+		Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("b", 32),
+		ContextID: manifest.ID, ContextName: manifest.Name,
+		ProjectID: projectID, ProjectRoot: "/workspace/project",
+		Host: "api.example.com", Port: 443, Method: "POST", Path: path,
+		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, err := tobari.NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rule
+}
+
 func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	root := t.TempDir()
 	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
@@ -209,6 +229,51 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	committed, err := runtimeStore.ReadLearnedPolicyRules(context.Background(), latest)
 	if err != nil || len(committed) != 2 {
 		t.Fatalf("committed cross-Context rules = %+v, error=%v", committed, err)
+	}
+
+	defaultDeny := contextDenyFixture(t, defaultContext, "01912345-6789-7abc-8def-0123456789ab", "/default-deny")
+	var restrictedDeny tobari.PolicyDenyRule
+	for index := 0; index < 128; index++ {
+		restrictedDeny = contextDenyFixture(
+			t, restrictedContext, "01912345-6789-7abc-8def-0123456789ac", fmt.Sprintf("/restricted-deny-%d", index),
+		)
+		if restrictedDeny.ID < defaultDeny.ID {
+			break
+		}
+	}
+	if restrictedDeny.ID >= defaultDeny.ID {
+		t.Fatal("could not construct reverse Context-order deny IDs")
+	}
+	if err := runtimeStore.ApplyPolicyDenyRules(
+		context.Background(), latest, committed, []tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{defaultDeny},
+	); err != nil {
+		t.Fatalf("apply default deny: %v", err)
+	}
+	latest, _, err = runtimeStore.LoadState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	denies, err := runtimeStore.ReadPolicyDenyRules(context.Background(), latest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtimeStore.ApplyPolicyDenyRules(
+		context.Background(), latest, committed, denies.Exact, append(append([]tobari.PolicyDenyRule{}, denies.Exact...), restrictedDeny),
+	); err != nil {
+		t.Fatalf("apply restricted deny: %v", err)
+	}
+	latest, _, err = runtimeStore.LoadState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	denies, err = runtimeStore.ReadPolicyDenyRules(context.Background(), latest)
+	if err != nil || len(denies.Exact) != 2 || denies.Exact[0].ID != restrictedDeny.ID || denies.Exact[1].ID != defaultDeny.ID {
+		t.Fatalf("aggregate deny order = %+v, error=%v", denies.Exact, err)
+	}
+	if err := runtimeStore.ApplyPolicyDenyRules(
+		context.Background(), latest, committed, denies.Exact, denies.Exact[1:],
+	); err != nil {
+		t.Fatalf("reset after deterministic cross-Context discovery: %v", err)
 	}
 }
 

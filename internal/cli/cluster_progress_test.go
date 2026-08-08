@@ -134,7 +134,7 @@ func TestClusterUpProgressGroupsInternalStepsIntoThreePhases(t *testing.T) {
 			t.Fatalf("grouped progress output %q lacks %q", got, phase)
 		}
 	}
-	for _, detail := range []string{"validate policy", "prepare images", "start Gateway and OPA", "verify cluster status"} {
+	for _, detail := range []string{"validate policy", "prepare images", "start Gateway, OPA, and Auth Broker", "verify cluster status"} {
 		if strings.Contains(got, detail) {
 			t.Fatalf("grouped progress output %q leaked internal detail %q", got, detail)
 		}

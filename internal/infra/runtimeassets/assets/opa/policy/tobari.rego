@@ -33,9 +33,10 @@ decision := {
 }
 
 requested_profile := input.authorization.requested_profile
+broker_provider := input.authorization.broker_provider
 
 candidate_eligible if {
-	input.schema_version == 3
+	input.schema_version == 4
 	data.tobari.schema_version == 2
 	input.principal.cluster == "default"
 	project_principal_valid
@@ -77,12 +78,28 @@ authority_allowed if {
 }
 
 authorization_shape_valid if {
+	object.keys(input.authorization) == {"broker_provider", "requested_profile"}
+	requested_profile_shape_valid
+	broker_provider_shape_valid
+}
+
+requested_profile_shape_valid if {
 	requested_profile == null
 }
 
-authorization_shape_valid if {
+requested_profile_shape_valid if {
 	is_string(requested_profile)
 	requested_profile != ""
+}
+
+broker_provider_shape_valid if {
+	broker_provider == null
+}
+
+broker_provider_shape_valid if {
+	is_string(broker_provider)
+	count(broker_provider) <= 64
+	regex.match(`^[a-z0-9]+([._-][a-z0-9]+)*$`, broker_provider)
 }
 
 method_allowed if {

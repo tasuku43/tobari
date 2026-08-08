@@ -1,11 +1,11 @@
 # ADR 0007: Exclude provider adapters from the MVP
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-07-29
 - Deciders: Tobari maintainers
 - Scope: Product
 - Supersedes: None
-- Superseded by: None
+- Superseded by: [ADR 0019: Add a shared locked Auth Broker for Context credentials](0019-shared-locked-auth-broker.md)
 
 ## Context
 

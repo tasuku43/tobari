@@ -7,7 +7,7 @@ import (
 )
 
 func runtimeCommandSpecs() []CommandSpec {
-	return []CommandSpec{
+	specs := []CommandSpec{
 		clusterUpSpec(),
 		clusterStatusSpec(),
 		clusterDenialsSpec(),
@@ -33,6 +33,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		listSpec(),
 		deleteSpec(),
 	}
+	return append(specs, authCommandSpecs()...)
 }
 
 func contextListSpec() CommandSpec {
@@ -309,7 +310,7 @@ func deleteSpec() CommandSpec {
 
 func clusterUpSpec() CommandSpec {
 	return CommandSpec{
-		Path: "cluster up", Summary: "Start shared Gateway and OPA",
+		Path: "cluster up", Summary: "Start the shared Gateway, OPA, and Auth Broker",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "cluster.lifecycle",
@@ -318,7 +319,7 @@ func clusterUpSpec() CommandSpec {
 			Output:       textClusterStatusOutput(),
 			Prerequisites: []string{
 				"Docker Engine and Docker Compose v2 are available.",
-				"The routine path uses the immutable Gateway image and official runtime base image.",
+				"The routine path uses immutable Gateway and Auth Broker images plus the official runtime base image.",
 			},
 			FixedTarget: fixedClusterTarget(),
 			Errors: mutationCommandErrors("cluster up", "cluster status",
@@ -327,12 +328,25 @@ func clusterUpSpec() CommandSpec {
 				declaredCommandError(fault.KindRejected, "legacy_state", false, "doctor", "Remove schema-1 state with the older binary."),
 				declaredCommandError(fault.KindInternal, "status_failed", false, "cluster status", "Reconcile the confirmed startup."),
 				declaredCommandErrorWithActions(fault.KindUnavailable, "cluster_reconcile_interrupted", false,
-					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster."},
+					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster."},
 					fault.NextAction{Command: "cluster down", Reason: "Explicitly clean up the shared cluster instead."}),
 				declaredCommandError(fault.KindContract, "invalid_status_contract", false, "cluster status", "Repair the runtime status contract."),
 				declaredCommandError(fault.KindUnavailable, "cluster_start_failed", false, "cluster status", "Reconcile partial Docker state."),
 				declaredCommandError(fault.KindUnavailable, "gateway_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the verified Gateway image."),
 				declaredCommandError(fault.KindContract, "gateway_image_incompatible", false, "doctor", "Inspect the Gateway image API, digest, and architecture contract."),
+				declaredCommandError(fault.KindUnavailable, "auth_broker_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the verified Auth Broker image."),
+				declaredCommandError(fault.KindContract, "auth_broker_image_incompatible", false, "doctor", "Inspect the Auth Broker image API, digest, entrypoint, user, and architecture contract."),
+				declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "cluster up", "Reconcile the shared cluster and retry the bounded broker control path."),
+				declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "cluster status", "Inspect partial shared-cluster state before another reconcile."),
+				declaredCommandError(fault.KindContract, "auth_broker_unlock_failed", false, "doctor", "Inspect Auth Broker and root-key provider state."),
+				declaredCommandError(fault.KindUnavailable, "root_key_unavailable", false, "doctor", "Inspect the host root-key provider."),
+				declaredCommandError(fault.KindRejected, "root_key_missing_with_vault", false, "doctor", "Restore the original root key or explicitly remove local authentication state."),
+				declaredCommandError(fault.KindRejected, "root_key_unsafe", false, "doctor", "Repair unsafe root-key or Auth Broker state paths."),
+				declaredCommandError(fault.KindUnavailable, "keychain_denied", false, "cluster up", "Allow trusted-host Keychain access and retry cluster reconciliation."),
+				declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect Context vault integrity without printing its contents."),
+				declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Context vault."),
+				declaredCommandError(fault.KindRejected, "invalid_provider_manifest", false, "doctor", "Repair the owner-controlled provider manifest collection."),
+				declaredCommandError(fault.KindRejected, "ambiguous_provider_http_binding", false, "doctor", "Remove the overlapping exact provider HTTP binding."),
 				declaredCommandError(fault.KindUnavailable, "runtime_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the official runtime base image."),
 				declaredCommandError(fault.KindRejected, "incompatible_image", false, "context show", "Inspect the relevant Context runtime image contract."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
@@ -351,7 +365,7 @@ func clusterUpSpec() CommandSpec {
 
 func clusterStatusSpec() CommandSpec {
 	return CommandSpec{
-		Path: "cluster status", Summary: "Inspect shared Gateway and OPA",
+		Path: "cluster status", Summary: "Inspect the shared Gateway, OPA, and Auth Broker",
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "cluster.lifecycle",
@@ -361,7 +375,7 @@ func clusterStatusSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether schema-3 aggregate cluster state exists."},
-					{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether Gateway and OPA are healthy."},
+					{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether Gateway, OPA, and the unlocked Auth Broker are healthy."},
 					{Name: "proxy", Type: OutputFieldTypeString, Description: "Tobari-internal explicit proxy endpoint."},
 					{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical host XDG policy directory."},
 					{Name: "tobari_count", Type: OutputFieldTypeInteger, Description: "Number of attached Tobari."},
@@ -370,18 +384,21 @@ func clusterStatusSpec() CommandSpec {
 					{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Context policy projection integrity observation."},
 					{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation."},
 					{Name: "credential_projection", Type: OutputFieldTypeString, Description: "Credential projection integrity observation."},
-					{Name: "components", Type: OutputFieldTypeArray, Description: "Exact Gateway and OPA observations."},
+					{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Auth Broker provider projection integrity observation."},
+					{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed ready, locked, or unavailable Auth Broker state."},
+					{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected host root-key backend or unavailable state."},
+					{Name: "components", Type: OutputFieldTypeArray, Description: "Exact Auth Broker, Gateway, and OPA observations."},
 					{Name: "recent_error", Type: OutputFieldTypeString, Description: "Bounded recent runtime error."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "cluster", JSONSchemaVersion: 2,
+				JSONEnvelope: "cluster", JSONSchemaVersion: 3,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("cluster status", true,
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
 				declaredCommandError(fault.KindInternal, "status_failed", false, "doctor", "Inspect Docker and cluster state."),
 				declaredCommandErrorWithActions(fault.KindUnavailable, "cluster_reconcile_interrupted", false,
-					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster."},
+					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster."},
 					fault.NextAction{Command: "cluster down", Reason: "Explicitly clean up the shared cluster instead."}),
 				declaredCommandError(fault.KindContract, "invalid_status_contract", false, "doctor", "Repair the status contract."),
 				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "cluster status", "Repair JSON projection."),
@@ -434,8 +451,8 @@ func clusterDenialsSpec() CommandSpec {
 
 func clusterLogsSpec() CommandSpec {
 	return CommandSpec{
-		Path: "cluster logs", Summary: "Read Gateway and OPA logs",
-		Args:   "[--component gateway|opa|all] [--tail <lines>]",
+		Path: "cluster logs", Summary: "Read Auth Broker, Gateway, and OPA logs",
+		Args:   "[--component auth-broker|gateway|opa|all] [--tail <lines>]",
 		Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "cluster.logs",
@@ -444,7 +461,7 @@ func clusterLogsSpec() CommandSpec {
 				{
 					Name: "--component", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description: "Select Gateway, OPA, or both.", AllowedValues: []string{"gateway", "opa", "all"},
+					Description: "Select Auth Broker, Gateway, OPA, or every shared component.", AllowedValues: []string{"auth-broker", "gateway", "opa", "all"},
 					DefaultValue: stringPointer("all"),
 				},
 				tailInput(),
@@ -778,7 +795,7 @@ func clusterDownSpec() CommandSpec {
 				declaredCommandError(fault.KindRejected, "legacy_named_state", false, "doctor", "Remove legacy named state with the older binary before continuing."),
 				declaredCommandError(fault.KindRejected, "cluster_not_empty", false, "list", "Detach every listed Tobari."),
 				declaredCommandErrorWithActions(fault.KindUnavailable, "cluster_reconcile_interrupted", false,
-					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster."},
+					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster."},
 					fault.NextAction{Command: "cluster down", Reason: "Explicitly clean up the shared cluster instead."}),
 				declaredCommandError(fault.KindUnavailable, "cluster_stop_failed", false, "cluster status", "Reconcile shared resources."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
@@ -1110,6 +1127,16 @@ func projectEnterErrors() []CommandError {
 		declaredCommandError(fault.KindUnavailable, "image_not_found", false, "runtime build", "Build or make the selected compatible runtime image available to Docker."),
 		declaredCommandError(fault.KindUnavailable, "runtime_reconcile_failed", false, "status", "Inspect the selected project's runtime."),
 		declaredCommandError(fault.KindInternal, "enter_failed", false, "status", "Inspect the selected project's runtime."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "cluster up", "Start or reconcile the shared cluster before projecting Context authentication."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "cluster up", "Reconcile the shared cluster before another Auth Broker request."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_locked", false, "cluster up", "Reconcile the shared cluster and unlock the Auth Broker."),
+		declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect the Context vault integrity without printing its contents."),
+		declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Context vault."),
+		declaredCommandError(fault.KindRejected, "invalid_provider_manifest", false, "doctor", "Repair the owner-controlled provider manifest collection."),
+		declaredCommandError(fault.KindRejected, "ambiguous_provider_http_binding", false, "doctor", "Remove the overlapping exact provider HTTP binding."),
+		declaredCommandError(fault.KindContract, "invalid_auth_handle_result", false, "doctor", "Inspect Broker and provider projection consistency."),
+		declaredCommandError(fault.KindRejected, "auth_projection_file_exists", false, "doctor", "Inspect the provider file path and preserve the non-Tobari-owned Workspace file."),
+		declaredCommandError(fault.KindRejected, "auth_projection_file_modified", false, "doctor", "Inspect the modified Tobari-owned Workspace authentication file."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 	)
 }
@@ -1297,6 +1324,9 @@ func textClusterStatusOutput() CommandOutput {
 			{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Context policy projection integrity observation."},
 			{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation."},
 			{Name: "credential_projection", Type: OutputFieldTypeString, Description: "Credential projection integrity observation."},
+			{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Auth Broker provider projection integrity observation."},
+			{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed ready, locked, or unavailable Auth Broker state."},
+			{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected host root-key backend or unavailable state."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 	}

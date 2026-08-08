@@ -29,6 +29,7 @@ class PreparedCredentialRequest(Protocol):
     """The request-scoped behavior selected before policy evaluation."""
 
     requested_profile: str | None
+    broker_provider: str | None
     secret_headers: set[str]
 
     def apply(self, request: http.Request, selected_profile: str | None) -> str | None:
@@ -41,7 +42,13 @@ class CredentialAdapter(Protocol):
     name: str
 
     def prepare(
-        self, request: http.Request, host: str, context_id: str, project_id: str
+        self,
+        request: http.Request,
+        scheme: str,
+        host: str,
+        port: int,
+        context_id: str,
+        project_id: str,
     ) -> PreparedCredentialRequest:
         """Prepare request-local auth behavior before policy evaluation."""
 
@@ -49,6 +56,7 @@ class CredentialAdapter(Protocol):
 @dataclass
 class _PassthroughRequest:
     requested_profile: str | None = None
+    broker_provider: str | None = None
     secret_headers: set[str] | None = None
 
     def __post_init__(self) -> None:
@@ -71,9 +79,15 @@ class PassthroughCredentialAdapter:
     name = "passthrough"
 
     def prepare(
-        self, request: http.Request, host: str, context_id: str, project_id: str
+        self,
+        request: http.Request,
+        scheme: str,
+        host: str,
+        port: int,
+        context_id: str,
+        project_id: str,
     ) -> PreparedCredentialRequest:
-        del host, context_id, project_id
+        del request, scheme, host, port, context_id, project_id
         # A profile selector is a managed-adapter control input. It is redacted
         # and removed rather than being forwarded or interpreted in passthrough.
         return _PassthroughRequest()
@@ -89,6 +103,7 @@ class _ManagedRequest:
     host: str
     context_id: str
     project_id: str
+    broker_provider: str | None = None
 
     def apply(self, request: http.Request, selected_profile: str | None) -> str | None:
         names = set(DEFAULT_SECRET_HEADERS) | self.secret_headers | set(CONTROL_HEADERS)
@@ -130,8 +145,15 @@ class ManagedCredentialAdapter:
         self.injector = injector
 
     def prepare(
-        self, request: http.Request, host: str, context_id: str, project_id: str
+        self,
+        request: http.Request,
+        scheme: str,
+        host: str,
+        port: int,
+        context_id: str,
+        project_id: str,
     ) -> PreparedCredentialRequest:
+        del scheme, port
         config = self.load_config(self.path)
         requested_profile = request.headers.get(PROFILE_HEADER)
         if requested_profile is not None:

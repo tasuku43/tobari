@@ -91,7 +91,8 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials.json"),
 			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials"),
 		},
-		Runtime: report,
+		Runtime:        report,
+		Authentication: ContextAuthentication{BrokerState: ContextAuthBrokerNotApplicable},
 	}
 	if err := contextReport.Validate(); err != nil {
 		t.Fatalf("valid runtime Context report rejected: %v", err)

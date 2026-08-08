@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import ssl
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -99,6 +101,7 @@ class Handler(BaseHTTPRequestHandler):
         if not body_already_read:
             self._discard_request_body()
         authorization = self.headers.get("authorization")
+        placeholder_present = self.headers.get("x-synthetic-auth") is not None
         document = {
             "authorization_present": authorization is not None,
             "authorization_sha256": (
@@ -106,6 +109,7 @@ class Handler(BaseHTTPRequestHandler):
                 if authorization is not None
                 else None
             ),
+            "placeholder_present": placeholder_present,
             "method": self.command,
             "path": self.path,
         }
@@ -120,6 +124,7 @@ class Handler(BaseHTTPRequestHandler):
             json.dumps(
                 {
                     "authorization_present": authorization is not None,
+                    "placeholder_present": placeholder_present,
                     "method": self.command,
                     "path": self.path,
                 },
@@ -134,4 +139,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+    port = int(os.environ.get("TOBARI_MOCK_PORT", "8080"))
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    certificate = os.environ.get("TOBARI_MOCK_TLS_CERT", "")
+    key = os.environ.get("TOBARI_MOCK_TLS_KEY", "")
+    if bool(certificate) != bool(key):
+        raise SystemExit("mock TLS certificate and key must be configured together")
+    if certificate:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certificate, key)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.serve_forever()

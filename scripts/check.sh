@@ -14,7 +14,7 @@ export GOWORK=off
 profile=${1:-}
 
 usage() {
-  echo "usage: $0 <fast|full|security|release|public|policy|gateway|integration|runtime>" >&2
+  echo "usage: $0 <fast|full|security|release|public|policy|gateway|authbroker|integration|runtime>" >&2
   exit 2
 }
 
@@ -30,7 +30,7 @@ preflight_commands() {
     required_commands+=(shellcheck tar unzip ruby)
   fi
   case "$selected_profile" in
-    policy|gateway|integration|runtime) required_commands+=(docker) ;;
+    policy|gateway|authbroker|integration|runtime) required_commands+=(docker) ;;
   esac
   for command_name in "${required_commands[@]}"; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -143,6 +143,8 @@ run_fast() {
   ./scripts/check-runtime-codex.sh
   ./scripts/check-toolbox.sh
   ./scripts/check-gateway-source.sh
+  ./scripts/check-authbroker-source.sh
+  ./scripts/check-authbroker-image.sh
   go test ./...
 }
 
@@ -154,6 +156,7 @@ run_security() {
 }
 
 run_release() {
+  require_published_auth_broker_image
   ./scripts/lint-release.sh
   go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 }
@@ -161,15 +164,32 @@ run_release() {
 run_public() {
   go run ./tools/repoguard --scope public
   go run ./tools/contractlint
+  report_auth_broker_publication_state
 }
 
 load_runtime_versions() {
   # shellcheck disable=SC1091
   source internal/infra/runtimeassets/assets/versions.env
-  [[ -n ${OPA_IMAGE:-} && -n ${MITMPROXY_IMAGE:-} && -n ${GATEWAY_IMAGE:-} ]] || {
+  [[ -n ${OPA_IMAGE:-} && -n ${MITMPROXY_IMAGE:-} && -n ${GATEWAY_IMAGE:-} &&
+    -n ${AUTH_BROKER_IMAGE:-} && -n ${DEBIAN_IMAGE:-} ]] || {
     echo "runtime image references are incomplete" >&2
     return 1
   }
+}
+
+report_auth_broker_publication_state() {
+  load_runtime_versions
+  if [[ $AUTH_BROKER_IMAGE == unpublished ]]; then
+    echo "public check: Auth Broker source may be published, but official startup remains fail-closed until the first workflow manifest digest is pinned" >&2
+  fi
+}
+
+require_published_auth_broker_image() {
+  load_runtime_versions
+  if [[ $AUTH_BROKER_IMAGE == unpublished ]]; then
+    echo "release check: AUTH_BROKER_IMAGE is unpublished; publish the reviewed multi-architecture image and pin the workflow-reported manifest digest first" >&2
+    return 1
+  fi
 }
 
 run_policy() {
@@ -194,6 +214,19 @@ run_gateway() {
     python -m unittest -v test_tobari_gateway.py
 }
 
+run_authbroker() {
+  load_runtime_versions
+  ./scripts/check-authbroker-source.sh
+  ./scripts/check-authbroker-image.sh
+  docker version >/dev/null
+  docker run --rm --read-only --network none \
+    --tmpfs /tmp:rw,noexec,nosuid,size=32m \
+    -v "$PWD:/workspace:ro" \
+    -w /workspace \
+    "$MITMPROXY_IMAGE" \
+    python3 -m unittest discover -s authbroker/tests -v
+}
+
 run_integration() {
   docker version >/dev/null
   ./scripts/test-integration.sh
@@ -202,6 +235,7 @@ run_integration() {
 run_runtime() {
   run_policy
   run_gateway
+  run_authbroker
   run_integration
 }
 
@@ -214,7 +248,7 @@ run_full() {
 }
 
 case "$profile" in
-  fast|full|security|release|public|policy|gateway|integration|runtime) ;;
+  fast|full|security|release|public|policy|gateway|authbroker|integration|runtime) ;;
   *) usage ;;
 esac
 
@@ -228,6 +262,7 @@ case "$profile" in
   public) run_public ;;
   policy) run_policy ;;
   gateway) run_gateway ;;
+  authbroker) run_authbroker ;;
   integration) run_integration ;;
   runtime) run_runtime ;;
 esac

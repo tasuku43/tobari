@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -172,6 +173,61 @@ func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 		if command.Agent.Output.Delivery != OutputDeliveryComplete ||
 			command.Agent.Output.CollectionCoverage != coverage {
 			t.Errorf("%s output = %+v, want delivery complete and coverage %q", path, command.Agent.Output, coverage)
+		}
+	}
+}
+
+func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
+	t.Parallel()
+	catalog := DefaultCatalog()
+	up, found := catalog.Lookup("cluster up")
+	if !found {
+		t.Fatal("default catalog lacks cluster up")
+	}
+	wantImageFaults := map[string]bool{
+		"auth_broker_image_unavailable":   false,
+		"auth_broker_image_incompatible":  false,
+		"auth_broker_unlock_failed":       false,
+		"root_key_unavailable":            false,
+		"root_key_missing_with_vault":     false,
+		"keychain_denied":                 false,
+		"invalid_provider_manifest":       false,
+		"ambiguous_provider_http_binding": false,
+	}
+	for _, commandError := range up.Agent.Errors {
+		if _, tracked := wantImageFaults[commandError.Code]; tracked {
+			wantImageFaults[commandError.Code] = true
+		}
+	}
+	for code, found := range wantImageFaults {
+		if !found {
+			t.Errorf("cluster up does not declare %s", code)
+		}
+	}
+
+	logs, found := catalog.Lookup("cluster logs")
+	if !found {
+		t.Fatal("default catalog lacks cluster logs")
+	}
+	if logs.Args != "[--component auth-broker|gateway|opa|all] [--tail <lines>]" ||
+		!reflect.DeepEqual(logs.Agent.Inputs[0].AllowedValues, []string{"auth-broker", "gateway", "opa", "all"}) {
+		t.Fatalf("cluster logs component contract = usage %q inputs %+v", logs.Args, logs.Agent.Inputs[0])
+	}
+
+	status, found := catalog.Lookup("cluster status")
+	if !found {
+		t.Fatal("default catalog lacks cluster status")
+	}
+	if status.Agent.Output.JSONSchemaVersion != 3 {
+		t.Fatalf("cluster status schema version = %d, want 3", status.Agent.Output.JSONSchemaVersion)
+	}
+	fieldNames := make([]string, 0, len(status.Agent.Output.Fields))
+	for _, field := range status.Agent.Output.Fields {
+		fieldNames = append(fieldNames, field.Name)
+	}
+	for _, required := range []string{"auth_provider_projection", "auth_broker_state", "root_key_backend"} {
+		if !slices.Contains(fieldNames, required) {
+			t.Errorf("cluster status output fields %v lack %q", fieldNames, required)
 		}
 	}
 }

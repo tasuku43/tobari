@@ -11,13 +11,19 @@ reversible; creating a space is a CWD-local action, and customizing its network
 authority is an observe, review, approve, and retry loop rather than a
 prerequisite policy-authoring project. Every supported outbound HTTP and HTTPS
 request remains enforced through one shared Gateway and OPA policy boundary.
+When a Context-owned provider credential is useful, Tobari may project only a
+project-bound opaque handle into the Workspace and resolve the real value in a
+shared locked Auth Broker after OPA allows the ordinary HTTP effect.
 
 ## Primary users and owned outcome
 
 The primary user is a developer who wants an autonomous coding agent to edit a
-bounded source tree without receiving host credentials or unrestricted network
-egress. Tool-native authentication may be created inside the selected
-Tobari's own persistent home; host authentication state is never copied in.
+bounded source tree without receiving a real host-managed credential or
+unrestricted network egress. Tool-native authentication may be created inside
+the selected Tobari's own persistent home. The supported brokered path instead
+acquires one credential on the trusted host for a Context, stores it in an
+encrypted vault, and gives each eligible Workspace only a distinct bound
+handle; host home and CLI authentication state are never copied in.
 The user-facing entry point is the current project directory: a Tobari either
 exists or does not exist, and the user should not need to manage container
 names, network IDs, or policy internals for routine work. `cluster up` remains
@@ -48,6 +54,10 @@ PATCH, or other method is authorized and learned from the same project, host,
 port, method, and path dimensions as a body-free request. Changing body content
 does not create another review item or rule. Gateway does not expose body
 content to OPA, retained evidence, policy actions, or audit output.
+Denial audit retains only the URL path component, never the query or headers.
+If that path contains a Tobari handle marker, the whole recorded path is the
+literal `/[redacted-auth-handle]`. Structural URL/header handle rejections are
+non-learnable and cannot become policy candidates.
 
 ## Public vocabulary
 
@@ -57,11 +67,14 @@ content to OPA, retained evidence, policy actions, or audit output.
 - **Workspace:** the human-facing name for one directory-bound Tobari in
   lifecycle and list output. It is not a second runtime resource; its identity
   remains the canonical root and its stable Tobari ID remains diagnostic.
-- **cluster:** the one installation-local Gateway, one OPA, aggregate policy
-  projection, principal registry, Context-scoped managed-credential projection,
-  and CA lifecycle.
+- **cluster:** the one installation-local Gateway, one OPA, one locked Auth
+  Broker, aggregate policy and provider projections, principal registry,
+  Context-scoped managed-credential projection, and CA lifecycle.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
+- **Auth Broker:** the trusted non-root credential-resolution daemon. It owns
+  encrypted Context vault access, has no TCP listener, starts locked, and
+  exposes separate control and Gateway-only runtime Unix sockets.
 - **root:** the canonical host directory selected from the current working
   directory and mounted read-write into one Tobari. A root below the host home
   is mounted at the same relative path below `/var/lib/tobari`; a root outside
@@ -81,14 +94,28 @@ content to OPA, retained evidence, policy actions, or audit output.
   network. Caller headers, Context names, and profile names are not principals.
 - **tool-owned authentication state:** files written by a tool or agent below
   one Tobari's persistent home during its own login or configuration flow.
+- **brokered credential:** one opaque primary secret owned by a stable Context
+  and provider, acquired through a trusted-host login or protected non-terminal
+  stdin and
+  stored only in the Context's encrypted vault.
+- **Workspace credential handle:** a versioned random opaque value bound to one
+  Context, project, provider, credential revision, and exact HTTP binding. It
+  is not the real credential and is not authority without the trusted
+  principal and OPA allow.
+- **provider manifest:** strict schema-v1 non-secret data declaring acquisition,
+  Workspace handle projections, and exact HTTPS header transformations. It
+  declares no executable shell, arbitrary route, HTTP method/path policy,
+  refresh, signing, or provider operation semantics.
 - **credential profile:** non-secret Gateway configuration for the retained
   managed adapter; it binds a Context-scoped profile name to exact hosts and
   project principals.
 - **Context:** one host-owned logical execution setup with a stable opaque ID
   and a human name. Its manifest
   references an agent profile, a compatible Tobari runtime image, a policy
-  store, and managed-credential stores; those stores remain physically
-  separated by trust boundary.
+  store, and managed-credential stores. Its stable ID determines separately
+  stored Context-owned Auth Broker vault state; the manifest does not contain a
+  broker vault path, key, or secret. Those stores remain physically separated
+  by trust boundary.
 - **current Context:** only the default Context used when an invocation omits
   an explicit Context; it is not shared enforcement authority.
 - **Context runtime recipe:** the selected Context's owner-only
@@ -103,7 +130,9 @@ container. The host-owned principal registry derives both from the Gateway
 interface that received the request. Context policy is selected inside the
 single OPA from that trusted principal. Learned permissions are Context- and
 project-bound. Principal identity alone does not select or inject tool
-credentials; Context, project, host, and the allowed decision must all match.
+credentials. Brokered resolution additionally requires an exact provider,
+credential revision, target, and source-header binding; Context, project, and
+the allowed decision must all match.
 
 The public commands are:
 
@@ -111,15 +140,16 @@ The public commands are:
 |---|---|---|---|
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version` | utility | read | Print build identity |
-| `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Validate host, Docker, configuration, policy, managed-secret permissions, ports, and residue |
+| `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, provider-manifest, root-key/vault, broker/project-handle, managed-secret, port, and residue diagnostics without repairing state |
+| `cluster up` | act, fixed target | create | Validate all Context policy/provider inputs and image contracts, reconcile Gateway, OPA, and Auth Broker, then unlock the broker |
 | `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it, and leave it reusable after `exit` |
 | `status [--context NAME]` | utility | read | Inspect the nearest current-directory Tobari in the explicit or current Context and its diagnostic runtime state |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari in the explicit or current Context when detached; use `--force` to override an attached-session guard |
-| `cluster status [--format text|json]` | utility | read | Inspect shared service health, loaded Context count, aggregate revision, projection integrity, and recent errors |
+| `cluster status [--format text|json]` | utility | read | Inspect three-service health, loaded Context count, aggregate revision, policy/provider projection integrity, root-key backend, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
-| `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
-| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted |
+| `cluster logs [--component gateway|opa|auth-broker|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential or handle output |
+| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted while preserving Auth Broker vaults and the installation root key; `--purge` additionally removes only shared CA volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact host/port/method/path candidates and opaque IDs across the installation |
 | `policy review [--tail N] [--format text|json]` | discover | read | Review the installation-wide Permission Inbox; on a TTY, inspect Context/root and explicitly confirm one exact allow or deny |
 | `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact allow and deny commands |
@@ -130,11 +160,15 @@ The public commands are:
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `context list [--format text|json]` | utility | read | List named Contexts with stable IDs and identify the current default |
-| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's agent, policy, and credential-store references |
+| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's agent, policy, managed-adapter store references, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced]` | act, fixed target | create | Create one named Context with a runtime image and separate owner-only stores |
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
+| `auth login PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Acquire one supported provider credential through a trusted-host helper for the explicit or current Context |
+| `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
+| `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection and broker state for one Context without reading secrets |
+| `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles without contacting the provider |
 
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
 It does not silently create state in a non-interactive context. When the
@@ -158,7 +192,11 @@ undeclared Docker mutation by the CLI.
 - `doctor` validates the current directory as the prospective project root
   when `--root` is omitted. `--root PATH` exists only for diagnosing another
   host directory without changing the shell's current directory. The command
-  remains read-only and does not initialize policy or start the shared cluster.
+  reports its complete check set and returns `diagnostic_failed` when any check
+  fails; warnings alone remain healthy. It remains read-only: it does not
+  initialize policy, start/reconcile or unlock the shared cluster, create or
+  replace the root key, or mutate provider, vault, credential, handle, or
+  project-auth state.
 - Each `(canonical root, stable Context ID)` identifies at most one Workspace.
   Repeated or concurrent creation for that pair is rejected as already
   existing; the same root may have independent Workspaces in different
@@ -194,11 +232,29 @@ undeclared Docker mutation by the CLI.
   fail closed if missing or incompatible before project runtime network or
   container mutation.
 - `cluster up` obtains the embedded immutable Gateway digest when it is not
-  already available locally, then validates its digest, API/role labels,
-  non-root default user, entrypoint, and Docker Engine platform before running
-  policy tests or creating shared networks and containers. Gateway source
-  development uses the contributor-only `task build:dev` path and a
+  already available locally and does the same for the immutable Auth Broker
+  digest. It validates each digest, API/role labels, non-root default user,
+  entrypoint, and Docker Engine platform before running policy tests or
+  creating shared networks and containers. Gateway and Auth Broker source
+  development use the contributor-only `task build:dev` path and a
   `tobari_dev` binary, not a public `cluster up` option.
+  Before the first Auth Broker publication, `AUTH_BROKER_IMAGE=unpublished` is
+  an explicit bootstrap state: official startup fails before Docker mutation,
+  `task public:check` reports the state, and `task release:check` blocks release.
+  The main image workflow must publish a Linux amd64/arm64 manifest and a
+  reviewed immutable digest must replace the marker. Contributor validation
+  uses `tobari-auth-broker:dev` through `task build:dev` meanwhile.
+- Authentication commands accept only an existing Context name and installed
+  provider ID. `auth login` is currently interactive and supports the built-in
+  `github` helper. `auth import` accepts a non-empty credential of at most
+  32 KiB from non-terminal stdin only; terminal stdin is rejected before any
+  byte is read. Non-terminal bytes are read only after public Context/provider
+  argument, intent, and mutation validation; infrastructure then validates the
+  selected existing Context, installed provider/acquisition mode, and broker
+  readiness before broker send. The credential is never a positional/flag
+  value or Tobari environment input. Every successful auth mutation requires
+  existing Workspaces to be re-entered before their environment or
+  complete-file handle projection can change.
 - `runtime init` creates the current Context's owner-only
   `runtime/Dockerfile`. The template starts from
   `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
@@ -248,10 +304,16 @@ undeclared Docker mutation by the CLI.
 
 ## Output and exit contract
 
-Human output is concise text. Cluster status, list, and status JSON are schema
-version 2. Cluster denials and Context reports are schema version 3. Policy
+Human output is concise text. Cluster status JSON is schema version 3; list and
+Workspace status JSON remain schema version 2. Cluster denials are schema
+version 3 and Context reports are schema
+version 4 with explicit secret-free Auth Broker/provider state. Policy
 candidates and review JSON are schema version 4; policy rules are schema version
-2; policy compactions are schema version 3. Their items associate Context name,
+2; policy compactions are schema version 3; every auth result uses schema
+version 1 with envelope `auth`. Public authentication backend values are
+`macos_keychain` or `xdg_file`; cluster status may additionally report
+`unavailable`. The infrastructure/doctor label `linux_xdg_file` is not a public
+auth or cluster JSON enum. Their items associate Context name,
 stable Context ID, Tobari ID, safe project root, HTTP effect, observation data
 where applicable, and one opaque mutation reference. Agent help uses the
 catalog schema.
@@ -415,6 +477,9 @@ Configuration is resolved from
   the explicitly selected managed Gateway adapter;
 - `contexts/<name>/credentials/`: reserved managed-adapter secret files for
   that Context, never mounted into a Workspace;
+- `auth/providers/*.json`: optional owner-only schema-v1 provider manifests;
+  user manifests cannot replace built-ins and may use protected non-terminal stdin import
+  only;
 - `contexts/active.json`: compatibility-named owner-only current/default Context
   selection; missing means `default` and the marker has no enforcement authority;
 - `principal-registry/principals.json`: owner-only host-issued schema-v2
@@ -428,7 +493,16 @@ Configuration is resolved from
 
 Tool authentication state is not cluster configuration. It belongs below the
 selected instance's persistent home and is created by the tool's own login or
-configuration flow.
+configuration flow. Brokered authentication is separate installation state:
+the normalized schema-v1 provider projection is generated below
+`auth/projection/providers.json`; encrypted schema-v1 Context vaults are below
+`auth/contexts/<context-id>/vault.enc`; the Linux root key is the owner-only
+`auth/keys/root.key`; runtime sockets are below `auth/runtime`; and schema-v1
+Workspace authentication file registries are below `auth/projects`. On macOS,
+the root key is instead stored in Keychain under service
+`io.tobari.auth-root.v1` and account `tobari`.
+The complete canonical schema/path/backend table is in
+[Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
 
 Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`:
 `roots/<hash>.json` indexes `(canonical root, stable Context ID)` and
@@ -442,8 +516,9 @@ Cluster state schema 3 contains the content-addressed aggregate policy revision,
 loaded Context count, aggregate projection paths, and Docker resource names or
 identifiers, never one active Context authority or credential contents. The
 owner-only projection contains a schema-v2 Context-aware Gateway credential
-document and Context-ID secret subdirectories; the per-Tobari home may contain
-tool credentials by design.
+document and Context-ID secret subdirectories plus the non-secret schema-v1
+provider projection. The per-Tobari home may contain tool credentials and
+broker handles by design, but never a brokered primary secret.
 Project and cluster mutation journals are durable recovery markers. An
 interrupted cluster marker, aggregate revision mismatch, or failed projection
 activation makes entry and policy operations fail closed until the exact shared
@@ -476,6 +551,9 @@ registry-pull request, so local-only base images remain usable.
 OPA reads one cluster-owned aggregate policy projection with `--watch`. The
 projection has one fixed `tobari.http/decision` router, Context-ID data
 namespaces, one shared guided evaluator, and isolated Advanced package names.
+Current Context policy source targets input schema 4; projection accepts legacy
+source schema 3 only for compatibility and rewrites both source shapes to
+Gateway runtime input schema 5 before testing and activation.
 Exact policy mutations lock aggregate generation, test the changed Context
 source privately, generate and test the complete all-Context candidate, publish
 it atomically, recreate only the exact owned OPA component, and retain the prior
@@ -510,20 +588,25 @@ Creating a Context also never starts Docker; when shared state exists, the
 result directs the user to explicit `cluster up` so the all-Context projection
 can be validated and activated.
 
-`cluster up` obtains and preflights the immutable Gateway image and official
+`cluster up` obtains and preflights the immutable Gateway and Auth Broker images and official
 runtime bases required by all Contexts, generates and validates the complete
-aggregate policy/credential projection, then creates shared labeled networks,
-configuration material, exactly one Gateway, exactly one OPA, and CA volumes as
-needed. It reconnects Gateway to the shared
+aggregate policy/credential/provider projection, then creates shared labeled
+networks, configuration material, exactly one Gateway, exactly one OPA,
+exactly one Auth Broker, and CA volumes as needed. It unlocks the broker through
+the supported host root-key backend and reconnects Gateway to the shared
 networks and existing registered project networks without creating project
-state or project resources, then waits for Gateway and OPA health. The root command only verifies the shared cluster is
+state or project resources, then waits for all three services to be healthy and
+the broker to be ready. The root command only verifies the shared cluster is
 configured and ready, reads the indexed Workspace candidates, and waits for an
 explicit choice when the canonical current directory is below an ancestor.
 After the choice is revalidated under the lifecycle lock, it creates or reuses
 the selected Context-bound logical record, resolves and validates its bound Context image
 before project runtime mutation, reconciles its labeled container and internal
 network, binds its XDG home, joins Gateway to that network, waits for the
-project healthcheck, and enters the resulting terminal session. Docker create
+project healthcheck, reconciles configured provider handles and Tobari-owned
+complete files, and enters the resulting terminal session. A changed handle
+environment recreates only the work container; the Workspace identity, root,
+and home remain. Docker create
 appends Tobari's fixed `sleep infinity` lifetime command after the image; the
 image `CMD` is not used to own Workspace lifetime. Shells and exact agent
 commands run through child exec sessions, so a child command's nonzero exit is
@@ -540,7 +623,9 @@ index, instance state, and home after confirming that no session is attached;
 `cluster down` rejects while any
 Tobari remains
 and removes only exact shared resources; its `--purge` also removes shared CA
-volumes. No command removes a mounted root or files inside it. Each project
+volumes. Both forms preserve every encrypted Context vault and the installation
+root key; cluster cleanup is not credential logout or revocation. No command
+removes a mounted root or files inside it. Each project
 work container is created with fixed CPU, memory, PID-count, and container-log
 bounds; a resource-contract change is treated as runtime drift and recreates
 only that work container. These limits do not claim a disk quota for the
@@ -556,6 +641,24 @@ credential binding already satisfy the orthogonal boundary.
 Candidate
 discovery excludes other denials, preventing a successful no-op approval.
 
+`auth login`, `auth import`, and `auth logout` validate the fixed installation
+credential-catalog target and mutation impact before acquisition or vault I/O.
+Login runs the fixed provider helper interactively on the trusted host. Import
+rejects terminal stdin before reading and reads bounded non-terminal input only
+after public argument/intent/mutation validation; infrastructure validates the
+selected Context, installed provider/acquisition mode, and broker readiness
+before broker send. Login/import atomically
+replace one Context/provider record and revoke every prior handle. Logout
+atomically removes that record and its handles without contacting the provider.
+One credential is Context/provider-owned, every permanently bound project is
+eligible for a distinct handle only on its next matching Workspace entry, and
+no mutation rewrites a running session. Confirmed results are secret-free and
+direct the user to leave and re-enter existing Workspaces. Logout revokes all
+old handles immediately; next entry removes its declared environment projection
+by recreation and removes only unchanged Tobari-owned complete files. `auth
+status` is read-only and reports locked state as provider availability
+uncertainty rather than inferring absence from an unreadable vault.
+
 ## Compatibility
 
 Before v1.0, command details and configuration schema may change with release
@@ -565,7 +668,11 @@ Legacy named lifecycle invocations are rejected explicitly and direct users to
 run `tobari` from the project directory. No compatibility alias recreates the
 old name/root lifecycle.
 Command names, resource labels, state schema, OPA input version, audit schema,
-and Gateway decision schema remain explicit compatibility boundaries.
+Gateway decision schema, auth JSON schema 1, provider/broker/vault schemas 1,
+the `tobari-h1_` handle prefix, root-key backend identifiers, Unix socket
+paths, and Auth Broker image API/role labels remain explicit compatibility
+boundaries. Their canonical values and paths are defined in
+[Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
 
 ## Unsupported outcomes
 
@@ -573,3 +680,7 @@ The deliberate non-goals in [Project Theses](00_theses.md) are not hidden
 commands or transport escape hatches. In particular, Tobari does not promise to
 control non-proxy-aware traffic semantically; it prevents all direct egress and
 supports HTTP/HTTPS through the explicit proxy only.
+The built-in provider slice supports one GitHub.com credential per Context; it
+does not add provider-specific policy semantics, multiple accounts, refresh,
+remote revocation, Git credential helpers, GitHub App tokens, arbitrary OAuth,
+AWS SigV4, request signing, or a general provider SDK/plugin executor.

@@ -1,0 +1,4 @@
+# GitHub CLI v2.96.0 release archive checksums from the upstream release.
+83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60  gh_2.96.0_linux_amd64.tar.gz
+06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e67140bf909  gh_2.96.0_linux_arm64.tar.gz
+

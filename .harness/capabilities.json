@@ -43,5 +43,10 @@
     "id": "runtime.customization",
     "status": "public",
     "reason": ""
+  },
+  {
+    "id": "authentication.broker",
+    "status": "public",
+    "reason": ""
   }
 ]

@@ -35,17 +35,20 @@ func (f *contextCLI) UseContext(context.Context, string) (tobari.ContextReport, 
 	f.useCalls++
 	f.report.Task = tobari.TaskContextUse
 	f.report.Active = true
+	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
 	return f.report, nil
 }
 
 func (f *contextCLI) InitRuntime(context.Context) (tobari.ContextReport, error) {
 	f.report.Task = tobari.TaskRuntimeInit
+	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
 	return f.report, nil
 }
 
 func (f *contextCLI) BuildRuntime(context.Context) (tobari.ContextReport, error) {
 	f.buildCalls++
 	f.report.Task = tobari.TaskRuntimeBuild
+	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
 	return f.report, f.buildErr
 }
 
@@ -118,10 +121,15 @@ func TestContextUseReportsReconciliationStatusAndParsesBeforeMutation(t *testing
 }
 
 func contextCLIReport(task, name string, active bool, image string, mode tobari.ContextPolicyMode) tobari.ContextReport {
+	authentication := tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
+	if task == tobari.TaskContextShow {
+		authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerReady, Providers: []tobari.ContextAuthProvider{}}
+	}
 	return tobari.ContextReport{
 		Task: task, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
 		Image: image, PolicyMode: mode, Cluster: tobari.ContextClusterStatusNotApplicable,
-		Runtime: tobari.ContextRuntimeReport{Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial},
+		Runtime:        tobari.ContextRuntimeReport{Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial},
+		Authentication: authentication,
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials.json"),
@@ -285,7 +293,7 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &initDocument); err != nil {
 		t.Fatalf("runtime init JSON = %q, error = %v", stdout.String(), err)
 	}
-	if initDocument.SchemaVersion != 3 || initDocument.Context.Task != tobari.TaskRuntimeInit {
+	if initDocument.SchemaVersion != 4 || initDocument.Context.Task != tobari.TaskRuntimeInit {
 		t.Fatalf("runtime init document = %+v", initDocument)
 	}
 	for _, retained := range []string{
@@ -342,7 +350,8 @@ func runtimeInitReportFixture() tobari.ContextReport {
 			SourceDigest:  "sha256:" + strings.Repeat("a", 64),
 			ImageDigest:   "sha256:" + strings.Repeat("b", 64),
 		},
-		Cluster: tobari.ContextClusterStatusNotApplicable,
+		Cluster:        tobari.ContextClusterStatusNotApplicable,
+		Authentication: tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable},
 	}
 }
 
@@ -403,6 +412,12 @@ func TestRuntimeInitTextColorDisabledRetainsPriorityAndValueEmphasis(t *testing.
 func TestContextShowRetainsRuntimeAndStoreDiagnostics(t *testing.T) {
 	fixture := runtimeInitReportFixture()
 	fixture.Task = tobari.TaskContextShow
+	fixture.Authentication = tobari.ContextAuthentication{
+		BrokerState: tobari.ContextAuthBrokerReady,
+		Providers: []tobari.ContextAuthProvider{{
+			Provider: "github", State: tobari.ContextAuthProviderNotConfigured,
+		}},
+	}
 	fake := &contextCLI{report: fixture}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)

@@ -7,7 +7,9 @@ import (
 	"io"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -433,18 +435,105 @@ func (r ContextListResult) Validate() error {
 	return nil
 }
 
+const (
+	ContextAuthBrokerNotApplicable = "not_applicable"
+	ContextAuthBrokerReady         = "ready"
+	ContextAuthBrokerLocked        = "locked"
+	ContextAuthBrokerUnavailable   = "unavailable"
+
+	ContextAuthProviderConfigured    = "configured"
+	ContextAuthProviderNotConfigured = "not_configured"
+	ContextAuthProviderUnavailable   = "unavailable"
+)
+
+// ContextAuthProvider reports one provider's non-secret Context-owned state.
+// It never contains a project handle or an upstream credential.
+type ContextAuthProvider struct {
+	Provider           string  `json:"provider"`
+	State              string  `json:"state"`
+	AccountLabel       *string `json:"account_label"`
+	CredentialRevision string  `json:"credential_revision"`
+}
+
+func (p ContextAuthProvider) Validate() error {
+	if len(p.Provider) > 64 || !regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`).MatchString(p.Provider) {
+		return fmt.Errorf("Context authentication provider ID is invalid")
+	}
+	switch p.State {
+	case ContextAuthProviderConfigured:
+		if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`).MatchString(p.CredentialRevision) {
+			return fmt.Errorf("configured Context authentication provider revision is invalid")
+		}
+	case ContextAuthProviderNotConfigured, ContextAuthProviderUnavailable:
+		if p.AccountLabel != nil || p.CredentialRevision != "" {
+			return fmt.Errorf("unconfigured Context authentication provider contains configured metadata")
+		}
+	default:
+		return fmt.Errorf("Context authentication provider state is invalid")
+	}
+	if p.AccountLabel != nil {
+		value := *p.AccountLabel
+		if value == "" || len(value) > 128 || !utf8.ValidString(value) || strings.TrimSpace(value) != value ||
+			strings.IndexFunc(value, func(character rune) bool {
+				return character < ' ' || character == '\u007f' || character == '\u2028' || character == '\u2029'
+			}) >= 0 {
+			return fmt.Errorf("Context authentication account label is invalid")
+		}
+	}
+	return nil
+}
+
+// ContextAuthentication is an explicit observation. not_applicable is used
+// only by mutation results whose task did not inspect the running broker.
+type ContextAuthentication struct {
+	BrokerState string                `json:"broker_state"`
+	Providers   []ContextAuthProvider `json:"providers"`
+}
+
+func (a ContextAuthentication) Validate(observed bool) error {
+	if !observed {
+		if a.BrokerState != ContextAuthBrokerNotApplicable || a.Providers != nil {
+			return fmt.Errorf("unobserved Context authentication state is invalid")
+		}
+		return nil
+	}
+	switch a.BrokerState {
+	case ContextAuthBrokerReady, ContextAuthBrokerLocked, ContextAuthBrokerUnavailable:
+	default:
+		return fmt.Errorf("observed Context authentication broker state is invalid")
+	}
+	if a.Providers == nil {
+		return fmt.Errorf("observed Context authentication provider collection is absent")
+	}
+	seen := make(map[string]struct{}, len(a.Providers))
+	for _, provider := range a.Providers {
+		if err := provider.Validate(); err != nil {
+			return err
+		}
+		if _, duplicate := seen[provider.Provider]; duplicate {
+			return fmt.Errorf("Context authentication provider is duplicated")
+		}
+		seen[provider.Provider] = struct{}{}
+		if a.BrokerState != ContextAuthBrokerReady && provider.State != ContextAuthProviderUnavailable {
+			return fmt.Errorf("unready Context authentication broker has an available provider state")
+		}
+	}
+	return nil
+}
+
 // ContextReport is the complete selected Context view.
 type ContextReport struct {
-	Task         string               `json:"task"`
-	ID           string               `json:"id"`
-	Name         string               `json:"name"`
-	Active       bool                 `json:"active"`
-	AgentProfile string               `json:"agent_profile"`
-	Image        string               `json:"image"`
-	PolicyMode   ContextPolicyMode    `json:"policy_mode"`
-	Stores       ContextStorePaths    `json:"stores"`
-	Runtime      ContextRuntimeReport `json:"runtime"`
-	Cluster      ContextClusterStatus `json:"cluster"`
+	Task           string                `json:"task"`
+	ID             string                `json:"id"`
+	Name           string                `json:"name"`
+	Active         bool                  `json:"active"`
+	AgentProfile   string                `json:"agent_profile"`
+	Image          string                `json:"image"`
+	PolicyMode     ContextPolicyMode     `json:"policy_mode"`
+	Stores         ContextStorePaths     `json:"stores"`
+	Runtime        ContextRuntimeReport  `json:"runtime"`
+	Cluster        ContextClusterStatus  `json:"cluster"`
+	Authentication ContextAuthentication `json:"authentication"`
 }
 
 func (r ContextReport) Validate() error {
@@ -467,6 +556,9 @@ func (r ContextReport) Validate() error {
 		return err
 	}
 	if err := r.Runtime.Validate(); err != nil {
+		return err
+	}
+	if err := r.Authentication.Validate(r.Task == TaskContextShow); err != nil {
 		return err
 	}
 	return r.Cluster.Validate()
