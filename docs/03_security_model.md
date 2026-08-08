@@ -113,6 +113,12 @@ compatibility inspection before its reference is promoted into the Context.
 Editing the recipe or a failed build cannot replace the last selected image.
 After promotion succeeds, existing Workspaces observe the selected image only
 through the next trusted root-entry reconciliation.
+Docker/BuildKit build output is untrusted diagnostic text even though the
+Dockerfile is an owner-only host input. The explicit build forwards both Docker
+streams through visible projection, preserving line structure and concrete
+errors while making backslashes, terminal controls/formats, and Unicode line
+separators distinguishable. It is not copied into the stable structured fault,
+Context manifest, or audit state.
 For the exact official `ghcr.io/tasuku43/tobari/runtime:latest` first base,
 the explicit build also requests a refresh of the moving base. Explicit local
 or custom bases do not receive that registry-pull request; this keeps local
@@ -281,7 +287,10 @@ its Docker build context is fixed to that recipe directory, and its image
 promotion happens only after compatibility and digest checks. Neither command
 mounts the Context directory into a Workspace or accepts a secret/image-name
 override. A build failure is therefore a safe retry point: the old selected
-image and its Context authority remain unchanged.
+image and its Context authority remain unchanged. Tobari does not delete an
+older selected image, a failed candidate tag, or BuildKit cache as failure
+cleanup; the failure summary distinguishes unchanged, uncertain, and already
+promoted selection state.
 
 Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
 The root command uses the catalog-declared current-directory fixed target to

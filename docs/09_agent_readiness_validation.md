@@ -134,7 +134,12 @@ rules exist. The transcript must prove:
 - `runtime build` uses only that recipe directory, validates the runtime
   contract and image digest, derives the local image reference mechanically,
   and promotes it into the Context without a second image-selection command.
-  A build or validation failure leaves the previous selected image unchanged.
+  Docker/BuildKit progress and concrete failure output remain available on
+  host stderr in TTY and non-TTY execution, followed by a short text failure
+  summary, so diagnosis needs no equivalent manual Docker command. A Docker
+  build or pre-promotion validation failure leaves the previous selected image
+  unchanged and identifies any candidate image or BuildKit cache that may
+  remain.
   The exact official `runtime:latest` base is refreshed on this explicit build;
   explicit local or custom bases do not request a registry pull. An existing
   Workspace validates the promoted active Context image on the next root entry,

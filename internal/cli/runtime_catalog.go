@@ -175,10 +175,10 @@ func runtimeBuildSpec() CommandSpec {
 		Args: "[--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "runtime.customization",
-			Outcome:       "Build the active Context Dockerfile, validate the Tobari runtime contract, and select the generated local image",
+			Outcome:       "Build the active Context Dockerfile with observable Docker diagnostics, validate the Tobari runtime contract, and select the generated local image",
 			Inputs:        []CommandInput{formatInput()},
 			Output:        contextReportOutput(),
-			Prerequisites: []string{"The active Context has a runtime/Dockerfile recipe.", "The trusted host Docker daemon is available."},
+			Prerequisites: []string{"The active Context has a runtime/Dockerfile recipe.", "The trusted host Docker daemon and Buildx plugin are available."},
 			FixedTarget:   fixedActiveContextRuntimeTarget(),
 			Errors: mutationCommandErrors("runtime build", "context show",
 				declaredCommandError(fault.KindInvalidInput, "runtime_recipe_missing", false, "runtime init", "Create the active Context runtime template first."),

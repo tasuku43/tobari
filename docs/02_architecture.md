@@ -228,6 +228,14 @@ image, and promotes it into the existing Context image field. Future runtime
 import formats must attach to this same Context boundary rather than introduce
 a second implicit image authority.
 
+Runtime build diagnostics use two deliberately separate paths. The
+application's optional build-progress port carries a bounded, validated stage
+vocabulary and selection-state metadata for CLI presentation. A purpose-bound
+writer carries visible-projected Docker/BuildKit stdout and stderr to host
+stderr as the build runs. Upstream prose never becomes a structured fault
+field or a source of promotion-state inference; infrastructure decides state
+from completed build, compatibility, digest, and atomic manifest operations.
+
 ## Lifecycle model
 
 The MVP owns one shared cluster `tool_local` target with stable ID

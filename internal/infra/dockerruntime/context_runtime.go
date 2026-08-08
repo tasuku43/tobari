@@ -1,15 +1,16 @@
 package dockerruntime
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -217,8 +218,20 @@ func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ContextReport, error)
 
 // BuildRuntime builds, validates, and atomically selects the active Context's
 // generated local image. The previous selected image remains authoritative
-// until every step succeeds.
+// until atomic promotion succeeds; a later reporting failure is surfaced as
+// already promoted instead of claiming that the previous image remains.
 func (r *Runtime) BuildRuntime(ctx context.Context) (tobari.ContextReport, error) {
+	return r.BuildRuntimeWithProgress(ctx, nil, nil)
+}
+
+// BuildRuntimeWithProgress is the diagnostic extension of BuildRuntime. It
+// forwards both Docker output streams without retaining the caller's writer
+// and emits only validated, secret-free semantic stage metadata.
+func (r *Runtime) BuildRuntimeWithProgress(
+	ctx context.Context,
+	diagnostics io.Writer,
+	progress tobari.RuntimeBuildProgressSink,
+) (tobari.ContextReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.ContextReport{}, err
 	}
@@ -240,12 +253,21 @@ func (r *Runtime) BuildRuntime(ctx context.Context) (tobari.ContextReport, error
 			return err
 		}
 		image := managedRuntimeImage(manifest.Name, sourceDigest)
-		var output bytes.Buffer
+		buildProgress := tobari.RuntimeBuildProgress{
+			ContextName:    manifest.Name,
+			Dockerfile:     r.contextRuntimeDockerfile(manifest.Name),
+			PreviousImage:  manifest.Image,
+			CandidateImage: image,
+			Selection:      tobari.RuntimeBuildSelectionUnchanged,
+		}
+		emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePrepare, tobari.RuntimeBuildProgressStarted)
 		pullBase, err := r.contextRuntimeUsesRefreshableBase(manifest.Name)
 		if err != nil {
+			emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePrepare, tobari.RuntimeBuildProgressFailed)
 			return err
 		}
-		buildArgs := []string{"build"}
+		emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePrepare, tobari.RuntimeBuildProgressCompleted)
+		buildArgs := []string{"buildx", "build", "--progress=plain", "--load"}
 		if pullBase {
 			buildArgs = append(buildArgs, "--pull")
 		}
@@ -255,17 +277,25 @@ func (r *Runtime) BuildRuntime(ctx context.Context) (tobari.ContextReport, error
 			"--file", r.contextRuntimeDockerfile(manifest.Name),
 			r.contextRuntimeDirectory(manifest.Name),
 		)
-		if err := r.runner.Run(
-			ctx,
-			buildArgs,
-			os.Environ(), nil, &output, &output,
-		); err != nil {
-			return fmt.Errorf("build Context runtime: %w: %s", err, boundedDiagnostic(output.Bytes()))
+		var tail runtimeBuildDiagnosticTail
+		diagnosticOutput := &bestEffortDiagnosticWriter{writer: diagnostics}
+		stream := io.MultiWriter(diagnosticOutput, &tail)
+		if err := runRuntimeBuildStage(progress, buildProgress, tobari.RuntimeBuildStageBuild, func() error {
+			return r.runner.Run(ctx, buildArgs, os.Environ(), nil, stream, stream)
+		}); err != nil {
+			return fmt.Errorf("build Context runtime: %w: %s", err, boundedDiagnostic(tail.Bytes()))
 		}
-		if err := r.validateCompatibleImage(ctx, image); err != nil {
+		if err := runRuntimeBuildStage(progress, buildProgress, tobari.RuntimeBuildStageValidate, func() error {
+			return r.validateCompatibleImage(ctx, image)
+		}); err != nil {
 			return err
 		}
-		imageDigest, err := r.inspectImageDigest(ctx, image)
+		var imageDigest string
+		err = runRuntimeBuildStage(progress, buildProgress, tobari.RuntimeBuildStageInspect, func() error {
+			var inspectErr error
+			imageDigest, inspectErr = r.inspectImageDigest(ctx, image)
+			return inspectErr
+		})
 		if err != nil {
 			return err
 		}
@@ -277,24 +307,114 @@ func (r *Runtime) BuildRuntime(ctx context.Context) (tobari.ContextReport, error
 			Image: image, ImageDigest: imageDigest, SourceDigest: sourceDigest,
 		}
 		manifest.Runtime = &recipe
+		emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePromote, tobari.RuntimeBuildProgressStarted)
 		if err := manifest.Validate(); err != nil {
+			emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePromote, tobari.RuntimeBuildProgressFailed)
 			return err
 		}
 		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
+			buildProgress.Selection = tobari.RuntimeBuildSelectionUncertain
+			emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePromote, tobari.RuntimeBuildProgressFailed)
 			_ = writeAtomicJSON(r.contextManifestPath(previous.Name), previous)
 			return fmt.Errorf("promote Context runtime: %w", err)
 		}
+		buildProgress.Selection = tobari.RuntimeBuildSelectionPromoted
+		emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePromote, tobari.RuntimeBuildProgressCompleted)
+		emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStageReport, tobari.RuntimeBuildProgressStarted)
 		active, err := r.readActiveContext()
 		if err != nil {
+			emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStageReport, tobari.RuntimeBuildProgressFailed)
 			return err
 		}
 		result, err = r.contextReport(ctx, tobari.TaskRuntimeBuild, manifest, active)
+		if err != nil {
+			emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStageReport, tobari.RuntimeBuildProgressFailed)
+			return err
+		}
+		emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStageReport, tobari.RuntimeBuildProgressCompleted)
 		return err
 	})
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
 	return result, nil
+}
+
+func runRuntimeBuildStage(
+	progress tobari.RuntimeBuildProgressSink,
+	metadata tobari.RuntimeBuildProgress,
+	stage tobari.RuntimeBuildStage,
+	action func() error,
+) error {
+	emitRuntimeBuildProgress(progress, metadata, stage, tobari.RuntimeBuildProgressStarted)
+	if err := action(); err != nil {
+		emitRuntimeBuildProgress(progress, metadata, stage, tobari.RuntimeBuildProgressFailed)
+		return err
+	}
+	emitRuntimeBuildProgress(progress, metadata, stage, tobari.RuntimeBuildProgressCompleted)
+	return nil
+}
+
+func emitRuntimeBuildProgress(
+	progress tobari.RuntimeBuildProgressSink,
+	metadata tobari.RuntimeBuildProgress,
+	stage tobari.RuntimeBuildStage,
+	status tobari.RuntimeBuildProgressStatus,
+) {
+	if progress == nil {
+		return
+	}
+	metadata.Stage = stage
+	metadata.Status = status
+	if metadata.Validate() == nil {
+		progress(metadata)
+	}
+}
+
+type bestEffortDiagnosticWriter struct {
+	mu     sync.Mutex
+	writer io.Writer
+}
+
+func (w *bestEffortDiagnosticWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.writer != nil {
+		_, _ = w.writer.Write(data)
+	}
+	return len(data), nil
+}
+
+const runtimeBuildDiagnosticTailBytes = 64 * 1024
+
+type runtimeBuildDiagnosticTail struct {
+	mu   sync.Mutex
+	data []byte
+}
+
+func (b *runtimeBuildDiagnosticTail) Write(data []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	written := len(data)
+	if len(data) >= runtimeBuildDiagnosticTailBytes {
+		b.data = append(b.data[:0], data[len(data)-runtimeBuildDiagnosticTailBytes:]...)
+		return written, nil
+	}
+	if overflow := len(b.data) + len(data) - runtimeBuildDiagnosticTailBytes; overflow > 0 {
+		copy(b.data, b.data[overflow:])
+		b.data = b.data[:len(b.data)-overflow]
+	}
+	b.data = append(b.data, data...)
+	return written, nil
+}
+
+func (b *runtimeBuildDiagnosticTail) Bytes() []byte {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]byte(nil), b.data...)
 }
 
 func (r *Runtime) inspectImageDigest(ctx context.Context, image string) (string, error) {

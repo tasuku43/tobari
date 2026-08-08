@@ -193,6 +193,12 @@ undeclared Docker mutation by the CLI.
 - `runtime build` is the explicit exception to the no-implicit-pull rule. It
   runs a host Docker build using only the Context runtime directory as build
   context; Docker may obtain a missing base image for this explicit build.
+  Tobari requests plain BuildKit progress and forwards the visible-projected
+  Docker stdout and stderr diagnostic stream to host stderr while the build
+  runs, including in non-TTY environments. The diagnostic stream retains the
+  concrete failed step and Docker/BuildKit error separately from Tobari's
+  stable structured mutation fault; a user does not need to rerun an equivalent
+  Docker command to obtain the upstream failure.
   Tobari validates the resulting image against the same runtime contract,
   records its immutable local image digest, and then selects the generated
   `tobari-context-<context>:<source>` image in the active Context. The previous
@@ -456,8 +462,14 @@ authored edits remain an advanced, explicit workflow.
 template without changing image selection. `runtime build` executes the
 explicit host Docker build, validates the generated image, and atomically
 updates only the active Context manifest after the image digest is confirmed.
-Build, validation, or promotion failure leaves the previous selected image
-authoritative and directs the user to inspect the Context before retrying.
+Docker build failure exits nonzero, ends text presentation with a short summary
+of the failed stage, Dockerfile, recovery command, and retained state, and
+leaves the previous selected image authoritative. BuildKit may retain
+engine-owned cache layers, and a post-build validation failure may retain the
+unselected candidate image; Tobari states this instead of deleting either one.
+An uncertain promotion or post-promotion reporting failure directs the user to
+inspect the Context before retrying rather than claiming the old selection is
+unchanged.
 Existing Workspaces are not mutated by `runtime build` itself; the next root
 entry reconciles their work container to the promoted image while preserving
 the Workspace home.

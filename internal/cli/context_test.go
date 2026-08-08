@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -42,14 +44,49 @@ func (f *contextCLI) InitRuntime(context.Context) (tobari.ContextReport, error) 
 }
 
 func (f *contextCLI) BuildRuntime(context.Context) (tobari.ContextReport, error) {
+	f.buildCalls++
 	f.report.Task = tobari.TaskRuntimeBuild
+	return f.report, f.buildErr
+}
+
+func (f *contextCLI) BuildRuntimeWithProgress(
+	_ context.Context, diagnostics io.Writer, progress tobari.RuntimeBuildProgressSink,
+) (tobari.ContextReport, error) {
+	f.buildCalls++
+	f.report.Task = tobari.TaskRuntimeBuild
+	metadata := tobari.RuntimeBuildProgress{
+		ContextName: "default", Dockerfile: "/config/contexts/default/runtime/Dockerfile",
+		PreviousImage: tobari.OfficialRuntimeBase, CandidateImage: "tobari-context-default:0123456789ab",
+		Selection: tobari.RuntimeBuildSelectionUnchanged,
+	}
+	emit := func(stage tobari.RuntimeBuildStage, status tobari.RuntimeBuildProgressStatus) {
+		if progress == nil {
+			return
+		}
+		metadata.Stage, metadata.Status = stage, status
+		progress(metadata)
+	}
+	emit(tobari.RuntimeBuildStagePrepare, tobari.RuntimeBuildProgressStarted)
+	emit(tobari.RuntimeBuildStagePrepare, tobari.RuntimeBuildProgressCompleted)
+	emit(tobari.RuntimeBuildStageBuild, tobari.RuntimeBuildProgressStarted)
+	if diagnostics != nil && f.buildLog != "" {
+		_, _ = io.WriteString(diagnostics, f.buildLog)
+	}
+	if f.buildErr != nil {
+		emit(tobari.RuntimeBuildStageBuild, tobari.RuntimeBuildProgressFailed)
+		return tobari.ContextReport{}, f.buildErr
+	}
+	emit(tobari.RuntimeBuildStageBuild, tobari.RuntimeBuildProgressCompleted)
 	return f.report, nil
 }
 
 type fakeContextRuntime struct {
-	list     tobari.ContextListResult
-	report   tobari.ContextReport
-	useCalls int
+	list       tobari.ContextListResult
+	report     tobari.ContextReport
+	useCalls   int
+	buildCalls int
+	buildLog   string
+	buildErr   error
 }
 
 func TestContextUseReportsReconciliationStatusAndParsesBeforeMutation(t *testing.T) {
@@ -130,6 +167,105 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	}
 	if document.Context.Name != "project-tools" || document.Context.Image != tobari.OfficialRuntimeBase || document.Context.PolicyMode != tobari.ContextPolicyModeAdvanced {
 		t.Fatalf("context create document = %+v", document.Context)
+	}
+}
+
+func TestRuntimeBuildFailureKeepsDockerErrorAndEndsWithActionableSummary(t *testing.T) {
+	fake := &contextCLI{
+		report:   contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided),
+		buildLog: "#7 [2/2] RUN gh --version\n > [2/2] RUN gh --version:\n/bin/sh: gh: not found\nERROR: process failed\n",
+		buildErr: errors.New("synthetic Docker build failure"),
+	}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+
+	code := command.RunContext(context.Background(), []string{"runtime", "build"})
+	if code != ExitRejected {
+		t.Fatalf("runtime build code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("runtime build failure stdout = %q", stdout.String())
+	}
+	for _, retained := range []string{
+		"Building runtime for context \"default\"...",
+		"RUN gh --version",
+		"/bin/sh: gh: not found",
+		"× Runtime build failed",
+		"Failed step:\n  RUN gh --version",
+		"Error:\n  /bin/sh: gh: not found",
+		"/config/contexts/default/runtime/Dockerfile",
+		"The previously selected runtime is unchanged.",
+		"Docker build cache may contain intermediate layers",
+		"tobari runtime build",
+	} {
+		if !strings.Contains(stderr.String(), retained) {
+			t.Fatalf("runtime build stderr = %q, missing %q", stderr.String(), retained)
+		}
+	}
+	if strings.Contains(stderr.String(), "\x1b[") {
+		t.Fatalf("non-TTY runtime build stderr contains ANSI: %q", stderr.String())
+	}
+}
+
+func TestRuntimeBuildDiagnosticStreamProjectsTerminalControls(t *testing.T) {
+	fake := &contextCLI{
+		report:   contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided),
+		buildLog: "RUN tool\\literal\tvalue\x1b[31m\u202etest\nERROR: tool not found\n",
+		buildErr: errors.New("synthetic Docker build failure"),
+	}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{"runtime", "build"}); code != ExitRejected {
+		t.Fatalf("runtime build code = %d", code)
+	}
+	value := stderr.String()
+	for _, projected := range []string{`tool\\literal\tvalue\u001B[31m\u202Etest`, "ERROR: tool not found"} {
+		if !strings.Contains(value, projected) {
+			t.Fatalf("projected stderr = %q, missing %q", value, projected)
+		}
+	}
+	if strings.Contains(value, "\x1b") || strings.Contains(value, "\u202e") {
+		t.Fatalf("projected stderr retains terminal controls: %q", value)
+	}
+}
+
+func TestRuntimeBuildFailureDetailsCoverDockerFailureClasses(t *testing.T) {
+	tests := []struct {
+		name      string
+		log       string
+		wantStep  string
+		wantError string
+	}{
+		{
+			name:     "Dockerfile syntax",
+			log:      "ERROR: failed to solve: failed to read dockerfile: dockerfile parse error on line 4\n",
+			wantStep: "Parse Dockerfile", wantError: "dockerfile parse error",
+		},
+		{
+			name:     "RUN command",
+			log:      "#7 [2/2] RUN gh --version\n/bin/sh: gh: not found\n#7 ERROR: process failed\n",
+			wantStep: "RUN gh --version", wantError: "/bin/sh: gh: not found",
+		},
+		{
+			name:     "base image",
+			log:      "#5 [internal] load metadata for example.invalid/missing:latest\n#5 ERROR: failed to resolve source metadata\n",
+			wantStep: "load metadata for example.invalid/missing:latest", wantError: "failed to resolve source metadata",
+		},
+		{
+			name:     "daemon",
+			log:      "ERROR: Cannot connect to the Docker daemon at unix:///var/run/docker.sock\n",
+			wantStep: "Connect to Docker daemon", wantError: "Cannot connect to the Docker daemon",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			step, diagnostic := runtimeBuildFailureDetails(tobari.RuntimeBuildStageBuild, []byte(test.log))
+			if !strings.Contains(step, test.wantStep) || !strings.Contains(diagnostic, test.wantError) {
+				t.Fatalf("details = %q / %q", step, diagnostic)
+			}
+		})
 	}
 }
 

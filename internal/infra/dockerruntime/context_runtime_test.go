@@ -77,10 +77,12 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 		result.Image == tobari.BuiltinImageSelector || result.Runtime.ImageDigest == "" {
 		t.Fatalf("BuildRuntime() result = %+v", result)
 	}
-	if len(runner.runs) != 1 || len(runner.runs[0].args) < 2 || runner.runs[0].args[0] != "build" {
+	if len(runner.runs) != 1 || len(runner.runs[0].args) < 3 ||
+		runner.runs[0].args[0] != "buildx" || runner.runs[0].args[1] != "build" {
 		t.Fatalf("Docker build calls = %+v", runner.runs)
 	}
-	if !containsArgs(runner.runs[0].args, "--file") ||
+	if !containsArgs(runner.runs[0].args, "--progress=plain") || !containsArgs(runner.runs[0].args, "--load") ||
+		!containsArgs(runner.runs[0].args, "--file") ||
 		!containsArgs(runner.runs[0].args, filepath.Join(root, "config", "contexts", "default", "runtime")) {
 		t.Fatalf("Docker build argv = %+v", runner.runs[0].args)
 	}
@@ -187,13 +189,119 @@ func TestBuildRuntimeFailureLeavesSelectedImageUnchanged(t *testing.T) {
 	}
 }
 
-type contextBuildFailureRunner struct {
-	recordingRunner
+func TestBuildRuntimeStreamsDockerFailureDiagnosticsInNonTTYEnvironments(t *testing.T) {
+	tests := []struct {
+		name       string
+		diagnostic string
+	}{
+		{name: "Dockerfile syntax", diagnostic: "ERROR: failed to solve: dockerfile parse error on line 4: unknown instruction: RNU\n"},
+		{name: "RUN command", diagnostic: " > [2/2] RUN gh --version:\n/bin/sh: gh: not found\nERROR: process failed\n"},
+		{name: "base image", diagnostic: "ERROR: failed to resolve source metadata for example.invalid/missing:latest\n"},
+		{name: "daemon", diagnostic: "ERROR: Cannot connect to the Docker daemon at unix:///var/run/docker.sock\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &contextBuildFailureRunner{diagnostic: test.diagnostic}
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runtime.ListContexts(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runtime.InitRuntime(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			before, err := runtime.ShowContext(context.Background(), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var diagnostics strings.Builder
+			var events []tobari.RuntimeBuildProgress
+			_, err = runtime.BuildRuntimeWithProgress(
+				context.Background(), &diagnostics,
+				func(event tobari.RuntimeBuildProgress) { events = append(events, event) },
+			)
+			if err == nil {
+				t.Fatal("BuildRuntimeWithProgress() succeeded on a Docker failure")
+			}
+			if !strings.Contains(diagnostics.String(), "synthetic stdout progress") ||
+				!strings.Contains(diagnostics.String(), strings.TrimSpace(test.diagnostic)) {
+				t.Fatalf("diagnostics = %q", diagnostics.String())
+			}
+			if len(events) < 4 || events[len(events)-1].Stage != tobari.RuntimeBuildStageBuild ||
+				events[len(events)-1].Status != tobari.RuntimeBuildProgressFailed ||
+				events[len(events)-1].Selection != tobari.RuntimeBuildSelectionUnchanged {
+				t.Fatalf("events = %+v", events)
+			}
+			after, err := runtime.ShowContext(context.Background(), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.Image != before.Image {
+				t.Fatalf("selected image changed: before=%q after=%q", before.Image, after.Image)
+			}
+		})
+	}
 }
 
-func (r *contextBuildFailureRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
+func TestBuildRuntimeFailurePreservesPreviouslyBuiltRuntime(t *testing.T) {
+	root := t.TempDir()
+	success := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), success)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.InitRuntime(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	built, err := runtime.BuildRuntime(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerfile := runtime.contextRuntimeDockerfile("default")
+	data, err := os.ReadFile(dockerfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dockerfile, append(data, []byte("\n# next candidate\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	failure := &contextBuildFailureRunner{diagnostic: "ERROR: process failed\n"}
+	runtime.runner = failure
+	if _, err := runtime.BuildRuntimeWithProgress(context.Background(), io.Discard, nil); err == nil {
+		t.Fatal("second BuildRuntimeWithProgress() succeeded")
+	}
+	after, err := runtime.ShowContext(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Image != built.Image || after.Runtime.ImageDigest != built.Runtime.ImageDigest {
+		t.Fatalf("previous runtime changed: built=%+v after=%+v", built, after)
+	}
+	for _, call := range failure.runs {
+		if len(call.args) > 0 && (call.args[0] == "rmi" || call.args[0] == "image" && len(call.args) > 1 && call.args[1] == "rm") {
+			t.Fatalf("failure removed an image: %+v", call.args)
+		}
+	}
+}
+
+type contextBuildFailureRunner struct {
+	recordingRunner
+	diagnostic string
+}
+
+func (r *contextBuildFailureRunner) Run(
+	_ context.Context, args, _ []string, _ io.Reader, out, errOut io.Writer,
+) error {
 	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
-	if len(args) > 0 && args[0] == "build" {
+	if len(args) > 1 && args[0] == "buildx" && args[1] == "build" {
+		_, _ = io.WriteString(out, "synthetic stdout progress\n")
+		_, _ = io.WriteString(errOut, r.diagnostic)
 		return errors.New("synthetic Docker build failure")
 	}
 	return nil

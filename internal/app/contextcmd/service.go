@@ -4,6 +4,7 @@ package contextcmd
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/tasuku43/tobari/internal/app/execution"
 	"github.com/tasuku43/tobari/internal/app/portcheck"
@@ -25,6 +26,10 @@ type RuntimePort interface {
 
 type contextUseProgressRuntimePort interface {
 	UseContextWithProgress(context.Context, string, tobari.ClusterUpProgressSink) (tobari.ContextReport, error)
+}
+
+type contextRuntimeBuildProgressPort interface {
+	BuildRuntimeWithProgress(context.Context, io.Writer, tobari.RuntimeBuildProgressSink) (tobari.ContextReport, error)
 }
 
 type contextLifecycleRuntimePort interface {
@@ -253,6 +258,18 @@ func (s *Service) InitRuntime(ctx context.Context, intent operation.Intent) (tob
 
 // BuildRuntime builds and atomically selects the active Context's recipe.
 func (s *Service) BuildRuntime(ctx context.Context, intent operation.Intent) (tobari.ContextReport, error) {
+	return s.BuildRuntimeWithProgress(ctx, intent, nil, nil)
+}
+
+// BuildRuntimeWithProgress builds the active Context runtime while forwarding
+// Docker diagnostics and bounded semantic stage events to presentation. The
+// diagnostic writer is purpose-bound to this one build and is never retained.
+func (s *Service) BuildRuntimeWithProgress(
+	ctx context.Context,
+	intent operation.Intent,
+	diagnostics io.Writer,
+	progress tobari.RuntimeBuildProgressSink,
+) (tobari.ContextReport, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ContextReport{}, err
 	}
@@ -263,7 +280,13 @@ func (s *Service) BuildRuntime(ctx context.Context, intent operation.Intent) (to
 	}
 	var result tobari.ContextReport
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		built, buildErr := s.runtime.BuildRuntime(actionContext)
+		var built tobari.ContextReport
+		var buildErr error
+		if runtime, ok := s.runtime.(contextRuntimeBuildProgressPort); ok && !portcheck.IsNil(runtime) {
+			built, buildErr = runtime.BuildRuntimeWithProgress(actionContext, diagnostics, progress)
+		} else {
+			built, buildErr = s.runtime.BuildRuntime(actionContext)
+		}
 		if errors.Is(buildErr, tobari.ErrRuntimeRecipeMissing) {
 			return fault.New(
 				fault.KindInvalidInput, "runtime_recipe_missing", "the active Context has no runtime recipe", false,

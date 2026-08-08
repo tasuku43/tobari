@@ -1,8 +1,10 @@
 package contextcmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"path/filepath"
 	"testing"
 
@@ -12,23 +14,24 @@ import (
 )
 
 type contextRuntimeFake struct {
-	listResult   tobari.ContextListResult
-	showResult   tobari.ContextReport
-	createResult tobari.ContextReport
-	useResult    tobari.ContextReport
-	initResult   tobari.ContextReport
-	buildResult  tobari.ContextReport
-	createErr    error
-	useErr       error
-	initErr      error
-	buildErr     error
-	createCalls  int
-	useCalls     int
-	initCalls    int
-	buildCalls   int
-	lastName     string
-	lastImage    string
-	lastMode     tobari.ContextPolicyMode
+	listResult         tobari.ContextListResult
+	showResult         tobari.ContextReport
+	createResult       tobari.ContextReport
+	useResult          tobari.ContextReport
+	initResult         tobari.ContextReport
+	buildResult        tobari.ContextReport
+	createErr          error
+	useErr             error
+	initErr            error
+	buildErr           error
+	createCalls        int
+	useCalls           int
+	initCalls          int
+	buildCalls         int
+	buildProgressCalls int
+	lastName           string
+	lastImage          string
+	lastMode           tobari.ContextPolicyMode
 }
 
 func (f *contextRuntimeFake) ListContexts(context.Context) (tobari.ContextListResult, error) {
@@ -59,6 +62,25 @@ func (f *contextRuntimeFake) InitRuntime(context.Context) (tobari.ContextReport,
 
 func (f *contextRuntimeFake) BuildRuntime(context.Context) (tobari.ContextReport, error) {
 	f.buildCalls++
+	return f.buildResult, f.buildErr
+}
+
+func (f *contextRuntimeFake) BuildRuntimeWithProgress(
+	_ context.Context, diagnostics io.Writer, progress tobari.RuntimeBuildProgressSink,
+) (tobari.ContextReport, error) {
+	f.buildCalls++
+	f.buildProgressCalls++
+	if diagnostics != nil {
+		_, _ = io.WriteString(diagnostics, "synthetic BuildKit output\n")
+	}
+	if progress != nil {
+		progress(tobari.RuntimeBuildProgress{
+			Stage: tobari.RuntimeBuildStageBuild, Status: tobari.RuntimeBuildProgressStarted,
+			ContextName: "default", Dockerfile: "/config/contexts/default/runtime/Dockerfile",
+			PreviousImage: tobari.OfficialRuntimeBase, CandidateImage: "tobari-context-default:0123456789ab",
+			Selection: tobari.RuntimeBuildSelectionUnchanged,
+		})
+	}
 	return f.buildResult, f.buildErr
 }
 
@@ -160,6 +182,29 @@ func TestRuntimeBuildUsesActiveContextFixedTarget(t *testing.T) {
 	}
 	if result.Task != tobari.TaskRuntimeBuild || fake.buildCalls != 1 {
 		t.Fatalf("result/calls = %+v/%d", result, fake.buildCalls)
+	}
+}
+
+func TestRuntimeBuildForwardsPurposeBoundDiagnosticsAndProgress(t *testing.T) {
+	fake := &contextRuntimeFake{buildResult: contextReport(tobari.TaskRuntimeBuild, "default")}
+	service := New(fake)
+	intent := operation.Intent{
+		Command: "runtime build", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ID: tobari.ActiveContextRuntimeID},
+		Impact: contextImpact(),
+	}
+	var diagnostics bytes.Buffer
+	var events []tobari.RuntimeBuildProgress
+	result, err := service.BuildRuntimeWithProgress(
+		context.Background(), intent, &diagnostics,
+		func(event tobari.RuntimeBuildProgress) { events = append(events, event) },
+	)
+	if err != nil {
+		t.Fatalf("BuildRuntimeWithProgress() error = %v", err)
+	}
+	if result.Task != tobari.TaskRuntimeBuild || fake.buildProgressCalls != 1 ||
+		diagnostics.String() != "synthetic BuildKit output\n" || len(events) != 1 {
+		t.Fatalf("result/calls/diagnostics/events = %+v/%d/%q/%+v", result, fake.buildProgressCalls, diagnostics.String(), events)
 	}
 }
 

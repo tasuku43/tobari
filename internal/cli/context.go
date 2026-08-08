@@ -160,14 +160,20 @@ func runRuntimeBuild(
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ID: tobari.ActiveContextRuntimeID}
 	intent.Impact = command.Agent.Mutation.Impact
-	result, err := c.context.BuildRuntime(ctx, intent)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
 	format, err := parseSuccessFormat(inputs.One("--format"))
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help runtime build", "Correct the command arguments.")
 	}
+	buildOutput := newRuntimeBuildOutput(c.Err, humanStyleAllowed(ctx, c, c.Err))
+	result, err := c.context.BuildRuntimeWithProgress(ctx, intent, buildOutput, buildOutput.Report)
+	if err != nil {
+		code := c.fail(ctx, err)
+		if invocationErrorFormat(ctx) == errorFormatText {
+			buildOutput.WriteFailureSummary()
+		}
+		return code
+	}
+	buildOutput.Flush()
 	output, err := renderContextReport(result, format, humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
