@@ -45,8 +45,9 @@ pushes only the base image; pull-request CI has no package-write permission.
 `gateway/` source and the embedded snapshot. `task gateway:test` runs the
 Gateway unit suite against the canonical source, while the runtime integration
 continues to exercise the embedded snapshot used by the CLI. The Gateway unit
-contract fixes the schema-2 grouped OPA document, strict decision fields, body
-states, and secret redaction. The Gateway image
+contract fixes the body-free schema-3 grouped OPA document, strict decision
+fields, authorization-before-stream ordering, and secret redaction. The Gateway
+image
 workflow builds both supported architectures; only its main-push publish job
 has package-write permission, and its pull-request validation job is
 cache-only. Runtime tests preflight the immutable Gateway digest, labels,
@@ -376,10 +377,12 @@ The test suite has complementary levels:
 - Gateway boundary tests resolve and pin an upstream address, reject unsafe
   resolved addresses for dotted hosts, and preserve the explicit single-label
   private-service exception used by the local integration shape.
-- Gateway boundary tests distinguish an explicitly empty body from an
-  unavailable streamed body and deny the latter before OPA can allow it.
-- Runtime-asset and integration tests enforce the fixed 8 MiB mitmproxy body
-  cap before request/response forwarding.
+- Gateway boundary tests prove body content is absent from policy input, a
+  request stream is enabled only after allow, and local denial responses are
+  not treated as authorized upstream responses.
+- Integration tests prove body variants aggregate into one exact candidate and
+  learned rule, allowed chunked uploads and SSE responses arrive incrementally,
+  and the fixed 8 MiB advertised-body cap still rejects an over-limit request.
 - Runtime-asset and integration tests enforce fixed JSON log rotation for both
   shared Gateway and OPA services.
 - Runtime-asset and integration tests inspect the fixed shared-service CPU,

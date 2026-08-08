@@ -1,4 +1,3 @@
-import hashlib
 import io
 import json
 import os
@@ -110,7 +109,7 @@ class GatewayTests(unittest.TestCase):
             with mock.patch.object(gateway, "load_project_principals", return_value={}):
                 with mock.patch.object(gateway, "query_opa") as query:
                     with redirect_stdout(output):
-                        addon.request(flow)
+                        addon.requestheaders(flow)
         query.assert_not_called()
         self.assertEqual(flow.response.status_code, 403)
         self.assertEqual(
@@ -119,14 +118,12 @@ class GatewayTests(unittest.TestCase):
 
     def test_policy_input_is_generic_and_redacted(self):
         flow = self.flow()
-        document = gateway.build_policy_input(
-            flow, "default", self.project_a, 1024, set()
-        )
+        document = gateway.build_policy_input(flow, "default", self.project_a, set())
         self.assertEqual(document["principal"]["cluster"], "default")
         self.assertEqual(document["principal"]["project_id"], self.project_a)
         self.assertNotIn("session", document["principal"])
         request = document["request"]
-        self.assertEqual(document["schema_version"], 2)
+        self.assertEqual(document["schema_version"], 3)
         self.assertEqual(request["authority"]["scheme"], "https")
         self.assertEqual(request["authority"]["host"], "api.example.com")
         self.assertEqual(request["authority"]["port"], 443)
@@ -136,12 +133,7 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(request["query"], {"key": ["value"]})
         self.assertNotIn("authorization", request["headers"])
         self.assertNotIn("cookie", request["headers"])
-        self.assertEqual(request["body"]["state"], "json")
-        self.assertEqual(request["body"]["value"], {"example": True})
-        self.assertEqual(
-            request["body"]["sha256"],
-            hashlib.sha256(b'{"example":true}').hexdigest(),
-        )
+        self.assertNotIn("body", request)
 
     def test_passthrough_forwards_client_auth_only_after_allow(self):
         flow = self.flow()
@@ -161,7 +153,7 @@ class GatewayTests(unittest.TestCase):
                 return_value=gateway.Decision(True, "allowed", None, 403, False),
             ):
                 with redirect_stdout(io.StringIO()):
-                    addon.request(flow)
+                    addon.requestheaders(flow)
         self.assertEqual(addon.credential_adapter_name, "passthrough")
         self.assertEqual(flow.request.headers["authorization"], "Tobari supplied secret")
         self.assertEqual(flow.request.headers["x-api-key"], "api-secret")
@@ -169,12 +161,13 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(flow.request.headers["cookie"], "session=secret")
         self.assertNotIn("proxy-authorization", flow.request.headers)
         self.assertNotIn("x-tobari-session", flow.request.headers)
+        self.assertTrue(flow.request.stream)
 
     def test_passthrough_does_not_interpret_profile_selector(self):
         flow = self.flow()
         flow.request.headers["x-tobari-credential-profile"] = "example"
         document = gateway.build_policy_input(
-            flow, "default", self.project_a, 1024, set(), None
+            flow, "default", self.project_a, set(), None
         )
         self.assertIsNone(document["authorization"]["requested_profile"])
         self.assertNotIn("x-tobari-credential-profile", document["request"]["headers"])
@@ -187,11 +180,11 @@ class GatewayTests(unittest.TestCase):
             tls_established=True,
         )
         document = gateway.build_policy_input(
-            flow, "default", self.project_a, 1024, set(), None
+            flow, "default", self.project_a, set(), None
         )
         self.assertEqual(document["request"]["authority"]["scheme"], "https")
         self.assertEqual(document["request"]["authority"]["port"], 443)
-        self.assertEqual(document["request"]["body"]["state"], "empty")
+        self.assertNotIn("body", document["request"])
 
     def test_plain_http_on_port_443_keeps_http_scheme_for_policy(self):
         flow = self.flow("http://example.com:443/quickstart", "PUT")
@@ -201,7 +194,7 @@ class GatewayTests(unittest.TestCase):
             tls_established=False,
         )
         document = gateway.build_policy_input(
-            flow, "default", self.project_a, 1024, set(), None
+            flow, "default", self.project_a, set(), None
         )
         self.assertEqual(document["request"]["authority"]["scheme"], "http")
 
@@ -217,39 +210,68 @@ class GatewayTests(unittest.TestCase):
         flow.request.headers["x-auth-token"] = "token-secret"
         flow.request.headers["x-safe"] = "visible"
         document = gateway.build_policy_input(
-            flow, "default", self.project_a, 1024, set(), None
+            flow, "default", self.project_a, set(), None
         )
         self.assertNotIn("x-auth-token", document["request"]["headers"])
         self.assertEqual(document["request"]["headers"]["x-safe"], "visible")
 
-    def test_missing_streamed_body_is_not_treated_as_empty(self):
+    def test_policy_input_is_identical_for_different_body_content(self):
         flow = self.flow()
+        first = gateway.build_policy_input(flow, "default", self.project_a, set())
         flow.request.raw_content = None
-        document = gateway.build_policy_input(
-            flow, "default", self.project_a, 1024, set()
-        )
-        body = document["request"]["body"]
-        self.assertEqual(body["state"], "unavailable")
-        self.assertIsNone(body["size"])
-        self.assertIsNone(body["truncated"])
-        self.assertIsNone(body["sha256"])
+        second = gateway.build_policy_input(flow, "default", self.project_a, set())
+        self.assertEqual(first, second)
+        self.assertNotIn("body", first["request"])
 
-    def test_unavailable_body_is_denied_before_policy_can_allow(self):
+    def test_allowed_request_streams_body_after_policy_allow(self):
         flow = self.flow()
         flow.request.raw_content = None
         addon = gateway.TobariGateway()
-        output = io.StringIO()
+
+        def allow_without_body(policy_url, policy_input, timeout):
+            self.assertNotIn("body", policy_input["request"])
+            self.assertFalse(flow.request.stream)
+            return gateway.Decision(True, "allowed", None, 403, False)
+
         with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
             with mock.patch.object(
                 gateway,
                 "query_opa",
-                return_value=gateway.Decision(True, "allowed", None, 403, False),
-            ) as query:
-                with redirect_stdout(output):
-                    addon.request(flow)
-        query.assert_not_called()
+                side_effect=allow_without_body,
+            ):
+                with redirect_stdout(io.StringIO()):
+                    addon.requestheaders(flow)
+        self.assertIsNone(flow.response)
+        self.assertTrue(flow.request.stream)
+
+    def test_denied_request_does_not_stream_body(self):
+        flow = self.flow()
+        addon = gateway.TobariGateway()
+        with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
+            with mock.patch.object(
+                gateway,
+                "query_opa",
+                return_value=gateway.Decision(False, "denied", None, 403, True),
+            ):
+                with redirect_stdout(io.StringIO()):
+                    addon.requestheaders(flow)
         self.assertEqual(flow.response.status_code, 403)
-        self.assertEqual(json.loads(flow.response.content), {"error": "request_body_unavailable"})
+        self.assertFalse(flow.request.stream)
+
+    def test_authorized_upstream_response_is_streamed(self):
+        flow = self.flow()
+        flow.response = http.Response.make(200, b"response")
+        flow.metadata["tobari_audit"] = {"started": 0.0}
+        addon = gateway.TobariGateway()
+        addon.responseheaders(flow)
+        self.assertTrue(flow.response.stream)
+
+    def test_local_response_is_not_streamed(self):
+        flow = self.flow()
+        flow.response = http.Response.make(403, b"denied")
+        addon = gateway.TobariGateway()
+        addon.responseheaders(flow)
+        self.assertFalse(flow.response.stream)
 
     def test_resolved_private_address_is_rejected_for_dotted_host(self):
         with mock.patch.object(
@@ -283,19 +305,6 @@ class GatewayTests(unittest.TestCase):
             addon.server_connect(data)
         self.assertEqual(server.address, ("93.184.216.34", 443))
         self.assertIsNone(server.error)
-
-    def test_oversized_json_is_metadata_only(self):
-        body = gateway._body_metadata(b'{"secret":"body"}', "application/json", 4)
-        self.assertTrue(body["truncated"])
-        self.assertEqual(body["state"], "metadata")
-        self.assertNotIn("value", body)
-
-    def test_empty_json_body_has_explicit_empty_state(self):
-        body = gateway._body_metadata(b"", "application/json", 1024)
-        self.assertEqual(body["state"], "empty")
-        self.assertEqual(body["size"], 0)
-        self.assertFalse(body["truncated"])
-        self.assertNotIn("value", body)
 
     def test_invalid_opa_response_fails_closed(self):
         for document in (
@@ -374,7 +383,7 @@ class GatewayTests(unittest.TestCase):
             ):
                 with mock.patch.object(gateway, "query_opa") as query:
                     with redirect_stdout(output):
-                        addon.request(flow)
+                        addon.requestheaders(flow)
         query.assert_not_called()
         self.assertEqual(flow.response.status_code, 403)
         self.assertEqual(
@@ -402,7 +411,7 @@ class GatewayTests(unittest.TestCase):
                         "builtins.open", return_value=io.BytesIO(b"example-token\n")
                     ):
                         with redirect_stdout(io.StringIO()):
-                            addon.request(flow)
+                            addon.requestheaders(flow)
         self.assertEqual(flow.request.headers["authorization"], "Bearer example-token")
         self.assertNotIn("x-tobari-credential-profile", flow.request.headers)
         self.assertNotIn("x-tobari-session", flow.request.headers)
@@ -428,7 +437,7 @@ class GatewayTests(unittest.TestCase):
                 ),
             ):
                 with redirect_stdout(output):
-                    addon.request(flow)
+                    addon.requestheaders(flow)
         self.assertEqual(flow.response.status_code, 403)
         rendered = output.getvalue()
         self.assertNotIn("Tobari supplied secret", rendered)
@@ -457,7 +466,7 @@ class GatewayTests(unittest.TestCase):
                 return_value=gateway.Decision(False, "denied", "example", 403, True),
             ):
                 with redirect_stdout(io.StringIO()):
-                    addon.request(flow)
+                    addon.requestheaders(flow)
 
         document = json.loads(flow.response.content)
         self.assertEqual(document["error"], "policy_denied")
@@ -500,7 +509,7 @@ class GatewayTests(unittest.TestCase):
                 return_value=gateway.Decision(False, "denied", "example", 403, False),
             ):
                 with redirect_stdout(io.StringIO()):
-                    addon.request(flow)
+                    addon.requestheaders(flow)
 
         document = json.loads(flow.response.content)
         self.assertEqual(document["tobari"]["event"], "permission_review_unavailable")
@@ -519,7 +528,7 @@ class GatewayTests(unittest.TestCase):
                 side_effect=gateway.PolicyUnavailable("OPA request failed"),
             ):
                 with redirect_stdout(output):
-                    addon.request(flow)
+                    addon.requestheaders(flow)
         self.assertEqual(flow.response.status_code, 503)
         audit = json.loads(output.getvalue())
         self.assertEqual(audit["reason"], "OPA request failed")
@@ -534,7 +543,7 @@ class GatewayTests(unittest.TestCase):
             side_effect=ValueError("private unexpected failure"),
         ):
             with redirect_stdout(io.StringIO()):
-                addon.request(flow)
+                addon.requestheaders(flow)
         self.assertEqual(flow.response.status_code, 502)
         self.assertEqual(json.loads(flow.response.content), {"error": "gateway_error"})
 

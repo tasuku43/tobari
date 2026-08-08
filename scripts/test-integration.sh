@@ -653,9 +653,45 @@ fi
 body_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST -H 'content-type: application/json' --data '{"value":true}' \
   http://mock-upstream:8080/body)
-[[ $body_status == 403 ]] || fail "nonempty-body request returned $body_status instead of 403"
-if docker logs "$mock_name" 2>&1 | grep -F '"/body"' >/dev/null; then
-  fail "nonempty-body request reached mock upstream"
+[[ $body_status == 200 ]] || fail "allowed nonempty-body request returned $body_status instead of 200"
+docker logs "$mock_name" 2>&1 | grep -F '"/body"' >/dev/null ||
+  fail "allowed nonempty-body request did not reach mock upstream"
+
+upload_output="$test_root/stream-upload.out"
+docker exec "$work_container" python3 -c '
+import http.client
+import time
+
+connection = http.client.HTTPConnection("gateway", 8080, timeout=10)
+connection.putrequest("POST", "http://mock-upstream:8080/stream-upload", skip_host=True)
+connection.putheader("Host", "mock-upstream:8080")
+connection.putheader("Transfer-Encoding", "chunked")
+connection.endheaders()
+connection.send(b"5\r\nfirst\r\n")
+time.sleep(5)
+connection.send(b"6\r\nsecond\r\n0\r\n\r\n")
+response = connection.getresponse()
+print(response.status)
+response.read()
+' >"$upload_output" &
+upload_pid=$!
+first_chunk_seen=false
+for _ in $(seq 1 40); do
+  if docker logs "$mock_name" 2>&1 | grep -F '"event":"first_request_chunk"' >/dev/null; then
+    first_chunk_seen=true
+    break
+  fi
+  sleep 0.1
+done
+[[ $first_chunk_seen == true ]] || fail "allowed chunked request was buffered before upstream forwarding"
+wait "$upload_pid"
+[[ $(<"$upload_output") == 200 ]] || fail "chunked request did not complete successfully"
+
+stream_prefix=$(run_project curl -NsS --max-time 1 \
+  http://mock-upstream:8080/stream-response || true)
+assert_contains "$stream_prefix" 'data: first' "streaming response prefix"
+if [[ $stream_prefix == *'data: second'* ]]; then
+  fail "streaming response completed before the upstream delay"
 fi
 
 oversized_body_status=$(dd if=/dev/zero bs=1048576 count=9 2>/dev/null | \
@@ -707,6 +743,21 @@ review_allow_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
 review_deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-deny)
 [[ $review_deny_status == 403 ]] || fail "review deny candidate returned $review_deny_status instead of 403"
+review_body_first_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT -H 'content-type: application/json' --data '{"value":"first"}' \
+  http://mock-upstream:8080/review-body)
+[[ $review_body_first_status == 403 ]] ||
+  fail "first body-bearing review candidate returned $review_body_first_status instead of 403"
+review_body_second_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT -H 'content-type: application/json' --data '{"value":"second"}' \
+  http://mock-upstream:8080/review-body)
+[[ $review_body_second_status == 403 ]] ||
+  fail "second body-bearing review candidate returned $review_body_second_status instead of 403"
+review_patch_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PATCH -H 'content-type: application/json' --data '{"value":"patch"}' \
+  http://mock-upstream:8080/review-patch)
+[[ $review_patch_status == 403 ]] ||
+  fail "body-bearing PATCH candidate returned $review_patch_status instead of 403"
 review_allow_body=$(run_project curl -sS -X PUT http://mock-upstream:8080/review-allow)
 assert_contains "$review_allow_body" '"event":"permission_review_available"' "learnable denial response"
 assert_contains "$review_allow_body" '"command":"tobari policy review"' "learnable denial response"
@@ -749,7 +800,24 @@ else
 fi
 allow_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-allow <<<"$candidates_json")
 deny_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-deny <<<"$candidates_json")
-[[ $allow_candidate_id == pcy_* && $deny_candidate_id == pcy_* ]] || fail "policy candidates did not emit opaque candidate IDs"
+body_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-body <<<"$candidates_json")
+patch_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PATCH /review-patch <<<"$candidates_json")
+[[ $allow_candidate_id == pcy_* && $deny_candidate_id == pcy_* && \
+  $body_candidate_id == pcy_* && $patch_candidate_id == pcy_* ]] ||
+  fail "policy candidates did not emit opaque candidate IDs"
+python3 -c '
+import json
+import sys
+
+project_id, candidate_id = sys.argv[1:]
+candidate = next(
+    item for item in json.load(sys.stdin)["policy_candidates"]
+    if item["id"] == candidate_id and item["project_id"] == project_id
+)
+assert candidate["observation_count"] == 2, candidate
+assert "body" not in candidate, candidate
+' "$work_id" "$body_candidate_id" <<<"$candidates_json" ||
+  fail "body variants did not aggregate into one body-free policy candidate"
 assert_contains "$candidates_json" \
 	"\"allow_command\":\"tobari policy allow --id $allow_candidate_id\"" \
 	"policy candidate exact action"
@@ -780,6 +848,15 @@ assert_contains "$allow_output" "policy: $policy_directory" "exact policy approv
 assert_contains "$allow_output" 'match: exact' "exact policy approval"
 assert_contains "$allow_output" 'path: /review-allow' "exact policy approval"
 assert_contains "$allow_output" 'applied: true' "exact policy approval"
+
+body_allow_output=$(run_tobari policy allow --id "$body_candidate_id")
+assert_contains "$body_allow_output" 'path: /review-body' "body-independent policy approval"
+assert_contains "$body_allow_output" 'applied: true' "body-independent policy approval"
+body_applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT -H 'content-type: application/json' --data '{"value":"third"}' \
+  http://mock-upstream:8080/review-body)
+[[ $body_applied_status == 200 ]] ||
+  fail "body-independent learned policy did not allow a new body value"
 
 applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-allow)

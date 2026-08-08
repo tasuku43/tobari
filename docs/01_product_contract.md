@@ -43,10 +43,11 @@ Denial evidence is a product output, not incidental debug noise.
 The host-issued project principal is retained in denial, candidate, learned
 rule, and compaction evidence; an approval made from one current-directory
 Tobari cannot be replayed as another project's permission.
-The initialized policy requires an explicitly captured empty request body for
-routine learned permissions; an unavailable body is denied before policy
-evaluation. Body-dependent APIs require a trusted-host body-aware Rego change
-and explicit policy activation rather than an observed host-only approval.
+Request bodies are not a policy identity dimension. A body-bearing POST, PUT,
+PATCH, or other method is authorized and learned from the same project, host,
+port, method, and path dimensions as a body-free request. Changing body content
+does not create another review item or rule. Gateway does not expose body
+content to OPA, retained evidence, policy actions, or audit output.
 
 ## Public vocabulary
 

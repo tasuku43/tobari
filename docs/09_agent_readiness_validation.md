@@ -176,15 +176,16 @@ The Docker integration test supplies the executable loop:
 1. A mock-host GET is allowed.
 2. A mock-host POST under `/denied` receives `403`, never reaches upstream, and
    is reported as a terminal baseline denial rather than a queue candidate.
-3. Two learnable mock-host PUT denials receive `403` and expose fixed review
-   navigation without a body or credential canary.
+3. Body-bearing PUT requests with different payloads receive `403`, expose
+   fixed review navigation, and aggregate into one body-free exact candidate;
+   a body-bearing PATCH is also reviewable.
 4. `cluster denials` exposes the rejected dimensions, trusted XDG policy path,
    and exact review command. `policy review`, `policy candidates`, and
    `policy tail` expose the same pending exact proposals and opaque references;
    redirected review does not mutate policy.
 5. `policy allow` tests a private complete policy copy, atomically stores the
    exact learned rule, recreates only OPA, and confirms it healthy. The exact
-   retry succeeds while a child path remains denied.
+   retry succeeds with a third body value while a child path remains denied.
 6. `policy deny` records and activates one exact project-bound terminal rule;
    the rejected request remains denied and its historical lines disappear from
    the actionable review queue.
@@ -192,6 +193,8 @@ The Docker integration test supplies the executable loop:
    `policy compactions` proposal.
 8. `policy compact` retains the examples, activates the bounded prefix, permits
    a sibling, and keeps its adjacent outside-prefix canary denied.
+9. A chunked upload reaches upstream before its delayed second chunk, and an
+   SSE response exposes its first event before the delayed second event.
 
 Routine success and denial require zero undeclared provider parsers,
 provider-notation decoders, source inspection steps, or exploratory provider

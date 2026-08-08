@@ -35,13 +35,12 @@ decision := {
 requested_profile := input.authorization.requested_profile
 
 candidate_eligible if {
-	input.schema_version == 2
+	input.schema_version == 3
 	data.tobari.schema_version == 2
 	input.principal.cluster == "default"
 	project_principal_valid
 	transport_port_allowed
 	candidate_scheme_allowed
-	body_is_empty
 	authorization_shape_valid
 	credential_binding_valid
 	not explicitly_denied
@@ -75,12 +74,6 @@ authority_allowed if {
 	authority.scheme == input.request.authority.scheme
 	authority.host == input.request.authority.host
 	input.request.authority.port in authority.ports
-}
-
-body_is_empty if {
-	input.request.body.state == "empty"
-	input.request.body.size == 0
-	input.request.body.truncated == false
 }
 
 authorization_shape_valid if {

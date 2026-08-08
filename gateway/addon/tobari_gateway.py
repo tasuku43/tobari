@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import json
 import os
@@ -217,47 +216,10 @@ def _headers_for_policy(headers: http.Headers, secret_names: set[str]) -> dict[s
     return {name: ", ".join(values) for name, values in sorted(safe.items())}
 
 
-def _body_metadata(
-    raw: bytes | None, content_type: str, inspection_bytes: int
-) -> dict[str, Any]:
-    if raw is None:
-        return {
-            "state": "unavailable",
-            "size": None,
-            "truncated": None,
-            "sha256": None,
-            "content_type": content_type,
-        }
-    if len(raw) == 0:
-        return {
-            "state": "empty",
-            "size": 0,
-            "truncated": False,
-            "sha256": hashlib.sha256(raw).hexdigest(),
-            "content_type": content_type,
-        }
-    metadata: dict[str, Any] = {
-        "state": "metadata",
-        "size": len(raw),
-        "truncated": len(raw) > inspection_bytes,
-        "sha256": hashlib.sha256(raw).hexdigest(),
-        "content_type": content_type,
-    }
-    media_type = content_type.split(";", 1)[0].strip().lower()
-    if media_type == "application/json" and len(raw) <= inspection_bytes:
-        try:
-            metadata["value"] = json.loads(raw.decode("utf-8"))
-            metadata["state"] = "json"
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            metadata["state"] = "invalid_json"
-    return metadata
-
-
 def build_policy_input(
     flow: http.HTTPFlow,
     cluster: str,
     project_id: str,
-    inspection_bytes: int,
     extra_secret_names: set[str],
     requested_profile: str | None | object = _REQUESTED_PROFILE_UNSET,
 ) -> dict[str, Any]:
@@ -272,9 +234,8 @@ def build_policy_input(
     if requested_profile is _REQUESTED_PROFILE_UNSET:
         requested_profile = request.headers.get(PROFILE_HEADER)
     secret_names = set(DEFAULT_SECRET_HEADERS) | extra_secret_names
-    raw = request.raw_content
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "principal": {"cluster": cluster, "project_id": project_id},
         "request": {
             "authority": {
@@ -289,11 +250,6 @@ def build_policy_input(
             },
             "query": parse_qs(split.query, keep_blank_values=True),
             "headers": _headers_for_policy(request.headers, secret_names),
-            "body": _body_metadata(
-                raw,
-                request.headers.get("content-type", ""),
-                inspection_bytes,
-            ),
         },
         "authorization": {"requested_profile": requested_profile},
     }
@@ -513,9 +469,6 @@ class TobariGateway:
             "http://opa:8181/v1/data/tobari/http/decision",
         )
         self.cluster = os.getenv("TOBARI_CLUSTER", "default")
-        self.inspection_bytes = _positive_int(
-            "TOBARI_INSPECTION_BYTES", 1024 * 1024, 1024, 8 * 1024 * 1024
-        )
         self.opa_timeout = float(
             _positive_int("TOBARI_OPA_TIMEOUT_SECONDS", 2, 1, 10)
         )
@@ -556,7 +509,7 @@ class TobariGateway:
         except UpstreamAddressError as error:
             data.server.error = str(error)
 
-    def request(self, flow: http.HTTPFlow) -> None:
+    def requestheaders(self, flow: http.HTTPFlow) -> None:
         started = time.monotonic()
         request_id = uuid.uuid4().hex
         host = flow.request.host.rstrip(".").lower()
@@ -579,15 +532,9 @@ class TobariGateway:
                 flow,
                 self.cluster,
                 project_id,
-                self.inspection_bytes,
                 credential_request.secret_headers,
                 profile_name,
             )
-            if policy_input["request"]["body"]["state"] == "unavailable":
-                reason = "request body is unavailable"
-                _deny(flow, 403, "request_body_unavailable")
-                upstream_status = 403
-                return
             decision = query_opa(self.opa_url, policy_input, self.opa_timeout)
             reason = decision.reason
             profile_name = decision.credential_profile
@@ -615,6 +562,9 @@ class TobariGateway:
                 "learnable": learnable,
                 "started": started,
             }
+            # Authorization is complete before mitmproxy forwards any body bytes.
+            # The body is deliberately opaque to policy and is never retained here.
+            flow.request.stream = True
         except PolicyUnavailable as error:
             reason = str(error)
             _deny(flow, 503, "policy_unavailable")
@@ -657,6 +607,12 @@ class TobariGateway:
                     upstream_status=upstream_status,
                     duration_ms=int((time.monotonic() - started) * 1000),
                 )
+
+    def responseheaders(self, flow: http.HTTPFlow) -> None:
+        if not isinstance(flow.metadata.get("tobari_audit"), dict):
+            return
+        # Stream only responses belonging to an authorized upstream request.
+        flow.response.stream = True
 
     def response(self, flow: http.HTTPFlow) -> None:
         event = flow.metadata.pop("tobari_audit", None)

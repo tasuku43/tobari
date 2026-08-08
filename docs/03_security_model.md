@@ -195,34 +195,33 @@ Workspace.
 
 ## HTTP authorization boundary
 
-Gateway constructs OPA input schema `2` from the exact buffered request that
-will be forwarded. It includes the host-issued project principal, a structured
-request authority, method, path and path segments, multi-valued query, redacted
-headers, bounded body metadata, and an authorization object containing an
-adapter-dependent requested credential profile. The project principal is
-derived from the local Gateway interface address and an owner-only host
-registry. Caller session metadata is not an authorization input.
+Gateway constructs body-free OPA input schema `3` in mitmproxy's request-header
+hook. It includes the host-issued project principal, a structured request
+authority, method, path and path segments, multi-valued query, redacted headers,
+and an authorization object containing an adapter-dependent requested
+credential profile. The project principal is derived from the local Gateway
+interface address and an owner-only host registry. Caller session metadata is
+not an authorization input.
 
-Secret header values are absent from both OPA input and logs. JSON is decoded
-only when the complete non-empty body fits the inspection limit. Oversized and
-non-JSON bodies expose size, type, truncation, and SHA-256 metadata only.
-Gateway distinguishes empty, metadata-only, JSON, invalid-JSON, and unavailable
-body states. Gateway never logs raw request or response bodies. If mitmproxy
-reports that the body was not captured, Gateway marks it unavailable and denies
-before OPA; it is not treated as an explicit empty body.
-The Gateway process also enforces an 8 MiB mitmproxy request/response body cap
-before the addon hook, so an oversized body cannot be forwarded before policy.
+Secret header values and request/response body content are absent from both OPA
+input and logs. Gateway enables request streaming only after principal,
+credential binding, OPA decision, and credential application succeed. It
+enables response streaming only for a flow that carries authorized-upstream
+audit state. A local denial therefore cannot become an upstream request.
+Mitmproxy retains an 8 MiB `body_size_limit`; a request or response with a known
+`Content-Length` above that value is rejected before the ordinary addon header
+hook. Allowed unknown-length bodies stream without a total-byte limit, avoiding
+full-body memory retention while preserving the existing advertised-size cap.
 
 OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
 to non-local destinations is denied by the initialized policy. The initialized
 policy also requires an explicit port for each supported scheme; learned rules
 retain the observed project/host/port/method/path and cannot be used on another project, port, or
-scheme. The initialized Rego policy also requires a zero-length, non-truncated
-metadata body for routine authorization and learning; an exact learned rule
-cannot turn a non-empty body into an allow. A body-dependent exception must be
-authored and activated by the trusted host as body-aware Rego. Immediately
-before an upstream connection, Gateway resolves the
+scheme. Body presence and content are not authorization or learning dimensions;
+an exact learned rule covers every body value at its exact
+project/host/port/method/path. Immediately before an upstream connection,
+Gateway resolves the
 hostname, rejects non-global addresses for dotted hostnames, and pins the
 connection to the selected resolved address. Single-label private service
 names remain an explicit policy-controlled local exception for the Docker
@@ -333,8 +332,8 @@ deny reference identifies one retained validated denial and binds its exact
 project/host/port/method/path; a compaction reference identifies one current
 exact source-rule set; a reset reference identifies one current CLI-owned
 learned Allow or exact Deny and removes it, returning the effect to default
-deny. Scheme, cluster, credential-binding, unavailable-body, and body-inspection failures
-never become permission candidates.
+deny. Scheme, cluster, and credential-binding failures never become permission
+candidates. Body presence and content neither disqualify nor split a candidate.
 Host-authored baseline denies are terminal, excluded from both the actionable
 queue and the reversible decision inventory, while their bounded audit records
 remain visible. CLI-owned exact Deny rules remain terminal in enforcement but
@@ -411,7 +410,8 @@ reference-bound mutation.
 | Denials support safe policy learning | Typed project/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
 | Learned permissions stay explicit and project-bound | Opaque candidate round trips, exact project/host/port/method/path domain tests, Rego cross-project canaries, preflight-before-atomic-write tests, and Docker integration |
 | Compaction preserves declared boundaries | Three-source same-host/port/method grouping invariant, retained positive examples, outside-prefix canary, stale-reference rejection, and OPA tests |
-| Gateway body buffering is bounded | Fixed mitmproxy body-size asset test and over-limit integration request |
+| Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
+| Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test and over-limit `Content-Length` integration request |
 
 ## Supply chain and publication
 

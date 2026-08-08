@@ -3,7 +3,7 @@ package tobari.http
 import rego.v1
 
 base_input := {
-	"schema_version": 2,
+	"schema_version": 3,
 	"principal": {
 		"cluster": "default",
 		"project_id": "01912345-6789-7abc-8def-0123456789ab",
@@ -18,13 +18,6 @@ base_input := {
 		"path": {"raw": "/user", "segments": ["user"]},
 		"query": {},
 		"headers": {},
-		"body": {
-			"state": "empty",
-			"size": 0,
-			"truncated": false,
-			"sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-			"content_type": "",
-		},
 	},
 	"authorization": {"requested_profile": null},
 }
@@ -34,8 +27,6 @@ input_with_request(request) := object.union(base_input, {"request": request})
 request_with_authority(overrides) := object.union(base_input.request, {"authority": object.union(base_input.request.authority, overrides)})
 
 request_with_path(overrides) := object.union(base_input.request, {"path": object.union(base_input.request.path, overrides)})
-
-request_with_body(body) := object.union(base_input.request, {"body": body})
 
 test_deny_by_default if {
 	result := decision with input as input_with_request(request_with_authority({"host": "denied.example"}))
@@ -77,28 +68,28 @@ test_allow_plain_http_test_host if {
 	result.allow
 }
 
-test_deny_nonempty_body_without_body_policy if {
-	body := object.union(base_input.request.body, {
-		"state": "metadata",
-		"size": 1,
-		"sha256": "2bb80d537b1da3e38bd30361aa855686bde0ba3d6190a9f3f5f4f5f5f5f5f5f5",
-	})
-	result := decision with input as input_with_request(request_with_body(body))
-	not result.allow
-	not result.learnable
+test_body_content_is_not_a_policy_dimension if {
+	request := object.union(request_with_path({"raw": "/graphql", "segments": ["graphql"]}), {"method": "PUT"})
+	first := input_with_request(object.union(request, {"body": {"value": "first"}}))
+	second := input_with_request(object.union(request, {"body": {"value": "second"}}))
+	first_result := decision with input as first
+		with data.tobari.rules.learned_allows as [learned_exact_fixture]
+	second_result := decision with input as second
+		with data.tobari.rules.learned_allows as [learned_exact_fixture]
+	first_result.allow
+	second_result.allow
 }
 
-test_deny_unavailable_body if {
-	body := {
-		"state": "unavailable",
-		"size": null,
-		"truncated": null,
-		"sha256": null,
-		"content_type": "",
+test_body_bearing_put_and_patch_are_learnable if {
+	every method in {"PUT", "PATCH"} {
+		request := object.union(
+			request_with_path({"raw": "/body-review", "segments": ["body-review"]}),
+			{"method": method, "body": {"value": method}},
+		)
+		result := decision with input as input_with_request(request)
+		not result.allow
+		result.learnable
 	}
-	result := decision with input as input_with_request(request_with_body(body))
-	not result.allow
-	not result.learnable
 }
 
 test_deny_https_non_default_port if {

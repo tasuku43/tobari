@@ -6,13 +6,13 @@ generic HTTP request crossing Gateway.
 ## OPA input
 
 Gateway posts one JSON document to
-`http://opa:8181/v1/data/tobari/http/decision` with schema version `2`. The
+`http://opa:8181/v1/data/tobari/http/decision` with schema version `3`. The
 document groups each semantic responsibility instead of exposing parallel
 transport fields:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "principal": {
     "cluster": "default",
     "project_id": "01912345-6789-7abc-8def-0123456789ab"
@@ -22,14 +22,7 @@ transport fields:
     "method": "GET",
     "path": {"raw": "/user", "segments": ["user"]},
     "query": {"key": ["value"]},
-    "headers": {"content-type": "application/json"},
-    "body": {
-      "state": "empty",
-      "size": 0,
-      "truncated": false,
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "content_type": ""
-    }
+    "headers": {"content-type": "application/json"}
   },
   "authorization": {"requested_profile": null}
 }
@@ -42,25 +35,26 @@ The default passthrough adapter emits a null requested profile; the managed
 adapter may select one after its own host/project binding checks.
 
 Header names are lowercase. Host excludes a trailing dot and uses the
-normalized request authority. Query values retain occurrence order. The body
-hash is over the exact bytes forwarded upstream.
+normalized request authority. Query values retain occurrence order. Request
+and response body bytes and derived metadata, such as decoded values or hashes,
+are outside this contract. Media-type and framing headers remain ordinary
+redacted header fields, but are not learned-rule identity dimensions.
 
-## Body bounds
+## Body-independent authorization and streaming
 
-The default inspection maximum is 1 MiB and the supported configurable range is
-1 KiB through 8 MiB. Gateway's structured inspection is limited to the
-configured size. A body above the maximum is never decoded into a JSON value and
-is marked truncated. Non-JSON bodies expose metadata only. An explicitly empty
-captured body is `state=empty`, `size=0`, and `truncated=false`; a complete
-non-empty JSON body is `state=json` and may include a bounded `value`; a
-non-empty body that is not decoded is `state=metadata`, and malformed JSON is
-`state=invalid_json`. If mitmproxy reports that the body was not captured,
-Gateway emits `state=unavailable` with unknown size/truncation/hash and denies
-before OPA. Gateway forwards the same captured bytes; policy is never evaluated
-over one body while another is sent.
-Mitmproxy rejects request and response bodies above the fixed 8 MiB transport
-cap before the Gateway addon hook. This bounds one buffered body; a total
-concurrent request-body memory limit remains a known MVP gap.
+Gateway evaluates OPA from request headers before any body byte is forwarded.
+It enables mitmproxy request streaming only after the project principal,
+credential binding, policy decision, and credential application succeed. It
+streams the corresponding upstream response after its headers arrive. Body
+presence and content therefore do not alter or split the exact
+project/host/port/method/path candidate or learned rule, and body data is never
+copied into OPA input, denial evidence, policy data, or audit output.
+
+Mitmproxy retains a fixed 8 MiB `body_size_limit`. A message with a known
+`Content-Length` above that value is rejected before the ordinary addon header
+hook. An allowed unknown-length body, such as a chunked upload or streaming
+response, has no total-byte limit in this contract and is forwarded
+incrementally rather than buffered in full.
 
 ## Decision
 
@@ -77,9 +71,9 @@ OPA must return exactly one object:
 ```
 
 `status_code` is required and restricted to 403 in the MVP. `learnable` is
-required and may be true only on a denial after
-version, cluster, scheme, fixed request port, empty-body boundary, and captured
-body pass; managed-adapter requests additionally require credential binding,
+required and may be true only on a denial after version, cluster, scheme, and
+fixed request port pass; managed-adapter requests additionally require
+credential binding,
 meaning an exact host/port/method/path rule can resolve that denial. The
 initialized policy requires the configured port for the request scheme, and
 learned rules retain the observed project, host, port, method, and path. The
@@ -157,9 +151,9 @@ gateway error without exposing confidential content.
 
 ## Schema and compatibility
 
-The OPA input schema version `2`, decision fields, audit fields, default limits,
+The OPA input schema version `3`, decision fields, audit fields, default limits,
 and configuration keys are public MVP compatibility boundaries. The Gateway
-does not accept the former OPA input shape or incomplete v2 decisions. The
+does not accept the former OPA input shapes or incomplete decisions. The
 trusted
 `TOBARI_CREDENTIAL_ADAPTER` setting defaults to `passthrough`; `managed` keeps
 the existing credential configuration contract. The
@@ -179,6 +173,6 @@ provider schema is vendored, so `.harness/schemas.json` remains empty.
 Rego is formatted with the pinned OPA image and tested by `opa test`. The
 initialized policy proves deny by default, structured authority and port
 boundaries,
-plain-HTTP restriction, host/port/method/path denial, explicit-empty versus
-unavailable-body restriction, project-bound learned rules, passthrough
+plain-HTTP restriction, host/port/method/path denial, body-independent
+decisions, project-bound learned rules, passthrough
 redaction/forwarding, and managed credential-profile host/project binding.

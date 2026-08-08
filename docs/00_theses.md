@@ -114,11 +114,11 @@ brand.
 - Any process that honors the explicit proxy receives the same enforcement.
 - Gateway sends generic HTTP attributes to OPA rather than service-specific
   operations.
-- The initialized policy denies non-empty request bodies unless a trusted host
-  authors a body-aware Rego rule; body-bearing observations never become
-  host-only approval candidates.
-- A body that is unavailable because it was not captured is denied before OPA;
-  it is never treated as an explicit empty body or a learning candidate.
+- Request bodies are payload, not permission identity. Gateway authorizes the
+  project, authority, method, and path from request headers before forwarding
+  body bytes; body presence and content do not split approval candidates.
+- Allowed request and response bodies stream through Gateway without entering
+  OPA input, retained policy evidence, learned rules, or audit records.
 - Provider-specific adapters are not part of the MVP. GitHub, AWS, Claude, and
   other tools use their own native flows through the generic boundary.
 - HTTP methods are evidence supplied to policy, not a CLI effect classifier.
@@ -126,8 +126,8 @@ brand.
 ### Mechanical enforcement
 
 - Gateway unit tests fix the OPA input schema and secret-header redaction.
-- Rego tests exercise host, port, method, path, scheme, body-empty, and
-  project-principal boundaries.
+- Rego tests exercise host, port, method, path, scheme, project-principal, and
+  body-independent decision boundaries.
 - Docker integration tests use curl and Python rather than a named coding agent.
 
 ## Thesis 2: Network topology is an enforcement mechanism
@@ -340,25 +340,28 @@ name prefix or broad Docker query as authority.
 
 ## Thesis 6: Fail closed with bounded evidence
 
-Unknown configuration, malformed OPA responses, timeouts, body inspection
-overflow, and unclassified Gateway errors do not authorize traffic.
+Unknown configuration, malformed OPA responses, timeouts, and unclassified
+Gateway errors do not authorize traffic.
 
 ### Consequences
 
 - Default policy denies.
-- OPA and upstream calls have finite timeouts and body inspection has a fixed
-  maximum; mitmproxy rejects request and response bodies above the fixed 8 MiB
-  transport cap before the Gateway addon can forward them.
-- JSON bodies are inspected only when fully captured within the limit;
-  non-JSON bodies expose metadata only.
-- Audit logs contain metadata and hashes, never raw bodies or secret values.
+- OPA and upstream calls have finite timeouts. Mitmproxy retains the fixed
+  8 MiB advertised-body cap: a request or response whose `Content-Length`
+  exceeds it is rejected before the ordinary addon header hook.
+- After header-time authorization, request and response bodies use
+  mitmproxy's streaming path rather than full-body retention. Unknown-length
+  streaming bodies are memory-bounded by streaming, not by a total byte cap.
+- Audit logs contain route metadata, never body content, body hashes, or secret
+  values.
 
 ### Mechanical enforcement
 
-- Gateway unit tests cover timeout, invalid decision, unavailable bodies,
-  truncation, and body-type cases. Runtime-asset tests keep the transport body
-  cap present, and integration sends an over-limit body to prove it stops at
-  Gateway.
+- Gateway unit tests cover timeout, invalid decision, authorization-before-
+  stream ordering, body-free policy input, and secret redaction. Runtime-asset
+  tests keep the advertised-body cap present; integration proves an over-limit
+  declared body stops at Gateway and allowed chunked request/SSE response bytes
+  arrive incrementally.
 - Rego tests start from deny and add explicit allow rules.
 - Structured logs are scanned for secret and body canaries.
 

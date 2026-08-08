@@ -34,10 +34,10 @@ Untrusted:
 | Host policy integrity | OPA rewrites trusted policy | Bind mount | XDG policy is read-only inside OPA |
 | Tool-owned authentication | Another Tobari reads or reuses it | Per-Tobari home/network | Exact home bind, dedicated network, recovery/deletion tests |
 | Managed secrets | Agent reads or exfiltrates them | Gateway mount | Secret files mount read-only only into Gateway; passthrough never loads them |
-| Authorization integrity | Policy sees a different request | Gateway buffer | One normalized buffered request is inspected and forwarded |
+| Authorization integrity | Body bytes reach upstream before route authorization | Gateway header hook | Principal, credential binding, and body-free OPA decision complete before request streaming is enabled |
 | Authority binding | An approved path is replayed on another port, scheme, or unsafe resolved address | OPA/Gateway connection boundary | Fixed scheme-port allowlist, learned-rule port/scheme matching, address classification, and address pinning |
-| Body-dependent authority | A host-only approval authorizes a different request body or unknown body | Gateway/OPA policy boundary | Explicit-empty default, unavailable/non-empty denials are not learnable, trusted-host body-aware exception only |
-| Gateway buffering | One Tobari sends an oversized body to exhaust shared Gateway memory or reach upstream before policy | mitmproxy transport boundary | Fixed 8 MiB request/response cap before the addon hook; over-limit integration canary |
+| Body payload exfiltration | An allowed route carries a different or sensitive body | Gateway/OPA policy boundary | Deliberate route-level grant: review names project/host/port/method/path and authorizes any body at that route; body data is never retained as evidence |
+| Gateway buffering | One Tobari uses a large body to exhaust shared Gateway memory | mitmproxy transport boundary | Allowed bodies stream instead of buffering in full; known `Content-Length` above 8 MiB retains the transport rejection and integration canary |
 | Audit confidentiality | Token or body leaks | Logger | Metadata-only schema and secret-canary tests |
 | Shared runtime capacity | One Tobari exhausts work-container or shared-service CPU, memory, PIDs, or logs | Docker resource contract | Fixed work-container limits plus fixed Gateway/OPA CPU/memory/PID ceilings, JSON log rotation, and runtime inspection |
 | Project authority | One Tobari claims another project's learned policy or managed credential scope | Shared Gateway/OPA principal boundary | Host-owned atomic principal registry maps each exact Gateway project-network address to one UUIDv7 project ID; Gateway derives the principal from the local interface, and project-bound credentials/rules reject mismatches before upstream I/O |
@@ -114,23 +114,22 @@ before OPA recreation. Learned-rule evaluation also validates the rule shape bef
 matching it. A failed learned-rule or compaction preflight leaves `data.json`
 unchanged; a concurrent source change makes the opaque proposal stale.
 OPA also classifies exact-rule learnability only after scheme, fixed port,
-empty-body, cluster, and applicable credential binding pass. Gateway records
+cluster, and applicable credential binding pass. Gateway records
 that boolean, and candidate discovery
 excludes false values instead of offering a permission that cannot resolve the
 denial.
 
-### Request/body mismatch
+### Body-independent route authority
 
-An attacker streams or changes content while policy evaluates it. Gateway
-forwards the same captured bytes it inspected. If mitmproxy reports that the
-body was unavailable, Gateway denies before OPA rather than treating it as an
-empty body. The initialized policy also denies non-empty or truncated bodies
-before ordinary host-only authorization and does not make those denials
-learnable. Inspection is bounded; an oversized body is marked truncated and
-not decoded. A trusted host may author a body-aware Rego exception for a
-captured body, but observation cannot create one. The fixed 8 MiB transport cap
-limits one buffered body; the MVP does not claim a total concurrent
-request-body memory limit.
+Tobari deliberately does not claim that policy inspected, understood, or bound
+the body. Gateway authorizes the project, authority, method, and path from the
+request headers before enabling upstream body streaming. An exact approval is
+therefore permission to send any body value at that exact route, including a
+later value that differs from the denied observation. Review and audit never
+retain body content, so a reviewer must evaluate that route-level grant rather
+than infer payload-level restriction. Large unknown-length bodies stream
+without a total-byte cap; known `Content-Length` above 8 MiB retains the
+transport rejection.
 
 ### Shared service exhaustion
 

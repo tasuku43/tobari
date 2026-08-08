@@ -366,27 +366,26 @@ styles.
 ## Gateway request flow
 
 ```text
-client flow
+client request headers
+  -> establish the host-issued project principal at the header hook
   -> select trusted credential adapter (passthrough by default)
+  -> validate the adapter request context
   -> redact client authentication and cookie headers for OPA input
-  -> buffer bounded body once
-  -> normalize the schema-2 OPA input
-  -> reject an unavailable body as ambiguous
+  -> normalize the body-free schema-3 OPA input
   -> POST decision with finite timeout
   -> deny on any invalid/unavailable decision
-  -> require the initialized empty-body boundary
-  -> validate the host-issued project principal and adapter request context
-  -> strip only proxy and Tobari control headers after allow
+  -> adapter strips control headers, then forwards client authentication or
+     applies the managed profile once after allow
+  -> enable request-body streaming
   -> resolve and pin the upstream address; reject unsafe dotted-host results
-  -> adapter forwards client authentication or applies the managed profile
-     once after allow
+  -> stream the authorized upstream response from its headers
   -> emit redacted audit JSON
 ```
 
-The same buffered bytes inspected by policy are forwarded. JSON is structured
-only when complete and within the limit. Client authentication can be present
-on the forwarded request but is absent from OPA input and audit output. The
-default passthrough adapter never loads or injects managed credentials; the
+Body content is deliberately opaque to policy and is neither retained nor
+hashed by Gateway. Client authentication can be present on the forwarded
+request but is absent from OPA input and audit output. The default passthrough
+adapter never loads or injects managed credentials; the
 retained managed adapter performs the existing project/host validation and
 injection at the same post-allow boundary. The addon never retries.
 
