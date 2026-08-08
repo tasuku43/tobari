@@ -852,6 +852,9 @@ assert_contains "$allow_output" 'applied: true' "exact policy approval"
 body_allow_output=$(run_tobari policy allow --id "$body_candidate_id")
 assert_contains "$body_allow_output" 'path: /review-body' "body-independent policy approval"
 assert_contains "$body_allow_output" 'applied: true' "body-independent policy approval"
+patch_deny_output=$(run_tobari policy deny --id "$patch_candidate_id")
+assert_contains "$patch_deny_output" 'path: /review-patch' "body-bearing PATCH policy review"
+assert_contains "$patch_deny_output" 'applied: true' "body-bearing PATCH policy review"
 body_applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT -H 'content-type: application/json' --data '{"value":"third"}' \
   http://mock-upstream:8080/review-body)
