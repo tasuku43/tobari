@@ -14,7 +14,7 @@ import (
 )
 
 // RuntimePort is the smallest boundary needed to inspect and change the
-// host-owned active Context. It deliberately exposes no secret-reading API.
+// host-owned current/default Context. It deliberately exposes no secret-reading API.
 type RuntimePort interface {
 	ListContexts(context.Context) (tobari.ContextListResult, error)
 	ShowContext(context.Context, string) (tobari.ContextReport, error)
@@ -200,8 +200,8 @@ func (s *Service) UseWithProgress(
 				)
 			}
 			if useErr != nil {
-				return fault.Wrap(fault.KindRejected, "context_use_failed", "Context selection and cluster reconciliation could not be completed", false, useErr,
-					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared cluster with the selected Context."})
+				return fault.Wrap(fault.KindRejected, "context_use_failed", "the current/default Context could not be updated", false, useErr,
+					fault.NextAction{Command: "context show", Reason: "Inspect the current/default Context marker."})
 			}
 			result = used
 			return nil
@@ -220,7 +220,7 @@ func (s *Service) withLifecycleLock(ctx context.Context, action func(context.Con
 	return action(ctx)
 }
 
-// InitRuntime creates the active Context's recipe template without changing
+// InitRuntime creates the current Context's recipe template without changing
 // its selected image.
 func (s *Service) InitRuntime(ctx context.Context, intent operation.Intent) (tobari.ContextReport, error) {
 	if err := s.requireRuntime(); err != nil {
@@ -236,15 +236,15 @@ func (s *Service) InitRuntime(ctx context.Context, intent operation.Intent) (tob
 		initialized, initErr := s.runtime.InitRuntime(actionContext)
 		if errors.Is(initErr, tobari.ErrRuntimeRecipeExists) {
 			return fault.New(
-				fault.KindRejected, "runtime_recipe_exists", "the active Context already has a runtime recipe", false,
+				fault.KindRejected, "runtime_recipe_exists", "the current Context already has a runtime recipe", false,
 				fault.NextAction{Command: "context show", Reason: "Inspect the existing runtime recipe before editing it."},
 			)
 		}
 		if initErr != nil {
 			return fault.Wrap(
-				fault.KindRejected, "runtime_init_failed", "the active Context runtime recipe could not be created", false,
+				fault.KindRejected, "runtime_init_failed", "the current Context runtime recipe could not be created", false,
 				initErr,
-				fault.NextAction{Command: "context show", Reason: "Inspect the active Context stores."},
+				fault.NextAction{Command: "context show", Reason: "Inspect the current Context stores."},
 			)
 		}
 		result = initialized
@@ -256,12 +256,12 @@ func (s *Service) InitRuntime(ctx context.Context, intent operation.Intent) (tob
 	return result, nil
 }
 
-// BuildRuntime builds and atomically selects the active Context's recipe.
+// BuildRuntime builds and atomically selects the current Context's recipe.
 func (s *Service) BuildRuntime(ctx context.Context, intent operation.Intent) (tobari.ContextReport, error) {
 	return s.BuildRuntimeWithProgress(ctx, intent, nil, nil)
 }
 
-// BuildRuntimeWithProgress builds the active Context runtime while forwarding
+// BuildRuntimeWithProgress builds the current Context runtime while forwarding
 // Docker diagnostics and bounded semantic stage events to presentation. The
 // diagnostic writer is purpose-bound to this one build and is never retained.
 func (s *Service) BuildRuntimeWithProgress(
@@ -289,8 +289,8 @@ func (s *Service) BuildRuntimeWithProgress(
 		}
 		if errors.Is(buildErr, tobari.ErrRuntimeRecipeMissing) {
 			return fault.New(
-				fault.KindInvalidInput, "runtime_recipe_missing", "the active Context has no runtime recipe", false,
-				fault.NextAction{Command: "runtime init", Reason: "Create the active Context runtime template first."},
+				fault.KindInvalidInput, "runtime_recipe_missing", "the current Context has no runtime recipe", false,
+				fault.NextAction{Command: "runtime init", Reason: "Create the current Context runtime template first."},
 			)
 		}
 		if buildErr != nil {
@@ -298,7 +298,7 @@ func (s *Service) BuildRuntimeWithProgress(
 				return structured
 			}
 			return fault.Wrap(
-				fault.KindRejected, "runtime_build_failed", "the active Context runtime could not be built", false,
+				fault.KindRejected, "runtime_build_failed", "the current Context runtime could not be built", false,
 				buildErr,
 				fault.NextAction{Command: "context show", Reason: "Inspect the unchanged selected runtime and recipe state."},
 			)
@@ -314,7 +314,7 @@ func (s *Service) BuildRuntimeWithProgress(
 
 func validateCreateInput(name, image string, mode tobari.ContextPolicyMode) error {
 	manifest := tobari.ContextManifest{
-		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
+		SchemaVersion: tobari.ContextSchemaVersion, ID: "00000000-0000-7000-8000-000000000000", Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: mode,
 	}
 	if err := manifest.Validate(); err != nil {

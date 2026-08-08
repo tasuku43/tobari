@@ -26,8 +26,9 @@ would require incomplete and continuously changing semantic reconstruction.
 
 ## Decision
 
-Gateway sends body-free OPA schema `3` from the request-header hook. It contains
-a host-issued principal, a structured request authority, method, path, query,
+Gateway sends body-free OPA schema `4` from the request-header hook to one fixed
+decision endpoint. It contains a host-issued principal with stable Context and
+project IDs, a structured request authority, method, path, query,
 redacted headers, and an authorization object containing the requested
 credential profile. OPA returns a small allow/deny document with required
 `allow`, `reason`, `credential_profile`, `status_code`, and `learnable` fields. Gateway
@@ -52,7 +53,9 @@ closed.
 
 ## Compatibility, security, and validation
 
-OPA input schema `3` is a compatibility boundary. Secret headers and all body
+OPA input schema `4` is a compatibility boundary. Stable Context/project IDs
+come only from the Gateway local-address registry, and unknown Contexts deny
+inside the Tobari-owned router. Secret headers and all body
 data are excluded, and the old input shapes are not accepted. Reconsider only
 when repeated supported outcomes cannot be expressed or safely interpreted from
 generic HTTP evidence.

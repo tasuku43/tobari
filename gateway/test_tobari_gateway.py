@@ -16,6 +16,8 @@ import tobari_gateway as gateway
 class GatewayTests(unittest.TestCase):
     project_a = "01912345-6789-7abc-8def-0123456789ab"
     project_b = "01912345-6789-7abc-8def-0123456789ac"
+    context_a = "01912345-6789-7abc-8def-0123456789ad"
+    context_b = "01912345-6789-7abc-8def-0123456789ae"
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -23,25 +25,29 @@ class GatewayTests(unittest.TestCase):
         self.secret = os.path.join(self.temp.name, "secret")
         with open(self.secret, "w", encoding="utf-8") as handle:
             handle.write("example-token\n")
+        self.principal_a = {"project_id": self.project_a, "context_id": self.context_a, "context": "default", "project_root": "/workspace/project-a"}
+        self.principal_b = {"project_id": self.project_b, "context_id": self.context_b, "context": "restricted", "project_root": "/workspace/project-b"}
         self.config = {
-            "version": "v1",
-            "profiles": {
+            "version": "v2",
+            "contexts": {self.context_a: {"name": "default", "profiles": {
                 "example": {
-                    "type": "bearer",
-                    "hosts": ["api.example.com"],
+                    "type": "bearer", "hosts": ["api.example.com"],
                     "projects": [self.project_a],
-                    "secret_file": "/run/tobari/credentials/example",
+                    "secret_file": f"/run/tobari/credentials/{self.context_a}/example",
                 }
-            },
+            }}},
         }
         self.principal_path = os.path.join(self.temp.name, "principals.json")
         with open(self.principal_path, "w", encoding="utf-8") as handle:
             json.dump(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "bindings": [
                         {
                             "project_id": self.project_a,
+                            "context_id": self.context_a,
+                            "context": "default",
+                            "project_root": "/workspace/project-a",
                             "gateway_ip": "172.29.0.2",
                             "network": "tobari-project-a-net",
                         }
@@ -86,19 +92,24 @@ class GatewayTests(unittest.TestCase):
     def test_project_principal_comes_from_gateway_local_network_address(self):
         flow = self.flow()
         flow.client_conn = SimpleNamespace(sockname=("172.29.0.2", 8080))
-        principals = {"172.29.0.2": self.project_a}
+        principals = {"172.29.0.2": self.principal_a}
         self.assertEqual(
-            gateway.resolve_project_principal(flow, principals), self.project_a
+            gateway.resolve_project_principal(flow, principals), self.principal_a
         )
 
     def test_project_principal_does_not_follow_forged_session_header(self):
         flow = self.flow()
         flow.request.headers["x-tobari-session"] = self.project_a
+        flow.request.headers["x-tobari-context"] = self.context_a
+        flow.request.headers["x-tobari-project-id"] = self.project_a
         flow.client_conn = SimpleNamespace(sockname=("172.29.1.2", 8080))
-        principals = {"172.29.1.2": self.project_b}
+        principals = {"172.29.1.2": self.principal_b}
         self.assertEqual(
-            gateway.resolve_project_principal(flow, principals), self.project_b
+            gateway.resolve_project_principal(flow, principals), self.principal_b
         )
+        policy_input = gateway.build_policy_input(flow, "default", self.principal_b, set())
+        self.assertEqual(policy_input["principal"]["context_id"], self.context_b)
+        self.assertEqual(policy_input["principal"]["project_id"], self.project_b)
 
     def test_unknown_project_principal_is_denied_before_opa(self):
         flow = self.flow()
@@ -118,12 +129,13 @@ class GatewayTests(unittest.TestCase):
 
     def test_policy_input_is_generic_and_redacted(self):
         flow = self.flow()
-        document = gateway.build_policy_input(flow, "default", self.project_a, set())
+        document = gateway.build_policy_input(flow, "default", self.principal_a, set())
         self.assertEqual(document["principal"]["cluster"], "default")
         self.assertEqual(document["principal"]["project_id"], self.project_a)
         self.assertNotIn("session", document["principal"])
         request = document["request"]
-        self.assertEqual(document["schema_version"], 3)
+        self.assertEqual(document["schema_version"], 4)
+        self.assertEqual(document["principal"]["context_id"], self.context_a)
         self.assertEqual(request["authority"]["scheme"], "https")
         self.assertEqual(request["authority"]["host"], "api.example.com")
         self.assertEqual(request["authority"]["port"], 443)
@@ -167,7 +179,7 @@ class GatewayTests(unittest.TestCase):
         flow = self.flow()
         flow.request.headers["x-tobari-credential-profile"] = "example"
         document = gateway.build_policy_input(
-            flow, "default", self.project_a, set(), None
+            flow, "default", self.principal_a, set(), None
         )
         self.assertIsNone(document["authorization"]["requested_profile"])
         self.assertNotIn("x-tobari-credential-profile", document["request"]["headers"])
@@ -180,7 +192,7 @@ class GatewayTests(unittest.TestCase):
             tls_established=True,
         )
         document = gateway.build_policy_input(
-            flow, "default", self.project_a, set(), None
+            flow, "default", self.principal_a, set(), None
         )
         self.assertEqual(document["request"]["authority"]["scheme"], "https")
         self.assertEqual(document["request"]["authority"]["port"], 443)
@@ -194,7 +206,7 @@ class GatewayTests(unittest.TestCase):
             tls_established=False,
         )
         document = gateway.build_policy_input(
-            flow, "default", self.project_a, set(), None
+            flow, "default", self.principal_a, set(), None
         )
         self.assertEqual(document["request"]["authority"]["scheme"], "http")
 
@@ -210,16 +222,16 @@ class GatewayTests(unittest.TestCase):
         flow.request.headers["x-auth-token"] = "token-secret"
         flow.request.headers["x-safe"] = "visible"
         document = gateway.build_policy_input(
-            flow, "default", self.project_a, set(), None
+            flow, "default", self.principal_a, set(), None
         )
         self.assertNotIn("x-auth-token", document["request"]["headers"])
         self.assertEqual(document["request"]["headers"]["x-safe"], "visible")
 
     def test_policy_input_is_identical_for_different_body_content(self):
         flow = self.flow()
-        first = gateway.build_policy_input(flow, "default", self.project_a, set())
+        first = gateway.build_policy_input(flow, "default", self.principal_a, set())
         flow.request.raw_content = None
-        second = gateway.build_policy_input(flow, "default", self.project_a, set())
+        second = gateway.build_policy_input(flow, "default", self.principal_a, set())
         self.assertEqual(first, second)
         self.assertNotIn("body", first["request"])
 
@@ -352,23 +364,23 @@ class GatewayTests(unittest.TestCase):
         request = self.flow().request
         with mock.patch("builtins.open", return_value=io.BytesIO(b"example-token\n")):
             gateway.inject_credential(
-                request, self.config, "example", "api.example.com", self.project_a
+                request, self.config, "example", "api.example.com", self.context_a, self.project_a
             )
         self.assertEqual(request.headers["authorization"], "Bearer example-token")
         with self.assertRaises(gateway.CredentialError):
             gateway.inject_credential(
-                request, self.config, "example", "other.example.com", self.project_a
+                request, self.config, "example", "other.example.com", self.context_a, self.project_a
             )
 
     def test_credential_path_cannot_escape_gateway_directory(self):
         request = self.flow().request
         escaped = json.loads(json.dumps(self.config))
-        escaped["profiles"]["example"]["secret_file"] = (
+        escaped["contexts"][self.context_a]["profiles"]["example"]["secret_file"] = (
             "/run/tobari/credentials/../config/credentials.json"
         )
         with self.assertRaises(gateway.CredentialError):
             gateway.inject_credential(
-                request, escaped, "example", "api.example.com", self.project_a
+                request, escaped, "example", "api.example.com", self.context_a, self.project_a
             )
 
     def test_credential_profile_does_not_cross_project(self):
@@ -379,7 +391,7 @@ class GatewayTests(unittest.TestCase):
         output = io.StringIO()
         with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
             with mock.patch.object(
-                gateway, "load_project_principals", return_value={"172.29.1.2": self.project_b}
+                gateway, "load_project_principals", return_value={"172.29.1.2": self.principal_b}
             ):
                 with mock.patch.object(gateway, "query_opa") as query:
                     with redirect_stdout(output):
@@ -388,6 +400,35 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(flow.response.status_code, 403)
         self.assertEqual(
             json.loads(flow.response.content), {"error": "credential_profile_not_bound"}
+        )
+
+    def test_same_profile_name_is_strictly_context_scoped(self):
+        config = json.loads(json.dumps(self.config))
+        config["contexts"][self.context_b] = {
+            "name": "restricted",
+            "profiles": {
+                "example": {
+                    "type": "bearer",
+                    "hosts": ["api.example.com"],
+                    "projects": [self.project_b],
+                    "secret_file": f"/run/tobari/credentials/{self.context_b}/example",
+                }
+            },
+        }
+        with self.assertRaises(gateway.CredentialBindingError):
+            gateway._profile_project_binding(
+                config, "example", self.context_a, self.project_b
+            )
+        with self.assertRaises(gateway.CredentialBindingError):
+            gateway._profile_project_binding(
+                config, "example", self.context_b, self.project_a
+            )
+        selected = gateway._profile_project_binding(
+            config, "example", self.context_b, self.project_b
+        )
+        self.assertEqual(
+            selected["secret_file"],
+            f"/run/tobari/credentials/{self.context_b}/example",
         )
 
     def test_managed_adapter_injects_only_after_allow(self):
@@ -400,7 +441,7 @@ class GatewayTests(unittest.TestCase):
             with mock.patch.object(
                 gateway,
                 "load_project_principals",
-                return_value={"172.29.0.2": self.project_a},
+                return_value={"172.29.0.2": self.principal_a},
             ):
                 with mock.patch.object(
                     gateway,
@@ -419,7 +460,7 @@ class GatewayTests(unittest.TestCase):
 
     def test_credential_config_requires_project_bindings(self):
         config = json.loads(json.dumps(self.config))
-        del config["profiles"]["example"]["projects"]
+        del config["contexts"][self.context_a]["profiles"]["example"]["projects"]
         with self.assertRaises(gateway.CredentialError):
             with mock.patch("builtins.open", return_value=io.BytesIO(json.dumps(config).encode())):
                 gateway.load_credential_config("ignored")
@@ -445,6 +486,7 @@ class GatewayTests(unittest.TestCase):
         self.assertNotIn("example-token", rendered)
         self.assertNotIn('{"example":true}', rendered)
         audit = json.loads(rendered)
+        self.assertEqual(audit["schema_version"], 2)
         self.assertEqual(audit["cluster"], "default")
         self.assertNotIn("realm", audit)
         self.assertEqual(audit["decision"], "deny")

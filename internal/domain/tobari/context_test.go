@@ -9,6 +9,7 @@ import (
 func validContextManifest() ContextManifest {
 	return ContextManifest{
 		SchemaVersion: ContextSchemaVersion,
+		ID:            "018bcfe5-687b-7000-8000-000000000000",
 		Name:          "project-tools",
 		AgentProfile:  DefaultProfile,
 		Image:         OfficialRuntimeBase,
@@ -82,7 +83,7 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 	manifest := validContextManifest()
 	manifest.Runtime = &ContextRuntimeRecipe{Kind: ContextRuntimeKindDockerfile, File: ContextRuntimeRecipeFile, BaseReference: OfficialRuntimeBase}
 	contextReport := ContextReport{
-		Task: TaskRuntimeBuild, Name: manifest.Name, Active: true,
+		Task: TaskRuntimeBuild, ID: manifest.ID, Name: manifest.Name, Active: true,
 		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
 		Cluster: ContextClusterStatusNotApplicable,
 		Stores: ContextStorePaths{
@@ -114,8 +115,8 @@ func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {
 
 func TestContextListRequiresOneMatchingActiveItem(t *testing.T) {
 	items := []ContextSummary{
-		{Name: "default", Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided},
-		{Name: "project-tools", AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced},
+		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided},
+		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced},
 	}
 	result := ContextListResult{Task: TaskContextList, Active: "default", Items: items}
 	if err := result.Validate(); err != nil {

@@ -15,7 +15,7 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, and public-boundary checks |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Pinned mitmproxy addon unit tests |
-| `integration` | `task integration:test` | Real runtime boundary | Shared-cluster lifecycle, multiple CWD-owned Tobari, host-issued project principal separation, network separation, TLS, default passthrough authentication, tool-home persistence, typed denial, tested host-policy activation, entry, recovery, and cleanup scenarios |
+| `integration` | `task integration:test` | Real runtime boundary | One Gateway/OPA shared across multiple Contexts, same-root and overlapping-root Tobari, Context/project principal separation, separate network, home, runtime, and credential boundaries, shared host-file visibility, typed denial, Context-local learning/reset, installation-wide review, migration/restart, recovery, and cleanup scenarios |
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, and integration profiles |
 
 The optional `task toolbox:build` workflow is not a completion profile. It
@@ -45,7 +45,7 @@ pushes only the base image; pull-request CI has no package-write permission.
 `gateway/` source and the embedded snapshot. `task gateway:test` runs the
 Gateway unit suite against the canonical source, while the runtime integration
 continues to exercise the embedded snapshot used by the CLI. The Gateway unit
-contract fixes the body-free schema-3 grouped OPA document, strict decision
+contract fixes the body-free schema-4 grouped OPA document with trusted Context/project principal, strict decision
 fields, authorization-before-stream ordering, and secret redaction. The Gateway
 image
 workflow builds both supported architectures; only its main-push publish job
@@ -315,14 +315,14 @@ The test suite has complementary levels:
   hashing, and the Docker integration scenario inspects those limits after
   creation and recovery.
 - Context image tests cover manifest selection, legacy seeding, invalid image
-  rejection, and the fact that project metadata cannot override the active
+  rejection, and the fact that project metadata cannot override the bound Context
   runtime image.
 - Context runtime tests cover non-overwriting recipe initialization, the
   owner-only Docker build context, generated image naming, compatibility and
   digest inspection, source-digest drift, and unchanged image selection after
   build or promotion failure. They also assert that an exact official base
   requests `--pull` while an explicit local base does not.
-- The Docker integration scenario creates the active Context recipe, runs a
+- The Docker integration scenario creates the current Context recipe, runs a
   real managed build from the public official GHCR base, verifies ready status
   and automatic Context image promotion, then repeats the flow with the local
   base before cleanup.
@@ -333,20 +333,19 @@ The test suite has complementary levels:
 - Policy-candidate domain and CLI tests fold repeated and concurrently emitted
   exact denials into one pending item, retain the latest evidence, count the
   bounded observations, preserve the legacy missing-count default of one, keep
-  project/host/port/method/path differences separate, and exclude resolved
+  Context/project/host/port/method/path differences separate, and exclude resolved
   Allow and exact Deny decisions.
 - Gateway contract tests verify that a learnable denial carries only the fixed
   host-side review navigation, while non-learnable and infrastructure failures
   do not invite approval. Session lifecycle tests verify that the aggregate
   pending-permission summary stays on host stderr and is best-effort.
-- Context contract tests verify named manifest validation, owner-only separate
-  stores, one-time legacy default migration, and the full Context-use state
-  matrix: unconfigured, stopped, already aligned, running-cluster
-  reconciliation, failure rollback, and interrupted-journal recovery. Runtime
-  tests verify that Context policy reaches OPA, the selected agent profile
-  reaches the project as read-only data, and managed credential values remain
-  Gateway-only. Policy discovery and mutation tests also prove active-context
-  mismatch fails closed.
+- Context contract tests verify stable manifest IDs, owner-only separate stores,
+  current-marker-only selection, safe legacy binding, and ambiguous migration
+  rejection. Runtime tests verify aggregate Context policy reaches one OPA, the
+  bound agent profile reaches the project as read-only data, and managed
+  credential values remain Gateway-only. Aggregate tests cover namespace
+  reservation, secret-sensitive revisions, complete-candidate validation,
+  serialization, and known-good retention.
 - The human permission path is exercised through `policy review`; its TTY
   Permission Inbox covers bounded selection, detail inspection, explicit
   allow/deny confirmation, cancellation, and refresh after each decision. The
@@ -365,12 +364,14 @@ The test suite has complementary levels:
   opaque IDs but preserves ANSI control sequences and the raw digest boundary.
   `python3 scripts/test-pty-evidence.py` is the executable contract test and
   runs as part of `task check:fast`.
-- Project-principal integration creates two current-directory Tobari, checks
-  distinct Gateway network addresses, proves an atomically updated
+- Context/project-principal integration creates same-root and overlapping-root
+  Tobari in different Contexts, checks distinct Gateway network addresses,
+  stable IDs and homes, shared host-file effects, and proves an atomically updated
   directory-mounted registry is visible without manually recreating Gateway,
-  denies learned permission when requested by the other project, and checks
-  registry cleanup after network recovery and deletion. Gateway unit tests
-  separately cover managed profile binding.
+  denies learned permission when requested by another Context/project, and
+  checks registry cleanup after restart, recovery, and exact Context-bound
+  deletion. Gateway unit tests separately cover same-name managed profiles in
+  distinct Contexts.
 - Policy-boundary tests prove the normalized request authority and port are
   required by the initialized structured boundary, rejected non-default ports
   are not learnable, and learned rules do not cross ports.
@@ -422,19 +423,20 @@ Every strong statement should identify its enforcement path.
 | Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, and zero-downstream-call cancellation tests |
 | Session-versus-Workspace lifecycle | Child exit-status preservation, host stderr guidance, stdout/stderr ownership, logical-state-after-exit, and explicit delete tests |
 | Attached-session deletion guard | Docker Exec ID observation, guard-before-delete negative tests, force override, and stable structured fault/help contract |
-| One Workspace per canonical root | Domain duplicate-index validation, root-hash/index checks, repeated explicit-create rejection, and concurrent explicit-create convergence |
+| One Workspace per canonical root/Context pair | Domain duplicate-index validation, pair-hash/index checks, repeated explicit-create rejection, same-root/different-Context creation, and concurrent explicit-create convergence |
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
 | Agent executable/home separation | Runtimechecker path assertions, local image builds with a home overlay, and Tobari smoke tests for each agent command |
 | Shared runtime resource bounds | Fixed project create-argv, resource-aware spec hash, and Docker HostConfig integration assertions |
 | Context runtime boundary | Context manifest tests, compatibility validation, ignored-project-metadata regression, existing-Workspace image reconciliation tests, and failure-before-state-update tests |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
-| Context composition and selection | Manifest/domain tests, catalog effect/target contracts, owner-only atomic store tests, legacy migration fixtures, active-context drift checks, and agent-readiness transcript |
-| Context runtime build boundary | Fixed active-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv including official-base refresh versus local-base behavior, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and next-entry Workspace reconciliation coverage |
+| Context composition and selection | Stable-ID manifest/domain tests, catalog effect/target contracts, owner-only atomic store tests, current-default-only selection, permanent Tobari binding, safe/ambiguous legacy migration fixtures, and agent-readiness transcript |
+| Context runtime build boundary | Fixed current-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv including official-base refresh versus local-base behavior, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and bound-Context next-entry reconciliation coverage |
 | Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, canonical-source unit tests, stable Gateway labels, immutable digest/platform/entrypoint preflight, non-root host-UID-independent Dockerfile, and pull-request/main workflow permission separation |
 | Typed denial recovery | Strict host/port audit projection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
-| Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent project/host/port/method/path candidate aggregation with latest/count and legacy-count compatibility, candidate/reference domain validation, discover-act graph and allow/deny/reset round trips, exhaustive current-decision inventory, human review without hand-authored OPA/Rego, strict atomic XDG writer, preflight ordering, and Docker retry |
-| Bounded policy compaction | Pure deterministic same-project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale-reference rejection, and Docker canary |
-| Project principal and credential scope | Owner-only atomic registry schema, local-interface derivation, forged-session and unknown-principal denial, passthrough default/managed profile adapter tests, cross-project Rego canary, and two-project Docker integration |
+| Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/host/port/method/path candidate aggregation with latest/count and legacy-count compatibility, Context-scoped reference validation, discover-act graph and allow/deny/reset round trips, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
+| Bounded policy compaction | Pure deterministic same-Context/project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale/cross-Context reference rejection, and Docker canary |
+| Context/project principal and credential scope | Owner-only atomic registry schema 2, local-interface derivation, forged-Context/project and unknown-principal denial, passthrough/managed adapter tests, same-profile cross-Context canary, Rego canaries, and multi-Context Docker integration |
+| Atomic multi-Context policy activation | Source and projection locks, Context namespace rejection, complete all-Context OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |

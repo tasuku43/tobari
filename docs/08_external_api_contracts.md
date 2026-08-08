@@ -6,15 +6,16 @@ generic HTTP request crossing Gateway.
 ## OPA input
 
 Gateway posts one JSON document to
-`http://opa:8181/v1/data/tobari/http/decision` with schema version `3`. The
+`http://opa:8181/v1/data/tobari/http/decision` with schema version `4`. The
 document groups each semantic responsibility instead of exposing parallel
 transport fields:
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "principal": {
     "cluster": "default",
+    "context_id": "01912345-6789-7abc-8def-0123456789ad",
     "project_id": "01912345-6789-7abc-8def-0123456789ab"
   },
   "request": {
@@ -28,11 +29,14 @@ transport fields:
 }
 ```
 
-`principal.project_id` is required to be a
-canonical UUIDv7 established from the Gateway local interface and the
-host-owned principal registry; it is not copied from a caller header.
+`principal.context_id` and `principal.project_id` are required canonical UUIDv7
+values established together from the Gateway local interface and host-owned
+principal registry; neither is copied from a caller header, environment,
+request URL, session field, or profile name. OPA uses the Context ID at this one
+fixed endpoint to select the Context policy. Unknown, absent, or mismatched IDs
+deny without falling back to the current/default Context.
 The default passthrough adapter emits a null requested profile; the managed
-adapter may select one after its own host/project binding checks.
+adapter may select one after its own Context/host/project binding checks.
 
 Header names are lowercase. Host excludes a trailing dot and uses the
 normalized request authority. Query values retain occurrence order. Request
@@ -43,11 +47,11 @@ redacted header fields, but are not learned-rule identity dimensions.
 ## Body-independent authorization and streaming
 
 Gateway evaluates OPA from request headers before any body byte is forwarded.
-It enables mitmproxy request streaming only after the project principal,
+It enables mitmproxy request streaming only after the Context/project principal,
 credential binding, policy decision, and credential application succeed. It
 streams the corresponding upstream response after its headers arrive. Body
 presence and content therefore do not alter or split the exact
-project/host/port/method/path candidate or learned rule, and body data is never
+Context/project/host/port/method/path candidate or learned rule, and body data is never
 copied into OPA input, denial evidence, policy data, or audit output.
 
 Mitmproxy retains a fixed 8 MiB `body_size_limit`. A message with a known
@@ -74,9 +78,9 @@ OPA must return exactly one object:
 required and may be true only on a denial after version, cluster, scheme, and
 fixed request port pass; managed-adapter requests additionally require
 credential binding,
-meaning an exact host/port/method/path rule can resolve that denial. The
+meaning an exact Context/project/host/port/method/path rule can resolve that denial. The
 initialized policy requires the configured port for the request scheme, and
-learned rules retain the observed project, host, port, method, and path. The
+learned rules retain the observed Context, project, host, port, method, and path. The
 scheme/port boundary is evaluated before a learned rule can match, so an
 approval cannot move an effect outside the configured transport boundary.
 Gateway records the value for candidate discovery but never treats it as
@@ -98,13 +102,14 @@ only.
 
 ## Gateway audit
 
-Every validated allow/deny audit record contains `project_id` alongside the
-cluster, request authority, method, path, decision, reason, adapter-dependent
+Every validated allow/deny audit record uses `schema_version: 2` and contains `context_id`, the human
+`context` name, `project_id`, and safe `project_root` alongside the cluster,
+request authority, method, path, decision, reason, adapter-dependent
 credential profile name, and upstream outcome. In passthrough mode the profile
-name is `null`. The project ID is metadata for host-side policy
+name is `null`. Context and project IDs are metadata for host-side policy
 learning and diagnostics; secret values and request bodies remain excluded.
 Host-side denial, candidate, learned-rule, and compaction projections retain
-the same project ID so an opaque approval cannot lose its authority scope.
+the same Context/project pair so an opaque approval cannot lose its authority scope.
 
 ## Errors
 
@@ -151,19 +156,26 @@ gateway error without exposing confidential content.
 
 ## Schema and compatibility
 
-The OPA input schema version `3`, decision fields, audit fields, default limits,
+The OPA input schema version `4`, audit schema version `2`, decision fields, default limits,
 and configuration keys are public MVP compatibility boundaries. The Gateway
 does not accept the former OPA input shapes or incomplete decisions. The
 trusted
 `TOBARI_CREDENTIAL_ADAPTER` setting defaults to `passthrough`; `managed` keeps
 the existing credential configuration contract. The
-`principal-registry/principals.json` file uses schema version 1 with `bindings`
-containing `project_id`, `gateway_ip`, and `network`;
-credential profile schema-v1 entries require a `projects` array.
-The active policy data uses `tobari.schema_version=2`, with `boundary`,
+`principal-registry/principals.json` uses schema version 2 with `bindings`
+containing `project_id`, `context_id`, `context`, `project_root`, `gateway_ip`,
+and `network`. Gateway credential projection schema v2 contains `contexts`
+keyed by Context ID; each projected profile still requires a `projects` array
+and its secret path is below that Context ID. Context source credentials remain
+schema v1.
+Each Context policy source uses `tobari.schema_version=2`, with `boundary`,
 `credentials`, and `rules` objects; mutable rules live under
 `rules.learned_allows` and `rules.learned_denies`, while host-authored baseline
-denies live under `rules.baseline_denies`.
+denies live under `rules.baseline_denies`. Aggregate policy projection schema 1
+places Context data under `tobari_contexts[context_id]`, supplies one
+Tobari-owned router, and content-addresses the complete candidate. Guided
+Contexts share one system evaluator; Advanced source is projected to a
+Context-ID package and cannot claim system/router namespaces.
 Synthetic fixtures
 live with Gateway tests and are generated by this repository; no upstream
 provider schema is vendored, so `.harness/schemas.json` remains empty.
@@ -174,5 +186,6 @@ Rego is formatted with the pinned OPA image and tested by `opa test`. The
 initialized policy proves deny by default, structured authority and port
 boundaries,
 plain-HTTP restriction, host/port/method/path denial, body-independent
-decisions, project-bound learned rules, passthrough
-redaction/forwarding, and managed credential-profile host/project binding.
+decisions, Context/project-bound learned rules, passthrough
+redaction/forwarding, unknown-Context denial, and managed credential-profile
+Context/host/project binding.

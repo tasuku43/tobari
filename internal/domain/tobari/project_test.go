@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+const testContextID = "018bcfe5-687b-7000-8000-000000000099"
+
+func testRootIndex(root, id string) RootIndex {
+	return RootIndex{SchemaVersion: ProjectStateSchemaVersion, Root: root, InstanceID: id, ContextID: testContextID, ContextName: DefaultContextName}
+}
+
 func TestNewProjectIDProducesUUIDv7(t *testing.T) {
 	t.Parallel()
 	id, err := NewProjectID(time.UnixMilli(1_700_000_000_123), bytes.NewReader(make([]byte, 10)))
@@ -41,7 +47,8 @@ func TestProjectStatusKeepsLogicalExistenceSeparateFromRuntimeDiagnostic(t *test
 	status := ProjectStatus{
 		Task: TaskStatus, Exists: true, Root: "/tmp/project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/home",
-		Runtime: RuntimeDiagnosticMissing,
+		Runtime:   RuntimeDiagnosticMissing,
+		ContextID: testContextID, ContextName: DefaultContextName,
 	}
 	if err := status.Validate(); err != nil {
 		t.Fatalf("ProjectStatus.Validate() error = %v", err)
@@ -61,7 +68,8 @@ func TestProjectStatusAcceptsIncompleteLogicalStateDiagnostic(t *testing.T) {
 	status := ProjectStatus{
 		Task: TaskStatus, Exists: true, Root: "/tmp/project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/home",
-		Runtime: RuntimeDiagnosticIncomplete,
+		Runtime:   RuntimeDiagnosticIncomplete,
+		ContextID: testContextID, ContextName: DefaultContextName,
 	}
 	if err := status.Validate(); err != nil {
 		t.Fatalf("ProjectStatus.Validate() error = %v", err)
@@ -81,6 +89,7 @@ func TestProjectListResultValidatesCurrentIDAgainstItems(t *testing.T) {
 	item := ProjectListItem{
 		Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
 		Home: "/tmp/state/home", Runtime: RuntimeDiagnosticReady,
+		ContextID: testContextID, ContextName: DefaultContextName,
 	}
 	valid := ProjectListResult{
 		Task: TaskProjectList, CurrentID: item.ID, Items: []ProjectListItem{item},
@@ -100,6 +109,7 @@ func TestProjectListResultRejectsDuplicateWorkspaceRoots(t *testing.T) {
 	item := ProjectListItem{
 		Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
 		Home: "/tmp/state/home", Runtime: RuntimeDiagnosticReady,
+		ContextID: testContextID, ContextName: DefaultContextName,
 	}
 	duplicate := item
 	duplicate.ID = "01912345-6789-7abc-8def-0123456789ac"
@@ -112,8 +122,8 @@ func TestProjectListResultRejectsDuplicateWorkspaceRoots(t *testing.T) {
 func TestNearestRootSelectsNearestAncestor(t *testing.T) {
 	t.Parallel()
 	indexes := []RootIndex{
-		{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000000"},
-		{SchemaVersion: 1, Root: "/src/project/internal", InstanceID: "018bcfe5-687b-7000-8000-000000000001"},
+		testRootIndex("/src/project", "018bcfe5-687b-7000-8000-000000000000"),
+		testRootIndex("/src/project/internal", "018bcfe5-687b-7000-8000-000000000001"),
 	}
 	index, found, err := NearestRoot("/src/project/internal/cli", indexes)
 	if err != nil {
@@ -127,9 +137,9 @@ func TestNearestRootSelectsNearestAncestor(t *testing.T) {
 func TestContainingRootsReturnsEveryAncestorNearestFirst(t *testing.T) {
 	t.Parallel()
 	indexes := []RootIndex{
-		{SchemaVersion: 1, Root: "/src", InstanceID: "018bcfe5-687b-7000-8000-000000000000"},
-		{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000001"},
-		{SchemaVersion: 1, Root: "/src/project/internal", InstanceID: "018bcfe5-687b-7000-8000-000000000002"},
+		testRootIndex("/src", "018bcfe5-687b-7000-8000-000000000000"),
+		testRootIndex("/src/project", "018bcfe5-687b-7000-8000-000000000001"),
+		testRootIndex("/src/project/internal", "018bcfe5-687b-7000-8000-000000000002"),
 	}
 	got, err := ContainingRoots("/src/project/internal/cli", indexes)
 	if err != nil {
@@ -149,8 +159,8 @@ func TestContainingRootsReturnsEveryAncestorNearestFirst(t *testing.T) {
 func TestValidateRootIndexesRejectsDuplicateCanonicalRoots(t *testing.T) {
 	t.Parallel()
 	indexes := []RootIndex{
-		{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000000"},
-		{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000001"},
+		testRootIndex("/src/project", "018bcfe5-687b-7000-8000-000000000000"),
+		testRootIndex("/src/project", "018bcfe5-687b-7000-8000-000000000001"),
 	}
 	if err := ValidateRootIndexes(indexes); err == nil {
 		t.Fatal("ValidateRootIndexes() accepted duplicate canonical roots")
@@ -163,8 +173,8 @@ func TestValidateRootIndexesRejectsDuplicateCanonicalRoots(t *testing.T) {
 func TestValidateRootIndexesRejectsDuplicateWorkspaceIDs(t *testing.T) {
 	t.Parallel()
 	indexes := []RootIndex{
-		{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000000"},
-		{SchemaVersion: 1, Root: "/src/project/internal", InstanceID: "018bcfe5-687b-7000-8000-000000000000"},
+		testRootIndex("/src/project", "018bcfe5-687b-7000-8000-000000000000"),
+		testRootIndex("/src/project/internal", "018bcfe5-687b-7000-8000-000000000000"),
 	}
 	if err := ValidateRootIndexes(indexes); err == nil {
 		t.Fatal("ValidateRootIndexes() accepted duplicate Workspace IDs")
@@ -175,7 +185,8 @@ func TestProjectSelectionDistinguishesAncestorReuseAndExplicitCreate(t *testing.
 	t.Parallel()
 	ancestor := ProjectSelectionCandidate{
 		ID: "018bcfe5-687b-7000-8000-000000000000", Root: "/src/project",
-		Runtime: RuntimeDiagnosticReady,
+		Runtime:   RuntimeDiagnosticReady,
+		ContextID: testContextID, ContextName: DefaultContextName,
 	}
 	selection := ProjectSelection{
 		CWD: "/src/project/internal", Candidates: []ProjectSelectionCandidate{ancestor}, CanCreate: true,
@@ -195,7 +206,7 @@ func TestProjectSelectionDistinguishesAncestorReuseAndExplicitCreate(t *testing.
 
 	exact := selection
 	exact.Candidates = []ProjectSelectionCandidate{{
-		ID: ancestor.ID, Root: selection.CWD, Runtime: RuntimeDiagnosticReady,
+		ID: ancestor.ID, Root: selection.CWD, Runtime: RuntimeDiagnosticReady, ContextID: testContextID, ContextName: DefaultContextName,
 	}}
 	exact.CanCreate = false
 	if err := exact.Validate(); err != nil {
@@ -215,7 +226,8 @@ func TestProjectSelectionRejectsMissingAndIncompleteChoices(t *testing.T) {
 		CWD: "/src/project/internal", CanCreate: true,
 		Candidates: []ProjectSelectionCandidate{{
 			ID: "018bcfe5-687b-7000-8000-000000000000", Root: "/src/project",
-			Runtime: RuntimeDiagnosticIncomplete,
+			Runtime:   RuntimeDiagnosticIncomplete,
+			ContextID: testContextID, ContextName: DefaultContextName,
 		}},
 	}
 	if err := selection.Validate(); err != nil {
@@ -234,7 +246,7 @@ func TestProjectSelectionRejectsMissingAndIncompleteChoices(t *testing.T) {
 
 func TestNearestRootRejectsPathPrefixConfusion(t *testing.T) {
 	t.Parallel()
-	indexes := []RootIndex{{SchemaVersion: 1, Root: "/src/project", InstanceID: "018bcfe5-687b-7000-8000-000000000000"}}
+	indexes := []RootIndex{testRootIndex("/src/project", "018bcfe5-687b-7000-8000-000000000000")}
 	_, found, err := NearestRoot("/src/project-other", indexes)
 	if err != nil {
 		t.Fatalf("NearestRoot() error = %v", err)

@@ -6,17 +6,76 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+const principalTestContextID = "01912345-6789-7abc-8def-0123456789ad"
+
+func TestPolicyProjectionLockSerializesCrossContextMutations(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	var active atomic.Int32
+	var maximum atomic.Int32
+	var completed atomic.Int32
+	var wait sync.WaitGroup
+	for range 16 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			if err := runtimeStore.withPolicyProjectionLock(context.Background(), func() error {
+				current := active.Add(1)
+				for observed := maximum.Load(); current > observed && !maximum.CompareAndSwap(observed, current); observed = maximum.Load() {
+				}
+				for range 100 {
+					runtime.Gosched()
+				}
+				active.Add(-1)
+				completed.Add(1)
+				return nil
+			}); err != nil {
+				t.Errorf("withPolicyProjectionLock() error = %v", err)
+			}
+		}()
+	}
+	wait.Wait()
+	if completed.Load() != 16 || maximum.Load() != 1 {
+		t.Fatalf("policy projection mutations completed=%d maximum_concurrent=%d", completed.Load(), maximum.Load())
+	}
+}
+
+func principalTestProject(t *testing.T, root string) tobari.ProjectInstance {
+	t.Helper()
+	project, err := tobari.NewProjectInstance(
+		time.Unix(0, 0).UTC(), strings.NewReader("0123456789abcdef"), root,
+		principalTestContextID, "default", tobari.BuiltinImageSelector,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return project
+}
+
+func principalTestBinding(projectID, gatewayIP, network string) projectPrincipalBinding {
+	return projectPrincipalBinding{
+		ProjectID: projectID, ContextID: principalTestContextID, ContextName: "default",
+		ProjectRoot: "/workspace/project", GatewayIP: gatewayIP, Network: network,
+	}
+}
 
 func TestProjectPrincipalRegistryRejectsAmbiguousBindings(t *testing.T) {
 	registry := projectPrincipalRegistry{
 		SchemaVersion: projectPrincipalRegistrySchema,
 		Bindings: []projectPrincipalBinding{
-			{ProjectID: "01912345-6789-7abc-8def-0123456789ab", GatewayIP: "172.29.0.2", Network: "tobari-a-net"},
-			{ProjectID: "01912345-6789-7abc-8def-0123456789ac", GatewayIP: "172.29.0.2", Network: "tobari-b-net"},
+			principalTestBinding("01912345-6789-7abc-8def-0123456789ab", "172.29.0.2", "tobari-a-net"),
+			principalTestBinding("01912345-6789-7abc-8def-0123456789ac", "172.29.0.2", "tobari-b-net"),
 		},
 	}
 	if err := registry.Validate(); err == nil {
@@ -31,7 +90,9 @@ func TestProjectPrincipalRegistryUpdateIsAtomicAndProjectBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	projectID := "01912345-6789-7abc-8def-0123456789ab"
-	if err := runtime.updateProjectPrincipal(context.Background(), projectID, "tobari-a-net", "172.29.0.2"); err != nil {
+	project := principalTestProject(t, filepath.Join(root, "project"))
+	project.ID = projectID
+	if err := runtime.updateProjectPrincipal(context.Background(), project, "tobari-a-net", "172.29.0.2"); err != nil {
 		t.Fatalf("updateProjectPrincipal() error = %v", err)
 	}
 	data, err := os.ReadFile(runtime.principalRegistryPath())
@@ -74,11 +135,22 @@ func TestProjectPrincipalRegistryUsesDedicatedDirectoryAndMigratesLegacyFile(t *
 	if runtime.principalRegistryPath() == filepath.Join(config, "principals.json") {
 		t.Fatal("principal registry still uses the single-file mount path")
 	}
-	legacy := projectPrincipalRegistry{
-		SchemaVersion: projectPrincipalRegistrySchema,
-		Bindings: []projectPrincipalBinding{{
-			ProjectID: "01912345-6789-7abc-8def-0123456789ab",
-			GatewayIP: "172.29.0.2", Network: "tobari-a-net",
+	projectRoot := filepath.Join(root, "project")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	project, err := runtime.CreateProject(context.Background(), projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, network, err := tobari.ProjectResourceNames(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := legacyProjectPrincipalRegistry{
+		SchemaVersion: 1,
+		Bindings: []legacyProjectPrincipalBinding{{
+			ProjectID: project.ID, GatewayIP: "172.29.0.2", Network: network,
 		}},
 	}
 	legacyData, err := json.MarshalIndent(legacy, "", "  ")
@@ -90,7 +162,7 @@ func TestProjectPrincipalRegistryUsesDedicatedDirectoryAndMigratesLegacyFile(t *
 		t.Fatal(err)
 	}
 
-	if err := runtime.ensureProjectPrincipalRegistry(); err != nil {
+	if err := runtime.ensureProjectPrincipalRegistry(context.Background()); err != nil {
 		t.Fatalf("ensureProjectPrincipalRegistry() error = %v", err)
 	}
 	data, err := os.ReadFile(runtime.principalRegistryPath())
@@ -101,8 +173,9 @@ func TestProjectPrincipalRegistryUsesDedicatedDirectoryAndMigratesLegacyFile(t *
 	if err := json.Unmarshal(data, &migrated); err != nil {
 		t.Fatal(err)
 	}
-	if len(migrated.Bindings) != 1 || migrated.Bindings[0] != legacy.Bindings[0] {
-		t.Fatalf("migrated registry = %+v, want %+v", migrated, legacy)
+	if len(migrated.Bindings) != 1 || migrated.Bindings[0].ProjectID != project.ID ||
+		migrated.Bindings[0].ContextID != project.ContextID || migrated.Bindings[0].Network != network {
+		t.Fatalf("migrated registry = %+v", migrated)
 	}
 }
 
@@ -111,11 +184,11 @@ func TestProjectPrincipalRegistryRejectsStaleOrMalformedState(t *testing.T) {
 		"wrong schema": {SchemaVersion: projectPrincipalRegistrySchema + 1},
 		"invalid project": {
 			SchemaVersion: projectPrincipalRegistrySchema,
-			Bindings:      []projectPrincipalBinding{{ProjectID: "not-a-project", GatewayIP: "172.29.0.2", Network: "tobari-net"}},
+			Bindings:      []projectPrincipalBinding{principalTestBinding("not-a-project", "172.29.0.2", "tobari-net")},
 		},
 		"loopback": {
 			SchemaVersion: projectPrincipalRegistrySchema,
-			Bindings:      []projectPrincipalBinding{{ProjectID: "01912345-6789-7abc-8def-0123456789ab", GatewayIP: "127.0.0.1", Network: "tobari-net"}},
+			Bindings:      []projectPrincipalBinding{principalTestBinding("01912345-6789-7abc-8def-0123456789ab", "127.0.0.1", "tobari-net")},
 		},
 	}
 	for name, registry := range tests {

@@ -304,7 +304,10 @@ func renderPolicyReviewListRaw(
 		if index == selected {
 			prefix = applyStyleToken(style, styleText, "❯ ")
 		}
-		lines = append(lines, prefix+applyStyleToken(style, styleText, policyReviewCandidateRequest(candidate)))
+		lines = append(lines,
+			prefix+applyStyleToken(style, styleText, safeExternalText(candidate.ContextName)+"  "+safeExternalText(candidate.ProjectRoot)),
+			"  "+applyStyleToken(style, styleMuted, policyReviewCandidateRequest(candidate)),
+		)
 	}
 	if top > 0 || end < len(report.Items) {
 		lines = append(lines, applyStyleToken(style, styleMuted, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items))))
@@ -328,14 +331,15 @@ func renderPolicyReviewDetailRaw(
 		"",
 		applyStyleToken(style, styleAccent, fmt.Sprintf("Permission %d of %d", selected+1, len(report.Items))),
 		"",
-		selectorDetail(style, "Scope", "Current Tobari only", styleText),
+		selectorDetail(style, "Context", safeExternalText(candidate.ContextName), styleText),
+		selectorDetail(style, "Tobari", safeExternalText(candidate.ProjectRoot), styleText),
 		selectorDetail(style, "Request", policyReviewCandidateRequest(candidate), styleText),
 		selectorDetail(style, "Reason", safeExternalText(candidate.Reason), styleDanger),
 		selectorDetail(style, "Status", fmt.Sprintf("%d", candidate.StatusCode), styleDanger),
 		selectorDetail(style, "Observed", policyCandidateObservationText(candidate), styleText),
 		selectorDetail(style, "Latest", safeExternalText(candidate.ObservedAt), styleText),
 		"",
-		selectorHelp(style, "This allows exactly this host, port, method, and path."),
+		selectorHelp(style, "This decision applies only to this Tobari in this Context."),
 		"",
 		selectorActions(
 			styleAction(style, "[a] Allow", styleAccent),
@@ -430,7 +434,8 @@ func writePolicyReviewListLine(out io.Writer, report tobari.PolicyCandidateRepor
 		return err
 	}
 	for index, candidate := range report.Items {
-		if _, err := fmt.Fprintf(out, "  %d. %s\n", index+1, policyReviewCandidateRequest(candidate)); err != nil {
+		if _, err := fmt.Fprintf(out, "  %d. %s  %s\n     %s\n", index+1,
+			safeExternalText(candidate.ContextName), safeExternalText(candidate.ProjectRoot), policyReviewCandidateRequest(candidate)); err != nil {
 			return err
 		}
 	}
@@ -465,7 +470,8 @@ func selectPolicyReviewDetailLine(
 			if value == "d" || value == "deny" || value == "reject" {
 				action = "Deny"
 			}
-			if _, writeErr := fmt.Fprintln(out, action+" exactly this permission? [y/N]"); writeErr != nil {
+			if _, writeErr := fmt.Fprintf(out, "%s this exact permission?\nContext  %s\nTobari   %s\nRequest  %s\n[y/N]\n",
+				action, safeExternalText(candidate.ContextName), safeExternalText(candidate.ProjectRoot), policyReviewCandidateRequest(candidate)); writeErr != nil {
 				return policyReviewDetailResult{}, writeErr
 			}
 			confirmation, confirmationErr := reader.ReadString('\n')
@@ -501,14 +507,15 @@ func writePolicyReviewDetailLines(out io.Writer, report tobari.PolicyCandidateRe
 	return writeSelectorLines(out,
 		"Permission "+strconv.Itoa(selected+1)+" of "+strconv.Itoa(len(report.Items)),
 		"",
-		"Scope     Current Tobari only",
+		"Context   "+safeExternalText(candidate.ContextName),
+		"Tobari    "+safeExternalText(candidate.ProjectRoot),
 		"Request   "+policyReviewCandidateRequest(candidate),
 		"Reason    "+safeExternalText(candidate.Reason),
 		fmt.Sprintf("Status    %d", candidate.StatusCode),
 		"Observed  "+policyCandidateObservationText(candidate),
 		"Latest    "+safeExternalText(candidate.ObservedAt),
 		"",
-		"This allows exactly this host, port, method, and path.",
+		"This decision applies only to this Tobari in this Context.",
 	)
 }
 

@@ -50,7 +50,10 @@ proxy network, control, and egress.
 - Integrity of request normalization, policy decisions, and audit records.
 
 Files under a read-write root are explicitly not protected from its Tobari.
-Processes can change or delete that entire mounted root. Docker or kernel
+Processes can change or delete that entire mounted root. Same-root and
+parent/child-root Tobari intentionally observe each other's overlapping host
+file changes, even across Contexts; Tobari does not provide filesystem integrity
+isolation for those files. Docker or kernel
 compromise, VM/container escape, allowed-destination exfiltration, the
 installation-wide baseline policy, non-HTTP protocols, covert channels,
 same-Tobari process interference, and malware detection are outside the MVP
@@ -102,7 +105,7 @@ metadata is rejected before project home, network, or container mutation. Users
 remain responsible for image contents and should prefer immutable digest
 references.
 
-The active Context's runtime recipe is a trusted-host build input. Explicit
+The current Context's runtime recipe is a trusted-host build input. Explicit
 `cluster up` may obtain the published official runtime base for an
 uncustomized Context; `runtime build` may obtain the declared base image only
 because the user explicitly requested a host build. Docker receives the
@@ -111,8 +114,8 @@ files, credential metadata and secret files, the host home, Docker sockets, and
 Workspace mounts are outside it. The generated image must pass the same
 compatibility inspection before its reference is promoted into the Context.
 Editing the recipe or a failed build cannot replace the last selected image.
-After promotion succeeds, existing Workspaces observe the selected image only
-through the next trusted root-entry reconciliation.
+After promotion succeeds, only Workspaces permanently bound to that Context
+observe the selected image through their next trusted root-entry reconciliation.
 Docker/BuildKit build output is untrusted diagnostic text even though the
 Dockerfile is an owner-only host input. The explicit build forwards both Docker
 streams through visible projection, preserving line structure and concrete
@@ -146,7 +149,7 @@ result contains no credentials, copies no host CLI configuration, inherits the
 same untrusted custom-image treatment, and receives no Docker socket or direct
 egress.
 
-The active Context's runtime image selector is strict, bounded, and stored in
+Each Tobari's bound Context runtime image selector is strict, bounded, and stored in
 the owner-only Context manifest. The legacy XDG `config.json` image default is
 used only to seed the default Context during compatibility initialization.
 Project metadata cannot select or alter the runtime image, so untrusted project
@@ -157,7 +160,7 @@ authority.
 Project runtime readiness is an explicit healthcheck boundary. Enter waits for
 healthy rather than treating a running or healthcheck-less container as ready;
 unhealthy, exited, and timeout outcomes remain distinct diagnostics. Desired
-runtime drift is detected from the active Context image and an
+runtime drift is detected from the bound Context image and an
 ownership-scoped spec hash, and recreates only the work container, preserving
 the logical project home and root record. Missing or incompatible newly
 selected images fail before replacing an existing work container or updating
@@ -185,23 +188,25 @@ instance's persistent XDG home and records after the session-attachment guard;
 `--force` explicitly overrides an attached-session warning.
 Shared cluster removal is rejected while any Tobari record remains.
 
-The active Context's policy directory is mounted read-only into OPA. Host-side
-edits are reflected by the bind mount. OPA watch reloads them where Docker-host
-events propagate. Exact allow, deny, and compaction mutations first test a
-private complete policy copy and then recreate only the exact owner-labeled OPA
-component for deterministic activation. OPA receives no authority to rewrite
-trusted policy. A Context directory is never mounted wholesale into a
-Workspace.
+No Context directory is mounted wholesale into OPA or a Workspace. OPA sees
+only one read-only content-addressed projection generated from every Context
+source. Generation and policy mutation are serialized; each source and the
+whole candidate are tested before atomic publication and exact owner-labeled
+OPA recreation. A failed activation restores the source and prior known-good
+projection. Partial state is never mounted, and OPA receives no authority to
+rewrite source or projection.
 
 ## HTTP authorization boundary
 
-Gateway constructs body-free OPA input schema `3` in mitmproxy's request-header
-hook. It includes the host-issued project principal, a structured request
+Gateway constructs body-free OPA input schema `4` in mitmproxy's request-header
+hook. It includes the host-issued Context/project principal, a structured request
 authority, method, path and path segments, multi-valued query, redacted headers,
 and an authorization object containing an adapter-dependent requested
-credential profile. The project principal is derived from the local Gateway
-interface address and an owner-only host registry. Caller session metadata is
-not an authorization input.
+credential profile. Both stable IDs are derived from the local Gateway
+interface address and an owner-only host registry. Caller headers, environment,
+URLs, session metadata, profile names, and supplied Context/project IDs are not
+authorization inputs. Missing, unknown, stale, ambiguous, or mismatched Context
+bindings deny before OPA and upstream I/O.
 
 Secret header values and request/response body content are absent from both OPA
 input and logs. Gateway enables request streaming only after principal,
@@ -217,10 +222,10 @@ OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
 to non-local destinations is denied by the initialized policy. The initialized
 policy also requires an explicit port for each supported scheme; learned rules
-retain the observed project/host/port/method/path and cannot be used on another project, port, or
+retain the observed Context/project/host/port/method/path and cannot be used on another Context, project, port, or
 scheme. Body presence and content are not authorization or learning dimensions;
 an exact learned rule covers every body value at its exact
-project/host/port/method/path. Immediately before an upstream connection,
+Context/project/host/port/method/path. Immediately before an upstream connection,
 Gateway resolves the
 hostname, rejects non-global addresses for dotted hostnames, and pins the
 connection to the selected resolved address. Single-label private service
@@ -249,11 +254,13 @@ policy allow, then forwards them upstream. It strips proxy and Tobari control
 headers and never reads managed credential files.
 
 The retained `managed` adapter uses static bearer or fixed-header secrets
-supplied through the active Context's owner-only host files. Secret files are
-mounted read-only into Gateway only. Configuration contains a profile type, exact allowed hosts,
-explicit project IDs, and a container secret path; it never contains the secret
-value. The host-owned `principal-registry/principals.json` registry binds each
-project ID to one exact Gateway network. Its dedicated directory is mounted
+supplied through Context-owned owner-only host files. A generated Gateway-only
+projection keys profiles and secret subdirectories by stable Context ID, so the
+same display profile name may exist in multiple Contexts. Configuration contains
+a profile type, exact allowed hosts, explicit project IDs, and a Context-scoped
+container secret path; it never contains the secret value. The host-owned
+`principal-registry/principals.json` schema 2 registry binds each Context/project
+pair to one exact Gateway network and local address. Its dedicated directory is mounted
 read-only into Gateway; credential configuration and secret directories are
 not included in that mount.
 
@@ -264,24 +271,24 @@ mode, Gateway removes Tobari-provided `Authorization`, `Proxy-Authorization`,
 `X-API-Key`, and configured managed-secret headers. Cookie and Set-Cookie
 values may remain part of the authorized application flow but are excluded
 from OPA input and Tobari audit logs. A managed header is added only after an
-allow decision names a configured profile whose project and host bindings
+allow decision names a configured profile whose Context, project, and host bindings
 exactly match the established principal and normalized host. Gateway checks
-the project binding before OPA and repeats it before reading the secret. The
+the Context/project binding before OPA and repeats it before reading the secret. The
 value is never returned to Tobari, OPA, CLI output, errors, or audit logs.
 
 OAuth, refresh tokens, provider SDKs, OS keychains, request signing, and
 process-level identity are not used. The optional `session` value remains
 caller metadata, not authentication. Gateway performs project- and host-bound
  post-authorization handling inside the trusted infrastructure boundary. The
- initialized policy belongs to the active Context; the learned-rule and
- managed-secret namespaces remain project-bound. A missing,
+ selected policy belongs to the trusted Context principal; learned-rule and
+ managed-secret namespaces remain Context- and project-bound. A missing,
 malformed, ambiguous, or stale principal registry entry denies before OPA and
 upstream I/O.
 
 ## Mutation policy
 
 `runtime init` is a host-only create of one owner-only recipe directory.
-`runtime build` is a host-only write against the active Context runtime target;
+`runtime build` is a host-only write against the current Context runtime target;
 its Docker build context is fixed to that recipe directory, and its image
 promotion happens only after compatibility and digest checks. Neither command
 mounts the Context directory into a Workspace or accepts a secret/image-name
@@ -297,39 +304,38 @@ read and present containing Workspace candidates, then creates or reconciles
 one logical Tobari only after an explicit choice and a fresh locked check. An
 exact current-root record is reused directly; a nested root requires the
 explicit create-here choice. The command never creates shared resources.
-Each canonical root is unique: repeated or concurrent explicit creation is
-serialized by the state lock and only one logical record can be committed.
+Each canonical root and stable Context pair is unique: repeated or concurrent
+explicit creation is serialized by the state lock and only one logical record
+for that pair can be committed. Same-root records in different Contexts and
+overlapping parent/child roots remain allowed.
 Entering a session and returning from the child shell are not lifecycle-ending
 mutations. `exit` only detaches the session; `delete` resolves the same target
 and is the only routine lifecycle-ending mutation. Ordinary delete observes
 active exec sessions and rejects when one is attached; `--force` is the
 explicit override.
-Neither operation accepts an ID, name, or arbitrary root selector.
+Neither operation accepts an ID or arbitrary root selector. Root entry,
+status, and delete accept a Context name only as a host-side selector resolved
+to stable identity before target selection.
 All mutations use complete intent and impact declarations before Docker
 execution. Ordinary runtime reconciliation needs no human approval;
 ordinary deletion requires no attached session, while `--force` overrides that
-guard. Runtime image reconciliation validates the active Context image before
+guard. Runtime image reconciliation validates the bound Context image before
 mutating Docker resources and preserves the selected XDG home; deletion affects
 only the selected XDG home and exact owned resources. Shared
 CA purge remains separate
 and only follows an empty instance repository.
 
 `context use` is also a trusted-host fixed-target write. It may select only an
-existing validated Context. If the shared cluster is running, the operation
-writes the cluster recovery journal before changing the active marker and then
-reuses the same policy test, ownership checks, read-only OPA bind, Gateway-only
-credential binds, labels, and health wait as `cluster up`. It never mounts a
-Context directory wholesale into an untrusted Workspace. A stopped or
-unconfigured cluster receives only the new host marker; Docker is not started
-implicitly. If reconciliation fails, the previous marker and state are
-restored when possible, and an unresolved journal blocks entry and policy
-operations until an explicit cluster reconciliation succeeds.
+existing validated Context and atomically changes only the current/default
+marker. It does not touch Docker, the aggregate projection, an existing Tobari,
+or any enforcement authority. `context create` likewise does not start Docker;
+an explicit `cluster up` validates and activates the new all-Context candidate.
 `policy allow`, `policy deny`, `policy reset`, and `policy compact` are
 access-changing writes bound to opaque references. Discovery never mutates. An
 allow reference identifies one retained validated denial that OPA marked
 exact-rule learnable; a
 deny reference identifies one retained validated denial and binds its exact
-project/host/port/method/path; a compaction reference identifies one current
+Context/project/host/port/method/path; a compaction reference identifies one current
 exact source-rule set; a reset reference identifies one current CLI-owned
 learned Allow or exact Deny and removes it, returning the effect to default
 deny. Scheme, cluster, and credential-binding failures never become permission
@@ -345,7 +351,7 @@ shapes before the atomic policy write.
 
 Learned rules never broaden a project, host, port, or method beyond the
 explicitly approved evidence. Baseline and exact deny rules remain terminal; an
-exact deny wins over a learned allow for the same project/host/port/method/path.
+exact deny wins over a learned allow for the same Context/project/host/port/method/path.
 Prefix compaction requires three exact
 sources, keeps host, port, and method fixed, requires a multi-segment directory
 boundary, rejects percent
@@ -363,14 +369,14 @@ each resulting request is independently authorized.
 
 ## Logging
 
-Audit JSON includes timestamp, request ID, cluster, project ID, host, port,
-method, path, decision, reason, selected credential profile name, upstream
+Audit JSON includes timestamp, request ID, cluster, stable Context ID and name,
+project ID, safe project root, host, port, method, path, decision, reason, selected credential profile name, upstream
 status, and duration. A
 profile name is non-secret metadata; secret values and raw bodies are excluded.
 CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
 and preserves only non-secret credential-profile names. Read-only policy
-candidate commands aggregate exact project/host/port/method/path proposals from
+candidate commands aggregate exact Context/project/host/port/method/path proposals from
 that evidence, treating reason, status, request identity, timestamps, and
 credential-profile display evidence as non-identity fields. The latest evidence
 and bounded observation count do not grant authority. `policy review`
@@ -402,13 +408,16 @@ reference-bound mutation.
 | OPA cannot rewrite Context policy | Read-only mount-spec test |
 | Tested host policy activates across Docker hosts | Fixed-target OPA recreation test and integration scenario |
 | CWD lifecycle actions use exact Tobari identity | Canonical-root, state, and label-validation tests |
-| One canonical root has one Workspace | Root-index hash naming, locked exact-root checks, domain duplicate-index validation, and concurrent explicit-creation tests |
+| One canonical root/Context pair has one Workspace | Pair-derived root-index hash naming, locked exact-pair checks, domain duplicate-index validation, same-root/different-Context tests, and concurrent explicit-creation tests |
 | Session exit cannot delete a Workspace | Child exit-status tests, host-stderr summary tests, and logical-state preservation after entry |
-| Gateway cannot accept a caller-selected project principal | Owner-only atomic directory-mounted principal registry, local-interface derivation, malformed/unknown denial tests, and two-project integration |
-| Managed credentials cannot cross project principals | Explicit profile project bindings, pre-OPA Gateway rejection, repeated injection check, and two-project integration |
+| Gateway cannot accept caller-selected Context or project authority | Owner-only atomic schema-2 registry, local-interface derivation, forged-header/malformed/unknown/stale denial tests, and multi-Context integration |
+| Managed credentials cannot cross Context/project principals | Context-scoped projections and secret paths, explicit project bindings, pre-OPA Gateway rejection, repeated injection check, same-name cross-Context tests, and integration |
 | Unknown effects fail closed | Domain and catalog validation |
-| Denials support safe policy learning | Typed project/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
-| Learned permissions stay explicit and project-bound | Opaque candidate round trips, exact project/host/port/method/path domain tests, Rego cross-project canaries, preflight-before-atomic-write tests, and Docker integration |
+| Denials support safe policy learning | Typed Context/project/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
+| Learned permissions stay explicit and Context/project-bound | Context-scoped opaque-reference round trips, exact effect domain tests, Rego cross-Context/project canaries, preflight-before-aggregate activation tests, and Docker integration |
+| One bad Context cannot replace known-good policy | Serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
+| Context changes cannot mutate existing Tobari authority | Permanent instance binding, current-marker-only tests, Context-local runtime reconciliation, and restart integration |
+| Overlapping roots are not misrepresented as isolated | Product contract, direct read-write mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |
 | Compaction preserves declared boundaries | Three-source same-host/port/method grouping invariant, retained positive examples, outside-prefix canary, stale-reference rejection, and OPA tests |
 | Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
 | Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test and over-limit `Content-Length` integration request |

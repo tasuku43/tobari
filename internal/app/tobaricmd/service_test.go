@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
@@ -82,6 +83,8 @@ func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.Clus
 	return tobari.ClusterStatus{
 		Configured: true, Running: running, Proxy: f.state.ProxyEndpoint,
 		Policy: f.state.PolicyDirectory, TobariCount: len(f.state.Tobari),
+		ContextCount: f.state.ContextCount, PolicyRevision: f.state.AggregateRevision,
+		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
 		Components: []tobari.ComponentStatus{},
 	}, nil
 }
@@ -314,7 +317,8 @@ func testState(root string) tobari.State {
 		Network: "tobari-work-net", HomeVolume: "tobari-work-home",
 	}
 	return tobari.State{
-		SchemaVersion: 2, RuntimeDirectory: filepath.Join(root, "runtime"),
+		SchemaVersion: 3, RuntimeDirectory: filepath.Join(root, "runtime"),
+		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
 		PolicyDirectory:  filepath.Join(root, "policy"),
 		CredentialConfig: filepath.Join(root, "credentials.json"),
 		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
@@ -360,7 +364,9 @@ func testProjectInstance() tobari.ProjectInstance {
 		SchemaVersion: tobari.ProjectStateSchemaVersion,
 		ID:            "01912345-6789-7abc-8def-0123456789ab",
 		Root:          "/tmp/project", Profile: tobari.DefaultProfile,
-		Image: tobari.BuiltinImageSelector,
+		ContextID:   "018bcfe5-687b-7000-8000-000000000099",
+		ContextName: tobari.DefaultContextName,
+		Image:       tobari.BuiltinImageSelector,
 	}
 }
 
@@ -745,18 +751,13 @@ func TestClusterDenialsReturnsPolicyAndEmptyBoundedScope(t *testing.T) {
 	}
 }
 
-func TestPolicyCandidatesFailClosedWhenActiveContextDiffersFromClusterState(t *testing.T) {
+func TestPolicyCandidatesIgnoreCurrentContextAsAuthority(t *testing.T) {
 	t.Parallel()
 	state := testState(t.TempDir())
-	state.ContextName = tobari.DefaultContextName
 	runtime := &activeContextFake{fakeRuntime: &fakeRuntime{state: state}, active: "project-tools"}
-	_, err := New(runtime).PolicyCandidates(context.Background(), 75)
-	public, ok := fault.PublicCopy(err)
-	if !ok || public.Kind != fault.KindRejected || public.Code != "context_mismatch" {
-		t.Fatalf("PolicyCandidates() fault = %#v, ok=%t", public, ok)
-	}
-	if runtime.denials != nil {
-		t.Fatalf("policy denials were read during context mismatch: %+v", runtime.denials)
+	result, err := New(runtime).PolicyCandidates(context.Background(), 75)
+	if err != nil || result.Items == nil {
+		t.Fatalf("PolicyCandidates() = %+v, %v", result, err)
 	}
 }
 
@@ -811,8 +812,9 @@ func TestServiceInteractiveRequiresTerminalStreams(t *testing.T) {
 func validServiceDenial() tobari.PolicyDenial {
 	return tobari.PolicyDenial{
 		Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ProjectID: "01912345-6789-7abc-8def-0123456789ab",
-		Host:      "api.example.com", Port: 443, Method: "GET", Path: "/api/v1/items/one",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+		Host: "api.example.com", Port: 443, Method: "GET", Path: "/api/v1/items/one",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
 }
@@ -878,7 +880,7 @@ func TestDenyPolicyCandidateBindsExactReferenceAndRemovesQueueItem(t *testing.T)
 	}
 	if runtime.denyCalls != 1 || result.TargetID != candidate.ID || !result.Applied ||
 		len(runtime.denyRules) != 1 || !runtime.denyRules[0].Matches(
-		candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path,
+		candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path,
 	) {
 		t.Fatalf("result=%+v deny calls=%d rules=%+v", result, runtime.denyCalls, runtime.denyRules)
 	}

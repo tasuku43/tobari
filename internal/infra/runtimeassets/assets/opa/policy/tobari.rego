@@ -109,6 +109,7 @@ explicitly_denied if {
 
 explicitly_denied if {
 	some rule in learned_deny_rules
+	rule.context_id == input.principal.context_id
 	rule.project_id == input.principal.project_id
 	rule.host == input.request.authority.host
 	rule.port == input.request.authority.port
@@ -132,6 +133,7 @@ learned_rule_allowed if {
 
 learned_rule_matches_request(rule, project_id, request) if {
 	rule.match == "exact"
+	rule.context_id == input.principal.context_id
 	rule.project_id == project_id
 	rule.host == request.authority.host
 	rule.port == request.authority.port
@@ -141,6 +143,7 @@ learned_rule_matches_request(rule, project_id, request) if {
 
 learned_rule_matches_request(rule, project_id, request) if {
 	rule.match == "prefix"
+	rule.context_id == input.principal.context_id
 	rule.project_id == project_id
 	rule.host == request.authority.host
 	rule.port == request.authority.port
@@ -166,6 +169,8 @@ learned_rule_valid(rule) if {
 	regex.match("^plr_[0-9a-f]{32}$", rule.id)
 	is_string(rule.project_id)
 	regex.match("^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", rule.project_id)
+	is_string(rule.context_id)
+	regex.match("^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", rule.context_id)
 	is_string(rule.host)
 	rule.host != ""
 	is_number(rule.port)

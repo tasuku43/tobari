@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -16,16 +19,19 @@ import (
 func learnedRuleFixture(t *testing.T, path string) tobari.LearnedPolicyRule {
 	t.Helper()
 	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{
-		Timestamp:  "2026-07-30T10:41:11Z",
-		RequestID:  "7185da2688d7469aae9cd9068e920b0b",
-		ProjectID:  "01912345-6789-7abc-8def-0123456789ab",
-		Host:       "api.github.com",
-		Port:       443,
-		Method:     "GET",
-		Path:       path,
-		Reason:     "request did not match an allow rule",
-		StatusCode: 403,
-		Learnable:  true,
+		Timestamp:   "2026-07-30T10:41:11Z",
+		RequestID:   "7185da2688d7469aae9cd9068e920b0b",
+		ContextID:   "01912345-6789-7abc-8def-0123456789ad",
+		ContextName: "default",
+		ProjectID:   "01912345-6789-7abc-8def-0123456789ab",
+		ProjectRoot: "/workspace/project",
+		Host:        "api.github.com",
+		Port:        443,
+		Method:      "GET",
+		Path:        path,
+		Reason:      "request did not match an allow rule",
+		StatusCode:  403,
+		Learnable:   true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -40,16 +46,19 @@ func learnedRuleFixture(t *testing.T, path string) tobari.LearnedPolicyRule {
 func deniedRuleFixture(t *testing.T, path string) tobari.PolicyDenyRule {
 	t.Helper()
 	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{
-		Timestamp:  "2026-07-30T10:41:11Z",
-		RequestID:  "8185da2688d7469aae9cd9068e920b0b",
-		ProjectID:  "01912345-6789-7abc-8def-0123456789ab",
-		Host:       "api.github.com",
-		Port:       443,
-		Method:     "GET",
-		Path:       path,
-		Reason:     "request did not match an allow rule",
-		StatusCode: 403,
-		Learnable:  true,
+		Timestamp:   "2026-07-30T10:41:11Z",
+		RequestID:   "8185da2688d7469aae9cd9068e920b0b",
+		ContextID:   "01912345-6789-7abc-8def-0123456789ad",
+		ContextName: "default",
+		ProjectID:   "01912345-6789-7abc-8def-0123456789ab",
+		ProjectRoot: "/workspace/project",
+		Host:        "api.github.com",
+		Port:        443,
+		Method:      "GET",
+		Path:        path,
+		Reason:      "request did not match an allow rule",
+		StatusCode:  403,
+		Learnable:   true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +92,125 @@ func writePolicyFixture(t *testing.T, state tobari.State, data string) {
 
 const minimalPolicyDataFixture = `{"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}
 `
+
+type concurrentPolicyRunner struct{}
+
+func (concurrentPolicyRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+	return nil
+}
+
+func (concurrentPolicyRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if len(args) > 0 && args[0] == "inspect" {
+		return []byte(ownerValue + "\n"), nil
+	}
+	return nil, nil
+}
+
+func contextRuleFixture(t *testing.T, manifest tobari.ContextManifest, projectID, path string) tobari.LearnedPolicyRule {
+	t.Helper()
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{
+		Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("a", 32),
+		ContextID: manifest.ID, ContextName: manifest.Name,
+		ProjectID: projectID, ProjectRoot: "/workspace/project",
+		Host: "api.example.com", Port: 443, Method: "POST", Path: path,
+		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, err := tobari.NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rule
+}
+
+func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
+	root := t.TempDir()
+	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
+	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+		t.Fatal(err)
+	}
+	defaultContext, _, err := runtimeStore.resolveContext("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restrictedContext, _, err := runtimeStore.resolveContext("restricted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := runtimeStore.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(root)
+	state.AggregateRevision = projection.Revision
+	state.ContextCount = projection.ContextCount
+	state.PolicyDirectory = projection.PolicyDirectory
+	state.CredentialConfig = projection.CredentialConfig
+	state.CredentialDir = projection.CredentialDirectory
+	if err := runtimeStore.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	rules := []tobari.LearnedPolicyRule{
+		contextRuleFixture(t, defaultContext, "01912345-6789-7abc-8def-0123456789ab", "/default"),
+		contextRuleFixture(t, restrictedContext, "01912345-6789-7abc-8def-0123456789ac", "/restricted"),
+	}
+	type result struct {
+		index int
+		err   error
+	}
+	results := make(chan result, len(rules))
+	var wait sync.WaitGroup
+	for index, rule := range rules {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			results <- result{index: index, err: runtimeStore.ApplyLearnedPolicyRules(context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule})}
+		}()
+	}
+	wait.Wait()
+	close(results)
+	winner, loser, successes := -1, -1, 0
+	for result := range results {
+		if result.err == nil {
+			winner = result.index
+			successes++
+			continue
+		}
+		public, ok := fault.PublicCopy(result.err)
+		if !ok || public.Code != "policy_data_changed" {
+			t.Fatalf("concurrent mutation %d error = %v", result.index, result.err)
+		}
+		loser = result.index
+	}
+	if successes != 1 || winner < 0 || loser < 0 {
+		t.Fatalf("concurrent results successes=%d winner=%d loser=%d", successes, winner, loser)
+	}
+	stored, exists, err := runtimeStore.LoadState(context.Background())
+	if err != nil || !exists {
+		t.Fatalf("LoadState() = %+v, exists=%t, error=%v", stored, exists, err)
+	}
+	current, err := runtimeStore.ReadLearnedPolicyRules(context.Background(), stored)
+	if err != nil || len(current) != 1 || current[0].ID != rules[winner].ID {
+		t.Fatalf("first committed rules = %+v, error=%v", current, err)
+	}
+	updated := append(append([]tobari.LearnedPolicyRule{}, current...), rules[loser])
+	if err := runtimeStore.ApplyLearnedPolicyRules(context.Background(), stored, current, updated); err != nil {
+		t.Fatalf("retry after rediscovery failed: %v", err)
+	}
+	latest, exists, err := runtimeStore.LoadState(context.Background())
+	if err != nil || !exists {
+		t.Fatalf("LoadState() after retry = %+v, exists=%t, error=%v", latest, exists, err)
+	}
+	committed, err := runtimeStore.ReadLearnedPolicyRules(context.Background(), latest)
+	if err != nil || len(committed) != 2 {
+		t.Fatalf("committed cross-Context rules = %+v, error=%v", committed, err)
+	}
+}
 
 func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testing.T) {
 	t.Parallel()

@@ -34,10 +34,10 @@ journey is the product baseline to improve:
 | First isolated session | Explicit `cluster up`, then `tobari`; `doctor` is recovery-only | One obvious CWD-first entry with cluster/bootstrap complexity guided or hidden while retaining an explicit recovery command |
 | Agent work | Reusable root, home, and deny-by-default Gateway | The user sets the boundary first; the agent works freely inside it without per-command supervision, host credentials, or direct egress |
 | First denied request | 403 plus host-side `policy review` | The agent can explain that the host must review the secret-free exact request; one fixed next command is available |
-| Permission growth | Human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users select, inspect, explicitly confirm, and refresh after one exact decision without OPA/Rego editing; redirected review remains read-only and the underlying action remains exact-reference-bound and tested |
+| Permission growth | Installation-wide human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users see Context/root/request at selection, detail, and confirmation; redirected review remains read-only and the action remains bound to one Context-scoped opaque reference |
 | Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
-| Execution setup | `context list`, `context show`, `context use --name NAME` | The user can inspect and select one logical setup; a running shared cluster is reconciled during selection while policy, agent configuration, and credential stores remain physically separated |
-| Runtime customization | `runtime init`, edit the active Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image |
+| Execution setup | `context list`, `context show`, `context use --name NAME`, `tobari --context NAME` | The user can inspect stable Contexts, change only the omitted-Context default, and create same-root Tobari in different Contexts while one Gateway/OPA routes trusted principals |
+| Runtime customization | `runtime init`, edit the current Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image and other Contexts are unchanged |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
 
 The table is a review baseline, not a claim that the desired command count is
@@ -52,13 +52,14 @@ already closes the allow/deny decision; JSON review plus `policy allow --id`
 remains the redirected or machine path. No observed journey justifies deleting
 or merging a public command. The valid recovery path after an allowed
 permission is `tobari` re-entry; there is no `tobari retry` command. Runtime
-builds apply through the active Context, and existing Workspaces pick up the
-promoted image on the next root entry while preserving their home. Future UX
+builds apply through the current Context, and only Workspaces bound to it pick
+up the promoted image on their next matching-Context root entry while
+preserving their home. Future UX
 work may simplify bootstrap or polish terminal redraws, but those observations
 do not change the current contract or authorize a second command surface.
-Context selection has one explicit outcome: an already
-running cluster is reconciled synchronously, while a stopped or unconfigured
-cluster reports that `cluster up` is still required.
+Context selection has one explicit outcome: the omitted-Context default changes
+without Docker or enforcement mutation. A newly created Context requires an
+explicit `cluster up` to activate a new validated all-Context projection.
 
 Parent-owned human-path evidence uses a real-PTY capture boundary. The
 reviewable bundle records `rows`, `cols`, `TERM`, one short input event at a
@@ -81,7 +82,7 @@ go run ./cmd/tobari help status --format agent
 go build -o /tmp/tobari ./cmd/tobari
 go run ./cmd/tobari context show --format json
 go run ./cmd/tobari context list --format json
-go run ./cmd/tobari context use --name default --format json # records not_configured/not_running without starting Docker
+go run ./cmd/tobari context use --name default --format json # changes only the current default without starting Docker
 go run ./cmd/tobari cluster up
 (cd /absolute/test/root && /tmp/tobari doctor --format json) # optional diagnostics after cluster bootstrap
 (cd /absolute/test/root && /tmp/tobari)
@@ -89,18 +90,21 @@ go run ./cmd/tobari cluster up
 (cd /absolute/test/root && /tmp/tobari status --format json)
 (cd /absolute/test/root && /tmp/tobari list --format json)
 go run ./cmd/tobari cluster denials --tail 100 --format json
-go run ./cmd/tobari context create --name project-tools --format json
-go run ./cmd/tobari context use --name project-tools --format json # reconciles the running cluster
-go run ./cmd/tobari context use --name default --format json # switches back through the same path
+go run ./cmd/tobari context create --name restricted --format json
+go run ./cmd/tobari cluster up # safely activates the new all-Context projection
+(cd /absolute/test/root && /tmp/tobari --context restricted) # same root, different logical Tobari
+go run ./cmd/tobari context use --name restricted --format json # changes only the omitted-Context default
+go run ./cmd/tobari context use --name default --format json
 go run ./cmd/tobari runtime init
-# edit the active Context's runtime/Dockerfile
+# edit the current Context's runtime/Dockerfile
 go run ./cmd/tobari runtime build --format json
 (cd /absolute/test/root && /tmp/tobari) # reconciles an existing Workspace to the new runtime image
 go run ./cmd/tobari policy review --tail 100
 go run ./cmd/tobari policy candidates --tail 100 --format json
 go run ./cmd/tobari policy allow --id PCY_ID
 go run ./cmd/tobari policy compactions --format json
-go run ./cmd/tobari delete
+(cd /absolute/test/root && /tmp/tobari delete --context restricted)
+(cd /absolute/test/root && /tmp/tobari delete --context default)
 go run ./cmd/tobari cluster down --purge
 ```
 
@@ -113,23 +117,25 @@ rules exist. The transcript must prove:
 - Root agent help is a compact outcome/capability index.
 - Scoped help supplies inputs, outputs, prerequisites, effects, references,
   failures, and recovery commands.
-- Context discovery identifies the active Context and its separated agent,
-  policy, and credential stores without exposing secret values.
-- Context selection reports `not_configured`, `not_running`, `already_ready`, or
-  `reconciled` explicitly; it never starts a stopped cluster implicitly.
-- Switching a running cluster updates the OPA policy and Gateway credential
-  mounts before success is reported. A failed or interrupted switch restores
-  the previous marker/state where possible and directs entry and policy paths
-  to explicit `cluster up` recovery.
-- Cluster startup mounts no work root.
+- Context discovery identifies the current default, stable Context identities,
+  and separated agent, policy, and credential stores without exposing secrets.
+- `context use` reports `default_updated`, never starts Docker, and does not
+  mutate existing Tobari or shared enforcement. Explicit root `--context`
+  selection leaves the marker unchanged.
+- Cluster startup validates and atomically activates every Context source while
+  retaining exactly one Gateway and one OPA; a failed Context candidate
+  preserves the previous complete known-good projection.
+- Cluster startup mounts no work root and Gateway receives only purpose-limited
+  Context-aware principal and credential projections.
 - The root command binds the canonical current directory and a compatible local
   image selector without a name or root flag; an ancestor-root entry exposes all
   containing Workspaces nearest-first and requires an explicit reuse/create
   choice.
-- Omitted image selection resolves from the active Context's runtime image; the
+- Omitted Context selection resolves from the current default, then runtime
+  image selection resolves from the Tobari's permanent Context binding; the
   legacy XDG default seeds the default Context and then `builtin` is used,
   without requiring source inspection.
-- `runtime init` creates one owner-only active-Context Dockerfile and does not
+- `runtime init` creates one owner-only current-Context Dockerfile and does not
   overwrite it or change the selected image.
 - `runtime build` uses only that recipe directory, validates the runtime
   contract and image digest, derives the local image reference mechanically,
@@ -142,15 +148,17 @@ rules exist. The transcript must prove:
   remain.
   The exact official `runtime:latest` base is refreshed on this explicit build;
   explicit local or custom bases do not request a registry pull. An existing
-  Workspace validates the promoted active Context image on the next root entry,
+  Workspace bound to that Context validates the promoted image on its next root entry,
   recreates only the work container when the runtime spec changed, preserves
   its home, and updates the stored project image only after success.
-- Project metadata does not override the active Context image for Workspace
+- Project metadata does not override the bound Context image for Workspace
   creation or existing runtime reconciliation.
 - `list` retains an explicitly exhaustive local collection, including empty,
-  while preserving diagnostic IDs without making them action inputs.
-- `status` and `delete` resolve the same nearest canonical ancestor; `tobari`
-  enters an exact root directly and explicitly chooses among ancestor roots.
+  and reports Context with diagnostic IDs. Same-root/different-Context rows are
+  distinguishable without making IDs routine action inputs.
+- `status` and `delete` resolve the explicit or current Context plus nearest
+  canonical ancestor; `tobari` enters an exact pair directly and explicitly
+  chooses among ancestor roots. Deletion never guesses another Context.
 - A child terminal exit leaves the logical Tobari existing for reuse, emits the
   host-side resume/delete guidance on stderr, and does not introduce a stopped
   state; detached `tobari delete` removes it, while `tobari delete --force`
@@ -158,14 +166,16 @@ rules exist. The transcript must prove:
 - A denied request produces bounded typed secret-free host/method/path
   evidence, the host policy path, and the exact review command. Baseline
   terminal denies remain audit evidence without inviting approval.
-- Candidate discovery deduplicates pending effects and emits opaque references
+- Candidate discovery crosses every Context, keeps same-request/different-
+  Context effects distinct, and emits opaque references
   without changing authority; orthogonal scheme, project-principal, or
   managed-credential failures remain diagnostics and do not become ineffective
   candidates.
-- `PCY_ID` denotes one exact value emitted by `policy review` or `policy
+- Permission Inbox selection, detail, and confirmation retain Context, root,
+  and request. `PCY_ID` denotes one exact value emitted by `policy review` or `policy
   candidates`; the transcript passes it unchanged to either `policy allow` or
   `policy deny`. Allow tests the complete policy and records one exact learned
-  rule; deny records one exact project-bound terminal rule. Both activate
+  rule; deny records one exact Context/project-bound terminal rule. Both activate
   without restarting a Tobari.
 - Cleanup verifies exact owner and opaque-ID labels.
 
@@ -204,7 +214,11 @@ calls.
 
 `task integration:test` additionally proves:
 
-- Two CWD-owned Tobari have distinct internal networks, roots, and homes.
+- Multiple Contexts still produce exactly one Gateway and one OPA.
+- Two same-root Tobari in different Contexts have distinct stable IDs, homes,
+  containers, networks, principals, runtime authority, and policy authority,
+  while edits to their shared mounted host files are mutually visible.
+- Parent/child roots in different Contexts may run concurrently.
 - Neither has direct egress, OPA access, or cross-Tobari reachability.
 - HTTPS is authorized after CONNECT interception and validates the Tobari CA.
 - OPA and Gateway outages fail closed.
@@ -213,8 +227,12 @@ calls.
 - The default passthrough adapter forwards a client-authenticated request only
   after allow, while its value is absent from mounts, logs, OPA input, and CLI
   output.
-- The retained managed adapter is covered separately by exact project/host
-  binding and post-allow injection tests.
+- The retained managed adapter is covered by exact Context/project/host binding,
+  same profile-name cross-Context rejection, and post-allow injection tests.
+- Identical effects may be allowed in one Context and denied in another;
+  learning, exact deny, reset, and compaction never cross that boundary.
+- Changing current Context does not migrate existing Tobari, and restart
+  restores their durable Context bindings.
 - Concurrent processes share one selected Tobari.
 - Repeated root reconciliation does not grow owned resources.
 
@@ -222,12 +240,12 @@ calls.
 
 Agents must not infer:
 
-- identity from a display name, container label, log order, or position;
+- identity from a Context display name, container label, log order, or position;
 - permission from a previous allow or similar path;
 - exhaustive external history from complete CLI delivery;
 - credential authority from a profile name;
 - safety from an executable name;
-- protection for files below a selected read-write root.
+- protection or separation for files below overlapping selected read-write roots.
 
 The opaque reference, declared local collection scope, cluster status, bounded
 denial/log coverage, OPA decision, and structured failures are the supported

@@ -37,7 +37,7 @@ func TestRootCommandHelpUsesExecutableInvocation(t *testing.T) {
 		t.Fatal("default catalog lacks the root command")
 	}
 
-	if got, want := command.Usage(), ProgramName; got != want {
+	if got, want := command.Usage(), ProgramName+" [--context <name>]"; got != want {
 		t.Fatalf("root command usage = %q, want %q", got, want)
 	}
 	if strings.Contains(string(renderCommandHelp(command)), ProgramName+" "+ProgramName) {

@@ -18,13 +18,17 @@ func testPolicyReviewReport() tobari.PolicyCandidateReport {
 		Items: []tobari.PolicyCandidate{
 			{
 				ID:         "pcy_0123456789abcdef0123456789abcdef",
-				ObservedAt: "2026-08-02T10:00:00Z", ObservationCount: 3, ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+				ObservedAt: "2026-08-02T10:00:00Z", ObservationCount: 3,
+				ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+				ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 				Host: "api.github.com", Port: 443, Method: "POST", Path: "/repos/example/issues",
 				Reason: "request did not match an allow rule", StatusCode: 403,
 			},
 			{
 				ID:         "pcy_abcdef0123456789abcdef0123456789",
-				ObservedAt: "2026-08-02T10:01:00Z", ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+				ObservedAt: "2026-08-02T10:01:00Z",
+				ContextID:  "01912345-6789-7abc-8def-0123456789ad", ContextName: "restricted",
+				ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 				Host: "registry.npmjs.org", Port: 443, Method: "GET", Path: "/package/example",
 				Reason: "request did not match an allow rule", StatusCode: 403,
 			},
@@ -49,7 +53,8 @@ func TestPolicyReviewSelectorRawInspectConfirmAndPreservesOpaqueID(t *testing.T)
 	}
 	if !strings.Contains(output.String(), "Tobari · Permission Inbox") ||
 		!strings.Contains(output.String(), "Permission 2 of 2") ||
-		!strings.Contains(output.String(), "This allows exactly this host, port, method, and path.") {
+		!strings.Contains(output.String(), "This decision applies only to this Tobari in this Context.") ||
+		!strings.Contains(output.String(), "restricted") || !strings.Contains(output.String(), "/workspace/project") {
 		t.Fatalf("rich review output = %q", output.String())
 	}
 	if !strings.Contains(output.String(), "Allow this exact permission?") ||
@@ -153,7 +158,7 @@ func TestPolicyReviewSelectorFallsBackToLineConfirmation(t *testing.T) {
 	if strings.Contains(output.String(), "\x1b[") {
 		t.Fatalf("line fallback contains terminal controls: %q", output.String())
 	}
-	for _, want := range []string{"1.", "2.", "Choose [a] to allow", "Allow exactly this permission? [y/N]"} {
+	for _, want := range []string{"1.", "2.", "Choose [a] to allow", "Allow this exact permission?", "Context  restricted"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("line review output %q lacks %q", output.String(), want)
 		}
@@ -174,7 +179,7 @@ func TestPolicyReviewSelectorLineCanConfirmExactDeny(t *testing.T) {
 		decision.Action != policyReviewActionDeny || decision.Canceled {
 		t.Fatalf("decision = %+v", decision)
 	}
-	if !strings.Contains(output.String(), "Deny exactly this permission? [y/N]") {
+	if !strings.Contains(output.String(), "Deny this exact permission?") || !strings.Contains(output.String(), "Context  default") {
 		t.Fatalf("deny confirmation missing: %q", output.String())
 	}
 }

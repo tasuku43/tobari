@@ -56,6 +56,37 @@ func TestResolveOrCreateProjectCreatesDurableCWDState(t *testing.T) {
 	}
 }
 
+func TestSameCanonicalRootCanOwnIndependentTobariInDifferentContexts(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+		t.Fatal(err)
+	}
+	defaultProject, created, err := runtime.ResolveOrCreateProjectInContext(context.Background(), root, "default")
+	if err != nil || !created {
+		t.Fatalf("default project = %+v, created=%t, error=%v", defaultProject, created, err)
+	}
+	restrictedProject, created, err := runtime.ResolveOrCreateProjectInContext(context.Background(), root, "restricted")
+	if err != nil || !created {
+		t.Fatalf("restricted project = %+v, created=%t, error=%v", restrictedProject, created, err)
+	}
+	if defaultProject.ID == restrictedProject.ID || defaultProject.ContextID == restrictedProject.ContextID ||
+		runtime.projectHomePath(defaultProject.ID) == runtime.projectHomePath(restrictedProject.ID) || defaultProject.Root != restrictedProject.Root {
+		t.Fatalf("Context-bound projects are not independently identified: default=%+v restricted=%+v", defaultProject, restrictedProject)
+	}
+	projects, err := runtime.ListProjects(context.Background())
+	if err != nil || len(projects) != 2 {
+		t.Fatalf("ListProjects() = %+v, error=%v", projects, err)
+	}
+}
+
 func TestCreateProjectAllowsExplicitNestedWorkspaceCreation(t *testing.T) {
 	t.Parallel()
 	runtime := newProjectStateRuntime(t)
@@ -297,7 +328,11 @@ func TestResolveOrCreateProjectCleansUpAfterLogicalCreationBoundaryFailures(t *t
 			}
 		},
 		"root index": func(t *testing.T, runtime *Runtime, root string) {
-			path, err := runtime.rootIndexPath(root)
+			manifest, _, err := runtime.activeContext()
+			if err != nil {
+				t.Fatal(err)
+			}
+			path, err := runtime.rootIndexPath(root, manifest.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -358,7 +393,7 @@ func TestProjectJournalReconcilesInterruptedCreateAndDelete(t *testing.T) {
 			}
 			if err := runtime.writeProjectJournal(projectJournal{
 				SchemaVersion: projectJournalSchema, Operation: operation,
-				ProjectID: instance.ID, Root: instance.Root, Phase: projectPhaseRuntime,
+				ProjectID: instance.ID, Root: instance.Root, ContextID: instance.ContextID, Phase: projectPhaseRuntime,
 			}); err != nil {
 				t.Fatal(err)
 			}

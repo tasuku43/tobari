@@ -73,13 +73,9 @@ func newContextSwitchRuntime(t *testing.T, runner *contextSwitchRunner) *Runtime
 }
 
 func contextSwitchState(runtime *Runtime, name string, root string) tobari.State {
-	paths := runtime.contextPaths(name)
+	_ = runtime
+	_ = name
 	state := runtimeState(root)
-	state.ContextName = name
-	state.AgentProfile = tobari.DefaultProfile
-	state.PolicyDirectory = paths.PolicyDirectory
-	state.CredentialConfig = paths.CredentialConfig
-	state.CredentialDir = paths.CredentialDirectory
 	return state
 }
 
@@ -90,8 +86,8 @@ func TestUseContextReportsUnconfiguredAndStoppedStatesWithoutStartingDocker(t *t
 		runner *contextSwitchRunner
 		want   tobari.ContextClusterStatus
 	}{
-		{name: "unconfigured", runner: &contextSwitchRunner{}, want: tobari.ContextClusterStatusNotConfigured},
-		{name: "stopped", runner: &contextSwitchRunner{}, want: tobari.ContextClusterStatusNotRunning},
+		{name: "unconfigured", runner: &contextSwitchRunner{}, want: tobari.ContextClusterStatusDefaultUpdated},
+		{name: "stopped", runner: &contextSwitchRunner{}, want: tobari.ContextClusterStatusDefaultUpdated},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runtime := newContextSwitchRuntime(t, test.runner)
@@ -134,7 +130,7 @@ func TestUseContextReportsAlreadyReadyWithoutReconcile(t *testing.T) {
 	}
 }
 
-func TestUseContextReconcilesRunningClusterAndPersistsSelectedContext(t *testing.T) {
+func TestUseContextChangesOnlyDefaultWhileClusterIsRunning(t *testing.T) {
 	t.Parallel()
 	runner := &contextSwitchRunner{running: true}
 	runtime := newContextSwitchRuntime(t, runner)
@@ -145,15 +141,15 @@ func TestUseContextReconcilesRunningClusterAndPersistsSelectedContext(t *testing
 	if err != nil {
 		t.Fatalf("UseContext() error = %v", err)
 	}
-	if result.Cluster != tobari.ContextClusterStatusReconciled {
-		t.Fatalf("cluster status = %q, want reconciled", result.Cluster)
+	if result.Cluster != tobari.ContextClusterStatusDefaultUpdated {
+		t.Fatalf("cluster status = %q, want default_updated", result.Cluster)
 	}
 	state, configured, err := runtime.LoadState(context.Background())
 	if err != nil || !configured {
 		t.Fatalf("LoadState() = %+v, %t, %v", state, configured, err)
 	}
-	if state.ContextName != "project-tools" || state.PolicyDirectory != runtime.contextPaths("project-tools").PolicyDirectory {
-		t.Fatalf("persisted state = %+v", state)
+	if state.ContextName != "" || state.PolicyDirectory == runtime.contextPaths("project-tools").PolicyDirectory {
+		t.Fatalf("shared state acquired Context authority: %+v", state)
 	}
 	active, err := runtime.readActiveContext()
 	if err != nil || active != "project-tools" {
@@ -162,27 +158,12 @@ func TestUseContextReconcilesRunningClusterAndPersistsSelectedContext(t *testing
 	if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
 		t.Fatalf("reconcile journal = exists:%t error:%v", exists, err)
 	}
-	foundCompose := false
-	forceRecreate := false
-	for _, call := range runner.runs {
-		if len(call.args) > 0 && call.args[0] == "compose" {
-			foundCompose = true
-			for _, arg := range call.args {
-				if arg == "--force-recreate" {
-					forceRecreate = true
-				}
-			}
-		}
-	}
-	if !foundCompose {
-		t.Fatalf("Docker calls = %+v, want compose reconciliation", runner.runs)
-	}
-	if !forceRecreate {
-		t.Fatalf("Context switch compose call = %+v, want --force-recreate", runner.runs)
+	if len(runner.runs) != 0 {
+		t.Fatalf("Context default change touched Docker: %+v", runner.runs)
 	}
 }
 
-func TestUseContextRestoresPreviousStateAndBlocksUntilExplicitRecoveryAfterFailure(t *testing.T) {
+func TestUseContextDoesNotConsultOrMutateClusterReconcileState(t *testing.T) {
 	t.Parallel()
 	runner := &contextSwitchRunner{running: true, failCompose: true}
 	runtime := newContextSwitchRuntime(t, runner)
@@ -190,29 +171,19 @@ func TestUseContextRestoresPreviousStateAndBlocksUntilExplicitRecoveryAfterFailu
 	if err := runtime.writeState(previous); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.UseContext(context.Background(), "project-tools"); err == nil {
-		t.Fatal("UseContext() succeeded despite synthetic compose failure")
+	if _, err := runtime.UseContext(context.Background(), "project-tools"); err != nil {
+		t.Fatalf("UseContext() error = %v", err)
 	}
 	active, err := runtime.readActiveContext()
-	if err != nil || active != tobari.DefaultContextName {
-		t.Fatalf("active Context after failure = %q, error = %v", active, err)
+	if err != nil || active != "project-tools" {
+		t.Fatalf("current Context = %q, error = %v", active, err)
 	}
 	state, configured, err := runtime.LoadState(context.Background())
-	if err != nil || !configured || state.ContextName != tobari.DefaultContextName {
-		t.Fatalf("state after failure = %+v, configured=%t, error=%v", state, configured, err)
+	if err != nil || !configured || state.ContextName != "" {
+		t.Fatalf("shared state changed = %+v, configured=%t, error=%v", state, configured, err)
 	}
-	if _, exists, err := runtime.readClusterJournal(); err != nil || !exists {
-		t.Fatalf("reconcile journal after failure = exists:%t error:%v", exists, err)
-	}
-	if _, err := runtime.UseContext(context.Background(), tobari.DefaultContextName); err == nil {
-		t.Fatal("UseContext() ignored the interrupted reconcile journal")
-	}
-	runner.failCompose = false
-	if _, err := runtime.ClusterUp(context.Background()); err != nil {
-		t.Fatalf("explicit ClusterUp() recovery error = %v", err)
-	}
-	if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
-		t.Fatalf("reconcile journal after recovery = exists:%t error:%v", exists, err)
+	if len(runner.runs) != 0 {
+		t.Fatalf("Context default change touched Docker: %+v", runner.runs)
 	}
 }
 

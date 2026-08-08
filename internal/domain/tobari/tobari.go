@@ -131,21 +131,23 @@ type State struct {
 	RuntimeDirectory string `json:"runtime_directory"`
 	// ContextName is empty only for legacy schema-2 state; infrastructure
 	// interprets that value as the default Context during migration.
-	ContextName      string     `json:"context_name,omitempty"`
-	AgentProfile     string     `json:"agent_profile,omitempty"`
-	PolicyDirectory  string     `json:"policy_directory"`
-	CredentialConfig string     `json:"credential_config"`
-	CredentialDir    string     `json:"credential_directory"`
-	AssetVersion     string     `json:"asset_version"`
-	ProxyEndpoint    string     `json:"proxy_endpoint"`
-	RecentError      string     `json:"recent_error"`
-	Tobari           []Instance `json:"tobari"`
+	ContextName       string     `json:"context_name,omitempty"`
+	AgentProfile      string     `json:"agent_profile,omitempty"`
+	AggregateRevision string     `json:"aggregate_revision,omitempty"`
+	ContextCount      int        `json:"context_count,omitempty"`
+	PolicyDirectory   string     `json:"policy_directory"`
+	CredentialConfig  string     `json:"credential_config"`
+	CredentialDir     string     `json:"credential_directory"`
+	AssetVersion      string     `json:"asset_version"`
+	ProxyEndpoint     string     `json:"proxy_endpoint"`
+	RecentError       string     `json:"recent_error"`
+	Tobari            []Instance `json:"tobari"`
 }
 
 // Validate rejects incomplete, ambiguous, or relative state.
 func (s State) Validate() error {
-	if s.SchemaVersion != 2 {
-		return fmt.Errorf("Tobari state schema version must be 2")
+	if s.SchemaVersion != 3 {
+		return fmt.Errorf("Tobari state schema version must be 3")
 	}
 	for name, value := range map[string]string{
 		"runtime directory": s.RuntimeDirectory,
@@ -159,15 +161,11 @@ func (s State) Validate() error {
 	if s.AssetVersion == "" || strings.ContainsAny(s.AssetVersion, " \t\r\n") {
 		return fmt.Errorf("asset version is invalid")
 	}
-	if s.ContextName != "" {
-		if err := ValidateName(s.ContextName); err != nil {
-			return fmt.Errorf("context name: %w", err)
-		}
+	if s.ContextName != "" || s.AgentProfile != "" {
+		return fmt.Errorf("shared state must not contain a selected Context authority")
 	}
-	if s.AgentProfile != "" {
-		if err := ValidateName(s.AgentProfile); err != nil {
-			return fmt.Errorf("agent profile: %w", err)
-		}
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.AggregateRevision) || s.ContextCount < 1 {
+		return fmt.Errorf("aggregate Context projection is invalid")
 	}
 	if s.ProxyEndpoint != "http://gateway:8080" {
 		return fmt.Errorf("proxy endpoint is invalid")
@@ -212,14 +210,19 @@ type ComponentStatus struct {
 
 // ClusterStatus is a task-bound observation of shared enforcement.
 type ClusterStatus struct {
-	Task        string            `json:"task"`
-	Configured  bool              `json:"configured"`
-	Running     bool              `json:"running"`
-	Proxy       string            `json:"proxy"`
-	Policy      string            `json:"policy"`
-	TobariCount int               `json:"tobari_count"`
-	Components  []ComponentStatus `json:"components"`
-	RecentError string            `json:"recent_error"`
+	Task                 string            `json:"task"`
+	Configured           bool              `json:"configured"`
+	Running              bool              `json:"running"`
+	Proxy                string            `json:"proxy"`
+	Policy               string            `json:"policy"`
+	TobariCount          int               `json:"tobari_count"`
+	ContextCount         int               `json:"context_count"`
+	PolicyRevision       string            `json:"policy_revision"`
+	PolicyProjection     string            `json:"policy_projection"`
+	PrincipalRegistry    string            `json:"principal_registry"`
+	CredentialProjection string            `json:"credential_projection"`
+	Components           []ComponentStatus `json:"components"`
+	RecentError          string            `json:"recent_error"`
 }
 
 // Validate binds status to the requested cluster task and scope.
@@ -228,12 +231,14 @@ func (s ClusterStatus) Validate() error {
 		return fmt.Errorf("cluster status task identity is invalid")
 	}
 	if !s.Configured {
-		if s.Running || s.Proxy != "" || s.Policy != "" || s.TobariCount != 0 || len(s.Components) != 0 {
+		if s.Running || s.Proxy != "" || s.Policy != "" || s.TobariCount != 0 || s.ContextCount != 0 || s.PolicyRevision != "" || len(s.Components) != 0 {
 			return fmt.Errorf("unconfigured status contains cluster state")
 		}
 		return nil
 	}
-	if !filepath.IsAbs(s.Policy) || s.Proxy == "" || s.TobariCount < 0 || s.Components == nil {
+	if !filepath.IsAbs(s.Policy) || s.Proxy == "" || s.TobariCount < 0 || s.ContextCount < 1 ||
+		!regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.PolicyRevision) || s.Components == nil ||
+		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.CredentialProjection == "" {
 		return fmt.Errorf("configured cluster status is incomplete")
 	}
 	return nil

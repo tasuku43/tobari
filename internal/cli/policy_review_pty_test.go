@@ -91,7 +91,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 		for _, want := range []string{
 			"Tobari · Permission Inbox",
 			"Permission 1 of 1",
-			"This allows exactly this host, port, method, and path.",
+			"This decision applies only to this Tobari in this Context.",
 			"No pending network permissions",
 			"\x1b[?25h",
 			"POLICY_REVIEW_E2E case=allow code=0 apply_calls=1 deny_calls=0",
@@ -374,7 +374,8 @@ func runPolicyRulesJSONChild(t *testing.T) string {
 func newPolicyReviewPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake, string) {
 	denial := tobari.PolicyDenial{
 		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ProjectID: "01912345-6789-7abc-8def-0123456789ab", Host: "api.example.com", Port: 443,
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
 	}
@@ -394,7 +395,8 @@ func newPolicyReviewPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake,
 func newPolicyRulesPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake, string) {
 	denial := tobari.PolicyDenial{
 		Timestamp: "2026-08-02T10:00:00Z", RequestID: "8185da2688d7469aae9cd9068e920b0b",
-		ProjectID: "01912345-6789-7abc-8def-0123456789ab", Host: "api.example.com", Port: 443,
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
 	}

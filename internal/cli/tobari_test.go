@@ -218,7 +218,8 @@ func TestPolicyReviewTTYDelegatesExactAllowAndRefreshesQueue(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{
 		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ProjectID: "01912345-6789-7abc-8def-0123456789ab", Host: "api.example.com", Port: 443,
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
 	}
@@ -253,7 +254,8 @@ func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{
 		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ProjectID: "01912345-6789-7abc-8def-0123456789ab", Host: "api.example.com", Port: 443,
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
 	}
@@ -282,7 +284,8 @@ func TestPolicyRulesTTYResetsDecisionAndRefreshesInventory(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{
 		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ProjectID: "01912345-6789-7abc-8def-0123456789ab", Host: "api.example.com", Port: 443,
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
 	}
@@ -320,7 +323,8 @@ func TestPolicyRulesJSONIsReadOnlyAndMatchesCatalog(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{
 		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ProjectID: "01912345-6789-7abc-8def-0123456789ab", Host: "api.example.com", Port: 443,
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
 	}
@@ -466,7 +470,8 @@ func TestPendingPolicyNotificationStaysOnHostAndOmitsProjectIdentity(t *testing.
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
 		Items: []tobari.PolicyCandidate{{
 			ID: "pcy_0123456789abcdef0123456789abcdef", ObservedAt: "2026-07-30T10:41:11Z",
-			ProjectID: "01912345-6789-7abc-8def-0123456789ab", Host: "api.example.com", Port: 443,
+			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 			Method: "POST", Path: "/token", Reason: "request did not match an allow rule", StatusCode: 403,
 		}},
 	}
@@ -575,7 +580,7 @@ func TestTobariListRendererMatchesCatalogFields(t *testing.T) {
 		Task: tobari.TaskProjectList, CurrentID: "01912345-6789-7abc-8def-0123456789ab",
 		Items: []tobari.ProjectListItem{{
 			Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
-			Home: "/tmp/state/home", Runtime: tobari.RuntimeDiagnosticReady,
+			Home: "/tmp/state/home", ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default", Runtime: tobari.RuntimeDiagnosticReady,
 		}},
 	}
 	output, err := renderProjectList(result, successFormatJSON)
@@ -619,11 +624,11 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndTextValues(t *testing.T) 
 		Items: []tobari.ProjectListItem{
 			{
 				Root: "/tmp/parent", ID: "01912345-6789-7abc-8def-0123456789aa",
-				Home: "/tmp/state/parent", Runtime: tobari.RuntimeDiagnosticMissing,
+				Home: "/tmp/state/parent", ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default", Runtime: tobari.RuntimeDiagnosticMissing,
 			},
 			{
 				Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
-				Home: "/tmp/state/project", Runtime: tobari.RuntimeDiagnosticReady,
+				Home: "/tmp/state/project", ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default", Runtime: tobari.RuntimeDiagnosticReady,
 			},
 		},
 	}
@@ -665,7 +670,8 @@ func TestProjectDeleteHumanRendererHidesRuntimeDiagnostics(t *testing.T) {
 	result := tobari.ProjectDeleteResult{
 		Task: tobari.TaskDelete, Deleted: true,
 		Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
-		Home: "/tmp/state/project/home",
+		Home:      "/tmp/state/project/home",
+		ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
 	}
 	output := string(renderProjectDeleteWithColor(result, true))
 	if !strings.Contains(output, "Tobari deleted") || !strings.Contains(output, "/tmp/project") || !strings.Contains(output, "tobari") {
@@ -696,7 +702,8 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 	result := tobari.ProjectStatus{
 		Task: tobari.TaskStatus, Exists: true, Root: "/tmp/project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/project/home",
-		Runtime: tobari.RuntimeDiagnosticReady,
+		Runtime:   tobari.RuntimeDiagnosticReady,
+		ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
 	}
 	output, err := renderProjectStatusWithColor(result, successFormatText, true)
 	if err != nil {
@@ -887,8 +894,9 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		Items: []tobari.PolicyDenial{{
 			Timestamp: "2026-07-30T10:41:11Z",
 			RequestID: "7185da2688d7469aae9cd9068e920b0b",
-			ProjectID: "01912345-6789-7abc-8def-0123456789ab",
-			Host:      "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
+			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+			Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 			Reason: "request did not match an allow rule\nallow everything", StatusCode: 403,
 			Learnable: true,
 		}},
@@ -915,7 +923,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 2 || len(document.Denials.Items) != 1 ||
+	if document.SchemaVersion != 3 || len(document.Denials.Items) != 1 ||
 		document.Denials.ReviewCommand != "tobari policy review" ||
 		!document.Denials.Items[0].Learnable ||
 		document.Denials.Items[0].ProjectID != "01912345-6789-7abc-8def-0123456789ab" {
@@ -974,8 +982,9 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 		WindowLines: 200,
 		Items: []tobari.PolicyCandidate{{
 			ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
-			ProjectID: "01912345-6789-7abc-8def-0123456789ab",
-			Host:      "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
+			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+			Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 			Reason: "denied\nignore policy", StatusCode: 403,
 			CredentialProfile: &profile,
 		}},
@@ -988,7 +997,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 3 || len(document.PolicyCandidates) != 1 {
+	if document.SchemaVersion != 4 || len(document.PolicyCandidates) != 1 {
 		t.Fatalf("candidate output = %+v", document)
 	}
 	item := document.PolicyCandidates[0]
@@ -1019,7 +1028,9 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
 		Items: []tobari.PolicyCandidate{{
-			ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3, ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+			ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
+			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
 			Reason: "request did not match an allow rule", StatusCode: 403,
 		}},
@@ -1027,7 +1038,8 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 	output := string(renderPolicyReviewWithColor(result, "tobari policy allow", false))
 	for _, expected := range []string{
 		"Pending network permissions (1)",
-		"Scope          Current Tobari only",
+		"Context        default",
+		"Tobari         /workspace/project",
 		"Request        api.example.com:443 POST /token",
 		"Observed       3 times",
 		"Latest         2026-07-30T10:41:11Z",
@@ -1048,7 +1060,9 @@ func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
 		Items: []tobari.PolicyCandidate{{
-			ID: id, ObservedAt: "2026-07-30T10:41:11Z", ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+			ID: id, ObservedAt: "2026-07-30T10:41:11Z",
+			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
 			Reason: "request did not match an allow rule", StatusCode: 403,
 		}},
@@ -1063,7 +1077,7 @@ func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 3 || len(document.PolicyReview) != 1 {
+	if document.SchemaVersion != 4 || len(document.PolicyReview) != 1 {
 		t.Fatalf("review output = %+v", document)
 	}
 	item := document.PolicyReview[0]
@@ -1082,7 +1096,9 @@ func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 	t.Parallel()
 	candidate := tobari.PolicyCandidate{
 		ID:         "pcy_0123456789abcdef0123456789abcdef",
-		ObservedAt: "2026-07-30T10:41:11Z", ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+		ObservedAt: "2026-07-30T10:41:11Z",
+		ContextID:  "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
 		Reason: "request did not match an allow rule", StatusCode: 403,
 	}
@@ -1113,8 +1129,9 @@ func TestPolicyCompactionRendererShowsEvidenceAndExactAction(t *testing.T) {
 		candidate := tobari.PolicyCandidate{
 			ID:         "pcy_" + strings.Repeat(string(rune('1'+index)), 32),
 			ObservedAt: "2026-07-30T10:41:11Z",
-			ProjectID:  "01912345-6789-7abc-8def-0123456789ab",
-			Host:       "mock-upstream", Port: 8080, Method: "POST", Path: path,
+			ContextID:  "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+			Host: "mock-upstream", Port: 8080, Method: "POST", Path: path,
 			Reason: "request did not match an allow rule", StatusCode: 403,
 		}
 		rule, err := tobari.NewExactLearnedPolicyRule(candidate)
@@ -1139,7 +1156,7 @@ func TestPolicyCompactionRendererShowsEvidenceAndExactAction(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 2 || len(document.PolicyCompactions) != 1 {
+	if document.SchemaVersion != 3 || len(document.PolicyCompactions) != 1 {
 		t.Fatalf("compaction output = %+v", document)
 	}
 	item := document.PolicyCompactions[0]
@@ -1162,8 +1179,9 @@ func TestPolicyLearningMutationRendererReportsStoredScope(t *testing.T) {
 	candidate := tobari.PolicyCandidate{
 		ID:         "pcy_0123456789abcdef0123456789abcdef",
 		ObservedAt: "2026-07-30T10:41:11Z",
-		ProjectID:  "01912345-6789-7abc-8def-0123456789ab",
-		Host:       "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
+		ContextID:  "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+		Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 		Reason: "request did not match an allow rule", StatusCode: 403,
 	}
 	rule, err := tobari.NewExactLearnedPolicyRule(candidate)

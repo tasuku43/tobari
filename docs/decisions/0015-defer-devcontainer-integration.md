@@ -12,7 +12,7 @@
 Tobari added a narrow Dev Container compatibility path before the Context
 composition model and custom-runtime workflow were settled. The path reads a
 project-local `.devcontainer/devcontainer.json` and lets a literal image
-override the active Context image. It also exposes a legacy
+override the Tobari's bound Context image. It also exposes a legacy
 `attach --devcontainer` input.
 
 The standard Dev Container format describes a broader environment model than
@@ -49,7 +49,7 @@ Rejected for the current product.
 
 ### Option C: Defer and remove the integration
 
-Runtime selection remains owned by the active Context. Generic compatible OCI
+Runtime selection remains owned by each Tobari's bound Context. Generic compatible OCI
 images remain supported, while future Dev Container support can be designed as
 an explicit Context/runtime import or build operation after the runtime
 workflow is clear. Chosen.
@@ -58,7 +58,7 @@ workflow is clear. Chosen.
 
 Tobari does not interpret `.devcontainer/devcontainer.json` for CWD-owned
 Workspace creation and does not expose `--devcontainer` on the legacy
-`attach` command. The active Context is the only runtime image source for new
+`attach` command. The selected Context is the only runtime image source for new
 project records. Existing persisted generic image selectors remain readable;
 existing project files and Workspace homes are not deleted or rewritten.
 

@@ -119,7 +119,7 @@ func TestContextUseReportsReconciliationStatusAndParsesBeforeMutation(t *testing
 
 func contextCLIReport(task, name string, active bool, image string, mode tobari.ContextPolicyMode) tobari.ContextReport {
 	return tobari.ContextReport{
-		Task: task, Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
+		Task: task, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
 		Image: image, PolicyMode: mode, Cluster: tobari.ContextClusterStatusNotApplicable,
 		Runtime: tobari.ContextRuntimeReport{Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial},
 		Stores: tobari.ContextStorePaths{
@@ -134,7 +134,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	fake.list = tobari.ContextListResult{
 		Task: tobari.TaskContextList, Active: "default",
-		Items: []tobari.ContextSummary{{Name: "default", Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided}},
+		Items: []tobari.ContextSummary{{ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default", Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided}},
 	}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
@@ -142,7 +142,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	if code := command.RunContext(context.Background(), []string{"context", "list"}); code != ExitOK {
 		t.Fatalf("context list code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Active Context: default") || !strings.Contains(stdout.String(), "image="+tobari.OfficialRuntimeBase) {
+	if !strings.Contains(stdout.String(), "Current Context: default") || !strings.Contains(stdout.String(), "image="+tobari.OfficialRuntimeBase) {
 		t.Fatalf("context list output = %q", stdout.String())
 	}
 
@@ -285,7 +285,7 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &initDocument); err != nil {
 		t.Fatalf("runtime init JSON = %q, error = %v", stdout.String(), err)
 	}
-	if initDocument.SchemaVersion != 2 || initDocument.Context.Task != tobari.TaskRuntimeInit {
+	if initDocument.SchemaVersion != 3 || initDocument.Context.Task != tobari.TaskRuntimeInit {
 		t.Fatalf("runtime init document = %+v", initDocument)
 	}
 	for _, retained := range []string{
@@ -323,6 +323,7 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 func runtimeInitReportFixture() tobari.ContextReport {
 	return tobari.ContextReport{
 		Task:         tobari.TaskRuntimeInit,
+		ID:           "018bcfe5-687b-7000-8000-000000000099",
 		Name:         "default",
 		Active:       true,
 		AgentProfile: tobari.DefaultProfile,

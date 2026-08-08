@@ -22,11 +22,11 @@ selected from the canonical current directory rather than a user-managed name,
 root flag, or container identifier; and the user can reach that boundary
 without becoming a Docker or policy operator. A user may deliberately create
 tool-owned authentication state in that Tobari's own persistent home; this is
-not host credential inheritance. One installation-local cluster shares
-Gateway, OPA, an installation-wide baseline policy, and CA state without
-sharing Tobari roots or homes. Host-issued project principals bind mutable
-learned permissions to the exact current-directory network that originated a
-request; they do not select credentials.
+not host credential inheritance. One installation-local cluster shares one
+Gateway, one OPA, an atomic all-Context policy projection, and CA state without
+sharing Tobari homes or runtime networks. Host-issued Context/project principals
+bind mutable learned permissions to the exact current-directory network that
+originated a request; they do not select credentials on their own.
 
 The first testable slice is one local mock upstream reached through the
 Gateway: an allowed request succeeds, a denied request does not reach upstream,
@@ -205,11 +205,11 @@ available for a later trusted runtime switch.
 
 MVP manages one installation-local enforcement cluster and multiple logical
 Tobari. The shared cluster is one host trust domain with a host-issued
-project-principal boundary: a stable Tobari ID is not trusted merely because
-it appears in caller data, but the host binds it to the exact Gateway network
-interface that received the request. The initialized policy is an
-installation-wide baseline; learned permissions and managed profiles are
-project-bound and cannot be selected by another project. A Tobari is selected
+Context/project-principal boundary: stable Tobari and Context IDs are not
+trusted merely because they appear in caller data, but the host binds both to
+the exact Gateway network interface that received the request. Context policy,
+learned permissions, and managed profiles cannot cross that Context/project
+binding. A Tobari is selected
 from the canonical current directory: an exact indexed root is reused directly;
 when only ancestor roots exist, the interactive root command presents every
 containing root nearest-first and an explicit create-here option. A new nested
@@ -243,13 +243,14 @@ directory.
   choice among containing ancestor roots before it can create a nested root.
   `list` shows local roots and diagnostics without turning an ID into a normal
   user input.
-- A canonical root is a unique Workspace key. Repeated or concurrent explicit
-  creation at the same canonical root must yield one logical record and a
-  typed already-exists outcome for losing callers.
-- The active Context is the only runtime-image authority for Workspace
-  creation and runtime-container reconciliation; project metadata records the
-  last successful image for diagnostics but does not silently override the
-  execution boundary.
+- A canonical root plus stable Context identity is a unique Workspace key.
+  Repeated or concurrent explicit creation for that pair must yield one logical
+  record and a typed already-exists outcome for losing callers. The same root
+  may have independent Tobari in different Contexts.
+- Each logical Tobari is permanently bound to one stable Context identity. That
+  Context is the only runtime-image authority for its creation and
+  runtime-container reconciliation; project metadata records the last
+  successful image for diagnostics but does not silently override the binding.
 - The selected image is an environment and tool source, not the Workspace
   lifetime owner. Tobari starts the work container with its own fixed lifetime
   command; an image `CMD` such as `claude` cannot make a child-agent exit stop
@@ -265,7 +266,10 @@ directory.
 - A missing, malformed, ambiguous, or stale principal binding denies before
   policy evaluation and upstream I/O. Network recreation reconciles the
   binding before the project can use the proxy.
-- Multiple clusters, overlays, clone modes, and change approval are non-goals.
+- Multiple clusters, overlays, clone modes, root locks, and change approval are
+  non-goals. Overlapping roots intentionally expose the same mounted host-file
+  mutations even when their Tobari belong to different Contexts; Tobari does
+  not claim filesystem integrity isolation between them.
 - A project root cannot be the filesystem root, the user's home or its
   ancestor, or any XDG configuration, state, or shared-profile management
   path. A policy source repository remains an ordinary allowed project root;
@@ -401,8 +405,9 @@ administration project.
 - A learnable denial returns a fixed, secret-free host-side review command to
   the agent; a completed session also summarizes the pending queue on host
   stderr. Neither notification can mutate policy or trigger a retry.
-- Interactive `policy review` is the ordinary human Permission Inbox over the
-  retained queue: selection, detail inspection, and explicit confirmation can
+- Interactive `policy review` is the installation-wide human Permission Inbox
+  over retained queues from every Context: selection, detail inspection, and
+  explicit confirmation can
   delegate exactly one opaque candidate to `policy allow` or `policy deny`.
   Redirected and
   machine-readable `policy review` remains read-only. `policy candidates`
@@ -411,7 +416,7 @@ administration project.
   current CLI-owned learned decisions; `policy reset --id` removes exactly one
   Allow or exact Deny and returns that effect to default deny. The discovery
   queue turns only learnable retained denials into unique exact
-  project/host/port/method/path proposals with stable opaque IDs, the latest
+  Context/project/host/port/method/path proposals with stable opaque IDs, the latest
   retained observation time, and a retained-window observation count; the current-rule
   inventory exposes the separate rule IDs used for reset.
 - `tobari cluster denials` remains the lower-level diagnostic step: it projects
@@ -453,7 +458,7 @@ administration project.
   workflow, keeps routine permission growth free of hand-authored OPA/Rego,
   and keeps tested host editing as the advanced escape hatch.
 
-## Thesis 9: One logical Context composes the execution boundary
+## Thesis 9: Every Tobari belongs to one logical Context
 
 Users should choose one understandable execution setup, not assemble an agent
 profile, runtime image, policy directory, and credential configuration from
@@ -462,12 +467,14 @@ Tobari therefore presents a named Context as the logical bundle for an agent's
 configuration, network policy, and credential references. The Context manifest
 is a host-owned composition record; it does not collapse the physical trust
 boundaries between read-only agent data, OPA policy, and Gateway-only secret
-stores. The active Context is selected by a trusted host operation and cannot be
-selected by an agent inside a Tobari.
+stores. Each Context has a stable opaque identity; its name is a human selector,
+not authority. Each Tobari permanently records one Context identity, and the
+host derives that binding for Gateway and OPA from its network principal.
 
-The first shared-cluster slice has one active Context for the installation.
-Per-Workspace Context routing is deferred until the policy-routing and
-project-principal consequences are explicit. Tool-native authentication state
+The installation runs one shared Gateway and one shared OPA for every Context.
+The current Context is only the default when a host invocation omits a Context;
+changing it cannot migrate or mutate existing Tobari or shared enforcement.
+Tool-native authentication state
 remains below each Workspace home and is not a Context secret. The default
 passthrough adapter remains the universal path for tools that own their login
 flow; a Context may reference managed credential metadata without making a
@@ -476,46 +483,48 @@ profile name an authority.
 ### Consequences
 
 - `context list`, `context show`, `context create`, and `context use` are the
-  host-facing composition surface. Existing `policy` commands operate on the
-  active Context's policy store.
+  host-facing composition surface. `context use` changes only the omitted-
+  Context default. `tobari --context NAME` chooses an invocation Context
+  without changing that default.
 - `runtime init` and `runtime build` are the host-facing runtime customization
-  surface. The active Context owns one fixed `runtime/Dockerfile`; build
+  surface. The selected Context owns one fixed `runtime/Dockerfile`; build
   validates the resulting image and promotes it into that Context without
-  requiring a second image-selection command. Existing Workspaces observe that
-  promoted image on the next `tobari` entry while preserving their home.
+  requiring a second image-selection command. Only Tobari bound to that Context
+  observe the promoted image on their next entry while preserving their home.
 - Context creation initializes separate owner-only policy and credential
   stores, references a read-only agent profile, and records the compatible
   Tobari runtime image. It never accepts a secret value in an argument,
   environment variable, or manifest.
-- A Context switch is an explicit configuration mutation. When the shared
-  cluster is already running, `context use` synchronously reconciles the
-  selected policy and Gateway credential mounts and waits for health. It never
-  starts an unconfigured or stopped cluster implicitly; its result says when
-  an explicit `cluster up` is still required.
+- Context source changes become active only through an explicit `cluster up` or
+  policy mutation. The host generates and validates one atomic projection of
+  every Context for the shared OPA and Gateway; a failed candidate preserves
+  the complete prior known-good projection.
 - The ordinary guided mode keeps deny/review/allow exact permission growth as
   the default. Advanced mode keeps trusted-host Rego and tests available for
-  policy that cannot be expressed as an exact learned rule.
-- A future per-Workspace Context model must add explicit Gateway/OPA routing,
-  learned-rule scope, credential binding, and migration decisions; it cannot be
-  introduced by adding a field to project state alone.
+  policy that cannot be expressed as an exact learned rule. The projection
+  namespaces Advanced modules and prevents them from claiming the Tobari-owned
+  router or system packages.
+- Permission candidates, learned rules, exact denies, compactions, audits, and
+  managed credentials retain Context and Tobari identity. `policy review` and
+  `policy rules` cross all Contexts; mutations bind solely to opaque references.
 
 ### Mechanical enforcement
 
-- Context domain and catalog tests validate the manifest, modes, active
-  selection, effects, fixed targets, and complete output/error contracts.
+- Context domain and catalog tests validate stable identity, modes, current-
+  default selection, effects, fixed targets, and complete output/error contracts.
 - Infrastructure tests prove legacy default migration, owner-only separate
-  stores, active-context state, read-only OPA mounts, and selected agent-profile
-  digests.
+  stores, permanent Tobari bindings, aggregate read-only OPA mounts, and
+  selected agent-profile digests.
 - Runtime tests prove the recipe build context excludes policy and credential
   stores, the generated image is checked against the runtime contract, and a
   failed build leaves the previously selected image unchanged. Project runtime
-  tests prove existing Workspaces reconcile to the active Context image only
+  tests prove existing Workspaces reconcile to their bound Context image only
   after validation and preserve their home.
-- Runtime tests prove Context secrets are never mounted into a Workspace,
-  running-cluster Context switches reconcile the selected paths, and failed or
-  interrupted switches block access until explicit reconciliation.
-- Agent-readiness validation records Context discovery and selection as part of
-  the bounded-autonomy setup path.
+- Runtime, Gateway, OPA, and integration tests prove Context secrets and learned
+  permissions do not cross Context/project principals, aggregate activation is
+  all-or-nothing, and forged or stale Context bindings fail closed.
+- Agent-readiness validation records current-default discovery, explicit
+  invocation selection, and installation-wide permission review.
 
 ## Deliberate non-goals
 

@@ -33,8 +33,8 @@ func testWorkspaceSelection() tobari.ProjectSelection {
 	return tobari.ProjectSelection{
 		CWD: "/work/root/app", CanCreate: true,
 		Candidates: []tobari.ProjectSelectionCandidate{
-			{ID: "018bcfe5-687b-7000-8000-000000000000", Root: "/work/root", Runtime: tobari.RuntimeDiagnosticReady},
-			{ID: "018bcfe5-687b-7000-8000-000000000001", Root: "/work", Runtime: tobari.RuntimeDiagnosticDegraded},
+			{ID: "018bcfe5-687b-7000-8000-000000000000", Root: "/work/root", ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default", Runtime: tobari.RuntimeDiagnosticReady},
+			{ID: "018bcfe5-687b-7000-8000-000000000001", Root: "/work", ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default", Runtime: tobari.RuntimeDiagnosticDegraded},
 		},
 	}
 }
@@ -145,6 +145,7 @@ func TestWorkspaceSelectorScrollsLongCandidateLists(t *testing.T) {
 	for index, root := range roots {
 		selection.Candidates = append(selection.Candidates, tobari.ProjectSelectionCandidate{
 			ID: fmt.Sprintf("018bcfe5-687b-7000-8000-%012x", index), Root: root,
+			ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
 			Runtime: tobari.RuntimeDiagnosticReady,
 		})
 	}

@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	ProjectStateSchemaVersion = 1
-	DefaultProfile            = "default"
+	ProjectStateSchemaVersion       = 2
+	LegacyProjectStateSchemaVersion = 1
+	DefaultProfile                  = "default"
 
 	TaskEnter       = "tobari.enter"
 	TaskStatus      = "tobari.status"
@@ -56,12 +57,14 @@ func (d RuntimeDiagnostic) Validate() error {
 // ProjectStatus is the CWD-scoped lifecycle result. Exists is the only
 // user-facing logical lifecycle bit; Runtime is diagnostic detail.
 type ProjectStatus struct {
-	Task    string            `json:"task"`
-	Exists  bool              `json:"exists"`
-	Root    string            `json:"root,omitempty"`
-	ID      string            `json:"id,omitempty"`
-	Home    string            `json:"home,omitempty"`
-	Runtime RuntimeDiagnostic `json:"runtime"`
+	Task        string            `json:"task"`
+	Exists      bool              `json:"exists"`
+	Root        string            `json:"root,omitempty"`
+	ID          string            `json:"id,omitempty"`
+	Home        string            `json:"home,omitempty"`
+	ContextID   string            `json:"context_id,omitempty"`
+	ContextName string            `json:"context,omitempty"`
+	Runtime     RuntimeDiagnostic `json:"runtime"`
 }
 
 func (s ProjectStatus) Validate() error {
@@ -72,7 +75,7 @@ func (s ProjectStatus) Validate() error {
 		return err
 	}
 	if !s.Exists {
-		if s.Root != "" || s.ID != "" || s.Home != "" {
+		if s.Root != "" || s.ID != "" || s.Home != "" || s.ContextID != "" || s.ContextName != "" {
 			return fmt.Errorf("not-existing project status contains identity")
 		}
 		return nil
@@ -83,6 +86,12 @@ func (s ProjectStatus) Validate() error {
 	if err := ValidateProjectID(s.ID); err != nil {
 		return err
 	}
+	if err := ValidateContextID(s.ContextID); err != nil {
+		return err
+	}
+	if err := ValidateName(s.ContextName); err != nil {
+		return fmt.Errorf("project Context name: %w", err)
+	}
 	if s.Home == "" || filepath.IsAbs(s.Home) == false || filepath.Clean(s.Home) != s.Home {
 		return fmt.Errorf("project home is invalid")
 	}
@@ -91,10 +100,12 @@ func (s ProjectStatus) Validate() error {
 
 // ProjectListItem is one local logical Tobari with runtime diagnostics.
 type ProjectListItem struct {
-	Root    string            `json:"root"`
-	ID      string            `json:"id"`
-	Home    string            `json:"home"`
-	Runtime RuntimeDiagnostic `json:"runtime"`
+	Root        string            `json:"root"`
+	ID          string            `json:"id"`
+	Home        string            `json:"home"`
+	ContextID   string            `json:"context_id"`
+	ContextName string            `json:"context"`
+	Runtime     RuntimeDiagnostic `json:"runtime"`
 }
 
 func (i ProjectListItem) Validate() error {
@@ -103,6 +114,12 @@ func (i ProjectListItem) Validate() error {
 	}
 	if err := ValidateProjectID(i.ID); err != nil {
 		return err
+	}
+	if err := ValidateContextID(i.ContextID); err != nil {
+		return err
+	}
+	if err := ValidateName(i.ContextName); err != nil {
+		return fmt.Errorf("project Context name: %w", err)
 	}
 	if i.Home == "" || !filepath.IsAbs(i.Home) || filepath.Clean(i.Home) != i.Home {
 		return fmt.Errorf("project home is invalid")
@@ -126,7 +143,7 @@ func (r ProjectListResult) Validate() error {
 		return fmt.Errorf("project list task or scope is invalid")
 	}
 	seenIDs := make(map[string]bool, len(r.Items))
-	seenRoots := make(map[string]bool, len(r.Items))
+	seenBindings := make(map[string]bool, len(r.Items))
 	for _, item := range r.Items {
 		if err := item.Validate(); err != nil {
 			return err
@@ -134,11 +151,12 @@ func (r ProjectListResult) Validate() error {
 		if seenIDs[item.ID] {
 			return fmt.Errorf("project list IDs must be unique")
 		}
-		if seenRoots[item.Root] {
-			return fmt.Errorf("project list roots must be unique")
+		binding := item.Root + "\x00" + item.ContextID
+		if seenBindings[binding] {
+			return fmt.Errorf("project list root and Context bindings must be unique")
 		}
 		seenIDs[item.ID] = true
-		seenRoots[item.Root] = true
+		seenBindings[binding] = true
 	}
 	if r.CurrentID != "" {
 		if err := ValidateProjectID(r.CurrentID); err != nil {
@@ -155,11 +173,13 @@ func (r ProjectListResult) Validate() error {
 // confirmed deleted. It is separate from ProjectStatus because deletion is a
 // completed mutation, not an observation that the target still exists.
 type ProjectDeleteResult struct {
-	Task    string `json:"task"`
-	Deleted bool   `json:"deleted"`
-	Root    string `json:"root"`
-	ID      string `json:"id"`
-	Home    string `json:"home"`
+	Task        string `json:"task"`
+	Deleted     bool   `json:"deleted"`
+	Root        string `json:"root"`
+	ID          string `json:"id"`
+	Home        string `json:"home"`
+	ContextID   string `json:"context_id"`
+	ContextName string `json:"context"`
 }
 
 func (r ProjectDeleteResult) Validate() error {
@@ -170,6 +190,12 @@ func (r ProjectDeleteResult) Validate() error {
 		return err
 	}
 	if err := ValidateProjectID(r.ID); err != nil {
+		return err
+	}
+	if err := ValidateContextID(r.ContextID); err != nil {
+		return err
+	}
+	if err := ValidateName(r.ContextName); err != nil {
 		return err
 	}
 	if r.Home == "" || !filepath.IsAbs(r.Home) || filepath.Clean(r.Home) != r.Home {
@@ -186,6 +212,8 @@ type RootIndex struct {
 	SchemaVersion int    `json:"schema_version"`
 	Root          string `json:"root"`
 	InstanceID    string `json:"instance_id"`
+	ContextID     string `json:"context_id"`
+	ContextName   string `json:"context"`
 }
 
 // Validate rejects a malformed or ambiguous root index before it becomes a
@@ -197,7 +225,13 @@ func (r RootIndex) Validate() error {
 	if err := ValidateCanonicalRoot(r.Root); err != nil {
 		return err
 	}
-	return ValidateProjectID(r.InstanceID)
+	if err := ValidateProjectID(r.InstanceID); err != nil {
+		return err
+	}
+	if err := ValidateContextID(r.ContextID); err != nil {
+		return err
+	}
+	return ValidateName(r.ContextName)
 }
 
 // ValidateRootIndexes rejects a root-index collection that could make a
@@ -205,19 +239,20 @@ func (r RootIndex) Validate() error {
 // adapter normally enforces this with the root-hash filename, but the domain
 // invariant also protects selection and recovery from malformed collections.
 func ValidateRootIndexes(indexes []RootIndex) error {
-	seenRoots := make(map[string]struct{}, len(indexes))
+	seenBindings := make(map[string]struct{}, len(indexes))
 	seenIDs := make(map[string]struct{}, len(indexes))
 	for _, index := range indexes {
 		if err := index.Validate(); err != nil {
 			return err
 		}
-		if _, exists := seenRoots[index.Root]; exists {
-			return fmt.Errorf("root indexes must contain one Workspace per canonical root")
+		binding := index.Root + "\x00" + index.ContextID
+		if _, exists := seenBindings[binding]; exists {
+			return fmt.Errorf("root indexes must contain one Workspace per root and Context")
 		}
 		if _, exists := seenIDs[index.InstanceID]; exists {
 			return fmt.Errorf("root indexes must contain unique Workspace IDs")
 		}
-		seenRoots[index.Root] = struct{}{}
+		seenBindings[binding] = struct{}{}
 		seenIDs[index.InstanceID] = struct{}{}
 	}
 	return nil
@@ -248,6 +283,8 @@ type ProjectInstance struct {
 	SchemaVersion int            `json:"schema_version"`
 	ID            string         `json:"id"`
 	Root          string         `json:"root"`
+	ContextID     string         `json:"context_id"`
+	ContextName   string         `json:"context"`
 	Profile       string         `json:"profile"`
 	Image         string         `json:"image"`
 	Runtime       ProjectRuntime `json:"runtime"`
@@ -261,9 +298,11 @@ type ProjectInstance struct {
 // runtime state of one Workspace that contains a canonical current directory.
 // ID is an internal binding value; it is never a routine user input.
 type ProjectSelectionCandidate struct {
-	ID      string
-	Root    string
-	Runtime RuntimeDiagnostic
+	ID          string
+	Root        string
+	ContextID   string
+	ContextName string
+	Runtime     RuntimeDiagnostic
 }
 
 func (c ProjectSelectionCandidate) Validate(cwd string) error {
@@ -274,6 +313,12 @@ func (c ProjectSelectionCandidate) Validate(cwd string) error {
 		return err
 	}
 	if err := ValidateCanonicalRoot(c.Root); err != nil {
+		return err
+	}
+	if err := ValidateContextID(c.ContextID); err != nil {
+		return err
+	}
+	if err := ValidateName(c.ContextName); err != nil {
 		return err
 	}
 	if !containsRoot(c.Root, cwd) {
@@ -398,6 +443,12 @@ func (p ProjectInstance) Validate() error {
 	if err := ValidateCanonicalRoot(p.Root); err != nil {
 		return err
 	}
+	if err := ValidateContextID(p.ContextID); err != nil {
+		return err
+	}
+	if err := ValidateName(p.ContextName); err != nil {
+		return fmt.Errorf("project Context name: %w", err)
+	}
 	if p.Profile != DefaultProfile {
 		return fmt.Errorf("profile is invalid")
 	}
@@ -484,11 +535,26 @@ func NewProjectID(now time.Time, source io.Reader) (string, error) {
 
 // NewProjectInstance creates the durable logical state before any Docker
 // resource exists.
-func NewProjectInstance(now time.Time, source io.Reader, root, image string) (ProjectInstance, error) {
+func NewProjectInstance(now time.Time, source io.Reader, root string, values ...string) (ProjectInstance, error) {
+	contextID, contextName, image := "00000000-0000-7000-8000-000000000000", DefaultContextName, ""
+	switch len(values) {
+	case 1:
+		image = values[0]
+	case 3:
+		contextID, contextName, image = values[0], values[1], values[2]
+	default:
+		return ProjectInstance{}, fmt.Errorf("project creation requires image or Context identity plus image")
+	}
 	if err := ValidateCanonicalRoot(root); err != nil {
 		return ProjectInstance{}, err
 	}
 	if err := ValidateImageSelector(image); err != nil {
+		return ProjectInstance{}, err
+	}
+	if err := ValidateContextID(contextID); err != nil {
+		return ProjectInstance{}, err
+	}
+	if err := ValidateName(contextName); err != nil {
 		return ProjectInstance{}, err
 	}
 	id, err := NewProjectID(now, source)
@@ -499,6 +565,8 @@ func NewProjectInstance(now time.Time, source io.Reader, root, image string) (Pr
 		SchemaVersion: ProjectStateSchemaVersion,
 		ID:            id,
 		Root:          root,
+		ContextID:     contextID,
+		ContextName:   contextName,
 		Profile:       DefaultProfile,
 		Image:         image,
 		Runtime:       ProjectRuntime{},
@@ -510,8 +578,8 @@ func NewProjectInstance(now time.Time, source io.Reader, root, image string) (Pr
 }
 
 // NewProductionProjectInstance uses the system clock and cryptographic entropy.
-func NewProductionProjectInstance(root, image string) (ProjectInstance, error) {
-	return NewProjectInstance(time.Now().UTC(), rand.Reader, root, image)
+func NewProductionProjectInstance(root string, values ...string) (ProjectInstance, error) {
+	return NewProjectInstance(time.Now().UTC(), rand.Reader, root, values...)
 }
 
 // ValidateCanonicalRoot accepts exactly the form produced by infrastructure
@@ -547,6 +615,23 @@ func ContainingRoots(cwd string, indexes []RootIndex) ([]RootIndex, error) {
 		return containing[left].Root < containing[right].Root
 	})
 	return containing, nil
+}
+
+// RootIndexesForContext returns only bindings owned by one stable Context.
+func RootIndexesForContext(indexes []RootIndex, contextID string) ([]RootIndex, error) {
+	if err := ValidateRootIndexes(indexes); err != nil {
+		return nil, err
+	}
+	if err := ValidateContextID(contextID); err != nil {
+		return nil, err
+	}
+	result := make([]RootIndex, 0, len(indexes))
+	for _, index := range indexes {
+		if index.ContextID == contextID {
+			result = append(result, index)
+		}
+	}
+	return result, nil
 }
 
 // NearestRoot returns the containing indexed root with the longest canonical

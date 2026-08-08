@@ -751,6 +751,8 @@ func TestEnsureProjectContainerRecreatesOnSpecDrift(t *testing.T) {
 		SchemaVersion: tobari.ProjectStateSchemaVersion,
 		ID:            runner.instanceID,
 		Root:          filepath.Join(t.TempDir(), "project"),
+		ContextID:     "01912345-6789-7abc-8def-0123456789ad",
+		ContextName:   "default",
 		Profile:       tobari.DefaultProfile,
 		Image:         tobari.BuiltinImageSelector,
 	}
@@ -758,7 +760,8 @@ func TestEnsureProjectContainerRecreatesOnSpecDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := tobari.State{
-		SchemaVersion: 2, RuntimeDirectory: filepath.Join(t.TempDir(), "runtime"),
+		SchemaVersion: 3, RuntimeDirectory: filepath.Join(t.TempDir(), "runtime"),
+		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
 		PolicyDirectory: filepath.Join(t.TempDir(), "policy"), CredentialConfig: filepath.Join(t.TempDir(), "credentials.json"),
 		CredentialDir: filepath.Join(t.TempDir(), "credentials"), AssetVersion: "asset",
 		ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -90,6 +91,10 @@ func (r *Runtime) diagnosticContextStores() (tobari.ContextStorePaths, error) {
 }
 
 func (r *Runtime) ensureContextStore() error {
+	return r.withContextStoreLock(r.ensureContextStoreUnlocked)
+}
+
+func (r *Runtime) ensureContextStoreUnlocked() error {
 	if err := r.ensurePrivateDirectory(r.contextsDirectory()); err != nil {
 		return fmt.Errorf("prepare Context directory: %w", err)
 	}
@@ -103,8 +108,22 @@ func (r *Runtime) ensureContextStore() error {
 	} else if err != nil {
 		return fmt.Errorf("inspect default Context manifest: %w", err)
 	}
+	defaultID := ""
+	if existing, err := r.readContextManifestRaw(tobari.DefaultContextName); err == nil {
+		defaultID = existing.ID
+	} else if !errors.Is(err, tobari.ErrContextNotFound) {
+		return err
+	}
+	if defaultID == "" {
+		var err error
+		defaultID, err = tobari.NewProductionContextID()
+		if err != nil {
+			return err
+		}
+	}
 	if err := r.ensureContext(tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion,
+		ID:            defaultID,
 		Name:          tobari.DefaultContextName,
 		AgentProfile:  tobari.DefaultProfile,
 		Image:         image,
@@ -121,7 +140,39 @@ func (r *Runtime) ensureContextStore() error {
 	} else if _, err := r.readActiveContext(); err != nil {
 		return err
 	}
+	if err := r.upgradeLegacyContextManifests(); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (r *Runtime) withContextStoreLock(action func() error) error {
+	if err := r.ensurePrivateDirectory(r.configDirectory); err != nil {
+		return err
+	}
+	path := filepath.Join(r.configDirectory, "contexts.lock")
+	if info, err := os.Lstat(path); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
+		return fmt.Errorf("Context lock is not a regular file")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- fixed owner-only configuration child.
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	for {
+		acquired, lockErr := tryLockProjectFile(file)
+		if lockErr != nil {
+			return lockErr
+		}
+		if acquired {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	defer unlockProjectFile(file)
+	return action()
 }
 
 func (r *Runtime) ensureContext(manifest tobari.ContextManifest, migrateLegacy bool) error {
@@ -229,7 +280,7 @@ func (r *Runtime) copyFileIfPresent(source, destination string) error {
 	return initializeBytes(destination, data, 0o600)
 }
 
-func (r *Runtime) readContextManifest(name string) (tobari.ContextManifest, error) {
+func (r *Runtime) readContextManifestRaw(name string) (tobari.ContextManifest, error) {
 	if err := tobari.ValidateName(name); err != nil {
 		return tobari.ContextManifest{}, err
 	}
@@ -272,6 +323,52 @@ func (r *Runtime) readContextManifest(name string) (tobari.ContextManifest, erro
 	return manifest, nil
 }
 
+func (r *Runtime) readContextManifest(name string) (tobari.ContextManifest, error) {
+	manifest, err := r.readContextManifestRaw(name)
+	if err != nil {
+		return tobari.ContextManifest{}, err
+	}
+	if manifest.SchemaVersion != tobari.ContextSchemaVersion {
+		return tobari.ContextManifest{}, fmt.Errorf("Context manifest %q requires identity migration", name)
+	}
+	return manifest, nil
+}
+
+// upgradeLegacyContextManifests adds a stable host-issued identity before any
+// Context can become a project or policy authority. Existing names and stores
+// are preserved, and each manifest is replaced atomically.
+func (r *Runtime) upgradeLegacyContextManifests() error {
+	entries, err := os.ReadDir(r.contextsDirectory())
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		manifest, err := r.readContextManifestRaw(entry.Name())
+		if err != nil {
+			return err
+		}
+		if manifest.SchemaVersion == tobari.ContextSchemaVersion {
+			continue
+		}
+		id, err := tobari.NewProductionContextID()
+		if err != nil {
+			return err
+		}
+		manifest.SchemaVersion = tobari.ContextSchemaVersion
+		manifest.ID = id
+		if err := manifest.Validate(); err != nil {
+			return err
+		}
+		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
+			return fmt.Errorf("upgrade Context manifest %q: %w", manifest.Name, err)
+		}
+	}
+	return nil
+}
+
 func (r *Runtime) readActiveContext() (string, error) {
 	info, err := os.Lstat(r.activeContextPath())
 	if err != nil {
@@ -297,7 +394,7 @@ func (r *Runtime) readActiveContext() (string, error) {
 	if err := tobari.ValidateName(document.Name); err != nil {
 		return "", err
 	}
-	if _, err := r.readContextManifest(document.Name); err != nil {
+	if _, err := r.readContextManifestRaw(document.Name); err != nil {
 		return "", fmt.Errorf("active Context is unavailable: %w", err)
 	}
 	return document.Name, nil
@@ -330,6 +427,69 @@ func (r *Runtime) activeContext() (tobari.ContextManifest, tobari.ContextStorePa
 		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
 	}
 	return manifest, paths, nil
+}
+
+// resolveContext resolves an explicit display name to its trusted manifest, or
+// uses the current Context only when the caller omitted a name.
+func (r *Runtime) resolveContext(name string) (tobari.ContextManifest, tobari.ContextStorePaths, error) {
+	if name == "" {
+		return r.activeContext()
+	}
+	if err := r.ensureContextStore(); err != nil {
+		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+	}
+	manifest, err := r.readContextManifest(name)
+	if err != nil {
+		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+	}
+	paths := r.contextPaths(name)
+	if err := paths.Validate(); err != nil {
+		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+	}
+	return manifest, paths, nil
+}
+
+func (r *Runtime) contextByID(id string) (tobari.ContextManifest, tobari.ContextStorePaths, error) {
+	if err := tobari.ValidateContextID(id); err != nil {
+		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+	}
+	if err := r.ensureContextStore(); err != nil {
+		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+	}
+	entries, err := os.ReadDir(r.contextsDirectory())
+	if err != nil {
+		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+	}
+	var selected *tobari.ContextManifest
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		manifest, err := r.readContextManifest(entry.Name())
+		if err != nil {
+			return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+		}
+		if manifest.ID != id {
+			continue
+		}
+		if selected != nil {
+			return tobari.ContextManifest{}, tobari.ContextStorePaths{}, fmt.Errorf("Context ID is ambiguous")
+		}
+		copy := manifest
+		selected = &copy
+	}
+	if selected == nil {
+		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, fmt.Errorf("%w: Context ID", tobari.ErrContextNotFound)
+	}
+	return *selected, r.contextPaths(selected.Name), nil
+}
+
+func (r *Runtime) ResolveContext(ctx context.Context, name string) (tobari.ContextManifest, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.ContextManifest{}, err
+	}
+	manifest, _, err := r.resolveContext(name)
+	return manifest, err
 }
 
 // ListContexts returns the complete host-owned Context collection.
@@ -365,7 +525,7 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 			return tobari.ContextListResult{}, err
 		}
 		items = append(items, tobari.ContextSummary{
-			Name: manifest.Name, Active: manifest.Name == active,
+			ID: manifest.ID, Name: manifest.Name, Active: manifest.Name == active,
 			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
 			RuntimeStatus: runtimeReport.Status,
 		})
@@ -412,6 +572,11 @@ func (r *Runtime) CreateContext(ctx context.Context, name string, image string, 
 		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: r.resolveBuiltinImageSelector(image), PolicyMode: mode,
 	}
+	id, err := tobari.NewProductionContextID()
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	manifest.ID = id
 	if err := manifest.Validate(); err != nil {
 		return tobari.ContextReport{}, err
 	}
@@ -427,18 +592,25 @@ func (r *Runtime) CreateContext(ctx context.Context, name string, image string, 
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
-	return r.contextReport(ctx, tobari.TaskContextCreate, manifest, active)
+	report, err := r.contextReport(ctx, tobari.TaskContextCreate, manifest, active)
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if _, configured, loadErr := r.LoadState(ctx); loadErr != nil {
+		return tobari.ContextReport{}, loadErr
+	} else if configured {
+		report.Cluster = tobari.ContextClusterStatusRequiresReconcile
+	}
+	return report, report.Validate()
 }
 
-// UseContext selects a Context and, when the shared cluster is running,
-// reconciles its policy and credential mounts before reporting success.
+// UseContext changes only the default used when execution omits a Context.
 func (r *Runtime) UseContext(ctx context.Context, name string) (tobari.ContextReport, error) {
 	return r.UseContextWithProgress(ctx, name, nil)
 }
 
-// UseContextWithProgress is the interactive extension of UseContext. A
-// stopped or unconfigured cluster is never started implicitly; the result
-// tells the caller whether an explicit cluster up is still required.
+// UseContextWithProgress retains the progress-aware port for compatibility;
+// default selection never reconciles or starts the shared cluster.
 func (r *Runtime) UseContextWithProgress(
 	ctx context.Context, name string, progress tobari.ClusterUpProgressSink,
 ) (tobari.ContextReport, error) {
@@ -456,64 +628,15 @@ func (r *Runtime) UseContextWithProgress(
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
-	state, configured, err := r.LoadState(ctx)
-	if err != nil {
-		return tobari.ContextReport{}, err
-	}
-	if !configured {
-		if err := r.requireNoInterruptedClusterReconcile(ctx); err != nil {
-			return tobari.ContextReport{}, err
-		}
-		if err := r.selectContext(active, name); err != nil {
-			return tobari.ContextReport{}, err
-		}
-		return r.contextUseReport(ctx, manifest, name, tobari.ContextClusterStatusNotConfigured)
-	}
-
-	clusterStatus, err := r.InspectCluster(ctx, state)
-	if err != nil {
-		return tobari.ContextReport{}, err
-	}
-	if !clusterStatus.Running {
-		if err := r.selectContext(active, name); err != nil {
-			return tobari.ContextReport{}, err
-		}
-		return r.contextUseReport(ctx, manifest, name, tobari.ContextClusterStatusNotRunning)
-	}
-
-	storedContext := state.ContextName
-	if storedContext == "" {
-		storedContext = tobari.DefaultContextName
-	}
-	if name == storedContext {
-		if err := r.selectContext(active, name); err != nil {
-			return tobari.ContextReport{}, err
-		}
-		return r.contextUseReport(ctx, manifest, name, tobari.ContextClusterStatusAlreadyReady)
-	}
-
-	// Write the recovery journal before changing the host marker. If the
-	// process stops after this point, entry and policy commands remain blocked
-	// until an explicit cluster operation reconciles the shared resources.
-	if err := r.startClusterReconcile(clusterOperationUp); err != nil {
-		return tobari.ContextReport{}, fmt.Errorf("start Context reconcile journal: %w", err)
-	}
+	_ = progress
 	if err := r.selectContext(active, name); err != nil {
-		clearErr := r.clearClusterJournal()
-		if clearErr != nil {
-			return tobari.ContextReport{}, fmt.Errorf("select Context: %w; clear reconcile journal: %v", err, clearErr)
-		}
 		return tobari.ContextReport{}, err
 	}
-
-	if _, err := r.clusterUpWithProgressMode(ctx, progress, true); err != nil {
-		restoreErr := r.restoreContextSelection(storedContext, state)
-		if restoreErr != nil {
-			return tobari.ContextReport{}, fmt.Errorf("Context reconcile failed: %w; restore previous Context: %v", err, restoreErr)
-		}
-		return tobari.ContextReport{}, err
+	status := tobari.ContextClusterStatusDefaultUpdated
+	if active == name {
+		status = tobari.ContextClusterStatusAlreadyReady
 	}
-	return r.contextUseReport(ctx, manifest, name, tobari.ContextClusterStatusReconciled)
+	return r.contextUseReport(ctx, manifest, name, status)
 }
 
 func (r *Runtime) contextUseReport(

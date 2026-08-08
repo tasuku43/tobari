@@ -1,16 +1,20 @@
 package tobari
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"regexp"
+	"time"
 )
 
 const (
-	ContextSchemaVersion       = 2
-	LegacyContextSchemaVersion = 1
-	DefaultContextName         = "default"
+	ContextSchemaVersion        = 3
+	LegacyContextSchemaVersion  = 1
+	LegacyContextSchemaVersion2 = 2
+	DefaultContextName          = "default"
 
 	TaskContextList   = "context.list"
 	TaskContextShow   = "context.show"
@@ -37,6 +41,47 @@ var (
 )
 
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+var contextIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+// ValidateContextID accepts the stable UUIDv7 authority identity stored in a
+// Context manifest. Display names are intentionally not accepted here.
+func ValidateContextID(id string) error {
+	if !contextIDPattern.MatchString(id) {
+		return fmt.Errorf("Context ID is invalid")
+	}
+	return nil
+}
+
+// NewContextID creates a host-issued stable Context identity.
+func NewContextID(now time.Time, source io.Reader) (string, error) {
+	if source == nil {
+		return "", fmt.Errorf("Context ID entropy source is required")
+	}
+	if now.UnixMilli() < 0 || now.UnixMilli() >= 1<<48 {
+		return "", fmt.Errorf("Context ID timestamp is outside UUIDv7 range")
+	}
+	var value [16]byte
+	milliseconds := uint64(now.UnixMilli())
+	for index := 5; index >= 0; index-- {
+		value[index] = byte(milliseconds)
+		milliseconds >>= 8
+	}
+	if _, err := io.ReadFull(source, value[6:]); err != nil {
+		return "", fmt.Errorf("read Context ID entropy: %w", err)
+	}
+	value[6] = 0x70 | (value[6] & 0x0f)
+	value[8] = 0x80 | (value[8] & 0x3f)
+	id := fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16])
+	if err := ValidateContextID(id); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func NewProductionContextID() (string, error) {
+	return NewContextID(time.Now().UTC(), rand.Reader)
+}
 
 // ContextPolicyMode selects the policy-development experience associated with
 // a Context. It does not change Gateway authorization by itself.
@@ -100,18 +145,21 @@ func (s ContextRuntimeStatus) Validate() error {
 type ContextClusterStatus string
 
 const (
-	ContextClusterStatusNotApplicable ContextClusterStatus = "not_applicable"
-	ContextClusterStatusNotConfigured ContextClusterStatus = "not_configured"
-	ContextClusterStatusNotRunning    ContextClusterStatus = "not_running"
-	ContextClusterStatusAlreadyReady  ContextClusterStatus = "already_ready"
-	ContextClusterStatusReconciled    ContextClusterStatus = "reconciled"
+	ContextClusterStatusNotApplicable     ContextClusterStatus = "not_applicable"
+	ContextClusterStatusNotConfigured     ContextClusterStatus = "not_configured"
+	ContextClusterStatusNotRunning        ContextClusterStatus = "not_running"
+	ContextClusterStatusAlreadyReady      ContextClusterStatus = "already_ready"
+	ContextClusterStatusReconciled        ContextClusterStatus = "reconciled"
+	ContextClusterStatusDefaultUpdated    ContextClusterStatus = "default_updated"
+	ContextClusterStatusRequiresReconcile ContextClusterStatus = "requires_reconcile"
 )
 
 func (s ContextClusterStatus) Validate() error {
 	switch s {
 	case ContextClusterStatusNotApplicable, ContextClusterStatusNotConfigured,
 		ContextClusterStatusNotRunning, ContextClusterStatusAlreadyReady,
-		ContextClusterStatusReconciled:
+		ContextClusterStatusReconciled, ContextClusterStatusDefaultUpdated,
+		ContextClusterStatusRequiresReconcile:
 		return nil
 	default:
 		return fmt.Errorf("context cluster status is invalid: %q", s)
@@ -242,6 +290,7 @@ func ValidateDigest(value string) error {
 // the manifest so stores remain independently protected.
 type ContextManifest struct {
 	SchemaVersion int                   `json:"schema_version"`
+	ID            string                `json:"id"`
 	Name          string                `json:"name"`
 	AgentProfile  string                `json:"agent_profile"`
 	Image         string                `json:"image"`
@@ -250,8 +299,15 @@ type ContextManifest struct {
 }
 
 func (m ContextManifest) Validate() error {
-	if m.SchemaVersion != ContextSchemaVersion && m.SchemaVersion != LegacyContextSchemaVersion {
-		return fmt.Errorf("context schema version must be %d or %d", LegacyContextSchemaVersion, ContextSchemaVersion)
+	if m.SchemaVersion != ContextSchemaVersion && m.SchemaVersion != LegacyContextSchemaVersion && m.SchemaVersion != LegacyContextSchemaVersion2 {
+		return fmt.Errorf("context schema version must be %d, %d, or %d", LegacyContextSchemaVersion, LegacyContextSchemaVersion2, ContextSchemaVersion)
+	}
+	if m.SchemaVersion == ContextSchemaVersion {
+		if err := ValidateContextID(m.ID); err != nil {
+			return err
+		}
+	} else if m.ID != "" {
+		return fmt.Errorf("legacy Context manifest cannot contain a Context ID")
 	}
 	if err := ValidateName(m.Name); err != nil {
 		return fmt.Errorf("context name: %w", err)
@@ -309,6 +365,7 @@ func (p ContextStorePaths) Validate() error {
 
 // ContextSummary is one item in the complete local Context collection.
 type ContextSummary struct {
+	ID            string               `json:"id"`
 	Name          string               `json:"name"`
 	Active        bool                 `json:"active"`
 	AgentProfile  string               `json:"agent_profile"`
@@ -320,6 +377,7 @@ type ContextSummary struct {
 func (s ContextSummary) Validate() error {
 	manifest := ContextManifest{
 		SchemaVersion: ContextSchemaVersion,
+		ID:            s.ID,
 		Name:          s.Name,
 		AgentProfile:  s.AgentProfile,
 		Image:         s.Image,
@@ -378,6 +436,7 @@ func (r ContextListResult) Validate() error {
 // ContextReport is the complete selected Context view.
 type ContextReport struct {
 	Task         string               `json:"task"`
+	ID           string               `json:"id"`
 	Name         string               `json:"name"`
 	Active       bool                 `json:"active"`
 	AgentProfile string               `json:"agent_profile"`
@@ -395,6 +454,7 @@ func (r ContextReport) Validate() error {
 	}
 	manifest := ContextManifest{
 		SchemaVersion: ContextSchemaVersion,
+		ID:            r.ID,
 		Name:          r.Name,
 		AgentProfile:  r.AgentProfile,
 		Image:         r.Image,

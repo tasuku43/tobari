@@ -11,13 +11,16 @@ import (
 const (
 	policyProjectA = "01912345-6789-7abc-8def-0123456789ab"
 	policyProjectB = "01912345-6789-7abc-8def-0123456789ac"
+	policyContextA = "01912345-6789-7abc-8def-0123456789ad"
+	policyContextB = "01912345-6789-7abc-8def-0123456789ae"
 )
 
 func validPolicyDenial() PolicyDenial {
 	return PolicyDenial{
 		Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ProjectID: policyProjectA,
-		Host:      "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
+		ContextID: policyContextA, ContextName: "default",
+		ProjectID: policyProjectA, ProjectRoot: "/workspace/project-a",
+		Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
 }
@@ -289,13 +292,13 @@ func TestPolicyDenyRuleBindsExactProjectAndRequest(t *testing.T) {
 	if err := rule.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !rule.Matches(candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+	if !rule.Matches(candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
 		t.Fatal("exact deny rule did not match its bound request")
 	}
-	if rule.Matches(policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+	if rule.Matches(candidate.ContextID, policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
 		t.Fatal("exact deny rule crossed project boundary")
 	}
-	if rule.Matches(candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path) {
+	if rule.Matches(candidate.ContextID, candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path) {
 		t.Fatal("exact deny rule crossed port boundary")
 	}
 }
@@ -328,7 +331,7 @@ func TestExactLearnedRuleBindsCandidateAndDoesNotBroadenPath(t *testing.T) {
 	if err := rule.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !rule.Matches(candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+	if !rule.Matches(candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
 		t.Fatal("exact rule did not match its approved effect")
 	}
 	for _, changed := range []struct {
@@ -339,14 +342,14 @@ func TestExactLearnedRuleBindsCandidateAndDoesNotBroadenPath(t *testing.T) {
 		{candidate.Host, "POST", candidate.Path, candidate.Port},
 		{candidate.Host, candidate.Method, candidate.Path + "/child", candidate.Port},
 	} {
-		if rule.Matches(candidate.ProjectID, changed.host, changed.port, changed.method, changed.path) {
+		if rule.Matches(candidate.ContextID, candidate.ProjectID, changed.host, changed.port, changed.method, changed.path) {
 			t.Fatalf("exact rule broadened to %+v", changed)
 		}
 	}
-	if rule.Matches(candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path) {
+	if rule.Matches(candidate.ContextID, candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path) {
 		t.Fatal("exact rule broadened to another port")
 	}
-	if rule.Matches(policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+	if rule.Matches(candidate.ContextID, policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
 		t.Fatal("exact rule crossed the project boundary")
 	}
 	rule.Path += "/changed"
@@ -370,6 +373,74 @@ func TestPolicyCandidateIdentityIncludesProjectPrincipal(t *testing.T) {
 	}
 	if firstCandidate.ID == secondCandidate.ID {
 		t.Fatal("project-scoped candidates share an opaque ID")
+	}
+}
+
+func TestPolicyOpaqueReferencesIncludeContextAuthority(t *testing.T) {
+	t.Parallel()
+	first := validPolicyDenial()
+	second := first
+	second.ContextID = policyContextB
+	second.ContextName = "restricted"
+	firstCandidate, err := NewPolicyCandidate(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCandidate, err := NewPolicyCandidate(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstCandidate.ID == secondCandidate.ID {
+		t.Fatal("Context-scoped candidates share an opaque ID")
+	}
+	firstRule, err := NewExactLearnedPolicyRule(firstCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRule, err := NewExactLearnedPolicyRule(secondCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDeny, err := NewExactPolicyDenyRule(firstCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondDeny, err := NewExactPolicyDenyRule(secondCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstRule.ID == secondRule.ID || firstDeny.ID == secondDeny.ID {
+		t.Fatal("Context-scoped policy decisions share an opaque ID")
+	}
+	if firstRule.Matches(second.ContextID, second.ProjectID, second.Host, second.Port, second.Method, second.Path) ||
+		firstDeny.Matches(second.ContextID, second.ProjectID, second.Host, second.Port, second.Method, second.Path) {
+		t.Fatal("Context A decision matched Context B authority")
+	}
+	firstRules := []LearnedPolicyRule{
+		exactRuleForPath(t, "1185da2688d7469aae9cd9068e920b0b", "/api/v1/items/one"),
+		exactRuleForPath(t, "2185da2688d7469aae9cd9068e920b0b", "/api/v1/items/two"),
+		exactRuleForPath(t, "3185da2688d7469aae9cd9068e920b0b", "/api/v1/items/three"),
+	}
+	secondRules := append([]LearnedPolicyRule{}, firstRules...)
+	for index := range secondRules {
+		secondRules[index].ContextID = policyContextB
+		secondRules[index].ContextName = "restricted"
+		secondRules[index].ID = learnedRuleID(
+			secondRules[index].Match, secondRules[index].ContextID, secondRules[index].ProjectID,
+			secondRules[index].Host, secondRules[index].Port, secondRules[index].Method,
+			secondRules[index].Path, secondRules[index].Examples, secondRules[index].SourceCandidates,
+		)
+	}
+	firstCompactions, err := PolicyCompactions(firstRules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCompactions, err := PolicyCompactions(secondRules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(firstCompactions) != 1 || len(secondCompactions) != 1 || firstCompactions[0].ID == secondCompactions[0].ID {
+		t.Fatalf("Context-scoped compactions = %+v / %+v", firstCompactions, secondCompactions)
 	}
 }
 
@@ -474,12 +545,12 @@ func TestCompactLearnedPolicyRulesPreservesExamplesAndRejectsStaleReference(t *t
 		t.Fatalf("updated=%+v selected=%+v rule=%+v", updated, selected, prefixRule)
 	}
 	for _, example := range prefixRule.Examples {
-		if !prefixRule.Matches(prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, example) {
+		if !prefixRule.Matches(prefixRule.ContextID, prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, example) {
 			t.Fatalf("prefix rule lost example %q", example)
 		}
 	}
 	if prefixRule.Matches(
-		prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, selected.OutsideCanary,
+		prefixRule.ContextID, prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, selected.OutsideCanary,
 	) {
 		t.Fatal("prefix rule matched its outside boundary canary")
 	}

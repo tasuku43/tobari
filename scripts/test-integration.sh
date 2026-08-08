@@ -12,8 +12,10 @@ work_nested_root=
 other_root=
 work_id=
 other_id=
+restricted_id=
 work_container=
 other_container=
+restricted_container=
 runtime_image=
 official_runtime_image=
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
@@ -261,9 +263,13 @@ network_for_id() {
 
 id_for_root() {
   local root=$1
+  local context=${2:-}
   python3 -c \
-    'import json,sys; root=sys.argv[1]; print(next(item["id"] for item in json.load(sys.stdin)["tobari"] if item["root"] == root))' \
-    "$root"
+    'import json,sys
+root,context=sys.argv[1:]
+print(next(item["id"] for item in json.load(sys.stdin)["tobari"]
+           if item["root"] == root and (not context or item["context"] == context)))' \
+    "$root" "$context"
 }
 
 run_project() {
@@ -311,6 +317,21 @@ enter_bash_tobari_at() {
 
 run_other_project() {
   docker exec "$other_container" "$@"
+}
+
+run_restricted_project() {
+  docker exec "$restricted_container" "$@"
+}
+
+create_nested_tobari_at() {
+  local root=$1
+  shift
+  local output
+  if output=$({ printf 'n'; sleep 1; printf 'exit\n'; } | run_tobari_pty_at "$root" "$@" 2>&1); then
+    return 0
+  fi
+  printf '%s\n' "$output" >&2
+  return 1
 }
 
 start_cluster() {
@@ -390,8 +411,9 @@ cleanup() {
   docker rm -f "$mock_name" >/dev/null 2>&1 || true
   if [[ -n ${test_root:-} && -x $binary && -n ${work_root:-} ]]; then
     run_tobari_at "$work_root" delete --force >/dev/null 2>&1 || true
+		run_tobari_at "$work_root" delete --context restricted --force >/dev/null 2>&1 || true
     if [[ -n $other_root ]]; then
-      run_tobari_at "$other_root" delete --force >/dev/null 2>&1 || true
+      run_tobari_at "$other_root" delete --context restricted --force >/dev/null 2>&1 || true
     fi
     run_tobari cluster down --purge >/dev/null 2>&1 || true
   fi
@@ -408,7 +430,7 @@ finish() {
   local status=$?
   trap - EXIT
   if ((status != 0)); then
-    for container in tobari-gateway tobari-opa "$mock_name" "$work_container" "$other_container"; do
+    for container in tobari-gateway tobari-opa "$mock_name" "$work_container" "$other_container" "$restricted_container"; do
       [[ -n $container ]] || continue
       if docker inspect "$container" >/dev/null 2>&1; then
         echo "integration diagnostics: $container" >&2
@@ -444,11 +466,14 @@ tool_auth_value=tobari-tool-auth-canary
 if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then
   [[ -x $binary ]] || fail "TOBARI_INTEGRATION_BINARY is not executable: $binary"
 else
-  go build -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
+  mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
+  docker build --tag tobari-gateway:dev --file gateway/Dockerfile \
+    --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" gateway >/dev/null
+  go build -tags=tobari_dev -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
 fi
 work_root=$test_root/user/workspace
 work_nested_root=$work_root/root
-other_root=$test_root/user/other-workspace
+other_root=$work_root/child-workspace
 mkdir -p "$work_root" "$work_nested_root" "$other_root"
 printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
 docker build --tag "$custom_image" \
@@ -459,42 +484,50 @@ printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
   >"$config_directory/config.json"
 chmod 0600 "$config_directory/config.json"
 unconfigured_context_use=$(run_tobari context use --name default --format json)
-assert_contains "$unconfigured_context_use" '"cluster":"not_configured"' "unconfigured Context selection"
+assert_contains "$unconfigured_context_use" '"cluster":"already_ready"' "unconfigured current Context selection"
 start_cluster >/dev/null
 assert_component_log_bounds tobari-opa
 assert_component_log_bounds tobari-gateway
 assert_component_resource_bounds tobari-opa 1000000000 536870912 128
 assert_component_resource_bounds tobari-gateway 2000000000 1073741824 256
-run_tobari context create --name project-tools --image "$custom_image" --format json >/dev/null
-running_context_use=$(run_tobari context use --name project-tools --format json)
-assert_contains "$running_context_use" '"cluster":"reconciled"' "running Context switch"
+[[ $(docker ps -a --filter name='^/tobari-gateway$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Gateway"
+[[ $(docker ps -a --filter name='^/tobari-opa$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one OPA"
+created_context=$(run_tobari context create --name restricted --image "$custom_image" --format json)
+assert_contains "$created_context" '"cluster":"requires_reconcile"' "running Context creation"
+start_cluster >/dev/null
+gateway_before_use=$(docker inspect --format '{{.Id}}' tobari-gateway)
+opa_before_use=$(docker inspect --format '{{.Id}}' tobari-opa)
+running_context_use=$(run_tobari context use --name restricted --format json)
+assert_contains "$running_context_use" '"cluster":"default_updated"' "running current Context change"
+[[ $(docker inspect --format '{{.Id}}' tobari-gateway) == "$gateway_before_use" ]] || fail "context use recreated Gateway"
+[[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_use" ]] || fail "context use recreated OPA"
 opa_context_mounts=$(docker inspect --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' tobari-opa)
-if [[ $opa_context_mounts != *"$config_directory/contexts/project-tools/policy => /policy"* ]]; then
+if [[ $opa_context_mounts != *"$test_root/state/tobari/cluster-projections/"*"/policy => /policy"* ]]; then
   printf 'selected OPA policy mounts:\n%s\n' "$opa_context_mounts" >&2
-  fail "selected OPA policy mount did not point to project-tools"
+  fail "OPA policy mount did not point to the aggregate projection"
 fi
 gateway_context_mounts=$(docker inspect --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' tobari-gateway)
-if [[ $gateway_context_mounts != *"$config_directory/contexts/project-tools/credentials.json => /run/tobari/config/credentials.json"* ]]; then
+if [[ $gateway_context_mounts != *"$test_root/state/tobari/cluster-projections/"*"/credentials.json => /run/tobari/config/credentials.json"* ]]; then
   printf 'selected Gateway mounts:\n%s\n' "$gateway_context_mounts" >&2
-  fail "selected Gateway credential config mount did not point to project-tools"
+  fail "Gateway credential mount did not point to the aggregate projection"
 fi
 running_context_use_pty=$(run_tobari_pty_at "$test_root/user" context use --name default)
-assert_contains "$running_context_use_pty" "Cluster: reconciled" "PTY running Context switch"
-assert_contains "$running_context_use_pty" "Next: run \`tobari\` from a project directory." "PTY Context switch continuation"
+assert_contains "$running_context_use_pty" "Cluster: default_updated" "PTY current Context change"
 docker stop tobari-gateway tobari-opa >/dev/null
-stopped_context_use=$(run_tobari context use --name project-tools --format json)
-assert_contains "$stopped_context_use" '"cluster":"not_running"' "stopped Context selection"
+stopped_context_use=$(run_tobari context use --name restricted --format json)
+assert_contains "$stopped_context_use" '"cluster":"default_updated"' "stopped current Context change"
 [[ $(docker inspect --format '{{.State.Running}}' tobari-gateway) == false ]] || fail "Context selection started the stopped Gateway"
 start_cluster >/dev/null
 default_context_use=$(run_tobari context use --name default --format json)
-assert_contains "$default_context_use" '"cluster":"reconciled"' "running Context switch back"
+assert_contains "$default_context_use" '"cluster":"default_updated"' "running current Context change back"
 default_context=$(run_tobari context show --format json)
 assert_contains "$default_context" '"active":true' "Context selection after explicit recovery"
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
 container_nested_root="/var/lib/tobari/${work_nested_root#"$test_root/user/"}"
 enter_tobari_at "$work_root"
+enter_tobari_at "$work_root" --context restricted
 enter_ancestor_tobari_at "$work_nested_root"
-enter_tobari_at "$other_root"
+create_nested_tobari_at "$other_root" --context restricted
 
 status_from_nested=$(run_tobari_at "$work_nested_root" status --format json)
 assert_contains "$status_from_nested" '"exists":true' "nested status"
@@ -502,9 +535,11 @@ assert_contains "$status_from_nested" "\"root\":\"$work_root\"" "nested status r
 nested_pwd=$({ printf '\r'; sleep 1; printf 'pwd\nexit\n'; } | run_tobari_pty_at "$work_nested_root" 2>&1)
 assert_contains "$nested_pwd" "$container_nested_root" "nested host CWD mapping"
 list_json=$(run_tobari_at "$work_root" list --format json)
-work_id=$(id_for_root "$work_root" <<<"$list_json")
-other_id=$(id_for_root "$other_root" <<<"$list_json")
+work_id=$(id_for_root "$work_root" default <<<"$list_json")
+restricted_id=$(id_for_root "$work_root" restricted <<<"$list_json")
+other_id=$(id_for_root "$other_root" restricted <<<"$list_json")
 work_container=$(container_for_id "$work_id")
+restricted_container=$(container_for_id "$restricted_id")
 work_network=$(network_for_id "$work_id")
 other_container=$(container_for_id "$other_id")
 enter_bash_tobari_at "$work_root"
@@ -514,16 +549,16 @@ enter_bash_tobari_at "$work_root"
   fail "Workspace lifetime command was not sleep infinity after Bash exit"
 [[ $work_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
   fail "list did not return the project's stable ID"
-[[ $work_id != "$other_id" ]] || fail "CWD projects received the same stable ID"
+[[ $work_id != "$restricted_id" && $work_id != "$other_id" && $restricted_id != "$other_id" ]] || fail "Context-bound Tobari received duplicate stable IDs"
 
-python3 - "$config_directory/principal-registry/principals.json" "$work_id" "$other_id" <<'PY'
+python3 - "$config_directory/principal-registry/principals.json" "$work_id" "$restricted_id" "$other_id" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     document = json.load(handle)
 bindings = document.get("bindings", [])
-if document.get("schema_version") != 1 or len(bindings) != 2:
+if document.get("schema_version") != 2 or len(bindings) != 3:
     raise SystemExit(f"unexpected project principal registry: {document!r}")
 ids = {item["project_id"] for item in bindings}
 if ids != set(sys.argv[2:]):
@@ -531,13 +566,20 @@ if ids != set(sys.argv[2:]):
 addresses = [item["gateway_ip"] for item in bindings]
 if len(addresses) != len(set(addresses)):
     raise SystemExit("project principal registry reused one Gateway address")
+if {item["context"] for item in bindings} != {"default", "restricted"}:
+    raise SystemExit(f"registry Context bindings are incomplete: {bindings!r}")
 PY
 
 work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$status_from_nested")
-other_status=$(run_tobari_at "$other_root" status --format json)
+restricted_status=$(run_tobari_at "$work_root" status --context restricted --format json)
+restricted_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$restricted_status")
+other_status=$(run_tobari_at "$other_root" status --context restricted --format json)
 other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$other_status")
-[[ $work_home != "$other_home" ]] || fail "CWD projects share a home directory"
+[[ $work_home != "$restricted_home" && $work_home != "$other_home" && $restricted_home != "$other_home" ]] || fail "Context-bound Tobari share a home directory"
+printf 'shared-project-files\n' >"$work_root/context-sharing-canary"
+assert_contains "$(run_restricted_project cat "$container_work_root/context-sharing-canary")" "shared-project-files" "same-root cross-Context project file sharing"
 assert_resource_bounds "$work_container"
+assert_resource_bounds "$restricted_container"
 assert_resource_bounds "$other_container"
 [[ $(run_project printenv HOME) == /var/lib/tobari ]] || fail "project HOME is not /var/lib/tobari"
 [[ $(run_project sh -c 'command -v gh') == /usr/local/bin/gh ]] || fail "GitHub CLI disappeared behind the project mount"
@@ -579,6 +621,9 @@ run_project sh -c "printf '%s\\n' '$tool_auth_value' > /var/lib/tobari/tool-auth
 if docker exec "$other_container" test -e /var/lib/tobari/tool-auth-state; then
   fail "tool authentication state leaked to another project"
 fi
+if docker exec "$restricted_container" test -e /var/lib/tobari/tool-auth-state; then
+  fail "tool authentication state leaked across Contexts on the same root"
+fi
 
 start_cluster >/dev/null
 enter_tobari_at "$work_root" &
@@ -588,7 +633,7 @@ second_enter_pid=$!
 wait "$first_enter_pid"
 wait "$second_enter_pid"
 owned_containers=$(docker ps -a --filter label=io.tobari.owner=default --format '{{.Names}}' | wc -l | tr -d ' ')
-[[ $owned_containers == 4 ]] || fail "idempotent reconciliation left $owned_containers owned containers"
+[[ $owned_containers == 5 ]] || fail "idempotent reconciliation left $owned_containers owned containers"
 
 docker rm -f "$work_container" >/dev/null
 enter_tobari_at "$work_root"
@@ -740,6 +785,9 @@ fi
 review_allow_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-allow)
 [[ $review_allow_status == 403 ]] || fail "review allow candidate returned $review_allow_status instead of 403"
+restricted_review_allow_status=$(run_restricted_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/review-allow)
+[[ $restricted_review_allow_status == 403 ]] || fail "restricted review candidate returned $restricted_review_allow_status instead of 403"
 review_deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-deny)
 [[ $review_deny_status == 403 ]] || fail "review deny candidate returned $review_deny_status instead of 403"
@@ -799,10 +847,11 @@ else
   fail "baseline explicit deny remained in the actionable policy queue"
 fi
 allow_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-allow <<<"$candidates_json")
+restricted_allow_candidate_id=$(candidate_id_for_effect "$restricted_id" mock-upstream PUT /review-allow <<<"$candidates_json")
 deny_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-deny <<<"$candidates_json")
 body_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-body <<<"$candidates_json")
 patch_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PATCH /review-patch <<<"$candidates_json")
-[[ $allow_candidate_id == pcy_* && $deny_candidate_id == pcy_* && \
+[[ $allow_candidate_id == pcy_* && $restricted_allow_candidate_id == pcy_* && "$allow_candidate_id" != "$restricted_allow_candidate_id" && $deny_candidate_id == pcy_* && \
   $body_candidate_id == pcy_* && $patch_candidate_id == pcy_* ]] ||
   fail "policy candidates did not emit opaque candidate IDs"
 python3 -c '
@@ -829,6 +878,8 @@ assert_contains "$tail_output" \
 	"allow_command=tobari policy allow --id $allow_candidate_id" \
 	"human policy tail"
 review_output=$(run_tobari policy review --tail 500)
+assert_contains "$review_output" "restricted" "cross-Context permission Inbox"
+assert_contains "$review_output" "$work_root" "same-root permission Inbox"
 assert_contains "$review_output" \
 	"Allow exact    tobari policy allow --id $allow_candidate_id" \
 	"human policy review"
@@ -844,7 +895,7 @@ assert_contains "$review_json" \
 	"machine policy review"
 
 allow_output=$(run_tobari policy allow --id "$allow_candidate_id")
-assert_contains "$allow_output" "policy: $policy_directory" "exact policy approval"
+assert_contains "$allow_output" "context: default" "exact policy approval"
 assert_contains "$allow_output" 'match: exact' "exact policy approval"
 assert_contains "$allow_output" 'path: /review-allow' "exact policy approval"
 assert_contains "$allow_output" 'applied: true' "exact policy approval"
@@ -864,6 +915,22 @@ body_applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
 applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-allow)
 [[ $applied_status == 200 ]] || fail "exact learned policy was not active after policy allow"
+restricted_after_allow=$(run_restricted_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/review-allow)
+[[ $restricted_after_allow == 403 ]] || fail "default Context learned Allow crossed into restricted with status $restricted_after_allow"
+restricted_deny_output=$(run_tobari policy deny --id "$restricted_allow_candidate_id")
+assert_contains "$restricted_deny_output" "path: /review-allow" "restricted exact Deny target"
+restricted_rules=$(run_tobari policy rules --format json)
+restricted_deny_rule_id=$(python3 -c '
+import json,sys
+print(next(item["id"] for item in json.load(sys.stdin)["policy_rules"]
+           if item["decision"] == "deny" and item["context"] == "restricted" and item["path"] == "/review-allow"))
+' <<<"$restricted_rules")
+run_tobari policy reset --id "$restricted_deny_rule_id" >/dev/null
+[[ $(run_project curl -sS -o /dev/null -w '%{http_code}' -X PUT http://mock-upstream:8080/review-allow) == 200 ]] ||
+  fail "restricted rule reset changed the default Context Allow"
+[[ $(run_restricted_project curl -sS -o /dev/null -w '%{http_code}' -X PUT http://mock-upstream:8080/review-allow) == 403 ]] ||
+  fail "restricted rule reset weakened the restricted Context default deny"
 other_learned_status=$(run_other_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-allow)
 [[ $other_learned_status == 403 ]] ||
@@ -901,7 +968,7 @@ reallowed_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
 [[ $reallowed_status == 200 ]] || fail "re-review could not restore the exact Allow"
 
 deny_output=$(run_tobari policy deny --id "$deny_candidate_id")
-assert_contains "$deny_output" "policy: $policy_directory" "exact policy rejection"
+assert_contains "$deny_output" "context: default" "exact policy rejection"
 assert_contains "$deny_output" 'path: /review-deny' "exact policy rejection"
 assert_contains "$deny_output" 'applied: true' "exact policy rejection"
 rejected_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
@@ -995,6 +1062,9 @@ if [[ $interactive_output != *'Permission denied'* && \
   printf '%s\n' "$interactive_output" >&2
   fail "interactive policy review did not contain the expected value"
 fi
+assert_contains "$interactive_output" "Context" "interactive permission Context detail and confirmation"
+assert_contains "$interactive_output" "Tobari" "interactive permission Tobari detail and confirmation"
+assert_contains "$interactive_output" "/review-interactive" "interactive permission request detail and confirmation"
 interactive_review=$(run_tobari policy review --tail 1000 --format json)
 if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/review-interactive" for item in json.load(sys.stdin)["policy_review"]) else 1)' <<<"$interactive_review"; then
   fail "interactive deny did not remove the candidate from the review queue"
@@ -1108,6 +1178,12 @@ wait "$first_pid"
 wait "$second_pid"
 
 docker rm -f "$mock_name" >/dev/null
+set +e
+down_with_projects=$(run_tobari cluster down 2>&1)
+down_with_projects_status=$?
+set -e
+[[ $down_with_projects_status != 0 ]] || fail "cluster down succeeded while Context-bound Tobari remained"
+[[ $(docker inspect --format '{{.State.Running}}' tobari-gateway) == true ]] || fail "refused cluster down stopped the shared Gateway"
 status_before_delete=$(run_tobari_at "$work_root" status --format json)
 assert_contains "$status_before_delete" '"exists":true' "status before delete"
 docker rm -f "$work_container" >/dev/null
@@ -1120,16 +1196,19 @@ work_container=
 status_after_delete=$(run_tobari_at "$work_root" status --format json)
 assert_contains "$status_after_delete" '"exists":false' "status after delete"
 [[ -f "$profile_skill" && -f "$profile_settings" ]] || fail "delete removed the shared agent profile"
-python3 - "$config_directory/principal-registry/principals.json" "$other_id" <<'PY'
+python3 - "$config_directory/principal-registry/principals.json" "$restricted_id" "$other_id" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     bindings = json.load(handle)["bindings"]
-if [item["project_id"] for item in bindings] != [sys.argv[2]]:
+if {item["project_id"] for item in bindings} != set(sys.argv[2:]):
     raise SystemExit(f"deleted project principal was not removed: {bindings!r}")
 PY
-run_tobari_at "$other_root" delete --force >/dev/null
+run_tobari_at "$work_root" delete --context restricted --force >/dev/null
+restricted_id=
+restricted_container=
+run_tobari_at "$other_root" delete --context restricted --force >/dev/null
 other_id=
 other_container=
 python3 - "$config_directory/principal-registry/principals.json" <<'PY'

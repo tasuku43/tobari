@@ -199,7 +199,7 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		return nil, fault.Wrap(fault.KindContract, "invalid_context_list", "Context list is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		document := contextListDocument{SchemaVersion: 2}
+		document := contextListDocument{SchemaVersion: 3}
 		document.Contexts.Active = result.Active
 		document.Contexts.Items = append([]tobari.ContextSummary{}, result.Items...)
 		output, err := json.Marshal(document)
@@ -209,7 +209,7 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		return append(output, '\n'), nil
 	}
 	var output strings.Builder
-	writeStyledLine(&output, color, "Active Context:", safeExternalText(result.Active), styleText)
+	writeStyledLine(&output, color, "Current Context:", safeExternalText(result.Active), styleText)
 	output.WriteString("\n")
 	output.WriteString(applyStyleToken(color, styleAccent, "Contexts:"))
 	output.WriteString("\n")
@@ -238,7 +238,7 @@ func renderContextReport(result tobari.ContextReport, format successFormat, colo
 		return nil, fault.Wrap(fault.KindContract, "invalid_context_report", "Context report is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(contextReportDocument{SchemaVersion: 2, Context: result})
+		output, err := json.Marshal(contextReportDocument{SchemaVersion: 3, Context: result})
 		if err != nil {
 			return nil, err
 		}

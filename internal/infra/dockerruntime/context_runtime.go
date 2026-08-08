@@ -144,6 +144,7 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 	}
 	result := tobari.ContextReport{
 		Task:         task,
+		ID:           manifest.ID,
 		Name:         manifest.Name,
 		Active:       manifest.Name == active,
 		AgentProfile: manifest.AgentProfile,

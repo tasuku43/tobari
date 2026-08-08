@@ -41,16 +41,16 @@ func contextListSpec() CommandSpec {
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
-			Outcome:      "List the complete local Context collection and identify the active Context",
+			Outcome:      "List the complete local Context collection and identify the current omission default",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
-					{Name: "active", Type: OutputFieldTypeString, Description: "Name of the host-selected active Context."},
-					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with active state, image, agent profile, policy mode, and runtime status."},
+					{Name: "active", Type: OutputFieldTypeString, Description: "Name of the host-selected current Context used when Context is omitted."},
+					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with current-default state, stable ID, image, agent profile, policy mode, and runtime status."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "contexts", JSONSchemaVersion: 2,
+				JSONEnvelope: "contexts", JSONSchemaVersion: 3,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("context list", true,
@@ -69,9 +69,9 @@ func contextShowSpec() CommandSpec {
 		Args: "[--name <name>] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
-			Outcome:      "Inspect the active Context or one named Context and its separated store references",
+			Outcome:      "Inspect the current Context or one named Context and its separated store references",
 			Inputs: []CommandInput{
-				{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Named Context to inspect; omission selects the active Context.", AllowedValues: []string{}},
+				{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Named Context to inspect; omission selects the current/default Context.", AllowedValues: []string{}},
 				formatInput(),
 			},
 			Output:        contextReportOutput(),
@@ -118,11 +118,11 @@ func contextCreateSpec() CommandSpec {
 
 func contextUseSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context use", Summary: "Select and apply the active execution Context",
+		Path: "context use", Summary: "Select the current default Context",
 		Args: "--name <name> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
-			Outcome:       "Select one existing Context and synchronously apply it to a running shared cluster; leave stopped or unconfigured clusters for explicit cluster up",
+			Outcome:       "Select one existing Context as the omission default without changing existing Tobari or shared enforcement authority",
 			Inputs:        []CommandInput{contextNameInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The named Context already exists."},
@@ -130,7 +130,7 @@ func contextUseSpec() CommandSpec {
 			Errors: mutationCommandErrors("context use", "context show",
 				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
 				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context or create it first."),
-				declaredCommandError(fault.KindRejected, "context_use_failed", false, "cluster up", "Reconcile the shared cluster with the selected Context."),
+				declaredCommandError(fault.KindRejected, "context_use_failed", false, "context show", "Inspect the current/default Context marker."),
 				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context selection."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
@@ -145,18 +145,18 @@ func contextUseSpec() CommandSpec {
 
 func runtimeInitSpec() CommandSpec {
 	return CommandSpec{
-		Path: "runtime init", Summary: "Create a runtime recipe for the active Context",
+		Path: "runtime init", Summary: "Create a runtime recipe for the current Context",
 		Args: "[--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "runtime.customization",
-			Outcome:       "Create the active Context's owner-only Dockerfile template without changing its selected runtime image",
+			Outcome:       "Create the current Context's owner-only Dockerfile template without changing its selected runtime image",
 			Inputs:        []CommandInput{formatInput()},
 			Output:        contextReportOutput(),
-			Prerequisites: []string{"An active Context is available on the trusted host."},
+			Prerequisites: []string{"A current/default Context is available on the trusted host."},
 			FixedTarget:   fixedActiveContextRuntimeTarget(),
 			Errors: mutationCommandErrors("runtime init", "context show",
-				declaredCommandError(fault.KindRejected, "runtime_recipe_exists", false, "context show", "Inspect the existing active Context runtime recipe."),
-				declaredCommandError(fault.KindRejected, "runtime_init_failed", false, "context show", "Inspect the active Context stores."),
+				declaredCommandError(fault.KindRejected, "runtime_recipe_exists", false, "context show", "Inspect the existing current Context runtime recipe."),
+				declaredCommandError(fault.KindRejected, "runtime_init_failed", false, "context show", "Inspect the current Context stores."),
 				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the Context runtime report."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
@@ -171,17 +171,17 @@ func runtimeInitSpec() CommandSpec {
 
 func runtimeBuildSpec() CommandSpec {
 	return CommandSpec{
-		Path: "runtime build", Summary: "Build and select the active Context runtime",
+		Path: "runtime build", Summary: "Build and select the current Context runtime",
 		Args: "[--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "runtime.customization",
-			Outcome:       "Build the active Context Dockerfile with observable Docker diagnostics, validate the Tobari runtime contract, and select the generated local image",
+			Outcome:       "Build the current Context Dockerfile with observable Docker diagnostics, validate the Tobari runtime contract, and select the generated local image",
 			Inputs:        []CommandInput{formatInput()},
 			Output:        contextReportOutput(),
-			Prerequisites: []string{"The active Context has a runtime/Dockerfile recipe.", "The trusted host Docker daemon and Buildx plugin are available."},
+			Prerequisites: []string{"The current Context has a runtime/Dockerfile recipe.", "The trusted host Docker daemon and Buildx plugin are available."},
 			FixedTarget:   fixedActiveContextRuntimeTarget(),
 			Errors: mutationCommandErrors("runtime build", "context show",
-				declaredCommandError(fault.KindInvalidInput, "runtime_recipe_missing", false, "runtime init", "Create the active Context runtime template first."),
+				declaredCommandError(fault.KindInvalidInput, "runtime_recipe_missing", false, "runtime init", "Create the current Context runtime template first."),
 				declaredCommandError(fault.KindRejected, "runtime_build_failed", false, "context show", "Inspect the unchanged selected runtime and recipe state."),
 				declaredCommandError(fault.KindUnavailable, "image_not_found", false, "runtime build", "Build or make the official base image available to Docker."),
 				declaredCommandError(fault.KindRejected, "incompatible_image", false, "context show", "Correct the Dockerfile so the selected image preserves the Tobari runtime contract."),
@@ -200,11 +200,12 @@ func runtimeBuildSpec() CommandSpec {
 func projectEnterSpec() CommandSpec {
 	return CommandSpec{
 		Path: "tobari", Summary: "Choose or create the current directory's Workspace and enter a reusable session",
+		Args:   "[--context <name>]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
 			Outcome:      "Choose an ancestor Workspace or explicitly create one at the current directory, recover its runtime, and enter an interactive session; exit leaves the Workspace existing for reuse and delete removes it explicitly",
-			Inputs:       []CommandInput{}, Output: noOutput(),
+			Inputs:       []CommandInput{executionContextInput()}, Output: noOutput(),
 			Prerequisites: []string{
 				"The current directory is an accessible project directory.",
 				"The caller is attached to an interactive terminal.",
@@ -226,12 +227,12 @@ func projectEnterSpec() CommandSpec {
 func statusSpec() CommandSpec {
 	return CommandSpec{
 		Path: "status", Summary: "Inspect the nearest current-directory Tobari",
-		Args:   "[--format text|json]",
+		Args:   "[--context <name>] [--format text|json]",
 		Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
 			Outcome:      "Report whether a Tobari exists for the current directory and its recoverable runtime diagnostic",
-			Inputs:       []CommandInput{formatInput()},
+			Inputs:       []CommandInput{executionContextInput(), formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
@@ -240,9 +241,11 @@ func statusSpec() CommandSpec {
 					{Name: "id", Type: OutputFieldTypeString, Description: "Diagnostic stable logical ID when one exists."},
 					{Name: "home", Type: OutputFieldTypeString, Description: "Diagnostic per-Tobari XDG home path when one exists."},
 					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic; incomplete means the logical state record is missing and must be deleted before recreation."},
+					{Name: "context", Type: OutputFieldTypeString, Description: "Context display name bound to this Tobari."},
+					{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority identity bound to this Tobari."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-				JSONEnvelope: "status", JSONSchemaVersion: 1,
+				JSONEnvelope: "status", JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("status", true,
@@ -260,11 +263,11 @@ func statusSpec() CommandSpec {
 func deleteSpec() CommandSpec {
 	return CommandSpec{
 		Path: "delete", Summary: "Delete the nearest current-directory Tobari when no session is attached",
-		Args: "[--force]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: "[--context <name>] [--force]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
 			Outcome:      "Delete one nearest CWD-owned Tobari when detached; reject attached sessions unless --force overrides the guard",
-			Inputs: []CommandInput{{
+			Inputs: []CommandInput{executionContextInput(), {
 				Name: "--force", Source: InputSourceFlag, Required: false,
 				ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
 				Description: "Override the attached-session safety guard and delete anyway.", AllowedValues: []string{}, DefaultValue: stringPointer("false"),
@@ -276,6 +279,8 @@ func deleteSpec() CommandSpec {
 					{Name: "root", Type: OutputFieldTypeString, Description: "Deleted canonical project root."},
 					{Name: "id", Type: OutputFieldTypeString, Description: "Deleted stable logical ID."},
 					{Name: "home", Type: OutputFieldTypeString, Description: "Deleted per-Tobari XDG home path."},
+					{Name: "context", Type: OutputFieldTypeString, Description: "Context display name bound to the deleted Tobari."},
+					{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority identity bound to the deleted Tobari."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 			},
@@ -329,7 +334,7 @@ func clusterUpSpec() CommandSpec {
 				declaredCommandError(fault.KindUnavailable, "gateway_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the verified Gateway image."),
 				declaredCommandError(fault.KindContract, "gateway_image_incompatible", false, "doctor", "Inspect the Gateway image API, digest, and architecture contract."),
 				declaredCommandError(fault.KindUnavailable, "runtime_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the official runtime base image."),
-				declaredCommandError(fault.KindRejected, "incompatible_image", false, "context show", "Inspect the active Context runtime image contract."),
+				declaredCommandError(fault.KindRejected, "incompatible_image", false, "context show", "Inspect the relevant Context runtime image contract."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
@@ -350,21 +355,26 @@ func clusterStatusSpec() CommandSpec {
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "cluster.lifecycle",
-			Outcome:      "Observe cluster health, proxy, XDG policy path, attached count, and recent errors",
+			Outcome:      "Observe shared enforcement health, aggregate Context policy revision, registry integrity, attached count, and recent errors",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
-					{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether schema-2 cluster state exists."},
+					{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether schema-3 aggregate cluster state exists."},
 					{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether Gateway and OPA are healthy."},
 					{Name: "proxy", Type: OutputFieldTypeString, Description: "Tobari-internal explicit proxy endpoint."},
 					{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical host XDG policy directory."},
 					{Name: "tobari_count", Type: OutputFieldTypeInteger, Description: "Number of attached Tobari."},
+					{Name: "context_count", Type: OutputFieldTypeInteger, Description: "Number of Context policies loaded in the aggregate projection."},
+					{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision."},
+					{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Context policy projection integrity observation."},
+					{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation."},
+					{Name: "credential_projection", Type: OutputFieldTypeString, Description: "Credential projection integrity observation."},
 					{Name: "components", Type: OutputFieldTypeArray, Description: "Exact Gateway and OPA observations."},
 					{Name: "recent_error", Type: OutputFieldTypeString, Description: "Bounded recent runtime error."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "cluster", JSONSchemaVersion: 1,
+				JSONEnvelope: "cluster", JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("cluster status", true,
@@ -406,7 +416,7 @@ func clusterDenialsSpec() CommandSpec {
 					{Name: "review_command", Type: OutputFieldTypeString, Description: "Exact command that opens the pending permission review queue."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "denials", JSONSchemaVersion: 2,
+				JSONEnvelope: "denials", JSONSchemaVersion: 3,
 			},
 			Prerequisites: []string{"The cluster has been created."},
 			Errors: append(readCommandErrors("cluster denials", true,
@@ -466,7 +476,7 @@ func policyCandidatesSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "policy_candidates", JSONSchemaVersion: 3,
+				JSONEnvelope: "policy_candidates", JSONSchemaVersion: 4,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy candidates", true),
@@ -508,7 +518,7 @@ func policyReviewSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "policy_review", JSONSchemaVersion: 3,
+				JSONEnvelope: "policy_review", JSONSchemaVersion: 4,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy review", true),
@@ -537,9 +547,9 @@ func policyRulesSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyRuleOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "policy_rules", JSONSchemaVersion: 1,
+				JSONEnvelope: "policy_rules", JSONSchemaVersion: 2,
 			},
-			Prerequisites: []string{"The active Context has a validated policy store."},
+			Prerequisites: []string{"Every configured Context has a validated policy source and the shared aggregate is current."},
 			Errors:        policyRuleReadErrors("policy rules", true),
 			Interactive: &InteractiveWorkflowContract{
 				ActionCommand:          "policy reset",
@@ -683,7 +693,10 @@ func policyCompactionsSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "id", Type: OutputFieldTypeString, Description: "Opaque current compaction reference.", ReferenceKind: tobari.PolicyCompactionKind},
+					{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority bound to every source rule."},
+					{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable Context name."},
 					{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal bound to every source rule."},
+					{Name: "project_root", Type: OutputFieldTypeString, Description: "Safe diagnostic canonical project root."},
 					{Name: "host", Type: OutputFieldTypeString, Description: "Exact request host."},
 					{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact request port shared by every source rule."},
 					{Name: "method", Type: OutputFieldTypeString, Description: "Exact uppercase HTTP method."},
@@ -694,7 +707,7 @@ func policyCompactionsSpec() CommandSpec {
 					{Name: "compact_command", Type: OutputFieldTypeString, Description: "Exact reference-bound compaction command."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "policy_compactions", JSONSchemaVersion: 2,
+				JSONEnvelope: "policy_compactions", JSONSchemaVersion: 3,
 			},
 			Prerequisites: []string{"At least three exact learned rules share one sufficiently deep directory."},
 			Errors: append(readCommandErrors("policy compactions", true,
@@ -803,7 +816,7 @@ func attachSpec() CommandSpec {
 				{
 					Name: "--image", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description: "Locally available compatible OCI image or builtin; omission uses the active Context image.", AllowedValues: []string{},
+					Description: "Locally available compatible OCI image or builtin; omission uses the selected Tobari's bound Context image.", AllowedValues: []string{},
 				},
 			},
 			Output: CommandOutput{
@@ -821,7 +834,7 @@ func attachSpec() CommandSpec {
 				declaredCommandError(fault.KindInvalidInput, "invalid_name", false, "help attach", "Choose a portable unique name."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Validate the intended root."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_image", false, "help attach", "Choose builtin or a portable OCI image reference."),
-				declaredCommandError(fault.KindRejected, "invalid_image_config", false, "context show", "Inspect the active Context image configuration."),
+				declaredCommandError(fault.KindRejected, "invalid_image_config", false, "context show", "Inspect the selected or bound Context image configuration."),
 				declaredCommandError(fault.KindInvalidInput, "name_conflict", false, "list", "Choose another name or detach the existing Tobari."),
 				declaredCommandError(fault.KindInvalidInput, "root_conflict", false, "list", "Use the existing Tobari or detach it."),
 				declaredCommandError(fault.KindInvalidInput, "image_conflict", false, "list", "Use the existing image or detach the Tobari."),
@@ -859,9 +872,11 @@ func listSpec() CommandSpec {
 					{Name: "root", Type: OutputFieldTypeString, Description: "Canonical Workspace root."},
 					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic; incomplete means the logical state record is missing and must be deleted before recreation."},
 					{Name: "id", Type: OutputFieldTypeString, Description: "Diagnostic stable Workspace ID; not a routine action input."},
+					{Name: "context", Type: OutputFieldTypeString, Description: "Context display name permanently bound to the Workspace."},
+					{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority identity permanently bound to the Workspace."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "tobari", JSONSchemaVersion: 1,
+				JSONEnvelope: "tobari", JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("list", true,
@@ -1005,7 +1020,7 @@ func fixedContextCatalogTarget() *FixedTarget {
 func fixedActiveContextTarget() *FixedTarget {
 	return &FixedTarget{
 		Kind: tobari.ContextTargetKind, ID: tobari.ActiveContextTargetID,
-		Description: "This installation's host-owned active Context selection.",
+		Description: "This installation's host-owned current Context omission default.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
@@ -1014,7 +1029,7 @@ func fixedActiveContextRuntimeTarget() *FixedTarget {
 	return &FixedTarget{
 		Kind:        tobari.ContextRuntimeTargetKind,
 		ID:          tobari.ActiveContextRuntimeID,
-		Description: "The active Context's host-owned runtime recipe and selected image.",
+		Description: "The current Context's host-owned runtime recipe and selected image.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
@@ -1025,6 +1040,14 @@ func contextNameInput() CommandInput {
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
 		Description:   "Portable Context name; it is a selection label, not a credential authority.",
 		AllowedValues: []string{},
+	}
+}
+
+func executionContextInput() CommandInput {
+	return CommandInput{
+		Name: "--context", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description: "Context display name for this invocation; omission uses the current Context without changing it.", AllowedValues: []string{},
 	}
 }
 
@@ -1051,16 +1074,16 @@ func contextReportOutput() CommandOutput {
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "name", Type: OutputFieldTypeString, Description: "Named Context identifier."},
-			{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the host-selected active Context."},
+			{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the current/default selection for omitted Context input."},
 			{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only shared agent profile reference."},
 			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Context."},
 			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Guided or advanced policy-development mode."},
 			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."},
 			{Name: "runtime", Type: OutputFieldTypeObject, Description: "Selected runtime source, recipe status, source digest, and image digest."},
-			{Name: "cluster", Type: OutputFieldTypeString, Description: "For context use, whether the running shared cluster was reconciled, was already aligned, or still needs explicit cluster up; otherwise not_applicable."},
+			{Name: "cluster", Type: OutputFieldTypeString, Description: "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "context", JSONSchemaVersion: 2,
+		JSONEnvelope: "context", JSONSchemaVersion: 3,
 	}
 }
 
@@ -1114,7 +1137,10 @@ func policyRuleOutputFields() []OutputField {
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque current learned policy-rule reference.", ReferenceKind: tobari.PolicyRuleKind},
 		{Name: "decision", Type: OutputFieldTypeString, Description: "Current learned decision: allow or deny."},
 		{Name: "match", Type: OutputFieldTypeString, Description: "Exact or prefix match mode."},
+		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority bound to the decision."},
+		{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable Context name."},
 		{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal bound to the decision."},
+		{Name: "project_root", Type: OutputFieldTypeString, Description: "Safe diagnostic canonical project root."},
 		{Name: "host", Type: OutputFieldTypeString, Description: "Exact decision host."},
 		{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact decision port."},
 		{Name: "method", Type: OutputFieldTypeString, Description: "Exact uppercase HTTP method."},
@@ -1144,7 +1170,10 @@ func policyCandidateOutputFields() []OutputField {
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque exact policy-candidate reference.", ReferenceKind: tobari.PolicyCandidateKind},
 		{Name: "observed_at", Type: OutputFieldTypeString, Description: "Latest matching Gateway denial timestamp."},
 		{Name: "observation_count", Type: OutputFieldTypeInteger, Description: "Matching retained denial observations; legacy candidates without this field mean one."},
+		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority established by Gateway network identity."},
+		{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable Context name."},
 		{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal for the denied request."},
+		{Name: "project_root", Type: OutputFieldTypeString, Description: "Safe diagnostic canonical project root."},
 		{Name: "host", Type: OutputFieldTypeString, Description: "Exact denied request host."},
 		{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact denied request port."},
 		{Name: "method", Type: OutputFieldTypeString, Description: "Exact denied uppercase HTTP method."},
@@ -1263,6 +1292,11 @@ func textClusterStatusOutput() CommandOutput {
 		Fields: []OutputField{
 			{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether cluster state remains configured."},
 			{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether shared components are running."},
+			{Name: "context_count", Type: OutputFieldTypeInteger, Description: "Number of Context policies in the shared enforcement projection."},
+			{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision."},
+			{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Context policy projection integrity observation."},
+			{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation."},
+			{Name: "credential_projection", Type: OutputFieldTypeString, Description: "Credential projection integrity observation."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 	}
@@ -1306,7 +1340,7 @@ func policyClusterReadinessErrors() []CommandError {
 		declaredCommandError(fault.KindUnavailable, "cluster_status_failed", false, "cluster status", "Inspect the shared cluster before using policy data."),
 		declaredCommandError(fault.KindUnavailable, "cluster_not_ready", false, "cluster up", "Reconcile the shared cluster explicitly."),
 		declaredCommandError(fault.KindInternal, "context_read_failed", false, "context show", "Inspect the selected Context before using policy data."),
-		declaredCommandError(fault.KindRejected, "context_mismatch", false, "cluster up", "Reconcile the shared cluster with the selected Context."),
+		declaredCommandError(fault.KindRejected, "context_mismatch", false, "cluster up", "Reconcile the shared cluster's all-Context projection."),
 	}
 }
 

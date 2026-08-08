@@ -86,6 +86,7 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 	}
 	options, commandArgs, err := parseRootOptions(args)
 	ctx = withErrorFormat(ctx, options.ErrorFormat)
+	ctx = withExecutionContext(ctx, options.ContextName)
 	if err != nil {
 		return c.failUsage(ctx, "invalid_root_options", err.Error(), "help", "Correct the global options.")
 	}
@@ -205,11 +206,24 @@ func isHelpFlag(value string) bool {
 
 type rootOptions struct {
 	ErrorFormat errorFormat
+	ContextName string
+}
+
+type executionContextKey struct{}
+
+func withExecutionContext(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, executionContextKey{}, name)
+}
+
+func executionContextName(ctx context.Context) string {
+	value, _ := ctx.Value(executionContextKey{}).(string)
+	return value
 }
 
 func parseRootOptions(args []string) (rootOptions, []string, error) {
 	options := rootOptions{ErrorFormat: errorFormatText}
 	seenErrorFormat := false
+	seenContext := false
 	index := 0
 	for index < len(args) {
 		argument := args[index]
@@ -223,6 +237,26 @@ func parseRootOptions(args []string) (rootOptions, []string, error) {
 			value = args[index]
 		case strings.HasPrefix(argument, "--error-format="):
 			value = strings.TrimPrefix(argument, "--error-format=")
+		case argument == "--context":
+			if index+1 >= len(args) || seenContext {
+				return options, nil, fmt.Errorf("--context requires one Context name")
+			}
+			index++
+			options.ContextName = args[index]
+			seenContext = true
+			index++
+			continue
+		case strings.HasPrefix(argument, "--context="):
+			if seenContext {
+				return options, nil, fmt.Errorf("--context may be specified only once")
+			}
+			options.ContextName = strings.TrimPrefix(argument, "--context=")
+			if options.ContextName == "" {
+				return options, nil, fmt.Errorf("--context requires one Context name")
+			}
+			seenContext = true
+			index++
+			continue
 		default:
 			return options, args[index:], nil
 		}

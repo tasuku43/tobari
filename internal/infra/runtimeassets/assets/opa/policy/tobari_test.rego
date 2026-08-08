@@ -6,6 +6,7 @@ base_input := {
 	"schema_version": 3,
 	"principal": {
 		"cluster": "default",
+		"context_id": "01912345-6789-7abc-8def-0123456789ad",
 		"project_id": "01912345-6789-7abc-8def-0123456789ab",
 	},
 	"request": {
@@ -129,6 +130,7 @@ test_learnable_denial_preserves_bound_credential_profile if {
 learned_exact_fixture := {
 	"id": "plr_0123456789abcdef0123456789abcdef",
 	"match": "exact",
+	"context_id": "01912345-6789-7abc-8def-0123456789ad",
 	"project_id": "01912345-6789-7abc-8def-0123456789ab",
 	"host": "api.github.com",
 	"port": 443,
@@ -141,6 +143,7 @@ learned_exact_fixture := {
 learned_prefix_fixture := {
 	"id": "plr_abcdef0123456789abcdef0123456789",
 	"match": "prefix",
+	"context_id": "01912345-6789-7abc-8def-0123456789ad",
 	"project_id": "01912345-6789-7abc-8def-0123456789ab",
 	"host": "mock-upstream",
 	"port": 8080,
@@ -161,6 +164,7 @@ learned_prefix_fixture := {
 test_explicit_deny_wins_over_learned_allow if {
 	deny_rule := {
 		"id": "pdr_0123456789abcdef0123456789abcdef",
+		"context_id": base_input.principal.context_id,
 		"project_id": base_input.principal.project_id,
 		"host": "api.github.com",
 		"port": 443,

@@ -15,7 +15,7 @@ substantially expand the MVP.
 
 ## Decision drivers
 
-- One long-lived named Tobari for each selected source root
+- One long-lived Context-bound Tobari for each selected source-root/Context pair
 - Immediate, shared, ordinary filesystem semantics
 - Honest scope rather than implied per-repository protection
 
@@ -27,8 +27,10 @@ substantially expand the MVP.
 
 ## Decision
 
-`attach --name --root` mounts one canonical selected directory read-write at
-`/workspace`. That Tobari can modify or delete every file below it. No other host
+Each Tobari mounts one canonical selected directory read-write at its mapped
+workspace path. That Tobari can modify or delete every file below it. Same-root
+Tobari in different Contexts and overlapping parent/child roots are allowed and
+observe the same host-file mutations. No other host
 directory, host home, credential directory, SSH agent, or Docker socket is
 mounted.
 
@@ -37,6 +39,10 @@ mounted.
 - Users must choose the root as an authority boundary.
 - Tobari cannot recover or approve file changes under that root.
 - Multiple processes see the same files and home immediately.
+- Runtime, home, network, policy, and managed credentials remain separated, but
+  overlapping host project files do not have integrity isolation. No overlay,
+  automatic checkout copy, root lock, session exclusion, or warning gate is
+  added.
 
 ## Mechanical enforcement
 
@@ -46,6 +52,6 @@ the accepted loss explicitly.
 
 ## Compatibility, security, and validation
 
-Canonical roots and names are unique in persisted state.
+Canonical root plus stable Context ID is unique in persisted state.
 Integration inspects Tobari mounts. Reconsider overlays when users need
 reversible changes more than direct shared-workspace simplicity.

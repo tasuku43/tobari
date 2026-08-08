@@ -99,7 +99,7 @@ func (o *runtimeBuildOutput) WriteFailureSummary() {
 			_, _ = fmt.Fprintf(o.out, "  The candidate image %s may remain locally; Tobari did not remove it.\n\n", escapeTSVCell(o.metadata.CandidateImage))
 		}
 	case tobari.RuntimeBuildSelectionUncertain:
-		_, _ = io.WriteString(o.out, "State:\n  Runtime promotion could not be confirmed; inspect the active Context before retrying.\n\n")
+		_, _ = io.WriteString(o.out, "State:\n  Runtime promotion could not be confirmed; inspect the current Context before retrying.\n\n")
 	case tobari.RuntimeBuildSelectionPromoted:
 		_, _ = io.WriteString(o.out, "State:\n  The runtime image was promoted, but the final Context report failed.\n\n")
 	}
@@ -108,7 +108,7 @@ func (o *runtimeBuildOutput) WriteFailureSummary() {
 	if o.metadata.Selection == tobari.RuntimeBuildSelectionUnchanged {
 		_, _ = io.WriteString(o.out, "  Fix the Dockerfile or Docker problem, then run:\n  tobari runtime build\n")
 	} else {
-		_, _ = io.WriteString(o.out, "  Inspect the active Context with:\n  tobari context show\n")
+		_, _ = io.WriteString(o.out, "  Inspect the current Context with:\n  tobari context show\n")
 	}
 }
 
@@ -252,7 +252,7 @@ func runtimeBuildStageLabel(stage tobari.RuntimeBuildStage) string {
 	case tobari.RuntimeBuildStageInspect:
 		return "Inspect built image identity"
 	case tobari.RuntimeBuildStagePromote:
-		return "Promote runtime image to active Context"
+		return "Promote runtime image to current Context"
 	case tobari.RuntimeBuildStageReport:
 		return "Read promoted Context state"
 	default:

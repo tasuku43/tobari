@@ -136,8 +136,8 @@
               <div class="zone-heading"><span class="zone-mark" aria-hidden="true">H</span><div><p class="zone-kicker">trusted plane</p><h3>Host</h3></div></div>
               <ul class="zone-list">
                 <li><strong>CLI + Docker Engine</strong><span>exact, ownership-labeled lifecycle</span></li>
-                <li><strong>Active Context</strong><span>host-selected execution setup</span></li>
-                <li><strong>Principal registry</strong><span>binds the project to its Gateway interface</span></li>
+                <li><strong>Context catalog</strong><span>stable execution identities; current is only a default</span></li>
+                <li><strong>Principal registry</strong><span>binds Context + project to its Gateway interface</span></li>
               </ul>
             </div>
 
@@ -158,7 +158,7 @@
               <div class="zone-heading"><span class="zone-mark" aria-hidden="true">G</span><div><p class="zone-kicker">trusted boundary</p><h3>Gateway + OPA</h3></div></div>
               <ul class="zone-list">
                 <li><strong>Gateway</strong><span>normalizes, redacts, enforces, then forwards</span></li>
-                <li><strong>OPA</strong><span>shared decision point; default deny</span></li>
+                <li><strong>OPA</strong><span>one shared decision point; trusted Context routing</span></li>
                 <li><strong>Upstream</strong><span>reachable only after an allow decision</span></li>
               </ul>
             </div>
@@ -245,13 +245,13 @@
               <span class="step-number">05</span>
               <p class="step-kicker">activate</p>
               <h3>Test, activate, retry</h3>
-              <p>Allow or deny tests a complete private policy, atomically updates the exact rule, activates OPA, and makes the next retry meaningful.</p>
+              <p>Allow or deny tests the target Context source and complete all-Context candidate, atomically activates OPA, and makes the next retry meaningful.</p>
             </li>
           </ol>
 
           <div class="policy-callouts">
             <div class="callout callout-warning"><span class="callout-mark" aria-hidden="true">!</span><div><h3>Not every denial is learnable</h3><p>Baseline denies, unavailable bodies, wrong scheme or port, stale principals, and other orthogonal failures remain diagnostics rather than ineffective candidates.</p></div></div>
-            <div class="callout callout-safe"><span class="callout-mark" aria-hidden="true">✓</span><div><h3>Exact means exact</h3><p>Learned permission stays bound to the observed project, host, port, method, and path. A prior allow never becomes permission for a similar request.</p></div></div>
+            <div class="callout callout-safe"><span class="callout-mark" aria-hidden="true">✓</span><div><h3>Exact means exact</h3><p>Learned permission stays bound to the observed Context, project, host, port, method, and path. A prior allow never becomes permission for a similar request.</p></div></div>
           </div>
         </div>
       </section>
@@ -260,19 +260,19 @@
         <div class="section-heading">
           <p class="section-number">05 <span>/</span> Context runtime</p>
           <h2 id="context-title">Customize the runtime without moving the boundary.</h2>
-          <p>Context is one host-selected logical execution setup. It composes references to an agent profile, policy, credentials, and a compatible runtime image while keeping each physical trust boundary separate.</p>
+          <p>Each Tobari permanently belongs to one stable Context. Multiple Contexts share one Gateway and one OPA while runtime, home, network, policy, and managed credentials retain their explicit boundaries.</p>
         </div>
 
         <div class="context-layout">
           <div class="context-stores">
             <div class="context-card context-card-main">
               <p class="card-eyebrow">host-owned composition record</p>
-              <h3>Active Context</h3>
-              <p>One understandable setup for the shared cluster. Selection happens on the trusted host, never inside a Workspace.</p>
-              <div class="context-badge">active / explicit</div>
+              <h3>Bound Context</h3>
+              <p>One understandable setup per Tobari. Its stable identity is host-bound; the current Context is only an omitted-input default.</p>
+              <div class="context-badge">stable / explicit</div>
             </div>
             <div class="context-card"><span class="store-mark store-agent" aria-hidden="true">A</span><div><h3>Agent profile</h3><p>Read-only, non-secret configuration for the work runtime.</p></div></div>
-            <div class="context-card"><span class="store-mark store-policy" aria-hidden="true">P</span><div><h3>Policy store</h3><p>Mounted read-only into OPA, not into a Workspace.</p></div></div>
+            <div class="context-card"><span class="store-mark store-policy" aria-hidden="true">P</span><div><h3>Policy source</h3><p>Projected atomically with all Contexts into the single OPA.</p></div></div>
             <div class="context-card"><span class="store-mark store-credential" aria-hidden="true">C</span><div><h3>Credential store</h3><p>Managed secrets, when used, are Gateway-only. Values never enter the agent.</p></div></div>
             <div class="context-card"><span class="store-mark store-home" aria-hidden="true">H</span><div><h3>Workspace home</h3><p>Tool-owned authentication state stays per Workspace and is not a Context secret.</p></div></div>
           </div>
@@ -281,7 +281,7 @@
             <p class="card-eyebrow">explicit host-side recipe</p>
             <h3>Runtime customization flow</h3>
             <ol class="recipe-flow">
-              <li><span>01</span><code>context use</code><small>Select the active setup.</small></li>
+              <li><span>01</span><code>context use</code><small>Select only the current/default setup.</small></li>
               <li><span>02</span><code>runtime init</code><small>Create one owner-only Dockerfile.</small></li>
               <li><span>03</span><strong>edit recipe</strong><small>Add tools and environment configuration.</small></li>
               <li><span>04</span><code>runtime build</code><small>Build only from that recipe directory.</small></li>
@@ -293,8 +293,8 @@
 
         <div class="guardrail-grid">
           <div><span class="guardrail-number">01</span><h3>Failed builds are safe retries</h3><p>The previous selected image remains authoritative until validation and promotion succeed.</p></div>
-          <div><span class="guardrail-number">02</span><h3>Project metadata is not authority</h3><p>Untrusted project files cannot silently select or alter the active Context runtime image.</p></div>
-          <div><span class="guardrail-number">03</span><h3>One Context, separated stores</h3><p>Composition is logical for the user; policy, credentials, agent data, and home state remain physically separated.</p></div>
+          <div><span class="guardrail-number">02</span><h3>Project metadata is not authority</h3><p>Untrusted project files cannot silently select or alter the bound Context runtime image.</p></div>
+          <div><span class="guardrail-number">03</span><h3>Many Contexts, one enforcement pair</h3><p>One Gateway and OPA route stable principals; policy, credentials, runtime, network, and home remain scoped.</p></div>
         </div>
       </section>
 

@@ -88,20 +88,20 @@ is mounted only into OPA, managed secrets are mounted only into Gateway, and
 agent configuration is mounted read-only into the work runtime. Tool-owned
 authentication remains in the per-Workspace home.
 
-The first implementation has one active Context for the shared cluster. Cluster
-state records the active Context and resolved paths, and project runtime
-reconciliation uses its runtime image selector, agent-profile reference, and
-digest. `context use` is a host mutation and the owner of the complete
-selection outcome: when the shared
-cluster is running, it reuses the bounded `cluster up` reconciliation path and
-does not succeed until the selected policy and Gateway credential mounts are
-health-checked and persisted. When the cluster is stopped or unconfigured, it
-updates only the host marker and reports that explicit `cluster up` is needed;
-it never starts Docker implicitly. A reconcile journal is written before the
-marker changes, and failure restores the previous marker/state when possible;
-an unresolved journal or active-context mismatch blocks entry and policy paths.
-Per-Workspace Context routing is deferred because it would require explicit OPA
-routing, learned-rule scope, and project-principal decisions.
+Every Context has a stable UUIDv7 identity, and every logical Tobari permanently
+binds one Context. `(canonical root, Context ID)` selects one record, so the
+same root may have multiple Context-bound Tobari. `context use` changes only
+the current/default Context used when an invocation omits a selector; it does
+not mutate existing records or Docker. Project runtime reconciliation resolves
+the stored Context ID and uses that Context's runtime image and agent profile.
+
+Cluster state records one content-addressed projection revision and loaded
+Context count, not an active enforcement Context. `cluster up` builds the
+projection from all authoritative Context policy and credential sources,
+validates each source and the whole candidate, publishes only a complete
+owner-only directory, and starts exactly one Gateway and one OPA. Policy
+mutations serialize this same all-Context activation and preserve the previous
+known-good revision on any failure.
 
 ## Runtime assets
 
@@ -143,13 +143,13 @@ startup; moving tags are never consumed by the CLI.
 
 The root ensure operation materializes exact embedded bytes under the Tobari state directory,
 writes generated non-secret runtime configuration, including the owner-only
-project-principal registry, and invokes Docker through
+Context/project-principal registry and all-Context projections, and invokes Docker through
 the runtime port. Compose owns only Gateway, OPA, shared networks, and CA
 volumes. Cluster startup obtains the verified Gateway image by digest and the
 official runtime base image through the runtime image resolver. The normal
 resolver uses published images only; the contributor `tobari_dev` resolver
 selects local development tags built by `task build:dev`. The runtime adapter
-creates or reconciles each logical Tobari from the active Context image, or an
+creates or reconciles each logical Tobari from its bound Context image, or an
 exact configured local image on the legacy named path, and connects Gateway to
 its dedicated network, then records the Gateway interface address in the
 principal registry. A public-only CA volume is mounted read-only into
@@ -198,8 +198,8 @@ and `/opt/tobari` paths; `/var/lib/tobari` contains only per-Tobari home state
 and is safe to replace with the persistent home bind. Their workflows do not
 publish agent tags until redistribution and license review is complete.
 
-The root resolver obtains the desired image from the active Context's strict
-manifest on each runtime reconciliation. Before the default Context exists, the
+The root resolver obtains the desired image from the stored Context identity's
+strict manifest on each runtime reconciliation. Before the default Context exists, the
 owner-only XDG `config.json` `default_image` seeds that manifest; absence falls
 back to `builtin`. The resolved selector, rather than the source of the
 default, is persisted on the logical Tobari only as the last successful
@@ -222,7 +222,7 @@ service ceilings, not per-project fairness controls.
 Project metadata is not a runtime adapter. Tobari does not interpret
 `.devcontainer` files, invoke the Dev Container CLI, or transfer container
 creation to a second orchestrator. The supported customization adapter is the
-explicit active-Context `runtime init`/`runtime build` path: infrastructure
+explicit current-Context `runtime init`/`runtime build` path: infrastructure
 builds only the owner-only Context runtime directory, validates the resulting
 image, and promotes it into the existing Context image field. Future runtime
 import formats must attach to this same Context boundary rather than introduce
@@ -240,10 +240,10 @@ from completed build, compatibility, digest, and atomic manifest operations.
 
 The MVP owns one shared cluster `tool_local` target with stable ID
 `cluster-default` and many CWD-owned logical Tobari records. The root index
-stores a canonical root and stable internal ID at
+stores a canonical root, stable Context ID, and stable internal ID at
 `$XDG_STATE_HOME/tobari/roots/<hash>.json`; each instance owns
 `instances/<id>/state.json` and `instances/<id>/home`. The instance record
-contains the stable ID, canonical root, last reconciled image, profile, and
+contains the stable ID, canonical root, permanent Context binding, last reconciled image, profile, and
 diagnostic container or network identifiers. Logical state, not Docker
 inspection, defines whether a Tobari exists. Docker labels include:
 
@@ -283,8 +283,9 @@ Workspace; an attached exec makes ordinary deletion fail, and `delete --force`
 is the explicit host-side override.
 
 Explicit `cluster up` validates configuration, obtains and preflights the
-Gateway image and official runtime base image, tests policy, reconciles OPA and
-Gateway, and reconnects Gateway to every existing registered project network.
+Gateway image and every required runtime image, builds and tests the complete
+all-Context projection, reconciles exactly one OPA and one Gateway, and
+reconnects Gateway to every existing registered project network.
 Image preflight fails before the policy test, cluster journal, shared network,
 or service-container mutation. Local Tobari-managed image development uses
 `task build:dev` and the `tobari_dev` image resolver instead of a public
@@ -295,30 +296,31 @@ selected directly; when only ancestor records exist, the CLI presents every
 containing root nearest-first and the application accepts either one validated
 candidate or an explicit create-at-CWD choice. The choice is revalidated under
 the lifecycle lock before the selected logical record is created or reused. It
-then resolves the active Context image, ensures one exact project network and
+then resolves the selected record's bound Context image, ensures one exact project network and
 work container, connects Gateway with the `gateway` alias, binds the Gateway
-interface address to the host-issued project principal, waits for project
+interface address to the host-issued Context/project principal, waits for project
 readiness, and enters the container. The
 logical creation and deletion boundaries use durable journals so an interruption
 between the home, instance, index, runtime, and deletion steps is recoverable
 without treating a partial file set as a second project. Runtime convergence
-stores a hash of the active Context's desired image identity, mounts, security,
+stores a hash of the bound Context's desired image identity, mounts, security,
 environment, health contract, fixed resource contract, and profile revision on
 the project container; drift recreates only that container and updates the
-stored project image only after success. OPA runs with
-`--watch` against a read-only XDG bind, so host edits reload when Docker-host
-filesystem events propagate. The principal registry is a generic host-issued
+stored project image only after success. OPA runs with `--watch` against one
+read-only, content-addressed aggregate bind. Source edits become authority only
+after explicit whole-projection validation and activation. The principal registry is a generic host-issued
 contract: Docker currently supplies the network/address observation, while a
 future stronger runtime may supply the same binding through another adapter.
 Only its dedicated directory is mounted read-only into Gateway; lifecycle
 updates replace the registry file atomically inside that directory so a
 single-file bind mount cannot strand Gateway on an old inode or expose the
 neighboring credential configuration.
-The logical Tobari ID is not trusted when echoed by a caller; Gateway derives
-it from the local interface address. Exact allow, deny, and compaction actions
-provide the deterministic portable activation path: each tests its complete
-private policy copy, verifies the exact OPA ownership label, recreates only OPA,
-and waits for health.
+Logical Tobari and Context IDs are not trusted when echoed by a caller; Gateway
+derives both from the local interface address. Exact allow, deny, and compaction
+actions provide the deterministic portable activation path: each locks the
+projection, tests the target Context's private source copy and the complete
+all-Context candidate, verifies the exact OPA ownership label, atomically
+publishes, recreates only OPA, waits for health, and rolls back on failure.
 `delete` observes active Docker exec IDs before ordinary removal, then verifies
 owner, ID, and role labels before removing the selected container and network;
 an attached exec rejects ordinary deletion and `--force` skips only that guard.
@@ -331,11 +333,14 @@ has lost its instance record; root entry refuses to rebuild that record and
 delete remains the exact cleanup path.
 Cluster removal is rejected until no instance record remains.
 
-The root-index collection enforces one logical Workspace per canonical root.
-The root hash names the index file, and the project lock performs the exact-root
-check again immediately before explicit creation. A repeated or concurrent
-creation therefore has one winner and returns `already exists` to the other
-callers rather than creating duplicate state.
+The root-index collection enforces one logical Workspace per `(canonical root,
+Context ID)`. Its hash includes both values, and the project lock performs the
+exact pair check again immediately before explicit creation. A repeated or
+concurrent creation for one pair has one winner; a different Context may own a
+separate stable Tobari, home, container, and network at the same root.
+Parent/child roots may also overlap and run concurrently. Their host-file
+effects are intentionally shared; the architecture does not add overlays,
+checkout copies, root locks, or filesystem integrity isolation.
 
 ## Command catalog
 
@@ -367,12 +372,13 @@ styles.
 
 ```text
 client request headers
-  -> establish the host-issued project principal at the header hook
+  -> establish the host-issued Context/project principal at the header hook
   -> select trusted credential adapter (passthrough by default)
   -> validate the adapter request context
   -> redact client authentication and cookie headers for OPA input
-  -> normalize the body-free schema-3 OPA input
-  -> POST decision with finite timeout
+  -> normalize the body-free schema-4 OPA input
+  -> POST one fixed decision endpoint with finite timeout
+  -> route by trusted Context ID inside the Tobari-owned OPA package
   -> deny on any invalid/unavailable decision
   -> adapter strips control headers, then forwards client authentication or
      applies the managed profile once after allow
@@ -386,7 +392,7 @@ Body content is deliberately opaque to policy and is neither retained nor
 hashed by Gateway. Client authentication can be present on the forwarded
 request but is absent from OPA input and audit output. The default passthrough
 adapter never loads or injects managed credentials; the
-retained managed adapter performs the existing project/host validation and
+retained managed adapter performs Context/project/host validation and
 injection at the same post-allow boundary. The addon never retries.
 
 Denied audit records are also the policy-development feedback interface. A
@@ -395,14 +401,14 @@ navigation hint, and session closure may summarize the pending queue on host
 stderr. These are advisory only: they contain no action reference and cannot
 approve or retry a request. `tobari cluster denials` parses one bounded Gateway
 log window, rejects
-malformed denial-shaped records, and returns typed project principal, host, port,
+malformed denial-shaped records, and returns typed Context and project principal, host, port,
 method, path, reason, status, exact-rule learnability, request identity, timestamp, the
 trusted host policy directory, and the exact review command. OPA computes
-learnability only when version, cluster, scheme, fixed port, project-principal,
+learnability only when version, cluster, Context, scheme, fixed port, project-principal,
 and (for the managed adapter) credential-binding boundaries already pass, so an exact
-project/host/port/method/path rule can close the request. `policy review` and
+Context/project/host/port/method/path rule can close the request. `policy review` and
 `policy candidates` deterministically fold only that eligible retained evidence
-by the structured project/host/port/method/path effect key. They emit one opaque
+by the structured Context/project/host/port/method/path effect key. They emit one opaque
 exact-rule reference, the latest evidence, and an observation count for each
 pending effect; references remain stable across repeated denials. This pure
 read projection also converges concurrent identical audit records without a
@@ -426,20 +432,32 @@ owner-only `data.json`, preserves non-owned members, appends one deterministic
 exact learned rule, tests a private complete policy copy, atomically replaces
 the data file, and calls the existing OPA activation boundary.
 
-The active policy data is schema 2. `boundary.authorities` and
+Each authoritative Context policy data source is schema 2. The aggregate
+projection is schema 1 and stores those sources below
+`tobari_contexts[context_id]`; the Tobari-owned router is the only
+`tobari.http` decision entrypoint. `boundary.authorities` and
 `boundary.methods` describe the configured request boundary, `boundary.ports`
 describes the scheme-specific candidate transport boundary, and `rules` keeps
 baseline denies, learned allows, and learned denies in separate collections.
 Gateway and OPA share this structure; the CLI only owns the mutation of the
 two learned collections and never rewrites the host-authored boundary.
 
+Guided Contexts use one identical Tobari-owned evaluator, projected once, with
+Context-specific authorities, methods, ports, baseline decisions, learned
+decisions, and credential metadata supplied as data. Advanced source retains
+the editable `package tobari.http` source contract, but projection rewrites it
+to `tobari.contexts.c<uuid>.http`. Validation rejects source that claims the
+cluster router, `tobari.system`, another Context package, or
+`data.tobari_contexts`. This is namespace and routing enforcement within one
+OPA process, not a claim of Rego process-level confidentiality.
+
 `policy deny` resolves the same exact candidate reference and appends one
-project-bound exact deny rule through the same preflight, atomic-write, and OPA
+Context/project-bound exact deny rule through the same aggregate preflight, atomic-write, and OPA
 activation boundary. Exact denies are terminal and win over learned allows for
-the same project/host/port/method/path.
+the same Context/project/host/port/method/path.
 
 Compaction discovery is pure over current learned rules. It groups at least
-three exact rules only when project, host, port, method, and a sufficiently deep
+three exact rules only when Context, project, host, port, method, and a sufficiently deep
 directory prefix agree. The opaque proposal binds the exact source-rule set.
 `policy compact` resolves that current proposal, replaces only those sources
 with one prefix rule retaining the positive examples, runs rule-match boundary

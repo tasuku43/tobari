@@ -78,6 +78,13 @@ type ProjectRuntimePort interface {
 	DeleteProject(context.Context, tobari.ProjectInstance) error
 }
 
+type contextAwareProjectRuntimePort interface {
+	ResolveContext(context.Context, string) (tobari.ContextManifest, error)
+	ResolveProjectInContext(context.Context, string, string) (tobari.ProjectInstance, bool, error)
+	CreateProjectInContext(context.Context, string, string) (tobari.ProjectInstance, error)
+	ValidateProjectRuntimeForContext(context.Context, tobari.State, string) error
+}
+
 // WorkspaceSelector is the presentation boundary for an ambiguous CWD
 // selection. Application code owns the typed snapshot and validates the
 // returned choice; CLI owns the human interaction implementation.
@@ -259,31 +266,49 @@ func (s *Service) readyCluster(ctx context.Context) (tobari.State, error) {
 			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway and OPA cluster explicitly."},
 		)
 	}
-	if activeContext, ok := s.runtime.(activeContextRuntimePort); ok {
-		active, activeErr := activeContext.ActiveContextName(ctx)
-		if activeErr != nil {
-			return tobari.State{}, fault.Wrap(
-				fault.KindInternal, "context_read_failed", "the active Context could not be read", false, activeErr,
-				fault.NextAction{Command: "context show", Reason: "Inspect the selected Context before entering a Tobari."},
-			)
-		}
-		storedContext := state.ContextName
-		if storedContext == "" {
-			storedContext = tobari.DefaultContextName
-		}
-		if active != storedContext {
-			return tobari.State{}, fault.New(
-				fault.KindRejected, "context_mismatch",
-				"the shared cluster uses a different Context than the host selection", false,
-				fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared cluster with the selected Context."},
-			)
-		}
-	}
 	return state, nil
 }
 
+func (s *Service) resolveExecutionContext(ctx context.Context, name string) (tobari.ContextManifest, error) {
+	if aware, ok := s.runtime.(contextAwareProjectRuntimePort); ok && !portcheck.IsNil(aware) {
+		manifest, err := aware.ResolveContext(ctx, name)
+		if err != nil {
+			return tobari.ContextManifest{}, fault.Wrap(fault.KindInvalidInput, "context_not_found", "the selected Context is unavailable", false, err,
+				fault.NextAction{Command: "context list", Reason: "Choose an existing Context."})
+		}
+		return manifest, nil
+	}
+	if name != "" && name != tobari.DefaultContextName {
+		return tobari.ContextManifest{}, fault.New(fault.KindInvalidInput, "context_not_found", "the selected Context is unavailable", false)
+	}
+	return tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
+		Name: tobari.DefaultContextName, AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
+		PolicyMode: tobari.ContextPolicyModeGuided}, nil
+}
+
+func resolveProjectForContext(ctx context.Context, project ProjectRuntimePort, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, bool, error) {
+	if aware, ok := project.(contextAwareProjectRuntimePort); ok && !portcheck.IsNil(aware) {
+		return aware.ResolveProjectInContext(ctx, cwd, manifest.Name)
+	}
+	return project.ResolveProject(ctx, cwd)
+}
+
+func createProjectForContext(ctx context.Context, project ProjectRuntimePort, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, error) {
+	if aware, ok := project.(contextAwareProjectRuntimePort); ok && !portcheck.IsNil(aware) {
+		return aware.CreateProjectInContext(ctx, cwd, manifest.Name)
+	}
+	return project.CreateProject(ctx, cwd)
+}
+
+func validateProjectRuntimeForContext(ctx context.Context, project ProjectRuntimePort, state tobari.State, manifest tobari.ContextManifest) error {
+	if aware, ok := project.(contextAwareProjectRuntimePort); ok && !portcheck.IsNil(aware) {
+		return aware.ValidateProjectRuntimeForContext(ctx, state, manifest.ID)
+	}
+	return project.ValidateProjectRuntime(ctx, state)
+}
+
 func (s *Service) projectSelection(
-	ctx context.Context, project ProjectRuntimePort, cwd string,
+	ctx context.Context, project ProjectRuntimePort, cwd string, manifest tobari.ContextManifest,
 ) (tobari.ProjectSelection, error) {
 	instances, err := project.ListProjects(ctx)
 	if err != nil {
@@ -300,11 +325,20 @@ func (s *Service) projectSelection(
 			return tobari.ProjectSelection{}, fault.New(fault.KindContract, "invalid_workspace_selection", "Workspace selection contains duplicate IDs", false,
 				fault.NextAction{Command: "doctor", Reason: "Inspect local Workspace state."})
 		}
+		if instance.ContextID != manifest.ID {
+			continue
+		}
+		if instance.ContextName != manifest.Name {
+			return tobari.ProjectSelection{}, fault.New(fault.KindContract, "context_binding_stale", "Workspace Context binding is stale", false,
+				fault.NextAction{Command: "doctor", Reason: "Inspect Context and Workspace state."})
+		}
 		byID[instance.ID] = instance
 		indexes = append(indexes, tobari.RootIndex{
 			SchemaVersion: tobari.ProjectStateSchemaVersion,
 			Root:          instance.Root,
 			InstanceID:    instance.ID,
+			ContextID:     instance.ContextID,
+			ContextName:   instance.ContextName,
 		})
 	}
 	containing, err := tobari.ContainingRoots(cwd, indexes)
@@ -325,7 +359,8 @@ func (s *Service) projectSelection(
 				fault.NextAction{Command: "status", Reason: "Inspect the selected Workspace runtime."})
 		}
 		candidates = append(candidates, tobari.ProjectSelectionCandidate{
-			ID: instance.ID, Root: instance.Root, Runtime: diagnostic,
+			ID: instance.ID, Root: instance.Root, ContextID: instance.ContextID,
+			ContextName: instance.ContextName, Runtime: diagnostic,
 		})
 	}
 	selection := tobari.ProjectSelection{
@@ -345,9 +380,9 @@ func (s *Service) projectSelection(
 }
 
 func (s *Service) chooseWorkspace(
-	ctx context.Context, project ProjectRuntimePort, cwd string, in io.Reader, errOut io.Writer,
+	ctx context.Context, project ProjectRuntimePort, cwd string, manifest tobari.ContextManifest, in io.Reader, errOut io.Writer,
 ) (tobari.ProjectSelection, tobari.ProjectSelectionChoice, error) {
-	selection, err := s.projectSelection(ctx, project, cwd)
+	selection, err := s.projectSelection(ctx, project, cwd, manifest)
 	if err != nil {
 		return tobari.ProjectSelection{}, tobari.ProjectSelectionChoice{}, err
 	}
@@ -393,6 +428,12 @@ func workspaceSelectionStaleFault() error {
 func (s *Service) EnterProject(
 	ctx context.Context, intent operation.Intent, in io.Reader, out, errOut io.Writer,
 ) (int, error) {
+	return s.EnterProjectInContext(ctx, intent, "", in, out, errOut)
+}
+
+func (s *Service) EnterProjectInContext(
+	ctx context.Context, intent operation.Intent, contextName string, in io.Reader, out, errOut io.Writer,
+) (int, error) {
 	project, err := s.projectRuntime()
 	if err != nil {
 		return 0, err
@@ -424,7 +465,11 @@ func (s *Service) EnterProject(
 	if _, err := s.readyCluster(ctx); err != nil {
 		return 0, err
 	}
-	selection, choice, err := s.chooseWorkspace(ctx, project, cwd, in, errOut)
+	manifest, err := s.resolveExecutionContext(ctx, contextName)
+	if err != nil {
+		return 0, err
+	}
+	selection, choice, err := s.chooseWorkspace(ctx, project, cwd, manifest, in, errOut)
 	if err != nil {
 		return 0, err
 	}
@@ -444,10 +489,10 @@ func (s *Service) EnterProject(
 			var actionErr error
 			switch choice.Kind {
 			case tobari.ProjectSelectionCreate:
-				if actionErr = project.ValidateProjectRuntime(actionContext, state); actionErr != nil {
+				if actionErr = validateProjectRuntimeForContext(actionContext, project, state, manifest); actionErr != nil {
 					return classifyProjectMutationError(actionErr, "tobari", "runtime build", "the selected runtime is not ready for a new Workspace")
 				}
-				instance, actionErr = project.CreateProject(actionContext, cwd)
+				instance, actionErr = createProjectForContext(actionContext, project, cwd, manifest)
 				if errors.Is(actionErr, tobari.ErrProjectExists) {
 					return workspaceSelectionStaleFault()
 				}
@@ -458,7 +503,7 @@ func (s *Service) EnterProject(
 				}
 				var resolved tobari.ProjectInstance
 				var resolvedFound bool
-				resolved, resolvedFound, actionErr = project.ResolveProject(actionContext, candidate.Root)
+				resolved, resolvedFound, actionErr = resolveProjectForContext(actionContext, project, candidate.Root, manifest)
 				if actionErr == nil && (!resolvedFound || resolved.ID != candidate.ID || resolved.Root != candidate.Root) {
 					return workspaceSelectionStaleFault()
 				}
@@ -508,6 +553,10 @@ func classifyProjectMutationError(err error, command, recovery, message string) 
 // ProjectStatus observes the nearest CWD-owned logical Tobari without
 // creating or repairing it.
 func (s *Service) ProjectStatus(ctx context.Context) (tobari.ProjectStatus, error) {
+	return s.ProjectStatusInContext(ctx, "")
+}
+
+func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string) (tobari.ProjectStatus, error) {
 	project, err := s.projectRuntime()
 	if err != nil {
 		return tobari.ProjectStatus{}, err
@@ -516,7 +565,11 @@ func (s *Service) ProjectStatus(ctx context.Context) (tobari.ProjectStatus, erro
 	if err != nil {
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
-	instance, found, err := project.ResolveProject(ctx, cwd)
+	manifest, err := s.resolveExecutionContext(ctx, contextName)
+	if err != nil {
+		return tobari.ProjectStatus{}, err
+	}
+	instance, found, err := resolveProjectForContext(ctx, project, cwd, manifest)
 	if err != nil {
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
 	}
@@ -534,7 +587,7 @@ func (s *Service) ProjectStatus(ctx context.Context) (tobari.ProjectStatus, erro
 	}
 	result := tobari.ProjectStatus{
 		Task: tobari.TaskStatus, Exists: true, Root: instance.Root, ID: instance.ID,
-		Home: home, Runtime: diagnostic,
+		Home: home, ContextID: instance.ContextID, ContextName: instance.ContextName, Runtime: diagnostic,
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindContract, "invalid_status_contract", "project status is invalid", false, err)
@@ -557,15 +610,25 @@ func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, er
 	if err != nil {
 		return tobari.ProjectListResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
 	}
+	manifest, err := s.resolveExecutionContext(ctx, "")
+	if err != nil {
+		return tobari.ProjectListResult{}, err
+	}
 	indexes := make([]tobari.RootIndex, 0, len(instances))
 	for _, instance := range instances {
 		indexes = append(indexes, tobari.RootIndex{
 			SchemaVersion: tobari.ProjectStateSchemaVersion,
 			Root:          instance.Root,
 			InstanceID:    instance.ID,
+			ContextID:     instance.ContextID,
+			ContextName:   instance.ContextName,
 		})
 	}
-	current, found, err := tobari.NearestRoot(cwd, indexes)
+	currentIndexes, err := tobari.RootIndexesForContext(indexes, manifest.ID)
+	if err != nil {
+		return tobari.ProjectListResult{}, fault.Wrap(fault.KindContract, "invalid_list_contract", "project list Context scope is invalid", false, err)
+	}
+	current, found, err := tobari.NearestRoot(cwd, currentIndexes)
 	if err != nil {
 		return tobari.ProjectListResult{}, fault.Wrap(fault.KindContract, "invalid_list_contract", "project list selection is invalid", false, err)
 	}
@@ -583,7 +646,8 @@ func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, er
 			return tobari.ProjectListResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project home path could not be resolved", false, homeErr)
 		}
 		result.Items = append(result.Items, tobari.ProjectListItem{
-			Root: instance.Root, ID: instance.ID, Home: home, Runtime: diagnostic,
+			Root: instance.Root, ID: instance.ID, Home: home, ContextID: instance.ContextID,
+			ContextName: instance.ContextName, Runtime: diagnostic,
 		})
 	}
 	if err := result.Validate(); err != nil {
@@ -595,6 +659,10 @@ func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, er
 // DeleteProject removes only the nearest CWD-owned logical Tobari. A detached
 // Workspace can be removed normally; an attached session requires force.
 func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, force bool) (tobari.ProjectDeleteResult, error) {
+	return s.DeleteProjectInContext(ctx, intent, "", force)
+}
+
+func (s *Service) DeleteProjectInContext(ctx context.Context, intent operation.Intent, contextName string, force bool) (tobari.ProjectDeleteResult, error) {
 	project, err := s.projectRuntime()
 	if err != nil {
 		return tobari.ProjectDeleteResult{}, err
@@ -608,6 +676,10 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 	}
 	var instance tobari.ProjectInstance
 	var home string
+	manifest, err := s.resolveExecutionContext(ctx, contextName)
+	if err != nil {
+		return tobari.ProjectDeleteResult{}, err
+	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
@@ -615,7 +687,7 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 	err = s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
 		var found bool
 		var resolveErr error
-		instance, found, resolveErr = project.ResolveProject(lifecycleContext, cwd)
+		instance, found, resolveErr = resolveProjectForContext(lifecycleContext, project, cwd, manifest)
 		if resolveErr != nil {
 			return fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, resolveErr)
 		}
@@ -654,7 +726,8 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 	if err != nil {
 		return tobari.ProjectDeleteResult{}, err
 	}
-	result := tobari.ProjectDeleteResult{Task: tobari.TaskDelete, Deleted: true, Root: instance.Root, ID: instance.ID, Home: home}
+	result := tobari.ProjectDeleteResult{Task: tobari.TaskDelete, Deleted: true, Root: instance.Root, ID: instance.ID, Home: home,
+		ContextID: instance.ContextID, ContextName: instance.ContextName}
 	if err := result.Validate(); err != nil {
 		return tobari.ProjectDeleteResult{}, fault.Wrap(fault.KindContract, "invalid_delete_contract", "project delete result is invalid", false, err)
 	}

@@ -145,7 +145,7 @@ usually means `~/.local/bin` is on `PATH`.
 ## Quick start
 
 This path has one deliberate host/agent boundary. The trusted host starts the
-cluster, reviews and changes policy, edits the active Context recipe, and runs
+cluster, reviews and changes policy, edits the current Context recipe, and runs
 the explicit runtime build. A process inside Tobari can work below the
 selected project root and make proxy-aware HTTP/HTTPS requests, but it cannot
 reach OPA, Docker, host credentials, or the Internet directly. A denial is a
@@ -271,8 +271,9 @@ Back on the host, list the local Workspaces:
 tobari list
 ```
 
-`list` reports roots, runtime diagnostics, and stable IDs for diagnosis only;
-lifecycle commands still resolve the target from the current directory.
+`list` reports Context, roots, runtime diagnostics, and stable IDs for diagnosis
+only; lifecycle commands still resolve the target from the current directory
+plus the explicit or current Context.
 `tobari delete` is the command that ends the nearest detached Workspace:
 
 ```sh
@@ -284,15 +285,16 @@ Use that delete when you are stopping after the policy loop. The runtime
 customization stage below is more useful if you keep the policy-demo Workspace
 so the next `tobari` entry can show container-only image reconciliation. If
 you did delete it, the next `tobari` after the build simply creates a fresh
-Workspace with the same active Context image.
+Workspace with the same current Context image.
 
-### 6. Customize the active Context runtime
+### 6. Customize the current Context runtime
 
-Runtime customization is host-owned and explicit. Initialize the active
+Runtime customization is host-owned and explicit. Initialize the current
 Context recipe, inspect the reported Dockerfile path, and edit that file:
 
-The active Context image is checked before a new Workspace is registered and
-before an existing Workspace runtime is reconciled. A missing or incompatible
+The selected Context image is checked before a new Workspace is registered and
+the permanently bound Context image is checked before an existing Workspace is
+reconciled. A missing or incompatible
 image returns `image_not_found`, points to `tobari runtime build`, and leaves
 the previous Workspace state, home, project network, and work container
 unchanged.
@@ -302,7 +304,7 @@ tobari runtime init --format json
 tobari context show --name=default --format=json
 ```
 
-Omit `--name=default` to inspect the active Context; use the equals form when
+Omit `--name=default` to inspect the current Context; use the equals form when
 you name a Context explicitly.
 
 Add one harmless tool between the template's existing `USER root` and
@@ -315,7 +317,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ```
 
-Then build and promote the active Context runtime explicitly, and enter the
+Then build and promote the current Context runtime explicitly, and enter the
 project again:
 
 ```sh
@@ -326,7 +328,7 @@ tobari
 If the policy-demo Workspace still exists, this entry validates the new image,
 recreates only the work container when the runtime spec changed, and preserves
 the Workspace home. If you deleted the Workspace in the lifecycle step, this
-entry creates it again with the newly selected active Context image.
+entry creates it again with the newly selected current Context image.
 
 Inside the new session, verify the added tool and then leave the reusable
 Workspace:
@@ -341,7 +343,7 @@ image. Editing the Dockerfile does not build anything. `runtime build` is the
 one deliberate host Docker build boundary: with the template's official
 `ghcr.io/tasuku43/tobari/runtime:latest` base, that explicit build may refresh
 the base; an explicit local or custom base does not request a registry pull.
-The build context is only the active Context runtime directory. A successful
+The build context is only the current Context runtime directory. A successful
 compatible image is promoted into the Context, and a failed build leaves the
 previously selected image active. Existing Workspaces observe the promoted
 image on the next `tobari` entry without losing their home.
@@ -363,7 +365,7 @@ image on the next `tobari` entry without losing their home.
   `policy-rule` ID unchanged into `tobari policy reset --id ID`, then use
   `tobari policy review` to choose the next decision. Reset leaves the exact
   effect denied by default and never retries it.
-- `runtime_recipe_missing`: run `tobari runtime init`, edit the active Context
+- `runtime_recipe_missing`: run `tobari runtime init`, edit the current Context
   Dockerfile, then run `tobari runtime build`.
 - `runtime_recipe_exists`: inspect the existing recipe with
   `tobari context show`; `runtime init` never overwrites it.
@@ -384,7 +386,7 @@ tobari cluster down --purge
 ```
 
 The base runtime already carries common Git, HTTP, JSON, Python, SSH, and
-command-line tools. Install additional tools through the active Context recipe
+command-line tools. Install additional tools through the current Context recipe
 when they should be part of a reusable Context; tool-native authentication
 state remains below each Tobari's persistent home.
 
@@ -459,10 +461,24 @@ If another session is attached: tobari delete --force
 `exit` therefore leaves the session but does not stop or delete the Workspace.
 There is no `stop` command or stopped state. To remove a detached Workspace,
 run `tobari delete` from the host; it deletes the nearest canonical Workspace
-containing the current directory. If another terminal is attached, the command
+in the current Context containing the current directory. Use `--context NAME`
+for another same-root Context. If another terminal is attached, the command
 warns and fails; use `tobari delete --force` only when terminating that session
-is intentional. Each canonical root can have only one Workspace, including
-when explicit creation requests race.
+is intentional. Each canonical root and stable Context pair has at most one
+Workspace, including when explicit creation requests race. The same root may
+have independent Workspaces in different Contexts:
+
+```sh
+tobari                         # uses the current Context
+tobari --context restricted    # does not change the current Context
+tobari list                    # shows both Context/root pairs
+```
+
+Same-root and parent/child-root Tobari have separate stable identities, homes,
+containers, internal networks, policy, runtime authority, and managed
+credentials. Their overlapping host project files are deliberately the same
+files: edits are mutually visible across Contexts. Tobari adds no overlay,
+checkout copy, root lock, session exclusion, or filesystem integrity isolation.
 
 The lifecycle model is:
 
@@ -537,7 +553,7 @@ that image without creating a new Context:
 
 ```sh
 tobari runtime init
-# edit the active Context runtime/Dockerfile
+# edit the current Context runtime/Dockerfile
 tobari runtime build
 ```
 
@@ -553,7 +569,7 @@ RUN apt-get update \
 USER tobari
 ```
 
-`runtime build` builds a machine-managed local image for the active Context,
+`runtime build` builds a machine-managed local image for the current Context,
 validates the Tobari runtime contract, and selects it only after a successful
 build. Editing the Dockerfile alone does not change the selected image.
 
@@ -577,11 +593,11 @@ its image:
 }
 ```
 
-The first Context initialization copies this selector into its manifest. If a
-shared cluster is already running, Context selection also applies the Context's
-policy and Gateway credential mounts and waits for health. A stopped or
-unconfigured cluster is not started implicitly; the command reports that
-`cluster up` is still required.
+The first Context initialization copies this selector into its manifest.
+`context use` changes only the current/default Context and never starts or
+reconciles Docker. Creating a Context while cluster state exists reports that
+an explicit `cluster up` is required to validate and activate the new complete
+all-Context projection.
 
 Then ordinary root invocations stay short:
 
@@ -589,8 +605,9 @@ Then ordinary root invocations stay short:
 tobari
 ```
 
-Workspaces use the active Context's runtime image when they are created and
-again when their runtime container is reconciled on entry. Before the default
+New Workspaces use the explicit or current Context's runtime image and then
+persist that stable Context binding. Existing Workspaces always reconcile from
+their bound Context, regardless of later `context use`. Before the default
 Context is initialized, `config.json.default_image` seeds it; otherwise
 `builtin` resolves to the published official runtime base in normal builds.
 Project metadata does not override the Context image, and the per-Workspace
@@ -640,7 +657,7 @@ specific runtime is:
 ```sh
 tobari runtime init --format json
 tobari context show --format json
-# edit the active Context runtime/Dockerfile path reported above
+# edit the current Context runtime/Dockerfile path reported above
 tobari runtime build --format json
 tobari
 ```
@@ -653,7 +670,7 @@ only that Context runtime directory, refreshes the official
 requested, validates the Tobari runtime contract, and selects a machine-managed
 local image. A local or custom base also works without an extra refresh pull.
 No image name, Context name, or manifest edit is needed. If editing or building
-fails, the previously selected image remains active. Inspect the exact active
+fails, the previously selected image remains selected. Inspect the exact current
 path and status with:
 
 ```sh
@@ -662,7 +679,7 @@ tobari context show
 
 The explicit image path above remains available for importing an already-built
 compatible image or for advanced workflows, but ordinary customization should
-stay attached to the active Context through `runtime init` and `runtime build`.
+stay attached to the current Context through `runtime init` and `runtime build`.
 
 Delete the selected detached Tobari and its per-Tobari home:
 
@@ -688,30 +705,30 @@ tobari cluster down --purge # also removes shared CA volumes
 
 | Command | Outcome |
 |---|---|
-| `tobari cluster up` | Preflight the verified Gateway image and runtime base, test policy, and reconcile shared Gateway and OPA |
-| `tobari cluster status [--format text\|json]` | Show shared readiness, component health, policy, project count, and diagnostics |
+| `tobari cluster up` | Build and validate the all-Context projection, then reconcile exactly one shared Gateway and OPA |
+| `tobari cluster status [--format text\|json]` | Show shared readiness, Context count, aggregate revision, projection integrity, project count, and diagnostics |
 | `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and review command |
 | `tobari cluster logs [--component gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence |
 | `tobari cluster down [--purge]` | Remove an empty cluster and optionally shared CA state |
-| `tobari policy review [--tail N] [--format text\|json]` | Interactive Permission Inbox: inspect and explicitly allow or deny one exact permission on a TTY; read-only when redirected |
-| `tobari policy candidates [--tail N] [--format text\|json]` | Discover pending exact allow/deny decisions and opaque IDs |
+| `tobari policy review [--tail N] [--format text\|json]` | Installation-wide Permission Inbox: inspect Context/root/request and explicitly allow or deny one exact permission on a TTY; read-only when redirected |
+| `tobari policy candidates [--tail N] [--format text\|json]` | Discover Context/project-scoped pending exact decisions and opaque IDs |
 | `tobari policy tail [--tail N]` | Compatibility view of the bounded queue with exact allow and deny commands |
 | `tobari policy allow --id ID` | Test, store, and activate one exact observed permission |
-| `tobari policy deny --id ID` | Test, store, and activate one exact project-bound rejection |
-| `tobari policy rules [--format text\|json]` | List current learned Allow and exact Deny decisions; on a TTY, reset one explicitly |
+| `tobari policy deny --id ID` | Test, store, and activate one exact Context/project-bound rejection |
+| `tobari policy rules [--format text\|json]` | List current decisions across all Contexts; on a TTY, reset one explicitly |
 | `tobari policy reset --id ID` | Remove one current learned decision and return its effect to default deny |
 | `tobari policy compactions [--format text\|json]` | Discover test-backed prefix compactions and opaque IDs |
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
-| `tobari context list [--format text\|json]` | List named execution Contexts and identify the active one |
+| `tobari context list [--format text\|json]` | List stable named Contexts and identify the current default |
 | `tobari context show [--name NAME] [--format text\|json]` | Inspect a Context's runtime image, agent profile, and separated stores |
 | `tobari context create --name NAME [--image IMAGE] [--mode guided\|advanced]` | Create a named execution Context without secrets |
-| `tobari context use --name NAME` | Select and apply the active Context when the shared cluster is running; otherwise record the selection for explicit `cluster up` |
-| `tobari runtime init [--format text\|json]` | Create the active Context's runtime/Dockerfile template |
-| `tobari runtime build [--format text\|json]` | Build, validate, and select the active Context runtime image |
-| `tobari` | Choose or create the current-directory Workspace, enter it, and leave it reusable after `exit` |
-| `tobari status [--format text\|json]` | Report logical existence and runtime diagnostics for the current directory |
-| `tobari list [--format text\|json]` | List local Workspaces, runtime diagnostics, and diagnostic IDs |
-| `tobari delete [--force]` | Delete the nearest detached current-directory Tobari; `--force` overrides an attached-session guard |
+| `tobari context use --name NAME` | Change only the current/default Context without mutating existing Tobari or Docker |
+| `tobari runtime init [--format text\|json]` | Create the current Context's runtime/Dockerfile template |
+| `tobari runtime build [--format text\|json]` | Build, validate, and select the current Context runtime image |
+| `tobari [--context NAME]` | Choose or create the current-directory Workspace in the explicit or current Context, enter it, and leave it reusable after `exit` |
+| `tobari status [--context NAME] [--format text\|json]` | Report Context-bound logical existence and runtime diagnostics for the current directory |
+| `tobari list [--format text\|json]` | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
+| `tobari delete [--context NAME] [--force]` | Delete the nearest detached current-directory Tobari in the selected Context; `--force` overrides an attached-session guard |
 | `tobari doctor [--root PATH] [--format text\|tsv\|json]` | Diagnose Docker, paths, policy, managed-secret permissions, and residue |
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version` | Print build identity |
@@ -730,11 +747,11 @@ On macOS and Linux, Tobari uses the same XDG paths:
 ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
   config.json
   contexts/
-    active.json           # current host-selected Context
+    active.json           # compatibility-named current/default Context marker
     <name>/
-      context.json        # agent profile, runtime image, policy mode
+      context.json        # stable Context ID, agent profile, runtime, policy mode
       runtime/
-        Dockerfile         # optional active-Context runtime recipe
+        Dockerfile         # optional Context runtime recipe
       policy/
         data.json
         tobari.rego
@@ -743,28 +760,39 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
       credentials/         # reserved managed-adapter secret files
 
 ${XDG_STATE_HOME:-$HOME/.local/state}/tobari/
-  roots/<root-hash>.json
+  roots/<root-and-context-hash>.json
   instances/<tobari-id>/state.json
   instances/<tobari-id>/home
+  cluster-projections/<aggregate-revision>/
 
 ${XDG_DATA_HOME:-$HOME/.local/share}/tobari/
   profiles/default/       # shared read-only agent profile
 ```
 
-OPA sees the active Context's `contexts/<name>/policy/` through a read-only bind
-and runs with file watch enabled. `context use` synchronously reconciles a
-running cluster through the same bounded path as `cluster up`; its output says
-`reconciled` or `already_ready`. With no running cluster it records the host
-selection as `not_configured` or `not_running` and points to `tobari cluster up`.
-If reconciliation fails or is interrupted, the previous marker/state is
-restored when possible and entry plus policy operations fail closed until an
-explicit `tobari cluster up` completes.
-A read-only bind still reflects host changes; OPA does not need write authority
-over trusted policy. Some Docker hosts do not propagate host filesystem events
-to OPA watch reliably. Exact allow, deny, and compaction actions test their
-complete private policy copy, atomically update CLI-owned data, and recreate
-only the exact OPA component. Advanced host-authored edits remain explicit and
-are not part of the routine review queue.
+On first use of legacy single-active-Context state, Tobari preserves each
+project ID, canonical root, and home only when the legacy current marker,
+cluster paths, Context source, instance state, and root index consistently name
+one valid Context. It then permanently binds that Tobari to the Context's stable
+ID and rewrites the pair-derived index. Conflicting markers, interrupted
+reconcile journals, missing/broken Contexts, unsafe credentials, or incomplete
+project state fail closed with a recovery diagnosis. Historical Context-less
+denials and learned data are not guessed into an actionable permission; repeat
+the denied request to obtain correctly scoped evidence.
+
+OPA sees one read-only, content-addressed cluster projection generated from all
+Context policy sources. The fixed `tobari.http/decision` router selects a
+Context only from Gateway's trusted principal. Guided Contexts share one
+Tobari-owned evaluator with Context-specific data. Advanced `package
+tobari.http` source is projected into a reserved Context-ID namespace and
+cannot claim the router, system packages, or another Context's entrypoint.
+
+`context use` changes only the current/default marker. `cluster up` and exact
+policy mutations serialize aggregate generation, test every source and the
+complete candidate, atomically publish only valid state, and retain the prior
+known-good revision on activation failure. Exact allow, deny, reset, and
+compaction actions derive Context and Tobari authority solely from their opaque
+reference and recreate only the exact shared OPA component. Advanced
+host-authored edits remain explicit and are not part of the routine queue.
 
 Use the policy directory as a trusted-host path when editing policy; do not
 mount its parent configuration directory into a Tobari:
@@ -773,7 +801,7 @@ mount its parent configuration directory into a Tobari:
 ${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/contexts/<name>/policy/tobari.rego"
 ```
 
-Use `tobari context show` to discover the exact active Context and its policy
+Use `tobari context show` to discover the exact current Context and its policy
 path. Keep the Context's policy directory separate from its credential stores;
 those stores remain outside untrusted containers. For routine exact permission
 growth, use `tobari policy review` and `tobari policy allow` or `policy deny`; use
@@ -796,8 +824,9 @@ tobari policy rules
 tobari policy reset --id PLR_OR_PDR_ID  # return one decision to default deny
 ```
 
-On a TTY, `policy review` is the complete human flow: select a request, inspect
-its exact host/port/method/path, confirm with `y`, and let Tobari delegate the
+On a TTY, `policy review` is the installation-wide human flow: select a request,
+inspect its Context, Tobari/root, and exact host/port/method/path, keep those
+dimensions visible during allow/deny confirmation, and let Tobari delegate the
 selected ID to `policy allow` or `policy deny`. It refreshes the queue after
 each successful decision. Redirected or `--error-format json` review is read-only. `PCY_ID` is
 emitted by the review or machine discovery queue and must be copied unchanged
@@ -805,13 +834,14 @@ when invoking the explicit action; `policy candidates` remains the structured
 machine path.
 It expires when its denial falls outside retained logs or another learned rule
 already covers that exact effect. Repeating the same denied
-project/host/port/method/path retains one item and the same ID, increments its
+Context/project/host/port/method/path retains one item and the same ID, increments its
 retained-window observation count, and refreshes its latest evidence. Approval never accepts a host
 wildcard, method wildcard, prefix, or user-supplied pattern.
 
-`policy rules` is the exhaustive current-decision view for the active Context,
+`policy rules` is the exhaustive installation-wide current-decision view,
 including learned Allow and exact Deny rules that no longer appear in the
-pending queue. `policy reset --id` consumes its `policy-rule` ID unchanged,
+pending queue. Human and JSON views retain Context and Tobari/root.
+`policy reset --id` consumes its Context-scoped `policy-rule` ID unchanged,
 removes exactly that CLI-owned decision through the same tested activation
 boundary, and leaves the effect at default deny. Use `policy review` afterward
 if the retained denial should receive a different explicit decision.
@@ -876,7 +906,7 @@ install -d -m 0700 "$config_dir/contexts/<name>/credentials"
 install -m 0600 example-token-file "$config_dir/contexts/<name>/credentials/github-development"
 ```
 
-Configure metadata only in the active Context's `credentials.json`:
+Configure metadata only in the owning Context's `credentials.json`:
 
 ```json
 {
@@ -901,8 +931,10 @@ curl \
   https://api.github.com/user
 ```
 
-OPA must allow the request and select that profile. In managed mode Gateway
-independently checks the exact host and project binding, reads the secret,
+OPA must allow the request and select that profile. The same profile name may
+exist in another Context without sharing authority. In managed mode Gateway
+independently checks the trusted Context, exact host, and project binding, reads
+only that Context ID's projected secret,
 removes client-supplied authorization, and injects the managed header. The
 secret is absent from Tobari mounts, environment, CLI argv, OPA input, and
 audit logs. The default passthrough adapter does not load this configuration.
@@ -911,7 +943,8 @@ audit logs. The default passthrough adapter does not load this configuration.
 
 Under the documented topology and trusted-component assumptions:
 
-- Each Tobari can write only its selected root and exact XDG home directory.
+- Each Tobari can write only its selected root and exact XDG home directory;
+  overlapping roots intentionally share host-file effects and are not integrity-isolated.
 - Tool-native authentication state persists in that exact home and is not shared
   with another Tobari.
 - Tobari have no Docker socket, SSH agent, host networking, privileged mode, or
@@ -920,7 +953,7 @@ Under the documented topology and trusted-component assumptions:
 - Tobari cannot reach OPA, reserved Gateway credential files, or another Tobari.
 - HTTP/HTTPS requests fail closed when OPA or Gateway fails.
 - The default adapter forwards client authentication only after allow; managed
-  credentials are injected only after allow and exact host/project binding.
+  credentials are injected only after allow and exact Context/host/project binding.
 - Audit logs contain request metadata and decisions, not secret values or raw
   bodies.
 - Cleanup verifies exact owner and opaque Tobari-ID labels.
@@ -976,7 +1009,7 @@ Common failures:
 - `incompatible_image`: extend the official Tobari runtime base, or another
   compatible image, without replacing its user, lifetime-command capability, or
   entrypoint.
-- `runtime_recipe_missing`: run `tobari runtime init`, edit the active Context
+- `runtime_recipe_missing`: run `tobari runtime init`, edit the current Context
   Dockerfile, and run `tobari runtime build`.
 - `runtime_build_failed`: inspect `tobari context show`; the previous selected
   image remains active until a validated build succeeds.

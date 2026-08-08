@@ -262,7 +262,8 @@ func renderPolicyRulesListRaw(
 			lines,
 			prefix+
 				applyStyleToken(style, policyRuleDecisionToken(rule.Decision), strings.ToUpper(rule.Decision))+" "+
-				applyStyleToken(style, styleText, policyRuleRequest(rule)),
+				applyStyleToken(style, styleText, safeExternalText(rule.ContextName)+"  "+safeExternalText(rule.ProjectRoot)),
+			"  "+applyStyleToken(style, styleMuted, policyRuleRequest(rule)),
 		)
 	}
 	if top > 0 || end < len(report.Items) {
@@ -288,7 +289,8 @@ func renderPolicyRuleDetailRaw(
 		applyStyleToken(style, styleAccent, fmt.Sprintf("Decision %d of %d", selected+1, len(report.Items))),
 		"",
 		selectorDetail(style, "Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
-		selectorDetail(style, "Scope", "Current Context only", styleText),
+		selectorDetail(style, "Context", safeExternalText(rule.ContextName), styleText),
+		selectorDetail(style, "Tobari", safeExternalText(rule.ProjectRoot), styleText),
 		selectorDetail(style, "Request", policyRuleRequest(rule), styleText),
 		selectorDetail(style, "Match", safeExternalText(rule.Match), styleText),
 		selectorDetail(style, "Rule ID", rule.ID, styleText),
@@ -319,6 +321,8 @@ func renderPolicyRuleDetailRawWithMessage(
 		applyStyleToken(style, styleWarning, "Decision reset confirmation"),
 		"",
 		selectorDetail(style, "Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
+		selectorDetail(style, "Context", safeExternalText(rule.ContextName), styleText),
+		selectorDetail(style, "Tobari", safeExternalText(rule.ProjectRoot), styleText),
 		selectorDetail(style, "Request", policyRuleRequest(rule), styleText),
 		selectorDetail(style, "Rule ID", rule.ID, styleText),
 		"",
@@ -382,7 +386,8 @@ func writePolicyRulesListLine(out io.Writer, report tobari.PolicyRuleReport) err
 		return err
 	}
 	for index, rule := range report.Items {
-		if _, err := fmt.Fprintf(out, "  %d. %s %s\n", index+1, strings.ToUpper(rule.Decision), policyRuleRequest(rule)); err != nil {
+		if _, err := fmt.Fprintf(out, "  %d. %s %s  %s\n     %s\n", index+1, strings.ToUpper(rule.Decision),
+			safeExternalText(rule.ContextName), safeExternalText(rule.ProjectRoot), policyRuleRequest(rule)); err != nil {
 			return err
 		}
 	}
@@ -403,7 +408,8 @@ func selectPolicyRuleDetailLine(
 		"Decision "+strconv.Itoa(selected+1)+" of "+strconv.Itoa(len(report.Items)),
 		"",
 		"Decision  "+strings.ToUpper(rule.Decision),
-		"Scope     Current Context only",
+		"Context   "+safeExternalText(rule.ContextName),
+		"Tobari    "+safeExternalText(rule.ProjectRoot),
 		"Request   "+policyRuleRequest(rule),
 		"Match     "+safeExternalText(rule.Match),
 		"Rule ID   "+rule.ID,

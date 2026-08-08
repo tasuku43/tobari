@@ -16,7 +16,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-const projectPrincipalRegistrySchema = 1
+const projectPrincipalRegistrySchema = 2
 
 var projectPrincipalNetworkPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
@@ -24,14 +24,28 @@ var projectPrincipalNetworkPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_
 // network address is the Gateway interface address on one exact project
 // network; it is not a caller-provided project selector.
 type projectPrincipalBinding struct {
-	ProjectID string `json:"project_id"`
-	GatewayIP string `json:"gateway_ip"`
-	Network   string `json:"network"`
+	ProjectID   string `json:"project_id"`
+	ContextID   string `json:"context_id"`
+	ContextName string `json:"context"`
+	ProjectRoot string `json:"project_root"`
+	GatewayIP   string `json:"gateway_ip"`
+	Network     string `json:"network"`
 }
 
 type projectPrincipalRegistry struct {
 	SchemaVersion int                       `json:"schema_version"`
 	Bindings      []projectPrincipalBinding `json:"bindings"`
+}
+
+type legacyProjectPrincipalBinding struct {
+	ProjectID string `json:"project_id"`
+	GatewayIP string `json:"gateway_ip"`
+	Network   string `json:"network"`
+}
+
+type legacyProjectPrincipalRegistry struct {
+	SchemaVersion int                             `json:"schema_version"`
+	Bindings      []legacyProjectPrincipalBinding `json:"bindings"`
 }
 
 func (r projectPrincipalRegistry) Validate() error {
@@ -47,6 +61,15 @@ func (r projectPrincipalRegistry) Validate() error {
 	for _, binding := range r.Bindings {
 		if err := tobari.ValidateProjectID(binding.ProjectID); err != nil {
 			return fmt.Errorf("project principal project_id: %w", err)
+		}
+		if err := tobari.ValidateContextID(binding.ContextID); err != nil {
+			return fmt.Errorf("project principal context_id: %w", err)
+		}
+		if err := tobari.ValidateName(binding.ContextName); err != nil {
+			return fmt.Errorf("project principal context: %w", err)
+		}
+		if !filepath.IsAbs(binding.ProjectRoot) || filepath.Clean(binding.ProjectRoot) != binding.ProjectRoot {
+			return fmt.Errorf("project principal project_root is invalid")
 		}
 		if _, exists := projects[binding.ProjectID]; exists {
 			return fmt.Errorf("project principal project IDs must be unique")
@@ -102,7 +125,7 @@ func (r *Runtime) readProjectPrincipalRegistry() (projectPrincipalRegistry, erro
 	return registry, nil
 }
 
-func (r *Runtime) ensureProjectPrincipalRegistry() error {
+func (r *Runtime) ensureProjectPrincipalRegistry(ctx context.Context) error {
 	if err := r.ensurePrivateDirectory(r.principalRegistryDirectory()); err != nil {
 		return fmt.Errorf("prepare principal registry directory: %w", err)
 	}
@@ -110,15 +133,8 @@ func (r *Runtime) ensureProjectPrincipalRegistry() error {
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		legacyPath := r.legacyPrincipalRegistryPath()
 		if _, legacyErr := os.Lstat(legacyPath); legacyErr == nil {
-			var legacy projectPrincipalRegistry
-			if err := readStrictJSON(legacyPath, &legacy); err != nil {
-				return fmt.Errorf("read legacy project principal registry: %w", err)
-			}
-			if err := legacy.Validate(); err != nil {
-				return fmt.Errorf("validate legacy project principal registry: %w", err)
-			}
-			if err := writeAtomicJSON(path, legacy); err != nil {
-				return fmt.Errorf("migrate project principal registry: %w", err)
+			if err := r.migrateLegacyPrincipalRegistry(ctx, legacyPath, path); err != nil {
+				return err
 			}
 		} else if errors.Is(legacyErr, os.ErrNotExist) {
 			if err := initializeBytes(path, mustJSONBytes(emptyProjectPrincipalRegistry()), 0o600); err != nil {
@@ -130,8 +146,56 @@ func (r *Runtime) ensureProjectPrincipalRegistry() error {
 	} else if err != nil {
 		return fmt.Errorf("inspect principal registry: %w", err)
 	}
-	_, err := r.readProjectPrincipalRegistry()
-	return err
+	if _, err := r.readProjectPrincipalRegistry(); err != nil {
+		if schemaVersion, headerErr := readSchemaVersionHeader(path, 256*1024); headerErr == nil && schemaVersion == 1 {
+			if migrateErr := r.migrateLegacyPrincipalRegistry(ctx, path, path); migrateErr != nil {
+				return migrateErr
+			}
+			_, err = r.readProjectPrincipalRegistry()
+		}
+		return err
+	}
+	return nil
+}
+
+func (r *Runtime) migrateLegacyPrincipalRegistry(ctx context.Context, source, destination string) error {
+	var legacy legacyProjectPrincipalRegistry
+	if err := readStrictJSON(source, &legacy); err != nil {
+		return fmt.Errorf("read legacy project principal registry: %w", err)
+	}
+	if legacy.SchemaVersion != 1 || legacy.Bindings == nil {
+		return fmt.Errorf("legacy project principal registry is invalid")
+	}
+	projects, err := r.ListProjects(ctx)
+	if err != nil {
+		return fmt.Errorf("resolve legacy principal Context binding: %w", err)
+	}
+	byID := make(map[string]tobari.ProjectInstance, len(projects))
+	for _, project := range projects {
+		byID[project.ID] = project
+	}
+	registry := emptyProjectPrincipalRegistry()
+	for _, binding := range legacy.Bindings {
+		project, ok := byID[binding.ProjectID]
+		if !ok {
+			return fmt.Errorf("legacy principal has no complete Tobari binding")
+		}
+		_, expectedNetwork, err := tobari.ProjectResourceNames(project.ID)
+		if err != nil || expectedNetwork != binding.Network {
+			return fmt.Errorf("legacy principal network does not match its Tobari")
+		}
+		registry.Bindings = append(registry.Bindings, projectPrincipalBinding{
+			ProjectID: project.ID, ContextID: project.ContextID, ContextName: project.ContextName,
+			ProjectRoot: project.Root, GatewayIP: binding.GatewayIP, Network: binding.Network,
+		})
+	}
+	if err := registry.Validate(); err != nil {
+		return fmt.Errorf("validate migrated project principal registry: %w", err)
+	}
+	if err := writeAtomicJSON(destination, registry); err != nil {
+		return fmt.Errorf("migrate project principal registry: %w", err)
+	}
+	return nil
 }
 
 func mustJSONBytes(value any) []byte {
@@ -149,30 +213,38 @@ func jsonMarshalIndent(value any) ([]byte, error) {
 }
 
 func (r *Runtime) withPrincipalRegistryLock(ctx context.Context, action func() error) error {
+	return r.withConfigFileLock(ctx, "principal-registry.lock", "principal registry", action)
+}
+
+func (r *Runtime) withPolicyProjectionLock(ctx context.Context, action func() error) error {
+	return r.withConfigFileLock(ctx, "policy-projection.lock", "policy projection", action)
+}
+
+func (r *Runtime) withConfigFileLock(ctx context.Context, filename, purpose string, action func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := r.ensurePrivateDirectory(r.configDirectory); err != nil {
-		return fmt.Errorf("prepare principal registry directory: %w", err)
+		return fmt.Errorf("prepare %s directory: %w", purpose, err)
 	}
-	path := filepath.Join(r.configDirectory, "principal-registry.lock")
+	path := filepath.Join(r.configDirectory, filename)
 	if info, err := os.Lstat(path); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
-		return fmt.Errorf("principal registry lock is not a regular file")
+		return fmt.Errorf("%s lock is not a regular file", purpose)
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect principal registry lock: %w", err)
+		return fmt.Errorf("inspect %s lock: %w", purpose, err)
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- fixed owner-only configuration child.
 	if err != nil {
-		return fmt.Errorf("open principal registry lock: %w", err)
+		return fmt.Errorf("open %s lock: %w", purpose, err)
 	}
 	defer file.Close()
 	if err := file.Chmod(0o600); err != nil {
-		return fmt.Errorf("protect principal registry lock: %w", err)
+		return fmt.Errorf("protect %s lock: %w", purpose, err)
 	}
 	for {
 		acquired, lockErr := tryLockProjectFile(file)
 		if lockErr != nil {
-			return fmt.Errorf("lock principal registry: %w", lockErr)
+			return fmt.Errorf("lock %s: %w", purpose, lockErr)
 		}
 		if acquired {
 			break
@@ -194,8 +266,14 @@ func (r *Runtime) writeProjectPrincipalRegistry(registry projectPrincipalRegistr
 	return writeAtomicJSON(r.principalRegistryPath(), registry)
 }
 
-func (r *Runtime) updateProjectPrincipal(ctx context.Context, projectID, network, gatewayIP string) error {
-	binding := projectPrincipalBinding{ProjectID: projectID, Network: network, GatewayIP: gatewayIP}
+func (r *Runtime) updateProjectPrincipal(ctx context.Context, project tobari.ProjectInstance, network, gatewayIP string) error {
+	if err := project.Validate(); err != nil {
+		return err
+	}
+	binding := projectPrincipalBinding{
+		ProjectID: project.ID, ContextID: project.ContextID, ContextName: project.ContextName,
+		ProjectRoot: project.Root, Network: network, GatewayIP: gatewayIP,
+	}
 	registry := emptyProjectPrincipalRegistry()
 	registry.Bindings = append(registry.Bindings, binding)
 	if err := registry.Validate(); err != nil {
@@ -210,7 +288,7 @@ func (r *Runtime) updateProjectPrincipal(ctx context.Context, projectID, network
 		}
 		filtered := make([]projectPrincipalBinding, 0, len(current.Bindings)+1)
 		for _, existing := range current.Bindings {
-			if existing.ProjectID == projectID || existing.Network == network || existing.GatewayIP == gatewayIP {
+			if existing.ProjectID == project.ID || existing.Network == network || existing.GatewayIP == gatewayIP {
 				continue
 			}
 			filtered = append(filtered, existing)
@@ -282,8 +360,8 @@ func (r *Runtime) gatewayNetworkAddress(ctx context.Context, network string) (st
 	return address.String(), nil
 }
 
-func (r *Runtime) ensureGatewayProjectNetwork(ctx context.Context, network, projectID string) error {
-	if err := tobari.ValidateProjectID(projectID); err != nil {
+func (r *Runtime) ensureGatewayProjectNetwork(ctx context.Context, network string, project tobari.ProjectInstance) error {
+	if err := project.Validate(); err != nil {
 		return err
 	}
 	if err := r.ensureGatewayNetwork(ctx, network); err != nil {
@@ -293,7 +371,7 @@ func (r *Runtime) ensureGatewayProjectNetwork(ctx context.Context, network, proj
 	if err != nil {
 		return err
 	}
-	return r.updateProjectPrincipal(ctx, projectID, network, address)
+	return r.updateProjectPrincipal(ctx, project, network, address)
 }
 
 func (r *Runtime) syncProjectPrincipalRegistry(ctx context.Context, projects []tobari.ProjectInstance) error {
@@ -324,9 +402,8 @@ func (r *Runtime) syncProjectPrincipalRegistry(ctx context.Context, projects []t
 			return err
 		}
 		bindings = append(bindings, projectPrincipalBinding{
-			ProjectID: project.ID,
-			GatewayIP: address,
-			Network:   network,
+			ProjectID: project.ID, ContextID: project.ContextID, ContextName: project.ContextName,
+			ProjectRoot: project.Root, GatewayIP: address, Network: network,
 		})
 	}
 	return r.replaceProjectPrincipalRegistry(ctx, bindings)

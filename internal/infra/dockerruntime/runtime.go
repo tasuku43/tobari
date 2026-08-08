@@ -316,7 +316,7 @@ func (r *Runtime) ResolveImageSelector(ctx context.Context, explicit string) (st
 		if activeErr != nil {
 			return "", activeErr
 		}
-		manifest, manifestErr := r.readContextManifest(name)
+		manifest, manifestErr := r.readContextManifestRaw(name)
 		if manifestErr != nil {
 			return "", manifestErr
 		}
@@ -400,7 +400,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 		})
 		return tobari.State{}, err
 	}
-	state, err := r.prepareState()
+	state, err := r.prepareState(ctx)
 	if err != nil {
 		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
 			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
@@ -419,6 +419,31 @@ func (r *Runtime) clusterUpWithProgressMode(
 		}
 		state.RecentError = existing.RecentError
 	}
+	recordAttemptError := func(message string) {
+		if exists {
+			_ = r.recordRecentError(existing, message)
+		}
+	}
+	activationAttempted := false
+	activationCommitted := false
+	defer func() {
+		if !activationAttempted || activationCommitted || !exists || existing.AggregateRevision == state.AggregateRevision {
+			return
+		}
+		rollbackContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		rollbackEnvironment, environmentErr := r.composeEnvironment(existing)
+		if environmentErr != nil {
+			return
+		}
+		_ = r.runner.Run(
+			rollbackContext,
+			[]string{"compose", "--project-directory", existing.RuntimeDirectory,
+				"-f", filepath.Join(existing.RuntimeDirectory, "compose.yaml"),
+				"up", "-d", "--no-build", "--remove-orphans", "--force-recreate", "--wait"},
+			rollbackEnvironment, nil, io.Discard, io.Discard,
+		)
+	}()
 	var environment []string
 	var gatewayImage string
 	environment, err = r.composeEnvironment(state)
@@ -457,15 +482,13 @@ func (r *Runtime) clusterUpWithProgressMode(
 	}
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressPrepareImages, func() error {
-		if err := r.writeState(state); err != nil {
-			return fmt.Errorf("persist Tobari state: %w", err)
-		}
-		return r.prepareActiveContextImage(ctx)
+		return r.prepareContextImages(ctx)
 	}); err != nil {
 		return tobari.State{}, err
 	}
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressStartServices, func() error {
+		activationAttempted = true
 		var output bytes.Buffer
 		composeUpArgs := []string{"compose", "--project-directory", state.RuntimeDirectory,
 			"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
@@ -479,7 +502,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 			environment, nil, &output, &output,
 		)
 		if err != nil {
-			_ = r.recordRecentError(state, "Cluster startup did not complete; inspect component logs.")
+			recordAttemptError("Cluster startup did not complete; inspect component logs.")
 			return fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
 		}
 		return nil
@@ -490,7 +513,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressConnectNetworks, func() error {
 		for _, sharedNetwork := range []string{"tobari-control", "tobari-egress"} {
 			if err := r.ensureGatewayNetwork(ctx, sharedNetwork); err != nil {
-				_ = r.recordRecentError(state, "Gateway did not rejoin the shared cluster network; inspect cluster status.")
+				recordAttemptError("Gateway did not rejoin the shared cluster network; inspect cluster status.")
 				return err
 			}
 		}
@@ -501,7 +524,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressWaitForHealth, func() error {
 		if err := r.waitForClusterReady(ctx, progress); err != nil {
-			_ = r.recordRecentError(state, "Cluster components did not become healthy; inspect component status.")
+			recordAttemptError("Cluster components did not become healthy; inspect component status.")
 			return err
 		}
 		return nil
@@ -515,7 +538,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 			return fmt.Errorf("read CWD-owned projects for Gateway reconciliation: %w", err)
 		}
 		if err := r.syncProjectPrincipalRegistry(ctx, projects); err != nil {
-			_ = r.recordRecentError(state, "Gateway did not rejoin every Tobari network; inspect cluster status.")
+			recordAttemptError("Gateway did not rejoin every Tobari network; inspect cluster status.")
 			return err
 		}
 		return nil
@@ -534,6 +557,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if err := r.clearClusterJournal(); err != nil {
 			return fmt.Errorf("clear cluster reconcile journal: %w", err)
 		}
+		activationCommitted = true
 		return nil
 	}); err != nil {
 		return tobari.State{}, err
@@ -597,6 +621,31 @@ func (r *Runtime) waitForClusterReady(
 	return fmt.Errorf("cluster components did not become healthy")
 }
 
+func (r *Runtime) prepareContextImages(ctx context.Context) error {
+	list, err := r.ListContexts(ctx)
+	if err != nil {
+		return err
+	}
+	for _, item := range list.Items {
+		manifest, _, err := r.resolveContext(item.Name)
+		if err != nil {
+			return err
+		}
+		image := r.resolveBuiltinImageSelector(manifest.Image)
+		if r.imageResolver().ShouldPullRuntimeImage(image) {
+			if err := r.pullOfficialRuntimeImage(ctx, image); err != nil {
+				return err
+			}
+		}
+		if err := r.validateCompatibleImage(ctx, image); err != nil {
+			return fmt.Errorf("Context %q runtime image: %w", manifest.Name, err)
+		}
+	}
+	return nil
+}
+
+// prepareActiveContextImage preserves the focused single-Context image check;
+// shared cluster reconciliation calls prepareContextImages instead.
 func (r *Runtime) prepareActiveContextImage(ctx context.Context) error {
 	manifest, _, err := r.activeContext()
 	if err != nil {
@@ -635,7 +684,7 @@ func (r *Runtime) resolveBuiltinImageSelector(image string) string {
 	return image
 }
 
-func (r *Runtime) prepareState() (tobari.State, error) {
+func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 	for name, path := range map[string]string{
 		"configuration": r.configDirectory,
 		"state":         r.stateDirectory,
@@ -653,11 +702,14 @@ func (r *Runtime) prepareState() (tobari.State, error) {
 	if err := runtimeassets.Materialize(runtimeDirectory); err != nil {
 		return tobari.State{}, err
 	}
-	manifest, stores, err := r.activeContext()
-	if err != nil {
-		return tobari.State{}, fmt.Errorf("prepare active Context: %w", err)
+	if err := r.ensureContextStore(); err != nil {
+		return tobari.State{}, fmt.Errorf("prepare Context catalog: %w", err)
 	}
-	if err := r.ensureProjectPrincipalRegistry(); err != nil {
+	projection, err := r.buildAggregateProjection(ctx)
+	if err != nil {
+		return tobari.State{}, fmt.Errorf("prepare aggregate Context projection: %w", err)
+	}
+	if err := r.ensureProjectPrincipalRegistry(ctx); err != nil {
 		return tobari.State{}, fmt.Errorf("validate project principal registry: %w", err)
 	}
 	if err := initializeBytes(
@@ -667,10 +719,10 @@ func (r *Runtime) prepareState() (tobari.State, error) {
 		return tobari.State{}, err
 	}
 	state := tobari.State{
-		SchemaVersion: 2, RuntimeDirectory: runtimeDirectory,
-		ContextName: manifest.Name, AgentProfile: manifest.AgentProfile,
-		PolicyDirectory: stores.PolicyDirectory, CredentialConfig: stores.CredentialConfig,
-		CredentialDir: stores.CredentialDirectory, AssetVersion: version,
+		SchemaVersion: 3, RuntimeDirectory: runtimeDirectory,
+		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,
+		PolicyDirectory: projection.PolicyDirectory, CredentialConfig: projection.CredentialConfig,
+		CredentialDir: projection.CredentialDirectory, AssetVersion: version,
 		ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
 	}
 	if err := state.Validate(); err != nil {
@@ -796,6 +848,13 @@ func (r *Runtime) LoadState(ctx context.Context) (tobari.State, bool, error) {
 			"schema-1 singleton state must be removed with the older Tobari binary before upgrade", false,
 		)
 	}
+	if header.SchemaVersion == 2 {
+		state, err := r.migrateLegacyClusterState(ctx, data)
+		if err != nil {
+			return tobari.State{}, false, err
+		}
+		return state, true, nil
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var state tobari.State
@@ -810,6 +869,102 @@ func (r *Runtime) LoadState(ctx context.Context) (tobari.State, bool, error) {
 		return tobari.State{}, false, err
 	}
 	return state, true, nil
+}
+
+type legacyClusterState struct {
+	SchemaVersion    int               `json:"schema_version"`
+	RuntimeDirectory string            `json:"runtime_directory"`
+	ContextName      string            `json:"context_name,omitempty"`
+	AgentProfile     string            `json:"agent_profile,omitempty"`
+	PolicyDirectory  string            `json:"policy_directory"`
+	CredentialConfig string            `json:"credential_config"`
+	CredentialDir    string            `json:"credential_directory"`
+	AssetVersion     string            `json:"asset_version"`
+	ProxyEndpoint    string            `json:"proxy_endpoint"`
+	RecentError      string            `json:"recent_error"`
+	Tobari           []tobari.Instance `json:"tobari"`
+}
+
+func (r *Runtime) migrateLegacyClusterState(ctx context.Context, data []byte) (tobari.State, error) {
+	if err := r.requireNoInterruptedClusterReconcile(ctx); err != nil {
+		return tobari.State{}, fault.Wrap(
+			fault.KindRejected, "ambiguous_context_migration",
+			"legacy Context authority cannot be migrated while a cluster reconcile is incomplete", false, err,
+			fault.NextAction{Command: "cluster up", Reason: "Complete or diagnose the interrupted cluster reconcile."},
+		)
+	}
+	var legacy legacyClusterState
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&legacy); err != nil {
+		return tobari.State{}, fmt.Errorf("decode legacy Tobari state: %w", err)
+	}
+	if legacy.SchemaVersion != 2 || len(legacy.Tobari) != 0 {
+		return tobari.State{}, fault.New(
+			fault.KindRejected, "ambiguous_context_migration",
+			"legacy shared state cannot be assigned to a Context safely", false,
+			fault.NextAction{Command: "doctor", Reason: "Inspect legacy state before retrying migration."},
+		)
+	}
+	if err := r.ensureContextStore(); err != nil {
+		return tobari.State{}, err
+	}
+	current, err := r.readActiveContext()
+	if err != nil {
+		return tobari.State{}, err
+	}
+	legacyContext := legacy.ContextName
+	if legacyContext == "" {
+		legacyContext = tobari.DefaultContextName
+	}
+	if current != legacyContext {
+		return tobari.State{}, fault.New(
+			fault.KindRejected, "ambiguous_context_migration",
+			"legacy cluster Context and current Context disagree; no Tobari binding was guessed", false,
+			fault.NextAction{Command: "context list", Reason: "Inspect the conflicting Context markers."},
+			fault.NextAction{Command: "doctor", Reason: "Repair the legacy state before retrying."},
+		)
+	}
+	manifest, paths, err := r.resolveContext(current)
+	if err != nil {
+		return tobari.State{}, fault.Wrap(fault.KindRejected, "context_unavailable", "legacy Context is unavailable", false, err)
+	}
+	legacyPaths := r.legacyContextStorePaths()
+	validStore := func(actual, migrated, old string) bool { return actual == migrated || actual == old }
+	if !validStore(legacy.PolicyDirectory, paths.PolicyDirectory, legacyPaths.PolicyDirectory) ||
+		!validStore(legacy.CredentialConfig, paths.CredentialConfig, legacyPaths.CredentialConfig) ||
+		!validStore(legacy.CredentialDir, paths.CredentialDirectory, legacyPaths.CredentialDirectory) {
+		return tobari.State{}, fault.New(
+			fault.KindRejected, "ambiguous_context_migration",
+			"legacy cluster stores do not match the verified current Context", false,
+			fault.NextAction{Command: "doctor", Reason: "Repair legacy policy and credential paths."},
+		)
+	}
+	if err := r.migrateLegacyProjects(ctx, manifest); err != nil {
+		return tobari.State{}, err
+	}
+	projection, err := r.buildAggregateProjection(ctx)
+	if err != nil {
+		return tobari.State{}, fault.Wrap(
+			fault.KindRejected, "aggregate_policy_invalid",
+			"legacy Context policy could not form a valid aggregate projection", false, err,
+			fault.NextAction{Command: "doctor", Reason: "Repair the verified legacy Context policy before migration."},
+		)
+	}
+	state := tobari.State{
+		SchemaVersion: 3, RuntimeDirectory: legacy.RuntimeDirectory,
+		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,
+		PolicyDirectory: projection.PolicyDirectory, CredentialConfig: projection.CredentialConfig,
+		CredentialDir: projection.CredentialDirectory, AssetVersion: legacy.AssetVersion,
+		ProxyEndpoint: legacy.ProxyEndpoint, RecentError: legacy.RecentError, Tobari: []tobari.Instance{},
+	}
+	if err := state.Validate(); err != nil {
+		return tobari.State{}, err
+	}
+	if err := r.writeState(state); err != nil {
+		return tobari.State{}, fmt.Errorf("persist migrated multi-Context state: %w", err)
+	}
+	return state, nil
 }
 
 // Attach creates one exact container, internal network, and persistent home.
@@ -1004,11 +1159,103 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 	if err != nil {
 		return tobari.ClusterStatus{}, fmt.Errorf("read CWD-owned projects: %w", err)
 	}
+	policyIntegrity := r.inspectAggregatePolicyIntegrity(ctx, state)
+	principalIntegrity := r.inspectPrincipalRegistryIntegrity(projects)
+	credentialIntegrity := r.inspectCredentialProjectionIntegrity(state)
 	return tobari.ClusterStatus{
 		Configured: true, Running: running, Proxy: state.ProxyEndpoint,
-		Policy: state.PolicyDirectory, TobariCount: len(projects),
+		Policy: state.PolicyDirectory, TobariCount: len(projects), ContextCount: state.ContextCount,
+		PolicyRevision: state.AggregateRevision, PolicyProjection: policyIntegrity,
+		PrincipalRegistry: principalIntegrity, CredentialProjection: credentialIntegrity,
 		Components: components, RecentError: state.RecentError,
 	}, nil
+}
+
+func (r *Runtime) inspectAggregatePolicyIntegrity(ctx context.Context, state tobari.State) string {
+	contexts, err := r.readAggregateContexts(ctx)
+	if err != nil || len(contexts) != state.ContextCount {
+		return "invalid"
+	}
+	if err := requirePrivateDirectory(state.PolicyDirectory); err != nil {
+		return "invalid"
+	}
+	if _, err := readOwnerPolicyFile(filepath.Join(state.PolicyDirectory, "router.rego"), maxPolicyPreflight); err != nil {
+		return "invalid"
+	}
+	data, err := readOwnerPolicyFile(filepath.Join(state.PolicyDirectory, "data.json"), maxPolicyPreflight)
+	if err != nil || validateNoDuplicateJSONKeys(data) != nil {
+		return "invalid"
+	}
+	var document struct {
+		Contexts map[string]json.RawMessage `json:"tobari_contexts"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil || len(document.Contexts) != len(contexts) {
+		return "invalid"
+	}
+	for _, item := range contexts {
+		if _, exists := document.Contexts[item.manifest.ID]; !exists {
+			return "invalid"
+		}
+	}
+	return "valid"
+}
+
+func (r *Runtime) inspectPrincipalRegistryIntegrity(projects []tobari.ProjectInstance) string {
+	registry, err := r.readProjectPrincipalRegistry()
+	if err != nil {
+		return "invalid"
+	}
+	byID := make(map[string]tobari.ProjectInstance, len(projects))
+	for _, project := range projects {
+		byID[project.ID] = project
+	}
+	for _, binding := range registry.Bindings {
+		project, exists := byID[binding.ProjectID]
+		if !exists || project.ContextID != binding.ContextID || project.ContextName != binding.ContextName || project.Root != binding.ProjectRoot {
+			return "invalid"
+		}
+		_, network, resourceErr := tobari.ProjectResourceNames(project.ID)
+		if resourceErr != nil || network != binding.Network {
+			return "invalid"
+		}
+	}
+	return "valid"
+}
+
+func (r *Runtime) inspectCredentialProjectionIntegrity(state tobari.State) string {
+	if _, status := r.checkCredentialConfigAt(state.CredentialConfig); status != doctor.CheckStatusPass {
+		return "invalid"
+	}
+	if err := requirePrivateDirectory(state.CredentialDir); err != nil {
+		return "invalid"
+	}
+	data, err := readOwnerPolicyFile(state.CredentialConfig, 256*1024)
+	if err != nil {
+		return "invalid"
+	}
+	var document struct {
+		Contexts map[string]struct {
+			Profiles map[string]struct {
+				SecretFile string `json:"secret_file"`
+			} `json:"profiles"`
+		} `json:"contexts"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		return "invalid"
+	}
+	const prefix = "/run/tobari/credentials/"
+	for _, projected := range document.Contexts {
+		for _, profile := range projected.Profiles {
+			relative := strings.TrimPrefix(profile.SecretFile, prefix)
+			if relative == profile.SecretFile {
+				return "invalid"
+			}
+			if _, err := readOwnerPolicyFile(filepath.Join(state.CredentialDir, filepath.FromSlash(relative)), 64*1024); err != nil {
+				return "invalid"
+			}
+		}
+	}
+	return "valid"
 }
 
 func (r *Runtime) inspectContainer(ctx context.Context, component, container string) (tobari.ComponentStatus, error) {
@@ -1450,7 +1697,7 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 		} else {
 			add("policy", doctor.CheckStatusPass, "OPA policy tests passed")
 		}
-		r.addPolicyDataDiagnostic(add, state.PolicyDirectory)
+		r.addPolicyDataDiagnostic(ctx, add, state.PolicyDirectory)
 	} else {
 		add("state", doctor.CheckStatusWarn, "cluster is not configured")
 		policyDirectory := storePaths.PolicyDirectory
@@ -1466,7 +1713,7 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 			add("policy", doctor.CheckStatusPass, "OPA policy tests passed")
 		}
 		if _, err := os.Lstat(policyDirectory); err == nil {
-			r.addPolicyDataDiagnostic(add, policyDirectory)
+			r.addPolicyDataDiagnostic(ctx, add, policyDirectory)
 		}
 	}
 	if err := r.checkCredentialPermissionsAt(storePaths.CredentialDirectory); err != nil {
@@ -1498,8 +1745,17 @@ func (r *Runtime) Doctor(ctx context.Context, root string) (doctor.Report, error
 }
 
 func (r *Runtime) addPolicyDataDiagnostic(
-	add func(string, doctor.CheckStatus, string), policyDirectory string,
+	ctx context.Context, add func(string, doctor.CheckStatus, string), policyDirectory string,
 ) {
+	if strings.HasPrefix(policyDirectory, r.aggregateRoot()+string(filepath.Separator)) {
+		contexts, err := r.readAggregateContexts(ctx)
+		if err != nil || len(contexts) == 0 {
+			add("policy_data", doctor.CheckStatusFail, "Context policy data is invalid or unsafe: "+fmt.Sprint(err))
+			return
+		}
+		add("policy_data", doctor.CheckStatusPass, fmt.Sprintf("learned policy data is safe across %d Contexts", len(contexts)))
+		return
+	}
 	if _, err := readPolicyData(policyDirectory); err != nil {
 		add(
 			"policy_data", doctor.CheckStatusFail,
@@ -1530,54 +1786,103 @@ func (r *Runtime) checkCredentialConfigAt(path string) (string, doctor.CheckStat
 	if err != nil || len(data) > 256*1024 {
 		return "credentials.json is unreadable or exceeds 256 KiB", doctor.CheckStatusFail
 	}
-	var document struct {
-		Version  string `json:"version"`
-		Profiles map[string]struct {
-			Type       string   `json:"type"`
-			Hosts      []string `json:"hosts"`
-			Projects   []string `json:"projects"`
-			SecretFile string   `json:"secret_file"`
-			Header     string   `json:"header"`
-		} `json:"profiles"`
+	type credentialProfile struct {
+		Type       string   `json:"type"`
+		Hosts      []string `json:"hosts"`
+		Projects   []string `json:"projects"`
+		SecretFile string   `json:"secret_file"`
+		Header     string   `json:"header"`
 	}
+	validateProfiles := func(profiles map[string]credentialProfile, contextID string) (string, doctor.CheckStatus) {
+		for name, profile := range profiles {
+			secretName := strings.TrimPrefix(profile.SecretFile, "/run/tobari/credentials/")
+			if contextID != "" {
+				secretName = strings.TrimPrefix(secretName, contextID+"/")
+			}
+			if name == "" || (profile.Type != "bearer" && profile.Type != "header") ||
+				len(profile.Hosts) == 0 ||
+				profile.Projects == nil ||
+				!strings.HasPrefix(profile.SecretFile, "/run/tobari/credentials/") ||
+				(contextID != "" && !strings.HasPrefix(profile.SecretFile, "/run/tobari/credentials/"+contextID+"/")) ||
+				secretName == "" || secretName == "." || secretName == ".." || strings.Contains(secretName, "/") {
+				return "credentials.json contains an invalid profile", doctor.CheckStatusFail
+			}
+			seenProjects := make(map[string]struct{}, len(profile.Projects))
+			for _, projectID := range profile.Projects {
+				if err := tobari.ValidateProjectID(projectID); err != nil {
+					return "credentials.json contains an invalid project binding", doctor.CheckStatusFail
+				}
+				if _, exists := seenProjects[projectID]; exists {
+					return "credentials.json contains duplicate project bindings", doctor.CheckStatusFail
+				}
+				seenProjects[projectID] = struct{}{}
+			}
+			for _, host := range profile.Hosts {
+				if host == "" || host != strings.ToLower(strings.TrimSuffix(host, ".")) {
+					return "credentials.json contains an invalid host binding", doctor.CheckStatusFail
+				}
+			}
+			if profile.Type == "header" && profile.Header == "" {
+				return "header credential profile requires a header name", doctor.CheckStatusFail
+			}
+		}
+		return "", doctor.CheckStatusPass
+	}
+	var header struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return "credentials.json is not valid JSON", doctor.CheckStatusFail
+	}
+	switch header.Version {
+	case "v1":
+		var document struct {
+			Version  string                       `json:"version"`
+			Profiles map[string]credentialProfile `json:"profiles"`
+		}
+		if err := decodeStrictJSON(data, &document); err != nil || document.Profiles == nil {
+			return "credentials.json does not match schema v1", doctor.CheckStatusFail
+		}
+		if detail, status := validateProfiles(document.Profiles, ""); status != doctor.CheckStatusPass {
+			return detail, status
+		}
+		return "credential profile metadata matches schema v1", doctor.CheckStatusPass
+	case "v2":
+		var document struct {
+			Version  string `json:"version"`
+			Contexts map[string]struct {
+				Name     string                       `json:"name"`
+				Profiles map[string]credentialProfile `json:"profiles"`
+			} `json:"contexts"`
+		}
+		if err := decodeStrictJSON(data, &document); err != nil || document.Contexts == nil {
+			return "credentials.json does not match aggregate schema v2", doctor.CheckStatusFail
+		}
+		for contextID, projected := range document.Contexts {
+			if err := tobari.ValidateContextID(contextID); err != nil || tobari.ValidateName(projected.Name) != nil || projected.Profiles == nil {
+				return "credentials.json contains an invalid Context projection", doctor.CheckStatusFail
+			}
+			if detail, status := validateProfiles(projected.Profiles, contextID); status != doctor.CheckStatusPass {
+				return detail, status
+			}
+		}
+		return "credential profile metadata matches aggregate schema v2", doctor.CheckStatusPass
+	default:
+		return "credentials.json has an unsupported schema", doctor.CheckStatusFail
+	}
+}
+
+func decodeStrictJSON(data []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&document); err != nil || document.Version != "v1" || document.Profiles == nil {
-		return "credentials.json does not match schema v1", doctor.CheckStatusFail
+	if err := decoder.Decode(target); err != nil {
+		return err
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return "credentials.json contains trailing data", doctor.CheckStatusFail
+		return fmt.Errorf("JSON contains trailing data")
 	}
-	for name, profile := range document.Profiles {
-		secretName := strings.TrimPrefix(profile.SecretFile, "/run/tobari/credentials/")
-		if name == "" || (profile.Type != "bearer" && profile.Type != "header") ||
-			len(profile.Hosts) == 0 ||
-			profile.Projects == nil ||
-			!strings.HasPrefix(profile.SecretFile, "/run/tobari/credentials/") ||
-			secretName == "" || secretName == "." || secretName == ".." || strings.Contains(secretName, "/") {
-			return "credentials.json contains an invalid profile", doctor.CheckStatusFail
-		}
-		seenProjects := make(map[string]struct{}, len(profile.Projects))
-		for _, projectID := range profile.Projects {
-			if err := tobari.ValidateProjectID(projectID); err != nil {
-				return "credentials.json contains an invalid project binding", doctor.CheckStatusFail
-			}
-			if _, exists := seenProjects[projectID]; exists {
-				return "credentials.json contains duplicate project bindings", doctor.CheckStatusFail
-			}
-			seenProjects[projectID] = struct{}{}
-		}
-		for _, host := range profile.Hosts {
-			if host == "" || host != strings.ToLower(strings.TrimSuffix(host, ".")) {
-				return "credentials.json contains an invalid host binding", doctor.CheckStatusFail
-			}
-		}
-		if profile.Type == "header" && profile.Header == "" {
-			return "header credential profile requires a header name", doctor.CheckStatusFail
-		}
-	}
-	return "credential profile metadata matches schema v1", doctor.CheckStatusPass
+	return nil
 }
 
 func (r *Runtime) checkCredentialPermissions() error {
@@ -1599,26 +1904,25 @@ func (r *Runtime) checkCredentialPermissionsAt(directory string) error {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
 		return fmt.Errorf("credential directory must be a regular owner-only directory")
 	}
-	entries, err := os.ReadDir(directory)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
+	return filepath.WalkDir(directory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == directory {
+			return nil
+		}
 		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("credential file %s is a symbolic link", entry.Name())
+			return fmt.Errorf("credential entry %s is a symbolic link", entry.Name())
 		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-			return fmt.Errorf("credential file %s must be regular and owner-only", entry.Name())
+		if info.Mode().Perm()&0o077 != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+			return fmt.Errorf("credential entry %s must be regular and owner-only", entry.Name())
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func boundedDiagnostic(data []byte) string {

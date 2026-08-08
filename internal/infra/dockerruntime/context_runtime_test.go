@@ -103,6 +103,41 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 	}
 }
 
+func TestRuntimeBuildChangesOnlyCurrentContextAuthority(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runtimeStore, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+		t.Fatal(err)
+	}
+	restrictedBefore, err := runtimeStore.ShowContext(context.Background(), "restricted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeStore.InitRuntime(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defaultBuilt, err := runtimeStore.BuildRuntime(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restrictedAfter, err := runtimeStore.ShowContext(context.Background(), "restricted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultBuilt.ID == restrictedAfter.ID || restrictedAfter.ID != restrictedBefore.ID ||
+		restrictedAfter.Image != restrictedBefore.Image || restrictedAfter.Runtime != restrictedBefore.Runtime {
+		t.Fatalf("default build changed restricted Context: before=%+v after=%+v built=%+v", restrictedBefore, restrictedAfter, defaultBuilt)
+	}
+}
+
 func TestInitRuntimeUsesInjectedResolverBase(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{}

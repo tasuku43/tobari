@@ -86,7 +86,7 @@ func (f *contextRuntimeFake) BuildRuntimeWithProgress(
 
 func contextReport(task, name string) tobari.ContextReport {
 	return tobari.ContextReport{
-		Task: task, Name: name, Active: task == tobari.TaskContextUse,
+		Task: task, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: task == tobari.TaskContextUse,
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
 		PolicyMode: tobari.ContextPolicyModeGuided,
 		Cluster:    tobari.ContextClusterStatusNotApplicable,

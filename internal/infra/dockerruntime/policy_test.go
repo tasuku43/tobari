@@ -9,7 +9,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/fault"
 )
 
-const denyAuditLine = `{"cluster":"default","credential_profile":null,"decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"GET","path":"/repos/cli/cli","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
+const denyAuditLine = `{"schema_version":2,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","credential_profile":null,"decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"GET","path":"/repos/cli/cli","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
 
 func TestParseGatewayDenialsFiltersUnrelatedAndAllowedLines(t *testing.T) {
 	t.Parallel()

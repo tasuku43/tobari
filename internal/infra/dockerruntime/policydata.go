@@ -10,7 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -241,6 +244,12 @@ func readPolicyData(policyDirectory string) (policyDataFile, error) {
 			return policyDataFile{}, fmt.Errorf("decode %s: %w", learnedPolicyDataName, err)
 		}
 	}
+	// Rules written before Context became an authority scope cannot be safely
+	// assigned to any Context. Keep them inert and require a fresh denial rather
+	// than guessing. Any partially scoped entry remains an error.
+	rules = slices.DeleteFunc(rules, func(rule tobari.LearnedPolicyRule) bool {
+		return rule.ContextID == "" && rule.ContextName == "" && rule.ProjectRoot == ""
+	})
 	if err := tobari.ValidateLearnedPolicyRules(rules); err != nil {
 		return policyDataFile{}, fmt.Errorf("validate %s: %w", learnedPolicyDataName, err)
 	}
@@ -262,6 +271,9 @@ func readPolicyData(policyDirectory string) (policyDataFile, error) {
 			return policyDataFile{}, fmt.Errorf("decode %s: %w", learnedDenyDataName, err)
 		}
 	}
+	denyRules = slices.DeleteFunc(denyRules, func(rule tobari.PolicyDenyRule) bool {
+		return rule.ContextID == "" && rule.ContextName == "" && rule.ProjectRoot == ""
+	})
 	denyRuleSet := tobari.PolicyDenyRuleSet{Baseline: baselineDenyRules, Exact: denyRules}
 	if err := denyRuleSet.Validate(); err != nil {
 		return policyDataFile{}, fmt.Errorf("validate %s: %w", learnedDenyDataName, err)
@@ -346,11 +358,32 @@ func (r *Runtime) ReadLearnedPolicyRules(
 	if err := state.Validate(); err != nil {
 		return nil, err
 	}
-	file, err := readPolicyData(state.PolicyDirectory)
+	if !strings.HasPrefix(state.PolicyDirectory, r.aggregateRoot()+string(filepath.Separator)) {
+		file, err := readPolicyData(state.PolicyDirectory)
+		if err != nil {
+			return nil, err
+		}
+		return append([]tobari.LearnedPolicyRule{}, file.rules...), nil
+	}
+	contexts, err := r.readAggregateContexts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return append([]tobari.LearnedPolicyRule{}, file.rules...), nil
+	rules := make([]tobari.LearnedPolicyRule, 0)
+	for _, item := range contexts {
+		file, err := readPolicyData(item.paths.PolicyDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("Context %q policy: %w", item.manifest.Name, err)
+		}
+		for _, rule := range file.rules {
+			if rule.ContextID != item.manifest.ID || rule.ContextName != item.manifest.Name {
+				return nil, fmt.Errorf("Context %q learned rule has mismatched authority scope", item.manifest.Name)
+			}
+			rules = append(rules, rule)
+		}
+	}
+	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
+	return rules, tobari.ValidateLearnedPolicyRules(rules)
 }
 
 // ReadPolicyDenyRules returns both trusted host-authored baseline deny
@@ -364,13 +397,37 @@ func (r *Runtime) ReadPolicyDenyRules(
 	if err := state.Validate(); err != nil {
 		return tobari.PolicyDenyRuleSet{}, err
 	}
-	file, err := readPolicyData(state.PolicyDirectory)
+	if !strings.HasPrefix(state.PolicyDirectory, r.aggregateRoot()+string(filepath.Separator)) {
+		file, err := readPolicyData(state.PolicyDirectory)
+		if err != nil {
+			return tobari.PolicyDenyRuleSet{}, err
+		}
+		result := tobari.PolicyDenyRuleSet{
+			Baseline: append([]tobari.PolicyBaselineDenyRule{}, file.baselineDenyRules...),
+			Exact:    append([]tobari.PolicyDenyRule{}, file.denyRules...),
+		}
+		return result, result.Validate()
+	}
+	contexts, err := r.readAggregateContexts(ctx)
 	if err != nil {
 		return tobari.PolicyDenyRuleSet{}, err
 	}
-	result := tobari.PolicyDenyRuleSet{
-		Baseline: append([]tobari.PolicyBaselineDenyRule{}, file.baselineDenyRules...),
-		Exact:    append([]tobari.PolicyDenyRule{}, file.denyRules...),
+	result := tobari.PolicyDenyRuleSet{Baseline: []tobari.PolicyBaselineDenyRule{}, Exact: []tobari.PolicyDenyRule{}}
+	for _, item := range contexts {
+		file, err := readPolicyData(item.paths.PolicyDirectory)
+		if err != nil {
+			return tobari.PolicyDenyRuleSet{}, fmt.Errorf("Context %q policy: %w", item.manifest.Name, err)
+		}
+		for _, baseline := range file.baselineDenyRules {
+			baseline.ContextID = item.manifest.ID
+			result.Baseline = append(result.Baseline, baseline)
+		}
+		for _, rule := range file.denyRules {
+			if rule.ContextID != item.manifest.ID || rule.ContextName != item.manifest.Name {
+				return tobari.PolicyDenyRuleSet{}, fmt.Errorf("Context %q exact deny has mismatched authority scope", item.manifest.Name)
+			}
+			result.Exact = append(result.Exact, rule)
+		}
 	}
 	return result, result.Validate()
 }
@@ -509,6 +566,11 @@ func (r *Runtime) applyPolicyData(
 	if err := state.Validate(); err != nil {
 		return err
 	}
+	if strings.HasPrefix(state.PolicyDirectory, r.aggregateRoot()+string(filepath.Separator)) {
+		return r.applyAggregatePolicyData(
+			ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot,
+		)
+	}
 	if err := tobari.ValidateLearnedPolicyRules(expectedAllows); err != nil {
 		return err
 	}
@@ -600,4 +662,186 @@ func (r *Runtime) applyPolicyData(
 		return err
 	}
 	return nil
+}
+
+func policyMutationContext(
+	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
+	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
+) (string, error) {
+	ids := map[string]struct{}{}
+	allowExpected := map[string]tobari.LearnedPolicyRule{}
+	for _, rule := range expectedAllows {
+		allowExpected[rule.ID] = rule
+	}
+	allowUpdated := map[string]tobari.LearnedPolicyRule{}
+	for _, rule := range updatedAllows {
+		allowUpdated[rule.ID] = rule
+		if previous, ok := allowExpected[rule.ID]; !ok || !reflect.DeepEqual(previous, rule) {
+			ids[rule.ContextID] = struct{}{}
+		}
+	}
+	for id, rule := range allowExpected {
+		if _, ok := allowUpdated[id]; !ok {
+			ids[rule.ContextID] = struct{}{}
+		}
+	}
+	denyExpected := map[string]tobari.PolicyDenyRule{}
+	for _, rule := range expectedDenies {
+		denyExpected[rule.ID] = rule
+	}
+	denyUpdated := map[string]tobari.PolicyDenyRule{}
+	for _, rule := range updatedDenies {
+		denyUpdated[rule.ID] = rule
+		if previous, ok := denyExpected[rule.ID]; !ok || !reflect.DeepEqual(previous, rule) {
+			ids[rule.ContextID] = struct{}{}
+		}
+	}
+	for id, rule := range denyExpected {
+		if _, ok := denyUpdated[id]; !ok {
+			ids[rule.ContextID] = struct{}{}
+		}
+	}
+	if len(ids) != 1 {
+		return "", fmt.Errorf("one policy mutation must affect exactly one Context")
+	}
+	for id := range ids {
+		return id, nil
+	}
+	return "", fmt.Errorf("policy mutation has no Context target")
+}
+
+func rulesForContext(rules []tobari.LearnedPolicyRule, contextID string) []tobari.LearnedPolicyRule {
+	result := make([]tobari.LearnedPolicyRule, 0)
+	for _, rule := range rules {
+		if rule.ContextID == contextID {
+			result = append(result, rule)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+func deniesForContext(rules []tobari.PolicyDenyRule, contextID string) []tobari.PolicyDenyRule {
+	result := make([]tobari.PolicyDenyRule, 0)
+	for _, rule := range rules {
+		if rule.ContextID == contextID {
+			result = append(result, rule)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+func (r *Runtime) applyAggregatePolicyData(
+	ctx context.Context, state tobari.State,
+	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
+	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
+	checkDenySnapshot bool,
+) error {
+	if updatedAllows == nil {
+		updatedAllows = expectedAllows
+	}
+	if !checkDenySnapshot {
+		currentDenies, err := r.ReadPolicyDenyRules(ctx, state)
+		if err != nil {
+			return err
+		}
+		expectedDenies = currentDenies.Exact
+		updatedDenies = currentDenies.Exact
+	}
+	if err := tobari.ValidateLearnedPolicyRules(expectedAllows); err != nil {
+		return err
+	}
+	if err := tobari.ValidateLearnedPolicyRules(updatedAllows); err != nil {
+		return err
+	}
+	targetContext, err := policyMutationContext(expectedAllows, updatedAllows, expectedDenies, updatedDenies)
+	if err != nil {
+		return fault.Wrap(fault.KindContract, "invalid_policy_scope", "policy mutation Context scope is invalid", false, err)
+	}
+	return r.withPolicyProjectionLock(ctx, func() error {
+		stored, configured, err := r.LoadState(ctx)
+		if err != nil || !configured {
+			return fault.Wrap(fault.KindRejected, "policy_state_changed", "shared policy state changed after discovery", false, err)
+		}
+		if stored.AggregateRevision != state.AggregateRevision {
+			return fault.New(fault.KindRejected, "policy_data_changed", "aggregate policy changed after discovery", false)
+		}
+		currentAllows, err := r.ReadLearnedPolicyRules(ctx, stored)
+		if err != nil {
+			return err
+		}
+		currentDenies, err := r.ReadPolicyDenyRules(ctx, stored)
+		if err != nil {
+			return err
+		}
+		sort.Slice(expectedAllows, func(i, j int) bool { return expectedAllows[i].ID < expectedAllows[j].ID })
+		sort.Slice(expectedDenies, func(i, j int) bool { return expectedDenies[i].ID < expectedDenies[j].ID })
+		if !reflect.DeepEqual(currentAllows, expectedAllows) || !reflect.DeepEqual(currentDenies.Exact, expectedDenies) {
+			return fault.New(fault.KindRejected, "policy_data_changed", "policy decisions changed after discovery", false)
+		}
+		manifest, paths, err := r.contextByID(targetContext)
+		if err != nil {
+			return fault.Wrap(fault.KindRejected, "context_unavailable", "policy target Context is unavailable", false, err)
+		}
+		file, err := readPolicyData(paths.PolicyDirectory)
+		if err != nil {
+			return err
+		}
+		contextAllows := rulesForContext(updatedAllows, targetContext)
+		contextDenies := deniesForContext(updatedDenies, targetContext)
+		for _, rule := range contextAllows {
+			if rule.ContextName != manifest.Name {
+				return fault.New(fault.KindContract, "context_mismatch", "learned rule Context binding is inconsistent", false)
+			}
+		}
+		for _, rule := range contextDenies {
+			if rule.ContextName != manifest.Name {
+				return fault.New(fault.KindContract, "context_mismatch", "deny rule Context binding is inconsistent", false)
+			}
+		}
+		data, err := file.withPolicyRules(contextAllows, contextDenies)
+		if err != nil {
+			return err
+		}
+		preflight, err := copyPolicyForPreflight(paths.PolicyDirectory, data)
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(preflight)
+		if err := r.testPolicyDirectory(ctx, preflight); err != nil {
+			return fault.Wrap(fault.KindRejected, "policy_preflight_failed", "candidate Context policy failed OPA tests", false, err)
+		}
+		sourcePath := filepath.Join(paths.PolicyDirectory, "data.json")
+		original := append([]byte{}, file.source...)
+		if err := atomicWriteOwnerFile(sourcePath, data); err != nil {
+			return err
+		}
+		rollback := func() {
+			_ = atomicWriteOwnerFile(sourcePath, original)
+			rollbackContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			_ = r.ApplyPolicy(rollbackContext, stored)
+		}
+		projection, err := r.buildAggregateProjection(ctx)
+		if err != nil {
+			_ = atomicWriteOwnerFile(sourcePath, original)
+			return fault.Wrap(fault.KindRejected, "aggregate_policy_invalid", "candidate aggregate policy was not activated", false, err)
+		}
+		candidateState := stored
+		candidateState.AggregateRevision = projection.Revision
+		candidateState.ContextCount = projection.ContextCount
+		candidateState.PolicyDirectory = projection.PolicyDirectory
+		candidateState.CredentialConfig = projection.CredentialConfig
+		candidateState.CredentialDir = projection.CredentialDirectory
+		if err := r.ApplyPolicy(ctx, candidateState); err != nil {
+			rollback()
+			return err
+		}
+		if err := r.writeState(candidateState); err != nil {
+			rollback()
+			return fmt.Errorf("persist aggregate policy activation: %w", err)
+		}
+		return nil
+	})
 }

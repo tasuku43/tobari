@@ -14,9 +14,9 @@ The trusted Gateway runtime selects `TOBARI_CREDENTIAL_ADAPTER`:
   redacts authentication and cookie values from OPA input and audit data, then
   forwards the original client/tool authentication only after policy allow.
 - `managed` preserves the existing static profile behavior. It validates the
-  selected profile against the host-issued project principal and normalized
-  request host, then injects a bounded bearer or fixed-header secret only after
-  policy allow.
+  selected profile against the host-issued Context/project principal and
+  normalized request host, then injects a bounded bearer or fixed-header secret
+  only after policy allow.
 
 Selection is infrastructure configuration, not a user-facing provider login
 command in the current slice. There is no implicit fallback from passthrough to
@@ -28,11 +28,13 @@ The default path applies equally to GitHub CLI, AWS CLI, Claude, Codex, and any
 other tool that owns its authentication flow; these names are examples, not a
 provider-specific product boundary.
 
-The active Context is the host-facing composition boundary for managed
-credential metadata and secret paths. A Context never contains tool-native
-login state, and its display name or credential-profile name is not an
-authority. Project-principal and normalized-host binding checks remain the
-source of managed credential authority.
+Each permanently bound Context is the composition boundary for managed
+credential metadata and secret paths. Gateway receives a purpose-limited
+schema-v2 projection keyed by stable Context ID, not the Context catalog,
+runtime recipe, or policy source. A Context never contains tool-native login
+state, and its display name or credential-profile name is not authority.
+Trusted Context ID, project principal, and normalized-host checks jointly
+define managed credential authority.
 
 ## Deferred auth-broker experiment
 
@@ -74,15 +76,19 @@ The managed adapter supports:
 - `header`: read one bounded value from a Gateway-only file and set the
   configured header.
 
-Every profile has an exact list of normalized destination hosts and an explicit
-project-principal binding. Profile names, types, hosts, header names, and
+Every profile is uniquely addressed by stable Context ID plus profile name and
+has an exact list of normalized destination hosts and an explicit
+project-principal binding. The same profile name may exist in two Contexts.
+Profile names, types, hosts, header names, and
 container paths are non-secret configuration. Secret values are never accepted
 in CLI arguments, Tobari environment variables, or OPA input.
 
-The managed adapter checks the project binding before OPA and again immediately
-before reading the secret. Missing, unreadable, empty, oversized, malformed,
+The managed adapter checks Context/project binding before OPA and again
+immediately before reading the secret from that Context ID's Gateway-only
+directory. Missing, unreadable, empty, oversized, malformed, Context-mismatched,
 host-mismatched, or project-mismatched material fails closed. It does not probe
-another profile after failure.
+another Context or profile after failure. OPA sees only non-secret projected
+metadata.
 
 Managed configuration remains a trusted Gateway-side compatibility input. The
 default passthrough adapter does not load it, and tool-native authentication
@@ -101,9 +107,10 @@ architecture, security, and harness decision.
 
 - Gateway tests prove passthrough forwards client authentication only after
   allow and excludes it from policy/log output.
-- Gateway tests retain managed profile validation, project/host binding, and
-  injection coverage.
+- Gateway tests retain managed profile validation, Context/project/host binding,
+  same-name cross-Context rejection, and injection coverage.
 - Docker integration tests prove a synthetic tool-auth file persists through
-  runtime recovery, is isolated from another Tobari, and is removed by delete.
+  runtime recovery, is isolated from another Tobari even in the same Context or
+  at the same root, and is removed by delete.
 - Integration tests prove an allowed client-authenticated request reaches the
   mock upstream while the credential value stays out of Gateway/OPA/CLI output.

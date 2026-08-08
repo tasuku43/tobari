@@ -1,11 +1,11 @@
-# ADR 0016: Manage custom runtime recipes through the active Context
+# ADR 0016: Manage custom runtime recipes through a Context
 
 - Status: Accepted
 - Date: 2026-08-02
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, and harness
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR 0018 supersedes active-Context authority; the Context-owned recipe remains accepted
 
 ## Context
 
@@ -29,9 +29,9 @@ without making Docker image identity or Context selection a routine concern.
 
 ## Considered options
 
-### Option A: Context-owned recipe with active-Context commands
+### Option A: Context-owned recipe with current-Context commands
 
-`runtime init` creates a fixed recipe below the active Context and
+`runtime init` creates a fixed recipe below the current Context and
 `runtime build` builds, validates, and selects a generated local image. Chosen.
 
 ### Option B: Project-local Dockerfile precedence
@@ -48,7 +48,7 @@ compatibility path for existing explicit image selectors.
 
 ## Decision
 
-The active Context owns a conventional `runtime/Dockerfile` recipe directory.
+The current Context owns a conventional `runtime/Dockerfile` recipe directory.
 `tobari runtime init` creates the template without overwriting an existing
 recipe. `tobari runtime build` is the explicit host-side Docker build boundary.
 It uses only that directory as build context, validates the resulting image
@@ -64,23 +64,24 @@ The generated image name is an implementation detail derived from the Context
 name and recipe source digest. The image digest and recipe source digest are
 the durable identities. No `runtime use` or user image-name input is part of
 the routine workflow. `context use` remains the operation that changes the
-active Context.
+current/default Context only.
 
 The selected image remains unchanged while a recipe is being edited or a build
 is failing. Existing Context manifests continue to use their selected `image`
 field; the recipe and build record are additive metadata during this pre-v1
 schema evolution.
-Existing Workspaces observe a successfully promoted image on the next
-`tobari` root entry. Runtime reconciliation validates that active Context
-image, recreates only the work container when the spec changed, preserves the
-Workspace home, and updates the stored project image only after success.
+Existing Workspaces bound to that Context observe a successfully promoted image
+on their next matching-Context `tobari` root entry. Runtime reconciliation
+validates their bound Context image, recreates only the work container when the
+spec changed, preserves the Workspace home, and updates the stored project
+image only after success. Workspaces in other Contexts are unchanged.
 
 ## Consequences
 
 ### Positive
 
 - The routine custom-runtime path is two commands plus Dockerfile editing.
-- The active Context is the only runtime selection authority.
+- A Tobari's permanently bound Context is its only runtime selection authority.
 - Build failure is safe and recoverable because promotion is atomic.
 - Policy and credentials remain outside the Docker build context.
 - The ordinary recipe workflow gives the moving official base an explicit

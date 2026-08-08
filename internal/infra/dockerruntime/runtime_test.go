@@ -3,6 +3,8 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -220,7 +222,8 @@ func (r *gatewayNetworkRunner) Output(_ context.Context, args, _ []string) ([]by
 
 func runtimeState(root string) tobari.State {
 	return tobari.State{
-		SchemaVersion: 2, RuntimeDirectory: filepath.Join(root, "runtime"),
+		SchemaVersion: 3, RuntimeDirectory: filepath.Join(root, "runtime"),
+		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
 		PolicyDirectory:  filepath.Join(root, "policy"),
 		CredentialConfig: filepath.Join(root, "credentials.json"),
 		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
@@ -272,6 +275,10 @@ func TestResolveProjectRootRejectsProtectedManagementPaths(t *testing.T) {
 	}
 	projectRoot := filepath.Join(t.TempDir(), "project")
 	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectRoot, err = runtime.ResolveRoot(context.Background(), projectRoot)
+	if err != nil {
 		t.Fatal(err)
 	}
 	home, err := os.UserHomeDir()
@@ -466,6 +473,115 @@ func TestLoadStateRejectsLegacyAndTrailingDocuments(t *testing.T) {
 	}
 }
 
+func TestLoadStateMigratesVerifiedSingleContextProjects(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	contexts, err := runtime.ListContexts(context.Background())
+	if err != nil || len(contexts.Items) != 1 {
+		t.Fatalf("ListContexts() = %+v, error=%v", contexts, err)
+	}
+	manifest, paths, err := runtime.resolveContext("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectRoot := filepath.Join(root, "project")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectRoot, err = runtime.ResolveRoot(context.Background(), projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := "01912345-6789-7abc-8def-0123456789ab"
+	if err := os.MkdirAll(filepath.Join(runtime.instancesDirectory(), projectID, "home"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacyInstance := legacyProjectInstance{
+		SchemaVersion: tobari.LegacyProjectStateSchemaVersion, ID: projectID, Root: projectRoot,
+		Profile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, Runtime: tobari.ProjectRuntime{},
+	}
+	if err := writeAtomicJSON(filepath.Join(runtime.instancesDirectory(), projectID, "state.json"), legacyInstance); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtime.rootsDirectory(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte(projectRoot))
+	legacyIndexPath := filepath.Join(runtime.rootsDirectory(), hex.EncodeToString(digest[:])+".json")
+	if err := writeAtomicJSON(legacyIndexPath, legacyRootIndex{SchemaVersion: 1, Root: projectRoot, InstanceID: projectID}); err != nil {
+		t.Fatal(err)
+	}
+	base := runtimeState(root)
+	legacy := legacyClusterState{
+		SchemaVersion: 2, RuntimeDirectory: base.RuntimeDirectory, ContextName: manifest.Name,
+		AgentProfile: manifest.AgentProfile, PolicyDirectory: paths.PolicyDirectory,
+		CredentialConfig: paths.CredentialConfig, CredentialDir: paths.CredentialDirectory,
+		AssetVersion: base.AssetVersion, ProxyEndpoint: base.ProxyEndpoint, Tobari: []tobari.Instance{},
+	}
+	if err := os.MkdirAll(filepath.Dir(runtime.statePath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomicJSON(runtime.statePath(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	migrated, exists, err := runtime.LoadState(context.Background())
+	if err != nil || !exists || migrated.SchemaVersion != 3 || migrated.ContextCount != 1 {
+		t.Fatalf("LoadState() = %+v, exists=%t, error=%v", migrated, exists, err)
+	}
+	projects, listErr := runtime.ListProjects(context.Background())
+	if listErr != nil || len(projects) != 1 {
+		t.Fatalf("ListProjects() after migration = %+v, error=%v", projects, listErr)
+	}
+	if projects[0].ContextID != manifest.ID {
+		t.Fatalf("migrated Context ID = %q, want %q", projects[0].ContextID, manifest.ID)
+	}
+	project, found, err := runtime.ResolveProjectInContext(context.Background(), projectRoot, "default")
+	if err != nil || !found || project.ID != projectID || project.ContextID != manifest.ID || project.Root != projectRoot {
+		t.Fatalf("migrated project = %+v, found=%t, error=%v", project, found, err)
+	}
+	if _, err := os.Lstat(legacyIndexPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy root index remains: %v", err)
+	}
+}
+
+func TestLoadStateRejectsConflictingLegacyContextEvidence(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if _, err := runtime.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.UseContext(context.Background(), "restricted"); err != nil {
+		t.Fatal(err)
+	}
+	_, paths, err := runtime.resolveContext("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := runtimeState(root)
+	legacy := legacyClusterState{
+		SchemaVersion: 2, RuntimeDirectory: base.RuntimeDirectory, ContextName: "default",
+		AgentProfile: tobari.DefaultProfile, PolicyDirectory: paths.PolicyDirectory,
+		CredentialConfig: paths.CredentialConfig, CredentialDir: paths.CredentialDirectory,
+		AssetVersion: base.AssetVersion, ProxyEndpoint: base.ProxyEndpoint, Tobari: []tobari.Instance{},
+	}
+	if err := os.MkdirAll(filepath.Dir(runtime.statePath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomicJSON(runtime.statePath(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = runtime.LoadState(context.Background())
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "ambiguous_context_migration" {
+		t.Fatalf("LoadState() error = %v", err)
+	}
+}
+
 func mustJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	data, err := json.Marshal(value)
@@ -551,19 +667,19 @@ func TestClusterDownPurgesMissingVolumesIdempotently(t *testing.T) {
 	}
 }
 
-func TestPrepareStateUsesXDGPolicyAndEmptySchemaTwoCollection(t *testing.T) {
+func TestPrepareStateUsesAggregateProjectionAndEmptyLegacyCollection(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	state, err := runtime.prepareState()
+	state, err := runtime.prepareState(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.SchemaVersion != 2 || state.Tobari == nil || len(state.Tobari) != 0 {
+	if state.SchemaVersion != 3 || state.ContextCount != 1 || state.AggregateRevision == "" || state.Tobari == nil || len(state.Tobari) != 0 {
 		t.Fatalf("state = %+v", state)
 	}
 	for path, want := range map[string]os.FileMode{
-		state.PolicyDirectory: 0o700, filepath.Join(state.PolicyDirectory, "tobari.rego"): 0o600,
+		state.PolicyDirectory: 0o700, filepath.Join(state.PolicyDirectory, "router.rego"): 0o600,
 		state.CredentialDir: 0o700, state.CredentialConfig: 0o600,
 		filepath.Join(root, "config", "config.json"): 0o600,
 	} {
@@ -607,7 +723,7 @@ func TestPrepareStateRejectsSymlinkedManagementDirectoriesBeforeDocker(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := runtime.prepareState(); err == nil {
+			if _, err := runtime.prepareState(context.Background()); err == nil {
 				t.Fatal("prepareState() accepted a symlinked management directory")
 			}
 			if len(runner.outputs) != 0 || len(runner.runs) != 0 {

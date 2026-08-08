@@ -33,7 +33,10 @@ const (
 type PolicyDenial struct {
 	Timestamp         string  `json:"timestamp"`
 	RequestID         string  `json:"request_id"`
+	ContextID         string  `json:"context_id"`
+	ContextName       string  `json:"context"`
 	ProjectID         string  `json:"project_id"`
+	ProjectRoot       string  `json:"project_root"`
 	Host              string  `json:"host"`
 	Port              int     `json:"port"`
 	Method            string  `json:"method"`
@@ -52,6 +55,9 @@ func (d PolicyDenial) Validate() error {
 	}
 	if !requestIDPattern.MatchString(d.RequestID) {
 		return fmt.Errorf("denial request ID is invalid")
+	}
+	if err := validatePolicyScope(d.ContextID, d.ContextName, d.ProjectRoot); err != nil {
+		return fmt.Errorf("denial scope: %w", err)
 	}
 	if err := ValidateProjectID(d.ProjectID); err != nil {
 		return fmt.Errorf("denial project ID is invalid")
@@ -76,6 +82,19 @@ func (d PolicyDenial) Validate() error {
 	}
 	if err := validateOptionalCredentialProfile(d.CredentialProfile); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validatePolicyScope(contextID, contextName, projectRoot string) error {
+	if err := ValidateContextID(contextID); err != nil {
+		return fmt.Errorf("Context ID is invalid")
+	}
+	if err := ValidateName(contextName); err != nil {
+		return fmt.Errorf("Context name is invalid")
+	}
+	if !filepath.IsAbs(projectRoot) || filepath.Clean(projectRoot) != projectRoot {
+		return fmt.Errorf("project root is invalid")
 	}
 	return nil
 }
@@ -148,7 +167,10 @@ type PolicyCandidate struct {
 	ID                string  `json:"id"`
 	ObservedAt        string  `json:"observed_at"`
 	ObservationCount  int     `json:"observation_count,omitempty"`
+	ContextID         string  `json:"context_id"`
+	ContextName       string  `json:"context"`
 	ProjectID         string  `json:"project_id"`
+	ProjectRoot       string  `json:"project_root"`
 	Host              string  `json:"host"`
 	Port              int     `json:"port"`
 	Method            string  `json:"method"`
@@ -169,14 +191,15 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 	}
 	sum := sha256.Sum256([]byte(strings.Join(
 		[]string{
-			"tobari-policy-candidate-v1", denial.ProjectID, denial.Host, strconv.Itoa(denial.Port), denial.Method, denial.Path,
+			"tobari-policy-candidate-v2", denial.ContextID, denial.ProjectID, denial.Host, strconv.Itoa(denial.Port), denial.Method, denial.Path,
 		},
 		"\x00",
 	)))
 	return PolicyCandidate{
 		ID: "pcy_" + hex.EncodeToString(sum[:16]), ObservedAt: denial.Timestamp, ObservationCount: 1,
-		ProjectID: denial.ProjectID,
-		Host:      denial.Host, Port: denial.Port, Method: denial.Method, Path: denial.Path,
+		ContextID: denial.ContextID, ContextName: denial.ContextName,
+		ProjectID: denial.ProjectID, ProjectRoot: denial.ProjectRoot,
+		Host: denial.Host, Port: denial.Port, Method: denial.Method, Path: denial.Path,
 		Reason: denial.Reason, StatusCode: denial.StatusCode,
 		CredentialProfile: cloneStringPointer(denial.CredentialProfile),
 	}, nil
@@ -225,6 +248,9 @@ func (c PolicyCandidate) Validate() error {
 	}
 	if c.ObservationCount < 0 {
 		return fmt.Errorf("policy candidate observation count is invalid")
+	}
+	if err := validatePolicyScope(c.ContextID, c.ContextName, c.ProjectRoot); err != nil {
+		return fmt.Errorf("policy candidate scope: %w", err)
 	}
 	if err := ValidateProjectID(c.ProjectID); err != nil {
 		return fmt.Errorf("policy candidate project ID is invalid")
@@ -292,12 +318,18 @@ func (r PolicyCandidateReport) Validate() error {
 // broader than one project or port because the host owns its policy source.
 // Baseline denies are terminal policy decisions and never become candidates.
 type PolicyBaselineDenyRule struct {
+	ContextID  string `json:"context_id,omitempty"`
 	Host       string `json:"host"`
 	Method     string `json:"method"`
 	PathPrefix string `json:"path_prefix"`
 }
 
 func (r PolicyBaselineDenyRule) Validate() error {
+	if r.ContextID != "" {
+		if err := ValidateContextID(r.ContextID); err != nil {
+			return fmt.Errorf("baseline deny Context is invalid")
+		}
+	}
 	if len(r.Host) == 0 || len(r.Host) > 253 || containsSpaceOrControl(r.Host) {
 		return fmt.Errorf("baseline deny host is invalid")
 	}
@@ -310,8 +342,8 @@ func (r PolicyBaselineDenyRule) Validate() error {
 	return nil
 }
 
-func (r PolicyBaselineDenyRule) Matches(host, method, path string) bool {
-	return r.Host == host && r.Method == method && strings.HasPrefix(path, r.PathPrefix)
+func (r PolicyBaselineDenyRule) Matches(contextID, host, method, path string) bool {
+	return (r.ContextID == "" || r.ContextID == contextID) && r.Host == host && r.Method == method && strings.HasPrefix(path, r.PathPrefix)
 }
 
 // PolicyDenyRule is one exact project-bound deny created by rejecting a
@@ -319,7 +351,10 @@ func (r PolicyBaselineDenyRule) Matches(host, method, path string) bool {
 // dimensions as the candidate it resolves.
 type PolicyDenyRule struct {
 	ID               string   `json:"id"`
+	ContextID        string   `json:"context_id"`
+	ContextName      string   `json:"context"`
 	ProjectID        string   `json:"project_id"`
+	ProjectRoot      string   `json:"project_root"`
 	Host             string   `json:"host"`
 	Port             int      `json:"port"`
 	Method           string   `json:"method"`
@@ -327,10 +362,10 @@ type PolicyDenyRule struct {
 	SourceCandidates []string `json:"source_candidates"`
 }
 
-func policyDenyRuleID(projectID, host string, port int, method, path string, sourceCandidates []string) string {
+func policyDenyRuleID(contextID, projectID, host string, port int, method, path string, sourceCandidates []string) string {
 	material := strings.Join(
 		[]string{
-			"tobari-policy-deny-v1", projectID, host, strconv.Itoa(port), method, path,
+			"tobari-policy-deny-v2", contextID, projectID, host, strconv.Itoa(port), method, path,
 			strings.Join(sourceCandidates, "\x1f"),
 		},
 		"\x00",
@@ -345,12 +380,13 @@ func NewExactPolicyDenyRule(candidate PolicyCandidate) (PolicyDenyRule, error) {
 		return PolicyDenyRule{}, err
 	}
 	rule := PolicyDenyRule{
-		ProjectID: candidate.ProjectID, Host: candidate.Host, Port: candidate.Port,
+		ContextID: candidate.ContextID, ContextName: candidate.ContextName,
+		ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot, Host: candidate.Host, Port: candidate.Port,
 		Method: candidate.Method, Path: candidate.Path,
 		SourceCandidates: []string{candidate.ID},
 	}
 	rule.ID = policyDenyRuleID(
-		rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.SourceCandidates,
+		rule.ContextID, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.SourceCandidates,
 	)
 	return rule, nil
 }
@@ -358,6 +394,9 @@ func NewExactPolicyDenyRule(candidate PolicyCandidate) (PolicyDenyRule, error) {
 func (r PolicyDenyRule) Validate() error {
 	if !policyDenyRuleIDPattern.MatchString(r.ID) {
 		return fmt.Errorf("policy deny rule ID is invalid")
+	}
+	if err := validatePolicyScope(r.ContextID, r.ContextName, r.ProjectRoot); err != nil {
+		return fmt.Errorf("policy deny rule scope: %w", err)
 	}
 	if err := ValidateProjectID(r.ProjectID); err != nil {
 		return fmt.Errorf("policy deny rule project ID is invalid")
@@ -380,14 +419,14 @@ func (r PolicyDenyRule) Validate() error {
 	if len(r.SourceCandidates) != 1 {
 		return fmt.Errorf("exact policy deny rule must have one source candidate")
 	}
-	if r.ID != policyDenyRuleID(r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.SourceCandidates) {
+	if r.ID != policyDenyRuleID(r.ContextID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.SourceCandidates) {
 		return fmt.Errorf("policy deny rule ID does not bind its content")
 	}
 	return nil
 }
 
-func (r PolicyDenyRule) Matches(projectID, host string, port int, method, path string) bool {
-	return r.ProjectID == projectID && r.Host == host && r.Port == port &&
+func (r PolicyDenyRule) Matches(contextID, projectID, host string, port int, method, path string) bool {
+	return r.ContextID == contextID && r.ProjectID == projectID && r.Host == host && r.Port == port &&
 		r.Method == method && r.Path == path
 }
 
@@ -422,12 +461,12 @@ func (s PolicyDenyRuleSet) Validate() error {
 
 func (s PolicyDenyRuleSet) Matches(denial PolicyDenial) bool {
 	for _, rule := range s.Baseline {
-		if rule.Matches(denial.Host, denial.Method, denial.Path) {
+		if rule.Matches(denial.ContextID, denial.Host, denial.Method, denial.Path) {
 			return true
 		}
 	}
 	for _, rule := range s.Exact {
-		if rule.Matches(denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) {
+		if rule.Matches(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) {
 			return true
 		}
 	}
@@ -439,7 +478,10 @@ func (s PolicyDenyRuleSet) Matches(denial PolicyDenial) bool {
 type LearnedPolicyRule struct {
 	ID               string   `json:"id"`
 	Match            string   `json:"match"`
+	ContextID        string   `json:"context_id"`
+	ContextName      string   `json:"context"`
 	ProjectID        string   `json:"project_id"`
+	ProjectRoot      string   `json:"project_root"`
 	Host             string   `json:"host"`
 	Port             int      `json:"port"`
 	Method           string   `json:"method"`
@@ -449,11 +491,11 @@ type LearnedPolicyRule struct {
 }
 
 func learnedRuleID(
-	match, projectID, host string, port int, method, path string, examples, sourceCandidates []string,
+	match, contextID, projectID, host string, port int, method, path string, examples, sourceCandidates []string,
 ) string {
 	material := strings.Join(
 		[]string{
-			"tobari-learned-rule-v1", match, projectID, host, strconv.Itoa(port), method, path,
+			"tobari-learned-rule-v2", match, contextID, projectID, host, strconv.Itoa(port), method, path,
 			strings.Join(examples, "\x1f"), strings.Join(sourceCandidates, "\x1f"),
 		},
 		"\x00",
@@ -467,12 +509,13 @@ func NewExactLearnedPolicyRule(candidate PolicyCandidate) (LearnedPolicyRule, er
 		return LearnedPolicyRule{}, err
 	}
 	rule := LearnedPolicyRule{
-		Match: PolicyMatchExact, ProjectID: candidate.ProjectID, Host: candidate.Host, Port: candidate.Port, Method: candidate.Method,
+		Match: PolicyMatchExact, ContextID: candidate.ContextID, ContextName: candidate.ContextName,
+		ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot, Host: candidate.Host, Port: candidate.Port, Method: candidate.Method,
 		Path: candidate.Path, Examples: []string{candidate.Path},
 		SourceCandidates: []string{candidate.ID},
 	}
 	rule.ID = learnedRuleID(
-		rule.Match, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.Examples, rule.SourceCandidates,
+		rule.Match, rule.ContextID, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.Examples, rule.SourceCandidates,
 	)
 	return rule, nil
 }
@@ -483,6 +526,9 @@ func (r LearnedPolicyRule) Validate() error {
 	}
 	if r.Match != PolicyMatchExact && r.Match != PolicyMatchPrefix {
 		return fmt.Errorf("learned rule match is invalid")
+	}
+	if err := validatePolicyScope(r.ContextID, r.ContextName, r.ProjectRoot); err != nil {
+		return fmt.Errorf("learned rule scope: %w", err)
 	}
 	if err := ValidateProjectID(r.ProjectID); err != nil {
 		return fmt.Errorf("learned rule project ID is invalid")
@@ -527,7 +573,7 @@ func (r LearnedPolicyRule) Validate() error {
 		}
 	}
 	if r.ID != learnedRuleID(
-		r.Match, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.Examples, r.SourceCandidates,
+		r.Match, r.ContextID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.Examples, r.SourceCandidates,
 	) {
 		return fmt.Errorf("learned rule ID does not bind its content")
 	}
@@ -586,7 +632,10 @@ type PolicyRule struct {
 	ID               string   `json:"id"`
 	Decision         string   `json:"decision"`
 	Match            string   `json:"match"`
+	ContextID        string   `json:"context_id"`
+	ContextName      string   `json:"context"`
 	ProjectID        string   `json:"project_id"`
+	ProjectRoot      string   `json:"project_root"`
 	Host             string   `json:"host"`
 	Port             int      `json:"port"`
 	Method           string   `json:"method"`
@@ -603,7 +652,8 @@ func NewPolicyRuleFromLearned(rule LearnedPolicyRule) (PolicyRule, error) {
 	}
 	result := PolicyRule{
 		ID: rule.ID, Decision: PolicyDecisionAllow, Match: rule.Match,
-		ProjectID: rule.ProjectID, Host: rule.Host, Port: rule.Port, Method: rule.Method,
+		ContextID: rule.ContextID, ContextName: rule.ContextName,
+		ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot, Host: rule.Host, Port: rule.Port, Method: rule.Method,
 		Path: rule.Path, Examples: append([]string{}, rule.Examples...),
 		SourceCandidates: append([]string{}, rule.SourceCandidates...),
 	}
@@ -622,7 +672,8 @@ func NewPolicyRuleFromDeny(rule PolicyDenyRule) (PolicyRule, error) {
 	}
 	result := PolicyRule{
 		ID: rule.ID, Decision: PolicyDecisionDeny, Match: PolicyMatchExact,
-		ProjectID: rule.ProjectID, Host: rule.Host, Port: rule.Port, Method: rule.Method,
+		ContextID: rule.ContextID, ContextName: rule.ContextName,
+		ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot, Host: rule.Host, Port: rule.Port, Method: rule.Method,
 		Path: rule.Path, Examples: []string{},
 		SourceCandidates: append([]string{}, rule.SourceCandidates...),
 	}
@@ -641,7 +692,8 @@ func (r PolicyRule) Validate() error {
 	}
 	if r.Decision == PolicyDecisionAllow {
 		learned := LearnedPolicyRule{
-			ID: r.ID, Match: r.Match, ProjectID: r.ProjectID, Host: r.Host, Port: r.Port,
+			ID: r.ID, Match: r.Match, ContextID: r.ContextID, ContextName: r.ContextName,
+			ProjectID: r.ProjectID, ProjectRoot: r.ProjectRoot, Host: r.Host, Port: r.Port,
 			Method: r.Method, Path: r.Path, Examples: r.Examples,
 			SourceCandidates: r.SourceCandidates,
 		}
@@ -654,7 +706,8 @@ func (r PolicyRule) Validate() error {
 		return fmt.Errorf("policy rule deny shape is invalid")
 	}
 	deny := PolicyDenyRule{
-		ID: r.ID, ProjectID: r.ProjectID, Host: r.Host, Port: r.Port,
+		ID: r.ID, ContextID: r.ContextID, ContextName: r.ContextName,
+		ProjectID: r.ProjectID, ProjectRoot: r.ProjectRoot, Host: r.Host, Port: r.Port,
 		Method: r.Method, Path: r.Path, SourceCandidates: r.SourceCandidates,
 	}
 	if err := deny.Validate(); err != nil {
@@ -811,8 +864,8 @@ func (r PolicyRuleReset) Validate() error {
 	return nil
 }
 
-func (r LearnedPolicyRule) Matches(projectID, host string, port int, method, path string) bool {
-	if r.ProjectID != projectID || r.Host != host || r.Port != port || r.Method != method {
+func (r LearnedPolicyRule) Matches(contextID, projectID, host string, port int, method, path string) bool {
+	if r.ContextID != contextID || r.ProjectID != projectID || r.Host != host || r.Port != port || r.Method != method {
 		return false
 	}
 	switch r.Match {
@@ -849,13 +902,14 @@ func PolicyCandidatesWithDenyRules(
 	}
 	covered := func(denial PolicyDenial) bool {
 		for _, rule := range rules {
-			if rule.Matches(denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) {
+			if rule.Matches(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) {
 				return true
 			}
 		}
 		return false
 	}
 	type effectKey struct {
+		contextID string
 		projectID string
 		host      string
 		port      int
@@ -884,7 +938,7 @@ func PolicyCandidatesWithDenyRules(
 			return nil, err
 		}
 		key := effectKey{
-			projectID: denial.ProjectID, host: denial.Host, port: denial.Port,
+			contextID: denial.ContextID, projectID: denial.ProjectID, host: denial.Host, port: denial.Port,
 			method: denial.Method, path: denial.Path,
 		}
 		current, found := aggregates[key]
@@ -921,7 +975,10 @@ func PolicyCandidatesWithDenyRules(
 // PolicyCompaction binds one current exact source-rule set to one path prefix.
 type PolicyCompaction struct {
 	ID            string   `json:"id"`
+	ContextID     string   `json:"context_id"`
+	ContextName   string   `json:"context"`
 	ProjectID     string   `json:"project_id"`
+	ProjectRoot   string   `json:"project_root"`
 	Host          string   `json:"host"`
 	Port          int      `json:"port"`
 	Method        string   `json:"method"`
@@ -938,10 +995,10 @@ func ValidatePolicyCompactionID(id string) error {
 	return nil
 }
 
-func compactionID(projectID, host string, port int, method, prefix string, sourceRuleIDs []string) string {
+func compactionID(contextID, projectID, host string, port int, method, prefix string, sourceRuleIDs []string) string {
 	material := strings.Join(
 		[]string{
-			"tobari-policy-compaction-v1", projectID, host, strconv.Itoa(port), method, prefix,
+			"tobari-policy-compaction-v2", contextID, projectID, host, strconv.Itoa(port), method, prefix,
 			strings.Join(sourceRuleIDs, "\x1f"),
 		},
 		"\x00",
@@ -957,6 +1014,9 @@ func outsidePrefixCanary(prefix string) string {
 func (c PolicyCompaction) Validate() error {
 	if err := ValidatePolicyCompactionID(c.ID); err != nil {
 		return err
+	}
+	if err := validatePolicyScope(c.ContextID, c.ContextName, c.ProjectRoot); err != nil {
+		return fmt.Errorf("policy compaction scope: %w", err)
 	}
 	if err := ValidateProjectID(c.ProjectID); err != nil {
 		return fmt.Errorf("policy compaction project ID is invalid")
@@ -994,7 +1054,7 @@ func (c PolicyCompaction) Validate() error {
 	if c.OutsideCanary != outsidePrefixCanary(c.PathPrefix) {
 		return fmt.Errorf("policy compaction boundary canary is invalid")
 	}
-	if c.ID != compactionID(c.ProjectID, c.Host, c.Port, c.Method, c.PathPrefix, c.SourceRuleIDs) {
+	if c.ID != compactionID(c.ContextID, c.ProjectID, c.Host, c.Port, c.Method, c.PathPrefix, c.SourceRuleIDs) {
 		return fmt.Errorf("policy compaction ID does not bind its source rules")
 	}
 	return nil
@@ -1072,7 +1132,7 @@ func PolicyCompactions(rules []LearnedPolicyRule) ([]PolicyCompaction, error) {
 		if !validCompactionPrefix(prefix) {
 			continue
 		}
-		key := rule.ProjectID + "\x00" + rule.Host + "\x00" + strconv.Itoa(rule.Port) + "\x00" + rule.Method + "\x00" + prefix
+		key := rule.ContextID + "\x00" + rule.ProjectID + "\x00" + rule.Host + "\x00" + strconv.Itoa(rule.Port) + "\x00" + rule.Method + "\x00" + prefix
 		groups[key] = append(groups[key], rule)
 	}
 	items := make([]PolicyCompaction, 0)
@@ -1094,11 +1154,12 @@ func PolicyCompactions(rules []LearnedPolicyRule) ([]PolicyCompaction, error) {
 		}
 		prefix := exactRuleDirectory(group[0].Path)
 		item := PolicyCompaction{
-			ProjectID: group[0].ProjectID, Host: group[0].Host, Port: group[0].Port, Method: group[0].Method, PathPrefix: prefix,
+			ContextID: group[0].ContextID, ContextName: group[0].ContextName,
+			ProjectID: group[0].ProjectID, ProjectRoot: group[0].ProjectRoot, Host: group[0].Host, Port: group[0].Port, Method: group[0].Method, PathPrefix: prefix,
 			SourceRuleIDs: sourceRuleIDs, Examples: examples,
 			OutsideCanary: outsidePrefixCanary(prefix),
 		}
-		item.ID = compactionID(item.ProjectID, item.Host, item.Port, item.Method, item.PathPrefix, item.SourceRuleIDs)
+		item.ID = compactionID(item.ContextID, item.ProjectID, item.Host, item.Port, item.Method, item.PathPrefix, item.SourceRuleIDs)
 		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -1155,12 +1216,13 @@ func CompactLearnedPolicyRules(
 	sort.Strings(sourceCandidates)
 	sourceCandidates = uniqueStrings(sourceCandidates)
 	prefixRule := LearnedPolicyRule{
-		Match: PolicyMatchPrefix, ProjectID: selected.ProjectID, Host: selected.Host, Port: selected.Port, Method: selected.Method,
+		Match: PolicyMatchPrefix, ContextID: selected.ContextID, ContextName: selected.ContextName,
+		ProjectID: selected.ProjectID, ProjectRoot: selected.ProjectRoot, Host: selected.Host, Port: selected.Port, Method: selected.Method,
 		Path: selected.PathPrefix, Examples: append([]string{}, selected.Examples...),
 		SourceCandidates: sourceCandidates,
 	}
 	prefixRule.ID = learnedRuleID(
-		prefixRule.Match, prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, prefixRule.Path,
+		prefixRule.Match, prefixRule.ContextID, prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, prefixRule.Path,
 		prefixRule.Examples, prefixRule.SourceCandidates,
 	)
 	if err := prefixRule.Validate(); err != nil {

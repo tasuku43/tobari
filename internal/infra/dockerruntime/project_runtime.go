@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -68,10 +69,33 @@ func projectResourceHashFields() []string {
 // before CreateProject so a missing or incompatible image cannot leave a
 // durable Workspace that has no possible runtime.
 func (r *Runtime) ValidateProjectRuntime(ctx context.Context, state tobari.State) error {
+	manifest, _, err := r.activeContext()
+	if err != nil {
+		return err
+	}
+	return r.ValidateProjectRuntimeForContext(ctx, state, manifest.ID)
+}
+
+func (r *Runtime) ValidateProjectRuntimeForContext(ctx context.Context, state tobari.State, contextID string) error {
 	if err := state.Validate(); err != nil {
 		return err
 	}
-	image, err := r.resolveContextImage(ctx)
+	contexts, err := r.ListContexts(ctx)
+	if err != nil {
+		return err
+	}
+	if len(contexts.Items) != state.ContextCount {
+		return fault.New(
+			fault.KindRejected, "cluster_projection_stale",
+			"the shared cluster has not loaded the complete Context catalog", false,
+			fault.NextAction{Command: "cluster up", Reason: "Validate and activate the aggregate multi-Context policy projection."},
+		)
+	}
+	manifest, _, err := r.contextByID(contextID)
+	if err != nil {
+		return err
+	}
+	image, err := r.resolveContextImageFor(ctx, manifest)
 	if err != nil {
 		return err
 	}
@@ -109,7 +133,14 @@ func (r *Runtime) EnsureProjectRuntime(
 		if resolved, resolveErr := r.ResolveProjectRoot(ctx, stored.Root); resolveErr != nil || resolved != stored.Root {
 			return fmt.Errorf("project root is no longer accessible at its canonical path")
 		}
-		image, err := r.resolveContextImage(ctx)
+		manifest, _, err := r.contextByID(stored.ContextID)
+		if err != nil {
+			return err
+		}
+		if manifest.Name != stored.ContextName {
+			return fmt.Errorf("project Context binding is stale")
+		}
+		image, err := r.resolveContextImageFor(ctx, manifest)
 		if err != nil {
 			return err
 		}
@@ -124,10 +155,7 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err := r.ensurePrivateDirectory(r.projectHomePath(stored.ID)); err != nil {
 			return fmt.Errorf("prepare project home: %w", err)
 		}
-		agentProfile := state.AgentProfile
-		if agentProfile == "" {
-			agentProfile = stored.Profile
-		}
+		agentProfile := manifest.AgentProfile
 		profile, err := r.ensureSharedProfile(agentProfile)
 		if err != nil {
 			return err
@@ -148,7 +176,7 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err := r.ensureProjectNetwork(ctx, network, stored.ID); err != nil {
 			return err
 		}
-		if err := r.ensureGatewayProjectNetwork(ctx, network, stored.ID); err != nil {
+		if err := r.ensureGatewayProjectNetwork(ctx, network, stored); err != nil {
 			return err
 		}
 		if err := r.ensureProjectContainer(ctx, state, desired, profile, container, network, image, specHash); err != nil {
@@ -337,6 +365,7 @@ func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.ProjectInst
 		journal := projectJournal{
 			SchemaVersion: projectJournalSchema, Operation: projectOpDelete,
 			ProjectID: stored.ID, Root: stored.Root, Phase: projectPhaseStarted,
+			ContextID: stored.ContextID,
 		}
 		if err := r.writeProjectJournal(journal); err != nil {
 			return err
@@ -386,7 +415,7 @@ func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.ProjectInst
 		if err := r.writeProjectJournal(journal); err != nil {
 			return err
 		}
-		if err := r.removeProjectRootIndex(stored.Root); err != nil {
+		if err := r.removeProjectRootIndexFor(stored.Root, stored.ContextID); err != nil {
 			return err
 		}
 		return r.clearProjectJournal()
@@ -597,6 +626,7 @@ func (r *Runtime) projectSpecHashWithCommand(
 		User: strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		Environment: []string{
 			"HOME=/var/lib/tobari", "TOBARI_INSIDE=1", "TOBARI_ID=" + instance.ID,
+			"TOBARI_CONTEXT_ID=" + instance.ContextID,
 			"TOBARI_ROOT=" + workspaceRoot, "TOBARI_PROFILE=/opt/tobari/profile",
 			"HTTP_PROXY=http://gateway:8080", "HTTPS_PROXY=http://gateway:8080",
 			"http_proxy=http://gateway:8080", "https_proxy=http://gateway:8080",
@@ -886,7 +916,15 @@ func (r *Runtime) removeProjectInstanceDirectory(id string) error {
 }
 
 func (r *Runtime) removeProjectRootIndex(root string) error {
-	indexPath, err := r.rootIndexPath(root)
+	manifest, _, err := r.activeContext()
+	if err != nil {
+		return err
+	}
+	return r.removeProjectRootIndexFor(root, manifest.ID)
+}
+
+func (r *Runtime) removeProjectRootIndexFor(root, contextID string) error {
+	indexPath, err := r.rootIndexPath(root, contextID)
 	if err != nil {
 		return err
 	}

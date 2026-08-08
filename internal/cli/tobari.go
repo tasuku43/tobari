@@ -547,7 +547,7 @@ func clusterStyleAllowed(ctx context.Context, c *CLI) bool {
 	return humanStyleAllowed(ctx, c, c.Out) && clusterUpProgressAllowed(ctx)
 }
 
-func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, _ ParsedInputs) int {
+func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
@@ -556,7 +556,11 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID},
 		Impact: command.Agent.Mutation.Impact,
 	}
-	code, err := c.tobari.EnterProject(ctx, intent, c.In, c.Out, c.Err)
+	contextName := inputs.One("--context")
+	if contextName == "" {
+		contextName = executionContextName(ctx)
+	}
+	code, err := c.tobari.EnterProjectInContext(ctx, intent, contextName, c.In, c.Out, c.Err)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -622,7 +626,7 @@ func runProjectStatus(ctx context.Context, c *CLI, command CommandSpec, _ operat
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
-	result, err := c.tobari.ProjectStatus(ctx)
+	result, err := c.tobari.ProjectStatusInContext(ctx, inputs.One("--context"))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -642,8 +646,9 @@ func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operat
 		return c.fail(ctx, missingRuntimeFault())
 	}
 	force, _ := inputs.Boolean("--force")
+	contextName := inputs.One("--context")
 	if force {
-		preview, err := c.tobari.ProjectStatus(ctx)
+		preview, err := c.tobari.ProjectStatusInContext(ctx, contextName)
 		if err != nil {
 			return c.fail(ctx, err)
 		}
@@ -667,7 +672,7 @@ func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operat
 		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ID: tobari.CurrentDirectoryTargetID},
 		Impact: command.Agent.Mutation.Impact,
 	}
-	result, err := c.tobari.DeleteProject(ctx, intent, force)
+	result, err := c.tobari.DeleteProjectInContext(ctx, intent, contextName, force)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -795,7 +800,10 @@ type policyCandidateOutput struct {
 	ID                string  `json:"id"`
 	ObservedAt        string  `json:"observed_at"`
 	ObservationCount  int     `json:"observation_count"`
+	ContextID         string  `json:"context_id"`
+	Context           string  `json:"context"`
 	ProjectID         string  `json:"project_id"`
+	ProjectRoot       string  `json:"project_root"`
 	Host              string  `json:"host"`
 	Port              int     `json:"port"`
 	Method            string  `json:"method"`
@@ -821,7 +829,10 @@ type policyRuleOutput struct {
 	ID               string   `json:"id"`
 	Decision         string   `json:"decision"`
 	Match            string   `json:"match"`
+	ContextID        string   `json:"context_id"`
+	Context          string   `json:"context"`
 	ProjectID        string   `json:"project_id"`
+	ProjectRoot      string   `json:"project_root"`
 	Host             string   `json:"host"`
 	Port             int      `json:"port"`
 	Method           string   `json:"method"`
@@ -857,7 +868,7 @@ func renderPolicyCandidatesWithColor(
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
 		output, err := json.Marshal(policyCandidatesDocument{
-			SchemaVersion: 3, PolicyCandidates: items,
+			SchemaVersion: 4, PolicyCandidates: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -879,8 +890,8 @@ func renderPolicyCandidatesWithColor(
 		}
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\tobservation_count=%d\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\tdeny_command=%s\n",
-			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ProjectID, escapeTSVCell(item.Host),
+			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\tdeny_command=%s\n",
+			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Host),
 			item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
 			item.StatusCode, escapeTSVCell(profile), escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
 		)
@@ -895,8 +906,9 @@ func policyCandidateOutputs(
 	for _, item := range result.Items {
 		items = append(items, policyCandidateOutput{
 			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt), ObservationCount: item.EffectiveObservationCount(),
-			ProjectID: item.ProjectID,
-			Host:      safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
+			ContextID: item.ContextID, Context: safeExternalText(item.ContextName),
+			ProjectID: item.ProjectID, ProjectRoot: safeExternalText(item.ProjectRoot),
+			Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			Path: safeExternalText(item.Path), Reason: safeExternalText(item.Reason),
 			StatusCode:        item.StatusCode,
 			CredentialProfile: safeOptionalExternalText(item.CredentialProfile),
@@ -919,6 +931,8 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 	output.row("Window", fmt.Sprintf("%d lines", result.WindowLines), styleText)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Candidate %d", index+1))
+		output.row("Context", safeExternalText(item.ContextName), styleText)
+		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
 		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
 		output.row("Request", request, styleText)
 		output.row("ID", item.ID, styleText)
@@ -957,7 +971,7 @@ func renderPolicyReviewWithCommands(
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
 		output, err := json.Marshal(policyReviewDocument{
-			SchemaVersion: 3, PolicyReview: items,
+			SchemaVersion: 4, PolicyReview: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -984,10 +998,11 @@ func renderPolicyReviewHuman(
 	}
 	output := newHumanOutput(color)
 	output.heading("⚠", fmt.Sprintf("Pending network permissions (%d)", len(result.Items)), styleWarning)
-	output.row("Scope", "Current Tobari only", styleText)
 	output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Permission %d", index+1))
+		output.row("Context", safeExternalText(item.ContextName), styleText)
+		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
 		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
 		output.row("Request", request, styleText)
 		output.row("Observed", policyCandidateObservationText(item), styleText)
@@ -1018,7 +1033,7 @@ func renderPolicyRulesWithCommands(
 ) ([]byte, error) {
 	items := policyRuleOutputs(result, resetCommand)
 	if format == successFormatJSON {
-		output, err := json.Marshal(policyRulesDocument{SchemaVersion: 1, PolicyRules: items})
+		output, err := json.Marshal(policyRulesDocument{SchemaVersion: 2, PolicyRules: items})
 		if err != nil {
 			return nil, fault.Wrap(
 				fault.KindContract, "output_encoding_failed",
@@ -1034,8 +1049,8 @@ func renderPolicyRulesWithCommands(
 	for _, item := range items {
 		fmt.Fprintf(
 			&output,
-			"id=%s\tdecision=%s\tmatch=%s\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\n",
-			item.ID, item.Decision, item.Match, item.ProjectID, escapeTSVCell(item.Host), item.Port,
+			"id=%s\tdecision=%s\tmatch=%s\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\n",
+			item.ID, item.Decision, item.Match, item.ContextID, escapeTSVCell(item.Context), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Host), item.Port,
 			escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(strings.Join(item.Examples, ",")),
 			escapeTSVCell(strings.Join(item.SourceCandidates, ",")), escapeTSVCell(item.ResetCommand),
 		)
@@ -1052,7 +1067,8 @@ func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []po
 		}
 		items = append(items, policyRuleOutput{
 			ID: rule.ID, Decision: rule.Decision, Match: safeExternalText(rule.Match),
-			ProjectID: rule.ProjectID, Host: safeExternalText(rule.Host), Port: rule.Port,
+			ContextID: rule.ContextID, Context: safeExternalText(rule.ContextName),
+			ProjectID: rule.ProjectID, ProjectRoot: safeExternalText(rule.ProjectRoot), Host: safeExternalText(rule.Host), Port: rule.Port,
 			Method: safeExternalText(rule.Method), Path: safeExternalText(rule.Path),
 			Examples: examples, SourceCandidates: append([]string{}, rule.SourceCandidates...),
 			ResetCommand: resetCommand + " --id " + rule.ID,
@@ -1074,7 +1090,6 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string,
 	output := newHumanOutput(color)
 	output.heading("✓", fmt.Sprintf("Learned policy decisions (%d)", len(result.Items)), styleSuccess)
 	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
-	output.row("Scope", "Current Context only", styleText)
 	for _, decision := range []string{tobari.PolicyDecisionAllow, tobari.PolicyDecisionDeny} {
 		count := 0
 		for _, item := range result.Items {
@@ -1095,6 +1110,8 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string,
 				continue
 			}
 			output.row("Request", policyRuleRequest(item), styleText)
+			output.row("Context", safeExternalText(item.ContextName), styleText)
+			output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
 			output.row("ID", item.ID, styleText)
 			output.row("Match", safeExternalText(item.Match), styleText)
 			output.row("Project", safeExternalText(item.ProjectID), styleText)
@@ -1151,7 +1168,8 @@ func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bo
 	output.heading("✓", "Permission allowed", styleSuccess)
 	output.row("Testing policy", "passed", styleSuccess)
 	output.row("Applying exact rule", "applied", styleSuccess)
-	output.row("Scope", "Current Tobari only", styleText)
+	output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
+	output.row("Tobari", safeExternalText(result.Rule.ProjectRoot), styleText)
 	output.row("Request", fmt.Sprintf(
 		"%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port,
 		safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
@@ -1162,7 +1180,10 @@ func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bo
 
 type policyCompactionOutput struct {
 	ID              string   `json:"id"`
+	ContextID       string   `json:"context_id"`
+	Context         string   `json:"context"`
 	ProjectID       string   `json:"project_id"`
+	ProjectRoot     string   `json:"project_root"`
 	Host            string   `json:"host"`
 	Port            int      `json:"port"`
 	Method          string   `json:"method"`
@@ -1194,7 +1215,8 @@ func renderPolicyCompactionsWithColor(
 			examples[index] = safeExternalText(example)
 		}
 		items = append(items, policyCompactionOutput{
-			ID: item.ID, ProjectID: item.ProjectID, Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
+			ID: item.ID, ContextID: item.ContextID, Context: safeExternalText(item.ContextName),
+			ProjectID: item.ProjectID, ProjectRoot: safeExternalText(item.ProjectRoot), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			PathPrefix: safeExternalText(item.PathPrefix), SourceRuleCount: len(item.SourceRuleIDs),
 			Examples: examples, OutsideCanary: safeExternalText(item.OutsideCanary),
 			CompactCommand: compactCommand + " --id " + item.ID,
@@ -1202,7 +1224,7 @@ func renderPolicyCompactionsWithColor(
 	}
 	if format == successFormatJSON {
 		output, err := json.Marshal(policyCompactionsDocument{
-			SchemaVersion: 2, PolicyCompactions: items,
+			SchemaVersion: 3, PolicyCompactions: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -1220,8 +1242,8 @@ func renderPolicyCompactionsWithColor(
 		action := compactCommand + " --id " + item.ID
 		fmt.Fprintf(
 			&output,
-			"id=%s\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath_prefix=%s\tsource_rule_count=%d\texamples=%s\toutside_canary=%s\tcompact_command=%s\n",
-			item.ID, item.ProjectID, escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
+			"id=%s\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\thost=%s\tport=%d\tmethod=%s\tpath_prefix=%s\tsource_rule_count=%d\texamples=%s\toutside_canary=%s\tcompact_command=%s\n",
+			item.ID, item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.PathPrefix), len(item.SourceRuleIDs),
 			escapeTSVCell(strings.Join(item.Examples, ",")), escapeTSVCell(item.OutsideCanary),
 			escapeTSVCell(action),
@@ -1241,6 +1263,8 @@ func renderPolicyCompactionsHuman(result tobari.PolicyCompactionReport, compactC
 	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Compaction %d", index+1))
+		output.row("Context", safeExternalText(item.ContextName), styleText)
+		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
 		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.PathPrefix))
 		output.row("Request", request, styleText)
 		output.row("ID", item.ID, styleText)
@@ -1272,6 +1296,8 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 		output.row("Target", result.TargetID, styleText)
 		output.row("Rule", result.Rule.ID, styleText)
+		output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
+		output.row("Tobari", safeExternalText(result.Rule.ProjectRoot), styleText)
 		output.row("Match", safeExternalText(result.Rule.Match), styleText)
 		output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port, safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path)), styleText)
 		output.row("Project", safeExternalText(result.Rule.ProjectID), styleText)
@@ -1288,6 +1314,9 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 	fmt.Fprintf(&output, "policy: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.PolicyDirectory)))
 	fmt.Fprintf(&output, "target_id: %s\n", applyStyleToken(color, styleText, result.TargetID))
 	fmt.Fprintf(&output, "rule_id: %s\n", applyStyleToken(color, styleText, result.Rule.ID))
+	fmt.Fprintf(&output, "context_id: %s\n", result.Rule.ContextID)
+	fmt.Fprintf(&output, "context: %s\n", escapeTSVCell(result.Rule.ContextName))
+	fmt.Fprintf(&output, "project_root: %s\n", escapeTSVCell(result.Rule.ProjectRoot))
 	fmt.Fprintf(&output, "match: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Match)))
 	fmt.Fprintf(&output, "project_id: %s\n", applyStyleToken(color, styleText, result.Rule.ProjectID))
 	fmt.Fprintf(&output, "host: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Host)))
@@ -1303,6 +1332,8 @@ func renderPolicyDenyChangeWithColor(result tobari.PolicyDenyChange, color bool)
 	if color {
 		output := newHumanOutput(true)
 		output.heading("✓", "Permission denied", styleSuccess)
+		output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
+		output.row("Tobari", safeExternalText(result.Rule.ProjectRoot), styleText)
 		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 		output.row("Target", result.TargetID, styleText)
 		output.row("Rule", result.Rule.ID, styleText)
@@ -1319,6 +1350,9 @@ func renderPolicyDenyChangeWithColor(result tobari.PolicyDenyChange, color bool)
 	fmt.Fprintf(&output, "policy: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.PolicyDirectory)))
 	fmt.Fprintf(&output, "target_id: %s\n", applyStyleToken(color, styleText, result.TargetID))
 	fmt.Fprintf(&output, "rule_id: %s\n", applyStyleToken(color, styleText, result.Rule.ID))
+	fmt.Fprintf(&output, "context_id: %s\n", result.Rule.ContextID)
+	fmt.Fprintf(&output, "context: %s\n", escapeTSVCell(result.Rule.ContextName))
+	fmt.Fprintf(&output, "project_root: %s\n", escapeTSVCell(result.Rule.ProjectRoot))
 	fmt.Fprintf(&output, "project_id: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.ProjectID)))
 	fmt.Fprintf(&output, "host: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Host)))
 	fmt.Fprintf(&output, "port: %d\n", result.Rule.Port)
@@ -1357,7 +1391,7 @@ func renderClusterDenialsWithReviewCommand(
 			items[index].Reason = safeExternalText(items[index].Reason)
 		}
 		output, err := json.Marshal(clusterDenialsDocument{
-			SchemaVersion: 2,
+			SchemaVersion: 3,
 			Denials: clusterDenialsOutput{
 				Policy: safeExternalText(result.PolicyDirectory), WindowLines: result.WindowLines,
 				Items: items, ReviewCommand: reviewCommand,
@@ -1381,9 +1415,10 @@ func renderClusterDenialsWithReviewCommand(
 	for _, item := range result.Items {
 		fmt.Fprintf(
 			&output,
-			"denial: timestamp=%s\trequest_id=%s\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\n",
+			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tproject_id=%s\tproject_root=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\n",
 			escapeTSVCell(item.Timestamp), escapeTSVCell(item.RequestID),
-			item.ProjectID, escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
+			escapeTSVCell(item.ContextName), item.ContextID, item.ProjectID, escapeTSVCell(item.ProjectRoot),
+			escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.Path), item.StatusCode, escapeTSVCell(item.Reason),
 		)
 	}
@@ -1404,6 +1439,8 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 	output.row("Review", reviewCommand, styleAccent)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Denial %d", index+1))
+		output.row("Context", safeExternalText(item.ContextName), styleText)
+		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
 		output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path)), styleText)
 		output.row("Timestamp", safeExternalText(item.Timestamp), styleText)
 		output.row("Request ID", item.RequestID, styleText)
@@ -1420,25 +1457,32 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 }
 
 type clusterStatusOutput struct {
-	Configured  bool                     `json:"configured"`
-	Running     bool                     `json:"running"`
-	Proxy       string                   `json:"proxy"`
-	Policy      string                   `json:"policy"`
-	TobariCount int                      `json:"tobari_count"`
-	Components  []tobari.ComponentStatus `json:"components"`
-	RecentError string                   `json:"recent_error"`
+	Configured           bool                     `json:"configured"`
+	Running              bool                     `json:"running"`
+	Proxy                string                   `json:"proxy"`
+	Policy               string                   `json:"policy"`
+	TobariCount          int                      `json:"tobari_count"`
+	ContextCount         int                      `json:"context_count"`
+	PolicyRevision       string                   `json:"policy_revision"`
+	PolicyProjection     string                   `json:"policy_projection"`
+	PrincipalRegistry    string                   `json:"principal_registry"`
+	CredentialProjection string                   `json:"credential_projection"`
+	Components           []tobari.ComponentStatus `json:"components"`
+	RecentError          string                   `json:"recent_error"`
 }
 
 func renderClusterStatus(status tobari.ClusterStatus, format successFormat, color bool) ([]byte, error) {
 	if format == successFormatJSON {
 		document := clusterStatusDocument{
-			SchemaVersion: 1,
+			SchemaVersion: 2,
 			Cluster: clusterStatusOutput{
 				Configured: status.Configured, Running: status.Running,
 				Proxy: safeExternalText(status.Proxy), Policy: safeExternalText(status.Policy),
-				TobariCount: status.TobariCount,
-				Components:  append([]tobari.ComponentStatus{}, status.Components...),
-				RecentError: safeExternalText(status.RecentError),
+				TobariCount: status.TobariCount, ContextCount: status.ContextCount,
+				PolicyRevision: status.PolicyRevision, PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
+				CredentialProjection: safeExternalText(status.CredentialProjection),
+				Components:           append([]tobari.ComponentStatus{}, status.Components...),
+				RecentError:          safeExternalText(status.RecentError),
 			},
 		}
 		output, err := json.Marshal(document)
@@ -1487,6 +1531,15 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 		applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Tobari")),
 		status.TobariCount,
 	)
+	fmt.Fprintf(
+		&output, "  %s %d\n",
+		applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Contexts")),
+		status.ContextCount,
+	)
+	if status.PolicyRevision != "" {
+		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Revision")), status.PolicyRevision[:12])
+		fmt.Fprintf(&output, "  %s policy %s / principals %s / credentials %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Integrity")), safeExternalText(status.PolicyProjection), safeExternalText(status.PrincipalRegistry), safeExternalText(status.CredentialProjection))
+	}
 	if status.Policy != "" {
 		fmt.Fprintln(&output)
 		fmt.Fprintf(
@@ -1617,11 +1670,13 @@ func renderTobariListWithColor(result tobari.ListResult, format successFormat, c
 }
 
 type projectStatusOutput struct {
-	Exists  bool   `json:"exists"`
-	Root    string `json:"root"`
-	ID      string `json:"id"`
-	Home    string `json:"home"`
-	Runtime string `json:"runtime"`
+	Exists    bool   `json:"exists"`
+	Root      string `json:"root"`
+	ID        string `json:"id"`
+	Home      string `json:"home"`
+	Context   string `json:"context"`
+	ContextID string `json:"context_id"`
+	Runtime   string `json:"runtime"`
 }
 
 type projectStatusDocument struct {
@@ -1639,10 +1694,11 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 	}
 	value := projectStatusOutput{
 		Exists: result.Exists, Root: safeExternalText(result.Root), ID: result.ID,
-		Home: safeExternalText(result.Home), Runtime: string(result.Runtime),
+		Home: safeExternalText(result.Home), Context: safeExternalText(result.ContextName), ContextID: result.ContextID,
+		Runtime: string(result.Runtime),
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(projectStatusDocument{SchemaVersion: 1, Status: value})
+		output, err := json.Marshal(projectStatusDocument{SchemaVersion: 2, Status: value})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project status JSON could not be encoded", false, err)
 		}
@@ -1661,6 +1717,7 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 		}
 		output.heading(marker, title, token)
 		output.row("Root", safeExternalText(result.Root), styleText)
+		output.row("Context", safeExternalText(result.ContextName), styleText)
 		output.row("Runtime", safeExternalText(string(result.Runtime)), humanStatusToken(string(result.Runtime)))
 		output.row("ID", result.ID, styleText)
 		output.row("Home", safeExternalText(result.Home), styleText)
@@ -1676,14 +1733,17 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 	}
 	var output bytes.Buffer
 	fmt.Fprintf(&output, "Tobari exists at %s\n", escapeTSVCell(result.Root))
+	fmt.Fprintf(&output, "Context: %s\n", escapeTSVCell(result.ContextName))
 	fmt.Fprintf(&output, "Runtime: %s\n", escapeTSVCell(string(result.Runtime)))
 	return semanticTextBytes(color, output.Bytes()), nil
 }
 
 type projectListOutput struct {
-	Root    string `json:"root"`
-	Runtime string `json:"runtime"`
-	ID      string `json:"id"`
+	Root      string `json:"root"`
+	Context   string `json:"context"`
+	ContextID string `json:"context_id"`
+	Runtime   string `json:"runtime"`
+	ID        string `json:"id"`
 }
 
 type projectListDocument struct {
@@ -1702,11 +1762,12 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 	items := make([]projectListOutput, 0, len(result.Items))
 	for _, item := range result.Items {
 		items = append(items, projectListOutput{
-			Root: safeExternalText(item.Root), Runtime: string(item.Runtime), ID: item.ID,
+			Root: safeExternalText(item.Root), Context: safeExternalText(item.ContextName), ContextID: item.ContextID,
+			Runtime: string(item.Runtime), ID: item.ID,
 		})
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(projectListDocument{SchemaVersion: 1, Tobari: items})
+		output, err := json.Marshal(projectListDocument{SchemaVersion: 2, Tobari: items})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project list JSON could not be encoded", false, err)
 		}
@@ -1726,15 +1787,16 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 				marker = "▸ "
 			}
 			output.sectionWithToken(marker+item.Root, styleText)
+			output.row("Context", item.Context, styleText)
 			output.row("Runtime", item.Runtime, humanStatusToken(item.Runtime))
 			output.row("ID", item.ID, styleText)
 		}
 		return output.bytes(), nil
 	}
 	var output bytes.Buffer
-	fmt.Fprintln(&output, "ROOT\tRUNTIME\tID")
+	fmt.Fprintln(&output, "ROOT\tCONTEXT\tRUNTIME\tID")
 	for _, item := range items {
-		fmt.Fprintf(&output, "%s\t%s\t%s\n", escapeTSVCell(item.Root), item.Runtime, item.ID)
+		fmt.Fprintf(&output, "%s\t%s\t%s\t%s\n", escapeTSVCell(item.Root), escapeTSVCell(item.Context), item.Runtime, item.ID)
 	}
 	return semanticTextBytes(color, output.Bytes()), nil
 }
@@ -1752,6 +1814,7 @@ func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool)
 		}
 		output.heading(marker, title, token)
 		output.row("Root", safeExternalText(result.Root), styleText)
+		output.row("Context", safeExternalText(result.ContextName), styleText)
 		if result.Deleted {
 			output.next("tobari", "Create or enter a Tobari from this project directory.")
 		}
@@ -1760,6 +1823,8 @@ func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool)
 	var output bytes.Buffer
 	fmt.Fprintf(&output, "deleted: %t\n", result.Deleted)
 	fmt.Fprintf(&output, "root: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Root)))
+	fmt.Fprintf(&output, "context: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.ContextName)))
+	fmt.Fprintf(&output, "context_id: %s\n", result.ContextID)
 	fmt.Fprintf(&output, "id: %s\n", applyStyleToken(color, styleText, result.ID))
 	fmt.Fprintf(&output, "home: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Home)))
 	return output.Bytes()

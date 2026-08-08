@@ -52,13 +52,14 @@ content to OPA, retained evidence, policy actions, or audit output.
 ## Public vocabulary
 
 - **Tobari:** one long-lived logical untrusted execution environment selected
-  by a canonical project root. Its work container is recoverable runtime
-  implementation detail.
+  by a canonical project root and stable Context identity. Its work container
+  is recoverable runtime implementation detail.
 - **Workspace:** the human-facing name for one directory-bound Tobari in
   lifecycle and list output. It is not a second runtime resource; its identity
   remains the canonical root and its stable Tobari ID remains diagnostic.
-- **cluster:** the one installation-local Gateway, OPA, policy, principal,
-  optional managed-credential inputs, and CA lifecycle.
+- **cluster:** the one installation-local Gateway, one OPA, aggregate policy
+  projection, principal registry, Context-scoped managed-credential projection,
+  and CA lifecycle.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
 - **root:** the canonical host directory selected from the current working
@@ -68,36 +69,41 @@ content to OPA, retained evidence, policy actions, or audit output.
 - **Tobari home:** a per-Tobari persistent owner-only XDG state directory
   mounted as the work user's home.
 - **Tobari image:** the minimal built-in runtime or one locally available
-  compatible OCI environment image selected by the active Context for Workspace
+  compatible OCI environment image selected by the Tobari's bound Context for Workspace
   creation and later runtime-container reconciliation. Its tools and bootstrap
   are part of the environment; its image `CMD` is not the Workspace lifetime
   command.
 - **Tobari ID:** a generated stable internal identity used for state, exact
   resource labels, and host-issued project-principal bindings. It is diagnostic
   output, not a routine user action input.
-- **project principal:** a host-issued binding from one stable Tobari ID to
-  the exact Gateway interface on that project's dedicated network. Caller
-  headers and profile names are not principals.
+- **project principal:** a host-issued binding from one stable Tobari ID and
+  stable Context ID to the exact Gateway interface on that project's dedicated
+  network. Caller headers, Context names, and profile names are not principals.
 - **tool-owned authentication state:** files written by a tool or agent below
   one Tobari's persistent home during its own login or configuration flow.
 - **credential profile:** non-secret Gateway configuration for the retained
-  managed adapter; it binds a profile to exact hosts and project principals.
-- **Context:** one host-selected logical execution setup. Its manifest
+  managed adapter; it binds a Context-scoped profile name to exact hosts and
+  project principals.
+- **Context:** one host-owned logical execution setup with a stable opaque ID
+  and a human name. Its manifest
   references an agent profile, a compatible Tobari runtime image, a policy
   store, and managed-credential stores; those stores remain physically
   separated by trust boundary.
-- **Context runtime recipe:** the active Context's owner-only
+- **current Context:** only the default Context used when an invocation omits
+  an explicit Context; it is not shared enforcement authority.
+- **Context runtime recipe:** the selected Context's owner-only
   `runtime/Dockerfile`. It is the source for an explicit host-side custom
   runtime build; it is not project metadata and it is never mounted into a
   Workspace.
 - **agent profile:** read-only non-secret shared agent configuration referenced
   by a Context. It is not tool-owned login state.
 
-The stable Tobari ID is not trusted when supplied by a work container. The
-host-owned principal registry derives it from the Gateway interface that
-received the request. The initialized host policy remains an installation-wide
-baseline; learned permissions are project-bound. Principal identity does not
-select or inject tool credentials.
+Stable Tobari and Context IDs are not trusted when supplied by a work
+container. The host-owned principal registry derives both from the Gateway
+interface that received the request. Context policy is selected inside the
+single OPA from that trusted principal. Learned permissions are Context- and
+project-bound. Principal identity alone does not select or inject tool
+credentials; Context, project, host, and the allowed decision must all match.
 
 The public commands are:
 
@@ -106,29 +112,29 @@ The public commands are:
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version` | utility | read | Print build identity |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Validate host, Docker, configuration, policy, managed-secret permissions, ports, and residue |
-| `tobari` | act, fixed target | create | Choose or create the current directory's Workspace, reconcile runtime, enter it, and leave it reusable after `exit` |
-| `status` | utility | read | Inspect the nearest current-directory Tobari and its diagnostic runtime state |
-| `list [--format text|json]` | utility | read | List local Workspaces with runtime diagnostics and diagnostic IDs |
-| `delete [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari when detached; use `--force` to override an attached-session guard |
-| `cluster status [--format text|json]` | utility | read | Inspect shared state, health, proxy, policy, and recent errors |
+| `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it, and leave it reusable after `exit` |
+| `status [--context NAME]` | utility | read | Inspect the nearest current-directory Tobari in the explicit or current Context and its diagnostic runtime state |
+| `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
+| `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari in the explicit or current Context when detached; use `--force` to override an attached-session guard |
+| `cluster status [--format text|json]` | utility | read | Inspect shared service health, loaded Context count, aggregate revision, projection integrity, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted |
-| `policy candidates [--tail N] [--format text|json]` | discover | read | Discover unique pending exact host/port/method/path candidates and opaque IDs |
-| `policy review [--tail N] [--format text|json]` | discover | read | Review pending permissions; on a TTY, explicitly confirm one exact allow or deny |
+| `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact host/port/method/path candidates and opaque IDs across the installation |
+| `policy review [--tail N] [--format text|json]` | discover | read | Review the installation-wide Permission Inbox; on a TTY, inspect Context/root and explicitly confirm one exact allow or deny |
 | `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact allow and deny commands |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
-| `policy rules [--format text|json]` | discover | read | List every current CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
+| `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
 | `policy reset --id ID` | act, reference bound | write | Remove one learned decision and leave its effect at default deny |
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
-| `context list [--format text|json]` | utility | read | List named Contexts and identify the active execution setup |
+| `context list [--format text|json]` | utility | read | List named Contexts with stable IDs and identify the current default |
 | `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's agent, policy, and credential-store references |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced]` | act, fixed target | create | Create one named Context with a runtime image and separate owner-only stores |
-| `context use --name NAME` | act, fixed target | write | Select one Context and apply it to a running shared cluster; leave a stopped or unconfigured cluster for explicit `cluster up` |
-| `runtime init [--format text|json]` | act, fixed target | create | Create the active Context's runtime/Dockerfile template without changing its selected image |
-| `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the active Context's generated local runtime image |
+| `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
+| `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
+| `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
 
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
 It does not silently create state in a non-interactive context. When the
@@ -153,9 +159,10 @@ undeclared Docker mutation by the CLI.
   when `--root` is omitted. `--root PATH` exists only for diagnosing another
   host directory without changing the shell's current directory. The command
   remains read-only and does not initialize policy or start the shared cluster.
-- Each canonical root identifies at most one Workspace. Repeated or concurrent
-  explicit creation at an already indexed root is rejected as already existing;
-  it never creates a second logical record for that directory.
+- Each `(canonical root, stable Context ID)` identifies at most one Workspace.
+  Repeated or concurrent creation for that pair is rejected as already
+  existing; the same root may have independent Workspaces in different
+  Contexts. An explicit Context never changes the current Context.
 - Project-root selection rejects the filesystem root, the user's home and its
   ancestors, and any path overlapping XDG Tobari configuration, state, or
   shared-profile management directories, Docker sockets, or Docker management
@@ -170,6 +177,12 @@ undeclared Docker mutation by the CLI.
   the host home retains `/workspace/<canonical-root-without-leading-slash>`;
   thus a root at `/work` and a host CWD of `/work/root` enter at
   `/workspace/work/root`. Tobari never mounts the host home wholesale.
+- Same-root Tobari in different Contexts and parent/child roots may run
+  concurrently. Runtime, home, network, policy, and managed credentials follow
+  their Tobari/Context boundaries, but overlapping host-file writes are visible
+  to every mount of those files. Tobari provides no overlay, checkout clone,
+  root lock, session exclusion, warning gate, or filesystem integrity isolation
+  for this user-selected sharing.
 - The configured image accepts `builtin` or a portable OCI image reference.
   In normal builds, `builtin` resolves to the published official runtime base.
   A custom image must already exist locally and preserve runtime API `1`, the
@@ -186,7 +199,7 @@ undeclared Docker mutation by the CLI.
   policy tests or creating shared networks and containers. Gateway source
   development uses the contributor-only `task build:dev` path and a
   `tobari_dev` binary, not a public `cluster up` option.
-- `runtime init` creates the active Context's owner-only
+- `runtime init` creates the current Context's owner-only
   `runtime/Dockerfile`. The template starts from
   `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
   place to add tools and environment configuration for the Context. The
@@ -202,7 +215,7 @@ undeclared Docker mutation by the CLI.
   Docker command to obtain the upstream failure.
   Tobari validates the resulting image against the same runtime contract,
   records its immutable local image digest, and then selects the generated
-  `tobari-context-<context>:<source>` image in the active Context. The previous
+  `tobari-context-<context>:<source>` image in the current Context. The previous
   selected image remains in force until promotion succeeds.
 - The built-in `tobari/runtime` image is the base work runtime: it preserves the
   lifecycle contract and carries common Git, HTTP, JSON, Python, SSH, and
@@ -215,30 +228,33 @@ undeclared Docker mutation by the CLI.
   `claude.2.1.34-base.0.1.0-r1`. They add the agent tool and only its
   agent-specific dependencies; they do not create a second authority boundary.
 - Project metadata does not select or alter the runtime image. Workspaces use
-  the active Context image when created and again when their runtime container
+  their permanently bound Context image when created and again when their runtime container
   is reconciled by root entry, or an explicitly supplied `--image` for the
   legacy named lifecycle command; all selected images still pass the same
   compatibility checks before Docker mutation. If an existing Workspace's
-  active Context image changes, the next `tobari` entry preserves the
+  bound Context image changes, the next matching-Context `tobari` entry preserves the
   Workspace home and root record, recreates only the work container when the
   runtime spec changed, and records the new image only after reconciliation
   succeeds.
 - Shared cluster mutations use one command-bound `tool_local` target and are
   never performed by the root `tobari` operation.
 - CWD-local lifecycle operations use one command-bound `tool_local` current
-  directory target and do not accept an ID, name, or root selector.
-- `delete` removes that nearest target without `--force` when no session is
+  directory target plus the explicit or current Context selector; they do not
+  accept an ID or root selector. Context selection is resolved to a stable ID
+  before mutation and never guesses a different same-root Tobari.
+- `delete` removes that nearest Context-bound target without `--force` when no session is
   attached. An attached session returns `project_session_attached` and leaves
   state untouched; `--force` is the explicit override.
 
 ## Output and exit contract
 
-Human output is concise text. Cluster status JSON is schema version 1; cluster
-denials and policy compactions JSON are schema version 2 because their items
-retain the project principal. Policy candidates and review JSON are schema
-version 3 because each pending item also reports its retained-window observation
-count. `list --format json` reports
-root, runtime diagnostic, and stable ID. Agent help uses the catalog schema.
+Human output is concise text. Cluster status, list, and status JSON are schema
+version 2. Cluster denials and Context reports are schema version 3. Policy
+candidates and review JSON are schema version 4; policy rules are schema version
+2; policy compactions are schema version 3. Their items associate Context name,
+stable Context ID, Tobari ID, safe project root, HTTP effect, observation data
+where applicable, and one opaque mutation reference. Agent help uses the
+catalog schema.
 Successful data is stdout;
 failures are stderr.
 The Workspace selector is a human stderr interaction; it produces no JSON or
@@ -313,12 +329,11 @@ endpoint, and the full recent diagnostic remain available in JSON or failure
 detail. A successful `cluster up` additionally points to the next `tobari`
 command.
 
-`context use` reports a `cluster` result in its Context output. `reconciled`
-means the selected policy and Gateway credential mounts were applied and
-health-checked; `already_ready` means the running cluster already used that
-Context; `not_running` and `not_configured` mean the host selection was saved
-but an explicit `cluster up` is still required. A failed switch is not a
-successful selection result.
+`context use` reports `default_updated`; it changes only the omitted-Context
+default regardless of cluster state. `context create` reports
+`requires_reconcile` when a configured cluster does not yet contain the new
+Context projection; an explicit `cluster up` is required. Neither command
+starts Docker.
 
 Project runtime diagnostics may report `incomplete` when a durable root index
 survives without its instance state. This preserves logical existence for safe
@@ -369,8 +384,8 @@ Policy candidates, review, and tail are bounded by the same retained
 Gateway-line window and omit effects already covered by learned allow rules,
 baseline deny rules, or exact learned deny rules. Baseline and exact denies
 remain available as audit evidence but never become pending queue items.
-Within that window, candidates aggregate by exact project principal, host,
-port, method, and normalized path. Reason, status, request ID, timestamp, and
+Within that window, candidates aggregate by exact Context identity, project
+principal, host, port, method, and normalized path. Reason, status, request ID, timestamp, and
 credential-profile evidence do not create a second permission identity. The
 candidate retains the latest matching evidence and reports the number of
 matching retained observations; a missing count in the legacy additive shape
@@ -388,22 +403,22 @@ Configuration is resolved from
 `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on both macOS and Linux:
 
 - `config.json`: schema-v1 default Tobari image selector;
-- `contexts/<name>/context.json`: host-owned Context manifest with the named
-  agent profile, compatible Tobari runtime image selector, and guided/advanced
-  policy mode;
+- `contexts/<name>/context.json`: host-owned schema-v3 Context manifest with a
+  stable UUIDv7 Context ID, the named agent profile, compatible Tobari runtime
+  image selector, and guided/advanced policy mode;
 - `contexts/<name>/runtime/Dockerfile`: optional owner-only Context runtime
   recipe created by `runtime init`; its source digest and last successful
   managed image build are recorded additively in `context.json`;
-- `contexts/<name>/policy/`: Rego and data for that Context, mounted read-only
-  into OPA and watched for host edits;
+- `contexts/<name>/policy/`: authoritative Rego and data source for that
+  Context; it is never mounted directly as the shared OPA's complete policy;
 - `contexts/<name>/credentials.json`: reserved schema-v1 profile metadata for
   the explicitly selected managed Gateway adapter;
 - `contexts/<name>/credentials/`: reserved managed-adapter secret files for
   that Context, never mounted into a Workspace;
-- `contexts/active.json`: owner-only active Context selection; missing means
-  `default`;
-- `principal-registry/principals.json`: owner-only host-issued schema-v1
-  project-to-Gateway-network bindings, maintained by lifecycle reconciliation
+- `contexts/active.json`: compatibility-named owner-only current/default Context
+  selection; missing means `default` and the marker has no enforcement authority;
+- `principal-registry/principals.json`: owner-only host-issued schema-v2
+  Context/project-to-Gateway-network bindings, maintained by lifecycle reconciliation
   and directory-mounted read-only into Gateway so atomic host updates remain
   visible without exposing credential files;
 - Legacy top-level `policy/`, `credentials.json`, and `credentials/` are read
@@ -416,35 +431,40 @@ selected instance's persistent home and is created by the tool's own login or
 configuration flow.
 
 Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`:
-`roots/<hash>.json` indexes canonical roots and
-`instances/<id>/state.json` contains one logical instance and diagnostic runtime
-identifiers. `instances/<id>/home` is the writable home for tool-owned state.
+`roots/<hash>.json` indexes `(canonical root, stable Context ID)` and
+`instances/<id>/state.json` schema 2 contains one logical instance, its
+permanent Context binding, and diagnostic runtime identifiers.
+`instances/<id>/home` is the independent writable home for tool-owned state;
+homes are never shared merely because Contexts or roots match.
 Shared read-only agent profiles referenced by Contexts are under
 `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles`.
-Cluster state contains the active Context name, resolved store paths, and
-Docker resource names or identifiers, never credential contents; managed
-credential paths are reserved for the managed adapter, while the per-Tobari
-home may contain tool credentials by design.
+Cluster state schema 3 contains the content-addressed aggregate policy revision,
+loaded Context count, aggregate projection paths, and Docker resource names or
+identifiers, never one active Context authority or credential contents. The
+owner-only projection contains a schema-v2 Context-aware Gateway credential
+document and Context-ID secret subdirectories; the per-Tobari home may contain
+tool credentials by design.
 Project and cluster mutation journals are durable recovery markers. An
-interrupted cluster marker, active-context mismatch, or failed Context
-reconciliation makes entry and policy operations fail closed until the exact
-shared cluster operation completes.
+interrupted cluster marker, aggregate revision mismatch, or failed projection
+activation makes entry and policy operations fail closed until the exact shared
+cluster operation completes.
 Environment variables select only XDG locations and test/runtime overrides
 documented in scoped help; they do not carry managed token values and Tobari
 does not copy host credential values into the runtime environment.
 
-Image selection uses the active Context's bounded runtime image selector. The
+Image selection uses the selected Tobari's bound Context image selector. The
 legacy `config.json.default_image` seeds the default Context once, and `builtin`
 is used when no legacy setting exists. Project metadata does not override the
 Context image; the stored project image is updated only after a successful
-runtime-container reconciliation from the active Context image.
+runtime-container reconciliation from the bound Context image.
 
-The active Context recipe is a host-side customization source, not a second
+The current Context recipe is a host-side customization source, not a second
 image authority. `runtime build` derives the image reference mechanically from
 the Context name and Dockerfile source digest, validates it, and atomically
 promotes it into the existing Context image field. Editing the recipe or a
 failed build leaves the previously selected image unchanged. Existing
-Workspaces pick up the promoted image on the next root entry; failed image
+Workspaces bound to that Context pick up the promoted image on their next root
+entry; failed image
 validation or Docker reconciliation leaves their previous logical state and
 home in place.
 
@@ -453,16 +473,21 @@ When the recipe's first base is the exact official
 refreshes that moving base. An explicit local or custom base is not given a
 registry-pull request, so local-only base images remain usable.
 
-OPA reads the policy bind with `--watch`. Exact policy mutations test a private
-complete policy copy and activate only the exact owned OPA component; host
-authored edits remain an advanced, explicit workflow.
+OPA reads one cluster-owned aggregate policy projection with `--watch`. The
+projection has one fixed `tobari.http/decision` router, Context-ID data
+namespaces, one shared guided evaluator, and isolated Advanced package names.
+Exact policy mutations lock aggregate generation, test the changed Context
+source privately, generate and test the complete all-Context candidate, publish
+it atomically, recreate only the exact owned OPA component, and retain the prior
+known-good aggregate if activation fails. Host-authored edits remain an
+advanced, explicit workflow.
 
 ## Side effects
 
-`runtime init` creates the active Context's owner-only runtime directory and
+`runtime init` creates the current Context's owner-only runtime directory and
 template without changing image selection. `runtime build` executes the
 explicit host Docker build, validates the generated image, and atomically
-updates only the active Context manifest after the image digest is confirmed.
+updates only the current Context manifest after the image digest is confirmed.
 Docker build failure exits nonzero, ends text presentation with a short summary
 of the failed stage, Dockerfile, recovery command, and retained state, and
 leaves the previous selected image authoritative. BuildKit may retain
@@ -478,26 +503,24 @@ The official moving base is refreshed only for an explicit build whose recipe
 starts from the exact official `runtime:latest`; custom and local bases retain
 their local/cache-first behavior.
 
-`context use` validates the target Context before changing the active marker. If
-the shared cluster is running, it writes the existing reconcile journal, applies
-the selected Context's policy and Gateway credential paths through the same
-reconciliation path as `cluster up`, waits for Gateway and OPA health, and only
-then reports `reconciled`. If the cluster is stopped or unconfigured, it records
-the selection without starting Docker and reports `not_running` or
-`not_configured`; the next action is `cluster up`. A failed switch restores the
-previous marker and persisted state when possible. If Docker may have changed,
-the recovery journal remains and entry/policy commands direct the user to an
-explicit `cluster up`.
+`context use` validates the target Context and atomically changes only the
+current/default marker. It never starts Docker, changes the aggregate, or
+modifies an existing Tobari's Context, runtime, home, policy, or principal.
+Creating a Context also never starts Docker; when shared state exists, the
+result directs the user to explicit `cluster up` so the all-Context projection
+can be validated and activated.
 
 `cluster up` obtains and preflights the immutable Gateway image and official
-runtime base, then creates shared labeled networks, configuration material,
-Gateway, OPA, and CA volumes as needed. It reconnects Gateway to the shared
+runtime bases required by all Contexts, generates and validates the complete
+aggregate policy/credential projection, then creates shared labeled networks,
+configuration material, exactly one Gateway, exactly one OPA, and CA volumes as
+needed. It reconnects Gateway to the shared
 networks and existing registered project networks without creating project
 state or project resources, then waits for Gateway and OPA health. The root command only verifies the shared cluster is
 configured and ready, reads the indexed Workspace candidates, and waits for an
 explicit choice when the canonical current directory is below an ancestor.
 After the choice is revalidated under the lifecycle lock, it creates or reuses
-the selected logical record, resolves and validates the active Context image
+the selected Context-bound logical record, resolves and validates its bound Context image
 before project runtime mutation, reconciles its labeled container and internal
 network, binds its XDG home, joins Gateway to that network, waits for the
 project healthcheck, and enters the resulting terminal session. Docker create

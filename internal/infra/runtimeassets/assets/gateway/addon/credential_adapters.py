@@ -41,7 +41,7 @@ class CredentialAdapter(Protocol):
     name: str
 
     def prepare(
-        self, request: http.Request, host: str, project_id: str
+        self, request: http.Request, host: str, context_id: str, project_id: str
     ) -> PreparedCredentialRequest:
         """Prepare request-local auth behavior before policy evaluation."""
 
@@ -71,9 +71,9 @@ class PassthroughCredentialAdapter:
     name = "passthrough"
 
     def prepare(
-        self, request: http.Request, host: str, project_id: str
+        self, request: http.Request, host: str, context_id: str, project_id: str
     ) -> PreparedCredentialRequest:
-        del host, project_id
+        del host, context_id, project_id
         # A profile selector is a managed-adapter control input. It is redacted
         # and removed rather than being forwarded or interpreted in passthrough.
         return _PassthroughRequest()
@@ -84,9 +84,10 @@ class _ManagedRequest:
     config: dict[str, Any]
     requested_profile: str | None
     secret_headers: set[str]
-    profile_binding: Callable[[dict[str, Any], str, str], dict[str, Any]]
-    injector: Callable[[http.Request, dict[str, Any], str, str, str], None]
+    profile_binding: Callable[[dict[str, Any], str, str, str], dict[str, Any]]
+    injector: Callable[[http.Request, dict[str, Any], str, str, str, str], None]
     host: str
+    context_id: str
     project_id: str
 
     def apply(self, request: http.Request, selected_profile: str | None) -> str | None:
@@ -97,12 +98,13 @@ class _ManagedRequest:
         if selected_profile is not None:
             # Validate the OPA-selected value again at the side-effect boundary
             # before opening the secret file or changing the upstream request.
-            self.profile_binding(self.config, selected_profile, self.project_id)
+            self.profile_binding(self.config, selected_profile, self.context_id, self.project_id)
             self.injector(
                 request,
                 self.config,
                 selected_profile,
                 self.host,
+                self.context_id,
                 self.project_id,
             )
         return selected_profile
@@ -118,8 +120,8 @@ class ManagedCredentialAdapter:
         path: str,
         load_config: Callable[[str], dict[str, Any]],
         configured_secret_headers: Callable[[dict[str, Any]], set[str]],
-        profile_binding: Callable[[dict[str, Any], str, str], dict[str, Any]],
-        injector: Callable[[http.Request, dict[str, Any], str, str, str], None],
+        profile_binding: Callable[[dict[str, Any], str, str, str], dict[str, Any]],
+        injector: Callable[[http.Request, dict[str, Any], str, str, str, str], None],
     ) -> None:
         self.path = path
         self.load_config = load_config
@@ -128,12 +130,12 @@ class ManagedCredentialAdapter:
         self.injector = injector
 
     def prepare(
-        self, request: http.Request, host: str, project_id: str
+        self, request: http.Request, host: str, context_id: str, project_id: str
     ) -> PreparedCredentialRequest:
         config = self.load_config(self.path)
         requested_profile = request.headers.get(PROFILE_HEADER)
         if requested_profile is not None:
-            self.profile_binding(config, requested_profile, project_id)
+            self.profile_binding(config, requested_profile, context_id, project_id)
         return _ManagedRequest(
             config=config,
             requested_profile=requested_profile,
@@ -141,6 +143,7 @@ class ManagedCredentialAdapter:
             profile_binding=self.profile_binding,
             injector=self.injector,
             host=host,
+            context_id=context_id,
             project_id=project_id,
         )
 
@@ -151,8 +154,8 @@ def build_credential_adapter(
     credential_path: str,
     load_config: Callable[[str], dict[str, Any]],
     configured_secret_headers: Callable[[dict[str, Any]], set[str]],
-    profile_binding: Callable[[dict[str, Any], str, str], dict[str, Any]],
-    injector: Callable[[http.Request, dict[str, Any], str, str, str], None],
+    profile_binding: Callable[[dict[str, Any], str, str, str], dict[str, Any]],
+    injector: Callable[[http.Request, dict[str, Any], str, str, str, str], None],
 ) -> CredentialAdapter:
     if name == PassthroughCredentialAdapter.name:
         return PassthroughCredentialAdapter()
