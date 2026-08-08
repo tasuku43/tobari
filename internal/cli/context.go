@@ -242,6 +242,10 @@ func renderContextReport(result tobari.ContextReport, format successFormat, colo
 }
 
 func renderContextReportText(result tobari.ContextReport, color bool) []byte {
+	if result.Task == tobari.TaskRuntimeInit {
+		return renderRuntimeInitReportText(result, color)
+	}
+
 	var output strings.Builder
 	writeStyledLine(&output, color, "Context:", safeExternalText(result.Name), styleText)
 	writeStyledLine(&output, color, "Active:", fmt.Sprintf("%t", result.Active), humanBoolToken(result.Active))
@@ -278,10 +282,6 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		)
 	}
 	switch result.Task {
-	case tobari.TaskRuntimeInit:
-		if result.Runtime.Dockerfile != "" {
-			fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Next: edit "+safeExternalText(result.Runtime.Dockerfile)+", then run `tobari runtime build`."))
-		}
 	case tobari.TaskRuntimeBuild:
 		writeStyledLine(&output, color, "Note:", "existing Workspaces keep their home. On the next `tobari`, Tobari recreates only the work container when this runtime image changes the spec.", styleText)
 		fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Next: run `tobari` from a project directory."))
@@ -297,6 +297,19 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	writeStyledLine(&output, color, "Credential metadata:", safeExternalText(result.Stores.CredentialConfig), styleText)
 	writeStyledLine(&output, color, "Credential directory:", safeExternalText(result.Stores.CredentialDirectory), styleText)
 	return []byte(output.String())
+}
+
+func renderRuntimeInitReportText(result tobari.ContextReport, color bool) []byte {
+	output := newHumanOutput(color)
+	output.heading("✓", "Runtime Dockerfile created", styleSuccess)
+	output.section("Next")
+	output.nextStep(1, "Edit the Dockerfile", safeExternalText(result.Runtime.Dockerfile), styleText)
+	output.nextStep(2, "Build the runtime", recoveryCommand("runtime build"), styleAccent)
+	output.section("Details")
+	output.row("Context", safeExternalText(result.Name), styleText)
+	output.row("Base image", safeExternalText(result.Runtime.BaseReference), styleText)
+	output.row("Status", string(result.Runtime.Status), humanStatusToken(string(result.Runtime.Status)))
+	return output.bytes()
 }
 
 func writeStyledLine(output *strings.Builder, enabled bool, label, value string, token styleToken) {

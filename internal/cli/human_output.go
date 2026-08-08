@@ -52,6 +52,13 @@ func (o *humanOutput) next(command, reason string) {
 	o.row("Next", recoveryCommand(command)+" — "+escapeTSVCell(reason), styleAccent)
 }
 
+// nextStep keeps the operation label readable while making only the command
+// or other explicitly selected next value carry the operation emphasis.
+func (o *humanOutput) nextStep(number int, description, value string, token styleToken) {
+	fmt.Fprintf(&o.Buffer, "  %d. %s\n", number, applyStyleToken(o.color, styleText, description))
+	fmt.Fprintf(&o.Buffer, "     %s\n\n", applyStyleToken(o.color, token, value))
+}
+
 func (o *humanOutput) empty(title, detail, command, reason string) {
 	o.heading("○", title, styleMuted)
 	if detail != "" {
@@ -85,7 +92,7 @@ func humanStatusToken(status string) styleToken {
 	switch strings.ToLower(status) {
 	case "pass", "ok", "ready", "running", "healthy", "true", "applied", "created", "deleted", "detached":
 		return styleSuccess
-	case "warn", "warning", "starting", "pending", "unknown", "missing", "degraded", "unreachable", "incomplete", "false":
+	case "warn", "warning", "starting", "pending", "pending_build", "unknown", "missing", "degraded", "unreachable", "incomplete", "false":
 		return styleWarning
 	case "fail", "failed", "error", "unhealthy", "exited", "dead", "rejected":
 		return styleDanger

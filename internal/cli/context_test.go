@@ -134,11 +134,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 }
 
 func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
-	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
-	fake.report.Runtime = tobari.ContextRuntimeReport{
-		Kind: tobari.ContextRuntimeKindDockerfile, Status: tobari.ContextRuntimeStatusPendingBuild,
-		Dockerfile: "/config/contexts/default/runtime/Dockerfile",
-	}
+	fake := &contextCLI{report: runtimeInitReportFixture()}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 	command.context = contextcmd.New(fake)
@@ -156,12 +152,24 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 	if initDocument.SchemaVersion != 2 || initDocument.Context.Task != tobari.TaskRuntimeInit {
 		t.Fatalf("runtime init document = %+v", initDocument)
 	}
+	for _, retained := range []string{
+		"/config/contexts/default/policy",
+		"/config/contexts/default/credentials.json",
+		"/config/contexts/default/credentials",
+		"sha256:" + strings.Repeat("a", 64),
+		"sha256:" + strings.Repeat("b", 64),
+	} {
+		if !strings.Contains(stdout.String(), retained) {
+			t.Fatalf("runtime init JSON = %q, missing retained diagnostic %q", stdout.String(), retained)
+		}
+	}
 
 	stdout.Reset()
 	if code := command.RunContext(context.Background(), []string{"runtime", "init"}); code != ExitOK {
 		t.Fatalf("runtime init text code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Next: edit /config/contexts/default/runtime/Dockerfile, then run `tobari runtime build`.") {
+	if !strings.Contains(stdout.String(), "Runtime Dockerfile created") ||
+		!strings.Contains(stdout.String(), "tobari runtime build") {
 		t.Fatalf("runtime init text output = %q", stdout.String())
 	}
 
@@ -173,5 +181,106 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 		!strings.Contains(stdout.String(), "existing Workspaces keep their home") ||
 		!strings.Contains(stdout.String(), "Next: run `tobari` from a project directory.") {
 		t.Fatalf("runtime build output = %q", stdout.String())
+	}
+}
+
+func runtimeInitReportFixture() tobari.ContextReport {
+	return tobari.ContextReport{
+		Task:         tobari.TaskRuntimeInit,
+		Name:         "default",
+		Active:       true,
+		AgentProfile: tobari.DefaultProfile,
+		Image:        tobari.OfficialRuntimeBase,
+		PolicyMode:   tobari.ContextPolicyModeGuided,
+		Stores: tobari.ContextStorePaths{
+			PolicyDirectory:     "/config/contexts/default/policy",
+			CredentialConfig:    "/config/contexts/default/credentials.json",
+			CredentialDirectory: "/config/contexts/default/credentials",
+		},
+		Runtime: tobari.ContextRuntimeReport{
+			Kind:          tobari.ContextRuntimeKindDockerfile,
+			Status:        tobari.ContextRuntimeStatusPendingBuild,
+			Dockerfile:    "/config/contexts/default/runtime/Dockerfile",
+			BaseReference: tobari.OfficialRuntimeBase,
+			SourceDigest:  "sha256:" + strings.Repeat("a", 64),
+			ImageDigest:   "sha256:" + strings.Repeat("b", 64),
+		},
+		Cluster: tobari.ContextClusterStatusNotApplicable,
+	}
+}
+
+func TestRuntimeInitTextSnapshotPrioritizesNextActions(t *testing.T) {
+	output, err := renderContextReport(runtimeInitReportFixture(), successFormatText, false)
+	if err != nil {
+		t.Fatalf("renderContextReport() error = %v", err)
+	}
+	want := "✓ Runtime Dockerfile created\n\n" +
+		"Next\n" +
+		"  1. Edit the Dockerfile\n" +
+		"     /config/contexts/default/runtime/Dockerfile\n\n" +
+		"  2. Build the runtime\n" +
+		"     tobari runtime build\n\n" +
+		"Details\n" +
+		"  Context        default\n" +
+		"  Base image     ghcr.io/tasuku43/tobari/runtime:latest\n" +
+		"  Status         pending_build\n"
+	if got := string(output); got != want {
+		t.Fatalf("runtime init text = %q, want snapshot %q", got, want)
+	}
+	if strings.Index(string(output), "Next\n") > strings.Index(string(output), "Details\n") {
+		t.Fatalf("Next section was rendered after Details: %q", output)
+	}
+	for _, omitted := range []string{
+		"Agent profile:", "Policy mode:", "Runtime source digest:",
+		"Runtime image digest:", "Policy:", "Credential metadata:", "Credential directory:",
+	} {
+		if strings.Contains(string(output), omitted) {
+			t.Fatalf("runtime init primary output contains diagnostic %q: %q", omitted, output)
+		}
+	}
+}
+
+func TestRuntimeInitTextColorDisabledRetainsPriorityAndValueEmphasis(t *testing.T) {
+	fixture := runtimeInitReportFixture()
+	plain := string(renderContextReportText(fixture, false))
+	if strings.Contains(plain, "\x1b[") {
+		t.Fatalf("color-disabled runtime init output contains ANSI: %q", plain)
+	}
+	if strings.Index(plain, "Next\n") > strings.Index(plain, "Details\n") {
+		t.Fatalf("color-disabled output loses section priority: %q", plain)
+	}
+
+	styled := string(renderContextReportText(fixture, true))
+	if !strings.Contains(styled, applyStyleToken(true, styleAccent, "tobari runtime build")) {
+		t.Fatalf("styled output does not accent the next command: %q", styled)
+	}
+	for _, ordinary := range []string{fixture.Runtime.Dockerfile, fixture.Name, fixture.Runtime.BaseReference} {
+		if strings.Contains(styled, applyStyleToken(true, styleAccent, ordinary)) {
+			t.Fatalf("styled output accents ordinary value %q: %q", ordinary, styled)
+		}
+	}
+}
+
+func TestContextShowRetainsRuntimeAndStoreDiagnostics(t *testing.T) {
+	fixture := runtimeInitReportFixture()
+	fixture.Task = tobari.TaskContextShow
+	fake := &contextCLI{report: fixture}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+
+	if code := command.RunContext(context.Background(), []string{"context", "show"}); code != ExitOK {
+		t.Fatalf("context show code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, retained := range []string{
+		"/config/contexts/default/policy",
+		"/config/contexts/default/credentials.json",
+		"/config/contexts/default/credentials",
+		"sha256:" + strings.Repeat("a", 64),
+		"sha256:" + strings.Repeat("b", 64),
+	} {
+		if !strings.Contains(stdout.String(), retained) {
+			t.Fatalf("context show output = %q, missing retained diagnostic %q", stdout.String(), retained)
+		}
 	}
 }
