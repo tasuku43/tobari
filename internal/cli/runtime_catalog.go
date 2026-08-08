@@ -466,7 +466,7 @@ func policyCandidatesSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "policy_candidates", JSONSchemaVersion: 2,
+				JSONEnvelope: "policy_candidates", JSONSchemaVersion: 3,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy candidates", true),
@@ -508,7 +508,7 @@ func policyReviewSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "policy_review", JSONSchemaVersion: 2,
+				JSONEnvelope: "policy_review", JSONSchemaVersion: 3,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy review", true),
@@ -1142,7 +1142,8 @@ func policyRuleResetOutput() CommandOutput {
 func policyCandidateOutputFields() []OutputField {
 	return []OutputField{
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque exact policy-candidate reference.", ReferenceKind: tobari.PolicyCandidateKind},
-		{Name: "observed_at", Type: OutputFieldTypeString, Description: "Gateway denial timestamp."},
+		{Name: "observed_at", Type: OutputFieldTypeString, Description: "Latest matching Gateway denial timestamp."},
+		{Name: "observation_count", Type: OutputFieldTypeInteger, Description: "Matching retained denial observations; legacy candidates without this field mean one."},
 		{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal for the denied request."},
 		{Name: "host", Type: OutputFieldTypeString, Description: "Exact denied request host."},
 		{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact denied request port."},

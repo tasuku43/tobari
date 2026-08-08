@@ -147,6 +147,7 @@ func (r DenialReport) Validate() error {
 type PolicyCandidate struct {
 	ID                string  `json:"id"`
 	ObservedAt        string  `json:"observed_at"`
+	ObservationCount  int     `json:"observation_count,omitempty"`
 	ProjectID         string  `json:"project_id"`
 	Host              string  `json:"host"`
 	Port              int     `json:"port"`
@@ -173,12 +174,21 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 		"\x00",
 	)))
 	return PolicyCandidate{
-		ID: "pcy_" + hex.EncodeToString(sum[:16]), ObservedAt: denial.Timestamp,
+		ID: "pcy_" + hex.EncodeToString(sum[:16]), ObservedAt: denial.Timestamp, ObservationCount: 1,
 		ProjectID: denial.ProjectID,
 		Host:      denial.Host, Port: denial.Port, Method: denial.Method, Path: denial.Path,
 		Reason: denial.Reason, StatusCode: denial.StatusCode,
 		CredentialProfile: cloneStringPointer(denial.CredentialProfile),
 	}, nil
+}
+
+// EffectiveObservationCount keeps candidates decoded from the additive legacy
+// shape meaningful. Newly derived candidates always carry an explicit count.
+func (c PolicyCandidate) EffectiveObservationCount() int {
+	if c.ObservationCount == 0 {
+		return 1
+	}
+	return c.ObservationCount
 }
 
 func cloneStringPointer(value *string) *string {
@@ -212,6 +222,9 @@ func (c PolicyCandidate) Validate() error {
 	}
 	if _, err := time.Parse(time.RFC3339Nano, c.ObservedAt); err != nil {
 		return fmt.Errorf("policy candidate timestamp is invalid")
+	}
+	if c.ObservationCount < 0 {
+		return fmt.Errorf("policy candidate observation count is invalid")
 	}
 	if err := ValidateProjectID(c.ProjectID); err != nil {
 		return fmt.Errorf("policy candidate project ID is invalid")
@@ -842,27 +855,65 @@ func PolicyCandidatesWithDenyRules(
 		}
 		return false
 	}
-	seenEffect := make(map[string]bool, len(denials))
-	reversed := make([]PolicyCandidate, 0, len(denials))
-	for index := len(denials) - 1; index >= 0; index-- {
-		denial := denials[index]
+	type effectKey struct {
+		projectID string
+		host      string
+		port      int
+		method    string
+		path      string
+	}
+	type aggregate struct {
+		candidate   PolicyCandidate
+		observedAt  time.Time
+		latestIndex int
+	}
+	aggregates := make(map[effectKey]aggregate, len(denials))
+	for index, denial := range denials {
 		if err := denial.Validate(); err != nil {
 			return nil, err
 		}
-		key := denial.ProjectID + "\x00" + denial.Host + "\x00" + denial.Method + "\x00" + denial.Path
-		if !denial.Learnable || seenEffect[key] || covered(denial) || denyRules.Matches(denial) {
+		if !denial.Learnable || covered(denial) || denyRules.Matches(denial) {
 			continue
 		}
-		seenEffect[key] = true
 		candidate, err := NewPolicyCandidate(denial)
 		if err != nil {
 			return nil, err
 		}
-		reversed = append(reversed, candidate)
+		observedAt, err := time.Parse(time.RFC3339Nano, denial.Timestamp)
+		if err != nil {
+			return nil, err
+		}
+		key := effectKey{
+			projectID: denial.ProjectID, host: denial.Host, port: denial.Port,
+			method: denial.Method, path: denial.Path,
+		}
+		current, found := aggregates[key]
+		if !found {
+			aggregates[key] = aggregate{candidate: candidate, observedAt: observedAt, latestIndex: index}
+			continue
+		}
+		count := current.candidate.EffectiveObservationCount() + 1
+		if observedAt.After(current.observedAt) || observedAt.Equal(current.observedAt) {
+			candidate.ObservationCount = count
+			aggregates[key] = aggregate{candidate: candidate, observedAt: observedAt, latestIndex: index}
+			continue
+		}
+		current.candidate.ObservationCount = count
+		aggregates[key] = current
 	}
-	items := make([]PolicyCandidate, len(reversed))
-	for index := range reversed {
-		items[len(reversed)-1-index] = reversed[index]
+	ordered := make([]aggregate, 0, len(aggregates))
+	for _, item := range aggregates {
+		ordered = append(ordered, item)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].observedAt.Equal(ordered[j].observedAt) {
+			return ordered[i].latestIndex < ordered[j].latestIndex
+		}
+		return ordered[i].observedAt.Before(ordered[j].observedAt)
+	})
+	items := make([]PolicyCandidate, len(ordered))
+	for index, item := range ordered {
+		items[index] = item.candidate
 	}
 	return items, nil
 }

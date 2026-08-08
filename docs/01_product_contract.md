@@ -227,8 +227,10 @@ undeclared Docker mutation by the CLI.
 ## Output and exit contract
 
 Human output is concise text. Cluster status JSON is schema version 1; cluster
-denials, policy candidates, and policy compactions JSON are schema version 2
-because their items retain the project principal. `list --format json` reports
+denials and policy compactions JSON are schema version 2 because their items
+retain the project principal. Policy candidates and review JSON are schema
+version 3 because each pending item also reports its retained-window observation
+count. `list --format json` reports
 root, runtime diagnostic, and stable ID. Agent help uses the catalog schema.
 Successful data is stdout;
 failures are stderr.
@@ -360,6 +362,16 @@ Policy candidates, review, and tail are bounded by the same retained
 Gateway-line window and omit effects already covered by learned allow rules,
 baseline deny rules, or exact learned deny rules. Baseline and exact denies
 remain available as audit evidence but never become pending queue items.
+Within that window, candidates aggregate by exact project principal, host,
+port, method, and normalized path. Reason, status, request ID, timestamp, and
+credential-profile evidence do not create a second permission identity. The
+candidate retains the latest matching evidence and reports the number of
+matching retained observations; a missing count in the legacy additive shape
+means one. Concurrent identical audit records therefore project to one pending
+item without a separate mutable inbox write. A current learned Allow or exact
+Deny remains the resolved history and is never updated by discovery. After an
+explicit reset, retained matching evidence may produce the same stable pending
+candidate ID again.
 Compactions are exhaustive for the current validated learned-rule file at one
 observation.
 

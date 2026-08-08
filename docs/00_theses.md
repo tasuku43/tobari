@@ -408,7 +408,8 @@ administration project.
   current CLI-owned learned decisions; `policy reset --id` removes exactly one
   Allow or exact Deny and returns that effect to default deny. The discovery
   queue turns only learnable retained denials into unique exact
-  host/port/method/path proposals with stable opaque IDs; the current-rule
+  project/host/port/method/path proposals with stable opaque IDs, the latest
+  retained observation time, and a retained-window observation count; the current-rule
   inventory exposes the separate rule IDs used for reset.
 - `tobari cluster denials` remains the lower-level diagnostic step: it projects
   validated denial records, reports the editable host-side policy directory,

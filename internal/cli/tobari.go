@@ -794,6 +794,7 @@ type clusterDenialsOutput struct {
 type policyCandidateOutput struct {
 	ID                string  `json:"id"`
 	ObservedAt        string  `json:"observed_at"`
+	ObservationCount  int     `json:"observation_count"`
 	ProjectID         string  `json:"project_id"`
 	Host              string  `json:"host"`
 	Port              int     `json:"port"`
@@ -856,7 +857,7 @@ func renderPolicyCandidatesWithColor(
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
 		output, err := json.Marshal(policyCandidatesDocument{
-			SchemaVersion: 2, PolicyCandidates: items,
+			SchemaVersion: 3, PolicyCandidates: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -878,8 +879,8 @@ func renderPolicyCandidatesWithColor(
 		}
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\tdeny_command=%s\n",
-			item.ID, escapeTSVCell(item.ObservedAt), item.ProjectID, escapeTSVCell(item.Host),
+			"id=%s\tobserved_at=%s\tobservation_count=%d\tproject_id=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\tdeny_command=%s\n",
+			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ProjectID, escapeTSVCell(item.Host),
 			item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
 			item.StatusCode, escapeTSVCell(profile), escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
 		)
@@ -893,7 +894,7 @@ func policyCandidateOutputs(
 	items := make([]policyCandidateOutput, 0, len(result.Items))
 	for _, item := range result.Items {
 		items = append(items, policyCandidateOutput{
-			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt),
+			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt), ObservationCount: item.EffectiveObservationCount(),
 			ProjectID: item.ProjectID,
 			Host:      safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			Path: safeExternalText(item.Path), Reason: safeExternalText(item.Reason),
@@ -922,7 +923,8 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 		output.row("Request", request, styleText)
 		output.row("ID", item.ID, styleText)
 		output.row("Project", safeExternalText(item.ProjectID), styleText)
-		output.row("Observed", safeExternalText(item.ObservedAt), styleText)
+		output.row("Observed", policyCandidateObservationText(item), styleText)
+		output.row("Latest", safeExternalText(item.ObservedAt), styleText)
 		output.row("Reason", safeExternalText(item.Reason), styleDanger)
 		output.row("Status", fmt.Sprintf("%d", item.StatusCode), styleDanger)
 		profile := "none"
@@ -955,7 +957,7 @@ func renderPolicyReviewWithCommands(
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
 		output, err := json.Marshal(policyReviewDocument{
-			SchemaVersion: 2, PolicyReview: items,
+			SchemaVersion: 3, PolicyReview: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -988,13 +990,19 @@ func renderPolicyReviewHuman(
 		output.section(fmt.Sprintf("Permission %d", index+1))
 		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
 		output.row("Request", request, styleText)
-		output.row("Observed", safeExternalText(item.ObservedAt), styleText)
+		output.row("Observed", policyCandidateObservationText(item), styleText)
+		output.row("Latest", safeExternalText(item.ObservedAt), styleText)
 		output.row("Reason", safeExternalText(item.Reason), styleDanger)
 		output.row("Status", fmt.Sprintf("%d", item.StatusCode), styleDanger)
 		output.row("Allow exact", allowCommand+" --id "+item.ID, styleAccent)
 		output.row("Deny exact", denyCommand+" --id "+item.ID, styleAccent)
 	}
 	return output.bytes()
+}
+
+func policyCandidateObservationText(candidate tobari.PolicyCandidate) string {
+	count := candidate.EffectiveObservationCount()
+	return fmt.Sprintf("%d time%s", count, pluralSuffix(count))
 }
 
 func renderPolicyReviewCanceled(color bool) []byte {

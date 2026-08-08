@@ -1,6 +1,12 @@
 package tobari
 
-import "testing"
+import (
+	"encoding/json"
+	"fmt"
+	"sync"
+	"testing"
+	"time"
+)
 
 const (
 	policyProjectA = "01912345-6789-7abc-8def-0123456789ab"
@@ -84,12 +90,161 @@ func TestPolicyCandidatesDeduplicateLatestEffectAndHideCoveredRules(t *testing.T
 		t.Fatal(err)
 	}
 	want, _ := NewPolicyCandidate(latest)
+	want.ObservationCount = 2
 	if len(items) != 1 || items[0] != want {
 		t.Fatalf("candidates = %+v, want %+v", items, want)
 	}
 	original, _ := NewPolicyCandidate(first)
 	if original.ID != want.ID || original.ObservedAt == want.ObservedAt {
 		t.Fatalf("repeated exact effect did not retain a stable ID with latest evidence: original=%+v latest=%+v", original, want)
+	}
+}
+
+func TestPolicyCandidateLegacyObservationCountDefaultsToOne(t *testing.T) {
+	t.Parallel()
+	candidate, err := NewPolicyCandidate(validPolicyDenial())
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate.ObservationCount = 0
+	encoded, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded PolicyCandidate
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoded.Validate(); err != nil {
+		t.Fatalf("legacy candidate was rejected: %v", err)
+	}
+	if got := decoded.EffectiveObservationCount(); got != 1 {
+		t.Fatalf("legacy observation count = %d, want 1", got)
+	}
+	candidate.ObservationCount = -1
+	if err := candidate.Validate(); err == nil {
+		t.Fatal("negative observation count was accepted")
+	}
+}
+
+func TestResolvedPolicyCandidatesRemainOutsidePendingAggregation(t *testing.T) {
+	t.Parallel()
+	denial := validPolicyDenial()
+	repeated := denial
+	repeated.Timestamp = "2026-07-30T10:42:11Z"
+	repeated.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	candidate, err := NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow, err := NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deny, err := NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, rules := range map[string]struct {
+		allows []LearnedPolicyRule
+		denies PolicyDenyRuleSet
+	}{
+		"allow": {
+			allows: []LearnedPolicyRule{allow},
+			denies: PolicyDenyRuleSet{Baseline: []PolicyBaselineDenyRule{}, Exact: []PolicyDenyRule{}},
+		},
+		"deny": {
+			allows: []LearnedPolicyRule{},
+			denies: PolicyDenyRuleSet{Baseline: []PolicyBaselineDenyRule{}, Exact: []PolicyDenyRule{deny}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			items, err := PolicyCandidatesWithDenyRules(
+				[]PolicyDenial{denial, repeated}, rules.allows, rules.denies,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(items) != 0 {
+				t.Fatalf("resolved %s candidate returned to pending aggregation: %+v", name, items)
+			}
+		})
+	}
+}
+
+func TestPolicyCandidateAggregationKeepsExactEffectDimensionsDistinct(t *testing.T) {
+	t.Parallel()
+	tests := map[string]func(*PolicyDenial){
+		"project": func(value *PolicyDenial) { value.ProjectID = policyProjectB },
+		"host":    func(value *PolicyDenial) { value.Host = "uploads.github.com" },
+		"port":    func(value *PolicyDenial) { value.Port = 8443 },
+		"method":  func(value *PolicyDenial) { value.Method = "POST" },
+		"path":    func(value *PolicyDenial) { value.Path = "/repos/cli/other" },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			first := validPolicyDenial()
+			second := first
+			second.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+			second.Timestamp = "2026-07-30T10:42:11Z"
+			mutate(&second)
+			items, err := PolicyCandidates([]PolicyDenial{first, second}, []LearnedPolicyRule{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(items) != 2 {
+				t.Fatalf("%s-distinct candidates = %+v", name, items)
+			}
+		})
+	}
+}
+
+func TestPolicyCandidateAggregationUsesLatestEvidenceWithoutIdentityDrift(t *testing.T) {
+	t.Parallel()
+	first := validPolicyDenial()
+	latest := first
+	latest.Timestamp = "2026-07-30T10:42:11Z"
+	latest.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	latest.Reason = "new bounded denial reason"
+	latest.StatusCode = 429
+	items, err := PolicyCandidates([]PolicyDenial{first, latest}, []LearnedPolicyRule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ObservationCount != 2 || items[0].ObservedAt != latest.Timestamp ||
+		items[0].Reason != latest.Reason || items[0].StatusCode != latest.StatusCode {
+		t.Fatalf("aggregated candidate = %+v", items)
+	}
+}
+
+func TestConcurrentPolicyObservationsConvergeToOneCandidate(t *testing.T) {
+	t.Parallel()
+	const observations = 64
+	base := time.Date(2026, 8, 4, 20, 52, 0, 0, time.UTC)
+	denials := make([]PolicyDenial, 0, observations)
+	var mutex sync.Mutex
+	var wait sync.WaitGroup
+	for index := 0; index < observations; index++ {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			denial := validPolicyDenial()
+			denial.Timestamp = base.Add(time.Duration(index) * time.Second).Format(time.RFC3339)
+			denial.RequestID = fmt.Sprintf("%032x", index+1)
+			mutex.Lock()
+			denials = append(denials, denial)
+			mutex.Unlock()
+		}(index)
+	}
+	wait.Wait()
+
+	items, err := PolicyCandidates(denials, []LearnedPolicyRule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLatest := base.Add((observations - 1) * time.Second).Format(time.RFC3339)
+	if len(items) != 1 || items[0].ObservationCount != observations || items[0].ObservedAt != wantLatest {
+		t.Fatalf("concurrent observations = %+v, want one count=%d latest=%s", items, observations, wantLatest)
 	}
 }
 

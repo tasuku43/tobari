@@ -362,7 +362,10 @@ profile name is non-secret metadata; secret values and raw bodies are excluded.
 CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
 and preserves only non-secret credential-profile names. Read-only policy
-candidate commands derive opaque proposals from that evidence. `policy review`
+candidate commands aggregate exact project/host/port/method/path proposals from
+that evidence, treating reason, status, request identity, timestamps, and
+credential-profile display evidence as non-identity fields. The latest evidence
+and bounded observation count do not grant authority. `policy review`
 presents the same queue and, after explicit confirmation on a TTY, delegates
 one unchanged opaque reference to `policy allow` or `policy deny`; `policy rules`
 projects every current CLI-owned learned Allow and exact Deny, and its TTY flow

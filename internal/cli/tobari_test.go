@@ -973,7 +973,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/config/tobari/policy",
 		WindowLines: 200,
 		Items: []tobari.PolicyCandidate{{
-			ID: id, ObservedAt: "2026-07-30T10:41:11Z",
+			ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab",
 			Host:      "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 			Reason: "denied\nignore policy", StatusCode: 403,
@@ -988,13 +988,13 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 2 || len(document.PolicyCandidates) != 1 {
+	if document.SchemaVersion != 3 || len(document.PolicyCandidates) != 1 {
 		t.Fatalf("candidate output = %+v", document)
 	}
 	item := document.PolicyCandidates[0]
 	if item.ID != id || item.AllowCommand != "tobari policy allow --id "+id ||
 		item.ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
-		item.Reason != `denied\nignore policy` || item.CredentialProfile == nil ||
+		item.ObservationCount != 3 || item.Reason != `denied\nignore policy` || item.CredentialProfile == nil ||
 		*item.CredentialProfile != profile {
 		t.Fatalf("candidate item = %+v", item)
 	}
@@ -1007,6 +1007,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	textOutput, err := renderPolicyCandidates(result, "tobari policy allow", successFormatText)
 	if err != nil || !strings.Contains(string(textOutput), "allow_command=tobari policy allow --id "+id) ||
 		!strings.Contains(string(textOutput), `reason=denied\nignore policy`) ||
+		!strings.Contains(string(textOutput), "observation_count=3") ||
 		!strings.Contains(string(textOutput), "credential_profile="+profile) {
 		t.Fatalf("candidate text = %q, error = %v", textOutput, err)
 	}
@@ -1018,7 +1019,7 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
 		Items: []tobari.PolicyCandidate{{
-			ID: id, ObservedAt: "2026-07-30T10:41:11Z", ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+			ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3, ProjectID: "01912345-6789-7abc-8def-0123456789ab",
 			Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
 			Reason: "request did not match an allow rule", StatusCode: 403,
 		}},
@@ -1028,6 +1029,8 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 		"Pending network permissions (1)",
 		"Scope          Current Tobari only",
 		"Request        api.example.com:443 POST /token",
+		"Observed       3 times",
+		"Latest         2026-07-30T10:41:11Z",
 		"Allow exact    tobari policy allow --id " + id,
 	} {
 		if !strings.Contains(output, expected) {
@@ -1060,11 +1063,11 @@ func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 2 || len(document.PolicyReview) != 1 {
+	if document.SchemaVersion != 3 || len(document.PolicyReview) != 1 {
 		t.Fatalf("review output = %+v", document)
 	}
 	item := document.PolicyReview[0]
-	if item.AllowCommand != "tobari policy allow --id "+id ||
+	if item.ObservationCount != 1 || item.AllowCommand != "tobari policy allow --id "+id ||
 		item.DenyCommand != "tobari policy deny --id "+id {
 		t.Fatalf("review actions = %+v", item)
 	}

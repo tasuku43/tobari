@@ -763,13 +763,17 @@ func TestPolicyCandidatesFailClosedWhenActiveContextDiffersFromClusterState(t *t
 func TestPolicyCandidatesProduceExactOpaqueReferenceAndTailTask(t *testing.T) {
 	t.Parallel()
 	denial := validServiceDenial()
-	runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{denial}}
+	repeated := denial
+	repeated.Timestamp = "2026-07-30T10:42:11Z"
+	repeated.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{denial, repeated}}
 	result, err := New(runtime).PolicyCandidates(context.Background(), 75)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Task != tobari.TaskPolicyCandidates || len(result.Items) != 1 ||
-		result.Items[0].Host != denial.Host {
+		result.Items[0].Host != denial.Host || result.Items[0].ObservationCount != 2 ||
+		result.Items[0].ObservedAt != repeated.Timestamp {
 		t.Fatalf("candidate result = %+v", result)
 	}
 	if err := tobari.ValidatePolicyCandidateID(result.Items[0].ID); err != nil {

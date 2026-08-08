@@ -804,8 +804,9 @@ emitted by the review or machine discovery queue and must be copied unchanged
 when invoking the explicit action; `policy candidates` remains the structured
 machine path.
 It expires when its denial falls outside retained logs or another learned rule
-already covers that exact effect. Repeating the same denied host/method/path
-retains the same ID and refreshes its evidence. Approval never accepts a host
+already covers that exact effect. Repeating the same denied
+project/host/port/method/path retains one item and the same ID, increments its
+retained-window observation count, and refreshes its latest evidence. Approval never accepts a host
 wildcard, method wildcard, prefix, or user-supplied pattern.
 
 `policy rules` is the exhaustive current-decision view for the active Context,

@@ -394,9 +394,12 @@ trusted host policy directory, and the exact review command. OPA computes
 learnability only when version, cluster, scheme, fixed port, project-principal,
 and (for the managed adapter) credential-binding boundaries already pass, so an exact
 project/host/port/method/path rule can close the request. `policy review` and
-`policy candidates` deterministically map only that eligible retained evidence
-to opaque exact-rule references that remain stable across repeated denials of
-the same project/host/port/method/path, and remove effects already covered by
+`policy candidates` deterministically fold only that eligible retained evidence
+by the structured project/host/port/method/path effect key. They emit one opaque
+exact-rule reference, the latest evidence, and an observation count for each
+pending effect; references remain stable across repeated denials. This pure
+read projection also converges concurrent identical audit records without a
+second persisted inbox or write race. They remove effects already covered by
 the CLI-owned learned allow or deny data and trusted baseline deny rules.
 Baseline denies remain audit-only. `policy review` is the routine human text
 projection and, after explicit TTY confirmation, delegates one unchanged

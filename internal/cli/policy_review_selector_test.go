@@ -18,7 +18,7 @@ func testPolicyReviewReport() tobari.PolicyCandidateReport {
 		Items: []tobari.PolicyCandidate{
 			{
 				ID:         "pcy_0123456789abcdef0123456789abcdef",
-				ObservedAt: "2026-08-02T10:00:00Z", ProjectID: "01912345-6789-7abc-8def-0123456789ab",
+				ObservedAt: "2026-08-02T10:00:00Z", ObservationCount: 3, ProjectID: "01912345-6789-7abc-8def-0123456789ab",
 				Host: "api.github.com", Port: 443, Method: "POST", Path: "/repos/example/issues",
 				Reason: "request did not match an allow rule", StatusCode: 403,
 			},
@@ -106,6 +106,8 @@ func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
 		applyStyleToken(true, styleAccent, "Permission 1 of 2"),
 		"api.github.com:443 POST /repos/example/issues",
 		applyStyleToken(true, styleDanger, "403"),
+		"3 times",
+		"2026-08-02T10:00:00Z",
 		applyStyleToken(true, styleAccent, "[a] Allow"),
 		applyStyleToken(true, styleAccent, "[d] Deny"),
 		applyStyleToken(true, styleMuted, "[q] Back"),
