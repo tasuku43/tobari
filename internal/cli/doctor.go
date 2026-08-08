@@ -99,7 +99,11 @@ func renderDoctorReportWithColor(report doctor.Report, format successFormat, col
 	}
 	if format == successFormatText {
 		output := newHumanOutput(color)
-		output.heading("✓", "Environment check", styleSuccess)
+		marker, token := "✓", styleSuccess
+		if !report.Healthy() {
+			marker, token = "✗", styleDanger
+		}
+		output.heading(marker, "Environment check", token)
 		if len(report.Checks) == 0 {
 			output.empty("No checks returned", "The diagnostic provider returned an empty report.", "doctor", "Run diagnostics again after checking the local runtime.")
 			return output.bytes(), nil
@@ -125,7 +129,7 @@ func (o *humanOutput) doctorCheck(check doctor.Check) {
 	if check.Detail == "" {
 		fmt.Fprintf(
 			&o.Buffer, "  %s %s\n",
-			applyStyleToken(o.color, styleMuted, paddedName),
+			applyStyleToken(o.color, styleText, paddedName),
 			applyStyleToken(o.color, humanStatusToken(status), status),
 		)
 		return
@@ -133,7 +137,7 @@ func (o *humanOutput) doctorCheck(check doctor.Check) {
 	paddedStatus := fmt.Sprintf("%-*s", doctorStatusWidth, status)
 	fmt.Fprintf(
 		&o.Buffer, "  %s %s %s\n",
-		applyStyleToken(o.color, styleMuted, paddedName),
+		applyStyleToken(o.color, styleText, paddedName),
 		applyStyleToken(o.color, humanStatusToken(status), paddedStatus),
 		applyStyleToken(o.color, styleText, escapeTSVCell(check.Detail)),
 	)

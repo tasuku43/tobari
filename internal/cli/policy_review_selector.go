@@ -304,11 +304,7 @@ func renderPolicyReviewListRaw(
 		if index == selected {
 			prefix = applyStyleToken(style, styleText, "❯ ")
 		}
-		line := prefix + policyReviewCandidateRequest(candidate)
-		if index != selected {
-			line = applyStyleToken(style, styleMuted, line)
-		}
-		lines = append(lines, line)
+		lines = append(lines, prefix+applyStyleToken(style, styleText, policyReviewCandidateRequest(candidate)))
 	}
 	if top > 0 || end < len(report.Items) {
 		lines = append(lines, applyStyleToken(style, styleMuted, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items))))
@@ -332,11 +328,11 @@ func renderPolicyReviewDetailRaw(
 		"",
 		applyStyleToken(style, styleAccent, fmt.Sprintf("Permission %d of %d", selected+1, len(report.Items))),
 		"",
-		selectorDetail(style, "Scope", "Current Tobari only", styleMuted),
+		selectorDetail(style, "Scope", "Current Tobari only", styleText),
 		selectorDetail(style, "Request", policyReviewCandidateRequest(candidate), styleText),
-		selectorDetail(style, "Reason", safeExternalText(candidate.Reason), styleWarning),
-		selectorDetail(style, "Status", fmt.Sprintf("%d", candidate.StatusCode), styleWarning),
-		selectorDetail(style, "Observed", safeExternalText(candidate.ObservedAt), styleMuted),
+		selectorDetail(style, "Reason", safeExternalText(candidate.Reason), styleDanger),
+		selectorDetail(style, "Status", fmt.Sprintf("%d", candidate.StatusCode), styleDanger),
+		selectorDetail(style, "Observed", safeExternalText(candidate.ObservedAt), styleText),
 		"",
 		selectorHelp(style, "This allows exactly this host, port, method, and path."),
 		"",

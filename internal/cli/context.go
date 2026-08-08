@@ -212,7 +212,7 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		markerToken := styleMuted
 		if item.Active {
 			marker = "*"
-			markerToken = styleSuccess
+			markerToken = styleAccent
 		}
 		fmt.Fprintf(
 			&output, "%s %s\t%s=%s\t%s=%s\t%s=%s\t%s=%s\n",
@@ -248,7 +248,7 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 
 	var output strings.Builder
 	writeStyledLine(&output, color, "Context:", safeExternalText(result.Name), styleText)
-	writeStyledLine(&output, color, "Active:", fmt.Sprintf("%t", result.Active), humanBoolToken(result.Active))
+	writeStyledLine(&output, color, "Active:", fmt.Sprintf("%t", result.Active), styleText)
 	writeStyledLine(&output, color, "Image:", safeExternalText(result.Image), styleText)
 	writeStyledLine(&output, color, "Agent profile:", safeExternalText(result.AgentProfile), styleText)
 	writeStyledLine(&output, color, "Policy mode:", string(result.PolicyMode), styleText)
@@ -284,13 +284,13 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	switch result.Task {
 	case tobari.TaskRuntimeBuild:
 		writeStyledLine(&output, color, "Note:", "existing Workspaces keep their home. On the next `tobari`, Tobari recreates only the work container when this runtime image changes the spec.", styleText)
-		fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Next: run `tobari` from a project directory."))
+		writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari`", " from a project directory.")
 	case tobari.TaskContextUse:
 		switch result.Cluster {
 		case tobari.ContextClusterStatusReconciled, tobari.ContextClusterStatusAlreadyReady:
-			fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Next: run `tobari` from a project directory."))
+			writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari`", " from a project directory.")
 		case tobari.ContextClusterStatusNotConfigured, tobari.ContextClusterStatusNotRunning:
-			fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Next: run `tobari cluster up`, then `tobari` from a project directory."))
+			writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari cluster up`, then `tobari`", " from a project directory.")
 		}
 	}
 	writeStyledLine(&output, color, "Policy:", safeExternalText(result.Stores.PolicyDirectory), styleText)

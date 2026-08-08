@@ -258,11 +258,12 @@ func renderPolicyRulesListRaw(
 		if index == selected {
 			prefix = applyStyleToken(style, styleText, "❯ ")
 		}
-		line := prefix + strings.ToUpper(rule.Decision) + " " + policyRuleRequest(rule)
-		if index != selected {
-			line = applyStyleToken(style, styleMuted, line)
-		}
-		lines = append(lines, line)
+		lines = append(
+			lines,
+			prefix+
+				applyStyleToken(style, policyRuleDecisionToken(rule.Decision), strings.ToUpper(rule.Decision))+" "+
+				applyStyleToken(style, styleText, policyRuleRequest(rule)),
+		)
 	}
 	if top > 0 || end < len(report.Items) {
 		lines = append(lines, applyStyleToken(style, styleMuted, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items))))
@@ -287,11 +288,11 @@ func renderPolicyRuleDetailRaw(
 		applyStyleToken(style, styleAccent, fmt.Sprintf("Decision %d of %d", selected+1, len(report.Items))),
 		"",
 		selectorDetail(style, "Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
-		selectorDetail(style, "Scope", "Current Context only", styleMuted),
+		selectorDetail(style, "Scope", "Current Context only", styleText),
 		selectorDetail(style, "Request", policyRuleRequest(rule), styleText),
 		selectorDetail(style, "Match", safeExternalText(rule.Match), styleText),
 		selectorDetail(style, "Rule ID", rule.ID, styleText),
-		selectorDetail(style, "Sources", strings.Join(rule.SourceCandidates, ", "), styleMuted),
+		selectorDetail(style, "Sources", strings.Join(rule.SourceCandidates, ", "), styleText),
 		"",
 		selectorHelp(style, "Reset returns this exact effect to default deny."),
 		"",
@@ -465,7 +466,7 @@ func policyRuleRequest(rule tobari.PolicyRule) string {
 
 func policyRuleDecisionToken(decision string) styleToken {
 	if decision == tobari.PolicyDecisionDeny {
-		return styleWarning
+		return styleDanger
 	}
 	return styleSuccess
 }

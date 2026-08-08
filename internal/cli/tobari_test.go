@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"path/filepath"
 	"reflect"
@@ -354,6 +355,36 @@ func TestPolicyRulesJSONIsReadOnlyAndMatchesCatalog(t *testing.T) {
 	assertJSONItemFieldsMatchCatalog(t, stdout.Bytes(), spec)
 }
 
+func TestPolicyRulesHumanStylesOnlyDecisionsAndResetCommands(t *testing.T) {
+	t.Parallel()
+	report := tobari.PolicyRuleReport{
+		Task: tobari.TaskPolicyRules, PolicyDirectory: "/tmp/policy",
+		Items: []tobari.PolicyRule{
+			{ID: "prl_allow", Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact, ProjectID: "project-allow", Host: "api.example.com", Port: 443, Method: "GET", Path: "/allowed", Examples: []string{"/allowed"}, SourceCandidates: []string{"candidate-allow"}},
+			{ID: "prl_deny", Decision: tobari.PolicyDecisionDeny, Match: tobari.PolicyMatchExact, ProjectID: "project-deny", Host: "api.example.com", Port: 443, Method: "POST", Path: "/denied", Examples: []string{}, SourceCandidates: []string{"candidate-deny"}},
+		},
+	}
+	output := string(renderPolicyRulesHuman(report, "tobari policy reset", true))
+	for _, want := range []string{
+		applyStyleToken(true, styleSuccess, "✓"),
+		applyStyleToken(true, styleSuccess, "Allowed (1)"),
+		applyStyleToken(true, styleDanger, "Denied (1)"),
+		applyStyleToken(true, styleAccent, "tobari policy reset --id prl_allow"),
+		applyStyleToken(true, styleAccent, "tobari policy reset --id prl_deny"),
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("policy rules output %q lacks %q", output, want)
+		}
+	}
+	for _, ordinary := range []string{"Learned policy decisions (2)", "/tmp/policy", "prl_allow", "prl_deny", "project-allow", "project-deny", "api.example.com:443 GET /allowed", "api.example.com:443 POST /denied"} {
+		for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
+			if strings.Contains(output, applyStyleToken(true, token, ordinary)) {
+				t.Fatalf("policy rules ordinary value %q used %s: %q", ordinary, token, output)
+			}
+		}
+	}
+}
+
 func TestDeleteCatalogDescribesDetachedDefaultAndAttachedForceGuard(t *testing.T) {
 	t.Parallel()
 	command, found := DefaultCatalog().Lookup("delete")
@@ -404,6 +435,28 @@ func TestProjectSessionClosedSummaryStaysOnHostLifecycleStream(t *testing.T) {
 	}
 	if got, want := hostStderr.String(), "Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete\nIf another session is attached: tobari delete --force\n"; got != want {
 		t.Fatalf("host lifecycle guidance = %q, want %q", got, want)
+	}
+}
+
+func TestProjectSessionClosedStylesLabelsCommandsAndProseSeparately(t *testing.T) {
+	t.Parallel()
+	output := string(renderProjectSessionClosed(true))
+	for _, prose := range []string{"Workspace session closed.", "Workspace remains available."} {
+		for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
+			if strings.Contains(output, applyStyleToken(true, token, prose)) {
+				t.Fatalf("session prose %q used %s: %q", prose, token, output)
+			}
+		}
+	}
+	for _, label := range []string{"Resume:", "Remove:", "If another session is attached:"} {
+		if !strings.Contains(output, applyStyleToken(true, styleMuted, label)) {
+			t.Fatalf("session output %q lacks muted label %q", output, label)
+		}
+	}
+	for _, command := range []string{"tobari", "tobari delete", "tobari delete --force"} {
+		if !strings.Contains(output, applyStyleToken(true, styleAccent, command)) {
+			t.Fatalf("session output %q lacks accented command %q", output, command)
+		}
 	}
 }
 
@@ -559,7 +612,7 @@ func TestTobariListRendererMatchesCatalogFields(t *testing.T) {
 	}
 }
 
-func TestProjectListHumanRendererUsesWorkspaceLayoutAndMutedID(t *testing.T) {
+func TestProjectListHumanRendererUsesWorkspaceLayoutAndTextValues(t *testing.T) {
 	t.Parallel()
 	result := tobari.ProjectListResult{
 		Task: tobari.TaskProjectList, CurrentID: "01912345-6789-7abc-8def-0123456789ab",
@@ -581,12 +634,12 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndMutedID(t *testing.T) {
 	value := string(output)
 	for _, want := range []string{
 		applyStyleToken(true, styleSuccess, "✓"),
-		applyStyleToken(true, styleAccent, "Workspaces (2)"),
+		"Workspaces (2)",
 		"  /tmp/parent",
 		"▸ /tmp/project",
 		applyStyleToken(true, styleSuccess, "ready"),
 		applyStyleToken(true, styleWarning, "missing"),
-		applyStyleToken(true, styleMuted, "01912345-6789-7abc-8def-0123456789ab"),
+		"01912345-6789-7abc-8def-0123456789ab",
 	} {
 		if !strings.Contains(value, want) {
 			t.Fatalf("workspace list output %q lacks %q", value, want)
@@ -595,11 +648,15 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndMutedID(t *testing.T) {
 	if strings.Contains(value, "Project 1") || strings.Contains(value, "current") {
 		t.Fatalf("workspace list output retained retired labels: %q", value)
 	}
-	if strings.Contains(value, applyStyleToken(true, styleAccent, "01912345-6789-7abc-8def-0123456789ab")) {
-		t.Fatalf("workspace ID used accent instead of muted: %q", value)
+	for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
+		if strings.Contains(value, applyStyleToken(true, token, "01912345-6789-7abc-8def-0123456789ab")) {
+			t.Fatalf("workspace ID used %s instead of text: %q", token, value)
+		}
 	}
-	if strings.Contains(value, applyStyleToken(true, styleAccent, "  /tmp/parent")) {
-		t.Fatalf("non-selected workspace used selected color: %q", value)
+	for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
+		if strings.Contains(value, applyStyleToken(true, token, "/tmp/parent")) {
+			t.Fatalf("workspace path used %s instead of text: %q", token, value)
+		}
 	}
 }
 
@@ -617,6 +674,55 @@ func TestProjectDeleteHumanRendererHidesRuntimeDiagnostics(t *testing.T) {
 	for _, internal := range []string{result.ID, result.Home, "ID", "Home"} {
 		if strings.Contains(output, internal) {
 			t.Fatalf("delete output exposed runtime diagnostic %q: %q", internal, output)
+		}
+	}
+	if strings.Contains(output, applyStyleToken(true, styleAccent, "Tobari deleted")) ||
+		strings.Contains(output, applyStyleToken(true, styleSuccess, "Tobari deleted")) {
+		t.Fatalf("delete output styles the full heading: %q", output)
+	}
+	for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
+		if strings.Contains(output, applyStyleToken(true, token, result.Root)) {
+			t.Fatalf("delete root used %s instead of text: %q", token, output)
+		}
+	}
+	if !strings.Contains(output, applyStyleToken(true, styleAccent, "tobari")) ||
+		strings.Contains(output, applyStyleToken(true, styleAccent, "— Create or enter a Tobari from this project directory.")) {
+		t.Fatalf("delete next action does not isolate command emphasis: %q", output)
+	}
+}
+
+func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
+	t.Parallel()
+	result := tobari.ProjectStatus{
+		Task: tobari.TaskStatus, Exists: true, Root: "/tmp/project",
+		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/project/home",
+		Runtime: tobari.RuntimeDiagnosticReady,
+	}
+	output, err := renderProjectStatusWithColor(result, successFormatText, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := string(output)
+	for _, label := range []string{"Root", "Runtime", "ID", "Home", "Next"} {
+		padded := fmt.Sprintf("%-*s", humanOutputLabelWidth, label)
+		if !strings.Contains(value, applyStyleToken(true, styleMuted, padded)) {
+			t.Fatalf("status output %q lacks muted label %q", value, label)
+		}
+	}
+	for _, want := range []string{
+		applyStyleToken(true, styleSuccess, "✓"),
+		applyStyleToken(true, styleSuccess, "ready"),
+		applyStyleToken(true, styleAccent, "tobari"),
+	} {
+		if !strings.Contains(value, want) {
+			t.Fatalf("status output %q lacks %q", value, want)
+		}
+	}
+	for _, ordinary := range []string{"Tobari ready", result.Root, result.ID, result.Home} {
+		for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
+			if strings.Contains(value, applyStyleToken(true, token, ordinary)) {
+				t.Fatalf("status ordinary value %q used %s: %q", ordinary, token, value)
+			}
 		}
 	}
 }
@@ -714,6 +820,13 @@ func TestClusterStatusTextUsesSemanticColorTokens(t *testing.T) {
 	}
 	if strings.Contains(output, applyStyleToken(true, styleDanger, "healthy")) {
 		t.Fatalf("healthy status used error color: %q", output)
+	}
+	for _, ordinary := range []string{"Cluster ready", status.Policy} {
+		for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
+			if strings.Contains(output, applyStyleToken(true, token, ordinary)) {
+				t.Fatalf("cluster status ordinary value %q used %s: %q", ordinary, token, output)
+			}
+		}
 	}
 }
 

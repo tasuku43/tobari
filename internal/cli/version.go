@@ -14,7 +14,7 @@ func runVersion(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, 
 		output.heading("•", "Tobari", styleAccent)
 		output.row("Version", c.Version, styleText)
 		if c.Commit != "" {
-			output.row("Commit", c.Commit, styleMuted)
+			output.row("Commit", c.Commit, styleText)
 		}
 		return c.emitResult(ctx, output.bytes())
 	}
@@ -29,6 +29,6 @@ func runVersion(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, 
 		"%s %s (%s)\n",
 		applyStyleToken(style, styleText, ProgramName),
 		applyStyleToken(style, styleText, c.Version),
-		applyStyleToken(style, styleMuted, c.Commit),
+		applyStyleToken(style, styleText, c.Commit),
 	)))
 }

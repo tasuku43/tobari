@@ -254,9 +254,11 @@ func TestRuntimeInitTextColorDisabledRetainsPriorityAndValueEmphasis(t *testing.
 	if !strings.Contains(styled, applyStyleToken(true, styleAccent, "tobari runtime build")) {
 		t.Fatalf("styled output does not accent the next command: %q", styled)
 	}
-	for _, ordinary := range []string{fixture.Runtime.Dockerfile, fixture.Name, fixture.Runtime.BaseReference} {
-		if strings.Contains(styled, applyStyleToken(true, styleAccent, ordinary)) {
-			t.Fatalf("styled output accents ordinary value %q: %q", ordinary, styled)
+	for _, ordinary := range []string{"Runtime Dockerfile created", fixture.Runtime.Dockerfile, fixture.Name, fixture.Runtime.BaseReference} {
+		for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
+			if strings.Contains(styled, applyStyleToken(true, token, ordinary)) {
+				t.Fatalf("styled output applies %s to ordinary value %q: %q", token, ordinary, styled)
+			}
 		}
 	}
 }

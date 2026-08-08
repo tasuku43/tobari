@@ -105,7 +105,7 @@ func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
 	for _, want := range []string{
 		applyStyleToken(true, styleAccent, "Permission 1 of 2"),
 		"api.github.com:443 POST /repos/example/issues",
-		applyStyleToken(true, styleWarning, "403"),
+		applyStyleToken(true, styleDanger, "403"),
 		applyStyleToken(true, styleAccent, "[a] Allow"),
 		applyStyleToken(true, styleAccent, "[d] Deny"),
 		applyStyleToken(true, styleMuted, "[q] Back"),

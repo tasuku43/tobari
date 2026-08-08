@@ -23,7 +23,7 @@ func newHumanOutput(color bool) *humanOutput {
 }
 
 func (o *humanOutput) heading(marker, title string, token styleToken) {
-	fmt.Fprintf(&o.Buffer, "%s %s\n", applyStyleToken(o.color, token, marker), applyStyleToken(o.color, styleAccent, title))
+	fmt.Fprintf(&o.Buffer, "%s %s\n", applyStyleToken(o.color, token, marker), applyStyleToken(o.color, styleText, title))
 }
 
 func (o *humanOutput) section(title string) {
@@ -49,7 +49,13 @@ func (o *humanOutput) text(value string) {
 }
 
 func (o *humanOutput) next(command, reason string) {
-	o.row("Next", recoveryCommand(command)+" — "+escapeTSVCell(reason), styleAccent)
+	padded := fmt.Sprintf("%-*s", humanOutputLabelWidth, "Next")
+	fmt.Fprintf(
+		&o.Buffer, "  %s %s %s\n",
+		applyStyleToken(o.color, styleMuted, padded),
+		applyStyleToken(o.color, styleAccent, recoveryCommand(command)),
+		applyStyleToken(o.color, styleText, "— "+escapeTSVCell(reason)),
+	)
 }
 
 // nextStep keeps the operation label readable while making only the command
@@ -57,6 +63,16 @@ func (o *humanOutput) next(command, reason string) {
 func (o *humanOutput) nextStep(number int, description, value string, token styleToken) {
 	fmt.Fprintf(&o.Buffer, "  %d. %s\n", number, applyStyleToken(o.color, styleText, description))
 	fmt.Fprintf(&o.Buffer, "     %s\n\n", applyStyleToken(o.color, token, value))
+}
+
+func writeStyledCommandLine(output io.Writer, enabled bool, label, before, command, after string) {
+	fmt.Fprintf(
+		output, "%s %s%s%s\n",
+		applyStyleToken(enabled, styleMuted, label),
+		applyStyleToken(enabled, styleText, before),
+		applyStyleToken(enabled, styleAccent, command),
+		applyStyleToken(enabled, styleText, after),
+	)
 }
 
 func (o *humanOutput) empty(title, detail, command, reason string) {
@@ -101,11 +117,11 @@ func humanStatusToken(status string) styleToken {
 	}
 }
 
-func humanBoolToken(value bool) styleToken {
+func humanOutcomeBoolToken(value bool) styleToken {
 	if value {
 		return styleSuccess
 	}
-	return styleMuted
+	return styleWarning
 }
 
 func humanBool(value bool) string {

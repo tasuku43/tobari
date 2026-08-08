@@ -378,11 +378,7 @@ func ansiWorkspaceOption(option workspaceSelectorOption, selected, style bool) s
 	}
 	pathText := applyStyleToken(style, styleText, path)
 	statusText := applyStyleToken(style, humanStatusToken(status), detail)
-	line := prefix + applyStyleToken(style, styleMuted, marker) + " " + pathText + "  " + statusText
-	if !option.selectable {
-		line = applyStyleToken(style, styleMuted, line)
-	}
-	return line
+	return prefix + applyStyleToken(style, styleMuted, marker) + " " + pathText + "  " + statusText
 }
 
 func lineWorkspaceOption(option workspaceSelectorOption) string {

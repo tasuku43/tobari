@@ -211,9 +211,9 @@ func renderTextErrorWithColor(payload errorPayload, color bool) []byte {
 		output := newHumanOutput(true)
 		output.heading("✗", "Command failed", styleDanger)
 		output.row("Message", escapeTSVCell(payload.Message), styleDanger)
-		output.row("Kind", string(payload.Kind), styleMuted)
+		output.row("Kind", string(payload.Kind), styleText)
 		output.row("Code", payload.Code, styleText)
-		retryToken := styleMuted
+		retryToken := styleText
 		if payload.Retryable {
 			retryToken = styleWarning
 		}
@@ -222,7 +222,7 @@ func renderTextErrorWithColor(payload errorPayload, color bool) []byte {
 			if payload.Kind == fault.KindRateLimited {
 				output.row("Retry after", "unknown", styleWarning)
 			} else {
-				output.row("Retry after", "none", styleMuted)
+				output.row("Retry after", "none", styleText)
 			}
 		} else {
 			output.row("Retry after", *payload.RetryAfter, styleWarning)

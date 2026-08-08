@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
+	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -26,6 +27,14 @@ func TestHumanOutputUsesSemanticTokensAndVisibleAlignment(t *testing.T) {
 	} {
 		if !strings.Contains(value, want) {
 			t.Fatalf("human output %q lacks %q", value, want)
+		}
+	}
+	for _, forbidden := range []string{
+		applyStyleToken(true, styleAccent, "Ready"),
+		applyStyleToken(true, styleSuccess, "Ready"),
+	} {
+		if strings.Contains(value, forbidden) {
+			t.Fatalf("human output %q overstyles heading as %q", value, forbidden)
 		}
 	}
 }
@@ -154,6 +163,37 @@ func TestStateMeaningDoesNotDependOnColor(t *testing.T) {
 	}
 }
 
+func TestDoctorStylesOnlyCheckStatesAndFailureMarker(t *testing.T) {
+	t.Parallel()
+	report := doctor.Report{Checks: []doctor.Check{
+		{Name: "runtime", Status: doctor.CheckStatusPass, Detail: "runtime is available"},
+		{Name: "configuration", Status: doctor.CheckStatusWarn, Detail: "using defaults"},
+		{Name: "policy", Status: doctor.CheckStatusFail, Detail: "policy test failed"},
+	}}
+	output, err := renderDoctorReportWithColor(report, successFormatText, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := string(output)
+	for _, want := range []string{
+		applyStyleToken(true, styleDanger, "✗"),
+		applyStyleToken(true, styleSuccess, "pass  "),
+		applyStyleToken(true, styleWarning, "warn  "),
+		applyStyleToken(true, styleDanger, "fail  "),
+	} {
+		if !strings.Contains(value, want) {
+			t.Fatalf("doctor output %q lacks %q", value, want)
+		}
+	}
+	for _, ordinary := range []string{"Environment check", "runtime", "configuration", "policy", "runtime is available", "using defaults", "policy test failed"} {
+		for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
+			if strings.Contains(value, applyStyleToken(true, token, ordinary)) {
+				t.Fatalf("doctor ordinary text %q used %s: %q", ordinary, token, value)
+			}
+		}
+	}
+}
+
 func TestHumanErrorUsesSemanticTokensAndExactRecovery(t *testing.T) {
 	payload := errorPayload{
 		Kind:        fault.KindUnavailable,
@@ -166,11 +206,14 @@ func TestHumanErrorUsesSemanticTokensAndExactRecovery(t *testing.T) {
 	for _, want := range []string{
 		applyStyleToken(true, styleDanger, "✗"),
 		applyStyleToken(true, styleDanger, "cluster is not running"),
-		applyStyleToken(true, styleAccent, "tobari cluster up — Start the shared cluster."),
+		applyStyleToken(true, styleAccent, "tobari cluster up"),
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("colored error %q lacks %q", output, want)
 		}
+	}
+	if strings.Contains(output, applyStyleToken(true, styleAccent, "— Start the shared cluster.")) {
+		t.Fatalf("colored error accents recovery explanation: %q", output)
 	}
 }
 
