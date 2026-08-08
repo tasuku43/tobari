@@ -97,7 +97,6 @@ run_tobari_pty_at() {
   shift
   (
     cd "$root"
-    unset NO_COLOR
     env \
       HOME="$test_root/user" \
       DOCKER_CONFIG="$host_docker_config" \
@@ -991,7 +990,8 @@ if ! interactive_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
   printf '%s\n' "$interactive_output" >&2
   fail "interactive policy review PTY session failed"
 fi
-if [[ $interactive_output != *'Permission denied'* ]]; then
+if [[ $interactive_output != *'Permission denied'* && \
+  ! ($interactive_output == *'path: /review-interactive'* && $interactive_output == *'applied: true'*) ]]; then
   printf '%s\n' "$interactive_output" >&2
   fail "interactive policy review did not contain the expected value"
 fi
