@@ -88,11 +88,11 @@ wait_network_membership() {
   local network=$1
   local container=$2
   local _
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 60); do
     if network_contains_container "$network" "$container"; then
       return 0
     fi
-    sleep 0.1
+    sleep 0.5
   done
   return 1
 }
@@ -902,6 +902,7 @@ docker network create --internal --subnet 11.254.43.0/24 "$auth_network" >/dev/n
 docker network connect "$auth_network" tobari-gateway
 docker run -d \
   --name "$auth_mock_name" \
+  --user "$(id -u):$(id -g)" \
   --network "$auth_network" \
   --network-alias api.synthetic.example \
   --read-only \

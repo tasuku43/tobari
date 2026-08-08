@@ -455,7 +455,9 @@ The test suite has complementary levels:
   ownership of ANSI and styling behavior. Positive Docker network-membership
   assertions use a bounded convergence read after service health; negative
   topology assertions remain immediate so an unwanted attachment cannot be
-  hidden by retry.
+  hidden by retry. The owner-only synthetic TLS key is generated and consumed
+  under one explicit fixture UID/GID; the harness does not broaden its file or
+  parent-directory modes to accommodate an image-default user.
 - Parent-owned blind E2E runs use `scripts/pty-evidence.py` when raw terminal
   evidence is required. The runner allocates a real PTY, sets explicit
   rows/columns and `TERM`, applies a timestamped short-input schedule, and
