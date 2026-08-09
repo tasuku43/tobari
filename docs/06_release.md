@@ -63,7 +63,7 @@ Unix socket paths, Gateway/Auth Broker image labels, and preservation of each
 Tobari home volume by default. `cluster down` and `cluster down --purge` also
 preserve encrypted Context vaults and the installation root key; purge adds
 only shared CA-volume removal.
-This slice uses Gateway and Auth Broker image API labels 2, Gateway OPA input
+This slice uses Gateway image API label 3 and Auth Broker image API label 2, Gateway OPA input
 schema 5, cluster status JSON schema 4 (including always-present
 `credential_companion_state`), and Context report JSON schema 6. Auth
 command JSON, broker protocols, and private companion epoch/frames remain
@@ -115,13 +115,17 @@ immutable commit tag, while Claude and Codex variants are local/CI build
 artifacts only. The repository does not claim a public agent image, stable
 support window, SBOM/attestation, or redistribution approval until a new
 release decision accepts those claims. The Gateway and Auth Broker source/image
-checks are implemented. The reviewed API-v2 Gateway and Auth Broker indexes
-built from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8`
-satisfy the image handoff: anonymous access, Linux amd64/arm64 members,
-API/role metadata, non-root `1000:1000` users, and entrypoints were
-independently inspected. `versions.env` records Gateway
+checks are implemented. The currently reviewed published indexes were built
+from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8` and expose
+Gateway API 2 and Auth Broker API 2. This source tree now requires Gateway API
+3 for declared GraphQL enforcement; publication and routine pin replacement
+remain a separate release action. Until that handoff is reviewed, use the
+source-built development Gateway for validation and do not describe the API-2
+Gateway digest as compatible with this revision. The prior evidence established
+anonymous access, Linux amd64/arm64 members, API/role metadata, non-root
+`1000:1000` users, and entrypoints. `versions.env` still records the prior Gateway
 `sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
-and Auth Broker
+and the current compatible Auth Broker
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`.
 A moving tag or successful workflow does not make a digest reviewed runtime
 authority by itself.
