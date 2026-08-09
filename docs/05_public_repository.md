@@ -99,7 +99,7 @@ support promises before maintainers invite external users.
 - Verify dependency integrity, licenses, and known vulnerabilities.
 - For the Auth Broker image, verify canonical/snapshot equality, bridge and
   protocol tests, non-root construction, and absence of every provider CLI or
-  provider configuration file. Host GitHub/AWS drivers are Go infrastructure,
+  provider configuration file. Host GitHub/AWS/pup drivers are Go infrastructure,
   not Broker image artifacts; tests and image layers must contain no live SSO
   or console-login cache, token, temporary credential, or signed-request material.
 - For the public base runtime, retain its pre-change GitHub CLI and AWS CLI

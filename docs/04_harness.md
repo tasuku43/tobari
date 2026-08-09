@@ -91,7 +91,7 @@ ordinary immutable-image checks as Gateway.
 Companion coverage is split across Go and Python without creating a public
 command surface. Go tests fix private same-binary bootstrap, exact verified
 Broker container/`docker exec` argv, root-key-derived epoch preparation,
-process lifetime, fixed host GitHub/AWS driver argv/environment, executable
+process lifetime, fixed host GitHub/AWS/pup driver argv/environment, executable
 identity, private-home cleanup, cancellation, output/state bounds, and redacted
 errors. Python tests fix the Broker-private bridge, authenticated handshake,
 direction keys, exact sequence/replay/gap rules, frame limits, closed message
@@ -183,11 +183,12 @@ unchanged.
 Auth Broker readiness is split deliberately. The required agent-readiness
 scenario delegates its reproducible synthetic authentication proof to `task
 integration:test`; that command is required evidence, not an optional adjacent
-check. It uses synthetic credentials, mocked host GitHub/AWS CLI results, a fake
-companion, and local HTTP fixtures and makes no live provider call. The manual transcript does not
+check. It uses synthetic credentials, mocked host GitHub/AWS/pup CLI results,
+fixed Datadog refresh fixtures, a fake companion, and local HTTP fixtures and
+makes no live provider call. The manual transcript does not
 duplicate synthetic broker manipulation.
 
-A release candidate also receives manual trusted-host GitHub and AWS
+A release candidate also receives manual trusted-host GitHub, AWS, and Datadog
 validations. Run
 `auth login github` with a test account, inspect secret-free `auth status`, and
 re-enter a Context-bound Workspace. Inside it, perform the following no-print
@@ -489,15 +490,17 @@ The test suite has complementary levels:
   rehydration, encrypted opaque AWS driver state, pre-execution durable task
   barriers, restart-safe no-replay, bounded per-record single-flight waiting,
   stale refresh rejection, transient role credentials, and same-revision
-  SigV4 signing. Tests use synthetic values and make no network call.
-- GitHub/AWS acquisition UX tests split the trusted host and Broker boundaries:
+  SigV4 signing, strict encrypted Datadog pup OAuth state, post-policy token
+  selection, fixed refresh exchange, and outcome-unknown barriers. Tests use
+  synthetic values and make no network call.
+- GitHub/AWS/Datadog acquisition UX tests split the trusted host and Broker boundaries:
   canonical executable/digest selection, fixed argv, sanitized environment,
   bounded control-safe streams/state, checked private-home cleanup, and cancellation preserve the
   prior credential on failure. GitHub output recognizes only the fixed device
   URL and its argv contains no Git protocol or credential-setup request. AWS
   uses only fixed device-code login and typed credential-export argv; login
-  state excludes request region. Neither provider CLI exists in the Broker
-  image.
+  state excludes request region. Datadog uses fixed US1 pup login and strict
+  file-backed state capture. No provider CLI exists in the Broker image.
 - Workspace auth projection tests prove one configured Context credential
   produces distinct project-bound handles, injects only declared environment
   or complete-file data, refuses to overwrite unowned/modified/symlinked files,
@@ -648,7 +651,8 @@ Every strong statement should identify its enforcement path.
 | Post-policy credential resolution | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve on deny, one same-revision resolve after allow, exact header replacement, and no-secret canaries |
 | Credential companion boundary | Private same-binary bootstrap, exact verified-container reverse-exec argv, root-key-derived epoch, authenticated direction/sequence/replay/size tests, closed driver message set, no-listener/no-socket-mount topology, receipt-only cancel acknowledgments, terminal-result settlement, bounded peer-not-reading writes and teardown, drain/disconnect behavior, redacted failures, and no channel key/FD inheritance by driver children |
 | Post-policy AWS signing | Strict placeholder/scope/authority recognition, body-free OPA input, zero companion/refresh/sign on deny, bounded body capture after allow, exact authority/method/path/query/header snapshot comparison before refresh, mutation canaries with zero sign calls, one fixed host credential export, bounded per-record single-flight, pre-call encrypted task barrier, restart-safe outcome-unknown rejection, non-retryable HTTP 409 mapping, stale-result rejection, published SigV4 vectors, exactly one same-revision sign/forward, and fail-closed presign/SigV4a/stream/custom-endpoint canaries |
-| Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, identity-checked private nonblocking terminal input with Darwin/Linux real-PTY cancellation/deadline, readiness-flush/EAGAIN, inherited-flag isolation, noncanonical VMIN/VTIME rejection, complete-profile coverage, and zero driver/Broker calls, conventional non-project host installation-root selection, canonical GitHub/AWS executable identity, fixed argv and environment, control-safe provider-output projection, exact fixed-URL and region-bound AWS console URL recognition with duplicate/cross-region rejection and manual fallback, checked private-home cleanup including setup and successful acquisition, TTY enforcement, complete fault inventory, all non-retryable mutation-unknown reconciliation paths, cancellation/failure preservation, required synthetic integration proof, and manual live exact-handle validation |
+| Post-policy Datadog OAuth | Exact schema-2 US1 bearer binding, zero token selection/refresh on deny, same-revision resolve after allow, five-minute refresh window, strict fixed-endpoint/no-proxy/no-redirect exchange, bounded response, per-record single-flight, pre-call encrypted task barrier, restart-safe outcome-unknown rejection, non-retryable HTTP 409 mapping, stale-result rejection, and exactly one token replacement/forward |
+| Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, identity-checked private nonblocking terminal input with Darwin/Linux real-PTY cancellation/deadline, readiness-flush/EAGAIN, inherited-flag isolation, noncanonical VMIN/VTIME rejection, complete-profile coverage, and zero driver/Broker calls, conventional non-project host installation-root selection, canonical GitHub/AWS/pup executable identity, fixed argv and environment, control-safe provider-output projection, strict default-US1 pup state capture, exact fixed-URL and region-bound AWS console URL recognition with duplicate/cross-region rejection and manual fallback, checked private-home cleanup including setup and successful acquisition, TTY enforcement, complete fault inventory, all non-retryable mutation-unknown reconciliation paths, cancellation/failure preservation, required synthetic integration proof, and manual live exact-handle validation |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/host/port/method/path candidate aggregation with latest/count and legacy-count compatibility, Context-scoped reference validation, single-reference allow/deny/reset round trips, bounded typed TTY staging with one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, GraphQL compaction rejection, raw-body privacy canaries, and zero-upstream integration |

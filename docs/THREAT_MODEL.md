@@ -26,7 +26,7 @@ Trusted:
 - the host user and OS, Docker Engine or its Linux VM, container runtime, and
   kernel;
 - Tobari CLI, embedded runtime assets, host lifecycle code, resident credential
-  companion, reviewed host GitHub/AWS drivers, owner-only XDG state, and the
+  companion, reviewed host GitHub/AWS/pup drivers, owner-only XDG state, and the
   platform-defined host root-key backend;
 - Gateway and its private CA state, OPA and the activated Rego projection, and
   the owner-only principal registry;
@@ -63,6 +63,7 @@ an exact live broker binding, and an OPA allow.
 | OPA policy and decision API | Workspace reads, changes, or bypasses policy | Control network and read-only projection | OPA joins only control; Workspaces do not; OPA receives a validated read-only aggregate generated from host-owned Context sources |
 | Auth Broker control and runtime APIs | Workspace acquires or resolves a primary secret directly | Separate Unix sockets and mounts | Broker exposes no TCP listener and joins no Workspace network; host control uses a private control socket and only Gateway mounts the runtime socket |
 | Host credential companion | Workspace or network input turns refresh into host execution, replays a session, or reaches a listener | Private same-binary process plus authenticated reverse exec | No listener or host socket mount; fixed verified Broker container/exec argv; root-key-derived epoch, direction keys, strict sequence/frame/deadline schemas, and only the compiled reviewed AWS refresh operation |
+| Broker-owned Datadog refresh | Workspace input redirects OAuth refresh, uses ambient proxy state, or triggers refresh before allow | Fixed schema-2 plan and post-policy Broker boundary | Exact US1 HTTPS token endpoint, no redirect or ambient proxy, bounded strict form exchange, same-revision per-record single-flight, encrypted durable task barrier, and no refresh on OPA denial |
 | Installation root key and encrypted Context vaults | Workspace obtains primary credentials or corrupts credential authority | Host root-key backend, authenticated encryption, and owner-only state | Broker starts locked; the 32-byte key enters through bounded stdin, stays in broker memory, and is never mounted into a Workspace; schema-1 vaults use AES-256-GCM with Context-bound associated data and checked atomic writes |
 | Project-bound broker capability | A copied, stale, or malformed handle resolves a real credential | Gateway recognition, principal registry, and Broker binding | Handle must match Context, project, provider, credential revision, exact HTTPS target, source syntax, destination transformation, and redaction binding; invalid markers fail closed without fallback |
 | Tool-owned authentication | Another Workspace reads or reuses it | Per-Workspace home and network | Tool state remains in that Workspace's exact home; all processes in the same Workspace may read it |
@@ -270,7 +271,7 @@ fallback only when no marker appears in any inspected URL/header position.
 ### Credential acquisition versus network authority
 
 `auth login` and `auth import` acquire or replace one credential for one
-Context/provider. Login is limited to reviewed fixed host GitHub/AWS drivers;
+Context/provider. Login is limited to reviewed fixed host GitHub/AWS/pup drivers;
 owner-controlled providers use protected non-terminal stdin import. Strict
 schema-1 manifests are non-executable declarations of handle projection and
 exact HTTPS/header transformation: they cannot name a shell command or add
@@ -283,7 +284,8 @@ Each host driver resolves one canonical executable and binds its digest, uses
 fixed argv and a sanitized environment, and creates a private bounded temporary
 home. GitHub captures one API token and configures no Git transport. AWS packs
 opaque CLI cache state; request region remains separate Context/tool
-configuration. Auth Broker contains no provider CLI or provider home. A
+configuration. Datadog captures one strict default-US1 pup DCR client, token,
+and session state. Auth Broker contains no provider CLI or provider home. A
 manifest, repository, Workspace, request, or provider response cannot select a
 driver, executable path, argv, environment key, or shell.
 
@@ -299,6 +301,13 @@ Non-secret provider metadata does not inherit a broader static host/method
 allow: a brokered effect remains denied until an exact Context/project-bound
 L7 rule covers it.
 
+On Datadog allow, Broker resolves the same revision and selects an access token
+only while it remains outside the five-minute pup refresh window. Otherwise it
+persists a task barrier and makes one fixed, bounded, proxy-free,
+redirect-rejecting refresh request to the US1 token endpoint. A strict response
+replaces encrypted state atomically; an unknown outcome remains barred until
+explicit Datadog re-login or logout.
+
 ### Companion replay, crash, or stale refresh
 
 An attacker replays a frame, skips a sequence, replaces the resident process,
@@ -311,21 +320,23 @@ partial, timed-out, or failed write closes the whole session before any later
 sequence number can be used. Close and invalidation interrupt blocked writes.
 The bridge parses, logs, and persists nothing.
 
-AWS refresh is single-flight per credential record with a one-second queue
-wait. Expiry is known pre-execution and creates no barrier or companion call.
-Broker atomically stores the task digest in the encrypted record before host
-execution and clears it only with the same correlated successful state commit.
+AWS and Datadog refresh are single-flight per credential record with a
+one-second queue wait. Queue expiry is known pre-execution and creates no
+barrier or provider call. Broker atomically stores the task digest in the
+encrypted record before AWS host execution or Datadog HTTPS refresh and clears
+it only with the same correlated successful state commit.
 An unknown outcome therefore remains barred across Broker restart. Broker does
 not hold its installation-wide state mutex over host/provider I/O and rechecks record,
 revision, driver identity, and request/task digest before committing returned
 opaque state or using the temporary lease. Replacement or logout therefore
-wins. A disconnect after dispatch is outcome-unknown, maps to non-retryable
+wins. A companion disconnect or Datadog transport ambiguity after dispatch is
+outcome-unknown, maps to non-retryable
 HTTP 409, and is not blindly replayed. After the request settles, `auth status`
-distinguishes `broker_state=ready` with AWS `configured`, for which an
+distinguishes `broker_state=ready` with the affected provider `configured`, for which an
 explicit user retry is safe because Gateway made no upstream attempt, from
-barred AWS `not_configured` state that requires re-login or logout. The stable
-recovery is host `cluster up` for known pre-execution companion unavailability
-or a locked/unavailable status.
+barred `not_configured` state that requires provider re-login or logout. The
+stable recovery is host `cluster up` for known pre-execution companion
+unavailability or a locked/unavailable status.
 
 ### Broker lock, key, and vault failure
 
@@ -456,7 +467,7 @@ protocols, multiple clusters or mutually untrusted tenants, a per-project
 static baseline, remote execution, filesystem overlays or root locks,
 process-level identity, stronger root-key isolation, additional executable
 host drivers, a host listener or socket mount, new credential shapes, any
-refresh/signing flow beyond the reviewed AWS driver, general TWG
+refresh/signing flow beyond the reviewed AWS and Datadog plans, general TWG
 authentication, multiple provider accounts, arbitrary provider operations, or
 provider-specific policy semantics. A demonstrated route from one Workspace to
 another, OPA, Auth Broker, the companion, or an external destination without

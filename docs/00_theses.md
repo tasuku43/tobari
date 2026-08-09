@@ -221,7 +221,7 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   plans; owner manifests still contain no secrets, executable shell, refresh
   logic, or signer and remain single-secret protected-stdin imports.
 - Provider-native executables do not enter the Auth Broker image. Reviewed
-  GitHub and AWS acquisition drivers execute fixed argv against verified host
+  GitHub, AWS, and Datadog pup acquisition drivers execute fixed argv against verified host
   CLI identities in private temporary homes with sanitized environments. The
   GitHub driver is API-authentication-only, opens exactly the fixed device page
   or leaves the same manual URL, and configures no Git protocol or credential
@@ -232,6 +232,10 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   region-bound AWS authorization URL emitted by that fixed process and leaves
   the same terminal URL as fallback. Neither method reads an ambient AWS home
   or starts a callback listener.
+  Datadog runs pup's fixed US1 OAuth PKCE/DCR flow in an isolated file-backed
+  home; pup alone opens the generated consent URL and owns the bounded loopback
+  callback. Tobari accepts only strict default-session state and deletes the
+  home on every outcome.
 - One resident trusted-host companion uses the current Tobari executable's
   private same-binary mode. It reaches an unmounted Broker-private socket only
   through a fixed reverse `docker exec -i` stream protected by a root-key-
@@ -239,7 +243,7 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   container listener, mounts no host socket or provider home, accepts no
   repository-selected executable/argv, and is unreachable from Workspaces,
   Gateway, and OPA. Its only provider operation in this slice is the
-  post-policy AWS credential export; interactive GitHub/AWS login runs directly
+  post-policy AWS credential export; interactive GitHub/AWS/Datadog login runs directly
   through context-bound host drivers.
 - The macOS root-key provider stores one installation key in Keychain. Linux
   uses an owner-only XDG state file and makes no host-user-compromise claim.
@@ -252,15 +256,18 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   brokered request does not inherit a broad static host/method allow; its first
   exact L7 effect remains reviewable until the host installs one exact learned
   rule.
-- Refresh and signing are permitted only for a finite reviewed built-in plan.
-  The first is a refreshable AWS CLI session plus standard SigV4. Acquisition
+- Refresh and signing are permitted only for finite reviewed built-in plans.
+  One is a refreshable AWS CLI session plus standard SigV4. Acquisition
   is either the reviewed IAM Identity Center device flow or AWS console-based
   local-development login: Auth Broker owns
   encrypted opaque AWS CLI state, handle/revision authority, and signing; only
   after OPA allow does the companion run the fixed host AWS credential export.
   Broker rechecks the record/revision, persists any refreshed opaque state,
   and signs the unchanged bounded request. Request region is Context/tool
-  configuration, not login state. Arbitrary OAuth, manifest-selected helpers/
+  configuration, not login state. The second is Datadog's fixed US1 pup OAuth
+  state: after OPA allow Broker returns a still-valid bearer or performs one
+  exact proxy-free, no-redirect token refresh behind a durable barrier.
+  Arbitrary OAuth, manifest-selected helpers/
   signers, general TWG refresh, SigV4a, presigning, provider-operation
   inference, and Git credential helpers remain outside the slice.
 
@@ -274,7 +281,7 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   recovery, is unavailable to another Tobari, and is removed by exact delete.
   Broker tests prove encrypted Context ownership, project-specific handles,
   restart locking, rotation, revocation, and canary-free output.
-- Acquisition tests fix the GitHub and AWS host executable identity, argv,
+- Acquisition tests fix the GitHub, AWS, and pup host executable identity, argv,
   environment, conventional non-project installation-root selection,
   control-safe visible output, checked private-home cleanup, purpose-limited
   fixed or parameterized browser target, manual fallback, cancellation, and

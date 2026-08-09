@@ -83,7 +83,7 @@ trusted host
   Tobari CLI ── Docker CLI ── Docker Engine
        │
        ├── fixed control exec/stdin ────────────────┐
-       ├── reviewed fixed host GitHub/AWS login drivers
+       ├── reviewed fixed host GitHub/AWS/pup login drivers
        ├── private credential companion ── fixed host AWS refresh driver
        │       └── encrypted reverse docker exec ── Broker-private bridge
        ├── root A (rw) ── CWD-owned Tobari A ── internal network A ──┐
@@ -415,12 +415,12 @@ image on the next `tobari` entry without losing their home.
 - `credential_handle_invalid` (HTTP 403): leave and re-enter the Workspace to
   receive the current project-bound handle. `credential_broker_unavailable`
   (HTTP 503) requires host-side `cluster up` before another request.
-- `credential_refresh_outcome_unknown` (HTTP 409): do not rely on AWS automatic
+- `credential_refresh_outcome_unknown` (HTTP 409): do not rely on caller automatic
   retry. After the request settles, run `tobari auth status`. If
-  `broker_state=ready` and AWS is `configured`, Gateway made no upstream
-  attempt and you may explicitly retry the task. If AWS is `not_configured`,
-  repeat `tobari auth login aws` (or logout), then leave and re-enter the
-  Workspace; that state identifies a durable refresh barrier.
+  `broker_state=ready` and the affected AWS or Datadog provider is `configured`,
+  Gateway made no upstream attempt and you may explicitly retry the task. If it
+  is `not_configured`, re-login or logout that provider, then leave and re-enter
+  the Workspace; that state identifies a durable refresh barrier.
 - A learnable `403`: leave the session and run `tobari policy review`. On a TTY,
   inspect the request and explicitly confirm allow or deny; the review flow
   applies the exact decision and tells you to re-enter. Redirected or machine
@@ -622,8 +622,9 @@ ordinary root invocation.
 
 The toolbox contains no credentials and does not mount host CLI configuration.
 Use Auth Broker where an exact supported provider binding exists; otherwise
-tool-owned state stays in that Tobari's persistent home. Static Chatwork,
-Datadog, and Kubernetes credentials use bounded broker manifests. TWG delegated
+tool-owned state stays in that Tobari's persistent home. Chatwork and
+Kubernetes use bounded static broker manifests; Datadog uses the reviewed
+fixed-US1 pup OAuth plan. TWG delegated
 OAuth is supported only by the bounded owner-manifest example for calls that
 remain on `api.atlassian.com:443`, with no login or refresh claim; general TWG
 authentication remains unsupported. Git over HTTPS
@@ -883,7 +884,7 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari context use --name NAME` | Change only the current/default Context without mutating existing Tobari or Docker |
 | `tobari runtime init [--format text\|json]` | Create the current Context's runtime/Dockerfile template |
 | `tobari runtime build [--format text\|json]` | Build, validate, and select the current Context runtime image |
-| `tobari auth login PROVIDER [--method identity-center\|console] [--context NAME] [--format text\|json]` | Acquire one supported provider credential through a reviewed fixed trusted-host CLI driver; AWS omission uses IAM Identity Center and `console` selects AWS CLI console-based local-development login |
+| `tobari auth login PROVIDER [--method identity-center\|console] [--context NAME] [--format text\|json]` | Acquire one supported provider credential through a reviewed fixed trusted-host CLI driver; AWS omission uses IAM Identity Center, `console` selects AWS CLI console login, and Datadog uses default-organization US1 pup OAuth |
 | `tobari auth import PROVIDER [--context NAME] [--format text\|json]` | Import one bounded opaque provider credential from protected non-terminal stdin only |
 | `tobari auth status [--context NAME] [--format text\|json]` | Inspect exhaustive secret-free provider and broker state for one Context |
 | `tobari auth logout PROVIDER [--context NAME] [--format text\|json]` | Remove one local Context/provider credential and revoke every issued handle without remote logout |
@@ -1093,7 +1094,7 @@ is isolated from other Tobaris, and is removed by exact `tobari delete`.
 
 The Auth Broker path instead acquires one typed credential on the trusted host
 for an explicit or current Context. Reviewed interactive built-ins are
-GitHub.com and two explicit AWS CLI methods:
+GitHub.com, two explicit AWS CLI methods, and Datadog US1 through pup OAuth:
 
 ```sh
 tobari cluster up
@@ -1114,6 +1115,13 @@ tobari auth logout aws --context default
 tobari auth login aws --method console --context default
 # Visit the printed AWS sign-in URL and paste the returned authorization code.
 tobari                 # re-enter; the same handle/SigV4 path applies
+
+tobari auth login datadog --context default
+# Complete pup's ordinary Datadog browser consent and loopback callback.
+tobari                 # re-enter to receive DD_ACCESS_TOKEN=<project handle>
+pup users --no-agent --read-only list
+exit
+tobari auth logout datadog --context default
 ```
 
 `auth login github` runs a reviewed fixed driver around the trusted host's
@@ -1133,6 +1141,17 @@ URL when possible and preserves the terminal URL as fallback. Each method has
 a distinct strict opaque state shape encrypted in the Context vault. Request region remains ordinary non-secret Context/tool
 configuration or an explicit AWS CLI option. Unsupported partitions remain
 excluded.
+
+`auth login datadog` resolves and hashes the trusted host's pup executable,
+runs fixed `pup --no-agent auth login --site datadoghq.com` with a private
+file-backed home, and accepts only one default-organization US1 DCR/token
+session. Pup owns the browser consent and bounded loopback callback; Tobari
+deletes the temporary pup home after capturing strict canonical state. The
+Workspace sees only `DD_ACCESS_TOKEN=<project handle>` and fixed
+`DD_SITE=datadoghq.com`. After an exact OPA allow, Auth Broker selects a valid
+access token or performs one bounded, single-flight refresh against the fixed
+US1 token endpoint. Refresh state remains encrypted, and pup is not installed
+in Auth Broker.
 
 After `cluster up`, a resident private companion uses the same Tobari binary
 and an authenticated encrypted reverse `docker exec` channel to serve only
@@ -1218,10 +1237,11 @@ environment/complete-file templates and exact HTTPS header transformations;
 they cannot add policy, arbitrary routes, methods/paths, refresh, signing,
 provider operations, or a built-in override.
 
-Built-in protected-stdin providers support cwk at exact
-`api.chatwork.com:443` through `CWK_API_TOKEN`, and pup's bearer-token commands
-at exact US1 `api.datadoghq.com:443` through `DD_ACCESS_TOKEN`. Import values
-with `tobari auth import chatwork|datadog`, then re-enter the Workspace.
+The built-in protected-stdin provider supports cwk at exact
+`api.chatwork.com:443` through `CWK_API_TOKEN`; import it with
+`tobari auth import chatwork`, then re-enter the Workspace. Datadog is no
+longer a new-import path: use `tobari auth login datadog`. Existing encrypted
+legacy Datadog imports remain readable for compatibility.
 
 The repository also includes bounded owner-manifest examples for kubectl and
 TWG. The Kubernetes example creates one complete CA-verified kubeconfig for one
@@ -1359,10 +1379,10 @@ Common failures:
 - `credential_handle_invalid` (HTTP 403): leave and re-enter the selected
   Context's Workspace. `credential_broker_unavailable` (HTTP 503) requires
   host-side broker reconciliation before another request.
-- `credential_refresh_outcome_unknown` (HTTP 409): do not replay the AWS task;
+- `credential_refresh_outcome_unknown` (HTTP 409): do not replay the task;
   after it settles, run `tobari auth status`. Explicitly retry only when
-  `broker_state=ready` and AWS is `configured`; for `not_configured`, repeat
-  `tobari auth login aws` (or logout) and re-enter first.
+  `broker_state=ready` and the affected AWS or Datadog provider is `configured`;
+  for `not_configured`, re-login or logout that provider and re-enter first.
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`.
 - `tty_required`: run the root `tobari` command from an interactive terminal.
@@ -1426,8 +1446,8 @@ deny-before-resolution, fail-closed outages, CWD resolution, runtime recovery,
 typed denial recovery, tested host-policy activation, terminal exit behavior,
 concurrency, idempotency, and exact cleanup. Automated auth tests use only
 synthetic credentials; `task integration:test` is the required reproducible
-Auth Broker proof. Live GitHub and AWS logins are separate manual release
-scenarios, including no-print equality checks for the projected GitHub and AWS
+Auth Broker proof. Live GitHub, AWS, and Datadog logins are separate manual release
+scenarios, including no-print checks for projected GitHub, AWS, and Datadog
 handles, in
 [Agent Readiness Validation](docs/09_agent_readiness_validation.md).
 

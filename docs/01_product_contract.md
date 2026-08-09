@@ -111,11 +111,14 @@ non-learnable and cannot become policy candidates.
   AWS provider stores encrypted opaque AWS CLI state acquired through one
   explicitly selected reviewed host flow; derived credentials are transient and are
   never persisted.
+  The Datadog provider stores strict encrypted pup OAuth client/token state
+  acquired through the fixed US1 host flow; only a post-policy access token is
+  request-local and near-expiry state refreshes automatically.
 - **credential companion:** one resident trusted-host process entered through
   the current Tobari executable's private same-binary mode. It accepts only the
   reviewed post-policy AWS refresh operation and exchanges bounded
   authenticated frames with an unmounted Broker-private socket over a reverse
-  `docker exec` stream. Interactive GitHub/AWS login runs through direct
+  `docker exec` stream. Interactive GitHub/AWS/Datadog login runs through direct
   context-bound host drivers, not companion RPC. The companion has no public
   command, host listener, provider-selected executable, or Workspace-visible
   secret surface.
@@ -196,7 +199,7 @@ The public commands are:
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
-| `auth login PROVIDER [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; AWS method omission preserves the fixed IAM Identity Center device flow and `console` selects fixed cross-device AWS CLI local-development login |
+| `auth login PROVIDER [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; AWS method omission preserves the fixed IAM Identity Center device flow, `console` selects fixed cross-device AWS CLI local-development login, and Datadog selects fixed default-organization US1 pup OAuth |
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
 | `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection and broker state for one Context without reading secrets |
 | `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles without contacting the provider |
@@ -286,7 +289,7 @@ undeclared Docker mutation by the CLI.
   `task build:dev` without changing the normal binary's selectors.
 - Authentication commands accept only an existing Context name and installed
   provider ID. `auth login` is interactive and supports the reviewed built-in
-  `github` and `aws` host drivers. GitHub shows its device code and the trusted
+  `github`, `aws`, and `datadog` host drivers. GitHub shows its device code and the trusted
   host opens exactly `https://github.com/login/device` when possible. AWS
   requires explicit `identity-center` or `console` selection, with omission
   meaning `identity-center`. Identity Center asks for one validated start URL,
@@ -294,7 +297,9 @@ undeclared Docker mutation by the CLI.
   regional device URL and one-time code. Console mode requires AWS CLI 2.32 or
   newer, asks for one commercial AWS region, runs fixed `aws login --remote`,
   opens only the exact region-bound AWS authorization URL when possible, and
-  leaves that same URL for manual cross-device completion. Auth Broker
+  leaves that same URL for manual cross-device completion. Datadog uses fixed
+  host pup OAuth for US1, with pup-owned browser consent and loopback callback
+  in an isolated file-backed home. Auth Broker
   configures no Git or AWS CLI state in a Workspace and contains no provider
   CLI executable. `auth import` accepts a non-empty
   credential of at most
@@ -784,6 +789,8 @@ Login runs the selected reviewed built-in host driver through an interactive
 trusted-host terminal. GitHub retains its purpose-limited fixed device-page
 open and no-Git behavior. AWS uses either a fixed validated IAM Identity Center
 profile/device flow or a fixed AWS CLI 2.32-or-newer console-based remote flow.
+Datadog uses fixed `pup --no-agent auth login --site datadoghq.com`, accepts
+only strict default-session state, and removes the isolated home afterward.
 Both print only bounded, control-safe guidance; their opaque cache and selected
 session commit only into the encrypted Context
 vault. Neither driver reads an ambient provider home or writes project or
@@ -802,7 +809,11 @@ failure with no barrier or companion call. After acquiring the lock and before
 host execution, Broker atomically persists an encrypted task barrier; only the same
 correlated successful result clears it with refreshed state. A post-call
 revision comparison discards a result made stale by replacement or logout, and
-an unknown result requires AWS re-login rather than replay. Logout
+an unknown result requires AWS re-login rather than replay. Datadog resolve
+uses the same per-record lock and encrypted barrier after OPA allow; it returns
+a token with more than five minutes remaining or calls only the exact fixed
+US1 OAuth token endpoint without ambient proxies or redirects. An uncertain
+refresh requires Datadog re-login rather than replay. Logout
 atomically removes that record and its handles without contacting the provider.
 One credential is Context/provider-owned, every permanently bound project is
 eligible for a distinct handle only on its next matching Workspace entry, and
@@ -840,14 +851,15 @@ The deliberate non-goals in [Project Theses](00_theses.md) are not hidden
 commands or transport escape hatches. In particular, Tobari does not promise to
 control non-proxy-aware traffic semantically; it prevents all direct egress and
 supports HTTP/HTTPS through the explicit proxy only.
-The built-in slice supports one GitHub.com credential and one configured
-refreshable AWS CLI session per Context, acquired through IAM Identity Center
-or AWS console-based login. It does not add provider-specific policy
+The built-in slice supports one GitHub.com credential, one configured
+refreshable AWS CLI session, and one default-organization Datadog US1 pup OAuth
+session per Context. It does not add provider-specific policy
 semantics, multiple accounts per provider, remote revocation, Git credential
-helpers, GitHub App tokens, arbitrary OAuth, manifest-selected refresh/signing,
+helpers, GitHub App tokens, arbitrary or manifest-selected OAuth, manifest-selected refresh/signing,
 SigV4a, query presigning, AWS streaming signatures, custom AWS endpoints, or a
 general provider SDK/plugin executor. Standard AWS SigV4 is supported only for
 bounded requests to reviewed AWS HTTPS suffixes and is signed after OPA allow.
-The static TWG example covers only one delegated token at exact
+The Datadog plan does not support arbitrary scopes, sites, custom gateways, or
+named organizations. The static TWG example covers only one delegated token at exact
 `api.atlassian.com:443`; general TWG login, refresh, and its other authorities
 remain unsupported.

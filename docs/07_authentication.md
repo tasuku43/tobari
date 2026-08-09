@@ -135,8 +135,9 @@ derives direction-specific AES-GCM keys, and exact sequence numbers, frame
 bounds, deadlines, and a closed message set reject replay, gaps, ambiguity, and
 arbitrary execution. Gateway, OPA, Workspaces, and provider children receive no
 session key or channel descriptor. The only provider operation on this channel
-is post-policy AWS credential export; interactive GitHub/AWS login runs directly
-through context-bound host drivers.
+is post-policy AWS credential export; interactive GitHub/AWS/Datadog login runs
+directly through context-bound host drivers. Datadog's exact OAuth refresh is
+Broker-owned and does not use this channel.
 
 The broker starts locked after every creation or restart. `cluster up` reads or
 creates one 32-byte installation root key and sends it through stdin to unlock
@@ -194,7 +195,7 @@ XDG roots; macOS Keychain storage has no filesystem path.
 | Public cluster status | schema `4` | `root_key_backend` is `macos_keychain`, `xdg_file`, or diagnostic `unavailable`; always-present `credential_companion_state` is secret-free `ready`, `prepared`, `absent`, or `unavailable` |
 | Public Context report | schema `6` | Complete shell and Git identity policy plus secret-free broker/provider state; no vault path/content, root key, primary secret, or handle |
 | Owner provider manifest | `tobari.auth-provider.v1`; `schema_version: 1` | `${XDG_CONFIG_HOME:-$HOME/.config}/tobari/auth/providers/*.json` |
-| Reviewed built-in provider manifest | `schema_version: 1|2` | Embedded; schema 2 is reserved for typed built-in plans |
+| Reviewed built-in provider manifest | `schema_version: 1|2` | Embedded; schema 2 is reserved for typed built-in AWS signing and Datadog OAuth-session plans |
 | Normalized provider projection | schema `2` (schema `1` remains readable) | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/projection/providers.json` |
 | Encrypted Context vault | envelope schema `1`; payload schema `2` with strict static schema-1 migration | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/contexts/<context-id>/vault.enc` |
 | Linux installation root key | raw 32 bytes | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/keys/root.key` |
@@ -302,16 +303,31 @@ the same bytes can occur in URLs, bodies, cookies, and unrelated headers; only
 an exact declared header position has unambiguous credential semantics and a
 finite redaction contract.
 
-The built-in static providers are:
+The built-in provider plans are:
 
 - `github`: reviewed host driver `github-gh`, `GH_TOKEN=<handle>`,
   `GH_HOST=github.com`, and exact bearer/token replacement at
   `https://api.github.com:443`;
 - `chatwork`: protected-stdin import, `CWK_API_TOKEN=<handle>`, and exact raw
   `X-ChatWorkToken` replacement at `https://api.chatwork.com:443`; and
-- `datadog`: protected-stdin import, `DD_ACCESS_TOKEN=<handle>`, fixed
-  `DD_SITE=datadoghq.com`, and exact bearer replacement at
-  `https://api.datadoghq.com:443`.
+- `datadog`: reviewed host driver `pup-oauth`,
+  `DD_ACCESS_TOKEN=<handle>`, fixed `DD_SITE=datadoghq.com`, and exact bearer
+  replacement at `https://api.datadoghq.com:443` after post-policy access-token
+  selection or refresh.
+
+The schema-2 Datadog plan invokes only fixed
+`pup --no-agent auth login --site datadoghq.com` on the trusted host with
+`DD_TOKEN_STORAGE=file`, a private temporary home/configuration directory, and
+the ordinary pup scope set. It accepts one strict default US1 organization
+session plus DCR client and token state, records the canonical executable path
+and SHA-256 digest, and removes the temporary files. The Broker image contains
+no `pup` binary. A token with more than five minutes remaining is selected only
+after an exact OPA allow. Otherwise the Broker performs one per-record,
+single-flight, bounded form POST to the fixed US1 token endpoint with the
+stored public DCR client ID and refresh token, ambient proxies and redirects
+disabled. It atomically commits the replacement encrypted session at the same
+credential revision. A durable encrypted barrier prevents replay after any
+unknown refresh outcome; recovery is explicit Datadog re-login or logout.
 
 The built-in schema-2 `aws` provider retains compatibility helper ID `aws-sso`
 for its closed refreshable AWS CLI session plan. Public method selection maps to
@@ -354,10 +370,11 @@ TWG itself stays in the local toolbox pending redistribution permission.
 The optional locally built Context toolbox supplies `kubectl`, `cwk`, `pup`,
 and TWG while inheriting the published base's existing GitHub CLI and AWS CLI.
 This capability does not add those four tools to the public base or any
-provider CLI to Auth Broker. Binary placement and broker authority are separate:
-Chatwork, Datadog, one bounded Kubernetes bearer configuration, and the bounded
-delegated TWG authority use project-bound static handles with no automatic-
-refresh claim; general TWG remains unsupported.
+provider CLI to Auth Broker. Binary placement and broker authority are
+separate. Chatwork, one bounded Kubernetes bearer configuration, and the
+bounded delegated TWG authority use project-bound static handles with no
+automatic-refresh claim. Datadog uses the reviewed schema-2 pup OAuth-session
+plan above; general TWG remains unsupported.
 
 The exact normalized GitHub fields are:
 
@@ -518,7 +535,7 @@ commands.
 | `missing_runtime` | Run `doctor` and repair CLI runtime composition before another auth command. |
 | `credential_handle_invalid` (HTTP 403) | Leave and re-enter the Workspace for the current project-bound handle. A copied, malformed, stale, revoked, misplaced, ambiguous, or binding-mismatched handle is never forwarded and never falls back. |
 | `credential_broker_unavailable` (HTTP 503) | This is a known pre-execution availability class. A same-record AWS refresh waiter stops after one second without creating a barrier or calling the companion; retry after the current request settles. For cluster/companion absence, leave the Workspace, run `cluster up`, and retry only after readiness. |
-| `credential_refresh_outcome_unknown` (HTTP 409) | Do not let the AWS CLI or SDK automatically replay the request. After the original request settles, run `auth status`. If `broker_state=ready` and AWS is `configured`, Gateway made no upstream attempt and the user may explicitly retry the task. If AWS is `not_configured`, the encrypted record is durably barred across Broker restart: run `auth login aws` or logout, then leave and re-enter the Workspace before retrying. Reconcile `locked` or `unavailable` status first. |
+| `credential_refresh_outcome_unknown` (HTTP 409) | Do not let the caller automatically replay the request. After the original request settles, run `auth status`. If `broker_state=ready` and the affected AWS or Datadog provider is `configured`, Gateway made no upstream attempt and the user may explicitly retry the task. If it is `not_configured`, the encrypted record is durably barred across Broker restart: re-login or logout that provider, then leave and re-enter the Workspace before retrying. Reconcile `locked` or `unavailable` status first. |
 | `broker_signing_request_invalid` (HTTP 403) | The AWS request used an unsupported or ambiguous signing form. Use a standard bounded SigV4 header request to a reviewed AWS HTTPS authority; do not retry as presigned, SigV4a, streaming/event, custom-endpoint, or over-limit traffic. |
 
 The public result's `workspace_activation.state` is
@@ -541,9 +558,11 @@ vault path/content, root key, primary secret, or handle.
 ## Deliberate limits
 
 The supported slice has one built-in GitHub.com account, one configured AWS IAM
-Identity Center role, the exact Chatwork/Datadog static bindings, and
-owner-controlled single-secret import providers per Context. Host AWS CLI
-credential export plus standard Broker SigV4 is the sole dynamic plan. It excludes multiple
+Identity Center role, one default-organization Datadog US1 pup OAuth session,
+the exact Chatwork static binding, and owner-controlled single-secret import
+providers per Context. Host AWS CLI credential export plus standard Broker
+SigV4 and the fixed Broker-owned Datadog DCR refresh are the only dynamic
+plans. It excludes multiple
 accounts or roles per provider/Context, remote provider revocation, GitHub App
 tokens, Git credential helpers, arbitrary OAuth, provider-selected helpers,
 SigV4a, query presigning, streaming/aws-chunked/EventStream signatures,
@@ -565,12 +584,12 @@ and advanced static users may retain the managed adapter.
 - Auth Broker source/snapshot and image checks verify exact bytes,
   provider-CLI absence, bridge/protocol behavior, non-root labels/entrypoint,
   and Linux amd64/arm64 construction. Host-driver tests independently verify
-  canonical executable identity and fixed GitHub/AWS CLI contracts.
+  canonical executable identity and fixed GitHub/AWS/pup CLI contracts.
 - The official Auth Broker is a reviewed Linux amd64/arm64 OCI index selected
   by immutable manifest digest. Contributors use `task build:dev` and
   `tobari-auth-broker:dev` for explicit source validation; a development image
   or moving tag cannot become normal runtime authority.
-- A release candidate requires manual trusted-host GitHub and AWS checks.
+- A release candidate requires manual trusted-host GitHub, AWS, and Datadog checks.
   For GitHub: login to a
   test account, confirm the host driver opens the fixed device page without a
   Git credential prompt or Git configuration, confirm only secret-free status,
@@ -585,6 +604,12 @@ and advanced static users may retain the managed adapter.
   after the temporary lease expires to exercise automatic post-policy refresh,
   logout, and prove the old handle fails. Console validation additionally
   proves AWS CLI 2.32-or-newer preflight and fixed remote flow.
+  For Datadog: run fixed US1 pup login with a disposable default organization,
+  re-enter, verify without printing it that `DD_ACCESS_TOKEN` has the
+  `tobari-h1_` shape and `DD_SITE=datadoghq.com`, perform one OPA-allowed pup
+  read, repeat after the original access token enters its five-minute refresh
+  window, logout, and prove the old handle fails. The reviewer confirms pup's
+  private host configuration was removed and the Broker image contains no pup.
   `task integration:test` supplies the required reproducible synthetic Auth
   Broker proof. Credential values, SSO state, role credentials, signed headers,
   device codes, vaults, handles, and raw authenticated transcripts are never

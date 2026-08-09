@@ -2,12 +2,13 @@
 
 Tobari's enforcement contract remains the generic L7 request crossing
 Gateway: ordinary HTTP identity, plus GraphQL operation type and canonical
-root field at an exact trusted-host-declared endpoint. Reviewed trusted-host drivers add two bounded provider-facing
-acquisition flows: fixed GitHub CLI device login and fixed AWS CLI IAM Identity
-Center device login. Auth Broker owns encrypted state, handles, revisions, and
-signing; a resident private companion performs only post-policy AWS CLI
-credential export. This still adds no provider-specific policy operation or raw
-provider API surface.
+root field at an exact trusted-host-declared endpoint. Reviewed trusted-host
+drivers add three bounded provider-facing acquisition flows: fixed GitHub CLI
+device login, fixed AWS CLI IAM Identity Center login, and fixed pup OAuth login
+for the default Datadog US1 organization. Auth Broker owns encrypted state,
+handles, revisions, Datadog refresh, and AWS signing; a resident private
+companion performs only post-policy AWS CLI credential export. This still adds
+no provider-specific policy operation or raw provider API surface.
 
 ## OPA input
 
@@ -116,6 +117,21 @@ target/source/destination/redaction metadata. Deny sends no `resolve`; allow
 sends exactly one same-revision `resolve`, validates the full response, replaces
 only the declared destination header, and makes one upstream attempt.
 
+For the schema-2 Datadog plan, Gateway recognizes only an exact bearer handle
+at `https://api.datadoghq.com:443`, introspects the full declared schema-2
+binding, and obtains OPA allow before sending one same-revision `resolve`.
+Broker then selects an access token with more than five minutes remaining or
+performs one single-flight refresh. Refresh is an exact form POST to
+`https://api.datadoghq.com/oauth2/v1/token` with
+`grant_type=refresh_token`, the encrypted session's public DCR `client_id`, and
+its refresh token. It uses a 30-second total timeout, system TLS roots, no
+ambient proxy, and no redirect; it accepts only the strict bounded OAuth
+response and atomically replaces encrypted session state. A durable task
+barrier is persisted before network execution and cleared only with a verified
+commit. An unknown outcome disables the credential until Datadog re-login or
+logout. Gateway receives only the selected access token and applies it to the
+declared Authorization header before one upstream attempt.
+
 For the schema-2 AWS plan, Gateway accepts only an AWS4-HMAC-SHA256 header whose
 credential and security-token placeholders contain the same project handle,
 whose scope/date/signed-header structure is unambiguous, and whose target is
@@ -141,9 +157,10 @@ signing perform no companion call until explicit AWS re-login or logout.
 Gateway receives only the final authorization/date/session-token fields and
 applies them atomically before one upstream attempt.
 
-Static secrets and AWS role credentials are request-local and never enter
-policy input, audit, denial output, logs, retry state, Workspace mounts, or the
-provider projection. AWS role credentials are never persisted.
+Static secrets, Datadog OAuth tokens, and AWS role credentials are
+request-local and never enter policy input, audit, denial output, logs, retry
+state, Workspace mounts, or the provider projection. AWS role credentials are
+never persisted.
 
 The request body is never a credential source or replacement surface and is
 not scanned for handle-shaped bytes. A body containing a Workspace-readable
@@ -157,14 +174,15 @@ cancellation-resolution window. Broker-created refreshes use a 45-second
 default deadline so transport latency and bounded host/container clock offset
 cannot cross that hard maximum. Known pre-execution unavailability is HTTP 503
 `credential_broker_unavailable`. An explicit outcome-unknown result, a durable
-barrier, or loss/invalidity of the Broker response after `sign_sigv4` send begins
-is non-retryable HTTP 409 `credential_refresh_outcome_unknown`. Neither class
+barrier, or loss/invalidity of the Broker response after `sign_sigv4` or a
+Datadog refresh send begins is non-retryable HTTP 409
+`credential_refresh_outcome_unknown`. Neither class
 permits fallback with the same handle. The SDK must not automatically replay
 that response. After the original request has settled, the user runs
-`auth status`: `broker_state=ready` with AWS provider state `configured`
+`auth status`: `broker_state=ready` with AWS or Datadog provider state `configured`
 means no upstream attempt was made and an explicit retry of the user task is
-safe; AWS provider state `not_configured` means the durable barrier is present
-and requires AWS re-login or logout, followed by Workspace re-entry. An
+safe; provider state `not_configured` means the durable barrier is present and
+requires provider re-login or logout, followed by Workspace re-entry. An
 unavailable or locked status must be reconciled before making either decision.
 
 The companion opens no host/container listener. One fixed reverse
@@ -421,7 +439,8 @@ synthetic provider manifest is pinned as `auth-provider.v1` in
 `.harness/schemas.json` with MIT provenance and an exact digest. GitHub status
 tests use synthetic JSON and mock host subprocess results. AWS tests use
 synthetic credential-process JSON, opaque cache fixtures, fake companion
-frames, and signing canaries. Live GitHub and AWS logins are
+frames, and signing canaries. Datadog tests use strict synthetic pup state and
+fixed refresh-response fixtures. Live GitHub, AWS, and Datadog logins are
 manual release evidence and may not be recorded with tokens, SSO state, role
 credentials, signed headers, device codes, vaults, or raw authenticated output.
 
@@ -433,7 +452,8 @@ ordinary body-independent decisions, declared-endpoint no-fallback behavior,
 all-root GraphQL authorization, Context/project-bound learned rules, null versus
 broker-provider authorization metadata, and managed profile binding. Gateway
 tests independently prove handle removal, deny-before-resolve/sign, exact
-static replacement, two-stage same-revision AWS signing after allow and
+static replacement, same-revision Datadog token selection/refresh only after
+allow, two-stage same-revision AWS signing after allow and
 complete-body hashing, zero companion calls on deny, one bounded host export on
 allow, stale refresh rejection, and fallback compatibility. Companion tests
 prove authenticated direction/sequence/replay/frame contracts and no listener

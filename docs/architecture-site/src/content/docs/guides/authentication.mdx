@@ -12,17 +12,17 @@ import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
 Choose one explicit authentication path for the tool, then authorize its ordinary HTTP effects separately. A successful login or import never adds a network allow rule.
 
-After this guide, you should be able to compare all three paths, run the current built-in GitHub broker flow, explain handle binding, and recover safely after rotation or logout.
+After this guide, you should be able to compare all three paths, run a reviewed built-in broker flow, explain handle binding, and recover safely after rotation or logout.
 
 Prerequisites: understand [Request journey](../../how-it-works/request-journey/) and [Contexts](../contexts/).
 
 ## Compare the three paths
 
-| Path                     | Where the primary credential lives                              | What the Workspace can read                           | Gateway behavior                                                                              | Main limit                                                                          |
-| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                              | Removes auth/cookie fields from OPA and audit, then forwards after allow                      | Credential is available to processes in the same Workspace                          |
-| Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not the primary secret | Introspects without secret, asks OPA, resolves once after allow, replaces one declared header | Current schema 1 supports static exact HTTPS/header bindings; no refresh or signing |
-| Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                             | Validates Context/project/host profile and injects after allow                                | Static reviewed adapter; not a general provider program                             |
+| Path                     | Where the primary credential lives                              | What the Workspace can read                           | Gateway behavior                                                         | Main limit                                                              |
+| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                              | Removes auth/cookie fields from OPA and audit, then forwards after allow | Credential is available to processes in the same Workspace              |
+| Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not the primary secret | Introspects without secret, asks OPA, then resolves or signs after allow | Static exact bindings plus reviewed GitHub, AWS, and Datadog plans only |
+| Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                             | Validates Context/project/host profile and injects after allow           | Static reviewed adapter; not a general provider program                 |
 
 No path changes the OPA rule requirement. “The request is authenticated” and “this Context/project/method/path may connect” are different claims.
 
@@ -32,9 +32,10 @@ Enter the Workspace and use the tool's normal supported login. Its state is stor
 
 Tobari does not copy the host home, Keychain, SSH agent, credential environment, or general CLI configuration into the Workspace. Tool-native state is readable by other processes within that same Workspace boundary.
 
-## Brokered GitHub authentication
+## Reviewed built-in authentication
 
-The current reviewed built-in helper is `github`. On the trusted host:
+The reviewed helpers are GitHub, two AWS login methods, and Datadog US1 pup
+OAuth. For GitHub, on the trusted host:
 
 ```sh
 tobari cluster up
@@ -53,6 +54,14 @@ tobari --context default
 
 The Workspace receives a distinct `tobari-h1_...` handle. For the built-in GitHub manifest it is projected for supported GitHub CLI API use, but it is not the upstream token. Private Git transport through a broker Git credential helper is not currently supported.
 
+For Datadog, run `tobari auth login datadog --context default`. Tobari invokes
+fixed host `pup --no-agent auth login --site datadoghq.com` in a private
+file-backed home; pup owns browser consent and the loopback callback. After
+re-entry, the Workspace receives `DD_ACCESS_TOKEN=<project handle>` and fixed
+`DD_SITE=datadoghq.com`. A valid access token is selected only after OPA allow;
+near expiry, Broker performs one bounded fixed-US1 refresh and persists the
+replacement encrypted state. Pup is not installed in Broker.
+
 <ConceptDiagram name="credential-boundary" headingLevel={2} />
 
 ## What happens on one brokered request
@@ -62,7 +71,8 @@ The Workspace receives a distinct `tobari-h1_...` handle. For the built-in GitHu
 3. Broker introspection verifies Context, project, provider, credential revision, target, and header binding without returning the secret.
 4. Gateway asks OPA about the ordinary body-free HTTP effect.
 5. On deny, processing stops. There is no secret resolution or upstream connection.
-6. On allow, Gateway resolves the same binding exactly once.
+6. On allow, Gateway resolves the same binding exactly once; reviewed AWS signs
+   and Datadog may refresh only at this post-policy boundary.
 7. Gateway replaces only the declared destination header and creates the exact HTTPS upstream connection.
 
 <SequenceExplorer
@@ -106,11 +116,14 @@ Logout removes the local provider record and revokes its handles. It does not co
 - `invalid_provider_manifest` or `ambiguous_provider_http_binding`: correct the entire strict manifest collection; no partial provider projection activates.
 - `credential_handle_invalid` (`403`): leave and re-enter the matching Workspace; a copied or stale handle must not be forwarded.
 - `credential_broker_unavailable` (`503`): reconcile the broker before retrying the HTTP request.
+- `credential_refresh_outcome_unknown` (`409`): do not replay automatically;
+  inspect `auth status` and re-login or logout the affected AWS/Datadog provider
+  when it is `not_configured`.
 - `auth_mutation_outcome_unknown` or an output failure after mutation: inspect `auth status` before another login/import/logout. Blind replay may rotate or remove confirmed state twice.
 
 ## Guarantees and limits
 
-The broker keeps the primary credential out of Workspace files/environment and OPA, binds handles to exact authority, and resolves only after allow. It does not isolate mutually hostile processes inside one Workspace, stop use of an already allowed capability, refresh provider credentials, perform remote logout, support multiple accounts per Context, or implement arbitrary signing/OAuth flows.
+The broker keeps the primary credential out of Workspace files/environment and OPA, binds handles to exact authority, and resolves only after allow. It does not isolate mutually hostile processes inside one Workspace, stop use of an already allowed capability, perform remote logout, support multiple accounts per Context, or implement refresh/signing/OAuth beyond the reviewed AWS and Datadog plans.
 
 ## Source evidence
 

@@ -33,7 +33,7 @@ process in it, coding agents, project files, Workspace home, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
 
-The reviewed GitHub and AWS host drivers are trusted, purpose-limited CLI side
+The reviewed GitHub, AWS, and pup host drivers are trusted, purpose-limited CLI side
 effects. They select a canonical host executable and bind its SHA-256 identity,
 construct only fixed argv, use sanitized environments and private temporary
 homes, and accept no Workspace, repository, manifest, or request-selected
@@ -43,7 +43,10 @@ selected fixed IAM Identity Center device flow or fixed console-based
 cross-device login, plus typed credential export. Console browser opening
 requires the selected commercial region, exact HTTPS authority/path, fixed
 OAuth values, bounded UUID state and PKCE challenge, and same-region redirect;
-neither flow starts a callback listener or reads ambient AWS state.
+neither AWS flow starts a callback listener or reads ambient AWS state.
+Datadog pup runs only fixed US1 OAuth argv with a sanitized environment and
+private file backend. pup owns the generated consent URL and loopback callback;
+Tobari accepts only the fixed port allowlist and strict default-session files.
 
 The host Git identity reader is a separate trusted, purpose-limited CLI side
 effect. It accepts one canonical Workspace root and can request only global
@@ -61,9 +64,10 @@ host root B (rw) ---> Tobari B --+                       |
                 no cross-route                           +-- post-allow runtime socket
                                                                   |
 host CLI --fixed control exec/stdin--> locked Auth Broker --encrypted Context vaults
-host CLI --reviewed fixed GitHub/AWS login drivers--> provider HTTPS
+host CLI --reviewed fixed GitHub/AWS/pup login drivers--> provider HTTPS
 host companion --encrypted reverse docker exec--> Broker-private bridge socket
       |-- reviewed fixed AWS refresh driver --> provider HTTPS
+Auth Broker --exact proxy-free Datadog token refresh--> api.datadoghq.com:443
 host CLI --two fixed global Git reads--> validated identity scalars --> Workspace fallback
 ```
 
@@ -83,7 +87,8 @@ image-owned byte-pump and an unmounted Broker-private socket.
 - Tool-owned authentication state and broker handles inside a Tobari home or
   environment, plus real brokered credentials in encrypted Context vaults,
   the installation root key, purpose-derived companion sessions, opaque AWS
-  CLI cache state and request-local role leases, and reserved managed-adapter
+  CLI cache state, encrypted pup OAuth state, request-local AWS role leases and
+  Datadog access tokens, and reserved managed-adapter
   material.
 - OPA policy, decision API, and Gateway management surface.
 - Denial of direct Internet connectivity.
@@ -480,14 +485,16 @@ bounded handle templates, exact HTTPS/header transformations, and enumerated
 built-in-only credential plans; it rejects target/projection collisions and
 prohibits user manifests from overriding built-ins or selecting a helper,
 refresher, signer, executable, argv, or environment. Auth Broker contains no
-provider CLI. The built-in GitHub and AWS drivers execute on the trusted host,
+provider CLI. The built-in GitHub, AWS, and Datadog drivers execute on the trusted host,
 resolve one canonical executable identity, use fixed argv and sanitized
 environments, and delete private temporary homes on every outcome. GitHub asks
 for no Git protocol and recognizes only its fixed device URL. AWS performs one
 fixed Identity Center device login, one fixed console-based remote login, or
 typed credential export. Broker encrypts the opaque
 AWS cache between calls; temporary role credentials exist only while Broker
-signs one authorized request. User providers use protected non-terminal
+signs one authorized request. The fixed Datadog plan encrypts pup OAuth state
+and refreshes it only after allow against the exact US1 token endpoint with no
+ambient proxy or redirect. User providers use protected non-terminal
 stdin import only. A terminal stream is refused before reading. Non-terminal
 bytes are read after public Context/provider argument, intent, and mutation
 validation; infrastructure validates the selected existing Context, installed

@@ -8,7 +8,7 @@ host
       +-- fixed control exec/stdin --> tobari-auth-broker (locked)
       |                                      |
       |                               encrypted Context vaults
-      +-- reviewed fixed GitHub/AWS login drivers --> provider HTTPS
+      +-- reviewed fixed GitHub/AWS/pup login drivers --> provider HTTPS
       |       `-- AWS method: identity-center or console (explicit)
       +-- private same-binary credential companion
       |       |-- reviewed fixed AWS refresh driver --> provider HTTPS
@@ -42,6 +42,11 @@ through the host browser boundary with terminal fallback, and stores distinct sc
 `aws_cli_console_login` state. Broker accepts either ID as opaque encrypted
 state; the companion decodes it, requires exact driver/state agreement, and
 uses the shared fixed credential-export boundary after policy allow.
+
+The Datadog registry contains one `datadog_pup_oauth` acquisition plan. It runs
+fixed host pup against US1 in an isolated home and commits strict opaque state.
+After policy allow, Broker resolves a valid token locally or refreshes only at
+the exact US1 OAuth token endpoint; pup remains absent from the Broker image.
 
 For HTTPS, Tobari connects to the HTTP proxy and sends `CONNECT host:443`.
 Gateway responds, terminates client TLS with the installation CA, evaluates the
@@ -287,7 +292,7 @@ Authentication failure, replay, gap, oversized frame, duplicate session, or
 disconnect closes the session. `cluster down` drains bounded in-flight work and
 then closes the exec stream as Compose teardown removes the Broker container.
 
-The reviewed GitHub and AWS drivers keep provider-native execution on the
+The reviewed GitHub, AWS, and pup drivers keep interactive provider-native execution on the
 trusted host. Each resolves and hashes one host executable, uses fixed argv and
 a sanitized environment, reconstructs only a private bounded temporary home,
 and deletes it on every outcome. The GitHub driver recognizes only the fixed
@@ -719,7 +724,7 @@ the interactive process. Lifecycle operations return structured state after
 confirmed completion; unclassified post-mutation errors are non-retryable and
 direct the user to `status` for reconciliation.
 Auth mutations use the same structured-outcome rule. A failed or cancelled
-GitHub or AWS host driver leaves the previous Context credential unchanged; an
+GitHub, AWS, or pup host driver leaves the previous Context credential unchanged; an
 `auth_mutation_outcome_unknown`, `unclassified_mutation_outcome`, or
 `mutation_output_write_failed` result is non-retryable and directs the user to
 `auth status` before another auth mutation. Confirmed login/import/logout output
@@ -737,7 +742,7 @@ is finalized before late cancellation can imply that replay is safe.
   rotation/revocation, and fallback adapters.
 - Companion and host-driver tests cover private same-binary startup, exact
   reverse-exec argv/container identity, authenticated framing, no-listener/
-  no-mount topology, fixed GitHub/AWS CLI commands, post-policy refresh,
+  no-mount topology, fixed GitHub/AWS/pup CLI commands, post-policy refresh,
   bounded single-flight state update, encrypted no-replay barrier,
   cancellation settlement, blocked-peer teardown, and stale-result rejection.
 - Docker integration tests prove actual network topology and lifecycle.

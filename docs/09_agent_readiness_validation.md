@@ -46,8 +46,8 @@ journey is the product baseline to improve:
 | Shell presentation | `config shell`, then enter a new session | A Context inherits exported `PS1` by default or independently selects one of four allowlisted shell variables without inheriting arbitrary host environment or startup files |
 | Git identity | `config git`, then enter the matching root | A Context optionally supplies only a lower-precedence `user.name`/`user.email` pair without copying Git files, authentication, signing, helpers, executable settings, or arbitrary keys |
 | Runtime customization | `runtime init`, edit the current Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image and other Contexts are unchanged |
-| Context authentication | `auth status`; built-in `auth login github|aws` with explicit AWS `identity-center|console`; protected non-terminal stdin `auth import`; `auth logout` | Reviewed fixed host CLI drivers acquire GitHub/AWS state; a private resident companion refreshes either strict AWS state variant only after exact OPA allow. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing static secrets, opaque login cache, temporary credentials, or signing keys |
-| Context-specific work tools | Published-base `gh` and `aws`; optional locally built toolbox adds `kubectl`, `cwk`, `pup`, and `twg` | Public-base contents stay unchanged; local artifacts have pinned identity and license inventory. Static broker examples state exact authority and no-refresh limits, while general TWG remains unsupported |
+| Context authentication | `auth status`; built-in `auth login github|aws|datadog` with explicit AWS `identity-center|console`; protected non-terminal stdin `auth import`; `auth logout` | Reviewed fixed host CLI drivers acquire GitHub/AWS/Datadog state. A private resident companion refreshes strict AWS state and Broker directly refreshes the fixed Datadog DCR session, each only after exact OPA allow. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing static secrets, OAuth state, temporary credentials, or signing keys |
+| Context-specific work tools | Published-base `gh` and `aws`; optional locally built toolbox adds `kubectl`, `cwk`, `pup`, and `twg` | Public-base contents stay unchanged; local artifacts have pinned identity and license inventory. Datadog pup has exact US1 OAuth login and refresh authority; static examples retain explicit no-refresh limits and general TWG remains unsupported |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
 
 The table is a review baseline, not a claim that the desired command count is
@@ -257,11 +257,15 @@ rules exist. The transcript must prove:
   authenticate Git or configure a Git credential helper. AWS login uses one
   verified host AWS CLI device-code operation and persists only encrypted
   opaque cache state; request region is separate Context/tool configuration.
-  Auth Broker contains neither provider CLI nor persistent provider home.
+  Datadog login uses one verified host pup with fixed US1 argv and a private
+  file-backed OAuth home, then persists only strict encrypted DCR client,
+  token, and default-session state. Auth Broker contains neither provider CLI
+  nor persistent provider home.
 - Cluster readiness includes one private same-binary host companion over an
   authenticated encrypted reverse `docker exec` channel. It opens no listener
-  and mounts no host socket. OPA denial causes zero companion calls; post-policy
-  AWS refresh is per-record single-flight with a finite lock wait. Broker
+  and mounts no host socket. OPA denial causes zero companion or Datadog
+  refresh calls; post-policy AWS and fixed Datadog refresh are per-record
+  single-flight with a finite lock wait. Broker
   persists an encrypted task barrier before host execution, so unknown outcomes
   survive restart without replay; stale results after rotation or logout are
   rejected.
@@ -443,7 +447,7 @@ At minimum, exercise:
   activation;
 - empty/oversized credential stdin, provider acquisition mismatch, project- or
   temporary-selected, missing, writable, or changed host executable, hostile
-  control-bearing provider output, cancelled GitHub/AWS login, invalid
+  control-bearing provider output, cancelled GitHub/AWS/Datadog login, invalid
   account/status or credential-process capture, and setup/success cleanup
   failure while the
   previous credential remains unchanged; terminal import must perform no read,
@@ -453,13 +457,20 @@ At minimum, exercise:
   failure, malformed/oversized cache, changed executable digest, invalid or
   expired process credentials, and expired SSO session while the previous
   credential remains unchanged; request region is not login state;
+- missing, changed, or writable host pup; non-US1, multi-session, missing
+  default-organization, malformed, oversized, duplicate-key, short-lived, or
+  digest-mismatched pup state; refresh redirects, proxy use, malformed or
+  oversized responses, stale completion, and unknown network outcomes while
+  the previous credential remains unchanged or is disabled for explicit
+  reconciliation;
 - corrupted, wrong-Context, or unsupported-version encrypted vaults without
   revealing ciphertext or secret data;
 - copied, malformed, ambiguous, stale, rotated, revoked, wrong-Context,
   wrong-project, wrong-provider, wrong-target, wrong-header, wrong-revision, and
   structurally misplaced handles before upstream I/O, with fallback allowed
   only when no Tobari marker appears anywhere inspected;
-- OPA denial with zero companion, broker resolve, AWS refresh, role-credential, or signing
+- OPA denial with zero companion, broker resolve, Datadog refresh, AWS refresh,
+  role-credential, or signing
   calls; unsupported SigV4a, presign, streaming/chunked/event, custom-endpoint,
   ambiguous-header, changed-length, and over-limit requests; any
   authority/method/path/query/signed- or policy-visible-header change between
@@ -545,6 +556,39 @@ Do not save tokens, device codes, handles, root keys, vaults, host `gh` config, 
 terminal capture, or authenticated API responses. Manual evidence cannot prove
 future provider availability or account authorization; it covers only the
 reviewed release candidate and environment.
+
+## Manual Datadog pup OAuth validation
+
+Before publishing a Datadog-capable Auth Broker release candidate, a reviewer
+uses a disposable default organization on Datadog US1 and records only
+secret-free pass/fail outcomes outside the repository:
+
+```sh
+tobari cluster up
+tobari auth login datadog --context default
+tobari auth status --context default --format json
+(cd /absolute/test/root && tobari) # re-enter to receive the project handle
+# Inside that Workspace, after one exact policy allow:
+case "${DD_ACCESS_TOKEN-}" in tobari-h1_*) ;; *) exit 1 ;; esac
+test "$DD_SITE" = datadoghq.com
+pup users --no-agent --read-only list >/dev/null
+# Repeat after the original access token enters its five-minute refresh window.
+pup users --no-agent --read-only list >/dev/null
+exit
+tobari auth logout datadog --context default --format json
+(cd /absolute/test/root && tobari) # reconcile the revoked projection
+```
+
+The reviewer confirms the trusted-host driver invokes fixed
+`pup --no-agent auth login --site datadoghq.com`, pup opens its ordinary browser
+consent and loopback callback, the standard pup scope set is visible on the
+provider consent page, and only one default US1 organization is captured. The
+private host pup configuration is removed after acquisition and `pup` is absent
+from the Broker image. OPA denial causes zero token selection or refresh. The
+first read succeeds with a project-bound handle; the later read proves one
+post-policy refresh without re-login; logout revokes the prior handle. Do not
+save authorization codes, client/token/session state, access or refresh tokens,
+handles, raw terminal capture, or authenticated responses.
 
 ## Manual AWS login-method validation
 
