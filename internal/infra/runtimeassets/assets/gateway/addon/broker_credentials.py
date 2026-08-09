@@ -167,13 +167,13 @@ def _validate_destination(value: Any) -> dict[str, Any]:
     output_format = destination.get("format")
     if (
         output_format not in DESTINATION_FORMATS
-        or destination.get("secret_field") != "primary_secret"
+        or destination.get("secret_field") not in {"primary_secret", "datadog_oauth_session"}
     ):
         raise BrokerCredentialUnavailable("provider projection is invalid")
     return {
         "header": header,
         "format": output_format,
-        "secret_field": "primary_secret",
+        "secret_field": destination["secret_field"],
     }
 
 
@@ -283,7 +283,7 @@ def _validate_provider(
         "workspace_projections",
         "header_bindings",
     }
-    if schema_version == PROVIDER_SCHEMA_VERSION:
+    if schema_version == PROVIDER_SCHEMA_VERSION and "signing_bindings" in provider:
         provider_keys.add("signing_bindings")
     provider = _exact_keys(
         provider,
@@ -321,7 +321,7 @@ def _validate_provider(
     if schema_version == LEGACY_PROVIDER_SCHEMA_VERSION:
         valid_credential = credential_kind == "primary_secret"
     else:
-        valid_credential = credential_kind == "aws_sso_session"
+        valid_credential = credential_kind in {"aws_sso_session", "datadog_oauth_session"}
     if not valid_credential:
         raise BrokerCredentialUnavailable("provider projection is invalid")
 
@@ -420,7 +420,7 @@ def _validate_provider(
         raise BrokerCredentialUnavailable("provider projection is invalid")
     signing_bindings: list[dict[str, Any]] = []
     if schema_version == PROVIDER_SCHEMA_VERSION:
-        raw_signing = provider.get("signing_bindings")
+        raw_signing = provider.get("signing_bindings", [])
         if not isinstance(raw_signing, list) or len(raw_signing) > 8:
             raise BrokerCredentialUnavailable("provider projection is invalid")
         signing_bindings = [
@@ -435,6 +435,26 @@ def _validate_provider(
                 or not expected_acquisition_helper
                 or len(signing_bindings) != 1
                 or normalized
+            ):
+                raise BrokerCredentialUnavailable("provider projection is invalid")
+        elif credential_kind == "datadog_oauth_session":
+            if (
+                provider_id != "datadog"
+                or mode != "builtin_helper"
+                or acquisition.get("helper") != "pup-oauth"
+                or signing_bindings
+                or normalized != [{
+                    "provider_id": "datadog",
+                    "target": {"scheme": "https", "host": "api.datadoghq.com", "port": 443},
+                    "source": {"header": "authorization", "format": "bearer"},
+                    "destination": {"header": "authorization", "format": "bearer", "secret_field": "datadog_oauth_session"},
+                    "secret_headers": ["authorization"],
+                }]
+                or environment != [
+                    {"provider_id": "datadog", "name": "DD_ACCESS_TOKEN", "template": "${HANDLE}"},
+                    {"provider_id": "datadog", "name": "DD_SITE", "template": "datadoghq.com"},
+                ]
+                or complete_files
             ):
                 raise BrokerCredentialUnavailable("provider projection is invalid")
         elif signing_bindings:
@@ -651,7 +671,9 @@ def call_broker(path: str, request: dict[str, Any], timeout: float) -> dict[str,
     if len(encoded) > MAX_BROKER_FRAME_BYTES:
         raise BrokerCredentialUnavailable("credential broker request is too large")
 
-    signing_request = request.get("op") == "sign_sigv4"
+    refresh_capable_request = request.get("op") == "sign_sigv4" or (
+        request.get("op") == "resolve" and request.get("provider") == "datadog"
+    )
     send_started = False
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connection.settimeout(timeout)
@@ -673,7 +695,7 @@ def call_broker(path: str, request: dict[str, Any], timeout: float) -> dict[str,
                 break
             response.extend(chunk)
     except _BrokerCredentialResponseInvalid as error:
-        if signing_request and send_started:
+        if refresh_capable_request and send_started:
             raise BrokerCredentialOutcomeUnknown(
                 "credential refresh outcome is unknown; host re-login is required"
             ) from error
@@ -681,7 +703,7 @@ def call_broker(path: str, request: dict[str, Any], timeout: float) -> dict[str,
     except BrokerCredentialError:
         raise
     except (OSError, TimeoutError) as error:
-        if signing_request and send_started:
+        if refresh_capable_request and send_started:
             raise BrokerCredentialOutcomeUnknown(
                 "credential refresh outcome is unknown; host re-login is required"
             ) from error
@@ -689,7 +711,7 @@ def call_broker(path: str, request: dict[str, Any], timeout: float) -> dict[str,
     finally:
         connection.close()
     if not response or len(response) > MAX_BROKER_FRAME_BYTES + 1 or response.count(b"\n") != 1 or not response.endswith(b"\n"):
-        if signing_request and send_started:
+        if refresh_capable_request and send_started:
             raise BrokerCredentialOutcomeUnknown(
                 "credential refresh outcome is unknown; host re-login is required"
             )
@@ -697,7 +719,7 @@ def call_broker(path: str, request: dict[str, Any], timeout: float) -> dict[str,
     try:
         return _broker_response(bytes(response[:-1]))
     except _BrokerCredentialResponseInvalid as error:
-        if signing_request and send_started:
+        if refresh_capable_request and send_started:
             raise BrokerCredentialOutcomeUnknown(
                 "credential refresh outcome is unknown; host re-login is required"
             ) from error
@@ -987,7 +1009,7 @@ def _validate_broker_metadata(
     )
     encoded = secret_document.get("value")
     if (
-        secret_document.get("field") != "primary_secret"
+        secret_document.get("field") != binding["destination"]["secret_field"]
         or secret_document.get("encoding") != "base64url"
         or not isinstance(encoded, str)
         or not encoded

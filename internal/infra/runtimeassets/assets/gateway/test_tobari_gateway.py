@@ -243,6 +243,48 @@ class GatewayTests(unittest.TestCase):
         }
 
     @staticmethod
+    def datadog_oauth_provider_projection():
+        provider = {
+            "schema_version": 2,
+            "id": "datadog",
+            "display_name": "Datadog access token for pup",
+            "acquisition": {"mode": "builtin_helper", "helper": "pup-oauth"},
+            "credential": {"kind": "datadog_oauth_session"},
+            "workspace_projections": [
+                {"kind": "env", "name": "DD_ACCESS_TOKEN", "template": "${HANDLE}"},
+                {"kind": "env", "name": "DD_SITE", "template": "datadoghq.com"},
+            ],
+            "header_bindings": [
+                {
+                    "target": {"scheme": "https", "host": "api.datadoghq.com", "port": 443},
+                    "source": {"header": "authorization", "formats": ["bearer"]},
+                    "destination": {"header": "authorization", "format": "bearer", "secret_field": "datadog_oauth_session"},
+                    "secret_headers": ["authorization"],
+                }
+            ],
+            "signing_bindings": [],
+        }
+        normalized = {
+            "provider_id": "datadog",
+            "target": {"scheme": "https", "host": "api.datadoghq.com", "port": 443},
+            "source": {"header": "authorization", "format": "bearer"},
+            "destination": {"header": "authorization", "format": "bearer", "secret_field": "datadog_oauth_session"},
+            "secret_headers": ["authorization"],
+        }
+        return {
+            "schema_version": 2,
+            "providers": [provider],
+            "environment": [
+                {"provider_id": "datadog", "name": "DD_ACCESS_TOKEN", "template": "${HANDLE}"},
+                {"provider_id": "datadog", "name": "DD_SITE", "template": "datadoghq.com"},
+            ],
+            "complete_files": [],
+            "header_bindings": [normalized],
+            "signing_bindings": [],
+            "secret_headers": ["authorization"],
+        }
+
+    @staticmethod
     def aws_provider_projection():
         signing_plan = {
             "target": {
@@ -594,6 +636,103 @@ class GatewayTests(unittest.TestCase):
                 "DD_ACCESS_TOKEN": "${HANDLE}",
                 "DD_SITE": "datadoghq.com",
             },
+        )
+
+    def test_datadog_oauth_projection_is_closed_and_self_consistent(self):
+        projection = self.datadog_oauth_provider_projection()
+        self.assertEqual(validate_provider_projection(projection), projection)
+        serialized = json.loads(json.dumps(projection))
+        serialized["providers"][0].pop("signing_bindings")
+        self.assertEqual(validate_provider_projection(serialized), serialized)
+        invalid_documents = []
+        for mutate in (
+            lambda value: value["providers"][0]["acquisition"].update(helper="command"),
+            lambda value: value["providers"][0]["credential"].update(kind="primary_secret"),
+            lambda value: value["providers"][0]["header_bindings"][0]["target"].update(host="api.datadoghq.eu"),
+            lambda value: value["providers"][0]["header_bindings"][0]["destination"].update(secret_field="primary_secret"),
+        ):
+            invalid = json.loads(json.dumps(projection))
+            mutate(invalid)
+            invalid_documents.append(invalid)
+        for document in invalid_documents:
+            with self.subTest(document=document):
+                with self.assertRaises(BrokerCredentialUnavailable):
+                    validate_provider_projection(document)
+
+    def test_datadog_oauth_resolves_only_after_allow_with_exact_secret_field(self):
+        import base64
+
+        self.provider_projection = self.datadog_oauth_provider_projection()
+        flow = self.flow("https://api.datadoghq.com/api/v2/users", "GET")
+        flow.request.headers["authorization"] = f"Bearer {self.handle}"
+        calls = []
+
+        def broker_call(request):
+            calls.append(request)
+            binding = self.provider_projection["header_bindings"][0]
+            response = {
+                "schema_version": 1,
+                "ok": True,
+                "provider": "datadog",
+                "revision": "revision_example",
+                "target": binding["target"],
+                "source": binding["source"],
+                "destination": binding["destination"],
+                "secret_headers": binding["secret_headers"],
+            }
+            if request["op"] == "resolve":
+                response["secret"] = {
+                    "field": "datadog_oauth_session",
+                    "encoding": "base64url",
+                    "value": base64.urlsafe_b64encode(
+                        self.real_token.encode()
+                    ).rstrip(b"=").decode(),
+                }
+            return response
+
+        addon = self.broker_gateway(broker_call)
+        with mock.patch.object(
+            gateway,
+            "query_opa",
+            return_value=gateway.Decision(True, "allowed", None, 403, False),
+        ):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+        self.assertEqual([request["op"] for request in calls], ["introspect", "resolve"])
+        self.assertEqual(flow.request.headers["authorization"], f"Bearer {self.real_token}")
+
+    def test_datadog_oauth_unknown_refresh_outcome_is_non_retryable(self):
+        self.provider_projection = self.datadog_oauth_provider_projection()
+        flow = self.flow("https://api.datadoghq.com/api/v2/users", "GET")
+        flow.request.headers["authorization"] = f"Bearer {self.handle}"
+
+        def broker_call(request):
+            binding = self.provider_projection["header_bindings"][0]
+            if request["op"] == "introspect":
+                return {
+                    "schema_version": 1,
+                    "ok": True,
+                    "provider": "datadog",
+                    "revision": "revision_example",
+                    "target": binding["target"],
+                    "source": binding["source"],
+                    "destination": binding["destination"],
+                    "secret_headers": binding["secret_headers"],
+                }
+            raise BrokerCredentialOutcomeUnknown("synthetic Datadog refresh outcome")
+
+        addon = self.broker_gateway(broker_call)
+        with mock.patch.object(
+            gateway,
+            "query_opa",
+            return_value=gateway.Decision(True, "allowed", None, 403, False),
+        ):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+        self.assertEqual(flow.response.status_code, 409)
+        self.assertEqual(
+            json.loads(flow.response.content),
+            {"error": "credential_refresh_outcome_unknown"},
         )
 
     def test_aws_sigv4_handle_is_signed_only_after_policy_and_complete_body(self):

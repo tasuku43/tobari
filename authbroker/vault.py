@@ -38,9 +38,11 @@ PAYLOAD_SCHEMA_VERSION = 2
 LEGACY_PAYLOAD_SCHEMA_VERSION = 1
 STATIC_CREDENTIAL_KIND = "static_primary_secret"
 AWS_SSO_CREDENTIAL_KIND = "aws_sso_session"
+DATADOG_OAUTH_CREDENTIAL_KIND = "datadog_oauth_session"
 AWS_DRIVER_ID = "aws_cli_sso"
 AWS_CONSOLE_DRIVER_ID = "aws_cli_console_login"
 AWS_DRIVER_IDS = frozenset({AWS_DRIVER_ID, AWS_CONSOLE_DRIVER_ID})
+PUP_DRIVER_ID = "datadog_pup_oauth"
 
 
 class VaultError(Exception):
@@ -216,7 +218,7 @@ def _validate_stored_header_binding(binding: Any, provider: str) -> None:
             "bearer",
             "token",
         }
-        or destination.get("secret_field") != "primary_secret"
+        or destination.get("secret_field") not in {"primary_secret", DATADOG_OAUTH_CREDENTIAL_KIND}
     ):
         raise VaultError("vault_invalid")
     if (
@@ -281,6 +283,17 @@ def _validate_stored_binding(binding: Any, provider: str) -> str:
         _validate_stored_aws_binding(binding, provider)
         return AWS_SSO_CREDENTIAL_KIND
     _validate_stored_header_binding(binding, provider)
+    secret_field = binding["destination"]["secret_field"]
+    if secret_field == DATADOG_OAUTH_CREDENTIAL_KIND:
+        if provider != "datadog" or binding != {
+            "provider_id": "datadog",
+            "target": {"scheme": "https", "host": "api.datadoghq.com", "port": 443},
+            "source": {"header": "authorization", "format": "bearer"},
+            "destination": {"header": "authorization", "format": "bearer", "secret_field": DATADOG_OAUTH_CREDENTIAL_KIND},
+            "secret_headers": ["authorization"],
+        }:
+            raise VaultError("vault_invalid")
+        return DATADOG_OAUTH_CREDENTIAL_KIND
     return STATIC_CREDENTIAL_KIND
 
 
@@ -397,6 +410,29 @@ def _validate_v2_record(provider: str, record: Any) -> None:
         # bounded encrypted bytes and never parses provider cache content.
         if not state or len(state) > MAX_DRIVER_STATE_BYTES:
             raise VaultError("vault_invalid") from None
+    elif credential_kind == DATADOG_OAUTH_CREDENTIAL_KIND:
+        if provider != "datadog" or set(record) != {
+            "credential_kind", "record_id", "revision", "account_label",
+            "driver_id", "driver_revision", "state_generation",
+            "refresh_task_digest", "state", "handles",
+        }:
+            raise VaultError("vault_invalid")
+        account_label, handles = _validate_common_record(record)
+        generation = record.get("state_generation")
+        barrier = record.get("refresh_task_digest")
+        if (
+            account_label != "datadog-us1"
+            or record.get("driver_id") != PUP_DRIVER_ID
+            or not isinstance(record.get("driver_revision"), str)
+            or DRIVER_REVISION_PATTERN.fullmatch(record["driver_revision"]) is None
+            or isinstance(generation, bool) or not isinstance(generation, int)
+            or generation < 0 or generation > (1 << 63) - 1
+            or (barrier is not None and (not isinstance(barrier, str) or TASK_DIGEST_PATTERN.fullmatch(barrier) is None))
+        ):
+            raise VaultError("vault_invalid")
+        state = decode_secret(record.get("state"))
+        if not state or len(state) > MAX_DRIVER_STATE_BYTES:
+            raise VaultError("vault_invalid")
     else:
         raise VaultError("vault_invalid")
     _validate_handles(provider, handles, credential_kind)
@@ -507,6 +543,29 @@ def new_aws_sso_record(
         # A non-null digest is a durable no-replay barrier. It is persisted
         # before host provider execution and cleared only by the same
         # correlated successful refresh (or a proven pre-execution failure).
+        "refresh_task_digest": None,
+        "state": encode_secret(state),
+        "handles": {},
+    }
+
+
+def new_datadog_oauth_record(
+    state: bytes, *, account_label: str, driver_id: str, driver_revision: str
+) -> dict[str, Any]:
+    if not isinstance(state, bytes) or not state or len(state) > MAX_DRIVER_STATE_BYTES:
+        raise VaultError("invalid_secret")
+    if account_label != "datadog-us1" or driver_id != PUP_DRIVER_ID:
+        raise VaultError("invalid_driver")
+    if not isinstance(driver_revision, str) or DRIVER_REVISION_PATTERN.fullmatch(driver_revision) is None:
+        raise VaultError("invalid_driver_revision")
+    return {
+        "credential_kind": DATADOG_OAUTH_CREDENTIAL_KIND,
+        "record_id": "record_" + secrets.token_urlsafe(18),
+        "revision": "revision_" + secrets.token_urlsafe(18),
+        "account_label": account_label,
+        "driver_id": driver_id,
+        "driver_revision": driver_revision,
+        "state_generation": 0,
         "refresh_task_digest": None,
         "state": encode_secret(state),
         "handles": {},

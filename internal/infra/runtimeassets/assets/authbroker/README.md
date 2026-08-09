@@ -14,9 +14,10 @@ private credential-companion socket:
 Every JSON frame is at most 64 KiB and must contain exactly the fields for its
 operation. `unlock` adds exactly 32 raw key bytes after its JSON newline;
 `import` and host-completed `login` add a declared bounded raw secret or opaque
-AWS CLI state. Those values never use argv or environment variables. The
-Broker image contains no GitHub CLI, AWS CLI, provider network client, browser,
-or provider-native login helper.
+AWS CLI/pup OAuth state. Those values never use argv or environment variables.
+The Broker image contains no GitHub CLI, AWS CLI, pup, browser, or
+provider-native login helper. It contains only the fixed Datadog OAuth refresh
+client described below.
 
 Runtime introspection and resolution both bind the caller-supplied Context ID,
 project ID, provider ID, HTTPS target, source header, and semantic source format
@@ -36,8 +37,9 @@ The encrypted payload is schema 2. Schema-1 payloads are strictly validated and
 migrated in memory; the next mutation writes schema 2. Static records contain a
 `static_primary_secret`. AWS records instead contain typed
 `aws_sso_session` opaque host-driver state, its fixed driver ID and executable
-revision, and a monotonic state generation. They have no resolvable
-primary-secret field.
+revision, and a monotonic state generation. Datadog records contain strict
+`datadog_oauth_session` DCR client, token, default-session, driver, and
+executable revision state. Dynamic records have no static primary-secret field.
 The outer AES-GCM envelope and socket protocol remain schema 1.
 
 ## Control command and request schemas
@@ -51,6 +53,7 @@ tobari-auth-control unlock                         # exactly 32 stdin bytes
 tobari-auth-control import --context-id <uuidv7> --provider <provider>  # secret on stdin
 tobari-auth-control login --context-id <uuidv7> --provider github --account-label <login>  # token on stdin
 tobari-auth-control login --context-id <uuidv7> --provider aws --account-label <account> --driver-id aws_cli_sso|aws_cli_console_login --driver-revision <sha256>  # opaque state on stdin
+tobari-auth-control login --context-id <uuidv7> --provider datadog --account-label datadog-us1 --driver-id datadog_pup_oauth --driver-revision <sha256>  # opaque state on stdin
 tobari-auth-control companion_prepare --epoch-id <companion-e1_epoch>
 tobari-auth-control companion_status
 tobari-auth-control logout --context-id <uuidv7> --provider <provider>
@@ -72,6 +75,10 @@ Control requests have these exact schema-1 keys:
   `account_label`, `driver_id: "aws_cli_sso" | "aws_cli_console_login"`, lowercase SHA-256
   `driver_revision`, and `state_length`, followed by canonical opaque host
   driver state
+- Datadog `login`: `context_id`, `provider: "datadog"`, fixed non-secret
+  `account_label: "datadog-us1"`, `driver_id: "datadog_pup_oauth"`, lowercase
+  SHA-256 `driver_revision`, and `state_length`, followed by canonical opaque
+  pup OAuth state
 - `companion_prepare`: `epoch_id`; the Broker derives an epoch key from the
   in-memory installation key and returns `prepared`
 - `companion_status`: no additional fields; it returns `absent`, `prepared`,
@@ -96,11 +103,13 @@ credentials in memory, and returns only the final SigV4 authorization, date,
 session-token, and optional content-hash headers. AWS state and role credentials
 can never pass through `resolve`.
 
-The reviewed GitHub and AWS login drivers run on the trusted host before any
+The reviewed GitHub, AWS, and Datadog login drivers run on the trusted host before any
 Broker mutation begins. GitHub uses a private temporary `GH_CONFIG_DIR` and
 fixed API-only commands; AWS uses a private temporary home and one fixed IAM
 Identity Center device-code or console-based remote profile. A successful driver sends only its final
-bounded token or opaque state through control stdin. Failure leaves the prior
+bounded token or opaque state through control stdin. Datadog uses fixed
+`pup --no-agent auth login --site datadoghq.com` with a private file-backed
+configuration and captures one strict default US1 session. Failure leaves the prior
 Context credential unchanged. Neither host CLI home nor a browser/GUI socket
 is mounted into the Broker or a Workspace.
 
@@ -114,6 +123,16 @@ state only after record/revision/generation/request correlation still matches,
 then uses the temporary lease to sign that unchanged request. Logout or login
 rotation wins over a late result; an unobservable provider outcome is never
 blindly replayed.
+
+Datadog refresh is also post-policy and on demand, but it does not use the host
+companion. Release pup cannot export an access token, while its DCR refresh is
+one fixed client-secret-free OAuth exchange. Broker therefore selects an access
+token only after OPA allow and, inside the per-record lock, directly POSTs the
+stored client ID and refresh token to the exact US1 token endpoint with a
+30-second bound, system TLS, ambient proxies disabled, and redirects rejected.
+It persists a durable barrier before the send and atomically replaces encrypted
+state at the same revision only after a strict response. Any unknown outcome
+requires explicit Datadog re-login or logout rather than automatic replay.
 
 The companion is the current Tobari executable in a private same-binary mode.
 Its only container path is fixed `docker exec -i --user <uid:gid>

@@ -10,7 +10,7 @@ from typing import Any
 from . import SCHEMA_VERSION
 from .daemon import DEFAULT_CONTROL_SOCKET
 from .protocol import MAX_SECRET_BYTES, ProtocolError, call_unix_socket
-from .vault import AWS_DRIVER_IDS
+from .vault import AWS_DRIVER_IDS, PUP_DRIVER_ID
 
 
 def _read_stdin(limit: int, exact: int | None = None) -> bytes:
@@ -80,6 +80,19 @@ def _request(arguments: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
                 state_length=len(state),
             )
             return base, state
+        if arguments.provider == "datadog":
+            if arguments.driver_id != PUP_DRIVER_ID or arguments.driver_revision is None:
+                raise ProtocolError("invalid_request")
+            state = _read_stdin(MAX_SECRET_BYTES)
+            base.update(
+                context_id=arguments.context_id,
+                provider=arguments.provider,
+                account_label=arguments.account_label,
+                driver_id=arguments.driver_id,
+                driver_revision=arguments.driver_revision,
+                state_length=len(state),
+            )
+            return base, state
         raise ProtocolError("invalid_provider")
     if arguments.operation == "logout":
         base.update(context_id=arguments.context_id, provider=arguments.provider)
@@ -118,7 +131,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--context-id", required=True)
         command.add_argument("--provider", required=True)
     login = subparsers.add_parser("login")
-    login.add_argument("--provider", required=True, choices=("github", "aws"))
+    login.add_argument("--provider", required=True, choices=("github", "aws", "datadog"))
     login.add_argument("--context-id", required=True)
     login.add_argument("--account-label", required=True)
     login.add_argument("--driver-id")
