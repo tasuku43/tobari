@@ -585,14 +585,13 @@ and advanced static users may retain the managed adapter.
   `task integration:test` supplies the required reproducible synthetic Auth
   Broker proof. Credential values, SSO state, role credentials, signed headers,
   device codes, vaults, handles, and raw authenticated transcripts are never
-  committed as evidence. The reviewed API-2 indexes built from source revision
-  `a3fedb66ad5a72c19d6721f3f8da49852882ced8` are anonymously retrievable for
-  Linux amd64/arm64 and pinned as Gateway
-  `sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+  committed as evidence. The reviewed Gateway API-3 index built from source
+  revision `328196221c5be2861b67ec51339d0184b04c6b31` and Auth Broker API-2 index
+  built from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8` are
+  anonymously retrievable for Linux amd64/arm64 and pinned as Gateway
+  `sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
   and Auth Broker
   `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`;
-  their inspected configurations use API 2, the reviewed roles/entrypoints,
-  and non-root `1000:1000` users. This revision's Gateway API-3 source requires
-  a new reviewed Gateway index and pin before publication; the Auth Broker API-2
-  evidence remains current. Live trusted-host provider scenarios remain a
-  separate pre-tag release check.
+  their inspected configurations use the required API versions, reviewed
+  roles/entrypoints, and non-root `1000:1000` users. Live trusted-host provider
+  scenarios remain a separate pre-tag release check.

@@ -605,11 +605,13 @@ custom endpoints, or every AWS service.
 
 ## Evidence
 
-The API-v2 image prerequisite is satisfied by anonymously retrievable Linux
-amd64/arm64 indexes built from source revision
-`a3fedb66ad5a72c19d6721f3f8da49852882ced8`, with reviewed API/role labels,
-non-root `1000:1000` users, and entrypoints. Routine startup pins Gateway
-`sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+The image prerequisite is satisfied by an anonymously retrievable Gateway
+API-3 index built from source revision
+`328196221c5be2861b67ec51339d0184b04c6b31` and Auth Broker API-2 index built
+from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8`, each for Linux
+amd64/arm64 with reviewed API/role labels, non-root `1000:1000` users, and
+entrypoints. Routine startup pins Gateway
+`sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
 and Auth Broker
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`
 in `versions.env`. This image evidence does not replace the manual trusted-host

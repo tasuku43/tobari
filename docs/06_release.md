@@ -115,16 +115,14 @@ immutable commit tag, while Claude and Codex variants are local/CI build
 artifacts only. The repository does not claim a public agent image, stable
 support window, SBOM/attestation, or redistribution approval until a new
 release decision accepts those claims. The Gateway and Auth Broker source/image
-checks are implemented. The currently reviewed published indexes were built
-from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8` and expose
-Gateway API 2 and Auth Broker API 2. This source tree now requires Gateway API
-3 for declared GraphQL enforcement; publication and routine pin replacement
-remain a separate release action. Until that handoff is reviewed, use the
-source-built development Gateway for validation and do not describe the API-2
-Gateway digest as compatible with this revision. The prior evidence established
-anonymous access, Linux amd64/arm64 members, API/role metadata, non-root
-`1000:1000` users, and entrypoints. `versions.env` still records the prior Gateway
-`sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+checks are implemented. The reviewed Gateway API-3 index was built from source
+revision `328196221c5be2861b67ec51339d0184b04c6b31`; the compatible Auth Broker
+API-2 index was built from source revision
+`a3fedb66ad5a72c19d6721f3f8da49852882ced8`. Anonymous access, Linux
+amd64/arm64 members, API/role metadata, non-root `1000:1000` users,
+entrypoints, source, revision, and license metadata were independently
+inspected. `versions.env` records Gateway
+`sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
 and the current compatible Auth Broker
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`.
 A moving tag or successful workflow does not make a digest reviewed runtime

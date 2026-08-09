@@ -150,16 +150,17 @@ validation is cache-only and has no package-write permission; only the
 main-push job may publish moving `latest`/`main` and immutable
 `sha-<commit>` development identities. Routine CLI startup must use a reviewed
 manifest digest rather than those moving tags.
-The reviewed Gateway API-2 and Auth Broker API-2 indexes were built from source
-revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8`, are anonymously retrievable
-for Linux amd64/arm64, and expose the reviewed API/role labels, non-root
-`1000:1000` user, and entrypoint. This source revision requires a new reviewed
-Gateway API-3 index before its Gateway pin can be published as compatible;
-source validation uses the development build meanwhile. The prior routine pin is Gateway
-`sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+The reviewed Gateway API-3 index was built from source revision
+`328196221c5be2861b67ec51339d0184b04c6b31`; the compatible Auth Broker API-2
+index was built from source revision
+`a3fedb66ad5a72c19d6721f3f8da49852882ced8`. Both are anonymously retrievable
+for Linux amd64/arm64 and expose the reviewed API/role labels, non-root
+`1000:1000` user, entrypoint, source, revision, and license metadata. Routine
+startup pins Gateway
+`sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
 and Auth Broker
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`
-in `versions.env`, while the Auth Broker pin remains compatible; moving tags are not runtime authority. An unpublished
+in `versions.env`; moving tags are not runtime authority. An unpublished
 marker, invented digest, wrong repository, moving identity, or API-label/pin
 mismatch remains a public-boundary failure.
 
