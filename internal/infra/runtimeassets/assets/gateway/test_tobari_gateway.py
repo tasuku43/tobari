@@ -42,14 +42,22 @@ class GatewayTests(unittest.TestCase):
         self.provider_projection = self.github_provider_projection()
         self.config = {
             "version": "v2",
-            "contexts": {self.context_a: {"name": "default", "profiles": {
-                "example": {
-                    "type": "bearer", "hosts": ["api.example.com"],
-                    "projects": [self.project_a],
-                    "secret_file": f"/run/tobari/credentials/{self.context_a}/example",
-                }
-            }}},
+            "contexts": {
+                self.context_a: {"name": "default", "graphql_endpoints": [], "profiles": {
+                    "example": {
+                        "type": "bearer", "hosts": ["api.example.com"],
+                        "projects": [self.project_a],
+                        "secret_file": f"/run/tobari/credentials/{self.context_a}/example",
+                    }
+                }},
+            },
         }
+        self.credential_path = os.path.join(self.temp.name, "credentials.json")
+        with open(self.credential_path, "w", encoding="utf-8") as handle:
+            json.dump(self.config, handle)
+        self.previous_credential_path = os.environ.get("TOBARI_CREDENTIAL_CONFIG")
+        os.environ["TOBARI_CREDENTIAL_CONFIG"] = self.credential_path
+        self.addCleanup(self.restore_credential_path)
         self.principal_path = os.path.join(self.temp.name, "principals.json")
         with open(self.principal_path, "w", encoding="utf-8") as handle:
             json.dump(
@@ -77,6 +85,12 @@ class GatewayTests(unittest.TestCase):
             os.environ.pop("TOBARI_PRINCIPAL_REGISTRY", None)
         else:
             os.environ["TOBARI_PRINCIPAL_REGISTRY"] = self.previous_principal_path
+
+    def restore_credential_path(self):
+        if self.previous_credential_path is None:
+            os.environ.pop("TOBARI_CREDENTIAL_CONFIG", None)
+        else:
+            os.environ["TOBARI_CREDENTIAL_CONFIG"] = self.previous_credential_path
 
     def managed_gateway(self):
         previous = os.environ.get("TOBARI_CREDENTIAL_ADAPTER")
@@ -401,6 +415,107 @@ class GatewayTests(unittest.TestCase):
         self.assertNotIn("authorization", request["headers"])
         self.assertNotIn("cookie", request["headers"])
         self.assertNotIn("body", request)
+
+    @staticmethod
+    def declare_graphql_endpoint(addon):
+        addon.graphql_config["contexts"][
+            "01912345-6789-7abc-8def-0123456789ad"
+        ]["graphql_endpoints"] = [
+            {
+                "scheme": "https",
+                "host": "api.example.com",
+                "port": 443,
+                "path": "/graphql",
+            }
+        ]
+
+    def test_declared_graphql_is_parsed_before_policy_and_forwards_original_bytes(self):
+        body = json.dumps(
+            {
+                "query": "mutation Change($secret: String!) { second: closeIssue(input: {value: $secret}) { id } first: updateIssue(input: {value: $secret}) { id } }",
+                "variables": {"secret": "raw-variable-canary"},
+            },
+            separators=(",", ":"),
+        ).encode()
+        flow = self.flow("https://api.example.com/graphql")
+        flow.request.raw_content = body
+        flow.request.headers["content-length"] = str(len(body))
+        addon = gateway.TobariGateway()
+        self.declare_graphql_endpoint(addon)
+        captured = {}
+
+        def allow(_url, document, _timeout):
+            captured.update(document)
+            return gateway.Decision(True, "allowed", None, 403, False)
+
+        with mock.patch.object(gateway, "query_opa", side_effect=allow) as query:
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+                query.assert_not_called()
+                self.assertFalse(flow.request.stream)
+                addon.request(flow)
+        self.assertIsNone(flow.response)
+        self.assertEqual(flow.request.raw_content, body)
+        self.assertEqual(
+            captured["request"]["graphql"],
+            {
+                "operation_type": "mutation",
+                "root_fields": ["closeIssue", "updateIssue"],
+            },
+        )
+        encoded = json.dumps(captured)
+        self.assertNotIn("raw-variable-canary", encoded)
+        self.assertNotIn("mutation Change", encoded)
+
+    def test_graphql_denial_audits_each_root_without_document_or_variables(self):
+        body = json.dumps(
+            {
+                "query": "query Private($token: String!) { viewer { login } repository(name: $token) { id } }",
+                "variables": {"token": "raw-audit-canary"},
+            },
+            separators=(",", ":"),
+        ).encode()
+        flow = self.flow("https://api.example.com/graphql")
+        flow.request.raw_content = body
+        flow.request.headers["content-length"] = str(len(body))
+        addon = gateway.TobariGateway()
+        self.declare_graphql_endpoint(addon)
+        output = io.StringIO()
+        with mock.patch.object(
+            gateway,
+            "query_opa",
+            return_value=gateway.Decision(
+                False, "request did not match an allow rule", None, 403, True
+            ),
+        ):
+            with redirect_stdout(output):
+                addon.requestheaders(flow)
+                addon.request(flow)
+        self.assertEqual(flow.response.status_code, 403)
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(
+            [record["graphql_root_field"] for record in records],
+            ["repository", "viewer"],
+        )
+        self.assertTrue(all(record["schema_version"] == 3 for record in records))
+        combined = output.getvalue() + flow.response.content.decode()
+        self.assertNotIn("raw-audit-canary", combined)
+        self.assertNotIn("query Private", combined)
+
+    def test_invalid_declared_graphql_fails_locally_without_opa(self):
+        body = b'{"query":"subscription Events { eventAdded { id } }"}'
+        flow = self.flow("https://api.example.com/graphql")
+        flow.request.raw_content = body
+        flow.request.headers["content-length"] = str(len(body))
+        addon = gateway.TobariGateway()
+        self.declare_graphql_endpoint(addon)
+        with mock.patch.object(gateway, "query_opa") as query:
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+                addon.request(flow)
+        query.assert_not_called()
+        self.assertEqual(flow.response.status_code, 400)
+        self.assertEqual(json.loads(flow.response.content), {"error": "unsupported_operation"})
 
     def test_passthrough_forwards_client_auth_only_after_allow(self):
         flow = self.flow()
@@ -1290,6 +1405,11 @@ class GatewayTests(unittest.TestCase):
             return response
 
         addon = self.broker_gateway(broker_call)
+        addon.graphql_config["contexts"][self.context_b] = {
+            "name": "restricted",
+            "graphql_endpoints": [],
+            "profiles": {},
+        }
         principals = {
             "172.29.0.2": self.principal_a,
             "172.29.1.2": self.principal_b,
