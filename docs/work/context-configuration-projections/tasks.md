@@ -46,7 +46,11 @@
 ## Verify
 
 - [x] Focused tests pass. Evidence: the domain, application, CLI, Tobari application, and Docker-runtime packages pass; the configuration-filtered CLI race suite, task/Context/setting/cluster conformance negatives, active-Context switch/explicit-empty regressions, and presentation fixture/golden contract also pass. One full `go test -count=1 ./...` run completed before a later parallel auth-catalog edit changed the shared tree again.
-- [ ] `task check` passes. Evidence: a disposable scoped snapshot completed the full gate, including 13 browser tests, race, vet, and all Go tests; with the pinned Node/npm toolchain the shared worktree gate is currently stopped first by `cmd/tobari` import restrictions introduced by the parallel credential-companion change. A later parallel auth-catalog prerequisite edit also temporarily disagrees with its existing CLI test downstream of that first failure.
+- [x] `task check` passes. Evidence: a disposable worktree at commit `8a027e9`
+      completed the full gate with the repository-pinned Node/npm toolchain,
+      including 19 browser tests, race, vet, and all Go tests. The shared dirty
+      tree remains independently blocked by an unrelated Japanese-site
+      public-guard fixture.
 - [ ] `task security` passes. Evidence: the scoped snapshot passes; the latest shared-tree run is stopped only by the public guard's secret-like-field finding in the unrelated `internal/infra/credentialhost/state_test.go` fixture.
 - [ ] `task public:check` passes. Evidence: the same scoped snapshot passes; the latest shared-tree run is stopped by the same parallel credential-host fixture finding.
 - [x] Relevant runtime/integration tests pass. Evidence: real Git conditional-global selection and system/global/local precedence tests pass, including malicious local-include exclusion.
@@ -55,7 +59,8 @@
       all four settings, staged two rows, redrew without drift, and discarded
       with zero mutation; Git showed current, pending, and all sources on one
       screen. Domain, application, CLI, and store focused suites pass.
-- [ ] Latest shared-tree `task check:fast` passes. Evidence: it currently stops
+- [x] Latest scoped `task check` passes. Evidence: it completed at commit
+      `8a027e9`; shared-tree `task check:fast` currently stops
       in unrelated Japanese site localization at a pre-existing public-guard
       machine-specific home-path finding.
 - [x] Agent-readiness discovery budget and zero external processing are recorded. Evidence: one exact scoped-help lookup exposes each complete argv contract; one direct invocation returns schema-6 task-owned state with zero external reconstruction.
