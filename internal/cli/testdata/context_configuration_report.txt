@@ -1,0 +1,19 @@
+Context: review
+Active: false
+Image: ghcr.io/tasuku43/tobari/runtime:latest
+Agent profile: default
+Policy mode: guided
+Shell COLORTERM: default
+Shell NO_COLOR: literal ""
+Shell PS1: inherit
+Shell TERM: default
+Git identity: literal
+Git user.name: Review Bot
+Git user.email: review@example.com
+Runtime: official (official)
+Runtime base: ghcr.io/tasuku43/tobari/runtime:latest
+Tip: this Context is using the base runtime. For ongoing work, run `tobari runtime init`, edit the Dockerfile, then run `tobari runtime build` on the host.
+Next: re-enter a matching Workspace with `tobari` to reconcile its Git fallback; this command does not change running sessions.
+Policy: /config/contexts/review/policy
+Credential metadata: /config/contexts/review/credentials.json
+Credential directory: /config/contexts/review/credentials

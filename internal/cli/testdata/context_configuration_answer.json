@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "task": "config.git",
+  "fixed_target": {
+    "kind": "context-git-identity",
+    "id": "context-git-identity"
+  },
+  "selected_context": {
+    "id": "018bcfe5-687b-7000-8000-000000000099",
+    "name": "review"
+  },
+  "explicit_empty_shell": {
+    "variable": "NO_COLOR",
+    "source": "literal",
+    "value": "",
+    "value_present": true
+  },
+  "git_identity": {
+    "source": "literal",
+    "name": "Review Bot",
+    "email": "review@example.com"
+  },
+  "exact_next_argv": [
+    "tobari"
+  ],
+  "routine_success": {
+    "task_invocations": 1,
+    "external_reconstruction_steps": 0
+  },
+  "unsupported_inferences": [
+    "authentication",
+    "signing",
+    "provider_account",
+    "command_authority_from_display_text"
+  ]
+}

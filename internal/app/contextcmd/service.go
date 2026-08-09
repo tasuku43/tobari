@@ -21,6 +21,7 @@ type RuntimePort interface {
 	CreateContext(context.Context, string, string, tobari.ContextPolicyMode) (tobari.ContextReport, error)
 	UseContext(context.Context, string) (tobari.ContextReport, error)
 	ConfigureContextShell(context.Context, string, tobari.ContextShellEnvironmentSetting) (tobari.ContextReport, error)
+	ConfigureContextGit(context.Context, string, tobari.ContextGitIdentitySetting) (tobari.ContextReport, error)
 	InitRuntime(context.Context) (tobari.ContextReport, error)
 	BuildRuntime(context.Context) (tobari.ContextReport, error)
 }
@@ -55,6 +56,11 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 		intent.Target.ID == tobari.ContextShellTargetID {
 		return nil
 	}
+	if intent.Effect == operation.EffectWrite &&
+		intent.Target.Kind == tobari.ContextGitIdentityTargetKind &&
+		intent.Target.ID == tobari.ContextGitIdentityTargetID {
+		return nil
+	}
 	if intent.Effect == operation.EffectCreate && intent.Target.Kind == tobari.ContextRuntimeTargetKind &&
 		intent.Target.ParentID == tobari.ActiveContextRuntimeID && intent.Target.ID == "" {
 		return nil
@@ -87,7 +93,7 @@ func (s *Service) ConfigureShell(
 	if err := change.Validate(true); err != nil {
 		return tobari.ContextReport{}, fault.Wrap(
 			fault.KindInvalidInput, "invalid_shell_environment", "Context shell environment setting is invalid", false, err,
-			fault.NextAction{Command: "help context shell configure", Reason: "Choose an allowlisted variable and a valid source/value combination."},
+			fault.NextAction{Command: "help config shell", Reason: "Choose an allowlisted variable and a valid source/value combination."},
 		)
 	}
 	request := execution.Request{
@@ -107,12 +113,12 @@ func (s *Service) ConfigureShell(
 			}
 			if configureErr != nil {
 				return fault.Wrap(
-					fault.KindRejected, "context_shell_configure_failed", "Context shell environment could not be updated", false,
+					fault.KindRejected, "config_shell_failed", "Context shell environment could not be updated", false,
 					configureErr,
 					fault.NextAction{Command: "context show", Reason: "Inspect the Context shell environment before retrying."},
 				)
 			}
-			if err := configured.Validate(); err != nil {
+			if err := validateConfiguredShellResult(configured, contextName, change); err != nil {
 				return fault.Wrap(
 					fault.KindContract, "invalid_context_report", "Context report is invalid", false, err,
 					fault.NextAction{Command: "context show", Reason: "Reconcile the confirmed Context shell setting."},
@@ -126,6 +132,133 @@ func (s *Service) ConfigureShell(
 		return tobari.ContextReport{}, err
 	}
 	return result, nil
+}
+
+// ConfigureGit changes the atomic Git identity policy for one explicit or
+// current Context. Host values are never read by the application; inherited
+// values are resolved by infrastructure for a specific Workspace root.
+func (s *Service) ConfigureGit(
+	ctx context.Context, intent operation.Intent, contextName string,
+	change tobari.ContextGitIdentitySetting,
+) (tobari.ContextReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if contextName != "" {
+		if err := tobari.ValidateName(contextName); err != nil {
+			return tobari.ContextReport{}, fault.Wrap(
+				fault.KindInvalidInput, "invalid_context_name", "Context name is invalid", false, err,
+				fault.NextAction{Command: "context list", Reason: "Choose a named Context from the local collection."},
+			)
+		}
+	}
+	if err := change.Validate(true); err != nil {
+		return tobari.ContextReport{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_git_identity", "Context Git identity setting is invalid", false, err,
+			fault.NextAction{Command: "help config git", Reason: "Choose default, inherit, or a complete literal name and email pair."},
+		)
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.ContextGitIdentityTargetKind, ID: tobari.ContextGitIdentityTargetID},
+		ExpectedImpact: intent.Impact,
+	}
+	var result tobari.ContextReport
+	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			configured, configureErr := s.runtime.ConfigureContextGit(actionContext, contextName, change)
+			if errors.Is(configureErr, tobari.ErrContextNotFound) {
+				return fault.New(
+					fault.KindNotFound, "context_not_found", "the named Context does not exist", false,
+					fault.NextAction{Command: "context list", Reason: "Choose an existing Context."},
+				)
+			}
+			if configureErr != nil {
+				return fault.Wrap(
+					fault.KindRejected, "config_git_failed", "Context Git identity could not be updated", false,
+					configureErr,
+					fault.NextAction{Command: "context show", Reason: "Inspect the Context Git identity before retrying."},
+				)
+			}
+			if err := validateConfiguredGitResult(configured, contextName, change); err != nil {
+				return fault.Wrap(
+					fault.KindContract, "invalid_context_report", "Context report is invalid", false, err,
+					fault.NextAction{Command: "context show", Reason: "Reconcile the confirmed Context Git identity setting."},
+				)
+			}
+			result = configured
+			return nil
+		})
+	})
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	return result, nil
+}
+
+func validateConfiguredContextResult(result tobari.ContextReport, task, contextName string) error {
+	if err := validateSelectedContextResult(result, task, contextName); err != nil {
+		return err
+	}
+	if result.Cluster != tobari.ContextClusterStatusNotApplicable {
+		return errors.New("Context configuration report has an invalid cluster outcome")
+	}
+	return nil
+}
+
+func validateSelectedContextResult(result tobari.ContextReport, task, contextName string) error {
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	if result.Task != task {
+		return errors.New("Context report task does not match the request")
+	}
+	if contextName != "" {
+		if result.Name != contextName {
+			return errors.New("Context report name does not match the request")
+		}
+	} else if !result.Active {
+		return errors.New("Context report does not identify the active Context selected by omission")
+	}
+	return nil
+}
+
+func validateConfiguredShellResult(
+	result tobari.ContextReport, contextName string, change tobari.ContextShellEnvironmentSetting,
+) error {
+	if err := validateConfiguredContextResult(result, tobari.TaskConfigShell, contextName); err != nil {
+		return err
+	}
+	for _, setting := range result.ShellEnvironment {
+		if setting.Variable == change.Variable {
+			if setting.Source != change.Source || !sameOptionalString(setting.Value, change.Value) {
+				return errors.New("Context report shell setting does not match the configuration request")
+			}
+			return nil
+		}
+	}
+	return errors.New("Context report omits the configured shell setting")
+}
+
+func validateConfiguredGitResult(
+	result tobari.ContextReport, contextName string, change tobari.ContextGitIdentitySetting,
+) error {
+	if err := validateConfiguredContextResult(result, tobari.TaskConfigGit, contextName); err != nil {
+		return err
+	}
+	if result.GitIdentity.Source != change.Source ||
+		!sameOptionalString(result.GitIdentity.Name, change.Name) ||
+		!sameOptionalString(result.GitIdentity.Email, change.Email) {
+		return errors.New("Context report Git identity does not match the configuration request")
+	}
+	return nil
+}
+
+func sameOptionalString(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 // Service coordinates Context tasks without depending on the filesystem or
@@ -152,6 +285,9 @@ func (s *Service) List(ctx context.Context) (tobari.ContextListResult, error) {
 	}
 	result, err := s.runtime.ListContexts(ctx)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return tobari.ContextListResult{}, err
+		}
 		return tobari.ContextListResult{}, fault.Wrap(
 			fault.KindInternal, "context_read_failed", "Context list could not be read", false, err,
 			fault.NextAction{Command: "doctor", Reason: "Inspect the host Context stores."},
@@ -182,7 +318,7 @@ func (s *Service) Show(ctx context.Context, name string) (tobari.ContextReport, 
 	if err != nil {
 		return tobari.ContextReport{}, s.readError(err)
 	}
-	if err := result.Validate(); err != nil {
+	if err := validateSelectedContextResult(result, tobari.TaskContextShow, name); err != nil {
 		return tobari.ContextReport{}, fault.Wrap(
 			fault.KindContract, "invalid_context_report", "Context report is invalid", false, err,
 			fault.NextAction{Command: "context list", Reason: "Inspect the local Context collection."},
@@ -395,6 +531,9 @@ func validateCreateInput(name, image string, mode tobari.ContextPolicyMode) erro
 }
 
 func (s *Service) readError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
 	if errors.Is(err, tobari.ErrContextNotFound) {
 		return fault.New(fault.KindNotFound, "context_not_found", "the named Context does not exist", false,
 			fault.NextAction{Command: "context list", Reason: "Choose an existing Context."})

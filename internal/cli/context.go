@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -59,7 +60,7 @@ func runContextShow(
 	return c.emitResult(ctx, output)
 }
 
-func runContextShellConfigure(
+func runConfigShell(
 	ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs,
 ) int {
 	if c == nil {
@@ -70,21 +71,44 @@ func runContextShellConfigure(
 	}
 	format, err := parseSuccessFormat(inputs.One("--format"))
 	if err != nil {
-		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context shell configure", "Correct the command arguments.")
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help config shell", "Correct the command arguments.")
 	}
-	var value *string
-	if inputs.Provided("--value") {
-		literal := inputs.One("--value")
-		value = &literal
+	contextName, err := selectedConfigurationContext(ctx, inputs)
+	if err != nil {
+		return c.fail(ctx, err)
 	}
-	change := tobari.ContextShellEnvironmentSetting{
-		Variable: inputs.One("--variable"),
-		Source:   tobari.ContextShellEnvironmentSource(inputs.One("--source")),
-		Value:    value,
-	}
-	contextName := executionContextName(ctx)
-	if inputs.Provided("--context") {
-		contextName = inputs.One("--context")
+	var change tobari.ContextShellEnvironmentSetting
+	if shellSettingInputsOmitted(inputs) {
+		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON ||
+			c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
+			return configurationWizardUnavailable(ctx, c, command)
+		}
+		current, showErr := c.context.Show(ctx, contextName)
+		if showErr != nil {
+			return c.fail(ctx, showErr)
+		}
+		// Bind Apply to the Context that was shown. The omitted active Context
+		// may change in another process while the user is reviewing the wizard.
+		contextName = current.Name
+		wizard := c.config
+		if wizard == nil {
+			wizard = newContextConfigurationWizard()
+		}
+		change, err = wizard.ConfigureShell(ctx, current, c.In, c.Err)
+		if err != nil {
+			return c.fail(ctx, normalizeConfigurationWizardError(command.Path, err))
+		}
+	} else {
+		var value *string
+		if inputs.Provided("--value") {
+			literal := inputs.One("--value")
+			value = &literal
+		}
+		change = tobari.ContextShellEnvironmentSetting{
+			Variable: inputs.One("--variable"),
+			Source:   tobari.ContextShellEnvironmentSource(inputs.One("--source")),
+			Value:    value,
+		}
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
@@ -97,6 +121,121 @@ func runContextShellConfigure(
 		return c.fail(ctx, err)
 	}
 	return c.emitMutationResult(ctx, command, output)
+}
+
+func runConfigGit(
+	ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs,
+) int {
+	if c == nil {
+		return ExitInternal
+	}
+	if c.context == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help config git", "Correct the command arguments.")
+	}
+	contextName, err := selectedConfigurationContext(ctx, inputs)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	var change tobari.ContextGitIdentitySetting
+	if gitSettingInputsOmitted(inputs) {
+		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON ||
+			c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
+			return configurationWizardUnavailable(ctx, c, command)
+		}
+		current, showErr := c.context.Show(ctx, contextName)
+		if showErr != nil {
+			return c.fail(ctx, showErr)
+		}
+		// Bind Apply to the Context that was shown. The omitted active Context
+		// may change in another process while the user is reviewing the wizard.
+		contextName = current.Name
+		wizard := c.config
+		if wizard == nil {
+			wizard = newContextConfigurationWizard()
+		}
+		change, err = wizard.ConfigureGit(ctx, current, c.In, c.Err)
+		if err != nil {
+			return c.fail(ctx, normalizeConfigurationWizardError(command.Path, err))
+		}
+	} else {
+		var name, email *string
+		if inputs.Provided("--name") {
+			value := inputs.One("--name")
+			name = &value
+		}
+		if inputs.Provided("--email") {
+			value := inputs.One("--email")
+			email = &value
+		}
+		change = tobari.ContextGitIdentitySetting{
+			Source: tobari.ContextGitIdentitySource(inputs.One("--source")),
+			Name:   name, Email: email,
+		}
+	}
+	intent.Target = operation.TargetRef{Kind: tobari.ContextGitIdentityTargetKind, ID: tobari.ContextGitIdentityTargetID}
+	intent.Impact = command.Agent.Mutation.Impact
+	result, err := c.context.ConfigureGit(ctx, intent, contextName, change)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	output, err := renderContextReport(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
+func selectedConfigurationContext(ctx context.Context, inputs ParsedInputs) (string, error) {
+	if inputs.Provided("--context") {
+		name := inputs.One("--context")
+		if name == "" {
+			return "", fault.New(
+				fault.KindInvalidInput,
+				"invalid_context_name",
+				"Context name is invalid.",
+				false,
+				fault.NextAction{Command: "context list", Reason: "Choose an existing Context name."},
+			)
+		}
+		return name, nil
+	}
+	return executionContextName(ctx), nil
+}
+
+func shellSettingInputsOmitted(inputs ParsedInputs) bool {
+	return !inputs.Provided("--variable") && !inputs.Provided("--source") && !inputs.Provided("--value")
+}
+
+func gitSettingInputsOmitted(inputs ParsedInputs) bool {
+	return !inputs.Provided("--source") && !inputs.Provided("--name") && !inputs.Provided("--email")
+}
+
+func configurationWizardUnavailable(ctx context.Context, c *CLI, command CommandSpec) int {
+	return c.failUsage(
+		ctx,
+		"configuration_wizard_unavailable",
+		"Omitted setting flags require text success/error output and interactive terminal stdin and stderr; usage: "+command.Usage(),
+		"help "+command.Path,
+		"Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr.",
+	)
+}
+
+func normalizeConfigurationWizardError(path string, err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return fault.Wrap(
+		fault.KindInternal,
+		"configuration_wizard_failed",
+		"The configuration wizard failed before applying a change.",
+		false,
+		err,
+		fault.NextAction{Command: "help " + path, Reason: "Retry with complete setting flags or repair the interactive terminal streams."},
+	)
 }
 
 func runContextCreate(
@@ -278,7 +417,7 @@ func renderContextReport(result tobari.ContextReport, format successFormat, colo
 		return nil, fault.Wrap(fault.KindContract, "invalid_context_report", "Context report is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(contextReportDocument{SchemaVersion: 5, Context: result})
+		output, err := json.Marshal(contextReportDocument{SchemaVersion: 6, Context: result})
 		if err != nil {
 			return nil, err
 		}
@@ -304,6 +443,11 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 			value += " " + fmt.Sprintf("%q", safeExternalText(*setting.Value))
 		}
 		writeStyledLine(&output, color, "Shell "+setting.Variable+":", value, styleText)
+	}
+	writeStyledLine(&output, color, "Git identity:", string(result.GitIdentity.Source), styleText)
+	if result.GitIdentity.Source == tobari.ContextGitIdentityLiteral && result.GitIdentity.Name != nil && result.GitIdentity.Email != nil {
+		writeStyledLine(&output, color, "Git user.name:", safeExternalText(*result.GitIdentity.Name), styleText)
+		writeStyledLine(&output, color, "Git user.email:", safeExternalText(*result.GitIdentity.Email), styleText)
 	}
 	if result.Task == tobari.TaskContextShow {
 		writeStyledLine(&output, color, "Auth Broker:", result.Authentication.BrokerState, humanStatusToken(result.Authentication.BrokerState))
@@ -347,8 +491,10 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		)
 	}
 	switch result.Task {
-	case tobari.TaskContextShellConfigure:
+	case tobari.TaskConfigShell:
 		writeStyledCommandLine(&output, color, "Next:", "start a new session with ", "`tobari`", "; running sessions are unchanged.")
+	case tobari.TaskConfigGit:
+		writeStyledCommandLine(&output, color, "Next:", "re-enter a matching Workspace with ", "`tobari`", " to reconcile its Git fallback; this command does not change running sessions.")
 	case tobari.TaskRuntimeBuild:
 		writeStyledLine(&output, color, "Note:", "existing Workspaces keep their home. On the next `tobari`, Tobari recreates only the work container when this runtime image changes the spec.", styleText)
 		writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari`", " from a project directory.")

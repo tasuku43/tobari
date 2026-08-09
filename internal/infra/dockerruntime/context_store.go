@@ -16,8 +16,23 @@ import (
 )
 
 const (
-	maxContextManifestBytes = 16 * 1024
-	maxContextStoreFileSize = 8 * 1024 * 1024
+	maxContextManifestFixedJSONBytes = 16 * 1024
+	maxActiveContextDocumentBytes    = 16 * 1024
+	maxJSONEncodedByteExpansion      = 6
+	contextGitIdentityValueCount     = 2
+	maxContextStoreFileSize          = 8 * 1024 * 1024
+)
+
+// encoding/json can expand one input byte to a six-byte escape. Reserve that
+// worst case for every bounded shell and Git identity scalar, then retain the
+// former 16 KiB allowance for the manifest's bounded identity/runtime fields,
+// JSON structure, and indentation. The inventory length is derived from the
+// domain so adding an allowlisted shell variable cannot silently invalidate an
+// otherwise valid manifest.
+var maxContextManifestBytes = int64(
+	maxContextManifestFixedJSONBytes +
+		maxJSONEncodedByteExpansion*(len(tobari.ContextShellEnvironmentVariables())*tobari.MaxContextShellValueBytes+
+			contextGitIdentityValueCount*tobari.MaxContextGitIdentityValueBytes),
 )
 
 type activeContextDocument struct {
@@ -378,6 +393,7 @@ func (r *Runtime) upgradeLegacyContextManifests() error {
 		if manifest.SchemaVersion == tobari.ContextSchemaVersion {
 			continue
 		}
+		previousSchemaVersion := manifest.SchemaVersion
 		if manifest.ID == "" {
 			id, err := tobari.NewProductionContextID()
 			if err != nil {
@@ -386,7 +402,10 @@ func (r *Runtime) upgradeLegacyContextManifests() error {
 			manifest.ID = id
 		}
 		manifest.SchemaVersion = tobari.ContextSchemaVersion
-		manifest.ShellEnvironment = tobari.InitialContextShellEnvironment()
+		if previousSchemaVersion != tobari.LegacyContextSchemaVersion4 {
+			manifest.ShellEnvironment = tobari.InitialContextShellEnvironment()
+		}
+		manifest.GitIdentity = nil
 		if err := manifest.Validate(); err != nil {
 			return err
 		}
@@ -402,7 +421,7 @@ func (r *Runtime) readActiveContext() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() > maxContextManifestBytes {
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() > maxActiveContextDocumentBytes {
 		return "", fmt.Errorf("active Context marker is unsafe")
 	}
 	data, err := os.ReadFile(r.activeContextPath()) // #nosec G304 -- fixed active Context path.
@@ -627,13 +646,73 @@ func (r *Runtime) ConfigureContextShell(
 		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
 			return fmt.Errorf("write Context shell environment: %w", err)
 		}
-		result, err = r.contextReport(ctx, tobari.TaskContextShellConfigure, manifest, active)
+		result, err = r.contextReport(ctx, tobari.TaskConfigShell, manifest, active)
 		return err
 	})
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
 	return result, nil
+}
+
+// ConfigureContextGit atomically updates the Context-owned Git identity pair.
+// Selecting default removes the persisted override; inherited host values are
+// resolved later for a specific Workspace root and never stored here.
+func (r *Runtime) ConfigureContextGit(
+	ctx context.Context, name string, change tobari.ContextGitIdentitySetting,
+) (tobari.ContextReport, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if err := change.Validate(true); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if err := r.ensureContextStore(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	var result tobari.ContextReport
+	err := r.withContextStoreLock(func() error {
+		active, err := r.readActiveContext()
+		if err != nil {
+			return err
+		}
+		if name == "" {
+			name = active
+		}
+		manifest, err := r.readContextManifest(name)
+		if err != nil {
+			return err
+		}
+		manifest.GitIdentity = persistedContextGitIdentity(change)
+		if err := manifest.Validate(); err != nil {
+			return err
+		}
+		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
+			return fmt.Errorf("write Context Git identity: %w", err)
+		}
+		result, err = r.contextReport(ctx, tobari.TaskConfigGit, manifest, active)
+		return err
+	})
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	return result, nil
+}
+
+func persistedContextGitIdentity(setting tobari.ContextGitIdentitySetting) *tobari.ContextGitIdentitySetting {
+	if setting.Source == tobari.ContextGitIdentityDefault {
+		return nil
+	}
+	result := setting
+	if setting.Name != nil {
+		value := *setting.Name
+		result.Name = &value
+	}
+	if setting.Email != nil {
+		value := *setting.Email
+		result.Email = &value
+	}
+	return &result
 }
 
 // CreateContext initializes one named Context without accepting any secret.

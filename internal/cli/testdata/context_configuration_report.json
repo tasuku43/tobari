@@ -1,0 +1,48 @@
+{
+  "task": "config.git",
+  "id": "018bcfe5-687b-7000-8000-000000000099",
+  "name": "review",
+  "active": false,
+  "agent_profile": "default",
+  "image": "ghcr.io/tasuku43/tobari/runtime:latest",
+  "policy_mode": "guided",
+  "shell_environment": [
+    {
+      "variable": "COLORTERM",
+      "source": "default"
+    },
+    {
+      "variable": "NO_COLOR",
+      "source": "literal",
+      "value": ""
+    },
+    {
+      "variable": "PS1",
+      "source": "inherit"
+    },
+    {
+      "variable": "TERM",
+      "source": "default"
+    }
+  ],
+  "git_identity": {
+    "source": "literal",
+    "name": "Review Bot",
+    "email": "review@example.com"
+  },
+  "stores": {
+    "policy_directory": "/config/contexts/review/policy",
+    "credential_config": "/config/contexts/review/credentials.json",
+    "credential_directory": "/config/contexts/review/credentials"
+  },
+  "runtime": {
+    "kind": "official",
+    "status": "official",
+    "base_reference": "ghcr.io/tasuku43/tobari/runtime:latest"
+  },
+  "cluster": "not_applicable",
+  "authentication": {
+    "broker_state": "not_applicable",
+    "providers": null
+  }
+}

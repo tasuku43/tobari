@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -198,7 +199,7 @@ func TestConfigureContextShellPersistsOnlyAllowlistedContextSetting(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Task != tobari.TaskContextShellConfigure || result.Name != "project-tools" {
+	if result.Task != tobari.TaskConfigShell || result.Name != "project-tools" {
 		t.Fatalf("configure result = %+v", result)
 	}
 	manifest, err := runtime.readContextManifest("project-tools")
@@ -221,6 +222,122 @@ func TestConfigureContextShellPersistsOnlyAllowlistedContextSetting(t *testing.T
 	manifest, err = runtime.readContextManifest("project-tools")
 	if err != nil || len(manifest.ShellEnvironment) != 0 {
 		t.Fatalf("default shell setting = %+v, error = %v", manifest.ShellEnvironment, err)
+	}
+}
+
+func TestConfigureContextGitPersistsAtomicPairAndDefaultRemovesOverride(t *testing.T) {
+	t.Parallel()
+	runner := &contextSwitchRunner{}
+	runtime := newContextSwitchRuntime(t, runner)
+	name, email := "Tobari User", "tobari@example.com"
+	result, err := runtime.ConfigureContextGit(context.Background(), "project-tools", tobari.ContextGitIdentitySetting{
+		Source: tobari.ContextGitIdentityLiteral, Name: &name, Email: &email,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Task != tobari.TaskConfigGit || result.GitIdentity.Source != tobari.ContextGitIdentityLiteral ||
+		result.GitIdentity.Name == nil || *result.GitIdentity.Name != name ||
+		result.GitIdentity.Email == nil || *result.GitIdentity.Email != email {
+		t.Fatalf("literal Git configuration result = %+v", result)
+	}
+	manifest, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.GitIdentity == nil || manifest.GitIdentity.Source != tobari.ContextGitIdentityLiteral ||
+		manifest.GitIdentity.Name == nil || *manifest.GitIdentity.Name != name ||
+		manifest.GitIdentity.Email == nil || *manifest.GitIdentity.Email != email {
+		t.Fatalf("persisted Git identity = %+v", manifest.GitIdentity)
+	}
+
+	result, err = runtime.ConfigureContextGit(context.Background(), "project-tools", tobari.ContextGitIdentitySetting{
+		Source: tobari.ContextGitIdentityDefault,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err = runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.GitIdentity != nil || result.GitIdentity.Source != tobari.ContextGitIdentityDefault ||
+		result.GitIdentity.Name != nil || result.GitIdentity.Email != nil {
+		t.Fatalf("default Git configuration = manifest:%+v report:%+v", manifest.GitIdentity, result.GitIdentity)
+	}
+	data, err := os.ReadFile(runtime.contextManifestPath("project-tools"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "git_identity") {
+		t.Fatalf("default Git identity remained persisted: %s", data)
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("Git configuration touched Docker: %+v", runner.runs)
+	}
+}
+
+func TestContextManifestRoundTripsEveryMaximumSchemaFiveProjectionValue(t *testing.T) {
+	t.Parallel()
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	shellValue := strings.Repeat("\x01", tobari.MaxContextShellValueBytes)
+	for _, variable := range tobari.ContextShellEnvironmentVariables() {
+		if _, err := runtime.ConfigureContextShell(
+			context.Background(), "project-tools", tobari.ContextShellEnvironmentSetting{
+				Variable: variable, Source: tobari.ContextShellEnvironmentLiteral, Value: &shellValue,
+			},
+		); err != nil {
+			t.Fatalf("configure maximum %s literal: %v", variable, err)
+		}
+	}
+	// encoding/json escapes '<' as six bytes, exercising the same maximum
+	// expansion reserved by maxContextManifestBytes for both Git fields.
+	gitValue := strings.Repeat("<", tobari.MaxContextGitIdentityValueBytes)
+	if _, err := runtime.ConfigureContextGit(
+		context.Background(), "project-tools", tobari.ContextGitIdentitySetting{
+			Source: tobari.ContextGitIdentityLiteral, Name: &gitValue, Email: &gitValue,
+		},
+	); err != nil {
+		t.Fatalf("configure maximum Git identity pair: %v", err)
+	}
+
+	info, err := os.Stat(runtime.contextManifestPath("project-tools"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() <= maxContextManifestFixedJSONBytes || info.Size() > maxContextManifestBytes {
+		t.Fatalf("maximum schema-5 manifest size = %d, bound = %d", info.Size(), maxContextManifestBytes)
+	}
+	manifest, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatalf("read maximum schema-5 manifest: %v", err)
+	}
+	if len(manifest.ShellEnvironment) != len(tobari.ContextShellEnvironmentVariables()) ||
+		manifest.GitIdentity == nil || manifest.GitIdentity.Name == nil || manifest.GitIdentity.Email == nil ||
+		len(*manifest.GitIdentity.Name) != tobari.MaxContextGitIdentityValueBytes ||
+		len(*manifest.GitIdentity.Email) != tobari.MaxContextGitIdentityValueBytes {
+		t.Fatalf(
+			"maximum schema-5 manifest did not round-trip: shell=%d git-present=%t",
+			len(manifest.ShellEnvironment), manifest.GitIdentity != nil,
+		)
+	}
+}
+
+func TestActiveContextDocumentRetainsIndependentSizeBound(t *testing.T) {
+	t.Parallel()
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	if maxActiveContextDocumentBytes >= maxContextManifestBytes {
+		t.Fatalf(
+			"active Context bound %d is not independent from manifest bound %d",
+			maxActiveContextDocumentBytes, maxContextManifestBytes,
+		)
+	}
+	oversized := strings.Repeat("x", maxActiveContextDocumentBytes+1)
+	if err := os.WriteFile(runtime.activeContextPath(), []byte(oversized), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.readActiveContext(); err == nil {
+		t.Fatal("oversized active Context document was accepted")
 	}
 }
 
@@ -252,6 +369,49 @@ func TestContextSchemaThreeMigrationPreservesIdentityAndEnablesPS1Inheritance(t 
 	}
 	if len(shown.ShellEnvironment) != len(tobari.ContextShellEnvironmentVariables()) {
 		t.Fatalf("shown shell environment = %+v", shown.ShellEnvironment)
+	}
+}
+
+func TestContextSchemaFourMigrationPreservesIdentityRuntimeAndShellOverrides(t *testing.T) {
+	t.Parallel()
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	manifest, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := ""
+	manifest.SchemaVersion = tobari.LegacyContextSchemaVersion4
+	manifest.Runtime = &tobari.ContextRuntimeRecipe{
+		Kind: tobari.ContextRuntimeKindDockerfile, File: tobari.ContextRuntimeRecipeFile,
+		BaseReference: tobari.OfficialRuntimeBase,
+	}
+	manifest.ShellEnvironment = []tobari.ContextShellEnvironmentSetting{{
+		Variable: "PS1", Source: tobari.ContextShellEnvironmentLiteral, Value: &empty,
+	}}
+	wantID := manifest.ID
+	wantRuntime := *manifest.Runtime
+	wantShell := manifest.ShellEnvironment
+	if err := writeAtomicJSON(runtime.contextManifestPath(manifest.Name), manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	shown, err := runtime.ShowContext(context.Background(), "project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upgraded.SchemaVersion != tobari.ContextSchemaVersion || upgraded.ID != wantID ||
+		upgraded.Runtime == nil || !reflect.DeepEqual(*upgraded.Runtime, wantRuntime) ||
+		!reflect.DeepEqual(upgraded.ShellEnvironment, wantShell) || upgraded.GitIdentity != nil {
+		t.Fatalf("upgraded schema-4 Context = %+v", upgraded)
+	}
+	if len(shown.ShellEnvironment) != len(tobari.ContextShellEnvironmentVariables()) ||
+		shown.ShellEnvironment[2].Value == nil || *shown.ShellEnvironment[2].Value != "" ||
+		shown.GitIdentity.Source != tobari.ContextGitIdentityDefault {
+		t.Fatalf("shown migrated Context = %+v", shown)
 	}
 }
 

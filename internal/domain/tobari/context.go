@@ -9,35 +9,41 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
 const (
-	ContextSchemaVersion        = 4
+	ContextSchemaVersion        = 5
 	LegacyContextSchemaVersion  = 1
 	LegacyContextSchemaVersion2 = 2
 	LegacyContextSchemaVersion3 = 3
+	LegacyContextSchemaVersion4 = 4
 	DefaultContextName          = "default"
 
-	TaskContextList           = "context.list"
-	TaskContextShow           = "context.show"
-	TaskContextCreate         = "context.create"
-	TaskContextUse            = "context.use"
-	TaskContextShellConfigure = "context.shell.configure"
-	TaskRuntimeInit           = "runtime.init"
-	TaskRuntimeBuild          = "runtime.build"
+	TaskContextList   = "context.list"
+	TaskContextShow   = "context.show"
+	TaskContextCreate = "context.create"
+	TaskContextUse    = "context.use"
+	TaskConfigShell   = "config.shell"
+	TaskConfigGit     = "config.git"
+	TaskRuntimeInit   = "runtime.init"
+	TaskRuntimeBuild  = "runtime.build"
 
-	ContextCatalogTargetKind  = "contexts"
-	ContextCatalogTargetID    = "context-catalog"
-	ContextTargetKind         = "context"
-	ActiveContextTargetID     = "active-context"
-	ContextRuntimeTargetKind  = "context-runtime"
-	ActiveContextRuntimeID    = "active-context-runtime"
-	ContextRuntimeRecipeFile  = "runtime/Dockerfile"
-	OfficialRuntimeBase       = "ghcr.io/tasuku43/tobari/runtime:latest"
-	ContextShellTargetKind    = "context-shell-environment"
-	ContextShellTargetID      = "context-shell-environment"
-	MaxContextShellValueBytes = 4096
+	ContextCatalogTargetKind        = "contexts"
+	ContextCatalogTargetID          = "context-catalog"
+	ContextTargetKind               = "context"
+	ActiveContextTargetID           = "active-context"
+	ContextRuntimeTargetKind        = "context-runtime"
+	ActiveContextRuntimeID          = "active-context-runtime"
+	ContextRuntimeRecipeFile        = "runtime/Dockerfile"
+	OfficialRuntimeBase             = "ghcr.io/tasuku43/tobari/runtime:latest"
+	ContextShellTargetKind          = "context-shell-environment"
+	ContextShellTargetID            = "context-shell-environment"
+	MaxContextShellValueBytes       = 4096
+	ContextGitIdentityTargetKind    = "context-git-identity"
+	ContextGitIdentityTargetID      = "context-git-identity"
+	MaxContextGitIdentityValueBytes = 4096
 )
 
 var (
@@ -328,6 +334,73 @@ func ApplyContextShellEnvironmentSetting(
 	return result, nil
 }
 
+// ContextGitIdentitySource selects the narrow Git identity projection owned by
+// a Context. Default is represented explicitly in reports and omitted from
+// manifests; inherit and literal are the only persisted overrides.
+type ContextGitIdentitySource string
+
+const (
+	ContextGitIdentityDefault ContextGitIdentitySource = "default"
+	ContextGitIdentityInherit ContextGitIdentitySource = "inherit"
+	ContextGitIdentityLiteral ContextGitIdentitySource = "literal"
+)
+
+// ContextGitIdentitySetting is an atomic user.name and user.email policy.
+// Name and Email are present together only for a literal setting.
+type ContextGitIdentitySetting struct {
+	Source ContextGitIdentitySource `json:"source"`
+	Name   *string                  `json:"name"`
+	Email  *string                  `json:"email"`
+}
+
+func ValidateContextGitIdentityValue(value string) error {
+	if value == "" || !utf8.ValidString(value) || len(value) > MaxContextGitIdentityValueBytes {
+		return fmt.Errorf("Git identity value must be non-empty valid UTF-8 and at most %d bytes", MaxContextGitIdentityValueBytes)
+	}
+	if strings.IndexFunc(value, func(character rune) bool {
+		return character <= '\u001f' ||
+			(character >= '\u007f' && character <= '\u009f') ||
+			character == '\u2028' || character == '\u2029' ||
+			unicode.Is(unicode.Cf, character)
+	}) >= 0 {
+		return fmt.Errorf("Git identity value cannot contain control, format, or Unicode line-separator characters")
+	}
+	return nil
+}
+
+func (s ContextGitIdentitySetting) Validate(allowDefault bool) error {
+	switch s.Source {
+	case ContextGitIdentityDefault:
+		if !allowDefault {
+			return fmt.Errorf("default Git identity source is not persisted")
+		}
+		if s.Name != nil || s.Email != nil {
+			return fmt.Errorf("default Git identity source cannot contain name or email")
+		}
+	case ContextGitIdentityInherit:
+		if s.Name != nil || s.Email != nil {
+			return fmt.Errorf("inherited Git identity source cannot contain name or email")
+		}
+	case ContextGitIdentityLiteral:
+		if s.Name == nil || s.Email == nil {
+			return fmt.Errorf("literal Git identity source requires both name and email")
+		}
+		if err := ValidateContextGitIdentityValue(*s.Name); err != nil {
+			return fmt.Errorf("literal Git identity name: %w", err)
+		}
+		if err := ValidateContextGitIdentityValue(*s.Email); err != nil {
+			return fmt.Errorf("literal Git identity email: %w", err)
+		}
+	default:
+		return fmt.Errorf("Context Git identity source is invalid: %q", s.Source)
+	}
+	return nil
+}
+
+func DefaultContextGitIdentityReport() ContextGitIdentitySetting {
+	return ContextGitIdentitySetting{Source: ContextGitIdentityDefault}
+}
+
 // ContextRuntimeBuild is the last successful build record for a recipe.
 // Image is a Tobari-managed local reference; ImageDigest is the immutable
 // Docker image identity used for diagnostics and drift detection.
@@ -459,22 +532,33 @@ type ContextManifest struct {
 	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
 	Runtime          *ContextRuntimeRecipe            `json:"runtime,omitempty"`
 	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
+	GitIdentity      *ContextGitIdentitySetting       `json:"git_identity,omitempty"`
 }
 
 func (m ContextManifest) Validate() error {
 	if m.SchemaVersion != ContextSchemaVersion && m.SchemaVersion != LegacyContextSchemaVersion &&
-		m.SchemaVersion != LegacyContextSchemaVersion2 && m.SchemaVersion != LegacyContextSchemaVersion3 {
-		return fmt.Errorf("context schema version must be %d, %d, %d, or %d", LegacyContextSchemaVersion, LegacyContextSchemaVersion2, LegacyContextSchemaVersion3, ContextSchemaVersion)
+		m.SchemaVersion != LegacyContextSchemaVersion2 && m.SchemaVersion != LegacyContextSchemaVersion3 &&
+		m.SchemaVersion != LegacyContextSchemaVersion4 {
+		return fmt.Errorf(
+			"context schema version must be %d, %d, %d, %d, or %d",
+			LegacyContextSchemaVersion, LegacyContextSchemaVersion2, LegacyContextSchemaVersion3,
+			LegacyContextSchemaVersion4, ContextSchemaVersion,
+		)
 	}
-	if m.SchemaVersion == ContextSchemaVersion || m.SchemaVersion == LegacyContextSchemaVersion3 {
+	if m.SchemaVersion == ContextSchemaVersion || m.SchemaVersion == LegacyContextSchemaVersion4 ||
+		m.SchemaVersion == LegacyContextSchemaVersion3 {
 		if err := ValidateContextID(m.ID); err != nil {
 			return err
 		}
 	} else if m.ID != "" {
 		return fmt.Errorf("legacy Context manifest cannot contain a Context ID")
 	}
-	if m.SchemaVersion != ContextSchemaVersion && len(m.ShellEnvironment) != 0 {
+	if m.SchemaVersion != ContextSchemaVersion && m.SchemaVersion != LegacyContextSchemaVersion4 &&
+		len(m.ShellEnvironment) != 0 {
 		return fmt.Errorf("legacy Context manifest cannot contain shell environment settings")
+	}
+	if m.SchemaVersion != ContextSchemaVersion && m.GitIdentity != nil {
+		return fmt.Errorf("legacy Context manifest cannot contain a Git identity setting")
 	}
 	if err := ValidateName(m.Name); err != nil {
 		return fmt.Errorf("context name: %w", err)
@@ -495,6 +579,11 @@ func (m ContextManifest) Validate() error {
 	}
 	if err := validateContextShellEnvironment(m.ShellEnvironment, false); err != nil {
 		return err
+	}
+	if m.GitIdentity != nil {
+		if err := m.GitIdentity.Validate(false); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -699,6 +788,7 @@ type ContextReport struct {
 	Image            string                           `json:"image"`
 	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
 	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment"`
+	GitIdentity      ContextGitIdentitySetting        `json:"git_identity"`
 	Stores           ContextStorePaths                `json:"stores"`
 	Runtime          ContextRuntimeReport             `json:"runtime"`
 	Cluster          ContextClusterStatus             `json:"cluster"`
@@ -707,7 +797,7 @@ type ContextReport struct {
 
 func (r ContextReport) Validate() error {
 	if r.Task != TaskContextShow && r.Task != TaskContextCreate && r.Task != TaskContextUse &&
-		r.Task != TaskContextShellConfigure && r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
+		r.Task != TaskConfigShell && r.Task != TaskConfigGit && r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
 		return fmt.Errorf("context report task is invalid")
 	}
 	manifest := ContextManifest{
@@ -728,6 +818,9 @@ func (r ContextReport) Validate() error {
 		return err
 	}
 	if err := validateContextShellEnvironment(r.ShellEnvironment, true); err != nil {
+		return err
+	}
+	if err := r.GitIdentity.Validate(true); err != nil {
 		return err
 	}
 	if err := r.Authentication.Validate(r.Task == TaskContextShow); err != nil {

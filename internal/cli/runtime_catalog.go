@@ -24,7 +24,8 @@ func runtimeCommandSpecs() []CommandSpec {
 		policyCompactSpec(),
 		contextListSpec(),
 		contextShowSpec(),
-		contextShellConfigureSpec(),
+		configShellSpec(),
+		configGitSpec(),
 		contextCreateSpec(),
 		contextUseSpec(),
 		runtimeInitSpec(),
@@ -37,44 +38,49 @@ func runtimeCommandSpecs() []CommandSpec {
 	return append(specs, authCommandSpecs()...)
 }
 
-func contextShellConfigureSpec() CommandSpec {
+func configShellSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context shell configure", Summary: "Configure one Context shell environment variable",
-		Args:   "--variable COLORTERM|NO_COLOR|PS1|TERM --source default|inherit|literal [--value <value>] [--context <name>] [--format text|json]",
+		Path: "config shell", Summary: "Configure one Context shell environment variable directly or interactively",
+		Args:   "[--variable COLORTERM|NO_COLOR|PS1|TERM] [--source default|inherit|literal] [--value <value>] [--context <name>] [--format text|json]",
 		Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
-			Outcome:      "Choose Tobari default behavior, exported host inheritance, or one Context-owned literal for an allowlisted shell variable",
+			Outcome:      "Choose Tobari default behavior, exported host inheritance, or one Context-owned literal for an allowlisted shell variable through complete flags or a text-terminal wizard",
 			Inputs: []CommandInput{
 				{
-					Name: "--variable", Source: InputSourceFlag, Required: true,
+					Name: "--variable", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
 					Description:   "Allowlisted shell environment variable configured for future interactive sessions.",
 					AllowedValues: tobari.ContextShellEnvironmentVariables(),
+					Requires:      []string{"--source"},
 				},
 				{
-					Name: "--source", Source: InputSourceFlag, Required: true,
+					Name: "--source", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "default removes the override; inherit reads an exported host value at entry; literal uses --value.",
+					Description:   "default removes the override; inherit reads an exported host value at entry; literal uses --value. Omit all setting flags to use the text-terminal wizard.",
 					AllowedValues: []string{"default", "inherit", "literal"},
+					Requires:      []string{"--variable"},
 				},
 				{
 					Name: "--value", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "Exact Context-owned value; required only for literal and may be explicitly empty.",
-					AllowedValues: []string{}, Requires: []string{"--source"},
+					Description:   "Exact Context-owned value of at most 4096 UTF-8 bytes; required only for literal and may be explicitly empty.",
+					AllowedValues: []string{}, Requires: []string{"--variable", "--source"},
 				},
 				executionContextInput(),
 				formatInput(),
 			},
 			Output:        contextReportOutput(),
-			Prerequisites: []string{"The selected Context exists on the trusted host; inherited values must be exported by the process that starts Tobari."},
+			Prerequisites: []string{"The selected Context exists on the trusted host; inherited values must be exported by the process that starts Tobari.", "When setting flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text."},
 			FixedTarget:   fixedContextShellTarget(),
-			Errors: mutationCommandErrors("context shell configure", "context show",
-				declaredCommandError(fault.KindInvalidInput, "invalid_shell_environment", false, "help context shell configure", "Choose an allowlisted variable and a valid source/value combination."),
+			Errors: mutationCommandErrors("config shell", "context show",
+				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config shell", "Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr."),
+				declaredCommandError(fault.KindInternal, "configuration_wizard_failed", false, "help config shell", "Retry with complete setting flags or repair the interactive terminal streams."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_shell_environment", false, "help config shell", "Choose an allowlisted variable and a valid source/value combination."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
 				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
-				declaredCommandError(fault.KindRejected, "context_shell_configure_failed", false, "context show", "Inspect the Context shell environment before retrying."),
+				declaredCommandError(fault.KindInternal, "context_read_failed", false, "doctor", "Inspect the host Context stores before retrying the wizard."),
+				declaredCommandError(fault.KindRejected, "config_shell_failed", false, "context show", "Inspect the Context shell environment before retrying."),
 				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context shell setting."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
@@ -83,7 +89,63 @@ func contextShellConfigureSpec() CommandSpec {
 				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
 			},
 		},
-		handler: runContextShellConfigure,
+		handler: runConfigShell,
+	}
+}
+
+func configGitSpec() CommandSpec {
+	return CommandSpec{
+		Path: "config git", Summary: "Configure one Context Git identity directly or interactively",
+		Args:   "[--source default|inherit|literal] [--name <name>] [--email <email>] [--context <name>] [--format text|json]",
+		Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "context.composition",
+			Outcome:      "Choose no Context fallback, inherited host user.name and user.email, or one fixed Context-owned Git identity through complete flags or a text-terminal wizard",
+			Inputs: []CommandInput{
+				{
+					Name: "--source", Source: InputSourceFlag, Required: false,
+					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+					Description:   "default removes the Context fallback; inherit projects host user.name and user.email at Workspace entry; literal uses --name and --email. Omit all setting flags to use the text-terminal wizard.",
+					AllowedValues: []string{"default", "inherit", "literal"},
+				},
+				{
+					Name: "--name", Source: InputSourceFlag, Required: false,
+					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+					Description:   "Exact non-empty Context-owned Git user.name of at most 4096 safe UTF-8 bytes; required with --email only for literal.",
+					AllowedValues: []string{}, Requires: []string{"--source", "--email"},
+				},
+				{
+					Name: "--email", Source: InputSourceFlag, Required: false,
+					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+					Description:   "Exact non-empty Context-owned Git user.email of at most 4096 safe UTF-8 bytes; required with --name only for literal.",
+					AllowedValues: []string{}, Requires: []string{"--source", "--name"},
+				},
+				executionContextInput(),
+				formatInput(),
+			},
+			Output: contextReportOutput(),
+			Prerequisites: []string{
+				"The selected Context exists on the trusted host; inherited identity is resolved from only host global Git configuration at Workspace entry.",
+				"When setting flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text.",
+			},
+			FixedTarget: fixedContextGitIdentityTarget(),
+			Errors: mutationCommandErrors("config git", "context show",
+				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config git", "Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr."),
+				declaredCommandError(fault.KindInternal, "configuration_wizard_failed", false, "help config git", "Retry with complete setting flags or repair the interactive terminal streams."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_git_identity", false, "help config git", "Choose default, inherit, or a literal source with both name and email."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
+				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindInternal, "context_read_failed", false, "doctor", "Inspect the host Context stores before retrying the wizard."),
+				declaredCommandError(fault.KindRejected, "config_git_failed", false, "context show", "Inspect the Context Git identity before retrying."),
+				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context Git identity setting."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.ContextGitIdentityTargetKind, TargetInputs: []string{},
+				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
+			},
+		},
+		handler: runConfigGit,
 	}
 }
 
@@ -1101,6 +1163,14 @@ func fixedContextShellTarget() *FixedTarget {
 	}
 }
 
+func fixedContextGitIdentityTarget() *FixedTarget {
+	return &FixedTarget{
+		Kind: tobari.ContextGitIdentityTargetKind, ID: tobari.ContextGitIdentityTargetID,
+		Description: "This installation's Context-owned narrow Git identity configuration.",
+		Scope:       FixedTargetScopeToolLocal,
+	}
+}
+
 func fixedActiveContextRuntimeTarget() *FixedTarget {
 	return &FixedTarget{
 		Kind:        tobari.ContextRuntimeTargetKind,
@@ -1149,18 +1219,22 @@ func contextReportOutput() CommandOutput {
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
+			{Name: "task", Type: OutputFieldTypeString, Description: "Declared Context task identity for this report."},
+			{Name: "id", Type: OutputFieldTypeString, Description: "Stable host-issued Context identity."},
 			{Name: "name", Type: OutputFieldTypeString, Description: "Named Context identifier."},
 			{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the current/default selection for omitted Context input."},
 			{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only shared agent profile reference."},
 			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Context."},
 			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Guided or advanced policy-development mode."},
 			{Name: "shell_environment", Type: OutputFieldTypeArray, Description: "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal."},
+			{Name: "git_identity", Type: OutputFieldTypeObject, Description: "Atomic Git identity policy with default, inherited, or literal source and exact name/email only for literal."},
 			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."},
 			{Name: "runtime", Type: OutputFieldTypeObject, Description: "Selected runtime source, recipe status, source digest, and image digest."},
 			{Name: "cluster", Type: OutputFieldTypeString, Description: "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."},
+			{Name: "authentication", Type: OutputFieldTypeObject, Description: "Safe Auth Broker and provider status without credential values."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "context", JSONSchemaVersion: 5,
+		JSONEnvelope: "context", JSONSchemaVersion: 6,
 	}
 }
 

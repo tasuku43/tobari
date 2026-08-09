@@ -86,6 +86,82 @@ func TestContextShellEnvironmentRejectsUnsafeOrAmbiguousSettings(t *testing.T) {
 	}
 }
 
+func TestContextGitIdentityAcceptsAtomicSourcesAndLiteralPair(t *testing.T) {
+	name, email := "Tobari User", "tobari@example.com"
+	for _, setting := range []ContextGitIdentitySetting{
+		{Source: ContextGitIdentityDefault},
+		{Source: ContextGitIdentityInherit},
+		{Source: ContextGitIdentityLiteral, Name: &name, Email: &email},
+	} {
+		if err := setting.Validate(true); err != nil {
+			t.Fatalf("valid Git identity rejected: %+v: %v", setting, err)
+		}
+	}
+	if err := (ContextGitIdentitySetting{Source: ContextGitIdentityDefault}).Validate(false); err == nil {
+		t.Fatal("default Git identity was accepted as a persisted override")
+	}
+}
+
+func TestContextGitIdentityRejectsPartialOrUnsafeLiteralValues(t *testing.T) {
+	validName, validEmail := "Tobari User", "tobari@example.com"
+	empty := ""
+	tooLarge := strings.Repeat("x", MaxContextGitIdentityValueBytes+1)
+	for name, setting := range map[string]ContextGitIdentitySetting{
+		"unknown source":        {Source: "host"},
+		"default with name":     {Source: ContextGitIdentityDefault, Name: &validName},
+		"inherit with email":    {Source: ContextGitIdentityInherit, Email: &validEmail},
+		"literal without name":  {Source: ContextGitIdentityLiteral, Email: &validEmail},
+		"literal without email": {Source: ContextGitIdentityLiteral, Name: &validName},
+		"empty name":            {Source: ContextGitIdentityLiteral, Name: &empty, Email: &validEmail},
+		"oversized email":       {Source: ContextGitIdentityLiteral, Name: &validName, Email: &tooLarge},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := setting.Validate(true); err == nil {
+				t.Fatalf("invalid Git identity was accepted: %+v", setting)
+			}
+		})
+	}
+
+	for name, unsafe := range map[string]string{
+		"nul":                         "a\x00b",
+		"carriage return":             "a\rb",
+		"line feed":                   "a\nb",
+		"C0 control":                  "a\x1fb",
+		"C1 control":                  "a\u0085b",
+		"Unicode line separator":      "a\u2028b",
+		"Unicode paragraph separator": "a\u2029b",
+		"format control":              "a\u200db",
+		"invalid UTF-8":               string([]byte{0xff}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			setting := ContextGitIdentitySetting{
+				Source: ContextGitIdentityLiteral, Name: &validName, Email: &unsafe,
+			}
+			if err := setting.Validate(true); err == nil {
+				t.Fatalf("unsafe Git identity was accepted: %q", unsafe)
+			}
+		})
+	}
+}
+
+func TestContextManifestPersistsOnlyNonDefaultGitIdentityOverrides(t *testing.T) {
+	manifest := validContextManifest()
+	defaultSetting := DefaultContextGitIdentityReport()
+	manifest.GitIdentity = &defaultSetting
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("current Context manifest persisted a default Git identity setting")
+	}
+
+	manifest.GitIdentity = &ContextGitIdentitySetting{Source: ContextGitIdentityInherit}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("inherited Git identity override rejected: %v", err)
+	}
+	manifest.SchemaVersion = LegacyContextSchemaVersion4
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("schema-4 Context manifest accepted a Git identity field")
+	}
+}
+
 func TestContextRuntimeRecipeValidatesFixedRecipeAndDigests(t *testing.T) {
 	recipe := ContextRuntimeRecipe{
 		Kind:          ContextRuntimeKindDockerfile,
@@ -141,10 +217,40 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 		},
 		Runtime:          report,
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
+		GitIdentity:      DefaultContextGitIdentityReport(),
 		Authentication:   ContextAuthentication{BrokerState: ContextAuthBrokerNotApplicable},
 	}
 	if err := contextReport.Validate(); err != nil {
 		t.Fatalf("valid runtime Context report rejected: %v", err)
+	}
+}
+
+func TestContextReportAcceptsConfigurationTasksAndRequiresCompleteGitIdentity(t *testing.T) {
+	manifest := validContextManifest()
+	base := ContextReport{
+		ID: manifest.ID, Name: manifest.Name, AgentProfile: manifest.AgentProfile,
+		Image: manifest.Image, PolicyMode: manifest.PolicyMode,
+		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
+		GitIdentity:      DefaultContextGitIdentityReport(),
+		Stores: ContextStorePaths{
+			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
+			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials.json"),
+			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials"),
+		},
+		Cluster:        ContextClusterStatusNotApplicable,
+		Authentication: ContextAuthentication{BrokerState: ContextAuthBrokerNotApplicable},
+	}
+	for _, task := range []string{TaskConfigShell, TaskConfigGit} {
+		report := base
+		report.Task = task
+		if err := report.Validate(); err != nil {
+			t.Fatalf("configuration task %q rejected: %v", task, err)
+		}
+	}
+	base.Task = TaskConfigGit
+	base.GitIdentity = ContextGitIdentitySetting{}
+	if err := base.Validate(); err == nil {
+		t.Fatal("Context report without an explicit Git identity source was accepted")
 	}
 }
 

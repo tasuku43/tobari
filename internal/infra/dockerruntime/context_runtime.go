@@ -148,6 +148,10 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
+	gitIdentity := tobari.DefaultContextGitIdentityReport()
+	if manifest.GitIdentity != nil {
+		gitIdentity = *manifest.GitIdentity
+	}
 	result := tobari.ContextReport{
 		Task:             task,
 		ID:               manifest.ID,
@@ -157,6 +161,7 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		Image:            manifest.Image,
 		PolicyMode:       manifest.PolicyMode,
 		ShellEnvironment: shellEnvironment,
+		GitIdentity:      gitIdentity,
 		Stores:           r.contextPaths(manifest.Name),
 		Runtime:          runtimeReport,
 		Cluster:          tobari.ContextClusterStatusNotApplicable,

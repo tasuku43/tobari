@@ -31,6 +31,7 @@ type CLI struct {
 	tobari  *tobaricmd.Service
 	context *contextcmd.Service
 	auth    *authcmd.Service
+	config  contextConfigurationWizard
 	noColor bool
 }
 
@@ -38,6 +39,7 @@ type CLI struct {
 func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
 	command.noColor = noColorFromEnvironment()
+	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
 	runtime, err := dockerruntime.New()
 	if err == nil {
 		command.tobari = tobaricmd.NewWithWorkspaceSelector(
@@ -69,6 +71,7 @@ func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doct
 		Version: "dev",
 		catalog: catalog,
 		doctor:  doctorcmd.New(inspector),
+		config:  newContextConfigurationWizard(),
 	}
 }
 
@@ -246,6 +249,9 @@ func parseRootOptions(args []string) (rootOptions, []string, error) {
 			}
 			index++
 			options.ContextName = args[index]
+			if options.ContextName == "" {
+				return options, nil, fmt.Errorf("--context requires one Context name")
+			}
 			seenContext = true
 			index++
 			continue
