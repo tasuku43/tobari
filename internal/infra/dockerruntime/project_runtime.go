@@ -196,6 +196,12 @@ func (r *Runtime) EnsureProjectRuntime(
 		if manifest.Name != stored.ContextName {
 			return fmt.Errorf("project Context binding is stale")
 		}
+		// Resolve and atomically replace the narrow Git fallback before any
+		// Docker inspection or mutation. A failing host read therefore cannot
+		// leave either a partial projection or newly changed Docker resources.
+		if err := r.reconcileProjectGitIdentity(ctx, manifest, stored); err != nil {
+			return err
+		}
 		image, err := r.resolveContextImageFor(ctx, manifest)
 		if err != nil {
 			return err
@@ -544,6 +550,10 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 	if err != nil {
 		return err
 	}
+	gitDirectory, err := r.projectGitDirectory(instance.ID)
+	if err != nil {
+		return err
+	}
 	exists, err := r.projectResourceExists(ctx, "container", container)
 	if err != nil {
 		return err
@@ -594,8 +604,10 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 		"--env", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
 		"--env", "REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem",
 		"--env", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
+		"--env", "GIT_CONFIG_SYSTEM=" + projectGitContainerConfig,
 		"--mount", "type=bind,src=" + r.projectHomePath(instance.ID) + ",dst=/var/lib/tobari",
 		"--mount", "type=bind,src=" + instance.Root + ",dst=" + workspaceRoot,
+		"--mount", "type=bind,src=" + gitDirectory + ",dst=" + projectGitContainerDirectory + ",readonly",
 		"--mount", "type=bind,src=" + profile + ",dst=/opt/tobari/profile,readonly",
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "skills") + ",dst=/var/lib/tobari/.claude/skills,readonly",
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "agents") + ",dst=/var/lib/tobari/.claude/agents,readonly",
@@ -731,13 +743,36 @@ func (r *Runtime) projectSpecHashWithAuthAndCommand(
 	auth projectAuthProjection,
 	command []string,
 ) (string, error) {
-	workspaceRoot, err := r.projectContainerRoot(instance.Root)
+	spec, err := r.projectRuntimeSpecWithAuthAndCommand(
+		state, instance, profile, network, image, imageID, auth, command,
+	)
 	if err != nil {
 		return "", err
 	}
-	profileDigest, err := r.projectProfileDigest(profile)
+	encoded, err := json.Marshal(spec)
 	if err != nil {
 		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", digest[:]), nil
+}
+
+func (r *Runtime) projectRuntimeSpecWithAuthAndCommand(
+	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	auth projectAuthProjection,
+	command []string,
+) (projectRuntimeSpec, error) {
+	workspaceRoot, err := r.projectContainerRoot(instance.Root)
+	if err != nil {
+		return projectRuntimeSpec{}, err
+	}
+	gitDirectory, err := r.projectGitDirectory(instance.ID)
+	if err != nil {
+		return projectRuntimeSpec{}, err
+	}
+	profileDigest, err := r.projectProfileDigest(profile)
+	if err != nil {
+		return projectRuntimeSpec{}, err
 	}
 	uid, gid := currentIDs()
 	spec := projectRuntimeSpec{
@@ -752,11 +787,13 @@ func (r *Runtime) projectSpecHashWithAuthAndCommand(
 			"http_proxy=http://gateway:8080", "https_proxy=http://gateway:8080",
 			"NO_PROXY=", "no_proxy=", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
 			"REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
+			"GIT_CONFIG_SYSTEM=" + projectGitContainerConfig,
 		},
 		AuthFiles: []string{},
 		Mounts: []string{
 			"bind:" + r.projectHomePath(instance.ID) + "->/var/lib/tobari",
 			"bind:" + instance.Root + "->" + workspaceRoot,
+			"bind:" + gitDirectory + "->" + projectGitContainerDirectory + ":ro",
 			"bind:" + profile + "->/opt/tobari/profile:ro",
 			"bind:" + filepath.Join(profile, "claude", "skills") + "->/var/lib/tobari/.claude/skills:ro",
 			"bind:" + filepath.Join(profile, "claude", "agents") + "->/var/lib/tobari/.claude/agents:ro",
@@ -775,12 +812,7 @@ func (r *Runtime) projectSpecHashWithAuthAndCommand(
 	}
 	sort.Strings(spec.Environment)
 	sort.Strings(spec.AuthFiles)
-	encoded, err := json.Marshal(spec)
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(encoded)
-	return fmt.Sprintf("sha256:%x", digest[:]), nil
+	return spec, nil
 }
 
 func (r *Runtime) projectProfileDigest(profile string) (string, error) {

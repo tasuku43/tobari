@@ -75,6 +75,7 @@ type Runtime struct {
 	runner          commandRunner
 	images          imageResolver
 	browser         hostBrowserOpener
+	gitIdentity     hostGitIdentityResolver
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
 	projectStateWriter func(tobari.ProjectInstance) error
@@ -152,6 +153,7 @@ func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, r
 		dataDirectory:   dataDirectory,
 		runner:          runner,
 		browser:         osHostBrowserOpener{},
+		gitIdentity:     newOSHostGitIdentityResolver(),
 	}, nil
 }
 
