@@ -20,13 +20,15 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, Auth Broker image/protocol, and integration coverage |
 
 The optional `task toolbox:build` workflow is not a completion profile. It
-requires Docker and the official Tobari runtime base,
-downloads the version-pinned specialized CLI artifacts, builds
+requires Docker and the official Tobari runtime base, downloads the
+version-pinned `kubectl`, `cwk`, `pup`, and local-only TWG artifacts, builds
 `tobari-toolbox:local`, validates inherited runtime metadata, and executes each
-named tool. The base runtime check separately verifies the common Git, HTTP,
-JSON, Python, SSH, and command-line tool contract. The fast profile statically
-checks that versions, official sources, integrity checks, final user, and the
-inherited entrypoint contract cannot silently disappear.
+named tool plus the inherited GitHub CLI and AWS CLI. The base runtime check
+continues to verify its pre-change Git, HTTP, JSON, Python, SSH, GitHub CLI, and
+AWS CLI baseline. The fast profile statically checks toolbox versions, official
+sources, per-platform integrity, local license/notices, final user, and the
+inherited entrypoint contract. It also fails if a toolbox-only tool enters the
+published base through this capability.
 
 `task build:dev` is a contributor feedback path, not a completion profile. It
 builds local Tobari-managed images `tobari-gateway:dev`,
@@ -42,8 +44,9 @@ compatible integration base and removes only that alias during cleanup. It
 never overwrites or deletes a contributor's pre-existing dev tag.
 
 The focused `task runtime:base:check` workflow validates the canonical
-`runtimes/base` metadata and digest lock, the Dockerfile's common tool and
-runtime contract, and byte equality with the embedded CLI snapshot. The
+`runtimes/base` metadata and per-platform artifact lock, the Dockerfile's common
+tool, integrity, redistribution/license, and runtime contracts, and byte
+equality with the embedded CLI snapshot. The
 main-only runtime workflow runs this check before its package-write job and
 pushes only the base image; pull-request CI has no package-write permission.
 
@@ -67,10 +70,12 @@ contributor `task build:dev` path.
 validate byte equality between canonical `authbroker/` source and the embedded
 snapshot. The canonical Python unit suite
 runs in the pinned image environment and covers strict schema-1 control/runtime
-protocols, locked startup, AES-GCM vaults, Context/project-bound handles,
+protocols, locked startup, the schema-1 envelope/schema-2 encrypted payload,
+strict static-record migration, Context/project-bound handles, AWS device and
+opaque host-driver state, companion refresh coordination, SigV4 signing,
 restart unlock, rotation, logout, and secret-free failures. The image check
-validates the pinned GitHub CLI version and Linux amd64/arm64 checksums, license
-notice, Docker labels, fixed entrypoint, and non-root user. Its workflow builds
+validates provider-CLI absence, Docker labels, fixed entrypoint, and non-root
+user. Its workflow builds
 both supported architectures; pull requests are validation/cache-only, while
 only the main-push job has package-write permission.
 `task authbroker:image:check` is the focused image metadata/artifact check, and
@@ -81,6 +86,17 @@ Broker, to be an immutable digest reference. The public and release profiles
 reject a marker, moving tag, wrong repository, or malformed digest. The
 reviewed Linux amd64/arm64 manifest receives the same runtime preflight and
 ordinary immutable-image checks as Gateway.
+
+Companion coverage is split across Go and Python without creating a public
+command surface. Go tests fix private same-binary bootstrap, exact verified
+Broker container/`docker exec` argv, root-key-derived epoch preparation,
+process lifetime, fixed host GitHub/AWS driver argv/environment, executable
+identity, private-home cleanup, cancellation, output/state bounds, and redacted
+errors. Python tests fix the Broker-private bridge, authenticated handshake,
+direction keys, exact sequence/replay/gap rules, frame limits, closed message
+set, duplicate/replacement/disconnect behavior, cancellation, and no-content
+logging. Integration proves no host listener, host socket mount, Workspace
+route, Gateway route, or OPA route reaches the companion.
 
 The focused Claude and Codex runtime checks validate their pinned agent
 artifacts and inherited contract. Their local build fixtures also replace
@@ -166,11 +182,12 @@ unchanged.
 Auth Broker readiness is split deliberately. The required agent-readiness
 scenario delegates its reproducible synthetic authentication proof to `task
 integration:test`; that command is required evidence, not an optional adjacent
-check. It uses synthetic credentials, mocked GitHub CLI results, and local HTTP
-fixtures and makes no live provider call. The manual transcript does not
+check. It uses synthetic credentials, mocked host GitHub/AWS CLI results, a fake
+companion, and local HTTP fixtures and makes no live provider call. The manual transcript does not
 duplicate synthetic broker manipulation.
 
-A release candidate also receives a manual trusted-host GitHub validation. Run
+A release candidate also receives manual trusted-host GitHub and AWS
+validations. Run
 `auth login github` with a test account, inspect secret-free `auth status`, and
 re-enter a Context-bound Workspace. Inside it, perform the following no-print
 shape and equality checks before the allowed API request:
@@ -186,6 +203,16 @@ projected handle, not the primary credential. Then run `auth logout github` on
 the host and prove the old handle fails. The reviewer records only pass/fail
 and secret-free outcomes outside the repository. Tokens, device codes, vaults,
 handles, and raw authenticated transcripts are prohibited evidence.
+
+For AWS, run `auth login aws` with a test IAM Identity Center role, verify the
+fixed host AWS CLI device-code flow and bounded output, and
+re-enter the Workspace. Confirm without printing values that all three AWS
+credential variables have the same `tobari-h1_` handle, then allow and run one
+bounded `aws sts get-caller-identity --region <region>` request. Repeat after
+the temporary role lease expires to prove post-policy automatic refresh while
+the SSO session remains renewable. Logout on the host and prove the
+old handle fails. Record only pass/fail and secret-free account/role metadata;
+never retain SSO state, role credentials, handles, codes, or signed headers.
 
 ## Harness components
 
@@ -364,10 +391,12 @@ The test suite has complementary levels:
 - JSON-output contract tests compare each single-shape built-in renderer's
   schema version, envelope, and item keys with its catalog `CommandOutput`
   declaration and enforce the always-present string cursor for any paged probe.
-  Auth additions specifically pin cluster status schema 3, Context report
-  schema 5, and auth result/status schema 1, including the complete shell
-  environment inventory, explicit empty literal values, explicit empty provider
-  collections, and null account labels.
+  Auth additions specifically pin cluster status schema 4 with always-present
+  `credential_companion_state=ready|prepared|absent|unavailable`, Context report
+  schema 6, and auth
+  result/status schema 1, including the complete shell
+  environment inventory, atomic Git identity policy, explicit empty literal
+  values, explicit empty provider collections, and null account labels.
   Help's catalog fields describe root `view: index`; separate exact-key tests
   cover both that view and the input-selected `view: scope` variant.
 - Adversarial output tests keep TSV/JSON records and stdout/stderr ownership intact across controls, Unicode format/line separators, existing backslashes, and printable prompt-like data while preserving opaque IDs exactly.
@@ -433,7 +462,8 @@ The test suite has complementary levels:
   credential values remain Gateway-only. Aggregate tests cover namespace
   reservation, secret-sensitive revisions, complete-candidate validation,
   serialization, and known-good retention.
-- Auth domain and catalog tests fix schema-1 provider normalization, exact
+- Auth domain and catalog tests fix schema-1 static-provider compatibility,
+  schema-2 built-in credential/signing plans and aggregate projection, exact
   command effects/inputs/outputs/failures, exhaustive Context-scoped status,
   explicit locked/unavailable state, non-terminal stdin-only import and terminal
   refusal before reading, read-after-public-validation/send-after-runtime-
@@ -449,16 +479,22 @@ The test suite has complementary levels:
   rejection, and the rule that a missing key is never regenerated beside an
   encrypted vault.
 - Auth Broker tests cover exact 64 KiB schema-1 framing, 32 KiB primary-secret
-  bounds, locked health, AES-256-GCM Context binding, atomic vault writes,
+  bounds, locked health, AES-256-GCM Context binding, schema-1 payload migration,
+  schema-2 typed state, atomic vault writes,
   SHA-256-only live handle lookup, deterministic handle reuse for one revision,
   cross-Context/project/binding rejection, rotation, logout, and restart/unlock
-  rehydration. Tests use synthetic values and make no network call.
-- GitHub acquisition UX tests split the trusted host and Broker boundaries:
-  streamed output opens only the fixed GitHub device URL once, unsupported
-  targets are rejected, desktop-opener failure retains one exact manual URL,
-  the helper disables its own prompts/browser, and its argv contains no Git
-  protocol or credential-setup request. Only the expected private-tmpfs
-  plaintext warning is withheld; unrelated helper failures remain visible.
+  rehydration, encrypted opaque AWS driver state, pre-execution durable task
+  barriers, restart-safe no-replay, bounded per-record single-flight waiting,
+  stale refresh rejection, transient role credentials, and same-revision
+  SigV4 signing. Tests use synthetic values and make no network call.
+- GitHub/AWS acquisition UX tests split the trusted host and Broker boundaries:
+  canonical executable/digest selection, fixed argv, sanitized environment,
+  bounded control-safe streams/state, checked private-home cleanup, and cancellation preserve the
+  prior credential on failure. GitHub output recognizes only the fixed device
+  URL and its argv contains no Git protocol or credential-setup request. AWS
+  uses only fixed device-code login and typed credential-export argv; login
+  state excludes request region. Neither provider CLI exists in the Broker
+  image.
 - Workspace auth projection tests prove one configured Context credential
   produces distinct project-bound handles, injects only declared environment
   or complete-file data, refuses to overwrite unowned/modified/symlinked files,
@@ -591,17 +627,21 @@ Every strong statement should identify its enforcement path.
 | Context runtime boundary | Context manifest tests, compatibility validation, ignored-project-metadata regression, existing-Workspace image reconciliation tests, and failure-before-state-update tests |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
 | Context composition and selection | Stable-ID manifest/domain tests, catalog effect/target contracts, owner-only atomic store tests, current-default-only selection, permanent Tobari binding, safe/ambiguous legacy migration fixtures, and agent-readiness transcript |
-| Context shell environment boundary | Fixed allowlist and source-enum domain tests, explicit-empty preservation, schema migration to inherited PS1, zero-I/O rejection for arbitrary names and ambiguous values, owner-only atomic update tests, complete Context report output, exact child-exec environment assertions, missing-export fallback, Bash-quote and bounded inherited-value canaries, and host-credential non-copy assertions |
+| Context configuration interaction boundary | Catalog-derived `config shell`/`config git` help and argv dependencies, removed old path, complete-direct versus wholly-omitted-wizard mode tests, explicit-empty Context plus partial direct input and redirected/non-TTY/JSON wizard rejection before mutation, raw-terminal and English line fallback, exact task/selected-Context correlation for wizard reads, shown-Context binding across concurrent default changes, exact task/Context/applied-setting/cluster correlation for mutation results, current-state/review rendering, cancellation/terminal restoration, stdout/stderr separation, fixed-target invoker coverage, and exact schema-6 Context result keys |
+| Context shell environment boundary | Fixed allowlist and source-enum domain tests, explicit-empty preservation, schema-1–3 migration to inherited PS1 and schema-4 exact-setting preservation, zero-I/O rejection for arbitrary names and ambiguous values, owner-only atomic update tests, complete Context report output, exact child-exec environment assertions, missing-export fallback, Bash-quote and bounded inherited-value canaries, and host-credential non-copy assertions |
+| Context Git identity boundary | Atomic pair/source domain tests, schema-4 shell-setting preservation and opt-in default migration, exact two-key global Git argv with an absolute executable and exact `HOME`/optional `XDG_CONFIG_HOME` plus fixed-control environment allowlist, project-owned config-directory and `PATH`/loader/shell-startup canaries, timeout/output/framing/unsafe-value bounds, malicious local-include exclusion, private atomic config encoding, symlink and existing-file size checks, read-only directory mount and system-scope precedence, excluded helper/signing/auth/path keys, absent/incomplete-pair behavior, and secret-/personal-data-free faults and fixtures |
 | Context runtime build boundary | Fixed current-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv including official-base refresh versus local-base behavior, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and bound-Context next-entry reconciliation coverage |
 | Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, canonical-source unit tests, stable Gateway labels, immutable digest/platform/entrypoint preflight, non-root host-UID-independent Dockerfile, and pull-request/main workflow permission separation |
-| Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, pinned GitHub CLI checksums and MIT notice, stable API/role labels, immutable digest/platform/entrypoint preflight, non-root Dockerfile, and pull-request/main workflow permission separation |
+| Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence, stable API/role labels, immutable digest/platform/entrypoint preflight, non-root Dockerfile, and pull-request/main workflow permission separation |
 | Context-owned encrypted credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/Context AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
 | Doctor remains observational | Complete-report and fail/warn exit tests plus zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
 | Project-bound broker handles | Full Context/project/provider/revision/target/header round trips, hash-only live index assertions, copied/stale/rotated/revoked negative tests, exact Context-wide eligibility and next-entry semantics, and Workspace projection reconciliation |
 | Broker fallback requires marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and passthrough/managed fallback tests with no marker anywhere inspected |
 | Post-policy credential resolution | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve on deny, one same-revision resolve after allow, exact header replacement, and no-secret canaries |
-| Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, fixed GitHub CLI prompt-disabled/no-Git argv and environment, exact fixed-URL host opener and manual fallback tests, ephemeral-directory cleanup, TTY enforcement, complete fault inventory, all non-retryable mutation-unknown reconciliation paths, cancellation/failure preservation, required synthetic integration proof, and manual live GitHub exact-handle validation |
+| Credential companion boundary | Private same-binary bootstrap, exact verified-container reverse-exec argv, root-key-derived epoch, authenticated direction/sequence/replay/size tests, closed driver message set, no-listener/no-socket-mount topology, receipt-only cancel acknowledgments, terminal-result settlement, bounded peer-not-reading writes and teardown, drain/disconnect behavior, redacted failures, and no channel key/FD inheritance by driver children |
+| Post-policy AWS signing | Strict placeholder/scope/authority recognition, body-free OPA input, zero companion/refresh/sign on deny, bounded body capture after allow, exact authority/method/path/query/header snapshot comparison before refresh, mutation canaries with zero sign calls, one fixed host credential export, bounded per-record single-flight, pre-call encrypted task barrier, restart-safe outcome-unknown rejection, non-retryable HTTP 409 mapping, stale-result rejection, published SigV4 vectors, exactly one same-revision sign/forward, and fail-closed presign/SigV4a/stream/custom-endpoint canaries |
+| Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, identity-checked private nonblocking terminal input with Darwin/Linux real-PTY cancellation/deadline, readiness-flush/EAGAIN, inherited-flag isolation, noncanonical VMIN/VTIME rejection, complete-profile coverage, and zero driver/Broker calls, conventional non-project host installation-root selection, canonical GitHub/AWS executable identity, fixed argv and environment, control-safe provider-output projection, exact fixed-URL recognition/manual fallback, checked private-home cleanup including setup and successful acquisition, TTY enforcement, complete fault inventory, all non-retryable mutation-unknown reconciliation paths, cancellation/failure preservation, required synthetic integration proof, and manual live exact-handle validation |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/host/port/method/path candidate aggregation with latest/count and legacy-count compatibility, Context-scoped reference validation, discover-act graph and allow/deny/reset round trips, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Bounded policy compaction | Pure deterministic same-Context/project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale/cross-Context reference rejection, and Docker canary |

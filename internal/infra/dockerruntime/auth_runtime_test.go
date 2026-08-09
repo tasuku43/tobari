@@ -3,15 +3,18 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 )
 
 func TestProviderBindingCollisionUsesDistinctPublicFault(t *testing.T) {
@@ -48,11 +51,11 @@ func TestProviderBindingCollisionUsesDistinctPublicFault(t *testing.T) {
 	}
 }
 
-func TestInteractiveBrokerLoginRequiresRealTerminalBeforeDockerExec(t *testing.T) {
+func TestHostCredentialLoginRequiresRealTerminalBeforeHostOrDockerExecution(t *testing.T) {
 	t.Parallel()
 	runner := &brokerProtocolRunner{}
 	runtime := &Runtime{runner: runner}
-	_, err := runtime.runInteractiveBrokerLogin(
+	_, err := runtime.runHostCredentialLogin(
 		context.Background(),
 		"018bcfe5-687b-7000-8000-000000000099",
 		"github",
@@ -65,6 +68,10 @@ func TestInteractiveBrokerLoginRequiresRealTerminalBeforeDockerExec(t *testing.T
 	}
 	if runner.calls != 0 {
 		t.Fatalf("Docker runner calls = %d, want 0", runner.calls)
+	}
+	if strings.Contains(public.Message, "GitHub") ||
+		(len(public.NextActions) == 1 && strings.Contains(public.NextActions[0].Reason, "GitHub")) {
+		t.Fatalf("terminal fault is provider-specific: %+v", public)
 	}
 }
 
@@ -98,28 +105,44 @@ func TestBuildAuthResultDeclaresContextCredentialActivationContract(t *testing.T
 	}
 }
 
-func TestLoginOutputFilterPreservesTTYStreamAndSuppressesMachineResult(t *testing.T) {
+func TestSupportsOnlyReviewedBuiltinAuthHelpers(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider authbroker.Provider
+		want     bool
+	}{
+		{name: "github", provider: authbroker.Provider{ID: "github", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}, want: true},
+		{name: "aws", provider: authbroker.Provider{ID: "aws", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "aws-sso"}}, want: true},
+		{name: "aws wrong helper", provider: authbroker.Provider{ID: "aws", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
+		{name: "other reused helper", provider: authbroker.Provider{ID: "other", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "aws-sso"}}},
+		{name: "stdin import", provider: authbroker.Provider{ID: "github", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionStdinImport}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := supportsBuiltinAuthHelper(test.provider); got != test.want {
+				t.Fatalf("supportsBuiltinAuthHelper(%+v) = %t, want %t", test.provider, got, test.want)
+			}
+		})
+	}
+}
+
+func TestLoginVisibleOutputPreservesBoundedTTYStream(t *testing.T) {
 	var visible bytes.Buffer
 	opened := []string{}
-	filter := newLoginOutputFilter(&visible, func(target string) error {
+	filter := &loginVisibleOutput{destination: &visible, openBrowser: func(target string) error {
 		opened = append(opened, target)
 		return nil
-	})
+	}}
 	chunks := []string{
 		"! First copy your one-time code: SYNTH-ETIC\nOpen this URL in your browser:\nhttps://github.com/login/de",
 		"vice\n! Authentication credentials saved in plain text\n",
 		"diagnostic: ! Authentication credentials saved in plain text\n",
 		"Waiting for authentication...\n",
-		loginResultPrefix[:9],
-		loginResultPrefix[9:] + `{"schema_version":1,"ok":true,"provider":"github"}` + "\r\n",
 	}
 	for _, chunk := range chunks {
 		if _, err := filter.Write([]byte(chunk)); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if strings.Contains(visible.String(), "schema_version") || strings.Contains(visible.String(), "TOBARI_AUTH_BROKER_RESULT") {
-		t.Fatalf("machine response reached public TTY output: %q", visible.String())
 	}
 	if !strings.Contains(visible.String(), "https://github.com/login/device") || !strings.Contains(visible.String(), "Waiting for authentication") {
 		t.Fatalf("interactive helper output was lost: %q", visible.String())
@@ -133,28 +156,27 @@ func TestLoginOutputFilterPreservesTTYStreamAndSuppressesMachineResult(t *testin
 	if len(opened) != 1 || opened[0] != githubDeviceURL {
 		t.Fatalf("browser opens = %q", opened)
 	}
-	line, found := filter.responseLine()
-	if !found || string(line) != `{"schema_version":1,"ok":true,"provider":"github"}` {
-		t.Fatalf("captured result = %q, found=%t", line, found)
+	if err := filter.flush(); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestLoginOutputFilterFallsBackToOneFixedManualURL(t *testing.T) {
+func TestLoginVisibleOutputFallsBackToOneFixedManualURL(t *testing.T) {
 	var visible bytes.Buffer
 	opens := 0
-	filter := newLoginOutputFilter(&visible, func(target string) error {
+	filter := &loginVisibleOutput{destination: &visible, openBrowser: func(target string) error {
 		opens++
 		if target != githubDeviceURL {
 			t.Fatalf("browser target = %q", target)
 		}
 		return os.ErrNotExist
-	})
+	}}
 	if _, err := filter.Write([]byte(
 		"Open https://example.com/login manually\n" + githubDeviceURL + "\n" + githubDeviceURL + "\n",
 	)); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = filter.responseLine()
+	_ = filter.flush()
 	if opens != 1 {
 		t.Fatalf("browser opens = %d, want 1", opens)
 	}
@@ -163,21 +185,103 @@ func TestLoginOutputFilterFallsBackToOneFixedManualURL(t *testing.T) {
 	}
 }
 
-func TestHostBrowserCommandAcceptsOnlyFixedGitHubDeviceURL(t *testing.T) {
+func TestLoginVisibleOutputOpensOnlyExactAWSDeviceURLOnce(t *testing.T) {
+	const target = "https://device.sso.us-east-1.amazonaws.com/"
+	var visible bytes.Buffer
+	opened := []string{}
+	filter := &loginVisibleOutput{destination: &visible, openBrowser: func(candidate string) error {
+		opened = append(opened, candidate)
+		return os.ErrNotExist
+	}}
+	for _, line := range []string{
+		"Open https://example.com/\n",
+		"prefix Open " + target + "\n",
+		"Open " + target + "?code=secret\n",
+		"Open " + target + "#fragment\n",
+		target + "\n",
+		"Open " + target + "\n",
+	} {
+		if _, err := filter.Write([]byte(line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = filter.flush()
+	if !reflect.DeepEqual(opened, []string{target}) {
+		t.Fatalf("browser opens = %q", opened)
+	}
+	if strings.Count(visible.String(), "visit "+target+" manually") != 1 {
+		t.Fatalf("visible output = %q", visible.String())
+	}
+}
+
+func TestLoginVisibleOutputProjectsHostileProviderText(t *testing.T) {
+	var visible bytes.Buffer
+	opened := []string{}
+	filter := &loginVisibleOutput{destination: &visible, openBrowser: func(target string) error {
+		opened = append(opened, target)
+		return nil
+	}}
+	chunks := [][]byte{
+		[]byte("literal \\ ESC \x1b]8;;https://evil.example\x07 bidi \u202e zero \u200b line \u2028 para \u2029 invalid "),
+		{0xff},
+		[]byte(" UTF-8 split \xe2"),
+		[]byte("\x82\xac\r\nOpen " + githubDeviceURL + "\n"),
+	}
+	for _, chunk := range chunks {
+		if _, err := filter.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := filter.flush(); err != nil {
+		t.Fatal(err)
+	}
+	output := visible.String()
+	if strings.ContainsAny(output, "\x00\x07\x1b\r\u2028\u2029\u202e\u200b") {
+		t.Fatalf("hostile control reached terminal: %q", output)
+	}
+	for _, expected := range []string{`literal \\`, `\u001B`, `\u202E`, `\u200B`, `\u2028`, `\u2029`, "�", "€", githubDeviceURL} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("projected output %q lacks %q", output, expected)
+		}
+	}
+	if !reflect.DeepEqual(opened, []string{githubDeviceURL}) {
+		t.Fatalf("browser opens = %q", opened)
+	}
+
+	oversized := &loginVisibleOutput{destination: &visible}
+	if written, err := oversized.Write(bytes.Repeat([]byte{'x'}, maxLoginVisibleLine+1)); !errors.Is(err, errLoginVisibleOutputLimit) || written != maxLoginVisibleBytes {
+		t.Fatalf("oversized line written=%d error=%v", written, err)
+	}
+}
+
+func TestHostBrowserCommandAcceptsOnlyReviewedLoginURLs(t *testing.T) {
 	tests := []struct {
 		goos       string
 		executable string
+		target     string
 	}{
-		{goos: "darwin", executable: "/usr/bin/open"},
-		{goos: "linux", executable: "xdg-open"},
+		{goos: "darwin", executable: "/usr/bin/open", target: githubDeviceURL},
+		{goos: "linux", executable: "/usr/bin/xdg-open", target: githubDeviceURL},
+		{goos: "darwin", executable: "/usr/bin/open", target: "https://device.sso.us-east-1.amazonaws.com/"},
+		{goos: "linux", executable: "/usr/bin/xdg-open", target: "https://device.sso.us-gov-west-1.amazonaws.com/"},
 	}
 	for _, test := range tests {
-		executable, args, err := hostBrowserCommand(test.goos, githubDeviceURL)
-		if err != nil || executable != test.executable || len(args) != 1 || args[0] != githubDeviceURL {
-			t.Fatalf("hostBrowserCommand(%q) = %q, %q, %v", test.goos, executable, args, err)
+		executable, args, err := hostBrowserCommand(test.goos, test.target)
+		if err != nil || executable != test.executable || len(args) != 1 || args[0] != test.target {
+			t.Fatalf("hostBrowserCommand(%q, %q) = %q, %q, %v", test.goos, test.target, executable, args, err)
 		}
 	}
-	for _, target := range []string{"https://example.com/login", githubDeviceURL + "?next=example"} {
+	for _, target := range []string{
+		"https://example.com/login",
+		githubDeviceURL + "?next=example",
+		"http://device.sso.us-east-1.amazonaws.com/",
+		"https://device.sso.us-east-1.amazonaws.com",
+		"https://device.sso.us-east-1.amazonaws.com/?code=secret",
+		"https://device.sso.us-east-1.amazonaws.com/#fragment",
+		"https://device.sso.US-EAST-1.amazonaws.com/",
+		"https://device.sso.us-east-0.amazonaws.com/",
+		"https://device.sso.us-east-1.amazonaws.com.evil.example/",
+	} {
 		if _, _, err := hostBrowserCommand("darwin", target); err == nil {
 			t.Fatalf("unsafe browser target %q was accepted", target)
 		}
@@ -187,22 +291,56 @@ func TestHostBrowserCommandAcceptsOnlyFixedGitHubDeviceURL(t *testing.T) {
 	}
 }
 
-func TestClassifyBrokerLoginFailuresUsesStableSecretFreeFaults(t *testing.T) {
-	for _, code := range []string{
-		"login_failed", "token_capture_failed", "login_setup_failed",
-		"account_capture_failed", "login_cleanup_failed",
+func TestClassifyHostGitHubLoginFailuresUsesStableSecretFreeFaults(t *testing.T) {
+	for _, driverErr := range []error{
+		credentialhost.ErrGitHubLoginFailed,
+		credentialhost.ErrGitHubTokenCapture,
+		credentialhost.ErrGitHubLoginSetup,
+		credentialhost.ErrGitHubAccountCapture,
+		credentialhost.ErrGitHubLoginCleanup,
 	} {
-		t.Run(code, func(t *testing.T) {
-			err := classifyBrokerError(brokerControlError{Code: code}, "auth login github")
+		t.Run(driverErr.Error(), func(t *testing.T) {
+			err := classifyHostLoginError(driverErr, "github")
 			public, ok := fault.PublicCopy(err)
-			if !ok || public.Code != "github_login_failed" || public.Retryable || strings.Contains(public.Message, code) {
+			if !ok || public.Code != "github_login_failed" || public.Retryable || strings.Contains(public.Message, driverErr.Error()) {
 				t.Fatalf("classified fault = %+v, ok=%t", public, ok)
 			}
 		})
 	}
-	public, ok := fault.PublicCopy(classifyBrokerError(brokerControlError{Code: "login_cancelled"}, "auth login github"))
+	public, ok := fault.PublicCopy(classifyHostLoginError(credentialhost.ErrGitHubLoginCancelled, "github"))
 	if !ok || public.Code != "github_login_cancelled" || public.Retryable {
 		t.Fatalf("cancel fault = %+v, ok=%t", public, ok)
+	}
+	public, ok = fault.PublicCopy(classifyHostLoginError(hostCLIUnavailableError{provider: "github"}, "github"))
+	if !ok || public.Code != "github_cli_unavailable" || public.Kind != fault.KindUnavailable || public.Retryable {
+		t.Fatalf("CLI fault = %+v, ok=%t", public, ok)
+	}
+}
+
+func TestClassifyHostAWSLoginFailuresUsesStableSecretFreeFaults(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		publicCode string
+		kind       fault.Kind
+	}{
+		{name: "cancelled", err: context.Canceled, publicCode: "aws_sso_login_cancelled", kind: fault.KindRejected},
+		{name: "timeout", err: context.DeadlineExceeded, publicCode: "aws_sso_login_timeout", kind: fault.KindRejected},
+		{name: "invalid profile", err: credentialhost.ErrInvalidProfile, publicCode: "aws_sso_config_invalid", kind: fault.KindInvalidInput},
+		{name: "command failed", err: credentialhost.ErrCommandFailed, publicCode: "aws_sso_login_failed", kind: fault.KindUnavailable},
+		{name: "invalid cache", err: credentialhost.ErrInvalidCache, publicCode: "aws_sso_login_failed", kind: fault.KindUnavailable},
+		{name: "executable changed", err: credentialhost.ErrInvalidExecutable, publicCode: "aws_cli_unavailable", kind: fault.KindUnavailable},
+		{name: "CLI missing", err: hostCLIUnavailableError{provider: "aws"}, publicCode: "aws_cli_unavailable", kind: fault.KindUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := classifyHostLoginError(test.err, "aws")
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.publicCode || public.Kind != test.kind || public.Retryable ||
+				strings.Contains(public.Message, test.err.Error()) {
+				t.Fatalf("classified fault = %+v, ok=%t", public, ok)
+			}
+		})
 	}
 }
 

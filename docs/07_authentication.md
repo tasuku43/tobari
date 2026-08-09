@@ -38,21 +38,41 @@ label when available, an opaque credential revision, root-key storage backend,
 broker state, and explicit Workspace activation guidance. They never contain a
 root key, vault bytes, raw credential, or Workspace handle.
 
-Login is currently supported only for the built-in `github` provider and
-requires an interactive terminal. The trusted host executes the pinned GitHub
-CLI inside the Auth Broker container with an ephemeral
-`GH_CONFIG_DIR=/run/tobari-auth/login`. It runs the ordinary GitHub.com web
-login with GitHub CLI prompting and container browser launch disabled. When the
-fixed device page appears in the helper stream, the host CLI opens exactly
-`https://github.com/login/device` through the platform opener. If that is
-unavailable, the same visible URL is the manual next action and login continues.
-The helper requests no Git protocol, performs no Git credential setup, verifies
-the active account through bounded JSON output, captures the token internally,
-and destroys the temporary CLI state. Its expected plaintext fallback exists
-only in the private tmpfs and is withheld from public output because it is not
-persistent credential storage. The real account label may appear in the
-secret-free result. The credential itself never crosses CLI stdout/stderr,
-argv, environment, or a Workspace.
+Login requires an interactive terminal and supports two reviewed built-ins:
+
+The provider executable must resolve through `PATH` from `/bin`, `/usr/bin`,
+`/usr/local`, `/opt/homebrew`, `/opt/local`, `/nix/store`, or `/snap`.
+Project, temporary, relative, and home-local
+executables are rejected. Symlinks are resolved, the final regular executable
+must not be group- or world-writable, and its digest is bound before provider
+state is accepted.
+
+- `github` executes a reviewed fixed driver around the trusted host's GitHub CLI
+  with an ephemeral private configuration directory. It binds the canonical
+  executable identity, opens only `https://github.com/login/device`, requests
+  no Git protocol, captures one API token, and confirms destruction of the
+  temporary state before accepting the result.
+- `aws` asks on the trusted host terminal for a classic commercial IAM Identity
+  Center `https://<label>.awsapps.com/start` URL, reviewed commercial SSO
+  region, 12-digit account ID, and role name. China, GovCloud, ISO, sovereign
+  partitions, and newer portal URL forms are excluded from this first driver. A reviewed fixed
+  driver runs the trusted host's AWS CLI device-code login in a private
+  temporary home and captures only bounded opaque SSO cache state. Setup and
+  successful login both fail closed if that private home cannot be removed. That state
+  enters the encrypted Context vault; no provider home or role credential is
+  copied into a Workspace. Request region is Context/tool configuration or an
+  explicit AWS CLI option and is not stored by login.
+
+If a browser opener is unavailable, the same validated URL and one-time code
+remain the manual next action and login continues. Provider output is bounded
+and projects backslashes, controls/formats, invalid UTF-8, and Unicode line
+separators visibly before writing to the terminal. Only a bounded account label
+may appear in the secret-free result. Credential and SSO state never cross CLI
+stdout/stderr, argv, environment, or a Workspace.
+The direct host driver returns its bounded result only to trusted CLI
+infrastructure, which commits it through the fixed Broker control operation and
+length-bound stdin. Login is not a companion message and does not expose a host
+service.
 
 Import is available only to installed providers whose manifest declares
 `stdin_import`. Replace `secret-source-command` with a trusted password-manager
@@ -89,13 +109,27 @@ network, and exposes two owner-only Unix sockets:
 
 - `/run/tobari-auth/control/broker.sock` for bounded host control operations;
 - `/run/tobari-auth/runtime/broker.sock` for Gateway introspection and
-  post-authorization resolution.
+post-authorization resolution.
 
 OPA mounts neither socket. Only Gateway mounts the runtime socket. Public CLI
 commands do not expose either protocol; infrastructure invokes fixed control
 operations inside the broker container. Both protocols use strict schema-1
 newline-delimited JSON frames of at most 64 KiB. Root-key and import payloads
 follow their JSON frame as length-bound raw stdin bytes.
+
+After unlock, `cluster up` verifies the exact Broker container and starts one
+resident trusted-host credential companion through the current Tobari
+executable's private same-binary mode. It opens no listener and holds fixed
+`docker exec -i` argv to an image-owned bridge that byte-pumps to
+`/run/tobari-auth/companion/bridge.sock`, an unmounted Broker-private socket.
+The host derives one fresh purpose-separated epoch key from the installation
+root key; only the derived key crosses inherited companion stdin. A challenge
+derives direction-specific AES-GCM keys, and exact sequence numbers, frame
+bounds, deadlines, and a closed message set reject replay, gaps, ambiguity, and
+arbitrary execution. Gateway, OPA, Workspaces, and provider children receive no
+session key or channel descriptor. The only provider operation on this channel
+is post-policy AWS credential export; interactive GitHub/AWS login runs directly
+through context-bound host drivers.
 
 The broker starts locked after every creation or restart. `cluster up` reads or
 creates one 32-byte installation root key and sends it through stdin to unlock
@@ -119,10 +153,14 @@ Each stable Context owns one file:
 ${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/contexts/<context-id>/vault.enc
 ```
 
-Vault schema 1 uses AES-256-GCM, a random 12-byte nonce, and authenticated data
-that binds the schema and stable Context ID. The file is written through an
-owner/mode/symlink-checked atomic fsync-and-rename boundary. A provider has at
-most one active opaque `primary_secret` in one Context. Credential and handle
+The vault keeps a schema-1 AES-256-GCM envelope with a random 12-byte nonce and
+authenticated data that binds the envelope schema and stable Context ID. Its
+encrypted schema-2 payload stores either a static primary secret or opaque
+schema-v1 AWS host-driver state. Strict valid schema-1 static payloads are
+migrated on read. The file
+is written through an owner/mode/symlink-checked atomic fsync-and-rename
+boundary. A provider has at most one active typed credential in one Context.
+Credential and handle
 records have random secret-free revisions. Raw handles are durable only inside
 the encrypted vault; the live broker index stores their SHA-256 hashes.
 
@@ -146,17 +184,25 @@ XDG roots; macOS Keychain storage has no filesystem path.
 | Surface or state | Schema/version | Canonical path, endpoint, or value |
 |---|---|---|
 | Public `auth` JSON result | envelope `auth`, schema `1` | `storage_backend` is exactly `macos_keychain` or `xdg_file` |
-| Public cluster status | schema `3` | `root_key_backend` is `macos_keychain`, `xdg_file`, or diagnostic `unavailable` |
-| Public Context report | schema `4` | Secret-free broker/provider state; no vault path/content, root key, primary secret, or handle |
-| Provider manifest | `tobari.auth-provider.v1`; `schema_version: 1` | `${XDG_CONFIG_HOME:-$HOME/.config}/tobari/auth/providers/*.json` |
-| Normalized provider projection | schema `1` | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/projection/providers.json` |
-| Encrypted Context vault | schema `1` | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/contexts/<context-id>/vault.enc` |
+| Public cluster status | schema `4` | `root_key_backend` is `macos_keychain`, `xdg_file`, or diagnostic `unavailable`; always-present `credential_companion_state` is secret-free `ready`, `prepared`, `absent`, or `unavailable` |
+| Public Context report | schema `6` | Complete shell and Git identity policy plus secret-free broker/provider state; no vault path/content, root key, primary secret, or handle |
+| Owner provider manifest | `tobari.auth-provider.v1`; `schema_version: 1` | `${XDG_CONFIG_HOME:-$HOME/.config}/tobari/auth/providers/*.json` |
+| Reviewed built-in provider manifest | `schema_version: 1|2` | Embedded; schema 2 is reserved for typed built-in plans |
+| Normalized provider projection | schema `2` (schema `1` remains readable) | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/projection/providers.json` |
+| Encrypted Context vault | envelope schema `1`; payload schema `2` with strict static schema-1 migration | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/contexts/<context-id>/vault.enc` |
 | Linux installation root key | raw 32 bytes | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/keys/root.key` |
 | macOS installation root key | raw 32-byte generic password | Keychain service `io.tobari.auth-root.v1`, account `tobari` |
 | Project authentication registry | schema `1` | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/projects/<project-id>.json` |
 | Broker control protocol | schema `1` | `/run/tobari-auth/control/broker.sock` |
 | Broker runtime protocol | schema `1` | `/run/tobari-auth/runtime/broker.sock` |
+| Broker companion protocol | private epoch/frame schema `1` | `/run/tobari-auth/companion/bridge.sock`; unmounted private tmpfs |
 | Workspace handle | version `1` | prefix `tobari-h1_` |
+
+For `credential_companion_state`, `absent` means no prepared epoch or active
+session, `prepared` means Broker accepted an epoch and awaits the authenticated
+channel, `ready` means the channel is active, and `unavailable` means the
+Broker control observation failed. None of these values describes a provider
+credential or grants permission.
 
 `linux_xdg_file` is an infrastructure/doctor diagnostic label only. It is not
 a permitted public `auth.storage_backend` or successful cluster
@@ -164,8 +210,9 @@ a permitted public `auth.storage_backend` or successful cluster
 
 ## Provider manifest boundary
 
-Built-in and owner-controlled providers share one strict schema-1 parser. A
-manifest declares:
+Owner-controlled providers use the strict schema-1 static parser. Reviewed
+built-ins may remain schema 1 or use schema 2 for one typed credential/signing
+plan. A static manifest declares:
 
 - a stable provider ID and secret-free display name;
 - `builtin_helper` or `stdin_import` acquisition;
@@ -175,7 +222,7 @@ manifest declares:
 - exact HTTPS target, source header/syntax, destination header/transformation,
   and secret-header redaction names.
 
-The public schema identifier is `tobari.auth-provider.v1`; its on-disk
+The owner schema identifier is `tobari.auth-provider.v1`; its on-disk
 discriminator is `schema_version: 1`. This synthetic user-provider manifest
 shows every v1 responsibility and the exact field spelling:
 
@@ -221,9 +268,18 @@ shows every v1 responsibility and the exact field spelling:
 ```
 
 Unknown and duplicate fields are errors. An unsupported `schema_version`
-fails the whole provider collection before activation; Tobari does not guess,
-partially load, or automatically rewrite a manifest. A future schema requires
-an explicit migration and compatibility decision.
+fails the whole provider collection before activation; Tobari does not guess
+or partially load a manifest. Owner files cannot select schema 2, a helper, a
+refresh flow, or a signer. New behavioral plans require a reviewed built-in,
+an accepted compatibility/security decision, and executable negative tests.
+
+Reviewed built-in driver names are data only after the binary selects one
+closed compiled implementation. A manifest, Context, repository, request, or
+companion frame cannot supply an executable path, argv, environment name,
+shell, or driver module. The host driver resolves and hashes one executable
+from the closed conventional installation roots above, uses fixed argv and a
+sanitized environment, and reconstructs only a private bounded temporary home.
+Auth Broker contains no provider CLI.
 
 A manifest cannot contain a secret, command, shell fragment, executable path,
 HTTP method/path policy, arbitrary route, refresh behavior, or provider
@@ -232,27 +288,77 @@ provider/display-name collisions, environment/file collisions, unsafe relative
 home paths, unsafe headers, unsupported substitutions, duplicate keys, unknown
 fields, documents larger than 64 KiB, and incomplete bindings.
 
-Executable manifest commands are rejected because acquisition code runs inside
-the trusted broker: accepting repository-selected shell or user code would turn
-data extension into code loading. Request-wide replacement is rejected because
+Executable manifest commands are rejected because acquisition code executes in
+the trusted host driver boundary: accepting repository-selected shell or user
+code would turn data extension into code loading. Request-wide replacement is rejected because
 the same bytes can occur in URLs, bodies, cookies, and unrelated headers; only
 an exact declared header position has unambiguous credential semantics and a
 finite redaction contract.
 
-The built-in provider is `github`. Its reviewed contract is:
+The built-in static providers are:
 
-- acquisition helper `github-gh`;
+- `github`: reviewed host driver `github-gh`, `GH_TOKEN=<handle>`,
+  `GH_HOST=github.com`, and exact bearer/token replacement at
+  `https://api.github.com:443`;
+- `chatwork`: protected-stdin import, `CWK_API_TOKEN=<handle>`, and exact raw
+  `X-ChatWorkToken` replacement at `https://api.chatwork.com:443`; and
+- `datadog`: protected-stdin import, `DD_ACCESS_TOKEN=<handle>`, fixed
+  `DD_SITE=datadoghq.com`, and exact bearer replacement at
+  `https://api.datadoghq.com:443`.
+
+The built-in schema-2 `aws` provider uses reviewed host driver `aws-sso`, projects the same
+handle into `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+`AWS_SESSION_TOKEN`, disables EC2 metadata lookup, and declares the fixed
+`aws_sigv4` plan. The handle is deliberately accepted only as AWS CLI's
+placeholder input; it is removed before policy and is never an AWS credential.
+After allow, Broker sends one bounded `refresh_lease` operation through the
+authenticated companion. The fixed AWS host driver materializes encrypted
+opaque state in a private temporary home, runs
+`aws configure export-credentials --profile tobari --format process`, and
+returns one typed temporary role tuple plus updated opaque state. Broker
+rechecks the credential record/revision, atomically persists state, and signs
+the bounded request. The provider CLI never enters the Broker image.
+
+The GitHub contract supports `gh api`, `gh issue`, `gh pr`, and other GitHub
+API operations. It does not authenticate `git clone`, `fetch`, or `push`.
+Repository `.git/config` and Workspace-authored global Git configuration belong
+to the Workspace and its persistent home. A separate `config git` boundary may
+install only a lower-precedence Context fallback for `user.name` and
+`user.email`; it transfers no helper, token, SSH, signing, HTTP, or other Git
+configuration and grants no transport authority. Auth Broker never owns that
+identity policy, and Git identity never implies a broker provider account.
+
+Two owner-manifest examples cover bounded integrations without creating broad
+built-ins:
+
+- `examples/auth-providers/kubernetes-bearer` renders one complete CA-verified
+  kubeconfig for one exact public DNS API server and replaces one bearer handle;
+- `examples/auth-providers/twg-delegated-oauth` replaces a caller-supplied
+  delegated OAuth access-token handle only at `https://api.atlassian.com:443`.
+
+Their READMEs are part of the contract. Kubernetes exec/OIDC/client-certificate
+flows and private or multi-cluster endpoints are excluded. The TWG example has
+no login or refresh and makes no claim for calls that leave the exact authority;
+TWG itself stays in the local toolbox pending redistribution permission.
+
+The optional locally built Context toolbox supplies `kubectl`, `cwk`, `pup`,
+and TWG while inheriting the published base's existing GitHub CLI and AWS CLI.
+This capability does not add those four tools to the public base or any
+provider CLI to Auth Broker. Binary placement and broker authority are separate:
+Chatwork, Datadog, one bounded Kubernetes bearer configuration, and the bounded
+delegated TWG authority use project-bound static handles with no automatic-
+refresh claim; general TWG remains unsupported.
+
+The exact normalized GitHub fields are:
+
+- acquisition host driver `github-gh`;
 - Workspace environment `GH_TOKEN=<project handle>` and
   `GH_HOST=github.com`;
 - target `https://api.github.com:443`; and
 - `Authorization` source syntax `Bearer` or `token`, replaced after allow while
   preserving the recognized scheme.
 
-This contract supports `gh api`, `gh issue`, `gh pr`, and other GitHub API
-operations. It does not authenticate `git clone`, `fetch`, or `push`.
-Repository `.git/config` and optional global Git identity/configuration belong
-to the Workspace and its persistent home. Auth Broker never owns either. A
-future authenticated Git-over-HTTPS slice would require a separately reviewed
+A future authenticated Git-over-HTTPS slice would require a separately reviewed
 exact credential-helper and HTTP-binding design; the current handle contract
 must not be repurposed implicitly.
 
@@ -309,21 +415,30 @@ order:
    owner-only principal registry.
 2. Reject a Tobari handle marker in the URL, cookie, header name, unsupported
    header value, or ambiguous header syntax. Otherwise strictly match exactly
-   one provider target, source header, and source syntax, then remove the
-   placeholder header from the request.
-3. Ask the broker to introspect the full Context/project/provider/target/header
-   binding. Introspection returns only the revision and normalized non-secret
-   metadata.
+   one static header binding or the built-in AWS authorization/token
+   placeholders, then remove every placeholder credential field.
+3. Ask the broker to introspect the full Context/project/provider binding.
+   Static introspection binds the exact target/header transformation; AWS
+   introspection binds the complete fixed signing plan and concrete HTTPS
+   authority. Introspection returns only the revision and normalized
+   non-secret metadata.
 4. Send body-free OPA input schema 5. The authorization object contains the
    null managed profile and the non-secret broker provider ID.
 5. Until one exact learned rule covers the ordinary L7 effect, return a
    learnable deny for host review even when a broader static host/method rule
    would allow an unauthenticated or fallback-adapter request.
-6. On deny, stop without calling `resolve` or reaching upstream.
-7. On allow, require OPA's managed `credential_profile` selection to remain
-   null, resolve the same handle and revision exactly once, replace only the
-   declared destination header, and perform the existing single upstream
-   attempt.
+6. On deny, stop without calling the companion or `resolve`, refreshing AWS,
+   deriving role credentials, signing, or reaching upstream.
+7. On a static allow, require OPA's managed `credential_profile` selection to
+   remain null, resolve the same handle/revision exactly once, replace only the
+   declared destination header, and make one upstream attempt. On an AWS allow,
+   retain the complete request only within the 8 MiB cap, hash it, send the
+   body-free normalized signing request with the same revision. Broker validates
+   encrypted driver state, runs at most one post-policy companion export under
+   a per-record single-flight lock, releases its global state mutex over host
+   I/O, rechecks the record/revision, rejects stale results, persists refreshed
+   opaque state, signs locally, and returns final headers. Gateway applies only
+   those headers and makes one upstream attempt.
 
 The resolved secret is request-scoped and is absent from OPA input, audit,
 denial bodies, errors, logs, CLI output, and Workspace mounts. The broker does
@@ -331,12 +446,14 @@ not interpret method or path and cannot grant network authority. OPA remains
 the sole decision point for the normalized Context/project/scheme/host/port/
 method/path effect.
 
-Request bodies remain opaque and are never searched for a handle or used for
-credential selection or replacement. A Workspace already knows its own handle
-and may deliberately place those bytes in an otherwise policy-allowed request
-body, just as it may send any other Workspace-readable data. Tobari's guarantee
-is that such a body value grants no credential authority; preventing deliberate
-payload exfiltration is outside this header-only v1 boundary.
+Request bodies remain opaque to policy and are never searched for a handle or
+used for credential selection. Ordinary bodies stream after allow. The AWS
+plan alone buffers one complete bounded body after header-time allow so the
+broker can sign its SHA-256 digest; the body itself never enters the broker,
+OPA, audit, or Tobari logs. A Workspace already knows its own handle and may
+deliberately place those bytes in an otherwise policy-allowed request body.
+Such a body value grants no credential authority; preventing deliberate
+payload exfiltration remains outside the boundary.
 
 A request with no Tobari broker-handle marker in any inspected URL or header
 position continues through the selected fallback adapter:
@@ -358,9 +475,13 @@ commands.
 |---|---|
 | `invalid_arguments` | Correct the exact command arguments through scoped help. |
 | `invalid_context_name`, `context_not_found` | Choose one existing Context from `context list`; authentication never creates or guesses a Context. |
-| `provider_login_unsupported`, `provider_import_unsupported` | Use only the acquisition mode declared by the installed provider; built-in login currently supports `github` only. |
-| `auth_login_tty_required` | Run GitHub login with interactive stdin and stderr. |
-| `github_login_cancelled`, `github_login_failed` | The helper did not commit a replacement; preserve the previous credential, correct or retry the interactive login, then inspect `auth status`. |
+| `provider_login_unsupported`, `provider_import_unsupported` | Use only the acquisition mode declared by the installed provider; built-in login supports `github` and `aws`. |
+| `auth_login_tty_required` | Run built-in provider login with interactive stdin and stderr. |
+| `github_cli_unavailable` | Install the reviewed GitHub CLI on the trusted host so Tobari can resolve one absolute executable, then retry login. |
+| `github_login_cancelled`, `github_login_failed` | The trusted-host driver did not commit a replacement; verify the host GitHub CLI, then correct or retry the interactive login and inspect `auth status`. |
+| `aws_cli_unavailable` | Install the reviewed AWS CLI on the trusted host so Tobari can resolve one absolute non-group/world-writable executable, then retry login. If the executable changed after login, repeat `auth login aws` to bind fresh state to its new identity. |
+| `aws_sso_login_cancelled`, `aws_sso_login_timeout` | No AWS replacement was committed. Correct or complete the trusted-host device flow, then retry deliberately. |
+| `aws_sso_config_invalid`, `aws_sso_login_failed` | Correct the bounded IAM Identity Center configuration, verify the host AWS CLI, or recover provider connectivity; the previous credential remains unchanged. |
 | `invalid_credential_input` | Import was empty, oversized, unreadable, or attached to terminal stdin. A terminal is refused before reading; pipe or redirect a trusted no-echo source. |
 | `auth_status_failed`, `invalid_auth_result` | The read result was not trustworthy. Run `cluster up`, then repeat `auth status`; do not infer credential absence. |
 | `auth_broker_unavailable`, `auth_broker_request_failed`, `auth_broker_locked`, `invalid_auth_broker_metadata` | Run `cluster up` to reconcile the shared broker, sockets, projection, and unlock state before another broker operation. |
@@ -376,11 +497,14 @@ commands.
 | `output_encoding_failed`, `output_write_failed` | Auth state was not safely delivered. For a read, repair the output and retry; after a mutation, the catalog uses non-retryable `mutation_output_write_failed` instead. |
 | `missing_runtime` | Run `doctor` and repair CLI runtime composition before another auth command. |
 | `credential_handle_invalid` (HTTP 403) | Leave and re-enter the Workspace for the current project-bound handle. A copied, malformed, stale, revoked, misplaced, ambiguous, or binding-mismatched handle is never forwarded and never falls back. |
-| `credential_broker_unavailable` (HTTP 503) | Leave the Workspace, run `cluster up` on the host, and retry only after the broker is ready. |
+| `credential_broker_unavailable` (HTTP 503) | This is a known pre-execution availability class. A same-record AWS refresh waiter stops after one second without creating a barrier or calling the companion; retry after the current request settles. For cluster/companion absence, leave the Workspace, run `cluster up`, and retry only after readiness. |
+| `credential_refresh_outcome_unknown` (HTTP 409) | Do not let the AWS CLI or SDK automatically replay the request. After the original request settles, run `auth status`. If `broker_state=ready` and AWS is `configured`, Gateway made no upstream attempt and the user may explicitly retry the task. If AWS is `not_configured`, the encrypted record is durably barred across Broker restart: run `auth login aws` or logout, then leave and re-enter the Workspace before retrying. Reconcile `locked` or `unavailable` status first. |
+| `broker_signing_request_invalid` (HTTP 403) | The AWS request used an unsupported or ambiguous signing form. Use a standard bounded SigV4 header request to a reviewed AWS HTTPS authority; do not retry as presigned, SigV4a, streaming/event, custom-endpoint, or over-limit traffic. |
 
 The public result's `workspace_activation.state` is
 `workspace_reentry_required` after every successful login, import, or logout.
-`auth status` reports `locked`, `ready`, or an unavailable command fault and
+`auth status` reports `locked`, `ready`, or `unavailable` without turning an
+absent cluster or Broker into a command fault, and
 uses explicit `configured`, `not_configured`, or `unavailable` provider state;
 absence is never inferred from a locked vault.
 
@@ -396,34 +520,53 @@ vault path/content, root key, primary secret, or handle.
 
 ## Deliberate limits
 
-The supported slice has one built-in GitHub.com account per Context and
-owner-controlled single-secret import providers. It does not implement token
-refresh, provider logout/revocation, multiple accounts per Context, GitHub App
-tokens, Git credential helpers, arbitrary OAuth, provider-selected or general
-browser bridges, AWS SigV4,
-request signing, dynamic short-lived credentials, provider SDK operations, or
-provider-specific policy semantics. A tool may still implement its own native
-flow inside its Workspace home, and advanced static users may retain the
-managed adapter.
+The supported slice has one built-in GitHub.com account, one configured AWS IAM
+Identity Center role, the exact Chatwork/Datadog static bindings, and
+owner-controlled single-secret import providers per Context. Host AWS CLI
+credential export plus standard Broker SigV4 is the sole dynamic plan. It excludes multiple
+accounts or roles per provider/Context, remote provider revocation, GitHub App
+tokens, Git credential helpers, arbitrary OAuth, provider-selected helpers,
+SigV4a, query presigning, streaming/aws-chunked/EventStream signatures,
+normalization-sensitive object paths, custom/private endpoints, bodies over
+8 MiB, provider SDK operations, and provider-specific policy semantics.
+
+The Kubernetes example is limited to one public globally routed DNS API server,
+one CA-verified complete kubeconfig, and one static bearer token. The TWG
+delegated-token example has no login or refresh and covers only requests that
+remain on exact `api.atlassian.com:443`; it is not a complete TWG authority
+contract. General TWG login, automatic refresh, and its other authorities are
+unsupported. A tool may still implement its native flow inside its Workspace home,
+and advanced static users may retain the managed adapter.
 
 ## Verification
 
 - Domain, application, CLI, root-key, provider, broker, Gateway, runtime, and
   integration tests use synthetic secrets and make no provider call.
-- Auth Broker source/snapshot and image checks verify exact bytes, pinned
-  GitHub CLI checksums and license, non-root labels/entrypoint, and Linux
-  amd64/arm64 construction.
+- Auth Broker source/snapshot and image checks verify exact bytes,
+  provider-CLI absence, bridge/protocol behavior, non-root labels/entrypoint,
+  and Linux amd64/arm64 construction. Host-driver tests independently verify
+  canonical executable identity and fixed GitHub/AWS CLI contracts.
 - The official Auth Broker is a reviewed Linux amd64/arm64 OCI index selected
   by immutable manifest digest. Contributors use `task build:dev` and
   `tobari-auth-broker:dev` for explicit source validation; a development image
   or moving tag cannot become normal runtime authority.
-- A release candidate requires a manual trusted-host GitHub check: login to a
-  test account, confirm the host opens the fixed device page without a Git
-  credential prompt, Broker browser error, persistent-plaintext warning, or
-  Git configuration, confirm only secret-free status, re-enter a Workspace, verify
+- A release candidate requires manual trusted-host GitHub and AWS checks.
+  For GitHub: login to a
+  test account, confirm the host driver opens the fixed device page without a
+  Git credential prompt or Git configuration, confirm only secret-free status,
+  re-enter a Workspace, verify
   without printing either value that `GH_TOKEN` has the `tobari-h1_` shape and
   `gh auth token --hostname github.com` returns that exact handle, perform one
   OPA-allowed `gh api` request, logout, and prove the prior handle fails.
+  For AWS: login to a test IAM Identity Center role through the fixed host AWS
+  CLI device-code driver, re-enter, confirm without printing that the three AWS
+  credential variables equal one handle, run one OPA-allowed bounded
+  `aws sts get-caller-identity --region <region>`, repeat after the temporary
+  role lease expires to exercise automatic post-policy refresh, logout, and
+  prove the old handle fails.
   `task integration:test` supplies the required reproducible synthetic Auth
-  Broker proof. Credential values, device codes, vaults, handles, and raw
-  authenticated transcripts are never committed as evidence.
+  Broker proof. Credential values, SSO state, role credentials, signed headers,
+  device codes, vaults, handles, and raw authenticated transcripts are never
+  committed as evidence. The API-v2 release remains blocked until compatible
+  Gateway/Auth Broker images are published and pinned through a separate
+  explicitly authorized release action.

@@ -34,8 +34,8 @@ func TestVerifyAuthBrokerImagePullsAndChecksImmutableContract(t *testing.T) {
 func TestVerifyAuthBrokerImageRejectsContractDimensions(t *testing.T) {
 	t.Parallel()
 	for name, mutate := range map[string]func(string) string{
-		"api label": func(metadata string) string {
-			return strings.Replace(metadata, `"io.tobari.auth-broker-api":"1"`, `"io.tobari.auth-broker-api":"2"`, 1)
+		"old api label": func(metadata string) string {
+			return strings.Replace(metadata, `"io.tobari.auth-broker-api":"2"`, `"io.tobari.auth-broker-api":"1"`, 1)
 		},
 		"role label": func(metadata string) string {
 			return strings.Replace(metadata, `"io.tobari.auth-broker-role":"credential-resolution"`, `"io.tobari.auth-broker-role":"other"`, 1)
@@ -159,5 +159,5 @@ func authBrokerMetadata(architecture, repoDigest string) string {
 	if repoDigest != "" {
 		repoDigests = `["` + repoDigest + `"]`
 	}
-	return `{"RepoDigests":` + repoDigests + `,"Architecture":"` + architecture + `","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.auth-broker-api":"1","io.tobari.auth-broker-role":"credential-resolution"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`
+	return `{"RepoDigests":` + repoDigests + `,"Architecture":"` + architecture + `","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.auth-broker-api":"2","io.tobari.auth-broker-role":"credential-resolution"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`
 }

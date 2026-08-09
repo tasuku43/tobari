@@ -1,7 +1,7 @@
 ARG MITMPROXY_IMAGE
 FROM ${MITMPROXY_IMAGE}
 
-LABEL io.tobari.gateway-api="1" \
+LABEL io.tobari.gateway-api="2" \
       io.tobari.gateway-role="enforcement"
 
 RUN mkdir -p \

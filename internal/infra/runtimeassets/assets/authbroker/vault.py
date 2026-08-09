@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from . import SCHEMA_VERSION
 
+
 CONTEXT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
@@ -28,7 +29,16 @@ HEADER_PATTERN = re.compile(r"^[!#$%&'*+.^_`|~0-9a-z-]{1,64}$")
 ACCOUNT_LABEL_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?$"
 )
+AWS_ACCOUNT_LABEL_PATTERN = re.compile(r"^[0-9]{12}$")
+DRIVER_REVISION_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+TASK_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 MAX_VAULT_BYTES = 1024 * 1024
+MAX_DRIVER_STATE_BYTES = 32 * 1024
+PAYLOAD_SCHEMA_VERSION = 2
+LEGACY_PAYLOAD_SCHEMA_VERSION = 1
+STATIC_CREDENTIAL_KIND = "static_primary_secret"
+AWS_SSO_CREDENTIAL_KIND = "aws_sso_session"
+AWS_DRIVER_ID = "aws_cli_sso"
 
 
 class VaultError(Exception):
@@ -135,10 +145,10 @@ def _validate_key(key: bytes | bytearray) -> bytes:
 
 
 def empty_payload() -> dict[str, Any]:
-    return {"schema_version": SCHEMA_VERSION, "providers": {}}
+    return {"schema_version": PAYLOAD_SCHEMA_VERSION, "providers": {}}
 
 
-def _validate_stored_binding(binding: Any, provider: str) -> None:
+def _validate_stored_header_binding(binding: Any, provider: str) -> None:
     if not isinstance(binding, dict) or set(binding) != {
         "provider_id",
         "target",
@@ -198,7 +208,12 @@ def _validate_stored_binding(binding: Any, provider: str) -> None:
         or not HEADER_PATTERN.fullmatch(destination_header)
         or destination_header in forbidden_headers
         or destination_header.startswith("x-tobari-")
-        or destination.get("format") not in {"preserve_scheme", "raw", "bearer", "token"}
+        or destination.get("format") not in {
+            "preserve_scheme",
+            "raw",
+            "bearer",
+            "token",
+        }
         or destination.get("secret_field") != "primary_secret"
     ):
         raise VaultError("vault_invalid")
@@ -221,16 +236,178 @@ def _validate_stored_binding(binding: Any, provider: str) -> None:
         raise VaultError("vault_invalid")
 
 
-def validate_payload(document: dict[str, Any]) -> dict[str, Any]:
-    if set(document) != {"schema_version", "providers"}:
+def _validate_stored_aws_binding(binding: Any, provider: str) -> None:
+    if not isinstance(binding, dict) or set(binding) != {
+        "provider_id",
+        "kind",
+        "aws_sigv4",
+    }:
         raise VaultError("vault_invalid")
-    if document.get("schema_version") != SCHEMA_VERSION or isinstance(
-        document.get("schema_version"), bool
+    if provider != "aws" or binding.get("provider_id") != provider:
+        raise VaultError("vault_invalid")
+    if binding.get("kind") != "aws_sigv4":
+        raise VaultError("vault_invalid")
+    sigv4 = binding.get("aws_sigv4")
+    if not isinstance(sigv4, dict) or set(sigv4) != {
+        "target",
+        "source",
+        "secret_headers",
+    }:
+        raise VaultError("vault_invalid")
+    target = sigv4.get("target")
+    source = sigv4.get("source")
+    if target != {
+        "scheme": "https",
+        "port": 443,
+        "dns_suffixes": ["amazonaws.com"],
+    }:
+        raise VaultError("vault_invalid")
+    if source != {
+        "authorization_header": "authorization",
+        "security_token_header": "x-amz-security-token",
+    }:
+        raise VaultError("vault_invalid")
+    if sigv4.get("secret_headers") != [
+        "authorization",
+        "x-amz-security-token",
+    ]:
+        raise VaultError("vault_invalid")
+
+
+def _validate_stored_binding(binding: Any, provider: str) -> str:
+    if isinstance(binding, dict) and binding.get("kind") == "aws_sigv4":
+        _validate_stored_aws_binding(binding, provider)
+        return AWS_SSO_CREDENTIAL_KIND
+    _validate_stored_header_binding(binding, provider)
+    return STATIC_CREDENTIAL_KIND
+
+
+def _validate_common_record(record: Any) -> tuple[str | None, dict[str, Any]]:
+    if not isinstance(record, dict):
+        raise VaultError("vault_invalid")
+    for field in ("record_id", "revision"):
+        value = record.get(field)
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > 128
+            or any(ord(character) < 0x21 or ord(character) > 0x7E for character in value)
+        ):
+            raise VaultError("vault_invalid")
+    account_label = record.get("account_label")
+    if account_label is not None and (
+        not isinstance(account_label, str)
+        or not account_label
+        or len(account_label) > 64
+        or not ACCOUNT_LABEL_PATTERN.fullmatch(account_label)
     ):
-        raise VaultError("vault_version_unsupported")
+        raise VaultError("vault_invalid")
+    handles = record.get("handles")
+    if not isinstance(handles, dict) or len(handles) > 4096:
+        raise VaultError("vault_invalid")
+    return account_label, handles
+
+
+def _validate_handles(
+    provider: str, handles: dict[str, Any], credential_kind: str
+) -> None:
+    for project_id, handle_record in handles.items():
+        validate_context_id(project_id)
+        if not isinstance(handle_record, dict) or set(handle_record) != {
+            "handle",
+            "bindings",
+        }:
+            raise VaultError("vault_invalid")
+        handle = handle_record.get("handle")
+        if not isinstance(handle, str) or not HANDLE_PATTERN.fullmatch(handle):
+            raise VaultError("vault_invalid")
+        encoded_handle = handle.removeprefix("tobari-h1_")
+        try:
+            if len(_b64decode(encoded_handle)) != 32:
+                raise VaultError("vault_invalid")
+        except VaultError:
+            raise VaultError("vault_invalid") from None
+        bindings = handle_record.get("bindings")
+        if not isinstance(bindings, list) or not bindings or len(bindings) > 64:
+            raise VaultError("vault_invalid")
+        kinds = {_validate_stored_binding(binding, provider) for binding in bindings}
+        if kinds != {credential_kind}:
+            raise VaultError("vault_invalid")
+
+
+def _validate_v2_record(provider: str, record: Any) -> None:
+    if not isinstance(record, dict):
+        raise VaultError("vault_invalid")
+    credential_kind = record.get("credential_kind")
+    if credential_kind == STATIC_CREDENTIAL_KIND:
+        if set(record) != {
+            "credential_kind",
+            "record_id",
+            "revision",
+            "account_label",
+            "secret",
+            "handles",
+        }:
+            raise VaultError("vault_invalid")
+        _, handles = _validate_common_record(record)
+        secret = decode_secret(record.get("secret"))
+        if not secret or len(secret) > 32 * 1024:
+            raise VaultError("vault_invalid")
+    elif credential_kind == AWS_SSO_CREDENTIAL_KIND:
+        if provider != "aws" or set(record) != {
+            "credential_kind",
+            "record_id",
+            "revision",
+            "account_label",
+            "driver_id",
+            "driver_revision",
+            "state_generation",
+            "refresh_task_digest",
+            "state",
+            "handles",
+        }:
+            raise VaultError("vault_invalid")
+        account_label, handles = _validate_common_record(record)
+        state_generation = record.get("state_generation")
+        refresh_task_digest = record.get("refresh_task_digest")
+        if (
+            not isinstance(account_label, str)
+            or AWS_ACCOUNT_LABEL_PATTERN.fullmatch(account_label) is None
+            or record.get("driver_id") != AWS_DRIVER_ID
+            or not isinstance(record.get("driver_revision"), str)
+            or DRIVER_REVISION_PATTERN.fullmatch(record["driver_revision"]) is None
+            or isinstance(state_generation, bool)
+            or not isinstance(state_generation, int)
+            or state_generation < 0
+            or state_generation > (1 << 63) - 1
+            or (
+                refresh_task_digest is not None
+                and (
+                    not isinstance(refresh_task_digest, str)
+                    or TASK_DIGEST_PATTERN.fullmatch(refresh_task_digest) is None
+                )
+            )
+        ):
+            raise VaultError("vault_invalid")
+        state = decode_secret(record.get("state"))
+        # The state is canonicalized and interpreted only by the reviewed
+        # trusted-host driver. The Broker deliberately owns it as opaque,
+        # bounded encrypted bytes and never parses provider cache content.
+        if not state or len(state) > MAX_DRIVER_STATE_BYTES:
+            raise VaultError("vault_invalid") from None
+    else:
+        raise VaultError("vault_invalid")
+    _validate_handles(provider, handles, credential_kind)
+
+
+def _migrate_v1_payload(document: dict[str, Any]) -> dict[str, Any]:
     providers = document.get("providers")
     if not isinstance(providers, dict) or len(providers) > 64:
         raise VaultError("vault_invalid")
+    migrated: dict[str, Any] = {
+        "schema_version": PAYLOAD_SCHEMA_VERSION,
+        "providers": {},
+    }
     for provider, record in providers.items():
         validate_provider_id(provider)
         if not isinstance(record, dict) or set(record) != {
@@ -241,50 +418,34 @@ def validate_payload(document: dict[str, Any]) -> dict[str, Any]:
             "handles",
         }:
             raise VaultError("vault_invalid")
-        for field in ("record_id", "revision"):
-            value = record.get(field)
-            if (
-                not isinstance(value, str)
-                or not value
-                or len(value) > 128
-                or any(ord(character) < 0x21 or ord(character) > 0x7E for character in value)
-            ):
-                raise VaultError("vault_invalid")
-        account_label = record.get("account_label")
-        if account_label is not None and (
-            not isinstance(account_label, str)
-            or not account_label
-            or len(account_label) > 64
-            or not ACCOUNT_LABEL_PATTERN.fullmatch(account_label)
-        ):
-            raise VaultError("vault_invalid")
+        _, handles = _validate_common_record(record)
         secret = decode_secret(record.get("secret"))
         if not secret or len(secret) > 32 * 1024:
             raise VaultError("vault_invalid")
-        handles = record.get("handles")
-        if not isinstance(handles, dict) or len(handles) > 4096:
-            raise VaultError("vault_invalid")
-        for project_id, handle_record in handles.items():
-            validate_context_id(project_id)
-            if not isinstance(handle_record, dict) or set(handle_record) != {
-                "handle",
-                "bindings",
-            }:
-                raise VaultError("vault_invalid")
-            handle = handle_record.get("handle")
-            if not isinstance(handle, str) or not HANDLE_PATTERN.fullmatch(handle):
-                raise VaultError("vault_invalid")
-            encoded_handle = handle.removeprefix("tobari-h1_")
-            try:
-                if len(_b64decode(encoded_handle)) != 32:
-                    raise VaultError("vault_invalid")
-            except VaultError:
-                raise VaultError("vault_invalid") from None
-            bindings = handle_record.get("bindings")
-            if not isinstance(bindings, list) or not bindings or len(bindings) > 64:
-                raise VaultError("vault_invalid")
-            for binding in bindings:
-                _validate_stored_binding(binding, provider)
+        _validate_handles(provider, handles, STATIC_CREDENTIAL_KIND)
+        migrated["providers"][provider] = {
+            "credential_kind": STATIC_CREDENTIAL_KIND,
+            **record,
+        }
+    return migrated
+
+
+def validate_payload(document: dict[str, Any]) -> dict[str, Any]:
+    if set(document) != {"schema_version", "providers"}:
+        raise VaultError("vault_invalid")
+    version = document.get("schema_version")
+    if isinstance(version, bool):
+        raise VaultError("vault_version_unsupported")
+    if version == LEGACY_PAYLOAD_SCHEMA_VERSION:
+        return _migrate_v1_payload(document)
+    if version != PAYLOAD_SCHEMA_VERSION:
+        raise VaultError("vault_version_unsupported")
+    providers = document.get("providers")
+    if not isinstance(providers, dict) or len(providers) > 64:
+        raise VaultError("vault_invalid")
+    for provider, record in providers.items():
+        validate_provider_id(provider)
+        _validate_v2_record(provider, record)
     return document
 
 
@@ -299,10 +460,53 @@ def new_record(secret: bytes, account_label: str | None = None) -> dict[str, Any
     ):
         raise VaultError("invalid_account_label")
     return {
+        "credential_kind": STATIC_CREDENTIAL_KIND,
         "record_id": "record_" + secrets.token_urlsafe(18),
         "revision": "revision_" + secrets.token_urlsafe(18),
         "account_label": account_label,
         "secret": encode_secret(secret),
+        "handles": {},
+    }
+
+
+def new_aws_sso_record(
+    state: bytes,
+    *,
+    account_label: str,
+    driver_id: str,
+    driver_revision: str,
+) -> dict[str, Any]:
+    if (
+        not isinstance(state, bytes)
+        or not state
+        or len(state) > MAX_DRIVER_STATE_BYTES
+    ):
+        raise VaultError("invalid_secret")
+    if (
+        not isinstance(account_label, str)
+        or AWS_ACCOUNT_LABEL_PATTERN.fullmatch(account_label) is None
+    ):
+        raise VaultError("invalid_account_label")
+    if driver_id != AWS_DRIVER_ID:
+        raise VaultError("invalid_driver")
+    if (
+        not isinstance(driver_revision, str)
+        or DRIVER_REVISION_PATTERN.fullmatch(driver_revision) is None
+    ):
+        raise VaultError("invalid_driver_revision")
+    return {
+        "credential_kind": AWS_SSO_CREDENTIAL_KIND,
+        "record_id": "record_" + secrets.token_urlsafe(18),
+        "revision": "revision_" + secrets.token_urlsafe(18),
+        "account_label": account_label,
+        "driver_id": driver_id,
+        "driver_revision": driver_revision,
+        "state_generation": 0,
+        # A non-null digest is a durable no-replay barrier. It is persisted
+        # before host provider execution and cleared only by the same
+        # correlated successful refresh (or a proven pre-execution failure).
+        "refresh_task_digest": None,
+        "state": encode_secret(state),
         "handles": {},
     }
 
@@ -431,8 +635,8 @@ class VaultStore:
     ) -> None:
         context_id = validate_context_id(context_id)
         key_bytes = _validate_key(key)
-        validate_payload(payload)
-        plaintext = _canonical_json(payload)
+        normalized_payload = validate_payload(payload)
+        plaintext = _canonical_json(normalized_payload)
         nonce = secrets.token_bytes(12)
         ciphertext = AESGCM(key_bytes).encrypt(
             nonce, plaintext, _associated_data(context_id)

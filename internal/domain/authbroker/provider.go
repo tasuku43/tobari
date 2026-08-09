@@ -12,15 +12,18 @@ import (
 )
 
 const (
-	ProviderSchemaVersion    = 1
-	ProviderSchemaID         = "tobari.auth-provider.v1"
-	MaxProviderDocumentBytes = 64 * 1024
-	MaxPrimarySecretBytes    = 32 * 1024
-	MaxTemplateBytes         = 32 * 1024
-	maxProviders             = 64
-	maxProjections           = 32
-	maxBindings              = 64
-	maxSecretHeaders         = 32
+	LegacyProviderSchemaVersion = 1
+	ProviderSchemaVersion       = 2
+	LegacyProviderSchemaID      = "tobari.auth-provider.v1"
+	ProviderSchemaID            = "tobari.auth-provider.v2"
+	MaxProviderDocumentBytes    = 64 * 1024
+	MaxPrimarySecretBytes       = 32 * 1024
+	MaxTemplateBytes            = 32 * 1024
+	maxProviders                = 64
+	maxProjections              = 32
+	maxBindings                 = 64
+	maxSigningBindings          = 8
+	maxSecretHeaders            = 32
 )
 
 var (
@@ -48,11 +51,30 @@ func (m AcquisitionMode) Validate() error {
 
 type CredentialKind string
 
-const CredentialPrimarySecret CredentialKind = "primary_secret"
+const (
+	// CredentialPrimarySecret is the schema-v1 static credential spelling. It
+	// remains valid only so owner manifests and existing built-ins keep their
+	// exact public contract.
+	CredentialPrimarySecret CredentialKind = "primary_secret"
+	CredentialAWSSSOSession CredentialKind = "aws_sso_session"
+)
 
 func (k CredentialKind) Validate() error {
-	if k != CredentialPrimarySecret {
-		return fmt.Errorf("provider credential kind must be %q", CredentialPrimarySecret)
+	switch k {
+	case CredentialPrimarySecret, CredentialAWSSSOSession:
+		return nil
+	default:
+		return fmt.Errorf("provider credential kind is invalid: %q", k)
+	}
+}
+
+type SigningBindingKind string
+
+const SigningBindingAWSSigV4 SigningBindingKind = "aws_sigv4"
+
+func (k SigningBindingKind) Validate() error {
+	if k != SigningBindingAWSSigV4 {
+		return fmt.Errorf("signing binding kind is invalid: %q", k)
 	}
 	return nil
 }
@@ -162,8 +184,38 @@ type HeaderBinding struct {
 	SecretHeaders []string           `json:"secret_headers"`
 }
 
-// Provider is the parsed schema-v1 provider manifest. It contains no real
-// credential, root key, or project-bound handle.
+// AWSSigV4Target is deliberately a suffix allowlist rather than an arbitrary
+// endpoint. The aws_sigv4 plan accepts only the reviewed commercial AWS suffix
+// enumerated by validation below.
+type AWSSigV4Target struct {
+	Scheme      string   `json:"scheme"`
+	Port        int      `json:"port"`
+	DNSSuffixes []string `json:"dns_suffixes"`
+}
+
+type AWSSigV4Source struct {
+	AuthorizationHeader string `json:"authorization_header"`
+	SecurityTokenHeader string `json:"security_token_header"`
+}
+
+// AWSSigV4Binding contains only non-secret request-recognition metadata. The
+// signing algorithm, canonicalization, and credential exchange are fixed by
+// reviewed infrastructure and cannot be supplied by a manifest.
+type AWSSigV4Binding struct {
+	Target        AWSSigV4Target `json:"target"`
+	Source        AWSSigV4Source `json:"source"`
+	SecretHeaders []string       `json:"secret_headers"`
+}
+
+// SigningBinding is a closed discriminated union. A new behavior requires a
+// new typed field and domain validation rather than an executable manifest.
+type SigningBinding struct {
+	Kind     SigningBindingKind `json:"kind"`
+	AWSSigV4 *AWSSigV4Binding   `json:"aws_sigv4,omitempty"`
+}
+
+// Provider is a parsed schema-v1 or schema-v2 provider manifest. It contains
+// no real credential, root key, or project-bound handle.
 type Provider struct {
 	SchemaVersion        int                   `json:"schema_version"`
 	ID                   string                `json:"id"`
@@ -172,6 +224,7 @@ type Provider struct {
 	Credential           Credential            `json:"credential"`
 	WorkspaceProjections []WorkspaceProjection `json:"workspace_projections"`
 	HeaderBindings       []HeaderBinding       `json:"header_bindings"`
+	SigningBindings      []SigningBinding      `json:"signing_bindings,omitempty"`
 }
 
 func ValidateProviderID(id string) error {
@@ -187,8 +240,11 @@ func (p Provider) Validate() error {
 }
 
 func validateProvider(p Provider) error {
-	if p.SchemaVersion != ProviderSchemaVersion {
-		return fmt.Errorf("provider %q schema_version must be %d", p.ID, ProviderSchemaVersion)
+	if p.SchemaVersion != LegacyProviderSchemaVersion && p.SchemaVersion != ProviderSchemaVersion {
+		return fmt.Errorf(
+			"provider %q schema_version must be %d or %d",
+			p.ID, LegacyProviderSchemaVersion, ProviderSchemaVersion,
+		)
 	}
 	if err := ValidateProviderID(p.ID); err != nil {
 		return err
@@ -213,6 +269,9 @@ func validateProvider(p Provider) error {
 	if err := p.Credential.Kind.Validate(); err != nil {
 		return err
 	}
+	if err := validateCredentialPlan(p); err != nil {
+		return err
+	}
 	if len(p.WorkspaceProjections) == 0 || len(p.WorkspaceProjections) > maxProjections {
 		return fmt.Errorf("provider %q must declare 1..%d Workspace projections", p.ID, maxProjections)
 	}
@@ -226,13 +285,144 @@ func validateProvider(p Provider) error {
 	if handleProjections == 0 {
 		return fmt.Errorf("provider %q must project ${HANDLE} at least once", p.ID)
 	}
-	if len(p.HeaderBindings) == 0 || len(p.HeaderBindings) > maxBindings {
-		return fmt.Errorf("provider %q must declare 1..%d header bindings", p.ID, maxBindings)
+	if len(p.HeaderBindings) > maxBindings {
+		return fmt.Errorf("provider %q cannot declare more than %d header bindings", p.ID, maxBindings)
 	}
 	for index, binding := range p.HeaderBindings {
 		if err := validateHeaderBinding(binding); err != nil {
 			return fmt.Errorf("provider %q header binding %d: %w", p.ID, index, err)
 		}
+		if binding.Destination.SecretField != p.Credential.Kind {
+			return fmt.Errorf(
+				"provider %q header binding %d secret_field must match credential kind %q",
+				p.ID, index, p.Credential.Kind,
+			)
+		}
+	}
+	if len(p.SigningBindings) > maxSigningBindings {
+		return fmt.Errorf("provider %q cannot declare more than %d signing bindings", p.ID, maxSigningBindings)
+	}
+	for index, binding := range p.SigningBindings {
+		if err := validateSigningBinding(binding); err != nil {
+			return fmt.Errorf("provider %q signing binding %d: %w", p.ID, index, err)
+		}
+	}
+	if len(p.HeaderBindings)+len(p.SigningBindings) == 0 {
+		return fmt.Errorf("provider %q must declare at least one credential binding", p.ID)
+	}
+	if p.Credential.Kind == CredentialAWSSSOSession {
+		if err := validateAWSWorkspaceProjection(p.WorkspaceProjections); err != nil {
+			return fmt.Errorf("provider %q: %w", p.ID, err)
+		}
+	}
+	return nil
+}
+
+func validateCredentialPlan(p Provider) error {
+	switch p.SchemaVersion {
+	case LegacyProviderSchemaVersion:
+		if p.Credential.Kind != CredentialPrimarySecret {
+			return fmt.Errorf("schema-v1 provider credential kind must be %q", CredentialPrimarySecret)
+		}
+		if len(p.SigningBindings) != 0 {
+			return fmt.Errorf("schema-v1 provider cannot declare signing bindings")
+		}
+	case ProviderSchemaVersion:
+		if p.Credential.Kind == CredentialAWSSSOSession {
+			if p.ID != "aws" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "aws-sso" {
+				return fmt.Errorf("aws_sso_session is reserved for the reviewed aws/aws-sso built-in plan")
+			}
+			if len(p.HeaderBindings) != 0 || len(p.SigningBindings) != 1 ||
+				p.SigningBindings[0].Kind != SigningBindingAWSSigV4 {
+				return fmt.Errorf("aws_sso_session must declare exactly one aws_sigv4 signing binding and no header binding")
+			}
+		} else {
+			return fmt.Errorf("schema-v2 provider credential kind must be %q", CredentialAWSSSOSession)
+		}
+	}
+	return nil
+}
+
+func validateSigningBinding(binding SigningBinding) error {
+	if err := binding.Kind.Validate(); err != nil {
+		return err
+	}
+	if binding.Kind != SigningBindingAWSSigV4 || binding.AWSSigV4 == nil {
+		return fmt.Errorf("aws_sigv4 signing binding requires exactly one aws_sigv4 contract")
+	}
+	return validateAWSSigV4Binding(*binding.AWSSigV4)
+}
+
+func validateAWSSigV4Binding(binding AWSSigV4Binding) error {
+	if binding.Target.Scheme != "https" || binding.Target.Port != 443 {
+		return fmt.Errorf("aws_sigv4 target must be exact https port 443")
+	}
+	wantSuffixes := map[string]struct{}{
+		"amazonaws.com": {},
+	}
+	if len(binding.Target.DNSSuffixes) != len(wantSuffixes) {
+		return fmt.Errorf("aws_sigv4 target must declare the reviewed AWS DNS suffixes")
+	}
+	seenSuffixes := make(map[string]struct{}, len(binding.Target.DNSSuffixes))
+	for _, suffix := range binding.Target.DNSSuffixes {
+		if _, allowed := wantSuffixes[suffix]; !allowed {
+			return fmt.Errorf("aws_sigv4 target contains unreviewed DNS suffix %q", suffix)
+		}
+		if _, duplicate := seenSuffixes[suffix]; duplicate {
+			return fmt.Errorf("aws_sigv4 target contains duplicate DNS suffix %q", suffix)
+		}
+		seenSuffixes[suffix] = struct{}{}
+	}
+	if binding.Source.AuthorizationHeader != "authorization" ||
+		binding.Source.SecurityTokenHeader != "x-amz-security-token" {
+		return fmt.Errorf("aws_sigv4 source headers must be the reviewed AWS authorization and security-token headers")
+	}
+	if len(binding.SecretHeaders) != 2 {
+		return fmt.Errorf("aws_sigv4 secret_headers must contain authorization and x-amz-security-token")
+	}
+	wantHeaders := map[string]struct{}{
+		"authorization":        {},
+		"x-amz-security-token": {},
+	}
+	seenHeaders := make(map[string]struct{}, len(binding.SecretHeaders))
+	for _, header := range binding.SecretHeaders {
+		if err := validateHeaderName(header); err != nil {
+			return fmt.Errorf("aws_sigv4 secret_headers: %w", err)
+		}
+		if _, allowed := wantHeaders[header]; !allowed {
+			return fmt.Errorf("aws_sigv4 secret_headers contains unreviewed header %q", header)
+		}
+		if _, duplicate := seenHeaders[header]; duplicate {
+			return fmt.Errorf("aws_sigv4 secret_headers contains duplicate header %q", header)
+		}
+		seenHeaders[header] = struct{}{}
+	}
+	return nil
+}
+
+func validateAWSWorkspaceProjection(projections []WorkspaceProjection) error {
+	want := map[string]string{
+		"AWS_ACCESS_KEY_ID":         "${HANDLE}",
+		"AWS_SECRET_ACCESS_KEY":     "${HANDLE}",
+		"AWS_SESSION_TOKEN":         "${HANDLE}",
+		"AWS_EC2_METADATA_DISABLED": "true",
+	}
+	if len(projections) != len(want) {
+		return fmt.Errorf("aws_sso_session must declare exactly the reviewed AWS CLI environment projection")
+	}
+	seen := make(map[string]struct{}, len(projections))
+	for _, projection := range projections {
+		if projection.Kind != WorkspaceProjectionEnvironment || projection.Path != "" {
+			return fmt.Errorf("aws_sso_session projection must contain only environment variables")
+		}
+		template, ok := want[projection.Name]
+		if !ok || projection.Template != template {
+			return fmt.Errorf("aws_sso_session projection %q does not match the reviewed AWS CLI contract", projection.Name)
+		}
+		if _, duplicate := seen[projection.Name]; duplicate {
+			return fmt.Errorf("aws_sso_session projection contains duplicate environment %q", projection.Name)
+		}
+		seen[projection.Name] = struct{}{}
 	}
 	return nil
 }
@@ -373,6 +563,9 @@ func validateHeaderBinding(binding HeaderBinding) error {
 	}
 	if err := binding.Destination.SecretField.Validate(); err != nil {
 		return fmt.Errorf("header binding destination secret_field: %w", err)
+	}
+	if binding.Destination.SecretField != CredentialPrimarySecret {
+		return fmt.Errorf("header binding destination must reference a static primary secret")
 	}
 	if len(binding.SecretHeaders) == 0 || len(binding.SecretHeaders) > maxSecretHeaders {
 		return fmt.Errorf("header binding must declare 1..%d secret_headers", maxSecretHeaders)

@@ -34,19 +34,23 @@ The short purpose of each document is:
 
 ## Current open work
 
-There is no retained active implementation packet in the current tree. Gateway
-and Auth Broker image publication, anonymous visibility, immutable digest
-promotion, and runtime validation are complete; future promotions require a
-new temporary packet and the same public/release review.
+The temporary
+[`default-runtime-brokered-tools`](work/default-runtime-brokered-tools/goal.md)
+packet is active. It keeps requested provider tools in an optional local
+Context toolbox and adds reviewed host GitHub/AWS credential drivers plus a
+private resident companion for post-policy AWS refresh. The currently pinned
+Gateway/Auth Broker images are API v1; publishing and pinning compatible API-v2
+indexes is a separate explicitly authorized release blocker.
 
 The following are deliberate product boundaries, not completed features:
 
 - Public Claude and Codex image publication is deferred until redistribution,
   licensing, support, and provenance decisions are accepted. See
   [Release Model](06_release.md).
-- Provider-specific policy operations, arbitrary helper code, automatic token
-  refresh, signing, and multiple-account selection remain excluded from the
-  supported schema-v1 Auth Broker slice. See [Authentication
+- Provider-specific policy operations, arbitrary helper code, general TWG
+  login/refresh, and multiple-account selection remain excluded. The sole
+  dynamic plan is reviewed host AWS CLI credential export after exact OPA allow
+  followed by Broker-owned bounded SigV4. See [Authentication
   handling](07_authentication.md).
 - Simplifying explicit cluster bootstrap remains a product hypothesis under
   the bounded-autonomy thesis, not an unreviewed command change. See
@@ -57,8 +61,9 @@ The following are deliberate product boundaries, not completed features:
 - The numbered documents and ADRs with `Status: Accepted` state the current
   contract. An ADR with `Status: Superseded` is historical reasoning; follow
   its `Superseded by` link instead of treating it as current behavior.
-- `README.md` is the current user-facing route. The architecture site is an
-  explanatory projection and cannot add a command, permission, or guarantee.
+- `README.md` is the concise user-facing route. The published documentation is
+  an explanatory and generated-reference projection; it cannot add a command,
+  permission, or guarantee beyond the numbered documents and CLI Catalog.
 - A work packet is task-time material. Its `goal.md` status identifies whether
   it is `Draft`, `Accepted`, or `Active`; completed temporary packets are
   removed rather than used as a history archive. Evidence packets are retained

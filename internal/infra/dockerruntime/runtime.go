@@ -4,6 +4,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/companionruntime"
 	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 	"github.com/tasuku43/tobari/internal/infra/terminal"
 )
@@ -69,13 +71,19 @@ func (osCommandRunner) Output(ctx context.Context, args, environment []string) (
 
 // Runtime owns filesystem state and Docker process execution.
 type Runtime struct {
-	configDirectory string
-	stateDirectory  string
-	dataDirectory   string
-	runner          commandRunner
-	images          imageResolver
-	browser         hostBrowserOpener
-	gitIdentity     hostGitIdentityResolver
+	configDirectory   string
+	stateDirectory    string
+	dataDirectory     string
+	runner            commandRunner
+	images            imageResolver
+	browser           hostBrowserOpener
+	gitIdentity       hostGitIdentityResolver
+	companion         companionruntime.Launcher
+	companionEntropy  io.Reader
+	rootKeyLoader     func(context.Context) ([]byte, error)
+	hostCLIs          hostCLIResolver
+	credentialHost    hostCredentialAcquirer
+	hostLoginProfiles hostLoginProfileReader
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
 	projectStateWriter func(tobari.ProjectInstance) error
@@ -148,12 +156,17 @@ func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, r
 		return nil, fmt.Errorf("Docker command runner is required")
 	}
 	return &Runtime{
-		configDirectory: configDirectory,
-		stateDirectory:  stateDirectory,
-		dataDirectory:   dataDirectory,
-		runner:          runner,
-		browser:         osHostBrowserOpener{},
-		gitIdentity:     newOSHostGitIdentityResolver(),
+		configDirectory:   configDirectory,
+		stateDirectory:    stateDirectory,
+		dataDirectory:     dataDirectory,
+		runner:            runner,
+		browser:           osHostBrowserOpener{},
+		gitIdentity:       newOSHostGitIdentityResolver(),
+		companion:         companionruntime.NewOSLauncher(),
+		companionEntropy:  rand.Reader,
+		hostCLIs:          newPathHostCLIResolver(),
+		credentialHost:    newOSHostCredentialAcquirer(),
+		hostLoginProfiles: osHostLoginProfileReader{},
 	}, nil
 }
 
@@ -533,8 +546,14 @@ func (r *Runtime) clusterUpWithProgressMode(
 			recordAttemptError("Cluster startup did not complete; inspect component logs.")
 			return fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
 		}
-		if err := r.unlockAuthBroker(ctx); err != nil {
+		rootKey, err := r.unlockAuthBroker(ctx)
+		if err != nil {
 			recordAttemptError("Auth Broker did not unlock; inspect root-key and broker state.")
+			return err
+		}
+		defer clear(rootKey)
+		if err := r.startCredentialCompanion(ctx, rootKey); err != nil {
+			recordAttemptError("Credential companion did not become ready; inspect Auth Broker and host runtime state.")
 			return err
 		}
 		return nil
@@ -639,6 +658,9 @@ func (r *Runtime) waitForClusterReady(
 			}
 		}
 		if brokerState, err := r.brokerState(ctx); err != nil || brokerState != "ready" {
+			ready = false
+		}
+		if companionState, _, err := r.credentialCompanionStatus(ctx); err != nil || companionState != "ready" {
 			ready = false
 		}
 		if ready {
@@ -1207,6 +1229,13 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 	if brokerState != "ready" {
 		running = false
 	}
+	companionState, _, companionErr := r.credentialCompanionStatus(ctx)
+	if companionErr != nil {
+		companionState = "unavailable"
+	}
+	if companionState != "ready" {
+		running = false
+	}
 	backend := "unavailable"
 	if selected, backendErr := authStorageBackend(); backendErr == nil {
 		backend = string(selected)
@@ -1217,8 +1246,9 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 		PolicyRevision: state.AggregateRevision, PolicyProjection: policyIntegrity,
 		PrincipalRegistry: principalIntegrity, CredentialProjection: credentialIntegrity,
 		AuthProviderProjection: r.inspectAuthProviderProjectionIntegrity(),
-		AuthBrokerState:        string(brokerState), RootKeyBackend: backend,
-		Components: components, RecentError: state.RecentError,
+		AuthBrokerState:        string(brokerState), CredentialCompanionState: companionState,
+		RootKeyBackend: backend,
+		Components:     components, RecentError: state.RecentError,
 	}, nil
 }
 
@@ -1539,6 +1569,9 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 	if err != nil {
 		_ = r.recordRecentError(state, "Cluster cleanup did not complete; inspect component logs.")
 		return fmt.Errorf("docker compose down: %w: %s", err, boundedDiagnostic(output.Bytes()))
+	}
+	if err := r.waitForCredentialCompanionStopped(ctx); err != nil {
+		return err
 	}
 	if err := r.replaceProjectPrincipalRegistry(ctx, []projectPrincipalBinding{}); err != nil {
 		return fmt.Errorf("clear project principal registry: %w", err)

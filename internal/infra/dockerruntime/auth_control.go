@@ -37,15 +37,15 @@ func (e brokerControlError) Error() string {
 }
 
 type brokerControlResponse struct {
-	SchemaVersion int                                  `json:"schema_version"`
-	OK            bool                                 `json:"ok"`
-	State         string                               `json:"state,omitempty"`
-	Provider      string                               `json:"provider,omitempty"`
-	Revision      string                               `json:"revision,omitempty"`
-	AccountLabel  *string                              `json:"account_label,omitempty"`
-	Handle        string                               `json:"handle,omitempty"`
-	Bindings      []authbroker.NormalizedHeaderBinding `json:"bindings,omitempty"`
-	Changed       *bool                                `json:"changed,omitempty"`
+	SchemaVersion int     `json:"schema_version"`
+	OK            bool    `json:"ok"`
+	State         string  `json:"state,omitempty"`
+	EpochID       string  `json:"epoch_id,omitempty"`
+	Provider      string  `json:"provider,omitempty"`
+	Revision      string  `json:"revision,omitempty"`
+	AccountLabel  *string `json:"account_label,omitempty"`
+	Handle        string  `json:"handle,omitempty"`
+	Changed       *bool   `json:"changed,omitempty"`
 	Error         *struct {
 		Code string `json:"code"`
 	} `json:"error,omitempty"`
@@ -266,40 +266,64 @@ func authBrokerUnavailableFault() error {
 	)
 }
 
-func (r *Runtime) unlockAuthBroker(ctx context.Context) error {
+func (r *Runtime) unlockAuthBroker(ctx context.Context) ([]byte, error) {
 	state, err := r.waitForAuthBrokerControl(ctx)
-	if err == nil && state == authbroker.BrokerStateReady {
-		return nil
-	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	exists, err := rootkey.EncryptedStateExists(r.stateDirectory)
+	key, err := r.loadInstallationRootKey(ctx)
 	if err != nil {
-		return classifyRootKeyError(err)
+		return nil, err
 	}
-	provider, err := rootkey.New(r.stateDirectory)
-	if err != nil {
-		return classifyRootKeyError(err)
+	if state == authbroker.BrokerStateReady {
+		return key, nil
 	}
-	material, err := provider.LoadOrCreate(ctx, exists)
-	if err != nil {
-		return classifyRootKeyError(err)
-	}
-	key := material.Bytes()
-	defer clear(key)
 	response, err := r.runBrokerControl(ctx, bytes.NewReader(key), "unlock")
 	if err != nil {
-		return classifyBrokerError(err, "cluster up")
+		clear(key)
+		return nil, classifyBrokerError(err, "cluster up")
 	}
 	if response.State != "unlocked" {
-		return fault.New(
+		clear(key)
+		return nil, fault.New(
 			fault.KindContract, "auth_broker_unlock_failed",
 			"The Auth Broker did not confirm its unlocked state.", false,
 			fault.NextAction{Command: "doctor", Reason: "Inspect Auth Broker and root-key provider state."},
 		)
 	}
-	return nil
+	return key, nil
+}
+
+func (r *Runtime) loadInstallationRootKey(ctx context.Context) ([]byte, error) {
+	if r.rootKeyLoader != nil {
+		key, err := r.rootKeyLoader(ctx)
+		if err != nil {
+			return nil, classifyRootKeyError(err)
+		}
+		if len(key) != 32 {
+			clear(key)
+			return nil, classifyRootKeyError(rootkey.ErrUnsafe)
+		}
+		return key, nil
+	}
+	exists, err := rootkey.EncryptedStateExists(r.stateDirectory)
+	if err != nil {
+		return nil, classifyRootKeyError(err)
+	}
+	provider, err := rootkey.New(r.stateDirectory)
+	if err != nil {
+		return nil, classifyRootKeyError(err)
+	}
+	material, err := provider.LoadOrCreate(ctx, exists)
+	if err != nil {
+		return nil, classifyRootKeyError(err)
+	}
+	key := material.Bytes()
+	if len(key) != 32 {
+		clear(key)
+		return nil, classifyRootKeyError(rootkey.ErrUnsafe)
+	}
+	return key, nil
 }
 
 func (r *Runtime) waitForAuthBrokerControl(ctx context.Context) (authbroker.BrokerState, error) {
@@ -346,7 +370,7 @@ func classifyRootKeyError(err error) error {
 	}
 }
 
-func classifyBrokerError(err error, command string) error {
+func classifyBrokerError(err error, _ string) error {
 	if public, ok := fault.PublicCopy(err); ok {
 		return public
 	}
@@ -377,13 +401,6 @@ func classifyBrokerError(err error, command string) error {
 			return fault.New(
 				fault.KindUnsupported, "auth_vault_version_unsupported", "The encrypted Context vault version is unsupported.", false,
 				fault.NextAction{Command: "doctor", Reason: "Inspect the installed Tobari version and vault migration path."},
-			)
-		case "login_cancelled":
-			return fault.New(fault.KindRejected, "github_login_cancelled", "GitHub login was cancelled; the previous Context credential remains unchanged.", false)
-		case "login_failed", "token_capture_failed", "login_setup_failed", "account_capture_failed", "login_cleanup_failed":
-			return fault.New(
-				fault.KindRejected, "github_login_failed", "GitHub login did not complete; the previous Context credential remains unchanged.", false,
-				fault.NextAction{Command: command, Reason: "Retry the trusted-host GitHub login."},
 			)
 		case "credential_not_found":
 			return fault.New(
@@ -447,7 +464,7 @@ func (r *Runtime) addAuthDiagnostics(
 	if providerErr != nil {
 		add("auth_provider_manifests", doctor.CheckStatusFail, "credential-provider manifests are invalid or unsafe")
 	} else {
-		add("auth_provider_manifests", doctor.CheckStatusPass, fmt.Sprintf("%d credential-provider manifests match schema v1", len(projection.Providers)))
+		add("auth_provider_manifests", doctor.CheckStatusPass, fmt.Sprintf("%d credential-provider manifests normalize to projection schema v2", len(projection.Providers)))
 	}
 
 	vaultsExist, vaultErr := rootkey.EncryptedStateExists(r.stateDirectory)
@@ -484,6 +501,12 @@ func (r *Runtime) addAuthDiagnostics(
 		return
 	}
 	add("auth_broker", doctor.CheckStatusPass, "Auth Broker is healthy and unlocked")
+	companionState, _, companionErr := r.credentialCompanionStatus(ctx)
+	if companionErr != nil || companionState != "ready" {
+		add("credential_companion", doctor.CheckStatusWarn, "trusted-host credential refresh is unavailable; run cluster up to reconcile the companion")
+	} else {
+		add("credential_companion", doctor.CheckStatusPass, "trusted-host credential companion is authenticated and ready")
+	}
 	if providerErr != nil {
 		return
 	}

@@ -16,7 +16,7 @@ import (
 const (
 	authBrokerAPIKey  = "io.tobari.auth-broker-api" // #nosec G101 -- stable image-contract label key, not a credential.
 	authBrokerRoleKey = "io.tobari.auth-broker-role"
-	authBrokerAPI     = "1"
+	authBrokerAPI     = "2"
 	authBrokerRole    = "credential-resolution"
 )
 

@@ -38,7 +38,7 @@ func (r *contextSwitchRunner) Output(_ context.Context, args, _ []string) ([]byt
 		if err != nil {
 			return nil, err
 		}
-		return []byte(fmt.Sprintf(`{"RepoDigests":[%q],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"1","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`, versions["GATEWAY_IMAGE"])), nil
+		return []byte(fmt.Sprintf(`{"RepoDigests":[%q],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"2","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`, versions["GATEWAY_IMAGE"])), nil
 	}
 	if len(args) > 0 && args[0] == "version" {
 		return []byte(`{"Os":"linux","Arch":"arm64"}`), nil

@@ -3,8 +3,9 @@
 Tobari is agent-ready when a coding agent can discover the shared cluster,
 run the root command from a project directory, enter an exact CWD-owned
 Workspace without an ID, configure or inspect Context authentication without
-exposing a real credential, and recover from denied network requests without
-source inspection. This is also a product-adoption check: the bounded path
+exposing a real credential, configure narrow shell and Git identity projections
+without copying host configuration, and recover from denied network requests
+without source inspection. This is also a product-adoption check: the bounded path
 must be easier to choose than running the agent on the host. Human entry below
 ancestor roots explicitly chooses reuse or creation; that interaction is
 outside the machine help contract.
@@ -41,9 +42,12 @@ journey is the product baseline to improve:
 | Permission growth | Installation-wide human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users scan exact HTTP effects grouped by stable Context/project identity, see bounded observation evidence, inspect Context/root/request, and choose one exact action from detail without a second confirmation prompt; redirected review remains read-only and the action remains bound to one Context-scoped opaque reference |
 | Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
 | Execution setup | `context list`, `context show`, `context use --name NAME`, `tobari --context NAME` | The user can inspect stable Contexts, change only the omitted-Context default, and create same-root Tobari in different Contexts while one Gateway/OPA/Auth Broker cluster routes trusted principals and bound handles |
-| Shell presentation | `context shell configure`, then enter a new session | A Context inherits exported `PS1` by default or independently selects one of four allowlisted shell variables without inheriting arbitrary host environment or startup files |
+| Context configuration | Human `config shell` / `config git` wizard or complete direct flags, then a matching entry | A terminal user reviews current and proposed state without assembling every flag, while agents and scripts use one deterministic invocation; partial/redirected/JSON input never prompts |
+| Shell presentation | `config shell`, then enter a new session | A Context inherits exported `PS1` by default or independently selects one of four allowlisted shell variables without inheriting arbitrary host environment or startup files |
+| Git identity | `config git`, then enter the matching root | A Context optionally supplies only a lower-precedence `user.name`/`user.email` pair without copying Git files, authentication, signing, helpers, executable settings, or arbitrary keys |
 | Runtime customization | `runtime init`, edit the current Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image and other Contexts are unchanged |
-| Context authentication | `auth status`; built-in `auth login github`; protected non-terminal stdin `auth import`; `auth logout` | The host opens the fixed GitHub device page when possible, otherwise gives one exact manual URL; no Broker browser/Git setup error intervenes. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing the primary secret |
+| Context authentication | `auth status`; built-in `auth login github|aws`; protected non-terminal stdin `auth import`; `auth logout` | Reviewed fixed host CLI drivers acquire GitHub/AWS state; a private resident companion refreshes AWS only after exact OPA allow. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing static secrets, opaque SSO cache, role credentials, or signing keys |
+| Context-specific work tools | Published-base `gh` and `aws`; optional locally built toolbox adds `kubectl`, `cwk`, `pup`, and `twg` | Public-base contents stay unchanged; local artifacts have pinned identity and license inventory. Static broker examples state exact authority and no-refresh limits, while general TWG remains unsupported |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
 
 The table is a review baseline, not a claim that the desired command count is
@@ -55,8 +59,10 @@ The current human-path evidence supports keeping the Permission Inbox,
 CWD-owned entry, explicit cleanup, and Context runtime commands. The first
 PTY replay removed `doctor` from the happy path and confirmed that TTY review
 already closes the allow/deny decision; JSON review plus `policy allow --id`
-remains the redirected or machine path. No observed journey justifies deleting
-or merging a public command. The valid recovery path after an allowed
+remains the redirected or machine path. Context configuration evidence does
+justify replacing the pre-v1.0 `context shell configure` path with the common
+`config` namespace; it does not merge runtime or authentication workflows into
+that boundary. The valid recovery path after an allowed
 permission is `tobari` re-entry; there is no `tobari retry` command. Runtime
 builds apply through the current Context, and only Workspaces bound to it pick
 up the promoted image on their next matching-Context root entry while
@@ -98,6 +104,9 @@ go run ./cmd/tobari help --format agent
 go run ./cmd/tobari help cluster --format agent
 go run ./cmd/tobari help tobari --format agent
 go run ./cmd/tobari help status --format agent
+go run ./cmd/tobari help config --format agent
+go run ./cmd/tobari help config shell --format agent
+go run ./cmd/tobari help config git --format agent
 go run ./cmd/tobari help auth --format agent
 go run ./cmd/tobari help auth login --format agent
 go run ./cmd/tobari help auth import --format agent
@@ -106,7 +115,8 @@ go run ./cmd/tobari help auth logout --format agent
 go build -o /tmp/tobari ./cmd/tobari
 go run ./cmd/tobari context show --format json
 go run ./cmd/tobari context list --format json
-go run ./cmd/tobari context shell configure --variable PS1 --source inherit --format json
+go run ./cmd/tobari config shell --variable PS1 --source inherit --format json
+go run ./cmd/tobari config git --source literal --name "Tobari User" --email tobari@example.com --format json
 go run ./cmd/tobari context use --name default --format json # changes only the current default without starting Docker
 go run ./cmd/tobari cluster up
 go run ./cmd/tobari auth status --format json
@@ -160,6 +170,21 @@ rules exist. The transcript must prove:
   explicit empty literals, rejects arbitrary exported names before I/O, and
   applies inherited values only to a later child shell. An absent exported
   `PS1` retains the built-in prompt; no credential or startup-file state crosses.
+- With the setting group wholly omitted, text terminal `config shell` and
+  `config git` show the selected Context, current state, conditional input, and
+  Apply/Cancel review on stderr. Direct mode returns the same report on stdout.
+  Partial settings, JSON wizard attempts, redirected wizard attempts, and
+  cancellation make zero mutation calls; raw-terminal failure retains the
+  bounded English line-input path.
+- Git configuration reports one atomic default/inherit/literal identity policy.
+  The synthetic literal appears as a lower-precedence fallback after matching
+  root entry; Workspace-global and repository-local identity override it. An
+  inherited complete synthetic host-global pair is selected by stable root,
+  while an absent/incomplete pair adds no fallback. No host config path or
+  directive, repository-local host read, credential/helper/header, SSH,
+  signing, hook, alias, URL rewrite, filter, proxy, or arbitrary key enters the
+  Workspace, output, or logs. Identity creates no authentication or provider
+  account claim.
 - `context use` reports `default_updated`, never starts Docker, and does not
   mutate existing Tobari or shared enforcement. Explicit root `--context`
   selection leaves the marker unchanged.
@@ -177,10 +202,13 @@ rules exist. The transcript must prove:
   healthy. It may inspect provider manifests, root-key/vault safety, broker
   state, and project bindings, but it does not initialize or repair policy,
   start/reconcile/unlock the cluster, create/replace a key, or mutate auth state.
-- Cluster status schema 3 names all three shared components and explicitly
-  reports auth provider-projection integrity, broker state, and root-key
-  backend. Context report schema 5 carries a complete shell-environment
-  inventory plus matching secret-free authentication state; agents do not
+- Cluster status schema 4 names all three shared components and explicitly
+  reports auth provider-projection integrity, broker state, root-key backend,
+  and always-present
+  `credential_companion_state=ready|prepared|absent|unavailable`. The latter is
+  host-process/channel readiness, not a fourth Compose service or credential
+  state. Context report schema 6 carries complete shell-environment and Git
+  identity policies plus matching secret-free authentication state; agents do not
   infer either from labels or filesystem paths. Public backend
   values are exactly `macos_keychain|xdg_file`, plus cluster diagnostic
   `unavailable`; `linux_xdg_file` is doctor-only diagnostic prose, not a public
@@ -221,12 +249,22 @@ rules exist. The transcript must prove:
   Context/provider argument, intent, and mutation validation; infrastructure
   validates the selected existing Context, installed provider/acquisition mode,
   and broker readiness before broker send. Login is limited to the reviewed
-  built-in helper; logout makes no remote-revocation claim. Every success
+  built-in host driver; logout makes no remote-revocation claim. Every success
   reports the credential revision only when configured and requires Workspace
   re-entry.
-- Built-in GitHub login opens only the fixed device URL through the trusted
-  host, retains that URL as the fallback on a headless host, and never asks to
-  authenticate Git or configure a Git credential helper in Auth Broker.
+- Built-in GitHub login uses one verified host GitHub CLI with fixed argv and a
+  private temporary home, opens only the fixed device URL, and never asks to
+  authenticate Git or configure a Git credential helper. AWS login uses one
+  verified host AWS CLI device-code operation and persists only encrypted
+  opaque cache state; request region is separate Context/tool configuration.
+  Auth Broker contains neither provider CLI nor persistent provider home.
+- Cluster readiness includes one private same-binary host companion over an
+  authenticated encrypted reverse `docker exec` channel. It opens no listener
+  and mounts no host socket. OPA denial causes zero companion calls; post-policy
+  AWS refresh is per-record single-flight with a finite lock wait. Broker
+  persists an encrypted task barrier before host execution, so unknown outcomes
+  survive restart without replay; stale results after rotation or logout are
+  rejected.
 - Each Context/provider credential makes every permanently bound project
   eligible for a different opaque handle on its next matching Workspace entry.
   Handles remain stable across ordinary root entry and broker
@@ -235,8 +273,9 @@ rules exist. The transcript must prove:
   environment projection and only unchanged Tobari-owned complete files. Agents
   never decode or reconstruct a handle.
 - Gateway removes a valid handle, introspects only its non-secret exact
-  binding, sends schema-5 OPA input, performs zero resolutions on deny, and
-  resolves the same revision exactly once after allow. Fallback occurs only
+  binding, sends schema-5 OPA input, performs zero companion/secret-use/signing operations
+  on deny, and resolves or signs the same revision exactly once after allow.
+  Fallback occurs only
   when no Tobari handle marker exists in any inspected URL/header position;
   copied, malformed, misplaced, ambiguous, stale, revoked, or binding-mismatched
   markers fail as `credential_handle_invalid` without fallback or forwarding.
@@ -389,19 +428,36 @@ At minimum, exercise:
 - overlapping exact provider scheme/host/port/source-header/source-format
   recognition mapped to `ambiguous_provider_http_binding`, with no partial
   activation;
-- empty/oversized credential stdin, provider acquisition mismatch, cancelled
-  GitHub login, invalid account/status capture, and cleanup failure while the
+- empty/oversized credential stdin, provider acquisition mismatch, project- or
+  temporary-selected, missing, writable, or changed host executable, hostile
+  control-bearing provider output, cancelled GitHub/AWS login, invalid
+  account/status or credential-process capture, and setup/success cleanup
+  failure while the
   previous credential remains unchanged; terminal import must perform no read,
   public validation precedes a non-terminal read, and runtime prerequisites
   precede broker send;
+- invalid AWS start URL/SSO region/account/role, cancellation, device-login
+  failure, malformed/oversized cache, changed executable digest, invalid or
+  expired process credentials, and expired SSO session while the previous
+  credential remains unchanged; request region is not login state;
 - corrupted, wrong-Context, or unsupported-version encrypted vaults without
   revealing ciphertext or secret data;
 - copied, malformed, ambiguous, stale, rotated, revoked, wrong-Context,
   wrong-project, wrong-provider, wrong-target, wrong-header, wrong-revision, and
   structurally misplaced handles before upstream I/O, with fallback allowed
   only when no Tobari marker appears anywhere inspected;
-- OPA denial with zero broker resolve calls and broker timeout/invalid response
-  mapped to secret-free `credential_broker_unavailable`;
+- OPA denial with zero companion, broker resolve, AWS refresh, role-credential, or signing
+  calls; unsupported SigV4a, presign, streaming/chunked/event, custom-endpoint,
+  ambiguous-header, changed-length, and over-limit requests; any
+  authority/method/path/query/signed- or policy-visible-header change between
+  allow and signing produces zero refresh/sign calls; known pre-send Broker
+  unavailability maps to secret-free `credential_broker_unavailable`, while an
+  explicit unknown result or post-send timeout/invalid response maps to
+  non-retryable `credential_refresh_outcome_unknown`;
+- companion bootstrap/authentication/replay/gap/oversize/disconnect/timeout,
+  peer-not-reading bounded write/close, receipt-only cancel acknowledgment, and
+  outcome-unknown refresh paths; no host listener, host socket mount, child key/
+  channel inheritance, blind replay, stale vault update, or secret-bearing log;
 - an unowned, modified, or symlinked Workspace authentication file before any
   overwrite or removal;
 - malformed or legacy state;
@@ -416,6 +472,9 @@ At minimum, exercise:
 - failed learned-policy preflight before atomic replacement;
 - partial startup mapped to non-retryable `cluster_start_failed`;
 - partial root reconciliation mapped to non-retryable `runtime_reconcile_failed`;
+- inherited Git identity lookup failure mapped to non-retryable
+  `git_identity_resolution_failed` before any Docker inspection or mutation,
+  with the prior projection preserved and no raw diagnostic or identity value;
 - non-empty cluster removal rejection;
 - down/purge preservation of encrypted Context vaults and the installation root
   key, with only shared CA volumes added by purge;
@@ -455,9 +514,10 @@ tobari auth logout github --context default --format json
 ```
 
 The reviewer verifies the login uses the ordinary GitHub.com web flow, opens
-the device page through the host (or shows the exact fixed manual URL), and
-shows no container browser error, Git credential prompt, Git executable
-failure, or persistent-plaintext warning. Status shows exactly one secret-free
+the device page through the reviewed host driver (or shows the exact fixed
+manual URL), and shows no Git credential prompt or Git configuration. The
+canonical host executable/digest remains stable and its private temporary home
+is removed. Status shows exactly one secret-free
 account label/revision, `GH_TOKEN` has the
 `tobari-h1_` handle shape, and the no-print equality test proves `gh auth token
 --hostname github.com` returns that exact projected handle rather than the
@@ -466,12 +526,57 @@ primary credential. The allowed API call succeeds only after OPA allow, logout r
 `credential_handle_invalid`. The reviewer also scans Gateway, OPA, and Auth
 Broker logs for a private canary supplied only for this disposable test.
 
-Do not save tokens, device codes, handles, root keys, vaults, `gh` config, raw
+Do not save tokens, device codes, handles, root keys, vaults, host `gh` config, raw
 terminal capture, or authenticated API responses. Manual evidence cannot prove
 future provider availability or account authorization; it covers only the
 reviewed release candidate and environment.
 
+## Manual AWS IAM Identity Center validation
+
+Before publishing an AWS-capable Auth Broker release candidate, a reviewer
+uses a disposable test role on a trusted host and records only secret-free
+pass/fail outcomes outside the repository:
+
+```sh
+tobari cluster up
+tobari auth login aws --context default
+tobari auth status --context default --format json
+(cd /absolute/test/root && tobari) # re-enter to receive the project handle
+# Inside that Workspace, after one exact policy allow:
+case "${AWS_ACCESS_KEY_ID-}" in tobari-h1_*) ;; *) exit 1 ;; esac
+test "$AWS_ACCESS_KEY_ID" = "$AWS_SECRET_ACCESS_KEY"
+test "$AWS_ACCESS_KEY_ID" = "$AWS_SESSION_TOKEN"
+aws sts get-caller-identity --region us-east-1 >/dev/null
+# After the temporary role lease expires but while SSO remains renewable:
+aws sts get-caller-identity --region us-east-1 >/dev/null
+exit
+tobari auth logout aws --context default --format json
+(cd /absolute/test/root && tobari) # reconcile the revoked projection
+```
+
+The reviewer verifies Tobari asks only for the supported start URL, SSO region,
+account ID, and role; the reviewed host AWS CLI runs its fixed device-code flow
+in a private temporary home; and output contains no SSO cache, role credential,
+or signed header. Request region comes from an explicit CLI option or reviewed
+Context/tool configuration and is not login state. The
+three no-print comparisons prove AWS CLI receives one handle rather than real
+credentials. OPA denial must cause zero companion, refresh, role acquisition,
+and signing calls. The first bounded STS request succeeds once, and the second
+proves automatic post-policy host-CLI refresh without re-login while the SSO
+session remains renewable; logout revokes the prior handle.
+
+Do not save the questionnaire values beyond the non-secret account/role review,
+device code, SSO client/token state, role credentials, handles, signed request,
+raw terminal capture, or authenticated response. The flow validates only the
+standard bounded header-based SigV4 subset, not SigV4a, presigning, streaming,
+custom endpoints, or every AWS service.
+
 ## Evidence
+
+Synthetic and manual readiness can validate the implementation, but release
+remains blocked while the CLI is pinned to API-v1 Gateway/Auth Broker images.
+Publishing and pinning compatible API-v2 indexes is a separate explicitly
+authorized release action, not an automatic consequence of this scenario.
 
 ```sh
 task check

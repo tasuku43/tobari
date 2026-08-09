@@ -458,6 +458,19 @@ cleanup() {
     fi
     run_tobari cluster down --purge >/dev/null 2>&1 || true
   fi
+  # A failed startup may leave an interrupted reconciliation journal that
+  # prevents the public cleanup path from completing. The preflight above
+  # requires these exact shared names to be absent, so any survivors here were
+  # created by this integration run.
+  for container in \
+    tobari-auth-broker tobari-gateway tobari-opa \
+    "$work_container" "$other_container" "$restricted_container"; do
+    [[ -n $container ]] || continue
+    docker rm -f "$container" >/dev/null 2>&1 || true
+  done
+  docker network rm "$auth_network" >/dev/null 2>&1 || true
+  docker network rm tobari-control tobari-egress >/dev/null 2>&1 || true
+  docker volume rm tobari-gateway-ca tobari-public-ca >/dev/null 2>&1 || true
   docker image rm -f "$custom_image" >/dev/null 2>&1 || true
   docker image rm -f "$gateway_base_image" >/dev/null 2>&1 || true
   if [[ -n $test_keychain_service ]]; then
@@ -479,6 +492,17 @@ finish() {
   local status=$?
   trap - EXIT
   if ((status != 0)); then
+    if [[ -n ${test_root:-} && -x $binary ]]; then
+      echo "integration diagnostics: cluster status" >&2
+      run_tobari cluster status --format json >&2 || true
+    fi
+    if [[ -n ${synthetic_aws_invocations:-} ]]; then
+      if [[ -f $synthetic_aws_invocations ]]; then
+        echo "integration diagnostics: synthetic AWS host driver invoked $(wc -l <"$synthetic_aws_invocations" | tr -d ' ') time(s)" >&2
+      else
+        echo "integration diagnostics: synthetic AWS host driver was not invoked" >&2
+      fi
+    fi
     for container in tobari-auth-broker tobari-gateway tobari-opa "$mock_name" "$auth_mock_name" "$work_container" "$other_container" "$restricted_container"; do
       [[ -n $container ]] || continue
       if docker inspect "$container" >/dev/null 2>&1; then
@@ -570,7 +594,7 @@ else
     --entrypoint sh "$mitmproxy_image" -eu -c '
       openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
         -subj /CN=api.synthetic.example \
-        -addext subjectAltName=DNS:api.synthetic.example \
+        -addext subjectAltName=DNS:api.synthetic.example,DNS:sts.us-east-1.amazonaws.com \
         -addext basicConstraints=critical,CA:TRUE \
         -addext keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign \
         -addext extendedKeyUsage=serverAuth \
@@ -622,6 +646,13 @@ assert_component_resource_bounds tobari-auth-broker 1000000000 536870912 128
   fail "Auth Broker root filesystem is writable"
 [[ $(docker inspect --format '{{join .HostConfig.CapDrop ","}}' tobari-auth-broker) == ALL ]] ||
   fail "Auth Broker did not drop every capability"
+for provider_cli in gh aws; do
+  if docker exec tobari-auth-broker python3 -c \
+    'import shutil,sys; raise SystemExit(0 if shutil.which(sys.argv[1]) else 1)' \
+    "$provider_cli" >/dev/null 2>&1; then
+    fail "Auth Broker image unexpectedly contains provider CLI $provider_cli"
+  fi
+done
 wait_network_membership tobari-control tobari-auth-broker ||
   fail "Auth Broker is not attached to the shared control network"
 wait_network_membership tobari-egress tobari-auth-broker ||
@@ -668,6 +699,66 @@ assert_contains "$default_context_use" '"cluster":"default_updated"' "running cu
 default_context=$(run_tobari context show --format json)
 assert_contains "$default_context" '"active":true' "Context selection after explicit recovery"
 default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["id"])' <<<"$default_context")
+
+# Seed a deterministic opaque AWS host-driver state without a live IAM Identity
+# Center account. The fixture executable lives only on the trusted host and
+# accepts exactly the reviewed refresh argv; the Broker image remains CLI-free.
+synthetic_aws_executable=$test_root/synthetic-aws
+synthetic_aws_invocations=${synthetic_aws_executable}.invocations
+synthetic_aws_access_key=ASIASYNTHETICKEY1234
+synthetic_aws_secret_key=syntheticSecretAccessKeyExample123456
+synthetic_aws_session_token=syntheticSessionTokenExample123456
+cat >"$synthetic_aws_executable" <<'SH'
+#!/bin/sh
+set -eu
+[ "$*" = "configure export-credentials --profile tobari --format process --no-cli-pager --cli-connect-timeout 10 --cli-read-timeout 30" ] || exit 64
+[ "${AWS_CONFIG_FILE-}" = "$HOME/.aws/config" ] || exit 64
+[ "${AWS_SHARED_CREDENTIALS_FILE-}" = "$HOME/.aws/credentials" ] || exit 64
+[ "${AWS_EC2_METADATA_DISABLED-}" = true ] || exit 64
+[ "${AWS_SDK_LOAD_CONFIG-}" = 1 ] || exit 64
+[ "${AWS_CLI_AUTO_PROMPT-}" = off ] || exit 64
+[ "${AWS_PAGER-unset}" = "" ] || exit 64
+if expiration=$(date -u -v+1H '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null); then
+  :
+else
+  expiration=$(date -u -d '+1 hour' '+%Y-%m-%dT%H:%M:%SZ')
+fi
+printf '%s\n' "$*" >>"${0}.invocations"
+printf '{"Version":1,"AccessKeyId":"ASIASYNTHETICKEY1234","SecretAccessKey":"syntheticSecretAccessKeyExample123456","SessionToken":"syntheticSessionTokenExample123456","Expiration":"%s"}\n' "$expiration"
+SH
+chmod 0755 "$synthetic_aws_executable"
+synthetic_aws_driver_revision=$(shasum -a 256 "$synthetic_aws_executable" | awk '{print $1}')
+synthetic_aws_state=$(python3 -c '
+import json,sys
+path,digest=sys.argv[1:]
+state = {
+    "schema_version": 1,
+    "profile": {
+        "name": "tobari",
+        "sso_session": "tobari",
+        "sso_start_url": "https://synthetic.awsapps.com/start",
+        "sso_region": "us-east-1",
+        "sso_account_id": "123456789012",
+        "sso_role_name": "SyntheticRole",
+        "output": "json",
+        "sso_registration_scopes": "sso:account:access",
+    },
+    "aws_executable": {"path": path, "sha256": digest},
+    "sso_cache": [{"name": "0000000000000000000000000000000000000000.json", "content_base64url": "e30"}],
+}
+sys.stdout.write(json.dumps(state, separators=(",", ":")))
+' "$synthetic_aws_executable" "$synthetic_aws_driver_revision")
+synthetic_aws_login=$(printf '%s' "$synthetic_aws_state" | docker exec -i \
+  --user "$(id -u):$(id -g)" tobari-auth-broker \
+  python3 -m authbroker.control login \
+  --context-id "$default_context_id" \
+  --provider aws \
+  --account-label 123456789012 \
+  --driver-id aws_cli_sso \
+  --driver-revision "$synthetic_aws_driver_revision")
+assert_contains "$synthetic_aws_login" '"ok":true' "synthetic AWS host-driver login"
+assert_contains "$synthetic_aws_login" '"provider":"aws"' "synthetic AWS host-driver login"
+
 default_auth_import=$(printf '%s' "$synthetic_default_secret" | \
   run_tobari auth import "$synthetic_provider" --context default --format json)
 restricted_auth_import=$(printf '%s' "$synthetic_restricted_secret" | \
@@ -686,6 +777,8 @@ default_auth_status=$(run_tobari auth status --context default --format json)
 restricted_auth_status=$(run_tobari auth status --context restricted --format json)
 assert_contains "$default_auth_status" '"provider":"synthetic-ci","state":"configured"' \
   "default Context auth status"
+assert_contains "$default_auth_status" '"provider":"aws","state":"configured"' \
+  "default Context AWS auth status"
 assert_contains "$restricted_auth_status" '"provider":"synthetic-ci","state":"configured"' \
   "restricted Context auth status"
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
@@ -755,10 +848,17 @@ assert_resource_bounds "$other_container"
 work_auth_handle=$(run_project printenv SYNTHETIC_TOKEN)
 restricted_auth_handle=$(run_restricted_project printenv SYNTHETIC_TOKEN)
 other_auth_handle=$(run_other_project printenv SYNTHETIC_TOKEN)
+work_aws_handle=$(run_project printenv AWS_ACCESS_KEY_ID)
 for projected_handle in "$work_auth_handle" "$restricted_auth_handle" "$other_auth_handle"; do
   [[ $projected_handle =~ ^tobari-h1_[A-Za-z0-9_-]{43}$ ]] ||
     fail "Workspace did not receive one versioned opaque authentication handle"
 done
+[[ $work_aws_handle =~ ^tobari-h1_[A-Za-z0-9_-]{43}$ ]] ||
+  fail "Workspace did not receive one versioned opaque AWS authentication handle"
+[[ $(run_project printenv AWS_SECRET_ACCESS_KEY) == "$work_aws_handle" ]] ||
+  fail "Workspace AWS secret-access-key projection did not contain the opaque handle"
+[[ $(run_project printenv AWS_SESSION_TOKEN) == "$work_aws_handle" ]] ||
+  fail "Workspace AWS session-token projection did not contain the opaque handle"
 [[ $work_auth_handle != "$restricted_auth_handle" ]] ||
   fail "same-root Workspaces in different Contexts received the same handle"
 [[ $restricted_auth_handle != "$other_auth_handle" ]] ||
@@ -789,23 +889,6 @@ workspace_gh_token=$(docker exec \
   "$work_container" gh auth token)
 [[ $workspace_gh_token == "$work_auth_handle" ]] ||
   fail "gh auth token did not return only the opaque Workspace handle"
-pinned_gh_version=$(docker exec tobari-auth-broker gh version | sed -n '1p')
-assert_contains "$pinned_gh_version" "gh version 2.96.0" "Auth Broker pinned GitHub CLI"
-set +e
-pinned_gh_debug=$(docker exec \
-  -e GH_TOKEN="$work_auth_handle" \
-  -e GH_DEBUG=api \
-  -e HTTPS_PROXY=http://127.0.0.1:9 \
-  tobari-auth-broker gh api user 2>&1)
-pinned_gh_status=$?
-set -e
-[[ $pinned_gh_status != 0 ]] || fail "pinned gh contract probe unexpectedly reached GitHub"
-assert_contains "$pinned_gh_debug" '> Authorization: token ' \
-  "pinned gh Authorization source format"
-if [[ $pinned_gh_debug == *"$work_auth_handle"* || \
-  $pinned_gh_debug == *"$synthetic_default_secret"* ]]; then
-  fail "pinned gh debug output exposed authentication material"
-fi
 if run_project test -e /var/lib/tobari/host-home-canary; then
   fail "Tobari mounted the host home wholesale"
 fi
@@ -913,6 +996,7 @@ docker run -d \
   --user "$(id -u):$(id -g)" \
   --network "$auth_network" \
   --network-alias api.synthetic.example \
+  --network-alias sts.us-east-1.amazonaws.com \
   --read-only \
   --cap-drop ALL \
   --security-opt no-new-privileges:true \
@@ -925,6 +1009,7 @@ docker run -d \
   "$tobari_image" -u /mock_upstream.py >/dev/null
 wait_listening "$auth_mock_name" 443
 wait_network_connection tobari-gateway api.synthetic.example 443
+wait_network_connection tobari-gateway sts.us-east-1.amazonaws.com 443
 
 plain_response=$(run_project curl -fsS http://mock-upstream:8080/allowed)
 assert_contains "$plain_response" '"authorization_present":false' "allowed HTTP response"
@@ -934,6 +1019,7 @@ assert_contains "$plain_response" '"authorization_present":false' "allowed HTTP 
 work_auth_handle=$(run_project printenv SYNTHETIC_TOKEN)
 restricted_auth_handle=$(run_restricted_project printenv SYNTHETIC_TOKEN)
 other_auth_handle=$(run_other_project printenv SYNTHETIC_TOKEN)
+work_aws_handle=$(run_project printenv AWS_ACCESS_KEY_ID)
 
 default_vault="$test_root/state/tobari/auth/contexts/$default_context_id/vault.enc"
 python3 - "$default_vault" "$(id -u)" <<'PY'
@@ -1054,6 +1140,60 @@ assert_contains "$restricted_broker_response" '"placeholder_present":false' \
 if [[ $restricted_broker_response == *"$default_broker_digest"* ]]; then
   fail "one shared Auth Broker crossed Context credential authority"
 fi
+
+# Exercise the complete AWS path with no provider network: Gateway recognizes
+# the opaque placeholder, OPA authorizes the ordinary HTTPS effect, Broker asks
+# the reverse companion to run the fixed host refresh command, then signs the
+# unchanged request before forwarding it to the synthetic TLS upstream.
+synthetic_aws_placeholder="AWS4-HMAC-SHA256 Credential=$work_aws_handle/20260809/us-east-1/sts/aws4_request, SignedHeaders=host;x-amz-date;x-amz-security-token, Signature=0000000000000000000000000000000000000000000000000000000000000000"
+synthetic_aws_denial=$(run_project curl -sS -w $'\n%{http_code}' \
+  -H "Authorization: $synthetic_aws_placeholder" \
+  -H 'X-Amz-Date: 20260809T120000Z' \
+  -H "X-Amz-Security-Token: $work_aws_handle" \
+  https://sts.us-east-1.amazonaws.com/synthetic-aws-refresh-sign)
+synthetic_aws_denial_status=${synthetic_aws_denial##*$'\n'}
+[[ $synthetic_aws_denial_status == 403 ]] ||
+  fail "synthetic AWS request returned $synthetic_aws_denial_status instead of policy denial"
+assert_contains "${synthetic_aws_denial%$'\n'*}" '"error":"policy_denied"' \
+  "synthetic AWS policy denial"
+if [[ -e $synthetic_aws_invocations ]]; then
+  fail "policy-denied AWS request reached the trusted-host refresh driver"
+fi
+if docker logs "$auth_mock_name" 2>&1 | \
+  grep -F '"/synthetic-aws-refresh-sign"' >/dev/null; then
+  fail "policy-denied AWS request reached the synthetic upstream"
+fi
+
+broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
+synthetic_aws_candidate_id=$(candidate_id_for_effect \
+  "$work_id" sts.us-east-1.amazonaws.com GET /synthetic-aws-refresh-sign \
+  <<<"$broker_candidates")
+synthetic_aws_allow=$(run_tobari policy allow --id "$synthetic_aws_candidate_id")
+assert_contains "$synthetic_aws_allow" 'applied: true' \
+  "synthetic AWS policy approval"
+synthetic_aws_response=$(run_project curl -fsS \
+  -H "Authorization: $synthetic_aws_placeholder" \
+  -H 'X-Amz-Date: 20260809T120000Z' \
+  -H "X-Amz-Security-Token: $work_aws_handle" \
+  https://sts.us-east-1.amazonaws.com/synthetic-aws-refresh-sign)
+assert_contains "$synthetic_aws_response" '"authorization_present":true' \
+  "synthetic AWS signed upstream response"
+assert_contains "$synthetic_aws_response" '"method":"GET"' \
+  "synthetic AWS signed upstream method"
+assert_contains "$synthetic_aws_response" '"path":"/synthetic-aws-refresh-sign"' \
+  "synthetic AWS signed upstream path"
+synthetic_aws_placeholder_digest=$(printf '%s' "$synthetic_aws_placeholder" | \
+  shasum -a 256 | awk '{print $1}')
+if [[ $synthetic_aws_response == *"$synthetic_aws_placeholder_digest"* ]]; then
+  fail "Gateway forwarded the opaque AWS placeholder instead of Broker signing"
+fi
+[[ -f $synthetic_aws_invocations ]] ||
+  fail "AWS Broker signing did not invoke the trusted-host credential companion"
+[[ $(wc -l <"$synthetic_aws_invocations" | tr -d ' ') == 1 ]] ||
+  fail "one AWS signing request did not produce exactly one host refresh"
+[[ $(<"$synthetic_aws_invocations") == \
+  'configure export-credentials --profile tobari --format process --no-cli-pager --cli-connect-timeout 10 --cli-read-timeout 30' ]] ||
+  fail "trusted-host AWS refresh did not use the fixed reviewed argv"
 
 copied_context_result=$(printf '%s\n' "$work_auth_handle" | \
   docker exec -i "$restricted_container" sh -c \
@@ -1577,6 +1717,8 @@ final_context_status=$(run_tobari context show --format json)
 final_cluster_status=$(run_tobari cluster status --format json)
 assert_contains "$final_cluster_status" '"auth_broker_state":"ready"' \
   "shared Auth Broker readiness status"
+assert_contains "$final_cluster_status" '"credential_companion_state":"ready"' \
+  "trusted-host credential companion readiness status"
 final_doctor_status=$(run_tobari doctor --root "$work_root" --format json)
 final_gateway_logs=$(run_tobari cluster logs --component gateway --tail 1000)
 final_broker_logs=$(run_tobari cluster logs --component auth-broker --tail 1000)
@@ -1585,13 +1727,15 @@ final_policy_diagnostics=$(run_tobari policy candidates --tail 1000 --format jso
 final_mock_logs=$(docker logs "$mock_name" 2>&1)
 final_auth_mock_logs=$(docker logs "$auth_mock_name" 2>&1)
 diagnostic_surface=$(printf '%s\n' \
-  "$default_auth_import" "$restricted_auth_import" \
+  "$synthetic_aws_login" "$default_auth_import" "$restricted_auth_import" \
   "$final_default_auth_status" "$final_restricted_auth_status" \
   "$final_context_status" "$final_cluster_status" "$final_doctor_status" \
   "$final_gateway_logs" "$final_broker_logs" "$final_opa_logs" \
   "$final_policy_diagnostics" "$final_mock_logs" "$final_auth_mock_logs")
 for authentication_canary in \
   "$synthetic_default_secret" "$synthetic_restricted_secret" \
+  "$synthetic_aws_access_key" "$synthetic_aws_secret_key" \
+  "$synthetic_aws_session_token" "$work_aws_handle" \
   "$work_auth_handle" "$restricted_auth_handle" "$other_auth_handle"; do
   if [[ $diagnostic_surface == *"$authentication_canary"* ]]; then
     fail "CLI, Gateway, Broker, OPA, policy, or upstream diagnostics exposed authentication material"

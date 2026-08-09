@@ -10,7 +10,7 @@ import (
 
 func syntheticProvider() Provider {
 	return Provider{
-		SchemaVersion: ProviderSchemaVersion,
+		SchemaVersion: LegacyProviderSchemaVersion,
 		ID:            "example-token",
 		DisplayName:   "Example API",
 		Acquisition:   Acquisition{Mode: AcquisitionStdinImport},
@@ -26,6 +26,37 @@ func syntheticProvider() Provider {
 				Header: "x-api-key", Format: DestinationFormatRaw, SecretField: CredentialPrimarySecret,
 			},
 			SecretHeaders: []string{"x-api-key"},
+		}},
+	}
+}
+
+func syntheticAWSProvider() Provider {
+	return Provider{
+		SchemaVersion: ProviderSchemaVersion,
+		ID:            "aws",
+		DisplayName:   "AWS IAM Identity Center",
+		Acquisition:   Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "aws-sso"},
+		Credential:    Credential{Kind: CredentialAWSSSOSession},
+		WorkspaceProjections: []WorkspaceProjection{
+			{Kind: WorkspaceProjectionEnvironment, Name: "AWS_ACCESS_KEY_ID", Template: "${HANDLE}"},
+			{Kind: WorkspaceProjectionEnvironment, Name: "AWS_SECRET_ACCESS_KEY", Template: "${HANDLE}"},
+			{Kind: WorkspaceProjectionEnvironment, Name: "AWS_SESSION_TOKEN", Template: "${HANDLE}"},
+			{Kind: WorkspaceProjectionEnvironment, Name: "AWS_EC2_METADATA_DISABLED", Template: "true"},
+		},
+		HeaderBindings: []HeaderBinding{},
+		SigningBindings: []SigningBinding{{
+			Kind: SigningBindingAWSSigV4,
+			AWSSigV4: &AWSSigV4Binding{
+				Target: AWSSigV4Target{
+					Scheme: "https", Port: 443,
+					DNSSuffixes: []string{"amazonaws.com"},
+				},
+				Source: AWSSigV4Source{
+					AuthorizationHeader: "authorization",
+					SecurityTokenHeader: "x-amz-security-token",
+				},
+				SecretHeaders: []string{"x-amz-security-token", "authorization"},
+			},
 		}},
 	}
 }
@@ -66,6 +97,96 @@ func TestParseProviderRejectsDuplicateUnknownAndTrailingJSON(t *testing.T) {
 	invalidUTF8 := append(append([]byte(nil), valid[:len(valid)-1]...), 0xff, '}')
 	if _, err := ParseProvider(invalidUTF8); err == nil {
 		t.Fatal("ParseProvider accepted invalid UTF-8")
+	}
+}
+
+func TestParseProviderV2RejectsUnknownBehavioralPlanFields(t *testing.T) {
+	valid := providerJSON(t, syntheticAWSProvider())
+	if _, err := ParseProvider(valid); err != nil {
+		t.Fatalf("ParseProvider(valid AWS): %v", err)
+	}
+	cases := map[string][]byte{
+		"null header bindings": bytes.Replace(
+			valid, []byte(`"header_bindings":[]`), []byte(`"header_bindings":null`), 1,
+		),
+		"unknown binding field": bytes.Replace(
+			valid, []byte(`"kind":"aws_sigv4"`), []byte(`"kind":"aws_sigv4","command":["aws"]`), 1,
+		),
+		"unknown plan field": bytes.Replace(
+			valid, []byte(`"target":{"scheme"`), []byte(`"executable":"aws","target":{"scheme"`), 1,
+		),
+		"unknown target field": bytes.Replace(
+			valid, []byte(`"scheme":"https"`), []byte(`"scheme":"https","host":"*.amazonaws.com"`), 1,
+		),
+		"unknown source field": bytes.Replace(
+			valid, []byte(`"authorization_header":"authorization"`),
+			[]byte(`"authorization_header":"authorization","algorithm":"AWS4-HMAC-SHA256"`), 1,
+		),
+		"schema-v1 behavioral field": bytes.Replace(valid, []byte(`"schema_version":2`), []byte(`"schema_version":1`), 1),
+	}
+	for name, document := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseProvider(document); err == nil {
+				t.Fatal("ParseProvider accepted an expanded behavioral manifest")
+			}
+		})
+	}
+}
+
+func TestProviderV2ValidatesClosedCredentialPlans(t *testing.T) {
+	cases := map[string]func(*Provider){
+		"legacy kind in v2": func(p *Provider) { p.Credential.Kind = CredentialPrimarySecret },
+		"AWS kind in v1":    func(p *Provider) { p.SchemaVersion = LegacyProviderSchemaVersion },
+		"wrong provider ID": func(p *Provider) { p.ID = "aws-alt" },
+		"wrong helper":      func(p *Provider) { p.Acquisition.Helper = "aws-cli" },
+		"stdin acquisition": func(p *Provider) { p.Acquisition = Acquisition{Mode: AcquisitionStdinImport} },
+		"header binding": func(p *Provider) {
+			p.HeaderBindings = cloneProvider(syntheticProvider()).HeaderBindings
+		},
+		"missing signing":      func(p *Provider) { p.SigningBindings = nil },
+		"unknown signing kind": func(p *Provider) { p.SigningBindings[0].Kind = "aws_sigv4a" },
+		"missing plan":         func(p *Provider) { p.SigningBindings[0].AWSSigV4 = nil },
+		"http":                 func(p *Provider) { p.SigningBindings[0].AWSSigV4.Target.Scheme = "http" },
+		"custom port":          func(p *Provider) { p.SigningBindings[0].AWSSigV4.Target.Port = 8443 },
+		"missing suffix": func(p *Provider) {
+			p.SigningBindings[0].AWSSigV4.Target.DNSSuffixes = []string{}
+		},
+		"unreviewed suffix": func(p *Provider) {
+			p.SigningBindings[0].AWSSigV4.Target.DNSSuffixes = []string{"example.com"}
+		},
+		"wildcard suffix": func(p *Provider) {
+			p.SigningBindings[0].AWSSigV4.Target.DNSSuffixes = []string{"*.amazonaws.com"}
+		},
+		"wrong authorization header": func(p *Provider) {
+			p.SigningBindings[0].AWSSigV4.Source.AuthorizationHeader = "x-authorization"
+		},
+		"wrong security header": func(p *Provider) {
+			p.SigningBindings[0].AWSSigV4.Source.SecurityTokenHeader = "x-amz-token"
+		},
+		"missing secret header": func(p *Provider) {
+			p.SigningBindings[0].AWSSigV4.SecretHeaders = []string{"authorization"}
+		},
+		"unexpected secret header": func(p *Provider) {
+			p.SigningBindings[0].AWSSigV4.SecretHeaders = []string{"authorization", "x-api-key"}
+		},
+		"missing AWS env": func(p *Provider) { p.WorkspaceProjections = p.WorkspaceProjections[:3] },
+		"raw access key": func(p *Provider) {
+			p.WorkspaceProjections[0].Template = "AKIAEXAMPLE"
+		},
+		"AWS config file": func(p *Provider) {
+			p.WorkspaceProjections[0] = WorkspaceProjection{
+				Kind: WorkspaceProjectionCompleteFile, Path: ".aws/config", Template: "${HANDLE}",
+			}
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			provider := cloneProvider(syntheticAWSProvider())
+			mutate(&provider)
+			if err := provider.Validate(); err == nil {
+				t.Fatal("Provider.Validate accepted an unreviewed schema-v2 credential plan")
+			}
+		})
 	}
 }
 
@@ -241,6 +362,42 @@ func TestNormalizeProvidersExpandsFormatsAndRejectsCollisions(t *testing.T) {
 		t.Fatal("NormalizeProviders accepted raw recognition overlapping token/bearer")
 	} else if !errors.Is(err, ErrAmbiguousHTTPBinding) {
 		t.Fatalf("raw recognition collision = %v, want ErrAmbiguousHTTPBinding", err)
+	}
+}
+
+func TestNormalizeProvidersPublishesDeterministicAWSSigningContract(t *testing.T) {
+	provider := syntheticAWSProvider()
+	projection, err := NormalizeProviders([]Provider{provider})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.SchemaVersion != ProviderSchemaVersion || len(projection.HeaderBindings) != 0 ||
+		len(projection.SigningBindings) != 1 {
+		t.Fatalf("AWS projection = %#v", projection)
+	}
+	binding := projection.SigningBindings[0]
+	if binding.ProviderID != "aws" || binding.Kind != SigningBindingAWSSigV4 || binding.AWSSigV4 == nil ||
+		strings.Join(binding.AWSSigV4.Target.DNSSuffixes, ",") != "amazonaws.com" ||
+		strings.Join(binding.AWSSigV4.SecretHeaders, ",") != "authorization,x-amz-security-token" {
+		t.Fatalf("normalized AWS signing binding = %#v", binding)
+	}
+	if strings.Join(projection.SecretHeaders, ",") != "authorization,x-amz-security-token" {
+		t.Fatalf("AWS secret headers = %#v", projection.SecretHeaders)
+	}
+	bindings, err := provider.NormalizedSigningBindings()
+	if err != nil || len(bindings) != 1 || bindings[0].ProviderID != "aws" {
+		t.Fatalf("NormalizedSigningBindings() = %#v, %v", bindings, err)
+	}
+
+	collision := syntheticProvider()
+	collision.HeaderBindings[0].Target.Host = "sts.amazonaws.com"
+	collision.HeaderBindings[0].Source.Header = "authorization"
+	collision.HeaderBindings[0].Destination.Header = "authorization"
+	collision.HeaderBindings[0].SecretHeaders = []string{"authorization"}
+	if _, err := NormalizeProviders([]Provider{provider, collision}); err == nil {
+		t.Fatal("NormalizeProviders accepted a header binding overlapping AWS SigV4 recognition")
+	} else if !errors.Is(err, ErrAmbiguousHTTPBinding) {
+		t.Fatalf("AWS overlap error = %v, want ErrAmbiguousHTTPBinding", err)
 	}
 }
 

@@ -9,11 +9,8 @@ from typing import Any
 
 from . import SCHEMA_VERSION
 from .daemon import DEFAULT_CONTROL_SOCKET
-from .github_auth import GitHubLoginError, acquire_github_credential
 from .protocol import MAX_SECRET_BYTES, ProtocolError, call_unix_socket
-
-
-LOGIN_RESULT_PREFIX = "\x1eTOBARI_AUTH_BROKER_RESULT:"
+from .vault import AWS_DRIVER_ID
 
 
 def _read_stdin(limit: int, exact: int | None = None) -> bytes:
@@ -35,7 +32,10 @@ def _bindings(value: str) -> Any:
 
 def _request(arguments: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
     base: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "op": arguments.operation}
-    if arguments.operation == "health":
+    if arguments.operation in {"health", "companion_status"}:
+        return base, b""
+    if arguments.operation == "companion_prepare":
+        base["epoch_id"] = arguments.epoch_id
         return base, b""
     if arguments.operation == "unlock":
         key = _read_stdin(32, exact=32)
@@ -53,19 +53,34 @@ def _request(arguments: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
         )
         return base, secret
     if arguments.operation == "login":
-        if arguments.provider != "github":
-            raise ProtocolError("invalid_provider")
-        try:
-            secret, account_label = acquire_github_credential()
-        except GitHubLoginError as error:
-            raise ProtocolError(error.code) from None
-        base.update(
-            context_id=arguments.context_id,
-            provider=arguments.provider,
-            secret_length=len(secret),
-            account_label=account_label,
-        )
-        return base, secret
+        if arguments.provider == "github":
+            if arguments.driver_id is not None or arguments.driver_revision is not None:
+                raise ProtocolError("invalid_request")
+            secret = _read_stdin(MAX_SECRET_BYTES)
+            base.update(
+                context_id=arguments.context_id,
+                provider=arguments.provider,
+                secret_length=len(secret),
+                account_label=arguments.account_label,
+            )
+            return base, secret
+        if arguments.provider == "aws":
+            if (
+                arguments.driver_id != AWS_DRIVER_ID
+                or arguments.driver_revision is None
+            ):
+                raise ProtocolError("invalid_request")
+            state = _read_stdin(MAX_SECRET_BYTES)
+            base.update(
+                context_id=arguments.context_id,
+                provider=arguments.provider,
+                account_label=arguments.account_label,
+                driver_id=arguments.driver_id,
+                driver_revision=arguments.driver_revision,
+                state_length=len(state),
+            )
+            return base, state
+        raise ProtocolError("invalid_provider")
     if arguments.operation == "logout":
         base.update(context_id=arguments.context_id, provider=arguments.provider)
         return base, b""
@@ -94,15 +109,20 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--socket", default=DEFAULT_CONTROL_SOCKET)
     subparsers = parser.add_subparsers(dest="operation", required=True)
     subparsers.add_parser("health")
+    subparsers.add_parser("companion_status")
+    companion_prepare = subparsers.add_parser("companion_prepare")
+    companion_prepare.add_argument("--epoch-id", required=True)
     subparsers.add_parser("unlock")
     for operation in ("status", "import", "logout"):
         command = subparsers.add_parser(operation)
         command.add_argument("--context-id", required=True)
         command.add_argument("--provider", required=True)
     login = subparsers.add_parser("login")
-    login.add_argument("provider_argument", nargs="?", choices=("github",))
-    login.add_argument("--provider", dest="provider_option", choices=("github",))
+    login.add_argument("--provider", required=True, choices=("github", "aws"))
     login.add_argument("--context-id", required=True)
+    login.add_argument("--account-label", required=True)
+    login.add_argument("--driver-id")
+    login.add_argument("--driver-revision")
     issue = subparsers.add_parser("issue_handle")
     issue.add_argument("--context-id", required=True)
     issue.add_argument("--project-id", required=True)
@@ -120,16 +140,6 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     try:
         arguments = _parser().parse_args(argv)
-        if arguments.operation == "login":
-            if (
-                arguments.provider_argument is not None
-                and arguments.provider_option is not None
-                and arguments.provider_argument != arguments.provider_option
-            ):
-                raise ProtocolError("invalid_provider")
-            arguments.provider = arguments.provider_argument or arguments.provider_option
-            if arguments.provider is None:
-                raise ProtocolError("invalid_provider")
         request, raw_payload = _request(arguments)
         response = call_unix_socket(arguments.socket, request, raw_payload)
     except (ProtocolError, OSError) as error:
@@ -140,12 +150,7 @@ def main(argv: list[str] | None = None) -> int:
             "error": {"code": code},
         }
     encoded = json.dumps(response, separators=(",", ":"), sort_keys=True)
-    if arguments.operation == "login":
-        # The trusted host consumes this framed result and owns the fixed
-        # browser/manual-fallback presentation around the gh device flow.
-        sys.stdout.write("\n" + LOGIN_RESULT_PREFIX + encoded + "\n")
-    else:
-        sys.stdout.write(encoded + "\n")
+    sys.stdout.write(encoded + "\n")
     return 0 if response.get("ok") is True else 1
 
 

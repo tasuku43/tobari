@@ -60,7 +60,7 @@ services:
     tmpfs:
       - /tmp:size=16m,mode=1777
       - /run/tobari-auth/control:size=4m,mode=0700,uid=${TOBARI_UID},gid=${TOBARI_GID}
-      - /run/tobari-auth/login:size=32m,mode=0700,uid=${TOBARI_UID},gid=${TOBARI_GID}
+      - /run/tobari-auth/companion:size=4m,mode=0700,uid=${TOBARI_UID},gid=${TOBARI_GID}
     logging:
       driver: json-file
       options:
@@ -121,7 +121,7 @@ services:
       TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json
       TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json
       TOBARI_AUTH_BROKER_SOCKET: /run/tobari-auth/runtime/broker.sock
-      TOBARI_AUTH_BROKER_TIMEOUT_SECONDS: ${TOBARI_AUTH_BROKER_TIMEOUT_SECONDS:-2}
+      TOBARI_AUTH_BROKER_TIMEOUT_SECONDS: ${TOBARI_AUTH_BROKER_TIMEOUT_SECONDS:-70}
     volumes:
       - gateway-ca:/var/lib/mitmproxy/.mitmproxy
       - public-ca:/run/tobari/ca-public

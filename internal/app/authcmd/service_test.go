@@ -87,9 +87,13 @@ func (r *countingReader) Read(data []byte) (int, error) {
 }
 
 func validAuthResult(task string) authbroker.Result {
+	return validAuthResultForProvider(task, BuiltinGitHubProviderID)
+}
+
+func validAuthResultForProvider(task, provider string) authbroker.Result {
 	label := "octocat"
 	return authbroker.Result{
-		Task: task, Provider: BuiltinGitHubProviderID, Context: "default",
+		Task: task, Provider: provider, Context: "default",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: true,
 		AccountLabel: &label, StorageBackend: authbroker.StorageBackendXDGFile,
 		BrokerState:        authbroker.BrokerStateReady,
@@ -311,6 +315,28 @@ func TestLoginRejectsUnsupportedHelperBeforeRuntime(t *testing.T) {
 	}
 }
 
+func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
+	for _, provider := range []string{BuiltinGitHubProviderID, BuiltinAWSProviderID} {
+		t.Run(provider, func(t *testing.T) {
+			fake := &authRuntimeFake{
+				result:        validAuthResultForProvider(authbroker.TaskLogin, provider),
+				inputTerminal: true,
+				errorTerminal: true,
+			}
+			result, err := New(fake).Login(
+				context.Background(), authIntent("auth login"), "default", provider,
+				strings.NewReader(""), io.Discard,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Provider != provider || fake.provider != provider || fake.loginCalls != 1 {
+				t.Fatalf("result/provider/calls = %+v/%q/%d", result, fake.provider, fake.loginCalls)
+			}
+		})
+	}
+}
+
 func TestLoginRequiresInputAndErrorTerminalsBeforeRuntime(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -344,6 +370,9 @@ func TestLoginRequiresInputAndErrorTerminalsBeforeRuntime(t *testing.T) {
 			}
 			if len(public.NextActions) != 1 || public.NextActions[0].Command != "help auth login" {
 				t.Fatalf("next actions = %+v", public.NextActions)
+			}
+			if strings.Contains(public.Message, "GitHub") || strings.Contains(public.NextActions[0].Reason, "GitHub") {
+				t.Fatalf("terminal fault is provider-specific: %+v", public)
 			}
 		})
 	}
@@ -430,5 +459,20 @@ func TestStatusPreservesUnavailableProviderStateWhenBrokerIsLocked(t *testing.T)
 	if result.BrokerState != authbroker.BrokerStateLocked ||
 		result.Providers[0].State != authbroker.ProviderCredentialUnavailable || result.Providers[0].Configured {
 		t.Fatalf("locked status = %+v", result)
+	}
+}
+
+func TestStatusPreservesUnavailableProviderStateWhenBrokerIsAbsent(t *testing.T) {
+	status := authStatusResult("default", false)
+	status.BrokerState = authbroker.BrokerStateUnavailable
+	status.Providers[0].State = authbroker.ProviderCredentialUnavailable
+	fake := &authRuntimeFake{statusResult: status}
+	result, err := New(fake).Status(context.Background(), "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.BrokerState != authbroker.BrokerStateUnavailable ||
+		result.Providers[0].State != authbroker.ProviderCredentialUnavailable || result.Providers[0].Configured {
+		t.Fatalf("unavailable status = %+v", result)
 	}
 }

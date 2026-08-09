@@ -200,15 +200,25 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   memory. Cluster reconciliation unlocks it with key bytes transferred through
   stdin. Context vaults are keyed by stable Context ID and bind their version
   and Context ID as authenticated data.
-- The built-in GitHub provider and owner-controlled user manifests use one
-  strict schema-v1 parser. Manifests contain no secrets or executable shell;
-  v1 user providers acquire one opaque token through protected non-terminal
-  stdin; terminal input is refused before reading.
-- The built-in GitHub acquisition helper is API-authentication-only. It asks
-  the trusted host CLI to open exactly the fixed GitHub device page, retains a
-  manual URL fallback, and configures no Git protocol or credential helper in
-  Auth Broker. Host GUI sockets, browser state, and Git configuration never
-  enter the broker.
+- Valid schema-v1 static providers remain supported and normalize into the
+  schema-v2 projection. Schema v2 adds only typed, reviewed built-in credential
+  plans; owner manifests still contain no secrets, executable shell, refresh
+  logic, or signer and remain single-secret protected-stdin imports.
+- Provider-native executables do not enter the Auth Broker image. Reviewed
+  GitHub and AWS acquisition drivers execute fixed argv against verified host
+  CLI identities in private temporary homes with sanitized environments. The
+  GitHub driver is API-authentication-only, opens exactly the fixed device page
+  or leaves the same manual URL, and configures no Git protocol or credential
+  helper.
+- One resident trusted-host companion uses the current Tobari executable's
+  private same-binary mode. It reaches an unmounted Broker-private socket only
+  through a fixed reverse `docker exec -i` stream protected by a root-key-
+  derived, direction-separated authenticated session. It opens no host or
+  container listener, mounts no host socket or provider home, accepts no
+  repository-selected executable/argv, and is unreachable from Workspaces,
+  Gateway, and OPA. Its only provider operation in this slice is the
+  post-policy AWS credential export; interactive GitHub/AWS login runs directly
+  through context-bound host drivers.
 - The macOS root-key provider stores one installation key in Keychain. Linux
   uses an owner-only XDG state file and makes no host-user-compromise claim.
 - A recognized malformed, copied, stale, or mismatched Tobari handle fails
@@ -220,9 +230,15 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   brokered request does not inherit a broad static host/method allow; its first
   exact L7 effect remains reviewable until the host installs one exact learned
   rule.
-- Refresh, signing, Git credential helpers, and provider-specific operation
-  inference remain outside this slice. A tool may still implement its own
-  native OAuth, SigV4, or keychain-compatible flow inside the home.
+- Refresh and signing are permitted only for a finite reviewed built-in plan.
+  The first is AWS IAM Identity Center plus standard SigV4: Auth Broker owns
+  encrypted opaque AWS CLI state, handle/revision authority, and signing; only
+  after OPA allow does the companion run the fixed host AWS credential export.
+  Broker rechecks the record/revision, persists any refreshed opaque state,
+  and signs the unchanged bounded request. Request region is Context/tool
+  configuration, not login state. Arbitrary OAuth, manifest-selected helpers/
+  signers, general TWG refresh, SigV4a, presigning, provider-operation
+  inference, and Git credential helpers remain outside the slice.
 
 ### Mechanical enforcement
 
@@ -234,9 +250,18 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   recovery, is unavailable to another Tobari, and is removed by exact delete.
   Broker tests prove encrypted Context ownership, project-specific handles,
   restart locking, rotation, revocation, and canary-free output.
-- Acquisition tests fix the prompt-disabled GitHub CLI argv/environment,
-  purpose-limited host browser target, manual fallback, and absence of Broker
-  Git credential setup.
+- Acquisition tests fix the GitHub and AWS host executable identity, argv,
+  environment, conventional non-project installation-root selection,
+  control-safe visible output, checked private-home cleanup, purpose-limited browser target, manual
+  fallback, cancellation, and absence of Broker Git/AWS CLI configuration.
+- Companion tests fix same-binary private startup, reverse-exec container
+  identity, authenticated frame sequencing and bounds, no-listener/no-mount
+  topology, post-policy call order, bounded per-record single-flight refresh,
+  durable no-replay barriers, receipt-only cancellation acknowledgments,
+  blocked-peer teardown, stale result rejection, and secret-free failures.
+- Narrow-projection tests fix every allowed scalar, bounded host read, private
+  re-encoding target, precedence rule, and hostile source-file/key canary; no
+  projection test treats identity as authentication authority.
 
 ## Thesis 4: One shared cluster hosts multiple CWD-owned Tobari
 
@@ -391,9 +416,12 @@ Gateway errors do not authorize traffic.
 - OPA and upstream calls have finite timeouts. Mitmproxy retains the fixed
   8 MiB advertised-body cap: a request or response whose `Content-Length`
   exceeds it is rejected before the ordinary addon header hook.
-- After header-time authorization, request and response bodies use
-  mitmproxy's streaming path rather than full-body retention. Unknown-length
-  streaming bodies are memory-bounded by streaming, not by a total byte cap.
+- After header-time authorization, ordinary request and response bodies use
+  mitmproxy's streaming path rather than full-body retention. The reviewed AWS
+  SigV4 plan is the sole exception: after allow it retains one complete request
+  within the same 8 MiB cap only long enough to hash and sign it, then forwards
+  once. Unknown-length ordinary bodies remain streaming; unsupported AWS
+  streaming forms fail closed.
 - Audit logs contain route metadata, never body content, body hashes, or secret
   values.
 
@@ -576,6 +604,12 @@ a handle selects authority without the trusted principal and OPA allow.
 
 - Context domain and catalog tests validate stable identity, modes, current-
   default selection, effects, fixed targets, and complete output/error contracts.
+- Configuration tests validate the all-or-none direct/wizard state machine,
+  terminal cancellation and explicit-empty Context rejection with zero
+  mutation, binding of Apply to the Context shown across concurrent default
+  changes, fixed shell and Git inventories, schema migration, bounded host Git
+  calls with an exact child-environment allowlist, lower-precedence read-only
+  projection, and exclusion of authentication and executable Git settings.
 - Infrastructure tests prove legacy default migration, owner-only separate
   stores, permanent Tobari bindings, aggregate read-only OPA mounts, and
   selected agent-profile digests.
@@ -593,8 +627,9 @@ a handle selects authority without the trusted principal and OPA allow.
 ## Deliberate non-goals
 
 MVP does not support multiple clusters, process-level identity, a per-project
-static baseline policy, transparent proxying, non-HTTP protocols, Git
-SSH, provider-specific policy semantics, Git-over-HTTPS credential helpers,
-Gateway-managed OAuth refresh, Gateway-managed SigV4, arbitrary provider OAuth,
-multiple provider accounts per Context, approval workflows, Kubernetes,
-filesystem overlays, GUIs, remote execution, or multi-tenant production use.
+static baseline policy, transparent proxying, non-HTTP protocols, Git SSH,
+provider-specific policy semantics, Git-over-HTTPS credential helpers,
+arbitrary provider OAuth or signing, SigV4a, AWS presigning or streaming,
+multiple provider accounts per Context, approval workflows, general Kubernetes
+authentication or transport, filesystem overlays, GUIs, remote execution, or
+multi-tenant production use.

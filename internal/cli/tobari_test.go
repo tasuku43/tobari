@@ -741,7 +741,7 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 		Proxy: "http://gateway:8080", Policy: "/tmp/config/tobari/policy",
 		PolicyRevision: strings.Repeat("a", 64), PolicyProjection: "valid",
 		PrincipalRegistry: "valid", CredentialProjection: "valid",
-		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
+		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
 		TobariCount: 2, Components: []tobari.ComponentStatus{
 			{Name: "auth-broker", State: "running", Health: "healthy"},
 			{Name: "gateway", State: "running", Health: "healthy"},
@@ -751,7 +751,7 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 	output := string(renderClusterStatusText(status))
 	for _, expected := range []string{
 		"✓ Cluster ready", "  Auth     healthy", "  Gateway  healthy", "  OPA      healthy",
-		"providers valid", "broker ready / root key xdg_file",
+		"providers valid", "broker ready / companion ready / root key xdg_file",
 		"  Policy   /tmp/config/tobari/policy", "  Tobari   2",
 	} {
 		if !strings.Contains(output, expected) {
@@ -898,7 +898,7 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 		Proxy: "http://gateway:8080", Policy: "/tmp/config/tobari/policy",
 		TobariCount: 1, ContextCount: 1, PolicyRevision: strings.Repeat("a", 64),
 		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
-		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
+		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
 		Components: []tobari.ComponentStatus{{Name: "auth-broker", State: "running", Health: "healthy"}},
 	}
 	output, err := renderClusterStatus(status, successFormatJSON, false)
@@ -912,13 +912,14 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 3 {
-		t.Fatalf("schema version = %d, want 3", document.SchemaVersion)
+	if document.SchemaVersion != 4 {
+		t.Fatalf("schema version = %d, want 4", document.SchemaVersion)
 	}
 	for key, want := range map[string]string{
-		"auth_provider_projection": `"valid"`,
-		"auth_broker_state":        `"ready"`,
-		"root_key_backend":         `"xdg_file"`,
+		"auth_provider_projection":   `"valid"`,
+		"auth_broker_state":          `"ready"`,
+		"credential_companion_state": `"ready"`,
+		"root_key_backend":           `"xdg_file"`,
 	} {
 		if got := string(document.Cluster[key]); got != want {
 			t.Errorf("cluster.%s = %s, want %s", key, got, want)

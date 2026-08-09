@@ -85,9 +85,13 @@ func (r *authCLIRuntime) LogoutAuth(_ context.Context, contextName, provider str
 }
 
 func authCLIResult(task string) authbroker.Result {
+	return authCLIResultForProvider(task, authcmd.BuiltinGitHubProviderID)
+}
+
+func authCLIResultForProvider(task, provider string) authbroker.Result {
 	label := "octocat"
 	return authbroker.Result{
-		Task: task, Provider: authcmd.BuiltinGitHubProviderID, Context: "default",
+		Task: task, Provider: provider, Context: "default",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: true,
 		AccountLabel: &label, StorageBackend: authbroker.StorageBackendXDGFile,
 		BrokerState:        authbroker.BrokerStateReady,
@@ -211,22 +215,24 @@ func TestAuthImportRejectsInteractiveTerminalBeforeReadOrRuntimeMutation(t *test
 
 func TestAuthLoginAndLogoutDispatchThroughFixedMutationHandlers(t *testing.T) {
 	tests := []struct {
-		name   string
-		args   []string
-		result authbroker.Result
+		name     string
+		args     []string
+		provider string
+		result   authbroker.Result
 	}{
-		{name: "login", args: []string{"auth", "login", "github", "--format=json"}, result: authCLIResult(authbroker.TaskLogin)},
-		{name: "logout", args: []string{"auth", "logout", "github", "--format=json"}, result: authCLILogoutResult()},
+		{name: "github login", args: []string{"auth", "login", "github", "--format=json"}, provider: "github", result: authCLIResult(authbroker.TaskLogin)},
+		{name: "aws login", args: []string{"auth", "login", "aws", "--format=json"}, provider: "aws", result: authCLIResultForProvider(authbroker.TaskLogin, "aws")},
+		{name: "logout", args: []string{"auth", "logout", "github", "--format=json"}, provider: "github", result: authCLILogoutResult()},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			login := test.name == "login"
+			login := strings.Contains(test.name, "login")
 			runtime := &authCLIRuntime{result: test.result, inputTerminal: login, errorTerminal: login}
 			command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
 			if code := runCLI(command, test.args); code != ExitOK {
 				t.Fatalf("%s code = %d, stderr = %q", test.name, code, stderr.String())
 			}
-			if runtime.provider != "github" || !strings.Contains(stdout.String(), `"provider":"github"`) || stderr.Len() != 0 {
+			if runtime.provider != test.provider || !strings.Contains(stdout.String(), `"provider":"`+test.provider+`"`) || stderr.Len() != 0 {
 				t.Fatalf("%s provider/stdout/stderr = %q/%q/%q", test.name, runtime.provider, stdout.String(), stderr.String())
 			}
 		})
@@ -317,7 +323,7 @@ func TestAuthHumanOutputContainsOnlySecretFreeResultFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Context authentication configured", "default", "github", "octocat", "ready"} {
+	for _, want := range []string{"Context credential configured", "default", "github", "octocat", "ready"} {
 		if !strings.Contains(string(output), want) {
 			t.Fatalf("text output = %q, want %q", output, want)
 		}

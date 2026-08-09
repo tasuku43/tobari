@@ -9,6 +9,7 @@ only copy retained by this module lives in one request-scoped object.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -29,11 +30,13 @@ from credential_adapters import (
 )
 
 
-PROVIDER_SCHEMA_VERSION = 1
+PROVIDER_SCHEMA_VERSION = 2
+LEGACY_PROVIDER_SCHEMA_VERSION = 1
 BROKER_SCHEMA_VERSION = 1
 MAX_PROVIDER_PROJECTION_BYTES = 16 * 1024 * 1024
 MAX_BROKER_FRAME_BYTES = 64 * 1024
 MAX_SECRET_BYTES = 32 * 1024
+MAX_AWS_BODY_BYTES = 8 * 1024 * 1024
 HANDLE_PATTERN = re.compile(r"^tobari-h1_[A-Za-z0-9_-]{43}$")
 HANDLE_MARKER = "tobari-h"
 PROVIDER_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
@@ -45,6 +48,25 @@ HOST_PATTERN = re.compile(
 HEADER_PATTERN = re.compile(r"^[!#$%&'*+.^_`|~0-9a-z-]{1,64}$")
 SOURCE_FORMATS = frozenset({"raw", "bearer", "token"})
 DESTINATION_FORMATS = frozenset({"preserve_scheme", "raw", "bearer", "token"})
+AWS_DNS_SUFFIXES = ("amazonaws.com",)
+AWS_SCOPE_COMPONENT_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
+AWS_COMMERCIAL_REGION_PATTERN = re.compile(
+    r"^(?:us-(?:east|west)|eu-(?:central|north|south|west)|"
+    r"ap-(?:east|northeast|south|southeast)|ca-(?:central|west)|sa-east|"
+    r"me-(?:central|south)|af-south|il-central|mx-central|nz-north)-[0-9]+$"
+)
+AWS_AUTHORIZATION_PATTERN = re.compile(
+    r"^AWS4-HMAC-SHA256 Credential=(tobari-h1_[A-Za-z0-9_-]{43})/"
+    r"([0-9]{8})/([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)/"
+    r"([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)/aws4_request, "
+    r"SignedHeaders=([a-z0-9-]+(?:;[a-z0-9-]+)*), Signature=([0-9a-f]{64})$"
+)
+AWS_SIGNED_AUTHORIZATION_PATTERN = re.compile(
+    r"^AWS4-HMAC-SHA256 Credential=([A-Z0-9]{16,128})/"
+    r"([0-9]{8})/([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)/"
+    r"([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)/aws4_request, "
+    r"SignedHeaders=([a-z0-9-]+(?:;[a-z0-9-]+)*), Signature=([0-9a-f]{64})$"
+)
 FORBIDDEN_HEADERS = frozenset(
     {"host", "content-length", "proxy-authorization", "cookie", "set-cookie"}
 )
@@ -60,6 +82,14 @@ class BrokerCredentialBindingError(BrokerCredentialError):
 
 class BrokerCredentialUnavailable(BrokerCredentialError):
     """The private broker boundary is unavailable or returned an invalid frame."""
+
+
+class BrokerCredentialOutcomeUnknown(BrokerCredentialError):
+    """A refresh may have executed and must not be replayed automatically."""
+
+
+class _BrokerCredentialResponseInvalid(BrokerCredentialUnavailable):
+    """The broker replied, but its frame cannot prove an operation outcome."""
 
 
 def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -185,24 +215,85 @@ def _raw_binding_sort_key(binding: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def _validate_provider(provider: Any) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[dict[str, str]]]:
+def _validate_aws_signing_binding(
+    value: Any, provider_id: str
+) -> dict[str, Any]:
+    binding = _exact_keys(value, {"kind", "aws_sigv4"}, "provider signing binding")
+    if binding.get("kind") != "aws_sigv4":
+        raise BrokerCredentialUnavailable("provider projection is invalid")
+    plan = _exact_keys(
+        binding.get("aws_sigv4"),
+        {"target", "source", "secret_headers"},
+        "provider AWS signing plan",
+    )
+    target = _exact_keys(
+        plan.get("target"), {"scheme", "port", "dns_suffixes"}, "provider AWS target"
+    )
+    if (
+        target.get("scheme") != "https"
+        or target.get("port") != 443
+        or target.get("dns_suffixes") != list(AWS_DNS_SUFFIXES)
+    ):
+        raise BrokerCredentialUnavailable("provider projection is invalid")
+    source = _exact_keys(
+        plan.get("source"),
+        {"authorization_header", "security_token_header"},
+        "provider AWS source",
+    )
+    if source != {
+        "authorization_header": "authorization",
+        "security_token_header": "x-amz-security-token",
+    }:
+        raise BrokerCredentialUnavailable("provider projection is invalid")
+    secret_headers = plan.get("secret_headers")
+    if secret_headers != ["authorization", "x-amz-security-token"]:
+        raise BrokerCredentialUnavailable("provider projection is invalid")
+    return {
+        "provider_id": provider_id,
+        "kind": "aws_sigv4",
+        "aws_sigv4": {
+            "target": {
+                "scheme": "https",
+                "port": 443,
+                "dns_suffixes": list(AWS_DNS_SUFFIXES),
+            },
+            "source": dict(source),
+            "secret_headers": list(secret_headers),
+        },
+    }
+
+
+def _validate_provider(
+    provider: Any,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, str]],
+    list[dict[str, str]],
+]:
+    if not isinstance(provider, dict):
+        raise BrokerCredentialUnavailable("provider is invalid")
+    schema_version = provider.get("schema_version")
+    provider_keys = {
+        "schema_version",
+        "id",
+        "display_name",
+        "acquisition",
+        "credential",
+        "workspace_projections",
+        "header_bindings",
+    }
+    if schema_version == PROVIDER_SCHEMA_VERSION:
+        provider_keys.add("signing_bindings")
     provider = _exact_keys(
         provider,
-        {
-            "schema_version",
-            "id",
-            "display_name",
-            "acquisition",
-            "credential",
-            "workspace_projections",
-            "header_bindings",
-        },
+        provider_keys,
         "provider",
     )
     provider_id = provider.get("id")
     display_name = provider.get("display_name")
     if (
-        provider.get("schema_version") != PROVIDER_SCHEMA_VERSION
+        schema_version not in {LEGACY_PROVIDER_SCHEMA_VERSION, PROVIDER_SCHEMA_VERSION}
         or isinstance(provider.get("schema_version"), bool)
         or not _valid_provider_id(provider_id)
         or not isinstance(display_name, str)
@@ -226,7 +317,12 @@ def _validate_provider(provider: Any) -> tuple[list[dict[str, Any]], list[dict[s
     if mode == "builtin_helper" and not _valid_provider_id(acquisition.get("helper")):
         raise BrokerCredentialUnavailable("provider projection is invalid")
     credential = _exact_keys(provider.get("credential"), {"kind"}, "provider credential")
-    if credential.get("kind") != "primary_secret":
+    credential_kind = credential.get("kind")
+    if schema_version == LEGACY_PROVIDER_SCHEMA_VERSION:
+        valid_credential = credential_kind == "primary_secret"
+    else:
+        valid_credential = credential_kind == "aws_sso_session"
+    if not valid_credential:
         raise BrokerCredentialUnavailable("provider projection is invalid")
 
     workspace = provider.get("workspace_projections")
@@ -276,7 +372,7 @@ def _validate_provider(provider: Any) -> tuple[list[dict[str, Any]], list[dict[s
         raise BrokerCredentialUnavailable("provider projection is invalid")
 
     raw_bindings = provider.get("header_bindings")
-    if not isinstance(raw_bindings, list) or not 1 <= len(raw_bindings) <= 64:
+    if not isinstance(raw_bindings, list) or len(raw_bindings) > 64:
         raise BrokerCredentialUnavailable("provider projection is invalid")
     normalized: list[dict[str, Any]] = []
     checked_raw: list[dict[str, Any]] = []
@@ -322,44 +418,77 @@ def _validate_provider(provider: Any) -> tuple[list[dict[str, Any]], list[dict[s
             )
     if checked_raw != raw_bindings or checked_raw != sorted(checked_raw, key=_raw_binding_sort_key):
         raise BrokerCredentialUnavailable("provider projection is invalid")
-    return normalized, environment, complete_files
+    signing_bindings: list[dict[str, Any]] = []
+    if schema_version == PROVIDER_SCHEMA_VERSION:
+        raw_signing = provider.get("signing_bindings")
+        if not isinstance(raw_signing, list) or len(raw_signing) > 8:
+            raise BrokerCredentialUnavailable("provider projection is invalid")
+        signing_bindings = [
+            _validate_aws_signing_binding(item, provider_id) for item in raw_signing
+        ]
+        expected_acquisition_helper = (
+            mode == "builtin_helper" and acquisition.get("helper") == "aws-sso"
+        )
+        if credential_kind == "aws_sso_session":
+            if (
+                provider_id != "aws"
+                or not expected_acquisition_helper
+                or len(signing_bindings) != 1
+                or normalized
+            ):
+                raise BrokerCredentialUnavailable("provider projection is invalid")
+        elif signing_bindings:
+            raise BrokerCredentialUnavailable("provider projection is invalid")
+    if not normalized and not signing_bindings:
+        raise BrokerCredentialUnavailable("provider projection is invalid")
+    return normalized, signing_bindings, environment, complete_files
 
 
 def validate_provider_projection(document: Any) -> dict[str, Any]:
+    if not isinstance(document, dict):
+        raise BrokerCredentialUnavailable("provider projection is invalid")
+    projection_version = document.get("schema_version")
+    projection_keys = {
+        "schema_version",
+        "providers",
+        "environment",
+        "complete_files",
+        "header_bindings",
+        "secret_headers",
+    }
+    if projection_version == PROVIDER_SCHEMA_VERSION:
+        projection_keys.add("signing_bindings")
     projection = _exact_keys(
         document,
-        {
-            "schema_version",
-            "providers",
-            "environment",
-            "complete_files",
-            "header_bindings",
-            "secret_headers",
-        },
+        projection_keys,
         "provider projection",
     )
-    if projection.get("schema_version") != PROVIDER_SCHEMA_VERSION or isinstance(
-        projection.get("schema_version"), bool
-    ):
+    if projection_version not in {
+        LEGACY_PROVIDER_SCHEMA_VERSION,
+        PROVIDER_SCHEMA_VERSION,
+    } or isinstance(projection_version, bool):
         raise BrokerCredentialUnavailable("provider projection version is invalid")
     providers = projection.get("providers")
     if not isinstance(providers, list) or not 1 <= len(providers) <= 64:
         raise BrokerCredentialUnavailable("provider projection is invalid")
 
     expected_bindings: list[dict[str, Any]] = []
+    expected_signing_bindings: list[dict[str, Any]] = []
     expected_environment: list[dict[str, str]] = []
     expected_files: list[dict[str, str]] = []
     provider_ids: list[str] = []
     for provider in providers:
-        bindings, environment, complete_files = _validate_provider(provider)
+        bindings, signing_bindings, environment, complete_files = _validate_provider(provider)
         provider_ids.append(provider["id"])
         expected_bindings.extend(bindings)
+        expected_signing_bindings.extend(signing_bindings)
         expected_environment.extend(environment)
         expected_files.extend(complete_files)
     if provider_ids != sorted(provider_ids) or len(provider_ids) != len(set(provider_ids)):
         raise BrokerCredentialUnavailable("provider projection is invalid")
 
     expected_bindings.sort(key=_binding_sort_key)
+    expected_signing_bindings.sort(key=lambda item: item["provider_id"])
     expected_environment.sort(key=lambda item: item["name"])
     expected_files.sort(key=lambda item: item["path"])
     expected_secrets = sorted(
@@ -367,10 +496,15 @@ def validate_provider_projection(document: Any) -> dict[str, Any]:
             header
             for binding in expected_bindings
             for header in binding["secret_headers"]
+        } | {
+            header
+            for binding in expected_signing_bindings
+            for header in binding["aws_sigv4"]["secret_headers"]
         }
     )
     if (
         projection.get("header_bindings") != expected_bindings
+        or projection.get("signing_bindings", []) != expected_signing_bindings
         or projection.get("environment") != expected_environment
         or projection.get("complete_files") != expected_files
         or projection.get("secret_headers") != expected_secrets
@@ -399,6 +533,8 @@ def validate_provider_projection(document: Any) -> dict[str, Any]:
         if key in recognition:
             raise BrokerCredentialUnavailable("provider projection is ambiguous")
         recognition.add(key)
+    if len(expected_signing_bindings) > 1:
+        raise BrokerCredentialUnavailable("provider projection is ambiguous")
     return projection
 
 
@@ -439,19 +575,34 @@ def load_provider_projection(path: str) -> dict[str, Any]:
 
 
 def _broker_response(payload: bytes) -> dict[str, Any]:
-    response = _decode_json(payload)
+    try:
+        response = _decode_json(payload)
+    except BrokerCredentialUnavailable as error:
+        raise _BrokerCredentialResponseInvalid(
+            "credential broker returned invalid data"
+        ) from error
     if (
         not isinstance(response, dict)
         or response.get("schema_version") != BROKER_SCHEMA_VERSION
         or isinstance(response.get("schema_version"), bool)
     ):
-        raise BrokerCredentialUnavailable("credential broker returned invalid data")
+        raise _BrokerCredentialResponseInvalid(
+            "credential broker returned invalid data"
+        )
     if response.get("ok") is False:
         if set(response) != {"schema_version", "ok", "error"}:
-            raise BrokerCredentialUnavailable("credential broker returned invalid data")
+            raise _BrokerCredentialResponseInvalid(
+                "credential broker returned invalid data"
+            )
         error = response.get("error")
         if not isinstance(error, dict) or set(error) != {"code"} or not isinstance(error.get("code"), str):
-            raise BrokerCredentialUnavailable("credential broker returned invalid data")
+            raise _BrokerCredentialResponseInvalid(
+                "credential broker returned invalid data"
+            )
+        if error["code"] == "companion_outcome_unknown":
+            raise BrokerCredentialOutcomeUnknown(
+                "credential refresh outcome is unknown; host re-login is required"
+            )
         if error["code"] in {
             "handle_not_found",
             "handle_revoked",
@@ -462,11 +613,23 @@ def _broker_response(payload: bytes) -> dict[str, Any]:
             "invalid_project",
             "invalid_provider",
             "invalid_revision",
+            "aws_signing_request_invalid",
+            "aws_target_unsupported",
+            "aws_scope_invalid",
+            "aws_scope_target_mismatch",
+            "aws_method_invalid",
+            "aws_path_unsupported",
+            "aws_query_unsupported",
+            "aws_payload_hash_invalid",
+            "aws_headers_invalid",
+            "aws_header_invalid",
         }:
             raise BrokerCredentialBindingError("credential handle is not valid for this request")
         raise BrokerCredentialUnavailable("credential broker is unavailable")
     if response.get("ok") is not True:
-        raise BrokerCredentialUnavailable("credential broker returned invalid data")
+        raise _BrokerCredentialResponseInvalid(
+            "credential broker returned invalid data"
+        )
     return response
 
 
@@ -488,29 +651,57 @@ def call_broker(path: str, request: dict[str, Any], timeout: float) -> dict[str,
     if len(encoded) > MAX_BROKER_FRAME_BYTES:
         raise BrokerCredentialUnavailable("credential broker request is too large")
 
+    signing_request = request.get("op") == "sign_sigv4"
+    send_started = False
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connection.settimeout(timeout)
     try:
         connection.connect(path)
+        # Mark before sendall: a partial write can be accepted even when the
+        # local call raises, so every later transport loss is outcome-unknown.
+        send_started = True
         connection.sendall(encoded)
         connection.shutdown(socket.SHUT_WR)
         response = bytearray()
         while True:
             if len(response) > MAX_BROKER_FRAME_BYTES:
-                raise BrokerCredentialUnavailable("credential broker response is too large")
+                raise _BrokerCredentialResponseInvalid(
+                    "credential broker response is too large"
+                )
             chunk = connection.recv(min(8192, MAX_BROKER_FRAME_BYTES + 2 - len(response)))
             if not chunk:
                 break
             response.extend(chunk)
+    except _BrokerCredentialResponseInvalid as error:
+        if signing_request and send_started:
+            raise BrokerCredentialOutcomeUnknown(
+                "credential refresh outcome is unknown; host re-login is required"
+            ) from error
+        raise
     except BrokerCredentialError:
         raise
     except (OSError, TimeoutError) as error:
+        if signing_request and send_started:
+            raise BrokerCredentialOutcomeUnknown(
+                "credential refresh outcome is unknown; host re-login is required"
+            ) from error
         raise BrokerCredentialUnavailable("credential broker is unavailable") from error
     finally:
         connection.close()
     if not response or len(response) > MAX_BROKER_FRAME_BYTES + 1 or response.count(b"\n") != 1 or not response.endswith(b"\n"):
+        if signing_request and send_started:
+            raise BrokerCredentialOutcomeUnknown(
+                "credential refresh outcome is unknown; host re-login is required"
+            )
         raise BrokerCredentialUnavailable("credential broker response is invalid")
-    return _broker_response(bytes(response[:-1]))
+    try:
+        return _broker_response(bytes(response[:-1]))
+    except _BrokerCredentialResponseInvalid as error:
+        if signing_request and send_started:
+            raise BrokerCredentialOutcomeUnknown(
+                "credential refresh outcome is unknown; host re-login is required"
+            ) from error
+        raise
 
 
 @dataclass(frozen=True)
@@ -519,6 +710,157 @@ class _HandleCandidate:
     source_format: str
     source_scheme: str | None
     handle: str
+
+
+@dataclass(frozen=True)
+class _AWSHandleCandidate:
+    handle: str
+    region: str
+    service: str
+    signed_headers: tuple[str, ...]
+    expected_body_bytes: int
+
+
+@dataclass(frozen=True)
+class _AWSRequestSnapshot:
+    scheme: str
+    host: str
+    port: int
+    method: str
+    path: str
+    query: str
+    headers: tuple[tuple[str, str], ...]
+    signed_headers: tuple[tuple[str, str], ...]
+
+
+def _aws_target_matches(
+    binding: dict[str, Any], scheme: str, host: str, port: int
+) -> bool:
+    plan = binding["aws_sigv4"]
+    target = plan["target"]
+    return (
+        scheme == target["scheme"]
+        and port == target["port"]
+        and any(host.endswith("." + suffix) for suffix in target["dns_suffixes"])
+    )
+
+
+def _header_values(request: http.Request, name: str) -> list[str]:
+    return [
+        raw_value.decode("latin-1")
+        for raw_name, raw_value in request.headers.fields
+        if raw_name.decode("latin-1").lower() == name
+    ]
+
+
+def _find_aws_candidate(
+    request: http.Request,
+    projection: dict[str, Any],
+    scheme: str,
+    host: str,
+    port: int,
+) -> tuple[_AWSHandleCandidate, dict[str, Any]] | None:
+    authorization_values = _header_values(request, "authorization")
+    token_values = _header_values(request, "x-amz-security-token")
+    looks_like_aws = any(
+        value.startswith("AWS4-HMAC-SHA256 ") for value in authorization_values
+    )
+    if not looks_like_aws:
+        return None
+    if len(authorization_values) != 1 or len(token_values) != 1:
+        raise BrokerCredentialBindingError("AWS credential handle position is ambiguous")
+    matched = AWS_AUTHORIZATION_PATTERN.fullmatch(authorization_values[0])
+    if matched is None:
+        if _contains_handle_marker(authorization_values[0]):
+            raise BrokerCredentialBindingError("AWS credential handle is malformed")
+        return None
+    handle, scope_date, region, service, signed_value, _ = matched.groups()
+    if HANDLE_PATTERN.fullmatch(handle) is None or token_values[0].strip(" \t") != handle:
+        raise BrokerCredentialBindingError("AWS credential handles do not match")
+    if (
+        AWS_SCOPE_COMPONENT_PATTERN.fullmatch(region) is None
+        or AWS_SCOPE_COMPONENT_PATTERN.fullmatch(service) is None
+        or AWS_COMMERCIAL_REGION_PATTERN.fullmatch(region) is None
+    ):
+        raise BrokerCredentialBindingError("AWS signing scope is invalid")
+    signed_headers = tuple(signed_value.split(";"))
+    if (
+        signed_headers != tuple(sorted(set(signed_headers)))
+        or not {"host", "x-amz-date", "x-amz-security-token"}.issubset(signed_headers)
+    ):
+        raise BrokerCredentialBindingError("AWS signed headers are invalid")
+    date_values = _header_values(request, "x-amz-date")
+    if (
+        len(date_values) != 1
+        or re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", date_values[0]) is None
+        or not date_values[0].startswith(scope_date)
+    ):
+        raise BrokerCredentialBindingError("AWS signing date is invalid")
+    for raw_name, raw_value in request.headers.fields:
+        name = raw_name.decode("latin-1").lower()
+        value = raw_value.decode("latin-1")
+        if _contains_handle_marker(value):
+            if name == "authorization":
+                if value.count(HANDLE_MARKER) != 1:
+                    raise BrokerCredentialBindingError("AWS handle position is ambiguous")
+            elif name == "x-amz-security-token":
+                if value.strip(" \t") != handle:
+                    raise BrokerCredentialBindingError("AWS handle position is invalid")
+            else:
+                raise BrokerCredentialBindingError("AWS handle position is invalid")
+    if _header_values(request, "transfer-encoding"):
+        raise BrokerCredentialBindingError("streaming AWS requests are unsupported")
+    content_encodings = _header_values(request, "content-encoding")
+    content_types = _header_values(request, "content-type")
+    content_hashes = _header_values(request, "x-amz-content-sha256")
+    if any("aws-chunked" in value.lower() for value in content_encodings) or any(
+        _header_values(request, name)
+        for name in ("x-amz-decoded-content-length", "x-amz-trailer")
+    ):
+        raise BrokerCredentialBindingError("streaming AWS requests are unsupported")
+    if any(
+        value.split(";", 1)[0].strip().lower()
+        == "application/vnd.amazon.eventstream"
+        for value in content_types
+    ):
+        raise BrokerCredentialBindingError("AWS event-stream requests are unsupported")
+    if len(content_hashes) > 1 or any(
+        re.fullmatch(r"[0-9a-f]{64}", value) is None for value in content_hashes
+    ):
+        # This rejects every streaming/unsigned sentinel, including current and
+        # future STREAMING-AWS4-HMAC-SHA256-* variants.
+        raise BrokerCredentialBindingError("streaming AWS requests are unsupported")
+    if _header_values(request, "x-amz-s3session-token"):
+        raise BrokerCredentialBindingError("S3 Express session authentication is unsupported")
+    lengths = _header_values(request, "content-length")
+    if len(lengths) > 1:
+        raise BrokerCredentialBindingError("AWS request length is ambiguous")
+    if lengths:
+        if re.fullmatch(r"0|[1-9][0-9]*", lengths[0]) is None:
+            raise BrokerCredentialBindingError("AWS request length is invalid")
+        if int(lengths[0]) > MAX_AWS_BODY_BYTES:
+            raise BrokerCredentialBindingError("AWS request body is too large")
+        expected_body_bytes = int(lengths[0])
+    elif request.method.upper() in {"GET", "HEAD"}:
+        expected_body_bytes = 0
+    else:
+        raise BrokerCredentialBindingError(
+            "a bounded AWS request requires Content-Length"
+        )
+    matches = [
+        binding
+        for binding in projection["signing_bindings"]
+        if binding["kind"] == "aws_sigv4"
+        and _aws_target_matches(binding, scheme, host, port)
+    ]
+    if len(matches) != 1:
+        raise BrokerCredentialBindingError("AWS credential handle is not valid for this target")
+    return (
+        _AWSHandleCandidate(
+            handle, region, service, signed_headers, expected_body_bytes
+        ),
+        matches[0],
+    )
 
 
 def _candidate(header: str, value: str) -> _HandleCandidate | None:
@@ -670,6 +1012,118 @@ def _validate_broker_metadata(
     return revision, secret
 
 
+def _validate_signing_introspection(
+    response: dict[str, Any], binding: dict[str, Any], target: dict[str, Any]
+) -> str:
+    expected = {
+        "schema_version",
+        "ok",
+        "provider",
+        "revision",
+        "kind",
+        "target",
+        "source",
+        "secret_headers",
+    }
+    revision = response.get("revision")
+    plan = binding["aws_sigv4"]
+    if (
+        set(response) != expected
+        or response.get("provider") != binding["provider_id"]
+        or not isinstance(revision, str)
+        or REVISION_PATTERN.fullmatch(revision) is None
+        or response.get("kind") != "aws_sigv4"
+        or response.get("target") != target
+        or response.get("source") != plan["source"]
+        or response.get("secret_headers") != plan["secret_headers"]
+    ):
+        raise BrokerCredentialUnavailable("credential broker returned inconsistent data")
+    return revision
+
+
+def _validated_signing_headers(
+    response: dict[str, Any],
+    provider: str,
+    revision: str,
+    candidate: _AWSHandleCandidate,
+    payload_hash: str,
+) -> dict[str, str | None]:
+    if set(response) != {"schema_version", "ok", "provider", "revision", "headers"}:
+        raise BrokerCredentialUnavailable("credential broker returned invalid data")
+    if response.get("provider") != provider or response.get("revision") != revision:
+        raise BrokerCredentialUnavailable("credential broker returned inconsistent data")
+    headers = _exact_keys(
+        response.get("headers"),
+        {
+            "authorization",
+            "x_amz_date",
+            "x_amz_security_token",
+            "x_amz_content_sha256",
+        },
+        "credential broker AWS headers",
+    )
+    authorization = headers.get("authorization")
+    amz_date = headers.get("x_amz_date")
+    security_token = headers.get("x_amz_security_token")
+    content_hash = headers.get("x_amz_content_sha256")
+    matched = (
+        AWS_SIGNED_AUTHORIZATION_PATTERN.fullmatch(authorization)
+        if isinstance(authorization, str)
+        else None
+    )
+    signed_headers: tuple[str, ...] = ()
+    if matched is not None:
+        _, scope_date, region, service, signed_value, _ = matched.groups()
+        signed_headers = tuple(signed_value.split(";"))
+    expected_signed_headers = {
+        name
+        for name in candidate.signed_headers
+        if name
+        not in {
+            "host",
+            "authorization",
+            "x-amz-date",
+            "x-amz-security-token",
+            "x-amz-content-sha256",
+        }
+    } | {"host", "x-amz-date", "x-amz-security-token"}
+    if content_hash is not None:
+        expected_signed_headers.add("x-amz-content-sha256")
+    if (
+        not isinstance(authorization, str)
+        or matched is None
+        or len(authorization) > 4096
+        or any(character in "\x00\r\n" for character in authorization)
+        or _contains_handle_marker(authorization)
+        or not isinstance(amz_date, str)
+        or re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", amz_date) is None
+        or scope_date != amz_date[:8]
+        or region != candidate.region
+        or service != candidate.service
+        or signed_headers != tuple(sorted(set(signed_headers)))
+        or set(signed_headers) != expected_signed_headers
+        or not isinstance(security_token, str)
+        or not 16 <= len(security_token) <= 16 * 1024
+        or any(ord(character) < 0x21 or ord(character) > 0x7E for character in security_token)
+        or _contains_handle_marker(security_token)
+        or (
+            content_hash is not None
+            and (
+                not isinstance(content_hash, str)
+                or re.fullmatch(r"[0-9a-f]{64}", content_hash) is None
+                or content_hash != payload_hash
+            )
+        )
+    ):
+        raise BrokerCredentialUnavailable("credential broker returned invalid data")
+    return {
+        "authorization": authorization,
+        "x_amz_date": amz_date,
+        "x_amz_security_token": security_token,
+        "x_amz_content_sha256": content_hash,
+    }
+
+
 @dataclass
 class _FallbackRequest:
     request: PreparedCredentialRequest
@@ -760,6 +1214,154 @@ class _BrokerRequest:
         return None
 
 
+@dataclass
+class _AWSSigV4Request:
+    binding: dict[str, Any]
+    candidate: _AWSHandleCandidate
+    target: dict[str, Any]
+    context_id: str
+    project_id: str
+    revision: str
+    broker_call: Callable[[dict[str, Any]], dict[str, Any]]
+    requested_profile: str | None = None
+    deferred: bool = True
+    snapshot: _AWSRequestSnapshot | None = None
+
+    @property
+    def broker_provider(self) -> str:
+        return self.binding["provider_id"]
+
+    @property
+    def secret_headers(self) -> set[str]:
+        return set(DEFAULT_SECRET_HEADERS) | set(
+            self.binding["aws_sigv4"]["secret_headers"]
+        )
+
+    def apply(self, request: http.Request, selected_profile: str | None) -> str | None:
+        if selected_profile is not None:
+            raise BrokerCredentialBindingError(
+                "policy selected an incompatible static credential profile"
+            )
+        for header in set(CONTROL_HEADERS) | {"proxy-authorization"}:
+            request.headers.pop(header, None)
+        if self.snapshot is not None:
+            raise BrokerCredentialBindingError("AWS request was already authorized")
+        self.snapshot = self._snapshot_request(request)
+        return None
+
+    def _snapshot_request(self, request: http.Request) -> _AWSRequestSnapshot:
+        split = urlsplit(request.url)
+        headers = tuple(
+            (
+                raw_name.decode("latin-1").lower(),
+                raw_value.decode("latin-1"),
+            )
+            for raw_name, raw_value in request.headers.fields
+        )
+        signed_headers = tuple(
+            (name, value)
+            for name, value in self._signed_request_headers(request)
+        )
+        return _AWSRequestSnapshot(
+            scheme=request.scheme,
+            host=request.host,
+            port=request.port,
+            method=request.method.upper(),
+            path=split.path or "/",
+            query=split.query,
+            headers=headers,
+            signed_headers=signed_headers,
+        )
+
+    def _signed_request_headers(self, request: http.Request) -> list[list[str]]:
+        broker_owned = {
+            "host",
+            "authorization",
+            "x-amz-date",
+            "x-amz-security-token",
+            "x-amz-content-sha256",
+        }
+        selected: list[list[str]] = []
+        signed = set(self.candidate.signed_headers)
+        for name in self.candidate.signed_headers:
+            if name in broker_owned:
+                continue
+            values = _header_values(request, name)
+            if not values:
+                raise BrokerCredentialBindingError("an AWS signed header is missing")
+            selected.extend([[name, value] for value in values])
+        for raw_name, _ in request.headers.fields:
+            name = raw_name.decode("latin-1").lower()
+            if name.startswith("x-amz-") and name not in signed and name not in broker_owned:
+                raise BrokerCredentialBindingError("an unsigned AWS header is unsupported")
+        return selected
+
+    def apply_body(self, request: http.Request) -> None:
+        snapshot = self.snapshot
+        if snapshot is None or self._snapshot_request(request) != snapshot:
+            raise BrokerCredentialBindingError(
+                "AWS request changed after policy authorization"
+            )
+        body = request.raw_content
+        if body is None:
+            body = b""
+        if not isinstance(body, bytes) or len(body) > MAX_AWS_BODY_BYTES:
+            raise BrokerCredentialBindingError("AWS request body is too large")
+        lengths = _header_values(request, "content-length")
+        if len(body) != self.candidate.expected_body_bytes:
+            raise BrokerCredentialBindingError("AWS request body length changed")
+        if lengths:
+            if (
+                len(lengths) != 1
+                or re.fullmatch(r"0|[1-9][0-9]*", lengths[0]) is None
+                or int(lengths[0]) != self.candidate.expected_body_bytes
+            ):
+                raise BrokerCredentialBindingError("AWS request body length changed")
+        response = self.broker_call(
+            {
+                "schema_version": BROKER_SCHEMA_VERSION,
+                "op": "sign_sigv4",
+                "handle": self.candidate.handle,
+                "context_id": self.context_id,
+                "project_id": self.project_id,
+                "provider": self.binding["provider_id"],
+                "revision": self.revision,
+                "binding": self.binding,
+                "request": {
+                    "host": self.target["host"],
+                    "method": snapshot.method,
+                    "path": snapshot.path,
+                    "query": snapshot.query,
+                    "region": self.candidate.region,
+                    "service": self.candidate.service,
+                    "headers": [list(item) for item in snapshot.signed_headers],
+                    "payload_hash": hashlib.sha256(body).hexdigest(),
+                },
+            }
+        )
+        rendered = _validated_signing_headers(
+            response,
+            self.binding["provider_id"],
+            self.revision,
+            self.candidate,
+            hashlib.sha256(body).hexdigest(),
+        )
+        for name in {
+            "authorization",
+            "x-amz-date",
+            "x-amz-security-token",
+            "x-amz-content-sha256",
+        }:
+            request.headers.pop(name, None)
+        request.headers["authorization"] = rendered["authorization"]  # type: ignore[assignment]
+        request.headers["x-amz-date"] = rendered["x_amz_date"]  # type: ignore[assignment]
+        request.headers["x-amz-security-token"] = rendered["x_amz_security_token"]  # type: ignore[assignment]
+        if rendered["x_amz_content_sha256"] is not None:
+            request.headers["x-amz-content-sha256"] = rendered[
+                "x_amz_content_sha256"
+            ]  # type: ignore[assignment]
+
+
 class BrokeredCredentialAdapter:
     """Recognize broker handles per request, otherwise retain the old adapter."""
 
@@ -795,6 +1397,44 @@ class BrokeredCredentialAdapter:
         project_id: str,
     ) -> PreparedCredentialRequest:
         projection = self.projection_loader(self.projection_path)
+        _reject_non_header_handle_positions(request)
+        aws_selected = _find_aws_candidate(
+            request, projection, scheme, host, port
+        )
+        if aws_selected is not None:
+            candidate, binding = aws_selected
+            for name in {
+                "authorization",
+                "x-amz-date",
+                "x-amz-security-token",
+                "x-amz-content-sha256",
+            }:
+                request.headers.pop(name, None)
+            target = {"scheme": scheme, "host": host, "port": port}
+            introspection = self._call(
+                {
+                    "schema_version": BROKER_SCHEMA_VERSION,
+                    "op": "introspect_signing",
+                    "handle": candidate.handle,
+                    "context_id": context_id,
+                    "project_id": project_id,
+                    "provider": binding["provider_id"],
+                    "target": target,
+                    "binding": binding,
+                }
+            )
+            revision = _validate_signing_introspection(
+                introspection, binding, target
+            )
+            return _AWSSigV4Request(
+                binding=binding,
+                candidate=candidate,
+                target=target,
+                context_id=context_id,
+                project_id=project_id,
+                revision=revision,
+                broker_call=self._call,
+            )
         selected = _find_candidate(request, projection, scheme, host, port)
         if selected is None:
             fallback = self.fallback.prepare(

@@ -624,7 +624,14 @@ func (r *projectReconcileRunner) Run(_ context.Context, args []string, _ []strin
 		state := "unlocked"
 		if slices.Contains(args, "status") {
 			state = "not_configured"
-			_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"`+state+`","provider":"github"}`+"\n")
+			provider := ""
+			for index := 0; index+1 < len(args); index++ {
+				if args[index] == "--provider" {
+					provider = args[index+1]
+					break
+				}
+			}
+			_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"`+state+`","provider":"`+provider+`"}`+"\n")
 			return nil
 		}
 		_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"`+state+`"}`+"\n")

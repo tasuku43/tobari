@@ -1,0 +1,57 @@
+{
+  "schema_version": 2,
+  "id": "aws",
+  "display_name": "AWS IAM Identity Center for AWS CLI",
+  "acquisition": {
+    "mode": "builtin_helper",
+    "helper": "aws-sso"
+  },
+  "credential": {
+    "kind": "aws_sso_session"
+  },
+  "workspace_projections": [
+    {
+      "kind": "env",
+      "name": "AWS_ACCESS_KEY_ID",
+      "template": "${HANDLE}"
+    },
+    {
+      "kind": "env",
+      "name": "AWS_SECRET_ACCESS_KEY",
+      "template": "${HANDLE}"
+    },
+    {
+      "kind": "env",
+      "name": "AWS_SESSION_TOKEN",
+      "template": "${HANDLE}"
+    },
+    {
+      "kind": "env",
+      "name": "AWS_EC2_METADATA_DISABLED",
+      "template": "true"
+    }
+  ],
+  "header_bindings": [],
+  "signing_bindings": [
+    {
+      "kind": "aws_sigv4",
+      "aws_sigv4": {
+        "target": {
+          "scheme": "https",
+          "port": 443,
+          "dns_suffixes": [
+            "amazonaws.com"
+          ]
+        },
+        "source": {
+          "authorization_header": "authorization",
+          "security_token_header": "x-amz-security-token"
+        },
+        "secret_headers": [
+          "authorization",
+          "x-amz-security-token"
+        ]
+      }
+    }
+  ]
+}

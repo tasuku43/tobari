@@ -3,61 +3,98 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 )
 
 const (
-	loginResultPrefix               = "\x1eTOBARI_AUTH_BROKER_RESULT:"
 	githubEphemeralPlaintextWarning = "! Authentication credentials saved in plain text"
 	githubManualBrowserFallback     = "The host browser did not open; visit " + githubDeviceURL + " manually to continue.\n"
+	awsBrowserLinePrefix            = "Open "
 	maxLoginVisibleLine             = 64 * 1024
+	maxLoginVisibleBytes            = 64 * 1024
 	hostBrowserOpenTimeout          = 5 * time.Second
 )
 
+var errLoginVisibleOutputLimit = errors.New("host login visible output exceeded its limit")
+
 type loginVisibleOutput struct {
+	mu          sync.Mutex
 	destination io.Writer
 	openBrowser func(string) error
 	pending     []byte
-	overflow    bool
 	opened      bool
+	written     int
+	visible     int
+	failure     error
 }
 
 func (w *loginVisibleOutput) Write(data []byte) (int, error) {
-	for _, value := range data {
-		if w.overflow {
-			if _, err := w.destination.Write([]byte{value}); err != nil {
-				return 0, err
-			}
-			if value == '\n' {
-				w.overflow = false
-			}
-			continue
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.failure != nil {
+		return 0, w.failure
+	}
+	remaining := maxLoginVisibleBytes - w.written
+	if remaining <= 0 {
+		w.failure = errLoginVisibleOutputLimit
+		return 0, w.failure
+	}
+	if len(data) > remaining {
+		written, err := w.write(data[:remaining])
+		w.written += written
+		if err != nil {
+			w.failure = err
+			return written, err
 		}
+		w.failure = errLoginVisibleOutputLimit
+		return written, w.failure
+	}
+	written, err := w.write(data)
+	w.written += written
+	if err != nil {
+		w.failure = err
+	}
+	return written, err
+}
+
+func (w *loginVisibleOutput) write(data []byte) (int, error) {
+	for index, value := range data {
 		w.pending = append(w.pending, value)
 		if len(w.pending) > maxLoginVisibleLine {
-			if _, err := w.destination.Write(w.pending); err != nil {
-				return 0, err
-			}
-			w.pending = nil
-			w.overflow = value != '\n'
-			continue
+			w.pending = w.pending[:len(w.pending)-1]
+			return index, errLoginVisibleOutputLimit
 		}
 		if value == '\n' {
 			if err := w.flushPending(); err != nil {
-				return 0, err
+				return index + 1, err
 			}
 		}
 	}
 	return len(data), nil
+}
+
+func (w *loginVisibleOutput) flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.failure != nil {
+		return w.failure
+	}
+	if err := w.flushPending(); err != nil {
+		w.failure = err
+		return err
+	}
+	return nil
 }
 
 func (w *loginVisibleOutput) flushPending() error {
@@ -66,103 +103,88 @@ func (w *loginVisibleOutput) flushPending() error {
 	}
 	line := append([]byte(nil), w.pending...)
 	w.pending = nil
-	normalized := strings.TrimSuffix(strings.TrimSuffix(string(line), "\n"), "\r")
+	hasNewline := bytes.HasSuffix(line, []byte{'\n'})
+	if hasNewline {
+		line = line[:len(line)-1]
+	}
+	line = bytes.TrimSuffix(line, []byte{'\r'})
+	normalized := string(line)
 	if normalized == githubEphemeralPlaintextWarning {
 		return nil
 	}
-	if _, err := w.destination.Write(line); err != nil {
+	visible := projectLoginVisibleText(normalized)
+	if hasNewline {
+		visible += "\n"
+	}
+	if err := w.writeVisible(visible); err != nil {
 		return err
 	}
-	if !w.opened && strings.Contains(normalized, githubDeviceURL) && w.openBrowser != nil {
+	target, recognized := loginBrowserTarget(normalized)
+	if !w.opened && recognized && w.openBrowser != nil {
 		w.opened = true
-		if err := w.openBrowser(githubDeviceURL); err != nil {
-			_, writeErr := io.WriteString(w.destination, githubManualBrowserFallback)
-			return writeErr
+		if err := w.openBrowser(target); err != nil {
+			return w.writeVisible(manualBrowserFallback(target))
 		}
 	}
 	return nil
 }
 
-// loginOutputFilter owns the fixed GitHub acquisition UX while withholding the
-// broker's final machine response from public CLI output. The response prefix
-// is emitted only by the trusted control helper.
-type loginOutputFilter struct {
-	mu             sync.Mutex
-	destination    *loginVisibleOutput
-	prefixPosition int
-	prefixPending  []byte
-	atLineStart    bool
-	capturing      bool
-	response       []byte
-	responseCount  int
-	overflow       bool
+func (w *loginVisibleOutput) writeVisible(value string) error {
+	if len(value) > maxLoginVisibleBytes-w.visible {
+		return errLoginVisibleOutputLimit
+	}
+	written, err := io.WriteString(w.destination, value)
+	w.visible += written
+	if err != nil {
+		return err
+	}
+	if written != len(value) {
+		return io.ErrShortWrite
+	}
+	return nil
 }
 
-func newLoginOutputFilter(destination io.Writer, openBrowser func(string) error) *loginOutputFilter {
-	return &loginOutputFilter{
-		destination: &loginVisibleOutput{destination: destination, openBrowser: openBrowser},
-		atLineStart: true,
+func projectLoginVisibleText(value string) string {
+	var output strings.Builder
+	for _, character := range value {
+		switch {
+		case character == '\\':
+			output.WriteString(`\\`)
+		case character == '\u2028' || character == '\u2029' || unicode.Is(unicode.C, character):
+			if character <= 0xffff {
+				_, _ = fmt.Fprintf(&output, `\u%04X`, character)
+			} else {
+				_, _ = fmt.Fprintf(&output, `\U%08X`, character)
+			}
+		default:
+			output.WriteRune(character)
+		}
 	}
+	return output.String()
 }
 
-func (w *loginOutputFilter) Write(data []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	for _, value := range data {
-		if w.capturing {
-			if value == '\n' {
-				w.capturing = false
-				w.responseCount++
-				w.atLineStart = true
-				continue
-			}
-			if value != '\r' {
-				if len(w.response) >= maxBrokerControlOutput {
-					w.overflow = true
-				} else {
-					w.response = append(w.response, value)
-				}
-			}
-			continue
-		}
-		if w.atLineStart {
-			if value == loginResultPrefix[w.prefixPosition] {
-				w.prefixPending = append(w.prefixPending, value)
-				w.prefixPosition++
-				if w.prefixPosition == len(loginResultPrefix) {
-					w.prefixPending = nil
-					w.prefixPosition = 0
-					w.capturing = true
-				}
-				continue
-			}
-			if len(w.prefixPending) != 0 {
-				if _, err := w.destination.Write(w.prefixPending); err != nil {
-					return 0, err
-				}
-				w.prefixPending = nil
-				w.prefixPosition = 0
-			}
-		}
-		if _, err := w.destination.Write([]byte{value}); err != nil {
-			return 0, err
-		}
-		w.atLineStart = value == '\n'
+func loginBrowserTarget(line string) (string, bool) {
+	if strings.Contains(line, githubDeviceURL) {
+		return githubDeviceURL, true
 	}
-	return len(data), nil
+	if awsSSODeviceURLPattern.MatchString(line) {
+		return line, true
+	}
+	if !strings.HasPrefix(line, awsBrowserLinePrefix) {
+		return "", false
+	}
+	target := strings.TrimPrefix(line, awsBrowserLinePrefix)
+	if !awsSSODeviceURLPattern.MatchString(target) {
+		return "", false
+	}
+	return target, true
 }
 
-func (w *loginOutputFilter) responseLine() ([]byte, bool) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if len(w.prefixPending) != 0 {
-		_, _ = w.destination.Write(w.prefixPending)
-		w.prefixPending = nil
-		w.prefixPosition = 0
+func manualBrowserFallback(target string) string {
+	if target == githubDeviceURL {
+		return githubManualBrowserFallback
 	}
-	_ = w.destination.flushPending()
-	return bytes.TrimSpace(append([]byte(nil), w.response...)),
-		w.responseCount == 1 && !w.capturing && !w.overflow
+	return fmt.Sprintf("The host browser did not open; visit %s manually to continue.\n", target)
 }
 
 func (r *Runtime) LoginAuth(
@@ -172,7 +194,7 @@ func (r *Runtime) LoginAuth(
 	if err != nil {
 		return authbroker.Result{}, err
 	}
-	if provider.Acquisition.Mode != authbroker.AcquisitionBuiltinHelper || provider.Acquisition.Helper != "github-gh" {
+	if !supportsBuiltinAuthHelper(provider) {
 		return authbroker.Result{}, fault.New(
 			fault.KindUnsupported, "provider_login_unsupported",
 			"The selected provider does not support interactive login.", false,
@@ -185,63 +207,106 @@ func (r *Runtime) LoginAuth(
 	if err := r.requireAuthBroker(ctx); err != nil {
 		return authbroker.Result{}, err
 	}
-	response, err := r.runInteractiveBrokerLogin(ctx, manifest.ID, provider.ID, input, errOut)
+	response, err := r.runHostCredentialLogin(ctx, manifest.ID, provider.ID, input, errOut)
 	if err != nil {
-		return authbroker.Result{}, classifyBrokerError(err, "auth login")
+		return authbroker.Result{}, classifyHostLoginError(err, provider.ID)
 	}
 	return buildAuthResult(authbroker.TaskLogin, manifest.Name, manifest.ID, provider.ID, response, true)
-}
-
-func (r *Runtime) runInteractiveBrokerLogin(
-	ctx context.Context, contextID, provider string, input io.Reader, errOut io.Writer,
-) (brokerControlResponse, error) {
-	if !r.IsInputTerminal(input) || !r.IsTerminal(errOut) {
-		return brokerControlResponse{}, authLoginTerminalRequiredFault()
-	}
-	expectation := brokerControlExpectation{Operation: brokerControlLogin, Provider: provider}
-	args := []string{
-		"exec", "-i", "-t", authBrokerContainer,
-		"python", "-m", "authbroker.control", "login",
-		"--context-id", contextID, "--provider", provider,
-	}
-	loginContext, cancel := context.WithTimeout(ctx, brokerLoginTimeout)
-	defer cancel()
-	opener := r.browser
-	if opener == nil {
-		opener = osHostBrowserOpener{}
-	}
-	filter := newLoginOutputFilter(errOut, func(target string) error {
-		openContext, stopOpen := context.WithTimeout(loginContext, hostBrowserOpenTimeout)
-		defer stopOpen()
-		return opener.Open(openContext, target)
-	})
-	_ = r.runner.Run(loginContext, args, os.Environ(), input, filter, filter)
-	responseLine, found := filter.responseLine()
-	if found {
-		response, decodeErr := decodeBrokerControlResponse(responseLine, expectation)
-		if decodeErr == nil {
-			if response.OK {
-				return response, nil
-			}
-			if response.Error != nil && response.Error.Code != "" {
-				if response.Error.Code == "transport_error" {
-					return brokerControlResponse{}, brokerMutationOutcomeUnknown{}
-				}
-				return brokerControlResponse{}, brokerControlError{Code: response.Error.Code}
-			}
-		}
-	}
-	return brokerControlResponse{}, brokerMutationOutcomeUnknown{}
 }
 
 func authLoginTerminalRequiredFault() error {
 	return fault.New(
 		fault.KindInvalidInput,
 		"auth_login_tty_required",
-		"GitHub login requires interactive terminal streams on stdin and stderr.",
+		"Built-in provider login requires interactive terminal streams on stdin and stderr.",
 		false,
-		fault.NextAction{Command: "help auth login", Reason: "Run trusted-host GitHub login from an interactive terminal."},
+		fault.NextAction{Command: "help auth login", Reason: "Run trusted-host provider login from an interactive terminal."},
 	)
+}
+
+func supportsBuiltinAuthHelper(provider authbroker.Provider) bool {
+	if provider.Acquisition.Mode != authbroker.AcquisitionBuiltinHelper {
+		return false
+	}
+	return (provider.ID == "github" && provider.Acquisition.Helper == "github-gh") ||
+		(provider.ID == "aws" && provider.Acquisition.Helper == "aws-sso")
+}
+
+func classifyHostLoginError(err error, provider string) error {
+	if public, ok := fault.PublicCopy(err); ok {
+		return public
+	}
+	var unavailable hostCLIUnavailableError
+	if errors.As(err, &unavailable) {
+		code := provider + "_cli_unavailable"
+		name := provider
+		if provider == "github" {
+			name = "GitHub"
+		} else if provider == "aws" {
+			name = "AWS"
+		}
+		return fault.New(
+			fault.KindUnavailable, code,
+			"The trusted-host "+name+" CLI is unavailable; the previous Context credential remains unchanged.", false,
+			fault.NextAction{Command: "auth login", Reason: "Install the reviewed host CLI and retry this login."},
+		)
+	}
+	if provider == "github" {
+		if hostLoginCancelled(err) {
+			return fault.New(
+				fault.KindRejected, "github_login_cancelled",
+				"GitHub login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host GitHub login when ready."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrGitHubExecutable) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider)
+		}
+		if hostLoginFailureIsCredentialDriver(err) {
+			return fault.New(
+				fault.KindRejected, "github_login_failed",
+				"GitHub login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host GitHub login after inspecting the failure."},
+			)
+		}
+		return classifyBrokerError(err, "auth login github")
+	}
+	if provider != "aws" {
+		return classifyBrokerError(err, "auth login "+provider)
+	}
+	if errors.Is(err, credentialhost.ErrInvalidProfile) {
+		return fault.New(
+			fault.KindInvalidInput, "aws_sso_config_invalid",
+			"The AWS IAM Identity Center login configuration is invalid; the previous Context credential remains unchanged.", false,
+			fault.NextAction{Command: "help auth login", Reason: "Provide valid AWS IAM Identity Center login fields."},
+		)
+	}
+	if hostLoginTimedOut(err) {
+		return fault.New(
+			fault.KindRejected, "aws_sso_login_timeout",
+			"The bounded AWS IAM Identity Center device login timed out; the previous Context credential remains unchanged.",
+			false,
+			fault.NextAction{Command: "auth login", Reason: "Start a new AWS IAM Identity Center login and complete it within the bounded window."},
+		)
+	}
+	if hostLoginCancelled(err) {
+		return fault.New(
+			fault.KindRejected, "aws_sso_login_cancelled",
+			"AWS IAM Identity Center login was cancelled; the previous Context credential remains unchanged.", false,
+			fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host AWS IAM Identity Center login when ready."},
+		)
+	}
+	if errors.Is(err, credentialhost.ErrInvalidExecutable) {
+		return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider)
+	}
+	if hostLoginFailureIsCredentialDriver(err) {
+		return fault.New(
+			fault.KindUnavailable, "aws_sso_login_failed",
+			"AWS IAM Identity Center login did not complete; the previous Context credential remains unchanged.", false,
+			fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host AWS IAM Identity Center login after inspecting the failure."},
+		)
+	}
+	return classifyBrokerError(err, "auth login aws")
 }
 
 func (r *Runtime) ImportAuth(
@@ -286,29 +351,43 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 	if err != nil {
 		return authbroker.StatusResult{}, classifyRootKeyError(err)
 	}
+	result := authbroker.StatusResult{
+		Task: authbroker.TaskStatus, Context: manifest.Name, ContextID: manifest.ID,
+		StorageBackend: backend, BrokerState: authbroker.BrokerStateUnavailable,
+		Providers:           []authbroker.ProviderStatus{},
+		WorkspaceActivation: authbroker.WorkspaceActivation{State: authbroker.WorkspaceActivationNotApplicable},
+	}
+	for _, provider := range projection.Providers {
+		result.Providers = append(result.Providers, authbroker.ProviderStatus{
+			Provider: provider.ID,
+			State:    authbroker.ProviderCredentialUnavailable,
+		})
+	}
+	sort.Slice(result.Providers, func(left, right int) bool {
+		return result.Providers[left].Provider < result.Providers[right].Provider
+	})
+	validate := func() (authbroker.StatusResult, error) {
+		if err := result.Validate(); err != nil {
+			return authbroker.StatusResult{}, fmt.Errorf("Auth Broker status result is invalid: %w", err)
+		}
+		return result, nil
+	}
 	if _, configured, stateErr := r.LoadState(ctx); stateErr != nil {
 		return authbroker.StatusResult{}, stateErr
 	} else if !configured {
-		return authbroker.StatusResult{}, authBrokerUnavailableFault()
+		return validate()
 	}
 	state, err := r.brokerState(ctx)
 	if err != nil || state == authbroker.BrokerStateUnavailable {
-		return authbroker.StatusResult{}, authBrokerUnavailableFault()
+		return validate()
 	}
-	result := authbroker.StatusResult{
-		Task: authbroker.TaskStatus, Context: manifest.Name, ContextID: manifest.ID,
-		StorageBackend: backend, BrokerState: state, Providers: []authbroker.ProviderStatus{},
-		WorkspaceActivation: authbroker.WorkspaceActivation{State: authbroker.WorkspaceActivationNotApplicable},
-	}
+	result.BrokerState = state
 	configured := false
-	for _, provider := range projection.Providers {
-		status := authbroker.ProviderStatus{
-			Provider: provider.ID,
-			State:    authbroker.ProviderCredentialUnavailable,
-		}
+	for index := range result.Providers {
+		status := result.Providers[index]
 		if state == authbroker.BrokerStateReady {
 			response, statusErr := r.runBrokerControl(
-				ctx, nil, "status", "--context-id", manifest.ID, "--provider", provider.ID,
+				ctx, nil, "status", "--context-id", manifest.ID, "--provider", status.Provider,
 			)
 			if statusErr != nil {
 				return authbroker.StatusResult{}, classifyBrokerError(statusErr, "auth status")
@@ -326,7 +405,7 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 				status.State = authbroker.ProviderCredentialNotConfigured
 			}
 		}
-		result.Providers = append(result.Providers, status)
+		result.Providers[index] = status
 	}
 	if configured {
 		result.WorkspaceActivation = authbroker.WorkspaceActivation{
@@ -334,13 +413,7 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 			Guidance: authbroker.ContextAuthActivationGuidance,
 		}
 	}
-	sort.Slice(result.Providers, func(left, right int) bool {
-		return result.Providers[left].Provider < result.Providers[right].Provider
-	})
-	if err := result.Validate(); err != nil {
-		return authbroker.StatusResult{}, fmt.Errorf("Auth Broker status result is invalid: %w", err)
-	}
-	return result, nil
+	return validate()
 }
 
 func (r *Runtime) LogoutAuth(

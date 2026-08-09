@@ -1,8 +1,11 @@
 # External HTTP and provider contract
 
 Tobari's enforcement contract remains the generic HTTP request crossing
-Gateway. The Auth Broker adds one bounded provider-facing acquisition helper
-for GitHub.com; it does not add provider-specific policy operations or a raw
+Gateway. Reviewed trusted-host drivers add two bounded provider-facing
+acquisition flows: fixed GitHub CLI device login and fixed AWS CLI IAM Identity
+Center device login. Auth Broker owns encrypted state, handles, revisions, and
+signing; a resident private companion performs only post-policy AWS CLI
+credential export. This still adds no provider-specific policy operation or raw
 provider API surface.
 
 ## OPA input
@@ -62,50 +65,106 @@ Context/project/host/port/method/path rule is required before broker resolution.
 
 ## Body-independent authorization and streaming
 
-Gateway evaluates OPA from request headers before forwarding a body byte. It
-enables request streaming only after principal validation, credential
-preparation, policy allow, and any post-allow credential action succeed. It
-streams the corresponding upstream response after its headers arrive. Body
-presence and content therefore do not alter or split the exact
-Context/project/host/port/method/path candidate or learned rule.
+Gateway evaluates OPA from request headers before forwarding a body byte.
+Ordinary requests enable streaming only after principal validation,
+credential preparation, policy allow, and any post-allow credential action
+succeed. AWS signing requests remain unstreamed after allow until one complete
+bounded body has been hashed and signed; the body itself is not policy input.
+Responses stream after their headers arrive. Body presence and content do not
+alter or split the exact Context/project/host/port/method/path candidate or
+learned rule.
 
 Mitmproxy retains a fixed 8 MiB `body_size_limit`. A message with a known
 `Content-Length` above that value is rejected before the ordinary addon header
-hook. An allowed unknown-length body has no total-byte limit in this contract
-and is forwarded incrementally rather than buffered in full.
+hook. An allowed unknown-length ordinary body has no total-byte limit in this
+contract and is forwarded incrementally. AWS requires one unambiguous
+`Content-Length` for non-GET/HEAD requests and rejects unknown-length,
+transfer-encoded, `aws-chunked`, trailer, and over-limit forms before signing.
 
 ## Brokered-request ordering
 
-A brokered request is recognized only from the schema-1 provider projection and
+A brokered request is recognized only from the validated provider projection and
 an exact HTTPS authority/header/syntax match. A Tobari handle marker in a URL,
 cookie, header name, unsupported header value, or ambiguous syntax is rejected
 before OPA. A malformed, misplaced, ambiguous, or binding-mismatched marker
 fails as `credential_handle_invalid`; it never falls back or reaches upstream.
 Only complete absence of a Tobari marker from every inspected URL/header
 position selects the configured passthrough or managed fallback. Gateway
-removes a valid declared placeholder header from the forwardable request, then
-sends one schema-1 `introspect`
-request over `/run/tobari-auth/runtime/broker.sock`. The request binds the
-handle, stable Context/project/provider IDs, target, source header, and source
-format. The response contains only the opaque credential revision and repeated
-normalized target/source/destination/redaction metadata.
+removes valid placeholder credential fields before broker, policy, audit, or
+upstream processing.
 
-If OPA denies, Gateway never sends `resolve`. If OPA allows, Gateway sends
-exactly one schema-1 `resolve` request with every introspection dimension plus
-the returned revision. A valid response repeats the metadata and returns one
-bounded `primary_secret` as unpadded base64url. Gateway validates the entire
-response, replaces only the declared destination header, and makes one upstream
-attempt. The secret is request-local and is never included in policy input,
-audit, denial output, logs, or retry state.
+For a static schema-1 provider, Gateway sends one schema-1 `introspect` request
+over `/run/tobari-auth/runtime/broker.sock`. It binds the handle, stable
+Context/project/provider IDs, target, source header, and source format. The
+response contains only the opaque revision and repeated normalized
+target/source/destination/redaction metadata. Deny sends no `resolve`; allow
+sends exactly one same-revision `resolve`, validates the full response, replaces
+only the declared destination header, and makes one upstream attempt.
+
+For the schema-2 AWS plan, Gateway accepts only an AWS4-HMAC-SHA256 header whose
+credential and security-token placeholders contain the same project handle,
+whose scope/date/signed-header structure is unambiguous, and whose target is
+HTTPS 443 below commercial-partition `amazonaws.com` with a reviewed commercial
+region. China, GovCloud, ISO, and sovereign partitions are excluded. It sends one
+`introspect_signing` request containing the complete fixed plan and concrete
+authority. Deny triggers no further broker call. After allow and complete body
+capture, Gateway sends one `sign_sigv4` request containing the same handle,
+revision, binding, host, method, path, query, region, service, selected
+non-secret signed headers, and payload SHA-256. It sends neither body nor role
+credential. Broker repeats binding/revision checks and, before host execution,
+atomically persists the task digest in the encrypted AWS record as a durable
+no-replay barrier. It then requests one typed post-policy companion export. The fixed
+host AWS driver materializes opaque encrypted state
+in a private temporary home and runs `aws configure export-credentials
+--profile tobari --format process`. AWS CLI performs provider-native refresh
+when its session remains renewable and returns updated opaque state with the
+temporary tuple. Broker rechecks the record/revision, rejects a stale result,
+signs locally, and atomically persists the refreshed state while clearing the
+same task barrier. A crash, disconnect, malformed result, or post-execution
+failure leaves the encrypted barrier in place across restart; handle issue and
+signing perform no companion call until explicit AWS re-login or logout.
+Gateway receives only the final authorization/date/session-token fields and
+applies them atomically before one upstream attempt.
+
+Static secrets and AWS role credentials are request-local and never enter
+policy input, audit, denial output, logs, retry state, Workspace mounts, or the
+provider projection. AWS role credentials are never persisted.
 
 The request body is never a credential source or replacement surface and is
 not scanned for handle-shaped bytes. A body containing a Workspace-readable
 handle has no broker meaning and follows the ordinary body-streaming contract.
 
 The broker protocol uses strict exact-key newline-delimited JSON frames of at
-most 64 KiB and a finite Gateway timeout of 2 seconds by default, configurable
-only from 1 through 10 seconds. A protocol, timeout, socket, lock, or integrity
-failure is unavailable, not permission to fall back with the same handle.
+most 64 KiB and a finite Gateway timeout of 70 seconds by default, configurable
+only from 70 through 90 seconds. The outer deadline deliberately exceeds the
+companion's 60-second refresh hard bound plus its 5-second
+cancellation-resolution window. Broker-created refreshes use a 45-second
+default deadline so transport latency and bounded host/container clock offset
+cannot cross that hard maximum. Known pre-execution unavailability is HTTP 503
+`credential_broker_unavailable`. An explicit outcome-unknown result, a durable
+barrier, or loss/invalidity of the Broker response after `sign_sigv4` send begins
+is non-retryable HTTP 409 `credential_refresh_outcome_unknown`. Neither class
+permits fallback with the same handle. The SDK must not automatically replay
+that response. After the original request has settled, the user runs
+`auth status`: `broker_state=ready` with AWS provider state `configured`
+means no upstream attempt was made and an explicit retry of the user task is
+safe; AWS provider state `not_configured` means the durable barrier is present
+and requires AWS re-login or logout, followed by Workspace re-entry. An
+unavailable or locked status must be reconciled before making either decision.
+
+The companion opens no host/container listener. One fixed reverse
+`docker exec -i` stream reaches an image-owned byte pump and unmounted
+`/run/tobari-auth/companion/bridge.sock`. A fresh root-key-derived epoch,
+challenge, direction-specific AES-GCM keys, exact monotonically increasing
+sequence numbers, bounded frames/deadlines, and closed message schemas protect
+the stream. Each complete encrypted-frame write has a two-second deadline. A
+partial, timed-out, or failed write closes the whole session before any later
+sequence number can be used. `refresh_lease`, cancellation, ping, and drain are outcomes, not
+arbitrary argv. A replay, gap, invalid tag, unknown shape, duplicate session,
+oversize, or disconnect closes the channel; an outcome that becomes unknown
+after provider execution is not blindly replayed. `cancel_ack` acknowledges
+receipt only; exactly one correlated `refresh_result` is terminal. If no such
+result arrives within five seconds after cancellation, the outcome is unknown.
 
 ## OPA decision
 
@@ -132,8 +191,12 @@ pending state. Gateway owns audit emission.
 ## Timeouts, attempts, redirect, and retry
 
 - OPA decision timeout: 2 seconds by default, configurable up to 10 seconds.
-- Auth Broker runtime timeout: 2 seconds by default, configurable from 1 to 10
-  seconds.
+- Same-record AWS refresh lock wait: at most 1 second. Expiry is known
+  pre-execution `credential_broker_unavailable`; no task barrier or companion
+  call has occurred.
+- Auth Broker runtime timeout: 70 seconds by default, configurable from 70 to
+  90 seconds so it remains outside the companion's 60-second terminal refresh
+  bound and 5-second cancellation-resolution window.
 - Upstream connection/request timeout: 30 seconds by default, configurable up
   to 120 seconds.
 - Maximum upstream attempt count: one.
@@ -144,27 +207,28 @@ pending state. Gateway owns audit emission.
 - Cancellation closes the proxy flow and does not convert an unknown upstream
   mutation outcome into replay permission.
 
-## GitHub.com acquisition helper
+## Reviewed host credential drivers
 
-`auth login github` is the only supported provider-facing acquisition flow. A
-trusted interactive host command runs these fixed GitHub CLI operations in an
-ephemeral configuration directory:
+`auth login github` is one supported provider-facing acquisition flow. A
+trusted interactive host driver resolves a canonical GitHub CLI executable,
+binds its SHA-256 identity, and runs these fixed operations in an ephemeral
+configuration directory:
 
 ```text
-gh auth login --hostname github.com --web
+gh auth login --hostname github.com --web --insecure-storage
 gh auth status --active --hostname github.com --json hosts
 gh auth token --hostname github.com
 ```
 
 `GH_PROMPT_DISABLED=1`, `GH_BROWSER=/bin/true`, and `NO_COLOR=1` are fixed for
-the ephemeral helper environment. Ambient browser selectors are removed. The
+the ephemeral driver environment. Ambient browser selectors are removed. The
 trusted host output boundary recognizes only the exact
 `https://github.com/login/device` constant and invokes the platform opener once;
 failure retains a manual fixed-URL instruction and does not fail acquisition.
 Omitting `--git-protocol` is intentional: Auth Broker is acquiring GitHub API
 authentication and must not ask about, configure, or require Git credential
-handling. The temporary GitHub CLI plaintext-storage warning is expected for
-the private tmpfs and is the only fixed helper line withheld from public output.
+handling. Visible output is bounded and projected without exposing captured
+token or temporary configuration contents.
 
 Ambient `GH_TOKEN`, `GITHUB_TOKEN`, enterprise-token, host, and repository
 variables are removed. The login call owns the ordinary GitHub CLI web/device
@@ -176,11 +240,12 @@ pagination or automatic retry. It is bounded by the user's interactive
 completion and command cancellation; cancellation or any failed capture leaves
 the previous Context credential unchanged.
 
-This helper does not refresh tokens, select among multiple Context accounts,
+This driver does not refresh tokens, select among multiple Context accounts,
 revoke a token remotely on logout, inspect scopes, call the GitHub REST API as
-an application adapter, or interpret GitHub business operations. The GitHub CLI
-is pinned to version 2.96.0 in the Auth Broker image and its Linux amd64/arm64
-archives are checksum-verified.
+an application adapter, or interpret GitHub business operations. GitHub CLI is
+a trusted-host prerequisite, not an Auth Broker image artifact. Its canonical
+path and content digest are validated before and after the operation; the child
+inherits no companion key or channel descriptor.
 
 Owner-controlled providers use `auth import` and make no external call during
 acquisition. Their schema-1 manifests may declare an exact HTTPS header
@@ -192,6 +257,48 @@ selected existing Context, installed provider/acquisition mode, and broker
 readiness before broker send. A provider collection with overlapping exact
 scheme/host/port/source-header/source-format recognition fails completely as
 `ambiguous_provider_http_binding` rather than partially activating.
+
+`auth login aws` is the second supported flow. The host driver accepts only the
+validated start URL, SSO region, 12-digit account ID, and role described in
+[Authentication handling](07_authentication.md). It resolves a canonical AWS
+CLI executable and binds its SHA-256 identity, renders one fixed `tobari`
+profile and SSO session in a private `0700` temporary home, and runs:
+
+```text
+aws sso login --profile tobari --use-device-code --no-browser --no-cli-pager
+```
+
+The fixed profile names, output, registration scope, and configuration keys are
+driver-owned. The child inherits no ambient AWS configuration, credential,
+proxy, loader, browser, companion key, or channel descriptor. Login output and
+cache file count/name/size/JSON shape are bounded. After success the executable
+digest is rechecked, cache bytes are canonically packed, and only opaque driver
+state is committed through Auth Broker. The temporary home is removed on every
+outcome. Request region is deliberately absent; it comes from non-secret
+Context/tool configuration or an explicit AWS CLI request option.
+
+For post-policy refresh the resident companion reconstructs the same private
+home and fixed executable identity from encrypted driver state and runs:
+
+```text
+aws configure export-credentials --profile tobari --format process \
+  --no-cli-pager --cli-connect-timeout 10 --cli-read-timeout 30
+```
+
+The operation has a 45-second process bound and bounded stdout/stderr. Only
+exact process-credential JSON with a future expiration is accepted. AWS CLI
+owns its IAM Identity Center refresh and provider calls; Broker neither
+reimplements AWS OIDC/Portal endpoints nor stores a role credential. If the
+overall SSO session has expired, export fails closed and recovery is explicit
+`auth login aws`.
+
+AWS signing implements only standard header-based SigV4. Canonicalization is
+local to the broker, uses the complete body SHA-256 supplied by Gateway, adds
+the session token and current UTC timestamp, and returns no secret key. SigV4a,
+query presigning, streaming/chunked/EventStream signing, redirects, custom or
+private endpoints, normalization-sensitive paths, and unsigned extra
+`x-amz-*` headers fail closed. The supported algorithm follows the AWS
+[Signature Version 4 process](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html).
 
 ## Gateway audit
 
@@ -218,22 +325,30 @@ command argument. Non-learnable policy denial advertises no review command.
 A copied, malformed, stale, revoked, ambiguous, or Context/project/provider/
 target/header-mismatched or structurally misplaced handle returns HTTP 403 with
 `credential_handle_invalid`. A locked or unavailable broker, socket timeout,
-invalid response, inconsistent revision, or malformed secret returns HTTP 503
+invalid response, inconsistent revision, companion disconnect/outcome
+uncertainty, refresh/role/signing failure, or
+malformed secret returns HTTP 503
 with `credential_broker_unavailable`. Every Tobari-looking marker follows one of
 those fail-closed paths unless it is a valid exact broker candidate; fallback
 requires that no marker exists anywhere inspected. Gateway removes a valid
 candidate before broker/OPA processing, so a failed candidate cannot reach OPA
 logs, denial output, or upstream.
+An unsupported or ambiguous AWS signing form returns HTTP 403
+`broker_signing_request_invalid`; the placeholder authorization and session
+token are removed before the response.
 OPA unavailability or malformed decisions return 503 `policy_unavailable`.
 Other Gateway normalization failures remain secret-free 4xx/5xx failures.
 
 ## Schema and compatibility
 
 The OPA input schema version `5`, audit schema version `2`, decision fields,
-timeouts, attempt count, provider manifest/projection schema `1`, broker
-control/runtime schema `1`, encrypted vault schema `1`, handle prefix
-`tobari-h1_`, and Auth Broker image API label `1` are explicit pre-v1
-compatibility boundaries. Gateway does not accept former OPA input shapes,
+timeouts, attempt count, owner provider schema `1`, built-in/projection schema
+`2`, broker control/runtime schema `1`, private companion epoch/frame schema
+`1`, encrypted vault envelope schema `1` and payload schema `2`, handle prefix
+`tobari-h1_`, and Gateway/Auth Broker image
+API labels `2` are explicit pre-v1 compatibility boundaries. Valid schema-1 static
+provider projections and vault payloads remain readable through their strict
+compatibility/migration paths. Gateway does not accept former OPA input shapes,
 incomplete decisions, or unknown broker frames.
 Public auth backend values are exactly `macos_keychain|xdg_file`, and cluster
 status may additionally report `unavailable`; the infrastructure/doctor label
@@ -251,12 +366,14 @@ shapes. Guided Contexts share one system evaluator, while Advanced source is
 projected into a Context-ID package and cannot claim router or system
 namespaces.
 
-No upstream provider response fixture is vendored. The repository-authored
+No live upstream provider response fixture is vendored. The repository-authored
 synthetic provider manifest is pinned as `auth-provider.v1` in
 `.harness/schemas.json` with MIT provenance and an exact digest. GitHub status
-tests use synthetic JSON and mock subprocess results. A live GitHub login is
-manual release evidence and may not be recorded with tokens, device codes,
-vaults, or raw authenticated output.
+tests use synthetic JSON and mock host subprocess results. AWS tests use
+synthetic credential-process JSON, opaque cache fixtures, fake companion
+frames, and signing canaries. Live GitHub and AWS logins are
+manual release evidence and may not be recorded with tokens, SSO state, role
+credentials, signed headers, device codes, vaults, or raw authenticated output.
 
 ## Policy testing
 
@@ -264,8 +381,12 @@ Pinned OPA tests prove schema-5 rejection of older or incomplete input,
 deny-by-default behavior, structured authority and port boundaries,
 body-independent decisions, Context/project-bound learned rules, null versus
 broker-provider authorization metadata, and managed profile binding. Gateway
-tests independently prove handle removal, deny-before-resolve, exact
-post-allow replacement, and fallback compatibility.
+tests independently prove handle removal, deny-before-resolve/sign, exact
+static replacement, two-stage same-revision AWS signing after allow and
+complete-body hashing, zero companion calls on deny, one bounded host export on
+allow, stale refresh rejection, and fallback compatibility. Companion tests
+prove authenticated direction/sequence/replay/frame contracts and no listener
+or host socket mount.
 Fallback tests require marker absence in every inspected URL/header position;
 audit tests require query/header omission, whole-path marker redaction, and
 non-learnable structural handle rejection.

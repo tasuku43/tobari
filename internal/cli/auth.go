@@ -237,9 +237,9 @@ func renderAuthStatus(result authbroker.StatusResult, format successFormat, colo
 func renderAuthResultText(result authResultProjection, color bool) []byte {
 	output := newHumanOutput(color)
 	if result.Configured {
-		output.heading("✓", "Context authentication configured", styleSuccess)
+		output.heading("✓", "Context credential configured", styleSuccess)
 	} else {
-		output.heading("○", "Context authentication not configured", styleMuted)
+		output.heading("○", "Context credential not configured", styleMuted)
 	}
 	output.row("Context", safeExternalText(result.Context), styleText)
 	output.row("Context ID", result.ContextID, styleText)

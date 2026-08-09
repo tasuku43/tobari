@@ -83,6 +83,9 @@ trusted host
   Tobari CLI ── Docker CLI ── Docker Engine
        │
        ├── fixed control exec/stdin ────────────────┐
+       ├── reviewed fixed host GitHub/AWS login drivers
+       ├── private credential companion ── fixed host AWS refresh driver
+       │       └── encrypted reverse docker exec ── Broker-private bridge
        ├── root A (rw) ── CWD-owned Tobari A ── internal network A ──┐
        └── root B (rw) ── CWD-owned Tobari B ── internal network B ──┤
                                                                  ▼
@@ -99,7 +102,9 @@ trusted host
 Each Tobari has its own internal network and persistent XDG home directory.
 Gateway alone joins that project network. OPA joins only the shared control
 network. Auth Broker joins control and egress but has no TCP listener and never
-joins a project network; only Gateway mounts its runtime Unix socket. A program
+joins a project network; only Gateway mounts its runtime Unix socket. The host
+companion opens no listener and reaches only an unmounted Broker-private socket
+through one authenticated reverse exec stream. A program
 that ignores the proxy has no external route; one Tobari cannot directly reach
 OPA, Auth Broker, or another Tobari.
 
@@ -405,6 +410,12 @@ image on the next `tobari` entry without losing their home.
 - `credential_handle_invalid` (HTTP 403): leave and re-enter the Workspace to
   receive the current project-bound handle. `credential_broker_unavailable`
   (HTTP 503) requires host-side `cluster up` before another request.
+- `credential_refresh_outcome_unknown` (HTTP 409): do not rely on AWS automatic
+  retry. After the request settles, run `tobari auth status`. If
+  `broker_state=ready` and AWS is `configured`, Gateway made no upstream
+  attempt and you may explicitly retry the task. If AWS is `not_configured`,
+  repeat `tobari auth login aws` (or logout), then leave and re-enter the
+  Workspace; that state identifies a durable refresh barrier.
 - A learnable `403`: leave the session and run `tobari policy review`. On a TTY,
   inspect the request and explicitly confirm allow or deny; the review flow
   applies the exact decision and tells you to re-enter. Redirected or machine
@@ -439,10 +450,10 @@ Cluster cleanup preserves encrypted Context vaults and the installation root
 key. `--purge` additionally removes only shared CA volumes; use `auth logout`
 for credential deletion and handle revocation.
 
-The base runtime already carries common Git, HTTP, JSON, Python, SSH, and
-command-line tools. Install additional tools through the current Context recipe
-when they should be part of a reusable Context; tool-native authentication
-state remains below each Tobari's persistent home.
+The published base runtime keeps its existing Git, HTTP, JSON, Python, SSH,
+GitHub CLI, and AWS CLI baseline. Install user- or team-specific tools through
+the current Context recipe or the optional local toolbox; tool-native
+authentication state remains below each Tobari's persistent home.
 
 ### Lifecycle and image reference
 
@@ -555,8 +566,8 @@ their named shell/exec forms) are rejected with a replacement message; they do
 not create a second lifecycle model. Legacy named state is not guessed or
 automatically migrated.
 
-The base runtime bundles the common work tools shared by supported agents:
-Git, GitHub CLI, AWS CLI, curl, jq, Python, and SSH. Official agent variants
+The base runtime bundles the existing common work-tool baseline: Git, GitHub
+CLI, AWS CLI, curl, jq, Python, and SSH. Official agent variants
 such as Claude and Codex add only their agent-specific tool and dependencies.
 These images are convenience starting points; they do not change Tobari's
 isolation or lifecycle boundary. The base image is published on main pushes as
@@ -568,19 +579,27 @@ root. The per-Tobari home survives shell exit and runtime recovery.
 
 ### Specialized CLI toolbox
 
-The base runtime already contains the common GitHub and AWS tools. Repeated
-cluster or Atlassian exercises can use the optional local toolbox image for
-specialized tools such as kubectl, TWG, rsync, and DNS utilities. Build and
-validate it on the trusted host:
+The optional local toolbox image adds `kubectl`, `cwk`, `twg`, and `pup` to the
+published base's existing GitHub CLI and AWS CLI. It is a Context-selectable
+local image, not an expansion of the published base or Auth Broker image. TWG
+remains local-only because an affirmative public redistribution grant has not
+been recorded. Build and validate it on the trusted host:
 
 ```sh
 task toolbox:build
-cd quickstart-example
+tobari context create --name toolbox --image tobari-toolbox:local
+tobari context use --name toolbox
+cd your-project
 tobari
 ```
 
-Set it once as the usual image by changing the owner-only XDG
-`config.json`:
+This is the working path when the `default` Context already exists: the newly
+selected `toolbox` Context becomes the default for new Workspace bindings
+without rewriting the existing Context manifest. Existing Workspaces retain
+their original Context binding.
+
+Only before the first `default` Context is initialized, the owner-only XDG
+`config.json` can seed that Context directly:
 
 ```json
 {
@@ -596,11 +615,20 @@ local and optional: Tobari does not pull it implicitly or rebuild it during
 ordinary root invocation.
 
 The toolbox contains no credentials and does not mount host CLI configuration.
-Authenticate deliberately within the isolated environment; the resulting
-tool-owned state stays in that Tobari's persistent home. AWS SigV4 and OAuth
-refresh remain tool/provider behavior outside Tobari's contract. Git over HTTPS
+Use Auth Broker where an exact supported provider binding exists; otherwise
+tool-owned state stays in that Tobari's persistent home. Static Chatwork,
+Datadog, and Kubernetes credentials use bounded broker manifests. TWG delegated
+OAuth is supported only by the bounded owner-manifest example for calls that
+remain on `api.atlassian.com:443`, with no login or refresh claim; general TWG
+authentication remains unsupported. Git over HTTPS
 uses the Gateway; Git over SSH and other non-HTTP transports have no direct
 egress route.
+
+`cwk` keeps its command-selection preference in the persistent Workspace
+home. On first entry run `cwk config` once in an interactive terminal, select
+the Chatwork commands the agent may see, and press Enter to save. The selection
+survives detach and re-entry; `CWK_API_TOKEN` remains an opaque Broker handle,
+not a Chatwork token.
 
 ### Explicit image compatibility path
 
@@ -827,8 +855,8 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 
 | Command | Outcome |
 |---|---|
-| `tobari cluster up` | Build and validate all-Context policy/provider projections, reconcile exactly one shared Gateway, OPA, and Auth Broker, then unlock the broker |
-| `tobari cluster status [--format text\|json]` | Show three-service readiness, Context count, aggregate revision, policy/provider projection integrity, root-key backend, project count, and diagnostics |
+| `tobari cluster up` | Build and validate all-Context policy/provider projections, reconcile exactly one shared Gateway, OPA, and Auth Broker, unlock the broker, and start its resident host credential companion |
+| `tobari cluster status [--format text\|json]` | Show three-service and companion readiness, Context count, aggregate revision, policy/provider projection integrity, root-key backend, project count, and diagnostics |
 | `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and review command |
 | `tobari cluster logs [--component auth-broker\|gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence without credential contents |
 | `tobari cluster down [--purge]` | Remove an empty cluster while preserving Auth Broker vaults/root key; purge additionally removes shared CA state |
@@ -849,7 +877,7 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari context use --name NAME` | Change only the current/default Context without mutating existing Tobari or Docker |
 | `tobari runtime init [--format text\|json]` | Create the current Context's runtime/Dockerfile template |
 | `tobari runtime build [--format text\|json]` | Build, validate, and select the current Context runtime image |
-| `tobari auth login PROVIDER [--context NAME] [--format text\|json]` | Acquire one supported provider credential through a trusted-host helper; currently `github` |
+| `tobari auth login PROVIDER [--context NAME] [--format text\|json]` | Acquire one supported provider credential through a reviewed fixed trusted-host CLI driver; built-ins are `github` and AWS IAM Identity Center `aws` |
 | `tobari auth import PROVIDER [--context NAME] [--format text\|json]` | Import one bounded opaque provider credential from protected non-terminal stdin only |
 | `tobari auth status [--context NAME] [--format text\|json]` | Inspect exhaustive secret-free provider and broker state for one Context |
 | `tobari auth logout PROVIDER [--context NAME] [--format text\|json]` | Remove one local Context/provider credential and revoke every issued handle without remote logout |
@@ -860,6 +888,11 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari doctor [--root PATH] [--format text\|tsv\|json]` | Diagnose Docker, paths, policy, root-key/broker/provider state, managed-secret permissions, and residue |
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version` | Print build identity |
+
+`cluster status --format json` is schema 4 and always includes
+`credential_companion_state` as `ready`, `prepared`, `absent`, or `unavailable`;
+it describes the private
+host process/channel, not a fourth Compose service or credential value.
 
 `cluster status`, `cluster denials`, `policy candidates`, `policy tail`,
 `policy compactions`, `status`, `list`, and `doctor` are observational and
@@ -1049,8 +1082,9 @@ These are examples; the boundary applies to any tool that stores its own
 authentication state in the Tobari home. The state survives runtime recovery,
 is isolated from other Tobaris, and is removed by exact `tobari delete`.
 
-The Auth Broker path instead acquires one credential on the trusted host for an
-explicit or current Context. The built-in provider is GitHub.com:
+The Auth Broker path instead acquires one typed credential on the trusted host
+for an explicit or current Context. Reviewed interactive built-ins are
+GitHub.com and AWS IAM Identity Center:
 
 ```sh
 tobari cluster up
@@ -1061,16 +1095,44 @@ tobari                 # re-enter this Context's Workspace
 gh api user            # succeeds only when OPA allows the exact HTTP request
 exit
 tobari auth logout github --context default
+
+tobari auth login aws --context default
+tobari                 # re-enter this Context's Workspace
+aws sts get-caller-identity --region us-east-1 # or use Context-owned AWS region configuration
+exit
+tobari auth logout aws --context default
 ```
 
-`auth login github` runs the pinned GitHub CLI's ordinary web login inside the
-broker with ephemeral configuration. Tobari opens the fixed GitHub device page
-from the trusted host when possible; on a headless host it leaves the exact URL
-for manual use. The broker neither opens a host browser nor configures Git, and
-the expected temporary plaintext GitHub CLI file is deleted after capture
-without being presented as persistent storage. The token is captured
-internally; only a bounded account label and opaque credential revision may
-appear in output.
+`auth login github` runs a reviewed fixed driver around the trusted host's
+GitHub CLI in a private temporary configuration directory. It verifies the
+selected executable identity, disables ambient credentials and browser
+selection, opens only the fixed GitHub device page when possible, and removes
+the temporary state after capturing one bounded API token. Auth Broker stores
+the token; neither the host CLI nor the broker configures Git transport.
+`auth login aws` similarly uses a reviewed fixed driver around the trusted
+host's AWS CLI. It asks for the classic commercial IAM Identity Center
+`https://<label>.awsapps.com/start` URL, reviewed commercial SSO region,
+12-digit account ID, and role, then runs the fixed device-code login in a
+private temporary AWS home. The resulting opaque AWS CLI cache is encrypted in
+the Context vault. Request region is ordinary non-secret Context/tool
+configuration or an explicit AWS CLI option; login does not store a default
+request region. China, GovCloud, ISO, sovereign partitions, and newer portal
+URL forms are excluded from this first driver.
+
+After `cluster up`, a resident private companion uses the same Tobari binary
+and an authenticated encrypted reverse `docker exec` channel to serve only
+reviewed credential-driver operations. It opens no host listener and mounts no
+host socket or CLI home into a container. Only after OPA allows a bounded AWS
+request does Auth Broker ask the companion to run the fixed host
+`aws configure export-credentials --format process` operation. Renewable IAM
+Identity Center state refreshes automatically while the upstream session
+remains valid; an expired overall session requires `auth login aws` again.
+Temporary role credentials return only to Auth Broker for one standard SigV4
+header set and are never stored or projected. AWS CLI in the Workspace receives
+the same opaque handle in its three credential variables, not real AWS keys.
+This API-v2 implementation cannot be released against the currently pinned
+API-v1 Gateway/Auth Broker images. Publishing compatible indexes and promoting
+their immutable digests is a separate explicitly authorized release action.
 The real credential is encrypted at
 `auth/contexts/<context-id>/vault.enc`. macOS stores the installation root key
 in Keychain service `io.tobari.auth-root.v1`; Linux uses owner-only XDG state
@@ -1084,21 +1146,27 @@ Public backend values are `macos_keychain` and `xdg_file`; the
 Credential ownership is Context-wide. Every project permanently bound to that
 Context is eligible, but each receives a distinct `tobari-h1_...` handle only
 on its next matching Workspace entry. The handle is bound to its Context,
-project, provider, credential revision, and exact HTTPS/header contract. For
+project, provider, credential revision, and complete exact binding. For
 GitHub this is projected as `GH_TOKEN`, with
 `GH_HOST=github.com`; it is not the real token. Gateway removes the handle,
 performs non-secret introspection, asks OPA about the body-free HTTP effect,
-and resolves the primary secret exactly once only after allow. Denial performs
-no resolution. A copied, stale, malformed, revoked, or mismatched handle fails
+and resolves a static primary secret exactly once only after allow. For AWS it
+instead hashes the complete bounded body after allow and asks the broker for
+one same-revision SigV4 result. Broker validates the encrypted driver state,
+uses the companion for at most one bounded host credential export, rechecks the
+revision, persists any refreshed opaque cache, and signs locally. Denial
+performs no companion call, resolution, AWS refresh, role acquisition, or
+signing. A copied, stale, malformed, revoked, or mismatched handle fails
 with `credential_handle_invalid` and is never forwarded.
 
 The built-in broker route authenticates GitHub API operations, not Git
 transport. `gh api`, `gh issue`, and `gh pr` use the projected handle. Public
 unauthenticated Git-over-HTTPS may still follow ordinary policy, but private
 `git clone`, `fetch`, and `push` need a credential-helper capability that is
-not yet supported. Repository `.git/config` and optional global Git identity
-configuration belong to the Workspace; no host or Broker Git configuration is
-copied into it.
+not yet supported. Repository `.git/config` and Workspace-authored global Git
+configuration remain inside the Workspace boundary. `config git` may add only
+the lower-precedence identity fallback described above; Auth Broker never owns
+it, and neither host nor Broker Git authentication configuration is copied in.
 
 Login, import, replacement, and logout cannot rewrite a running process, so
 successful output says `workspace_reentry_required`. Leave and re-enter the
@@ -1127,10 +1195,25 @@ environment/complete-file templates and exact HTTPS header transformations;
 they cannot add policy, arbitrary routes, methods/paths, refresh, signing,
 provider operations, or a built-in override.
 
+Built-in protected-stdin providers support cwk at exact
+`api.chatwork.com:443` through `CWK_API_TOKEN`, and pup's bearer-token commands
+at exact US1 `api.datadoghq.com:443` through `DD_ACCESS_TOKEN`. Import values
+with `tobari auth import chatwork|datadog`, then re-enter the Workspace.
+
+The repository also includes bounded owner-manifest examples for kubectl and
+TWG. The Kubernetes example creates one complete CA-verified kubeconfig for one
+exact public DNS API server and static bearer token; exec/OIDC/client-cert,
+private endpoints, and multi-cluster discovery are excluded. The TWG example
+uses a caller-supplied `TWG_OAUTH_ACCESS_TOKEN` only for calls staying on exact
+`api.atlassian.com:443`; Tobari does not perform TWG login/refresh or claim
+federated/site/Bitbucket/media coverage. Follow each example README before
+installing it under `auth/providers/`.
+
 Handles are random capabilities rather than token hashes: they do not expose
 whether two Contexts use the same upstream token, do not depend on provider
 token format, and can be revoked independently. Arbitrary manifest commands
-would execute untrusted code inside the broker, while request-wide replacement
+would execute untrusted code in trusted host infrastructure, while request-wide
+replacement
 would make unrelated URL/body/cookie/header bytes ambiguous, so v1 rejects
 both.
 
@@ -1199,10 +1282,12 @@ cases.
   certificates; those applications fail rather than bypass Gateway.
 - HTTP/3/QUIC, raw TCP, UDP, Git SSH, and other non-HTTP protocols are
   unsupported.
-- Brokered authentication does not provide token refresh, remote provider
-  logout, multiple accounts per Context, Git credential helpers, GitHub App
-  tokens, arbitrary OAuth, AWS SigV4, request signing, or provider-operation
-  policy semantics.
+- Brokered authentication does not provide general token refresh, remote
+  provider logout, multiple accounts or roles per provider/Context, Git
+  credential helpers, GitHub App tokens, arbitrary OAuth, manifest-selected
+  signing, SigV4a, AWS presigning/streaming/custom endpoints, or
+  provider-operation policy semantics. AWS IAM Identity Center refresh and
+  bounded standard SigV4 are the sole reviewed dynamic plan.
 
 ## Troubleshooting
 
@@ -1236,7 +1321,7 @@ Common failures:
   `mutation_output_write_failed`: the broker may have committed or confirmed
   completion could not be delivered. Do not repeat login, import, or logout;
   run `tobari auth status` and reconcile the selected Context first.
-- `auth_login_tty_required`: run trusted-host GitHub login with interactive
+- `auth_login_tty_required`: run trusted-host GitHub or AWS login with interactive
   stdin and stderr. `invalid_credential_input` on terminal stdin means import
   refused before reading; pipe or redirect a trusted no-echo source.
 - `root_key_missing_with_vault`: restore the original macOS Keychain item or
@@ -1250,6 +1335,10 @@ Common failures:
 - `credential_handle_invalid` (HTTP 403): leave and re-enter the selected
   Context's Workspace. `credential_broker_unavailable` (HTTP 503) requires
   host-side broker reconciliation before another request.
+- `credential_refresh_outcome_unknown` (HTTP 409): do not replay the AWS task;
+  after it settles, run `tobari auth status`. Explicitly retry only when
+  `broker_state=ready` and AWS is `configured`; for `not_configured`, repeat
+  `tobari auth login aws` (or logout) and re-enter first.
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`.
 - `tty_required`: run the root `tobari` command from an interactive terminal.
@@ -1313,20 +1402,21 @@ deny-before-resolution, fail-closed outages, CWD resolution, runtime recovery,
 typed denial recovery, tested host-policy activation, terminal exit behavior,
 concurrency, idempotency, and exact cleanup. Automated auth tests use only
 synthetic credentials; `task integration:test` is the required reproducible
-Auth Broker proof. Live GitHub login is the separate manual release scenario,
-including a no-print equality check that `gh auth token --hostname github.com`
-returns the exact projected `GH_TOKEN` handle, in
+Auth Broker proof. Live GitHub and AWS logins are separate manual release
+scenarios, including no-print equality checks for the projected GitHub and AWS
+handles, in
 [Agent Readiness Validation](docs/09_agent_readiness_validation.md).
 
 ## MVP exclusions
 
 The MVP excludes multiple clusters, process-level identity, transparent
 proxying, raw TCP/UDP/QUIC, Git SSH semantic inspection, provider-operation
-adapters, arbitrary executable provider helpers, AWS SigV4, OAuth refresh,
-GitHub App tokens, remote token revocation, multiple provider accounts per
-Context, Git credential helpers, approval workflows, policy engines other than
-OPA, Kubernetes, filesystem overlays, private clone mode, GUI, remote
-execution, and production multi-tenancy. macOS Keychain is used narrowly for
+adapters, arbitrary executable provider helpers, general OAuth refresh or
+signing, SigV4a, AWS presigning/streaming/custom endpoints, GitHub App tokens,
+remote token revocation, multiple provider accounts or roles per Context, Git
+credential helpers, approval workflows, policy engines other than OPA, general
+Kubernetes authentication/transport, filesystem overlays, private clone mode,
+GUI, remote execution, and production multi-tenancy. macOS Keychain is used narrowly for
 the installation Auth Broker root key; it is not mounted into a Workspace or a
 general provider-keychain integration.
 

@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import shutil
-import socket
 import stat
 import tempfile
 import threading
@@ -25,7 +24,6 @@ from authbroker.daemon import (
     _owned_by_service as daemon_owned_by_service,
     _protect_socket,
 )
-from authbroker.github_auth import GitHubLoginError, acquire_github_credential
 from authbroker.protocol import (
     MAX_FRAME_BYTES,
     ProtocolError,
@@ -161,7 +159,7 @@ class VaultTests(unittest.TestCase):
             vault_module._associated_data(CONTEXT_A),
         )
         payload = json.loads(plaintext)
-        payload["schema_version"] = 2
+        payload["schema_version"] = 3
         new_nonce = os.urandom(12)
         envelope["nonce"] = vault_module._b64encode(new_nonce)
         envelope["ciphertext"] = vault_module._b64encode(
@@ -174,6 +172,30 @@ class VaultTests(unittest.TestCase):
         write_document(path, envelope)
         with self.assertRaisesRegex(VaultError, "vault_version_unsupported"):
             self.store.load(CONTEXT_A, KEY)
+
+    def test_schema_one_payload_is_strictly_migrated_on_read(self) -> None:
+        record = new_record(CANARY)
+        del record["credential_kind"]
+        legacy = {"schema_version": 1, "providers": {"github": record}}
+        self.store.save(CONTEXT_A, KEY, empty_payload())
+        path = self.root / CONTEXT_A / "vault.enc"
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        nonce = os.urandom(12)
+        envelope["nonce"] = vault_module._b64encode(nonce)
+        envelope["ciphertext"] = vault_module._b64encode(
+            AESGCM(KEY).encrypt(
+                nonce,
+                json.dumps(legacy, separators=(",", ":"), sort_keys=True).encode(),
+                vault_module._associated_data(CONTEXT_A),
+            )
+        )
+        write_document(path, envelope)
+        loaded = self.store.load(CONTEXT_A, KEY)
+        self.assertEqual(loaded["schema_version"], 2)
+        self.assertEqual(
+            loaded["providers"]["github"]["credential_kind"],
+            "static_primary_secret",
+        )
 
     def test_atomic_failure_preserves_prior_valid_vault(self) -> None:
         original = self.payload(b"first-value")
@@ -513,84 +535,6 @@ class ProtocolTests(unittest.TestCase):
                 server.server_close()
                 thread.join()
 
-
-class GitHubHelperTests(unittest.TestCase):
-    def test_github_login_avoids_container_browser_and_git_setup_then_cleans_tmpfs(self) -> None:
-        calls: list[tuple[list[str], dict[str, object]]] = []
-
-        def runner(argv: list[str], **kwargs: object) -> SimpleNamespace:
-            calls.append((argv, kwargs))
-            if argv[2] == "login":
-                self.assertNotIn("stdout", kwargs)
-                return SimpleNamespace(returncode=0)
-            if argv[2] == "status":
-                return SimpleNamespace(
-                    returncode=0,
-                    stdout=b'{"hosts":{"github.com":[{"active":true,"login":"octo-user","state":"success"}]}}',
-                )
-            return SimpleNamespace(returncode=0, stdout=CANARY + b"\n")
-
-        with tempfile.TemporaryDirectory() as temporary:
-            token, account_label = acquire_github_credential(
-                runner=runner, gh_command="/mock/gh", temporary_root=temporary
-            )
-            self.assertEqual(token, CANARY)
-            self.assertEqual(account_label, "octo-user")
-            self.assertEqual(list(Path(temporary).iterdir()), [])
-        self.assertEqual(
-            calls[0][0],
-            [
-                "/mock/gh",
-                "auth",
-                "login",
-                "--hostname",
-                "github.com",
-                "--web",
-            ],
-        )
-        self.assertEqual(
-            calls[1][0],
-            [
-                "/mock/gh",
-                "auth",
-                "status",
-                "--active",
-                "--hostname",
-                "github.com",
-                "--json",
-                "hosts",
-            ],
-        )
-        self.assertEqual(calls[2][0], ["/mock/gh", "auth", "token", "--hostname", "github.com"])
-        self.assertNotIn("GH_TOKEN", calls[0][1]["env"])
-        self.assertEqual(calls[0][1]["env"]["GH_PROMPT_DISABLED"], "1")
-        self.assertEqual(calls[0][1]["env"]["GH_BROWSER"], "/bin/true")
-        self.assertEqual(calls[0][1]["env"]["NO_COLOR"], "1")
-
-    def test_cancel_never_attempts_token_capture(self) -> None:
-        calls = 0
-
-        def runner(_: list[str], **__: object) -> SimpleNamespace:
-            nonlocal calls
-            calls += 1
-            return SimpleNamespace(returncode=130)
-
-        with tempfile.TemporaryDirectory() as temporary:
-            with self.assertRaisesRegex(GitHubLoginError, "login_cancelled"):
-                acquire_github_credential(
-                    runner=runner, gh_command="/mock/gh", temporary_root=temporary
-                )
-            self.assertEqual(calls, 1)
-
-    def test_failed_login_is_not_reported_as_user_cancellation(self) -> None:
-        def runner(_: list[str], **__: object) -> SimpleNamespace:
-            return SimpleNamespace(returncode=1)
-
-        with tempfile.TemporaryDirectory() as temporary:
-            with self.assertRaisesRegex(GitHubLoginError, "login_failed"):
-                acquire_github_credential(
-                    runner=runner, gh_command="/mock/gh", temporary_root=temporary
-                )
 
 
 if __name__ == "__main__":

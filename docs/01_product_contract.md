@@ -23,7 +23,10 @@ unrestricted network egress. Tool-native authentication may be created inside
 the selected Tobari's own persistent home. The supported brokered path instead
 acquires one credential on the trusted host for a Context, stores it in an
 encrypted vault, and gives each eligible Workspace only a distinct bound
-handle; host home and CLI authentication state are never copied in.
+handle; host home and CLI authentication state are never copied in. A separate
+narrow-projection boundary may re-encode only thesis-declared non-secret
+scalars; it never copies their source file, directive, executable setting, or
+authentication material.
 The user-facing entry point is the current project directory: a Tobari either
 exists or does not exist, and the user should not need to manage container
 names, network IDs, or policy internals for routine work. `cluster up` remains
@@ -68,7 +71,8 @@ non-learnable and cannot become policy candidates.
   lifecycle and list output. It is not a second runtime resource; its identity
   remains the canonical root and its stable Tobari ID remains diagnostic.
 - **cluster:** the one installation-local Gateway, one OPA, one locked Auth
-  Broker, aggregate policy and provider projections, principal registry,
+  Broker, one resident host credential-companion lifecycle, aggregate policy
+  and provider projections, principal registry,
   Context-scoped managed-credential projection, and CA lifecycle.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
@@ -94,20 +98,32 @@ non-learnable and cannot become policy candidates.
   network. Caller headers, Context names, and profile names are not principals.
 - **tool-owned authentication state:** files written by a tool or agent below
   one Tobari's persistent home during its own login or configuration flow.
-- **brokered credential:** one opaque primary secret owned by a stable Context
-  and provider, acquired through a trusted-host login or protected non-terminal
-  stdin and
-  stored only in the Context's encrypted vault.
+- **brokered credential:** one typed credential record owned by a stable Context
+  and provider. A static provider stores one opaque primary secret acquired
+  through protected non-terminal stdin or the reviewed host GitHub driver. The
+  AWS provider stores encrypted opaque AWS CLI state acquired through the
+  reviewed host device flow; derived role credentials are transient and are
+  never persisted.
+- **credential companion:** one resident trusted-host process entered through
+  the current Tobari executable's private same-binary mode. It accepts only the
+  reviewed post-policy AWS refresh operation and exchanges bounded
+  authenticated frames with an unmounted Broker-private socket over a reverse
+  `docker exec` stream. Interactive GitHub/AWS login runs through direct
+  context-bound host drivers, not companion RPC. The companion has no public
+  command, host listener, provider-selected executable, or Workspace-visible
+  secret surface.
 - **Workspace credential handle:** a versioned random opaque value bound to one
   Context, project, provider, credential revision, and exact HTTP binding. It
   is not the real credential and is not authority without the trusted
   principal and OPA allow. Broker metadata never inherits a broad static
   host/method allow; the first exact L7 effect remains reviewable until an
   exact learned rule exists.
-- **provider manifest:** strict schema-v1 non-secret data declaring acquisition,
-  Workspace handle projections, and exact HTTPS header transformations. It
-  declares no executable shell, arbitrary route, HTTP method/path policy,
-  refresh, signing, or provider operation semantics.
+- **provider manifest:** strict non-secret data declaring acquisition,
+  Workspace handle projections, and exact credential bindings. Owner manifests
+  remain schema v1 static-secret/header plans. Schema v2 is reserved for
+  reviewed built-ins and may name one typed credential/signing plan; it still
+  declares no executable shell, arbitrary route, HTTP method/path policy, or
+  provider operation semantics.
 - **credential profile:** non-secret Gateway configuration for the retained
   managed adapter; it binds a Context-scoped profile name to exact hosts and
   project principals.
@@ -126,6 +142,9 @@ non-learnable and cannot become policy candidates.
   Workspace.
 - **agent profile:** read-only non-secret shared agent configuration referenced
   by a Context. It is not tool-owned login state.
+- **narrow projection:** one fixed Context-owned allowlist of validated
+  non-secret scalar fallbacks. The source file, path, directives, executable
+  settings, credentials, and undeclared keys never enter the Workspace.
 
 Stable Tobari and Context IDs are not trusted when supplied by a work
 container. The host-owned principal registry derives both from the Gateway
@@ -143,12 +162,12 @@ The public commands are:
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version` | utility | read | Print build identity |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, provider-manifest, root-key/vault, broker/project-handle, managed-secret, port, and residue diagnostics without repairing state |
-| `cluster up` | act, fixed target | create | Validate all Context policy/provider inputs and image contracts, reconcile Gateway, OPA, and Auth Broker, then unlock the broker |
+| `cluster up` | act, fixed target | create | Validate all Context policy/provider inputs and image contracts, reconcile Gateway, OPA, and Auth Broker, unlock the broker, and start its resident host credential companion |
 | `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it, and leave it reusable after `exit` |
 | `status [--context NAME]` | utility | read | Inspect the nearest current-directory Tobari in the explicit or current Context and its diagnostic runtime state |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari in the explicit or current Context when detached; use `--force` to override an attached-session guard |
-| `cluster status [--format text|json]` | utility | read | Inspect three-service health, loaded Context count, aggregate revision, policy/provider projection integrity, root-key backend, and recent errors |
+| `cluster status [--format text|json]` | utility | read | Inspect three-service and companion health, loaded Context count, aggregate revision, policy/provider projection integrity, root-key backend, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|auth-broker|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential or handle output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted while preserving Auth Broker vaults and the installation root key; `--purge` additionally removes only shared CA volumes |
@@ -163,15 +182,26 @@ The public commands are:
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `context list [--format text|json]` | utility | read | List named Contexts with stable IDs and identify the current default |
 | `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's agent, policy, managed-adapter store references, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
-| `context shell configure --variable COLORTERM\|NO_COLOR\|PS1\|TERM --source default\|inherit\|literal [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable for the explicit or current Context; the next shell session applies it |
+| `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or collect a wholly omitted setting group through a text terminal wizard |
+| `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or collect a wholly omitted setting group through a text terminal wizard |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced]` | act, fixed target | create | Create one named Context with a runtime image and separate owner-only stores |
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
-| `auth login PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Acquire one supported provider credential through a trusted-host helper for the explicit or current Context |
+| `auth login PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; `aws` uses a fixed classic-portal commercial IAM Identity Center device-code profile |
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
 | `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection and broker state for one Context without reading secrets |
 | `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles without contacting the provider |
+
+`cluster status --format json` uses output schema 4. Its `cluster` object keeps
+the three shared container components and adds always-present secret-free
+`credential_companion_state`, exactly `ready`, `prepared`, `absent`, or
+`unavailable`. The field reports the resident host process/channel
+relationship; it is not a fourth Compose
+service, provider credential state, or permission fact. `absent` means no
+prepared epoch or active session, `prepared` means Broker accepted the epoch
+and is waiting for the authenticated channel, `ready` means that channel is
+active, and `unavailable` means the Broker control observation failed.
 
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
 It does not silently create state in a non-interactive context. When the
@@ -247,12 +277,16 @@ undeclared Docker mutation by the CLI.
   validation uses `tobari-gateway:dev` and `tobari-auth-broker:dev` through
   `task build:dev` without changing the normal binary's selectors.
 - Authentication commands accept only an existing Context name and installed
-  provider ID. `auth login` is currently interactive and supports the built-in
-  `github` helper. The helper shows the GitHub device code and the trusted host
-  CLI opens exactly `https://github.com/login/device` when the host desktop
-  supports it; an unavailable opener leaves that exact URL as the manual next
-  action and does not fail the login. Auth Broker configures no Git protocol or
-  credential helper. `auth import` accepts a non-empty credential of at most
+  provider ID. `auth login` is interactive and supports the reviewed built-in
+  `github` and `aws` host drivers. GitHub shows its device code and the trusted
+  host opens exactly `https://github.com/login/device` when possible. AWS asks
+  for one validated start URL, SSO region, 12-digit account ID, and role name,
+  then its fixed host CLI driver leaves the validated regional device URL and
+  one-time code for browser/manual completion. Request region remains explicit
+  Context or tool configuration and is not credential state. Auth Broker
+  configures no Git or AWS CLI state in a Workspace and contains no provider
+  CLI executable. `auth import` accepts a non-empty
+  credential of at most
   32 KiB from non-terminal stdin only; terminal stdin is rejected before any
   byte is read. Non-terminal bytes are read only after public Context/provider
   argument, intent, and mutation validation; infrastructure then validates the
@@ -266,18 +300,42 @@ undeclared Docker mutation by the CLI.
   `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
   place to add tools and environment configuration for the Context. The
   command does not overwrite an existing recipe.
-- `context shell configure` changes only one allowlisted shell-presentation
+- `config shell` changes only one allowlisted shell-presentation
   policy in the explicit or current Context. `default` removes its override;
   `inherit` reads that exported variable from the host process launching each
   future `tobari` session; `literal` requires `--value` and preserves an
   explicit empty value. `--value` is invalid for the other sources. The fixed
   inventory is `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`; it excludes
   `PATH`, `HOME`, `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, credential variables,
-  and arbitrary names. New and migrated Contexts select `PS1=inherit`; when
-  the launcher has no exported `PS1`, the built-in `\h:\w\$ ` prompt remains.
+  and arbitrary names. New Contexts and Contexts migrated from schemas 1–3
+  select `PS1=inherit`; schema-4 migration preserves its existing shell
+  policy. When the launcher has no exported `PS1`, the built-in `\h:\w\$ `
+  prompt remains.
   Running sessions are unchanged, and no host startup file is sourced or
   mounted. Literal values are ordinary owner-only configuration and must not
   contain secrets.
+- `config git` changes one atomic `user.name`/`user.email` fallback in the
+  explicit or current Context. `default` removes Tobari's fallback; `inherit`
+  resolves only a complete pair from host-global Git configuration for each
+  stable Workspace root during reconciliation; `literal` requires both
+  non-empty `--name` and `--email`. New and migrated Contexts use `default`,
+  and an absent or incomplete inherited pair adds no fallback. The projected
+  system-scope value is lower precedence than Workspace global and
+  repository/worktree configuration. No Git file/path/include directive,
+  credential helper, token, HTTP header, SSH command, signing setting, hook,
+  alias, URL rewrite, filter, proxy, or arbitrary key is projected.
+- For both `config` commands, omitting the entire setting group in text mode
+  uses terminal stdin and stderr to show the selected Context, current state,
+  conditional inputs, and an Apply/Cancel review. Text mode requires both the
+  success and error formats to be text. Supplying any setting input selects
+  direct mode and requires a complete valid group; partial input never prompts.
+  Redirected or JSON invocations require direct mode. An explicit empty
+  Context is invalid rather than equivalent to omission. After reading current
+  state, the wizard binds Apply to that returned Context name, so another
+  process changing the current/default marker during review cannot retarget
+  the write. Cancellation and every wizard validation or terminal failure
+  perform zero mutation.
+  Prompts use stderr and the confirmed complete Context report uses stdout.
 - `runtime build` is the explicit exception to the no-implicit-pull rule. It
   runs a host Docker build using only the Context runtime directory as build
   context; Docker may obtain a missing base image for this explicit build.
@@ -292,8 +350,11 @@ undeclared Docker mutation by the CLI.
   `tobari-context-<context>:<source>` image in the current Context. The previous
   selected image remains in force until promotion succeeds.
 - The built-in `tobari/runtime` image is the base work runtime: it preserves the
-  lifecycle contract and carries common Git, HTTP, JSON, Python, SSH, and
-  command-line tools. It is published on reviewed main pushes as the moving
+  lifecycle contract and its existing common-tool baseline includes Git, HTTP,
+  JSON, Python, SSH, GitHub CLI, and AWS CLI. `kubectl`, `cwk`, `pup`, and TWG
+  belong to the optional locally built Context toolbox; none is added to the
+  published base by this capability. The base is
+  published on reviewed main pushes as the moving
   `latest` and `main` development channels; registry publication is not
   implied by local image selection, and Tobari never pulls the published image
   implicitly during ordinary startup.
@@ -325,8 +386,8 @@ undeclared Docker mutation by the CLI.
 Human output is concise text. Cluster status JSON is schema version 3; list and
 Workspace status JSON remain schema version 2. Cluster denials are schema
 version 3 and Context reports are schema
-version 5 with a complete four-item shell-environment inventory and explicit
-secret-free Auth Broker/provider state. Policy
+version 6 with a complete four-item shell-environment inventory, complete Git
+identity policy, and explicit secret-free Auth Broker/provider state. Policy
 candidates and review JSON are schema version 4; policy rules are schema version
 2; policy compactions are schema version 3; every auth result uses schema
 version 1 with envelope `auth`. Public authentication backend values are
@@ -492,10 +553,10 @@ Configuration is resolved from
 `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on both macOS and Linux:
 
 - `config.json`: schema-v1 default Tobari image selector;
-- `contexts/<name>/context.json`: host-owned schema-v4 Context manifest with a
+- `contexts/<name>/context.json`: host-owned schema-v5 Context manifest with a
   stable UUIDv7 Context ID, the named agent profile, compatible Tobari runtime
-  image selector, guided/advanced policy mode, and allowlisted shell-environment
-  overrides;
+  image selector, guided/advanced policy mode, allowlisted shell-environment
+  overrides, and an optional non-default Git identity policy;
 - `contexts/<name>/runtime/Dockerfile`: optional owner-only Context runtime
   recipe created by `runtime init`; its source digest and last successful
   managed image build are recorded additively in `context.json`;
@@ -525,8 +586,9 @@ Configuration is resolved from
 Tool authentication state is not cluster configuration. It belongs below the
 selected instance's persistent home and is created by the tool's own login or
 configuration flow. Brokered authentication is separate installation state:
-the normalized schema-v1 provider projection is generated below
-`auth/projection/providers.json`; encrypted schema-v1 Context vaults are below
+the normalized schema-v2 provider projection is generated below
+`auth/projection/providers.json`; schema-1-envelope/schema-2-payload Context
+vaults are below
 `auth/contexts/<context-id>/vault.enc`; the Linux root key is the owner-only
 `auth/keys/root.key`; runtime sockets are below `auth/runtime`; and schema-v1
 Workspace authentication file registries are below `auth/projects`. On macOS,
@@ -543,11 +605,11 @@ permanent Context binding, and diagnostic runtime identifiers.
 homes are never shared merely because Contexts or roots match.
 Shared read-only agent profiles referenced by Contexts are under
 `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles`.
-Cluster state schema 3 contains the content-addressed aggregate policy revision,
+Persisted cluster state schema 3 contains the content-addressed aggregate policy revision,
 loaded Context count, aggregate projection paths, and Docker resource names or
 identifiers, never one active Context authority or credential contents. The
 owner-only projection contains a schema-v2 Context-aware Gateway credential
-document and Context-ID secret subdirectories plus the non-secret schema-v1
+document and Context-ID secret subdirectories plus the non-secret schema-v2
 provider projection. The per-Tobari home may contain tool credentials and
 broker handles by design, but never a brokered primary secret.
 Project and cluster mutation journals are durable recovery markers. An
@@ -555,10 +617,12 @@ interrupted cluster marker, aggregate revision mismatch, or failed projection
 activation makes entry and policy operations fail closed until the exact shared
 cluster operation completes.
 Environment variables select XDG locations and documented test/runtime
-overrides. The one user-facing exception is Context shell inheritance: at
-session entry Tobari reads only a Context-selected subset of `PS1`, `TERM`,
-`COLORTERM`, and `NO_COLOR`. It does not enumerate the host environment, and
-it never copies host credential values into the runtime environment.
+overrides. Context narrow projections are the user-facing exception: at shell
+entry Tobari reads only the selected subset of `PS1`, `TERM`, `COLORTERM`, and
+`NO_COLOR`; at Workspace reconciliation Git inheritance makes at most two
+bounded fixed-key host-global reads for `user.name` and `user.email`. Neither
+path enumerates its source, and neither copies host credential values or source
+configuration into the runtime.
 
 Image selection uses the selected Tobari's bound Context image selector. The
 legacy `config.json.default_image` seeds the default Context once, and `builtin`
@@ -622,6 +686,17 @@ Creating a Context also never starts Docker; when shared state exists, the
 result directs the user to explicit `cluster up` so the all-Context projection
 can be validated and activated.
 
+`config shell` and `config git` atomically update only the selected Context
+manifest after typed input, intent, target, and impact validation. The wizard
+performs no write before Apply. Git inheritance performs no Git read during the
+configuration mutation; the next matching root reconciliation runs at most two
+fixed, one-attempt, finite-time host Git queries, validates a complete pair,
+and atomically refreshes one private per-Workspace fallback before Docker
+mutation. Failure preserves the prior file and returns no raw Git diagnostic or
+identity. The file's exact directory is mounted read-only as system scope and
+includes the image system config before the Context fallback, preserving
+normal Workspace-global and repository/worktree precedence.
+
 `cluster up` obtains and preflights the immutable Gateway and Auth Broker images and official
 runtime bases required by all Contexts, generates and validates the complete
 aggregate policy/credential/provider projection, then creates shared labeled
@@ -629,13 +704,18 @@ networks, configuration material, exactly one Gateway, exactly one OPA,
 exactly one Auth Broker, and CA volumes as needed. It unlocks the broker through
 the supported host root-key backend and reconnects Gateway to the shared
 networks and existing registered project networks without creating project
-state or project resources, then waits for all three services to be healthy and
-the broker to be ready. The root command only verifies the shared cluster is
+state or project resources. It verifies the exact Broker container identity,
+prepares a fresh root-key-derived companion epoch, and starts one resident
+same-binary host companion over a fixed reverse `docker exec -i` channel before
+reporting ready. No host listener, host socket mount, shell, or public companion
+command is created. It then waits for all three services and the companion to
+be healthy and the broker to be ready. The root command only verifies the shared cluster is
 configured and ready, reads the indexed Workspace candidates, and waits for an
 explicit choice when the canonical current directory is below an ancestor.
 After the choice is revalidated under the lifecycle lock, it creates or reuses
-the selected Context-bound logical record, resolves and validates its bound Context image
-before project runtime mutation, reconciles its labeled container and internal
+the selected Context-bound logical record, resolves the bound Context's narrow
+Git identity fallback for that stable root, resolves and validates its bound
+Context image before project runtime mutation, reconciles its labeled container and internal
 network, binds its XDG home, joins Gateway to that network, waits for the
 project healthcheck, reconciles configured provider handles and Tobari-owned
 complete files, and enters the resulting terminal session. A changed handle
@@ -680,18 +760,28 @@ discovery excludes other denials, preventing a successful no-op approval.
 
 `auth login`, `auth import`, and `auth logout` validate the fixed installation
 credential-catalog target and mutation impact before acquisition or vault I/O.
-Login runs the fixed provider helper through an interactive trusted-host
-terminal. The host may perform one purpose-limited open of the fixed GitHub
-device page; browser-open failure is a recoverable presentation fallback, not
-an acquisition failure. The helper disables GitHub CLI prompts, selects no Git
-protocol, and writes only temporary GitHub CLI authentication state below the
-private login tmpfs. It never reads or writes host, project, or Workspace Git
-configuration. Import
+Login runs the selected reviewed built-in host driver through an interactive
+trusted-host terminal. GitHub retains its purpose-limited fixed device-page
+open and no-Git behavior. AWS uses a fixed, validated IAM Identity Center
+profile and host CLI device-code flow and prints only bounded, control-safe CLI guidance; its
+opaque SSO cache and role selection commit only into the encrypted Context
+vault. Neither driver reads an ambient provider home or writes project or
+Workspace CLI configuration; Auth Broker contains no provider CLI. Import
 rejects terminal stdin before reading and reads bounded non-terminal input only
 after public argument/intent/mutation validation; infrastructure validates the
 selected Context, installed provider/acquisition mode, and broker readiness
-before broker send. Login/import atomically
-replace one Context/provider record and revoke every prior handle. Logout
+before broker send. Login/import atomically replace one Context/provider grant
+and revoke every prior handle. A successful built-in refresh preserves the
+same grant revision; configuration change or re-login rotates it. AWS refresh
+is invoked over the authenticated companion channel only after OPA allow. It
+uses one per-record single-flight operation with finite lock wait and without
+holding the Broker's global state lock over host/provider I/O. A same-record
+waiter may wait at most one second; expiry is a known pre-execution availability
+failure with no barrier or companion call. After acquiring the lock and before
+host execution, Broker atomically persists an encrypted task barrier; only the same
+correlated successful result clears it with refreshed state. A post-call
+revision comparison discards a result made stale by replacement or logout, and
+an unknown result requires AWS re-login rather than replay. Logout
 atomically removes that record and its handles without contacting the provider.
 One credential is Context/provider-owned, every permanently bound project is
 eligible for a distinct handle only on its next matching Workspace entry, and
@@ -699,8 +789,8 @@ no mutation rewrites a running session. Confirmed results are secret-free and
 direct the user to leave and re-enter existing Workspaces. Logout revokes all
 old handles immediately; next entry removes its declared environment projection
 by recreation and removes only unchanged Tobari-owned complete files. `auth
-status` is read-only and reports locked state as provider availability
-uncertainty rather than inferring absence from an unreadable vault.
+status` is read-only and reports locked or unavailable Broker state as provider
+availability uncertainty rather than inferring absence from an unreadable vault.
 
 ## Compatibility
 
@@ -710,11 +800,17 @@ it with the matching older binary before adopting the CWD-owned lifecycle.
 Legacy named lifecycle invocations are rejected explicitly and direct users to
 run `tobari` from the project directory. No compatibility alias recreates the
 old name/root lifecycle.
+The pre-v1.0 `context shell configure` path is replaced by `config shell`
+without an alias. Context manifest schema 4 migrates atomically to schema 5,
+preserving its stable ID, runtime recipe, and exact shell overrides while
+adding no Git identity. Context report schema advances from 5 to 6.
 Command names, resource labels, state schema, OPA input version, audit schema,
-Gateway decision schema, auth JSON schema 1, provider/broker/vault schemas 1,
-the `tobari-h1_` handle prefix, root-key backend identifiers, Unix socket
-paths, and Auth Broker image API/role labels remain explicit compatibility
-boundaries. Their canonical values and paths are defined in
+Gateway decision schema, auth JSON schema 1, provider/projection schemas 1 and
+2, broker protocol schema 1, private companion epoch/frame schema 1, vault
+envelope schema 1 and encrypted payload
+schema 2, the `tobari-h1_` handle prefix, root-key backend identifiers, Unix
+socket paths, and Auth Broker image API/role labels remain explicit
+compatibility boundaries. Their canonical values and paths are defined in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
 
 ## Unsupported outcomes
@@ -723,7 +819,13 @@ The deliberate non-goals in [Project Theses](00_theses.md) are not hidden
 commands or transport escape hatches. In particular, Tobari does not promise to
 control non-proxy-aware traffic semantically; it prevents all direct egress and
 supports HTTP/HTTPS through the explicit proxy only.
-The built-in provider slice supports one GitHub.com credential per Context; it
-does not add provider-specific policy semantics, multiple accounts, refresh,
-remote revocation, Git credential helpers, GitHub App tokens, arbitrary OAuth,
-AWS SigV4, request signing, or a general provider SDK/plugin executor.
+The built-in slice supports one GitHub.com credential and one configured AWS
+IAM Identity Center role per Context. It does not add provider-specific policy
+semantics, multiple accounts per provider, remote revocation, Git credential
+helpers, GitHub App tokens, arbitrary OAuth, manifest-selected refresh/signing,
+SigV4a, query presigning, AWS streaming signatures, custom AWS endpoints, or a
+general provider SDK/plugin executor. Standard AWS SigV4 is supported only for
+bounded requests to reviewed AWS HTTPS suffixes and is signed after OPA allow.
+The static TWG example covers only one delegated token at exact
+`api.atlassian.com:443`; general TWG login, refresh, and its other authorities
+remain unsupported.

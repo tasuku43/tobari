@@ -15,7 +15,10 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-const BuiltinGitHubProviderID = "github"
+const (
+	BuiltinGitHubProviderID = "github"
+	BuiltinAWSProviderID    = "aws"
+)
 
 // MutationImpact is the application-owned generic impact contract shared by
 // login, import, and logout. Each may rotate or revoke every project handle
@@ -75,7 +78,7 @@ func (s *Service) Login(
 	if err := validateProvider(provider); err != nil {
 		return authbroker.Result{}, err
 	}
-	if provider != BuiltinGitHubProviderID {
+	if !supportsBuiltinLogin(provider) {
 		return authbroker.Result{}, fault.New(
 			fault.KindUnsupported,
 			"provider_login_unsupported",
@@ -92,13 +95,17 @@ func (s *Service) Login(
 			return authbroker.Result{}, fault.New(
 				fault.KindInvalidInput,
 				"auth_login_tty_required",
-				"GitHub login requires interactive terminal streams on stdin and stderr.",
+				"Built-in provider login requires interactive terminal streams on stdin and stderr.",
 				false,
-				fault.NextAction{Command: "help auth login", Reason: "Run trusted-host GitHub login from an interactive terminal."},
+				fault.NextAction{Command: "help auth login", Reason: "Run trusted-host provider login from an interactive terminal."},
 			)
 		}
 		return s.runtime.LoginAuth(actionContext, contextName, provider, input, errOut)
 	})
+}
+
+func supportsBuiltinLogin(provider string) bool {
+	return provider == BuiltinGitHubProviderID || provider == BuiltinAWSProviderID
 }
 
 func (s *Service) Import(

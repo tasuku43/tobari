@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "twg-delegated-oauth",
+  "display_name": "TWG Delegated OAuth",
+  "acquisition": {
+    "mode": "stdin_import"
+  },
+  "credential": {
+    "kind": "primary_secret"
+  },
+  "workspace_projections": [
+    {
+      "kind": "env",
+      "name": "TWG_OAUTH_ACCESS_TOKEN",
+      "template": "${HANDLE}"
+    }
+  ],
+  "header_bindings": [
+    {
+      "target": {
+        "scheme": "https",
+        "host": "api.atlassian.com",
+        "port": 443
+      },
+      "source": {
+        "header": "authorization",
+        "formats": [
+          "bearer"
+        ]
+      },
+      "destination": {
+        "header": "authorization",
+        "format": "bearer",
+        "secret_field": "primary_secret"
+      },
+      "secret_headers": [
+        "authorization"
+      ]
+    }
+  ]
+}

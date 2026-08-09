@@ -79,6 +79,45 @@ func TestAuthCatalogDeclaresTerminalAndUnknownMutationOutcomeFaults(t *testing.T
 	t.Fatal("auth login lacks auth_login_tty_required")
 }
 
+func TestAuthLoginCatalogDeclaresGitHubAndAWSSSOContracts(t *testing.T) {
+	t.Parallel()
+	login, found := DefaultCatalog().Lookup("auth login")
+	if !found {
+		t.Fatal("catalog lacks auth login")
+	}
+	if len(login.Agent.Inputs) == 0 ||
+		!strings.Contains(login.Agent.Inputs[0].Description, "github") ||
+		!strings.Contains(login.Agent.Inputs[0].Description, "aws") {
+		t.Fatalf("auth login provider input = %+v", login.Agent.Inputs)
+	}
+	joinedPrerequisites := strings.Join(login.Agent.Prerequisites, "\n")
+	for _, want := range []string{"github", "aws", "trusted-host PATH", "access-portal start URL", "SSO region", "account ID", "role name", "request region"} {
+		if !strings.Contains(joinedPrerequisites, want) {
+			t.Fatalf("auth login prerequisites = %q, want %q", joinedPrerequisites, want)
+		}
+	}
+	wantErrors := map[string]bool{
+		"github_cli_unavailable":  false,
+		"github_login_cancelled":  false,
+		"github_login_failed":     false,
+		"aws_cli_unavailable":     false,
+		"aws_sso_login_cancelled": false,
+		"aws_sso_config_invalid":  false,
+		"aws_sso_login_timeout":   false,
+		"aws_sso_login_failed":    false,
+	}
+	for _, declared := range login.Agent.Errors {
+		if _, expected := wantErrors[declared.Code]; expected {
+			wantErrors[declared.Code] = true
+		}
+	}
+	for code, found := range wantErrors {
+		if !found {
+			t.Fatalf("auth login lacks %q", code)
+		}
+	}
+}
+
 func TestAuthScopedHelpPublishesProtectedStdinContract(t *testing.T) {
 	command, stdout, stderr := newTestCLI(passingInspector("unused"))
 	if code := runCLI(command, []string{"help", "auth", "import", "--format=agent"}); code != ExitOK {

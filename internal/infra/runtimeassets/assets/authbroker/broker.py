@@ -4,19 +4,40 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import re
 import secrets
 import threading
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Callable
 
 from . import SCHEMA_VERSION
+from .aws_sigv4 import (
+    SigV4Error,
+    SigV4Request,
+    parse_credentials,
+    parse_request,
+    sign,
+)
+from .companion_protocol import (
+    CompanionChannelManager,
+    CompanionError,
+    RefreshRequest,
+    RefreshResult,
+    decode_refresh_secret,
+    derive_epoch_key,
+)
 from .protocol import MAX_SECRET_BYTES, ProtocolError, require_exact_keys
 from .vault import (
+    AWS_DRIVER_ID,
+    AWS_SSO_CREDENTIAL_KIND,
+    STATIC_CREDENTIAL_KIND,
     VaultError,
     VaultStore,
     decode_secret,
     empty_payload,
+    encode_secret,
+    new_aws_sso_record,
     new_record,
     validate_context_id,
     validate_provider_id,
@@ -32,6 +53,16 @@ HOST_PATTERN = re.compile(
 HEADER_PATTERN = re.compile(r"^[!#$%&'*+.^_`|~0-9a-z-]{1,64}$")
 SOURCE_FORMATS = ("raw", "bearer", "token")
 DESTINATION_FORMATS = ("preserve_scheme", "raw", "bearer", "token")
+PROVEN_PRE_EXECUTION_REFRESH_ERRORS = frozenset(
+    {
+        "companion_unavailable",
+        "companion_busy",
+        "companion_task_invalid",
+        "companion_cancelled",
+        "companion_timeout",
+    }
+)
+DEFAULT_RECORD_LOCK_TIMEOUT_SECONDS = 1.0
 
 
 class BrokerError(Exception):
@@ -43,7 +74,7 @@ class BrokerError(Exception):
 def _translate_error(error: Exception) -> BrokerError:
     if isinstance(error, BrokerError):
         return error
-    if isinstance(error, (ProtocolError, VaultError)):
+    if isinstance(error, (ProtocolError, VaultError, SigV4Error, CompanionError)):
         return BrokerError(error.code)
     return BrokerError("internal_error")
 
@@ -239,10 +270,99 @@ class Binding:
         )
 
 
-def _parse_bindings(value: Any, provider: str | None = None) -> tuple[Binding, ...]:
+@dataclass(frozen=True)
+class AwsSigV4Binding:
+    """One reviewed built-in AWS signing plan; no executable manifest fields."""
+
+    provider_id: str
+    dns_suffixes: tuple[str, ...]
+    authorization_header: str
+    security_token_header: str
+    secret_headers: tuple[str, ...]
+
+    @classmethod
+    def parse(cls, value: Any) -> "AwsSigV4Binding":
+        if not isinstance(value, dict) or set(value) != {
+            "provider_id",
+            "kind",
+            "aws_sigv4",
+        }:
+            raise BrokerError("invalid_binding")
+        if value.get("provider_id") != "aws" or value.get("kind") != "aws_sigv4":
+            raise BrokerError("invalid_binding")
+        plan = value.get("aws_sigv4")
+        if not isinstance(plan, dict) or set(plan) != {
+            "target",
+            "source",
+            "secret_headers",
+        }:
+            raise BrokerError("invalid_binding")
+        target = plan.get("target")
+        source = plan.get("source")
+        if target != {
+            "scheme": "https",
+            "port": 443,
+            "dns_suffixes": ["amazonaws.com"],
+        }:
+            raise BrokerError("invalid_binding")
+        if source != {
+            "authorization_header": "authorization",
+            "security_token_header": "x-amz-security-token",
+        }:
+            raise BrokerError("invalid_binding")
+        if plan.get("secret_headers") != [
+            "authorization",
+            "x-amz-security-token",
+        ]:
+            raise BrokerError("invalid_binding")
+        return cls(
+            provider_id="aws",
+            dns_suffixes=("amazonaws.com",),
+            authorization_header="authorization",
+            security_token_header="x-amz-security-token",
+            secret_headers=("authorization", "x-amz-security-token"),
+        )
+
+    def document(self) -> dict[str, Any]:
+        return {
+            "provider_id": self.provider_id,
+            "kind": "aws_sigv4",
+            "aws_sigv4": {
+                "target": {
+                    "scheme": "https",
+                    "port": 443,
+                    "dns_suffixes": list(self.dns_suffixes),
+                },
+                "source": {
+                    "authorization_header": self.authorization_header,
+                    "security_token_header": self.security_token_header,
+                },
+                "secret_headers": list(self.secret_headers),
+            },
+        }
+
+    def matches_target(self, target: Target) -> bool:
+        return (
+            target.scheme == "https"
+            and target.port == 443
+            and any(target.host.endswith("." + suffix) for suffix in self.dns_suffixes)
+        )
+
+
+NormalizedBinding = Binding | AwsSigV4Binding
+
+
+def _parse_bindings(
+    value: Any, provider: str | None = None
+) -> tuple[NormalizedBinding, ...]:
     if not isinstance(value, list) or not value or len(value) > 64:
         raise BrokerError("invalid_binding")
-    parsed = tuple(Binding.parse(item) for item in value)
+    parsed = tuple(
+        AwsSigV4Binding.parse(item)
+        if isinstance(item, dict) and item.get("kind") == "aws_sigv4"
+        else Binding.parse(item)
+        for item in value
+    )
     if provider is not None and any(binding.provider_id != provider for binding in parsed):
         raise BrokerError("invalid_binding")
     canonical = [binding.document() for binding in parsed]
@@ -251,6 +371,8 @@ def _parse_bindings(value: Any, provider: str | None = None) -> tuple[Binding, .
         raise BrokerError("invalid_binding")
     grouped_formats: dict[tuple[Target, str], set[str]] = {}
     for binding in parsed:
+        if not isinstance(binding, Binding):
+            continue
         grouped_formats.setdefault((binding.target, binding.source_header), set()).add(
             binding.source_format
         )
@@ -266,14 +388,86 @@ class HandleRecord:
     provider: str
     record_id: str
     revision: str
-    bindings: tuple[Binding, ...]
+    bindings: tuple[NormalizedBinding, ...]
+
+
+@dataclass(frozen=True)
+class AwsRefreshSnapshot:
+    context_id: str
+    project_id: str
+    provider: str
+    record_id: str
+    revision: str
+    state_generation: int
+    driver_id: str
+    driver_revision: str
+    binding_digest: str
+    request_digest: str
+    state_sha256: str
+    state: bytes = field(repr=False)
+
+    @property
+    def lock_key(self) -> tuple[str, str, str, str]:
+        return (self.context_id, self.provider, self.record_id, self.revision)
+
+
+def _document_digest(document: dict[str, Any]) -> str:
+    try:
+        encoded = json.dumps(
+            document,
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("ascii")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise BrokerError("aws_signing_request_invalid") from None
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _signing_request_document(request: SigV4Request) -> dict[str, Any]:
+    return {
+        "host": request.host,
+        "method": request.method,
+        "path": request.path,
+        "query": request.query,
+        "region": request.region,
+        "service": request.service,
+        "headers": [list(item) for item in request.headers],
+        "payload_hash": request.payload_hash,
+    }
 
 
 class BrokerState:
-    def __init__(self, vaults: VaultStore):
+    def __init__(
+        self,
+        vaults: VaultStore,
+        *,
+        sigv4_clock: Callable[[], Any] | None = None,
+        refresh_clock: Callable[[], float] | None = None,
+        companion: CompanionChannelManager | None = None,
+        record_lock_timeout: float = DEFAULT_RECORD_LOCK_TIMEOUT_SECONDS,
+    ):
         self._vaults = vaults
+        self._sigv4_clock = sigv4_clock
+        self._refresh_clock = refresh_clock
+        self._companion = companion or CompanionChannelManager()
+        if (
+            isinstance(record_lock_timeout, bool)
+            or not isinstance(record_lock_timeout, (int, float))
+            or record_lock_timeout <= 0
+            or record_lock_timeout > DEFAULT_RECORD_LOCK_TIMEOUT_SECONDS
+        ):
+            raise ValueError("record lock timeout is invalid")
+        self._record_lock_timeout = float(record_lock_timeout)
         self._key: bytearray | None = None
         self._handles: dict[bytes, HandleRecord] = {}
+        self._record_locks: dict[
+            tuple[str, str, str, str], threading.Lock
+        ] = {}
+        self._active_refresh_tasks: dict[
+            tuple[str, str, str, str], str
+        ] = {}
         self._mutex = threading.RLock()
 
     @property
@@ -281,16 +475,64 @@ class BrokerState:
         with self._mutex:
             return self._key is None
 
+    @property
+    def companion_channel(self) -> CompanionChannelManager:
+        return self._companion
+
     def unlock(self, key: bytes) -> dict[str, Any]:
         if not isinstance(key, bytes) or len(key) != 32:
             raise BrokerError("invalid_key")
         with self._mutex:
+            self._companion.invalidate()
             if self._key is not None:
                 for index in range(len(self._key)):
                     self._key[index] = 0
             self._key = bytearray(key)
             self._handles.clear()
+            self._record_locks.clear()
+            self._active_refresh_tasks.clear()
         return {"schema_version": SCHEMA_VERSION, "ok": True, "state": "unlocked"}
+
+    def prepare_companion(self, epoch_id: Any) -> dict[str, Any]:
+        """Bind one non-secret host epoch to the in-memory installation key."""
+
+        try:
+            with self._mutex:
+                key = self._require_key()
+                epoch_key = derive_epoch_key(key, epoch_id)
+                self._companion.prepare(epoch_id, epoch_key)
+            state, current_epoch = self._companion.status()
+            return {
+                "schema_version": SCHEMA_VERSION,
+                "ok": True,
+                "state": state,
+                "epoch_id": current_epoch,
+            }
+        except Exception as error:
+            raise _translate_error(error) from None
+
+    def companion_status(self) -> dict[str, Any]:
+        state, epoch_id = self._companion.status()
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "ok": True,
+            "state": state,
+            "epoch_id": epoch_id,
+        }
+
+    def refresh_with_companion(
+        self,
+        request: RefreshRequest,
+        cancel_event: threading.Event | None = None,
+    ) -> RefreshResult:
+        """Typed host refresh boundary; credential CAS remains caller-owned."""
+
+        try:
+            with self._mutex:
+                self._require_key()
+            return self._companion.refresh(request, cancel_event)
+        except Exception as error:
+            raise _translate_error(error) from None
 
     def _require_key(self) -> bytearray:
         if self._key is None:
@@ -314,6 +556,20 @@ class BrokerState:
         ]
         for digest in doomed:
             del self._handles[digest]
+        lock_keys = [
+            key
+            for key in self._record_locks
+            if key[0] == context_id and key[1] == provider
+        ]
+        for key in lock_keys:
+            del self._record_locks[key]
+        active_keys = [
+            key
+            for key in self._active_refresh_tasks
+            if key[0] == context_id and key[1] == provider
+        ]
+        for key in active_keys:
+            del self._active_refresh_tasks[key]
 
     def _revoke_project(self, context_id: str, project_id: str, provider: str) -> None:
         doomed = [
@@ -326,6 +582,25 @@ class BrokerState:
         for digest in doomed:
             del self._handles[digest]
 
+    def _refresh_barrier_is_active(
+        self, context_id: str, provider: str, credential: Any
+    ) -> bool:
+        if not isinstance(credential, dict):
+            return False
+        task_digest = credential.get("refresh_task_digest")
+        if not isinstance(task_digest, str):
+            return False
+        key = (
+            context_id,
+            provider,
+            credential.get("record_id"),
+            credential.get("revision"),
+        )
+        active = self._active_refresh_tasks.get(key)
+        return isinstance(active, str) and secrets.compare_digest(
+            active, task_digest
+        )
+
     def _index_handle(
         self,
         handle: str,
@@ -333,7 +608,7 @@ class BrokerState:
         project_id: str,
         provider: str,
         credential: dict[str, Any],
-        bindings: tuple[Binding, ...],
+        bindings: tuple[NormalizedBinding, ...],
     ) -> HandleRecord:
         record = HandleRecord(
             context_id=context_id,
@@ -357,13 +632,15 @@ class BrokerState:
         try:
             context_id = validate_context_id(context_id)
             provider = validate_provider_id(provider)
+            if provider == "aws":
+                raise BrokerError("invalid_provider")
             if not isinstance(secret, bytes) or not secret or len(secret) > MAX_SECRET_BYTES:
                 raise BrokerError("invalid_secret")
             with self._mutex:
                 payload = self._load_or_empty(context_id)
                 record = new_record(secret, account_label=account_label)
                 updated = {
-                    "schema_version": SCHEMA_VERSION,
+                    "schema_version": payload["schema_version"],
                     "providers": dict(payload["providers"]),
                 }
                 updated["providers"][provider] = record
@@ -381,6 +658,46 @@ class BrokerState:
         except Exception as error:
             raise _translate_error(error) from None
 
+    def login_aws_driver(
+        self,
+        context_id: Any,
+        state: bytes,
+        *,
+        account_label: Any,
+        driver_id: Any,
+        driver_revision: Any,
+    ) -> dict[str, Any]:
+        """Commit one host-completed, executable-bound opaque AWS state."""
+
+        try:
+            context_id = validate_context_id(context_id)
+            if not isinstance(state, bytes) or not state or len(state) > MAX_SECRET_BYTES:
+                raise BrokerError("invalid_secret")
+            record = new_aws_sso_record(
+                state,
+                account_label=account_label,
+                driver_id=driver_id,
+                driver_revision=driver_revision,
+            )
+            with self._mutex:
+                payload = self._load_or_empty(context_id)
+                updated = {
+                    "schema_version": payload["schema_version"],
+                    "providers": dict(payload["providers"]),
+                }
+                updated["providers"]["aws"] = record
+                self._vaults.save(context_id, self._require_key(), updated)
+                self._revoke(context_id, "aws")
+                return {
+                    "schema_version": SCHEMA_VERSION,
+                    "ok": True,
+                    "provider": "aws",
+                    "revision": record["revision"],
+                    "account_label": record["account_label"],
+                }
+        except Exception as error:
+            raise _translate_error(error) from None
+
     def logout(self, context_id: Any, provider: Any) -> dict[str, Any]:
         try:
             context_id = validate_context_id(context_id)
@@ -390,7 +707,7 @@ class BrokerState:
                 changed = provider in payload["providers"]
                 if changed:
                     updated = {
-                        "schema_version": SCHEMA_VERSION,
+                        "schema_version": payload["schema_version"],
                         "providers": dict(payload["providers"]),
                     }
                     del updated["providers"][provider]
@@ -420,6 +737,18 @@ class BrokerState:
                     }
                 payload = self._load_or_empty(context_id)
                 record = payload["providers"].get(provider)
+                if (
+                    record is not None
+                    and record.get("credential_kind") == AWS_SSO_CREDENTIAL_KIND
+                    and record.get("refresh_task_digest") is not None
+                    and not self._refresh_barrier_is_active(
+                        context_id, provider, record
+                    )
+                ):
+                    # A prior host refresh crossed its durable execution
+                    # barrier without a correlated commit. Treat it as absent
+                    # until explicit host re-login replaces the record.
+                    record = None
                 if record is None:
                     return {
                         "schema_version": SCHEMA_VERSION,
@@ -457,6 +786,12 @@ class BrokerState:
                 credential = payload["providers"].get(provider)
                 if credential is None:
                     raise BrokerError("credential_not_found")
+                if (
+                    credential.get("credential_kind") == AWS_SSO_CREDENTIAL_KIND
+                    and credential.get("refresh_task_digest") is not None
+                ):
+                    raise BrokerError("credential_not_found")
+                self._validate_credential_bindings(credential, normalized_bindings)
                 existing = credential["handles"].get(project_id)
                 if existing is not None:
                     existing_bindings = _parse_bindings(existing["bindings"], provider)
@@ -487,7 +822,7 @@ class BrokerState:
                 }
                 updated_credential["handles"] = updated_handles
                 updated = {
-                    "schema_version": SCHEMA_VERSION,
+                    "schema_version": payload["schema_version"],
                     "providers": dict(payload["providers"]),
                 }
                 updated["providers"][provider] = updated_credential
@@ -510,6 +845,21 @@ class BrokerState:
                 }
         except Exception as error:
             raise _translate_error(error) from None
+
+    @staticmethod
+    def _validate_credential_bindings(
+        credential: dict[str, Any], bindings: tuple[NormalizedBinding, ...]
+    ) -> None:
+        kind = credential.get("credential_kind")
+        if kind == STATIC_CREDENTIAL_KIND and all(
+            isinstance(binding, Binding) for binding in bindings
+        ):
+            return
+        if kind == AWS_SSO_CREDENTIAL_KIND and all(
+            isinstance(binding, AwsSigV4Binding) for binding in bindings
+        ):
+            return
+        raise BrokerError("credential_binding_mismatch")
 
     def binding_status(
         self,
@@ -535,7 +885,20 @@ class BrokerState:
                 payload = self._load_or_empty(context_id)
                 credential = payload["providers"].get(provider)
                 state = "stale"
-                if credential is not None and credential["revision"] == revision:
+                if (
+                    credential is not None
+                    and credential["revision"] == revision
+                    and not (
+                        credential.get("credential_kind") == AWS_SSO_CREDENTIAL_KIND
+                        and credential.get("refresh_task_digest") is not None
+                        and not self._refresh_barrier_is_active(
+                            context_id, provider, credential
+                        )
+                    )
+                ):
+                    self._validate_credential_bindings(
+                        credential, normalized_bindings
+                    )
                     persisted = credential["handles"].get(project_id)
                     if persisted is None:
                         state = "missing"
@@ -618,11 +981,172 @@ class BrokerState:
         matches = [
             binding
             for binding in record.bindings
+            if isinstance(binding, Binding)
             if binding.matches(target, source_header_value, source_format_value)
         ]
         if len(matches) != 1:
             raise BrokerError("handle_binding_mismatch")
         return matches[0], target, source_header_value, source_format_value
+
+    @staticmethod
+    def _selected_signing_binding(
+        record: HandleRecord,
+        target_value: Any,
+        binding_value: Any,
+    ) -> tuple[AwsSigV4Binding, Target]:
+        target = Target.parse(target_value)
+        binding = AwsSigV4Binding.parse(binding_value)
+        matches = [
+            persisted
+            for persisted in record.bindings
+            if isinstance(persisted, AwsSigV4Binding)
+            and persisted == binding
+            and persisted.matches_target(target)
+        ]
+        if len(matches) != 1:
+            raise BrokerError("handle_binding_mismatch")
+        return matches[0], target
+
+    def _aws_refresh_snapshot(
+        self,
+        *,
+        handle: Any,
+        context_id: Any,
+        project_id: Any,
+        provider: str,
+        revision: str,
+        binding: Any,
+        request: SigV4Request,
+    ) -> AwsRefreshSnapshot:
+        """Validate and snapshot every mutable grant dimension under _mutex."""
+
+        key = self._require_key()
+        record = self._handle_record(handle, context_id, project_id, provider)
+        if record.revision != revision:
+            raise BrokerError("handle_binding_mismatch")
+        selected, _ = self._selected_signing_binding(
+            record,
+            {"scheme": "https", "host": request.host, "port": 443},
+            binding,
+        )
+        payload = self._vaults.load(record.context_id, key)
+        credential = payload["providers"].get(provider)
+        if (
+            credential is None
+            or credential["record_id"] != record.record_id
+            or credential["revision"] != record.revision
+        ):
+            self._revoke(record.context_id, provider)
+            raise BrokerError("handle_revoked")
+        if credential.get("credential_kind") != AWS_SSO_CREDENTIAL_KIND:
+            raise BrokerError("credential_not_signable")
+        if (
+            credential.get("refresh_task_digest") is not None
+            and not self._refresh_barrier_is_active(
+                record.context_id, provider, credential
+            )
+        ):
+            raise BrokerError("companion_outcome_unknown")
+        state = decode_secret(credential["state"])
+        return AwsRefreshSnapshot(
+            context_id=record.context_id,
+            project_id=record.project_id,
+            provider=record.provider,
+            record_id=record.record_id,
+            revision=record.revision,
+            state_generation=credential["state_generation"],
+            driver_id=credential["driver_id"],
+            driver_revision=credential["driver_revision"],
+            binding_digest=_document_digest(selected.document()),
+            request_digest=_document_digest(_signing_request_document(request)),
+            state_sha256=hashlib.sha256(state).hexdigest(),
+            state=state,
+        )
+
+    @staticmethod
+    def _aws_credential_matches_snapshot(
+        credential: Any, snapshot: AwsRefreshSnapshot
+    ) -> bool:
+        if not isinstance(credential, dict):
+            return False
+        try:
+            state_sha256 = hashlib.sha256(
+                decode_secret(credential["state"])
+            ).hexdigest()
+        except (KeyError, VaultError):
+            return False
+        return (
+            credential.get("credential_kind") == AWS_SSO_CREDENTIAL_KIND
+            and credential.get("record_id") == snapshot.record_id
+            and credential.get("revision") == snapshot.revision
+            and credential.get("state_generation") == snapshot.state_generation
+            and credential.get("driver_id") == snapshot.driver_id
+            and credential.get("driver_revision") == snapshot.driver_revision
+            and secrets.compare_digest(state_sha256, snapshot.state_sha256)
+        )
+
+    def _persist_refresh_barrier(
+        self, snapshot: AwsRefreshSnapshot, task_digest: str
+    ) -> None:
+        """Persist no-replay intent before any host provider execution."""
+
+        key = self._require_key()
+        payload = self._vaults.load(snapshot.context_id, key)
+        credential = payload["providers"].get(snapshot.provider)
+        if (
+            not self._aws_credential_matches_snapshot(credential, snapshot)
+            or credential.get("refresh_task_digest") is not None
+        ):
+            raise BrokerError("handle_revoked")
+        updated_credential = dict(credential)
+        updated_credential["refresh_task_digest"] = task_digest
+        updated = {
+            "schema_version": payload["schema_version"],
+            "providers": dict(payload["providers"]),
+        }
+        updated["providers"][snapshot.provider] = updated_credential
+        self._vaults.save(snapshot.context_id, key, updated)
+
+    def _clear_refresh_barrier(
+        self, snapshot: AwsRefreshSnapshot, task_digest: str
+    ) -> bool:
+        """Clear only a proven pre-execution failure for this exact task."""
+
+        key = self._require_key()
+        payload = self._vaults.load(snapshot.context_id, key)
+        credential = payload["providers"].get(snapshot.provider)
+        if (
+            not self._aws_credential_matches_snapshot(credential, snapshot)
+            or credential.get("refresh_task_digest") != task_digest
+        ):
+            return False
+        updated_credential = dict(credential)
+        updated_credential["refresh_task_digest"] = None
+        updated = {
+            "schema_version": payload["schema_version"],
+            "providers": dict(payload["providers"]),
+        }
+        updated["providers"][snapshot.provider] = updated_credential
+        self._vaults.save(snapshot.context_id, key, updated)
+        return True
+
+    def _finish_active_refresh(
+        self, snapshot: AwsRefreshSnapshot, task_digest: str
+    ) -> None:
+        with self._mutex:
+            active = self._active_refresh_tasks.get(snapshot.lock_key)
+            if isinstance(active, str) and secrets.compare_digest(
+                active, task_digest
+            ):
+                del self._active_refresh_tasks[snapshot.lock_key]
+
+    def _record_lock(self, snapshot: AwsRefreshSnapshot) -> threading.Lock:
+        existing = self._record_locks.get(snapshot.lock_key)
+        if existing is not None:
+            return existing
+        created = threading.Lock()
+        self._record_locks[snapshot.lock_key] = created
+        return created
 
     def introspect(
         self,
@@ -639,6 +1163,11 @@ class BrokerState:
             with self._mutex:
                 self._require_key()
                 record = self._handle_record(handle, context_id, project_id, provider)
+                if any(
+                    isinstance(binding, AwsSigV4Binding)
+                    for binding in record.bindings
+                ):
+                    raise BrokerError("credential_not_resolvable")
                 binding, normalized_target, normalized_header, normalized_format = (
                     self._selected_binding(record, target, source_header, source_format)
                 )
@@ -654,6 +1183,57 @@ class BrokerState:
                     },
                     "destination": binding.document()["destination"],
                     "secret_headers": list(binding.secret_headers),
+                }
+        except Exception as error:
+            raise _translate_error(error) from None
+
+    def introspect_signing(
+        self,
+        handle: Any,
+        context_id: Any,
+        project_id: Any,
+        provider: Any,
+        target: Any,
+        binding: Any,
+    ) -> dict[str, Any]:
+        try:
+            provider = validate_provider_id(provider)
+            with self._mutex:
+                key = self._require_key()
+                record = self._handle_record(handle, context_id, project_id, provider)
+                selected, normalized_target = self._selected_signing_binding(
+                    record, target, binding
+                )
+                payload = self._vaults.load(record.context_id, key)
+                credential = payload["providers"].get(provider)
+                if (
+                    credential is None
+                    or credential["record_id"] != record.record_id
+                    or credential["revision"] != record.revision
+                ):
+                    self._revoke(record.context_id, provider)
+                    raise BrokerError("handle_revoked")
+                if credential.get("credential_kind") != AWS_SSO_CREDENTIAL_KIND:
+                    raise BrokerError("credential_not_signable")
+                if (
+                    credential.get("refresh_task_digest") is not None
+                    and not self._refresh_barrier_is_active(
+                        record.context_id, provider, credential
+                    )
+                ):
+                    raise BrokerError("companion_outcome_unknown")
+                return {
+                    "schema_version": SCHEMA_VERSION,
+                    "ok": True,
+                    "provider": record.provider,
+                    "revision": record.revision,
+                    "kind": "aws_sigv4",
+                    "target": normalized_target.document(),
+                    "source": {
+                        "authorization_header": selected.authorization_header,
+                        "security_token_header": selected.security_token_header,
+                    },
+                    "secret_headers": list(selected.secret_headers),
                 }
         except Exception as error:
             raise _translate_error(error) from None
@@ -675,6 +1255,11 @@ class BrokerState:
             with self._mutex:
                 key = self._require_key()
                 record = self._handle_record(handle, context_id, project_id, provider)
+                if any(
+                    isinstance(binding, AwsSigV4Binding)
+                    for binding in record.bindings
+                ):
+                    raise BrokerError("credential_not_resolvable")
                 if record.provider != provider or record.revision != revision:
                     raise BrokerError("handle_binding_mismatch")
                 selected_binding, normalized_target, normalized_header, normalized_format = (
@@ -689,6 +1274,8 @@ class BrokerState:
                 ):
                     self._revoke(record.context_id, provider)
                     raise BrokerError("handle_revoked")
+                if credential.get("credential_kind") != STATIC_CREDENTIAL_KIND:
+                    raise BrokerError("credential_not_resolvable")
                 secret = decode_secret(credential["secret"])
                 return {
                     "schema_version": SCHEMA_VERSION,
@@ -708,6 +1295,182 @@ class BrokerState:
                         "value": base64.urlsafe_b64encode(secret).rstrip(b"=").decode("ascii"),
                     },
                 }
+        except Exception as error:
+            raise _translate_error(error) from None
+
+    def sign_sigv4(
+        self,
+        handle: Any,
+        context_id: Any,
+        project_id: Any,
+        provider: Any,
+        revision: Any,
+        binding: Any,
+        request: Any,
+    ) -> dict[str, Any]:
+        try:
+            # The complete signing request is validated before any credential
+            # lookup, lock acquisition, companion call, or vault mutation.
+            provider = validate_provider_id(provider)
+            revision = _validate_revision(revision)
+            normalized_request = parse_request(request)
+            with self._mutex:
+                initial = self._aws_refresh_snapshot(
+                    handle=handle,
+                    context_id=context_id,
+                    project_id=project_id,
+                    provider=provider,
+                    revision=revision,
+                    binding=binding,
+                    request=normalized_request,
+                )
+                record_lock = self._record_lock(initial)
+
+            # The lock is specific to one immutable record/revision. Waiting
+            # and host/provider I/O never hold the installation-wide mutex.
+            if not record_lock.acquire(timeout=self._record_lock_timeout):
+                raise BrokerError("companion_busy")
+            try:
+                with self._mutex:
+                    snapshot = self._aws_refresh_snapshot(
+                        handle=handle,
+                        context_id=context_id,
+                        project_id=project_id,
+                        provider=provider,
+                        revision=revision,
+                        binding=binding,
+                        request=normalized_request,
+                    )
+                    if snapshot.lock_key != initial.lock_key:
+                        raise BrokerError("handle_revoked")
+                    if snapshot.state_generation >= (1 << 63) - 1:
+                        raise BrokerError("state_generation_exhausted")
+                    refresh_request = RefreshRequest.create(
+                        context_id=snapshot.context_id,
+                        project_id=snapshot.project_id,
+                        provider=snapshot.provider,
+                        record_id=snapshot.record_id,
+                        grant_revision=snapshot.revision,
+                        state_generation=snapshot.state_generation,
+                        driver_id=snapshot.driver_id,
+                        driver_revision=snapshot.driver_revision,
+                        binding_digest=snapshot.binding_digest,
+                        request_digest=snapshot.request_digest,
+                        state=snapshot.state,
+                    )
+                    # This encrypted marker makes a Broker crash after host
+                    # execution fail closed across restart. Only the exact
+                    # correlated task may replace it with refreshed state.
+                    self._persist_refresh_barrier(
+                        snapshot, refresh_request.task_digest
+                    )
+                    self._active_refresh_tasks[
+                        snapshot.lock_key
+                    ] = refresh_request.task_digest
+
+                try:
+                    result = self.refresh_with_companion(refresh_request)
+                    if (
+                        not isinstance(result, RefreshResult)
+                        or result.request_id != refresh_request.request_id
+                        or not secrets.compare_digest(
+                            result.task_digest, refresh_request.task_digest
+                        )
+                        or result.state_generation != snapshot.state_generation
+                    ):
+                        raise BrokerError("companion_result_invalid")
+                    decode_kwargs: dict[str, Any] = {}
+                    if self._refresh_clock is not None:
+                        decode_kwargs["clock"] = self._refresh_clock
+                    refreshed = decode_refresh_secret(
+                        result.secret_payload, **decode_kwargs
+                    )
+                    # Treat malformed temporary credentials as an unknown
+                    # refresh outcome before committing even opaque state.
+                    credentials = parse_credentials(
+                        {
+                            "access_key_id": refreshed.access_key_id,
+                            "secret_access_key": refreshed.secret_access_key,
+                            "session_token": refreshed.session_token,
+                        }
+                    )
+                    sign_kwargs: dict[str, Any] = {}
+                    if self._sigv4_clock is not None:
+                        sign_kwargs["clock"] = self._sigv4_clock
+                    signed = sign(normalized_request, credentials, **sign_kwargs)
+                except Exception as error:
+                    self._finish_active_refresh(
+                        snapshot, refresh_request.task_digest
+                    )
+                    translated = _translate_error(error)
+                    if translated.code in PROVEN_PRE_EXECUTION_REFRESH_ERRORS:
+                        try:
+                            with self._mutex:
+                                cleared = self._clear_refresh_barrier(
+                                    snapshot, refresh_request.task_digest
+                                )
+                        except Exception:
+                            raise BrokerError("companion_outcome_unknown") from None
+                        if not cleared:
+                            raise BrokerError("handle_revoked") from None
+                        raise translated
+                    # Once execution might have begun, malformed, missing, or
+                    # failed results leave the durable barrier in place. A host
+                    # re-login is the only operation that replaces it.
+                    raise BrokerError("companion_outcome_unknown") from None
+
+                try:
+                    with self._mutex:
+                        key = self._require_key()
+                        payload = self._vaults.load(snapshot.context_id, key)
+                        credential = payload["providers"].get(provider)
+                        if (
+                            not self._aws_credential_matches_snapshot(
+                                credential, snapshot
+                            )
+                            or credential.get("refresh_task_digest")
+                            != refresh_request.task_digest
+                        ):
+                            raise BrokerError("handle_revoked")
+                        updated_credential = dict(credential)
+                        updated_credential["state"] = encode_secret(refreshed.state)
+                        updated_credential["state_generation"] = (
+                            snapshot.state_generation + 1
+                        )
+                        updated_credential["refresh_task_digest"] = None
+                        updated = {
+                            "schema_version": payload["schema_version"],
+                            "providers": dict(payload["providers"]),
+                        }
+                        updated["providers"][provider] = updated_credential
+                        self._vaults.save(snapshot.context_id, key, updated)
+                except BrokerError:
+                    self._finish_active_refresh(
+                        snapshot, refresh_request.task_digest
+                    )
+                    raise
+                except Exception:
+                    self._finish_active_refresh(
+                        snapshot, refresh_request.task_digest
+                    )
+                    raise BrokerError("companion_outcome_unknown") from None
+
+                self._finish_active_refresh(snapshot, refresh_request.task_digest)
+
+                return {
+                    "schema_version": SCHEMA_VERSION,
+                    "ok": True,
+                    "provider": provider,
+                    "revision": revision,
+                    "headers": {
+                        "authorization": signed.authorization,
+                        "x_amz_date": signed.amz_date,
+                        "x_amz_security_token": signed.security_token,
+                        "x_amz_content_sha256": signed.content_sha256,
+                    },
+                }
+            finally:
+                record_lock.release()
         except Exception as error:
             raise _translate_error(error) from None
 
@@ -734,7 +1497,12 @@ class Dispatcher:
         operation = request.get("op")
         if self._interface != "control" or operation not in {"unlock", "import", "login"}:
             return 0
-        key = "key_length" if operation == "unlock" else "secret_length"
+        if operation == "unlock":
+            key = "key_length"
+        elif operation == "login" and request.get("provider") == "aws":
+            key = "state_length"
+        else:
+            key = "secret_length"
         value = request.get(key)
         if isinstance(value, bool) or not isinstance(value, int):
             raise BrokerError("invalid_length")
@@ -805,6 +1573,52 @@ class Dispatcher:
                 request["source_header"],
                 request["source_format"],
             )
+        if operation == "introspect_signing":
+            require_exact_keys(
+                request,
+                {
+                    "schema_version",
+                    "op",
+                    "handle",
+                    "context_id",
+                    "project_id",
+                    "provider",
+                    "target",
+                    "binding",
+                },
+            )
+            return self._state.introspect_signing(
+                request["handle"],
+                request["context_id"],
+                request["project_id"],
+                request["provider"],
+                request["target"],
+                request["binding"],
+            )
+        if operation == "sign_sigv4":
+            require_exact_keys(
+                request,
+                {
+                    "schema_version",
+                    "op",
+                    "handle",
+                    "context_id",
+                    "project_id",
+                    "provider",
+                    "revision",
+                    "binding",
+                    "request",
+                },
+            )
+            return self._state.sign_sigv4(
+                request["handle"],
+                request["context_id"],
+                request["project_id"],
+                request["provider"],
+                request["revision"],
+                request["binding"],
+                request["request"],
+            )
         raise ProtocolError("unknown_operation")
 
     def _control(
@@ -819,6 +1633,16 @@ class Dispatcher:
                 "ok": True,
                 "state": "locked" if self._state.locked else "unlocked",
             }
+        if operation == "companion_prepare":
+            require_exact_keys(request, {"schema_version", "op", "epoch_id"})
+            if raw_payload:
+                raise ProtocolError("unexpected_payload")
+            return self._state.prepare_companion(request["epoch_id"])
+        if operation == "companion_status":
+            require_exact_keys(request, {"schema_version", "op"})
+            if raw_payload:
+                raise ProtocolError("unexpected_payload")
+            return self._state.companion_status()
         if operation == "status":
             require_exact_keys(request, {"schema_version", "op", "context_id", "provider"})
             if raw_payload:
@@ -840,27 +1664,51 @@ class Dispatcher:
                 request["context_id"], request["provider"], raw_payload
             )
         if operation == "login":
-            require_exact_keys(
-                request,
-                {
-                    "schema_version",
-                    "op",
-                    "context_id",
-                    "provider",
-                    "secret_length",
-                    "account_label",
-                },
-            )
-            if len(raw_payload) != request["secret_length"]:
-                raise ProtocolError("invalid_length")
-            if request["provider"] != "github":
-                raise ProtocolError("invalid_provider")
-            return self._state.import_secret(
-                request["context_id"],
-                request["provider"],
-                raw_payload,
-                account_label=request["account_label"],
-            )
+            provider = request.get("provider")
+            if provider == "github":
+                require_exact_keys(
+                    request,
+                    {
+                        "schema_version",
+                        "op",
+                        "context_id",
+                        "provider",
+                        "secret_length",
+                        "account_label",
+                    },
+                )
+                if len(raw_payload) != request["secret_length"]:
+                    raise ProtocolError("invalid_length")
+                return self._state.import_secret(
+                    request["context_id"],
+                    provider,
+                    raw_payload,
+                    account_label=request["account_label"],
+                )
+            if provider == "aws":
+                require_exact_keys(
+                    request,
+                    {
+                        "schema_version",
+                        "op",
+                        "context_id",
+                        "provider",
+                        "account_label",
+                        "driver_id",
+                        "driver_revision",
+                        "state_length",
+                    },
+                )
+                if len(raw_payload) != request["state_length"]:
+                    raise ProtocolError("invalid_length")
+                return self._state.login_aws_driver(
+                    request["context_id"],
+                    raw_payload,
+                    account_label=request["account_label"],
+                    driver_id=request["driver_id"],
+                    driver_revision=request["driver_revision"],
+                )
+            raise ProtocolError("invalid_provider")
         if operation == "logout":
             require_exact_keys(request, {"schema_version", "op", "context_id", "provider"})
             if raw_payload:

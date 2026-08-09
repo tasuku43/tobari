@@ -97,9 +97,16 @@ support promises before maintainers invite external users.
 - Separate untrusted pull-request execution from privileged release jobs.
 - Do not expose secrets to forked pull requests.
 - Verify dependency integrity, licenses, and known vulnerabilities.
-- For the Auth Broker image, verify the pinned GitHub CLI version, both Linux
-  architecture checksums, bundled MIT license, and third-party notice; never
-  substitute a network-fetched checksum during the build.
+- For the Auth Broker image, verify canonical/snapshot equality, bridge and
+  protocol tests, non-root construction, and absence of every provider CLI or
+  provider configuration file. Host GitHub/AWS drivers are Go infrastructure,
+  not Broker image artifacts; tests and image layers must contain no live SSO
+  cache, token, role credential, or signed-request material.
+- For the public base runtime, retain its pre-change GitHub CLI and AWS CLI
+  artifact, publisher, redistribution, multi-architecture, and native-smoke
+  checks. Verify `kubectl`, `cwk`, `pup`, and TWG only in the explicit local
+  toolbox inventory. That local build is not public redistribution evidence and
+  must not change the published-base lock or snapshot.
 - Keep the pinned `auth-provider.v1` schema fixture repository-authored,
   synthetic, MIT-licensed, and digest-matched. It must contain no real account,
   hostname, file path, or credential.
@@ -127,23 +134,27 @@ publication; it must not be described as a stable SemVer release or grant the
 image any authority beyond its declared root filesystem.
 
 The Auth Broker is a credential-bearing runtime, so its public image requires
-additional negative evidence: no credential, live account fixture, GitHub CLI
-configuration, root key, vault, runtime-issued handle, device code, or
-authenticated output is present in source, layers, workflow artifacts, logs,
-or notices. Deterministic synthetic handle canaries are permitted only in
-tests. Its canonical
-source/snapshot drift check, pinned GitHub CLI checksums and license, fixed
-non-root labels/entrypoint, and Linux amd64/arm64 build must pass. Pull-request
+additional negative evidence: no credential, live account fixture, GitHub or
+AWS CLI configuration, SSO registration/client state, access or refresh token,
+role credential, root key, vault, runtime-issued handle, device code, signed
+authorization field, or authenticated output is present in source, layers,
+workflow artifacts, logs, or notices. Deterministic synthetic canaries are
+permitted only in tests. The CLI archive contains the private companion mode
+inside the same binary but no companion key, driver state, provider home, or
+provider executable; every epoch key is derived at runtime and enters only
+inherited stdin. Its canonical
+source/snapshot drift check, provider-CLI absence, fixed non-root labels/
+entrypoint, and Linux amd64/arm64 build must pass. Pull-request
 validation is cache-only and has no package-write permission; only the
 main-push job may publish moving `latest`/`main` and immutable
 `sha-<commit>` development identities. Routine CLI startup must use a reviewed
 manifest digest rather than those moving tags.
-The first Auth Broker publication is complete. Public and release validation
-now require its reviewed `ghcr.io/tasuku43/tobari/auth-broker@sha256:...`
-manifest reference; an unpublished marker, invented digest, wrong repository,
-or moving identity is a public-boundary failure. Future promotion still
-requires independent platform, metadata, anonymous-readability, and digest
-review rather than trusting a moving tag or successful workflow alone.
+The currently reviewed Gateway and Auth Broker publications are API v1. The
+API-v2 implementation is a separate release blocker until an
+explicitly authorized publication produces compatible indexes and reviewed
+immutable pins. An unpublished marker, invented digest, wrong repository,
+moving identity, or API-v1 pin beside API-v2 code is a public-boundary failure;
+this implementation change does not authorize publication.
 
 See [Release](06_release.md) for the artifact workflow.
 
@@ -173,7 +184,11 @@ Minimum first-public-push checklist:
 - [ ] Private reporting and maintainer contacts exist.
 - [ ] Fixtures and docs contain only synthetic data.
 - [ ] Auth Broker source, image layers, tests, and manual validation evidence
-      contain no real account material, device code, handle, key, or vault.
+      contain no real account material, SSO/token/role state, device code,
+      signed authorization field, handle, key, or vault.
+- [ ] The published base's existing tool archives, checksums, licenses, notices,
+      and both architectures were reviewed; toolbox-only `kubectl`, `cwk`,
+      `pup`, and TWG are absent from published layers.
 - [ ] Full history and artifacts passed secret and identifier review.
 - [ ] `task check`, `task security`, and `task public:check` passed.
 - [ ] A human reviewer approved publication.

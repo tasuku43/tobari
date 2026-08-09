@@ -74,7 +74,7 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json",
 		"TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json",
 		"TOBARI_AUTH_BROKER_SOCKET: /run/tobari-auth/runtime/broker.sock",
-		"TOBARI_AUTH_BROKER_TIMEOUT_SECONDS: ${TOBARI_AUTH_BROKER_TIMEOUT_SECONDS:-2}",
+		"TOBARI_AUTH_BROKER_TIMEOUT_SECONDS: ${TOBARI_AUTH_BROKER_TIMEOUT_SECONDS:-70}",
 	} {
 		if !strings.Contains(spec, required) {
 			t.Errorf("compose spec is missing %q", required)
@@ -164,7 +164,7 @@ func TestGatewayDockerfileDeclaresStableContractAndHostIndependentRuntime(t *tes
 	}
 	spec := string(data)
 	for _, required := range []string{
-		`io.tobari.gateway-api="1"`,
+		`io.tobari.gateway-api="2"`,
 		`io.tobari.gateway-role="enforcement"`,
 		"USER 1000:1000",
 		"chmod 0777",

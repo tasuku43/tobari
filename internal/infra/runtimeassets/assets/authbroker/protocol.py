@@ -33,8 +33,16 @@ def _reject_constant(_: str) -> None:
     raise ProtocolError("invalid_json")
 
 
-def decode_document(payload: bytes) -> dict[str, Any]:
-    if not payload or len(payload) > MAX_FRAME_BYTES:
+def decode_document(
+    payload: bytes, *, maximum: int = MAX_FRAME_BYTES
+) -> dict[str, Any]:
+    if (
+        isinstance(maximum, bool)
+        or not isinstance(maximum, int)
+        or maximum < 1
+        or not payload
+        or len(payload) > maximum
+    ):
         raise ProtocolError("invalid_frame")
     try:
         text = payload.decode("utf-8")
@@ -139,4 +147,3 @@ def call_unix_socket(
         return response
     finally:
         connection.close()
-

@@ -9,6 +9,8 @@ import (
 
 type termios = syscall.Termios
 
+const canonicalModeFlag = syscall.ICANON
+
 func getTermios(fd uintptr) (termios, error) {
 	var value termios
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(syscall.TCGETS), uintptr(unsafe.Pointer(&value))); errno != 0 { // #nosec G103 -- the fd is the validated caller terminal and ioctl only reads termios.

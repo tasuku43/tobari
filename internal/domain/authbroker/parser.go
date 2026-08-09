@@ -9,9 +9,9 @@ import (
 	"unicode/utf8"
 )
 
-// ParseProvider parses one bounded schema-v1 provider document. It rejects
-// duplicate object keys before decoding because encoding/json otherwise keeps
-// the last value, which would make a reviewed manifest visually ambiguous.
+// ParseProvider parses one bounded schema-v1 or schema-v2 provider document.
+// It rejects duplicate object keys before decoding because encoding/json
+// otherwise keeps the last value, making a reviewed manifest ambiguous.
 func ParseProvider(data []byte) (Provider, error) {
 	if len(data) == 0 || len(data) > MaxProviderDocumentBytes || !utf8.Valid(data) {
 		return Provider{}, fmt.Errorf("provider document must contain 1..%d bytes", MaxProviderDocumentBytes)
@@ -46,9 +46,18 @@ func validateProviderJSONKeys(data []byte) error {
 	if root == nil {
 		return fmt.Errorf("provider document must be a JSON object")
 	}
-	if err := rejectUnknownKeys("provider", root,
+	var schemaVersion int
+	if err := json.Unmarshal(root["schema_version"], &schemaVersion); err != nil {
+		return fmt.Errorf("provider schema_version must be an integer: %w", err)
+	}
+	allowedProviderKeys := []string{
 		"schema_version", "id", "display_name", "acquisition", "credential",
-		"workspace_projections", "header_bindings"); err != nil {
+		"workspace_projections", "header_bindings",
+	}
+	if schemaVersion == ProviderSchemaVersion {
+		allowedProviderKeys = append(allowedProviderKeys, "signing_bindings")
+	}
+	if err := rejectUnknownKeys("provider", root, allowedProviderKeys...); err != nil {
 		return err
 	}
 	if err := validateObjectKeys("acquisition", root["acquisition"], "mode", "helper"); err != nil {
@@ -61,10 +70,11 @@ func validateProviderJSONKeys(data []byte) error {
 		return err
 	}
 	var bindings []map[string]json.RawMessage
-	if len(root["header_bindings"]) != 0 {
-		if err := json.Unmarshal(root["header_bindings"], &bindings); err != nil {
-			return fmt.Errorf("header_bindings must be an array of objects: %w", err)
-		}
+	if len(root["header_bindings"]) == 0 {
+		return fmt.Errorf("header_bindings must be an array of objects")
+	}
+	if err := json.Unmarshal(root["header_bindings"], &bindings); err != nil || bindings == nil {
+		return fmt.Errorf("header_bindings must be an array of objects")
 	}
 	for index, binding := range bindings {
 		label := fmt.Sprintf("header_bindings[%d]", index)
@@ -81,6 +91,46 @@ func validateProviderJSONKeys(data []byte) error {
 			return err
 		}
 		if err := validateObjectKeys(label+".destination", binding["destination"], "header", "format", "secret_field"); err != nil {
+			return err
+		}
+	}
+	if schemaVersion == ProviderSchemaVersion {
+		if err := validateSigningBindingJSONKeys(root["signing_bindings"]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSigningBindingJSONKeys(data json.RawMessage) error {
+	var bindings []map[string]json.RawMessage
+	if len(data) != 0 {
+		if err := json.Unmarshal(data, &bindings); err != nil {
+			return fmt.Errorf("signing_bindings must be an array of objects: %w", err)
+		}
+	}
+	for index, binding := range bindings {
+		label := fmt.Sprintf("signing_bindings[%d]", index)
+		if binding == nil {
+			return fmt.Errorf("%s must be an object", label)
+		}
+		if err := rejectUnknownKeys(label, binding, "kind", "aws_sigv4"); err != nil {
+			return err
+		}
+		var plan map[string]json.RawMessage
+		if err := json.Unmarshal(binding["aws_sigv4"], &plan); err != nil || plan == nil {
+			return fmt.Errorf("%s.aws_sigv4 must be an object", label)
+		}
+		if err := rejectUnknownKeys(label+".aws_sigv4", plan, "target", "source", "secret_headers"); err != nil {
+			return err
+		}
+		if err := validateObjectKeys(label+".aws_sigv4.target", plan["target"], "scheme", "port", "dns_suffixes"); err != nil {
+			return err
+		}
+		if err := validateObjectKeys(
+			label+".aws_sigv4.source", plan["source"],
+			"authorization_header", "security_token_header",
+		); err != nil {
 			return err
 		}
 	}

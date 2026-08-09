@@ -23,12 +23,14 @@ import (
 
 const projectAuthRegistrySchema = 1
 
-type brokerHeaderBinding struct {
-	ProviderID    string                             `json:"provider_id"`
-	Target        authbroker.BindingTarget           `json:"target"`
-	Source        authbroker.NormalizedBindingSource `json:"source"`
-	Destination   authbroker.BindingDestination      `json:"destination"`
-	SecretHeaders []string                           `json:"secret_headers"`
+type brokerCredentialBinding struct {
+	ProviderID    string                              `json:"provider_id"`
+	Target        *authbroker.BindingTarget           `json:"target,omitempty"`
+	Source        *authbroker.NormalizedBindingSource `json:"source,omitempty"`
+	Destination   *authbroker.BindingDestination      `json:"destination,omitempty"`
+	SecretHeaders []string                            `json:"secret_headers,omitempty"`
+	Kind          authbroker.SigningBindingKind       `json:"kind,omitempty"`
+	AWSSigV4      *authbroker.AWSSigV4Binding         `json:"aws_sigv4,omitempty"`
 }
 
 type projectAuthFile struct {
@@ -63,22 +65,40 @@ type projectAuthRegistry struct {
 
 func brokerBindingsForProvider(
 	projection authbroker.Projection, providerID string,
-) ([]brokerHeaderBinding, []byte, string, error) {
-	bindings := make([]brokerHeaderBinding, 0)
+) ([]brokerCredentialBinding, []byte, string, error) {
+	bindings := make([]brokerCredentialBinding, 0)
 	for _, binding := range projection.HeaderBindings {
 		if binding.ProviderID != providerID {
 			continue
 		}
-		bindings = append(bindings, brokerHeaderBinding{
-			ProviderID: providerID, Target: binding.Target, Source: binding.Source, Destination: binding.Destination,
+		target, source, destination := binding.Target, binding.Source, binding.Destination
+		bindings = append(bindings, brokerCredentialBinding{
+			ProviderID: providerID, Target: &target, Source: &source, Destination: &destination,
 			SecretHeaders: append([]string(nil), binding.SecretHeaders...),
+		})
+	}
+	for _, binding := range projection.SigningBindings {
+		if binding.ProviderID != providerID {
+			continue
+		}
+		var aws *authbroker.AWSSigV4Binding
+		if binding.AWSSigV4 != nil {
+			value := *binding.AWSSigV4
+			value.Target.DNSSuffixes = append([]string(nil), binding.AWSSigV4.Target.DNSSuffixes...)
+			value.SecretHeaders = append([]string(nil), binding.AWSSigV4.SecretHeaders...)
+			aws = &value
+		}
+		bindings = append(bindings, brokerCredentialBinding{
+			ProviderID: providerID,
+			Kind:       binding.Kind,
+			AWSSigV4:   aws,
 		})
 	}
 	encoded, err := json.Marshal(bindings)
 	if err != nil || len(bindings) == 0 || len(encoded) > maxBrokerControlOutput {
 		return nil, nil, "", fault.New(
 			fault.KindContract, "invalid_provider_manifest",
-			"The provider's normalized HTTP binding projection is invalid.", false,
+			"The provider's normalized credential-binding projection is invalid.", false,
 			fault.NextAction{Command: "doctor", Reason: "Inspect the credential-provider manifests."},
 		)
 	}

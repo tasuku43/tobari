@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, authentication, external I/O, harness, public boundary, and release
 - Supersedes: [ADR 0007: Exclude provider adapters from the MVP](0007-exclude-provider-adapters-from-the-mvp.md)
-- Superseded by: None
+- Superseded by: [ADR 0020: Add reviewed broker credential plans and post-policy AWS signing](0020-broker-reviewed-credential-plans.md)
 
 ## Context
 
@@ -224,7 +224,7 @@ catalog. `auth status` is a complete exhaustive provider collection for one
 Context. Provider manifests, broker control/runtime protocols, encrypted
 vaults, provider projection, Workspace auth-file registry, handle prefix, image
 labels, and OPA input schema 5 are explicit pre-v1 compatibility boundaries.
-Cluster status JSON advances to schema 3 and Context report JSON to schema 4
+Cluster status JSON advances to schema 3 and Context report JSON to schema 5
 to project explicit broker/provider state. Current Context Rego source targets
 input schema 4; aggregate generation translates legacy source 3 and current
 source 4 to Gateway runtime schema 5.

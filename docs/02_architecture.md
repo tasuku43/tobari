@@ -5,12 +5,14 @@
 ```text
 host
   tobari CLI ---- Docker CLI ---- Docker Engine
-      |
-      +-- fixed GitHub device URL --> host browser (best effort)
-      |
       +-- fixed control exec/stdin --> tobari-auth-broker (locked)
       |                                      |
       |                               encrypted Context vaults
+      +-- reviewed fixed GitHub/AWS login drivers --> provider HTTPS
+      +-- private same-binary credential companion
+      |       |-- reviewed fixed AWS refresh driver --> provider HTTPS
+      |       +-- encrypted reverse docker exec stream
+      |                  --> broker-private bridge socket
       +-- root A (rw) --> Tobari A -- internal net A --+
       +-- root B (rw) --> Tobari B -- internal net B --+--> tobari-gateway
                                                                |      |      |
@@ -23,7 +25,11 @@ Each Tobari joins only its dedicated internal network. OPA joins only the
 shared internal control network. Gateway joins every Tobari network plus
 control and egress. Auth Broker joins control and egress but has no TCP
 listener; Gateway reaches only its read-only mounted runtime Unix socket and
-host commands reach only fixed control operations. Tobari and control networks
+host commands reach only fixed control operations. The resident credential
+companion opens no listener. It holds one fixed `docker exec -i` stream to the
+verified Broker container, whose image-owned bridge byte-pumps to an unmounted
+private Unix socket. Provider CLIs remain on the host and cannot be selected by
+a Workspace, request, or owner manifest. Tobari and control networks
 use Docker's `internal` property; the egress network is the only network with
 an external route.
 
@@ -49,7 +55,8 @@ internal/cli  ------> internal/app
   Context-authentication use cases with consumer-owned ports.
 - `internal/infra`: Docker CLI runner, local state/config filesystem, embedded
   asset materialization, provider projection, host root-key storage, broker
-  control, platform inspection, and terminal/environment capability adapters.
+  control, private companion lifecycle/protocol, reviewed host credential
+  drivers, platform inspection, and terminal/environment capability adapters.
 - `internal/cli`: the canonical catalog, typed argv parsing, rendering, signal
   handoff, shared semantic style presentation, and composition root.
 
@@ -96,7 +103,8 @@ the Context policy directory, the managed-credential metadata/secret stores,
 and the stable identity used to locate separately stored encrypted Auth Broker
 state. The manifest contains no broker vault path, root key, or primary secret.
 It may also own one fixed `runtime/Dockerfile` recipe and its last successful
-managed build record. The manifest is not itself a mountable authority: policy
+managed build record plus narrow shell and Git identity policies. The manifest
+is not itself a mountable authority: policy
 is mounted only into OPA, managed secrets are mounted only into Gateway,
 brokered secrets remain in encrypted Context vaults, and agent configuration is
 mounted read-only into the work runtime. Tool-owned authentication remains in
@@ -124,27 +132,49 @@ projection from all authoritative Context policy and credential sources,
 validates each source and the whole candidate, publishes only a complete
 owner-only directory, and starts exactly one Gateway, one OPA, and one locked
 Auth Broker. Cluster reconciliation unlocks the broker through the host
-root-key provider after its control endpoint is healthy. Policy
+root-key provider after its control endpoint is healthy, prepares a fresh
+purpose-derived companion epoch, verifies the exact Broker container, and
+starts exactly one private same-binary host companion. Companion health is
+part of readiness; no companion is exposed through the public Catalog. Policy
 mutations serialize this same all-Context activation and preserve the previous
 known-good revision on any failure.
-Cluster status schema 3 projects all three component states plus
-`auth_provider_projection`, `auth_broker_state`, and `root_key_backend` as
-secret-free diagnostics. Context report schema 5 exposes the complete Context
-shell-environment inventory plus broker and installed-provider state without
+Cluster status schema 4 projects all three component states plus
+`auth_provider_projection`, `auth_broker_state`, `root_key_backend`, and
+always-present secret-free `credential_companion_state`
+(`ready|prepared|absent|unavailable`). The companion field is host-process/
+channel readiness, not a fourth Compose service
+or credential state. Context report schema 6 exposes the complete Context
+shell-environment and Git identity policies plus broker and installed-provider state without
 returning a vault path/content, root key, primary secret, or handle. Public Linux backend values are `xdg_file`; the
 infrastructure/doctor detail `linux_xdg_file` is not a public JSON enum. The
 canonical schema/path/backend table is in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
 
-Context shell presentation is a separate composition concern. Domain owns the
-fixed `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR` vocabulary plus
-`default|inherit|literal` invariants; the Context application use case owns the
-single-setting write; the owner-only Context store persists overrides. Project
-runtime infrastructure resolves only declared `inherit` entries from the
-launching process at child-exec time and passes exact values to Bash. It always
-owns `PROMPT_COMMAND` so the chosen `PS1` survives image startup behavior, but
-that hook is neither configurable nor inherited. The report includes explicit
-`default` entries so CLI presentation does not infer omitted state.
+Narrow host projection is a separate composition concern, not a file or secret
+mount. Domain owns each fixed scalar inventory, `default|inherit|literal`
+invariants, complete reports, and Git's atomic name/email pair. Context
+application use cases own the fixed-target writes; the owner-only Context store
+persists only non-default policy. CLI owns two input-completion modes for the
+same use cases: complete typed argv, or a terminal-only wizard when the entire
+setting group is omitted. The wizard first reads typed current state, writes no
+mutation before Apply, binds the returned Context name across the human review,
+and never completes a partial direct invocation. Explicit-empty Context input
+is rejected rather than collapsed into the omitted current-Context selector.
+
+Project runtime infrastructure resolves only declared shell `inherit` entries
+from the launching process at child-exec time and passes exact values to Bash.
+It always owns `PROMPT_COMMAND` so the chosen `PS1` survives image startup
+behavior, but that hook is neither configurable nor inherited. Git inheritance
+instead uses a purpose-built host adapter during stable-root reconciliation. It
+runs at most two finite, bounded, one-attempt, fixed-key global-scope Git calls;
+repository/worktree config cannot select another host file for that read. The
+child receives only validated host config-directory paths and fixed controls,
+never ambient `PATH`, loader, or shell-startup variables. A complete validated
+pair is safely encoded after an `/etc/gitconfig` include in one size-bounded,
+private per-Workspace system config. Its directory is mounted read-only and
+selected by `GIT_CONFIG_SYSTEM`, leaving Workspace-global and repository-local
+configuration at higher precedence. The report includes explicit `default`
+state so presentation never infers policy from omitted manifest fields.
 
 ## Runtime assets
 
@@ -162,7 +192,8 @@ runtime/
   authbroker/broker.py
   authbroker/daemon.py
   authbroker/control.py
-  authbroker/github_auth.py
+  authbroker/companion_protocol.py
+  authbroker/companion_bridge.py
   opa/policy/tobari.rego
   opa/policy/tobari_test.rego
 ```
@@ -207,12 +238,12 @@ complete-file projections. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
 Auth Broker follows the same canonical-source/snapshot pattern as Gateway. Its
-editable Python package, Dockerfile, tests, GitHub CLI checksums, license, and
-third-party notice live under `authbroker/`; the Go binary embeds the checked
+editable Python package, Dockerfile, tests, and bridge/protocol source live
+under `authbroker/`; the Go binary embeds the checked
 snapshot at `internal/infra/runtimeassets/assets/authbroker/`.
 `scripts/sync-authbroker-source.sh` refreshes the snapshot and
 `scripts/check-authbroker-source.sh` rejects byte drift. The source and image
-checks run the broker unit suite, validate the pinned GitHub CLI artifacts, and
+checks run the broker unit suite, prove that no provider CLI is installed, and
 build the fixed non-root image. The main-only image workflow builds Linux amd64
 and arm64 and publishes moving development tags plus an immutable commit tag.
 Routine startup uses the reviewed multi-architecture digest in `versions.env`;
@@ -221,8 +252,8 @@ the moving tags never select runtime authority. The contributor resolver uses
 
 Compose mounts owner-only host state
 `auth/contexts` at `/var/lib/tobari-auth/contexts` and `auth/runtime` at
-`/run/tobari-auth/runtime`; the control socket and ephemeral GitHub CLI
-configuration live on separate private tmpfs mounts. The daemon listens on
+`/run/tobari-auth/runtime`; control and companion sockets live on private tmpfs
+mounts. The daemon listens on
 `/run/tobari-auth/control/broker.sock` and
 `/run/tobari-auth/runtime/broker.sock`. Control operations enter the container
 through fixed `docker exec` argv and stdin. Gateway mounts only the runtime
@@ -230,16 +261,34 @@ directory read-only. The provider projection is generated atomically from the
 built-in documents plus owner-only XDG user manifests and is mounted read-only
 into Gateway; neither the projection nor a provider manifest contains a secret.
 
-The built-in GitHub helper keeps browser and Git responsibilities on their
-own sides of this boundary. GitHub CLI prompting and in-container browser
-launch are disabled. When the pinned helper stream reaches the exact fixed
-GitHub device URL, the trusted host CLI invokes only the platform browser
-opener for that constant; failure leaves the same URL visible for manual use.
-No URL supplied by a provider, manifest, repository, or helper argument can
-select another host target. The helper requests no Git protocol and performs
-no Git credential setup. Repository `.git/config` and any user-authored global
-Git configuration remain inside the project/Workspace boundary; authenticated
-Git transport is not part of the API-authentication slice.
+After unlock, the host creates a fresh companion epoch and derives a
+purpose-separated session key from the installation root key; only that derived
+key crosses the companion's inherited bootstrap stdin. The same executable is
+started with a private process identity rather than a Catalog command. It holds
+fixed `docker exec -i --user <uid:gid> <verified-container-id>` argv followed
+by fixed `python3 -m authbroker.companion_bridge` container argv. The bridge
+only pumps bounded bytes between
+stdin/stdout and `/run/tobari-auth/companion/bridge.sock`; it parses, logs, and
+persists nothing. A challenge handshake derives direction-specific AES-GCM
+keys, and every frame carries exact monotonically increasing sequence state.
+Authentication failure, replay, gap, oversized frame, duplicate session, or
+disconnect closes the session. `cluster down` drains bounded in-flight work and
+then closes the exec stream as Compose teardown removes the Broker container.
+
+The reviewed GitHub and AWS drivers keep provider-native execution on the
+trusted host. Each resolves and hashes one host executable, uses fixed argv and
+a sanitized environment, reconstructs only a private bounded temporary home,
+and deletes it on every outcome. The GitHub driver recognizes only the fixed
+device URL and requests no Git protocol. The AWS driver runs a fixed
+device-code login and later the fixed credential-export command; its cache
+bytes return to Auth Broker only as opaque encrypted state. No URL, executable,
+argument, environment key, or driver supplied by a provider manifest,
+repository, Workspace, or request can alter that behavior. Request region is
+separate Context/tool configuration and is not part of login state. Repository
+`.git/config` and user-authored global Git/AWS configuration remain inside the
+project/Workspace boundary. The
+separate Context Git identity fallback contains only safely re-encoded
+`user.name` and `user.email`; it grants no authentication or signing authority.
 
 Custom images are supported only when they preserve runtime API label
 `io.tobari.runtime-api=1`, the `tobari` image user, and the exact built-in
@@ -255,11 +304,13 @@ read-only root filesystem, dropped capabilities, fixed CPU/memory/PID/log
 resource bounds, fixed mounts, proxy environment, internal network, and health
 check.
 
-`images/toolbox` remains a transitional optional custom derivation for tools
-outside the common base set, such as kubectl and TWG. A separate host task
-builds it from the official Tobari runtime base, verifies pinned official artifacts, and
-leaves only the local `tobari-toolbox:local` tag. It is not embedded runtime
-state, an official published artifact, or an implicit cluster dependency.
+`images/toolbox` remains an optional custom derivation for Context-specific
+tools. A separate host task builds it from the official Tobari runtime base,
+adds pinned `kubectl`, `cwk`, `pup`, and local-only TWG artifacts, and leaves
+only the local `tobari-toolbox:local` tag. It inherits the base's existing
+GitHub CLI and AWS CLI. It is not embedded runtime state, an official published
+artifact, an Auth Broker layer, or an implicit cluster dependency. No inclusion
+in this toolbox changes the public-base redistribution claim.
 
 The first published family member follows the same layering: a main-branch
 push runs `.github/workflows/runtime-base.yml` and publishes the reviewed
@@ -383,8 +434,9 @@ selected directly; when only ancestor records exist, the CLI presents every
 containing root nearest-first and the application accepts either one validated
 candidate or an explicit create-at-CWD choice. The choice is revalidated under
 the lifecycle lock before the selected logical record is created or reused. It
-then resolves the selected record's bound Context image, requires the broker to
-be ready, reconciles the Context's configured project-bound handle projection,
+then resolves the selected record's root-scoped Context Git fallback before
+Docker calls, resolves the bound Context image, requires the broker to be
+ready, reconciles the Context's configured project-bound handle projection,
 ensures one exact project network and
 work container, connects Gateway with the `gateway` alias, binds the Gateway
 interface address to the host-issued Context/project principal, waits for project
@@ -498,18 +550,23 @@ client request headers
   -> require an exact learned L7 rule for a broker-provider request rather
      than inheriting a broad static host/method allow
   -> deny on any invalid/unavailable decision
-  -> on brokered allow, resolve the same revision exactly once and replace only
-     the declared destination header
+  -> on a static brokered allow, resolve the same revision exactly once and
+     replace only the declared destination header
+  -> on an AWS SigV4 allow, keep the request bounded and unstreamed, then hash
+     the same complete request; Broker uses one post-policy companion export,
+     rechecks/persists the revision, and signs through the reviewed plan
   -> otherwise strip control headers, then forward client authentication or
      apply the managed profile once after allow
-  -> enable request-body streaming
+  -> enable ordinary request-body streaming; forward a signed bounded AWS body once
   -> resolve and pin the upstream address; reject unsafe dotted-host results
   -> stream the authorized upstream response from its headers
   -> emit redacted audit JSON
 ```
 
-Body content is deliberately opaque to policy and is neither retained nor
-hashed by Gateway. Client authentication can be present on the forwarded
+Body content is deliberately opaque to policy. Ordinary bodies are neither
+retained nor hashed by Gateway. The reviewed AWS signing plan temporarily
+retains and hashes only an already-authorized request within the fixed body cap;
+the bytes never enter policy, audit, logs, vault state, or retry state. Client authentication can be present on the forwarded
 request but is absent from OPA input and audit output. No query or headers are
 emitted in audit. Audit retains the path component, except that any path
 containing a Tobari handle marker becomes `/[redacted-auth-handle]`. Structural
@@ -518,7 +575,8 @@ candidates. Any Tobari-looking handle marker either enters the exact valid
 broker route or fails as `credential_handle_invalid`; only complete marker
 absence permits configured fallback. A valid candidate is removed before
 broker or OPA I/O and is never forwarded on failure. Broker
-introspection returns no secret; policy denial performs no resolution. The
+introspection returns no secret; policy denial performs no resolution or
+companion call. The
 default passthrough adapter never loads or injects managed credentials; the
 retained managed adapter performs Context/project/host validation and
 injection at the same post-allow boundary. The addon never retries.
@@ -618,7 +676,7 @@ the interactive process. Lifecycle operations return structured state after
 confirmed completion; unclassified post-mutation errors are non-retryable and
 direct the user to `status` for reconciliation.
 Auth mutations use the same structured-outcome rule. A failed or cancelled
-GitHub helper leaves the previous Context credential unchanged; an
+GitHub or AWS host driver leaves the previous Context credential unchanged; an
 `auth_mutation_outcome_unknown`, `unclassified_mutation_outcome`, or
 `mutation_output_write_failed` result is non-retryable and directs the user to
 `auth status` before another auth mutation. Confirmed login/import/logout output
@@ -634,4 +692,9 @@ is finalized before late cancellation can imply that replay is safe.
 - Auth Broker, root-key, provider, and Gateway integration tests cover locked
   startup, encrypted vaults, project-bound handles, deny-before-resolution,
   rotation/revocation, and fallback adapters.
+- Companion and host-driver tests cover private same-binary startup, exact
+  reverse-exec argv/container identity, authenticated framing, no-listener/
+  no-mount topology, fixed GitHub/AWS CLI commands, post-policy refresh,
+  bounded single-flight state update, encrypted no-replay barrier,
+  cancellation settlement, blocked-peer teardown, and stale-result rejection.
 - Docker integration tests prove actual network topology and lifecycle.

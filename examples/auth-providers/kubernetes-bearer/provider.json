@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "kubernetes-api-token",
+  "display_name": "Kubernetes API Token",
+  "acquisition": {
+    "mode": "stdin_import"
+  },
+  "credential": {
+    "kind": "primary_secret"
+  },
+  "workspace_projections": [
+    {
+      "kind": "complete_file",
+      "path": ".kube/config",
+      "template": "apiVersion: v1\nkind: Config\npreferences: {}\nclusters:\n  - name: brokered-cluster\n    cluster:\n      server: https://kubernetes-api.example.com:443\n      certificate-authority-data: REPLACE_WITH_BASE64_PEM_CA_DATA\nusers:\n  - name: brokered-user\n    user:\n      token: \"${HANDLE}\"\ncontexts:\n  - name: brokered-context\n    context:\n      cluster: brokered-cluster\n      user: brokered-user\ncurrent-context: brokered-context\n"
+    }
+  ],
+  "header_bindings": [
+    {
+      "target": {
+        "scheme": "https",
+        "host": "kubernetes-api.example.com",
+        "port": 443
+      },
+      "source": {
+        "header": "authorization",
+        "formats": [
+          "bearer"
+        ]
+      },
+      "destination": {
+        "header": "authorization",
+        "format": "bearer",
+        "secret_field": "primary_secret"
+      },
+      "secret_headers": [
+        "authorization"
+      ]
+    }
+  ]
+}

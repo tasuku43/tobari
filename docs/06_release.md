@@ -10,6 +10,10 @@ The Go CLI remains a pure-Go binary for Linux and macOS on amd64 and arm64.
 Windows CLI archives are buildable by the inherited packaging harness but the
 MVP runtime is not supported on Windows because bind mounts, Unix ownership,
 TTY behavior, and container networking have not been validated there.
+The resident credential companion is a private same-binary process identity,
+not a second executable or public Catalog command, so archives add no sibling
+binary. Runtime epoch/session keys, provider homes, and credential state are
+never packaged.
 
 Runtime assets are embedded in the binary and materialized into versioned state
 before Docker builds. The embedded Tobari, Gateway, Auth Broker, OPA policy, and compose
@@ -18,7 +22,13 @@ are pinned to reviewed immutable versions or digests.
 
 The canonical base image definition is maintained under `runtimes/base` and
 its Dockerfile/bootstrap snapshot is checked against the embedded runtime
-assets. The first official image workflow supports Linux amd64 and arm64.
+assets. This capability leaves the published base at its pre-change GitHub CLI
+and AWS CLI baseline and preserves their checked-in per-platform integrity and
+redistribution checks. `kubectl`, `cwk`, `pup`, and TWG are artifacts of the
+explicit user-triggered local toolbox only; that build does not create a public
+image or change the base metadata/snapshot. The official image workflow builds
+Linux amd64 and arm64 and performs the existing offline native command smoke
+check for the workflow host's published platform.
 The canonical Gateway image definition is maintained under `gateway` and its
 Dockerfile, addon, entrypoint, and tests are checked against the embedded
 `internal/infra/runtimeassets/assets/gateway` snapshot. The main-only Gateway
@@ -30,8 +40,8 @@ build:dev` and a `tobari_dev` binary; the public `cluster up` command does not
 build Gateway source.
 
 The canonical Auth Broker image definition is maintained under `authbroker/`.
-Its package, Dockerfile, entrypoints, tests, pinned GitHub CLI checksums, MIT
-license, and third-party notice are byte-checked against
+Its package, Dockerfile, entrypoints, bridge/protocol, tests, and provider-CLI
+absence are byte-checked against
 `internal/infra/runtimeassets/assets/authbroker/`. The main-only Auth Broker
 workflow publishes `ghcr.io/<owner>/tobari/auth-broker:latest`, `:main`, and an
 immutable `:sha-<commit>` tag for Linux amd64 and arm64. The CLI records one
@@ -53,11 +63,16 @@ Unix socket paths, Gateway/Auth Broker image labels, and preservation of each
 Tobari home volume by default. `cluster down` and `cluster down --purge` also
 preserve encrypted Context vaults and the installation root key; purge adds
 only shared CA-volume removal.
-This slice advances Gateway OPA input to schema 5, cluster status JSON to
-schema 3, and Context report JSON to schema 4; auth command JSON, provider
-manifests/projection, broker protocols, and encrypted vaults start at schema 1.
-Release notes must identify those changes and the source-schema-4 plus
-legacy-source-3-to-runtime-5 projection bridge.
+This slice uses Gateway and Auth Broker image API labels 2, Gateway OPA input
+schema 5, cluster status JSON schema 4 (including always-present
+`credential_companion_state`), and Context report JSON schema 6. Auth
+command JSON, broker protocols, and private companion epoch/frames remain
+schema 1. Owner static provider
+manifests remain schema 1; reviewed built-ins and the normalized projection
+support schema 2. The encrypted vault keeps its schema-1 envelope and migrates
+valid static payloads into encrypted payload schema 2. Release notes must
+identify those changes and the source-schema-4 plus legacy-source-3-to-runtime-5
+projection bridge.
 Public auth backend values are exactly `macos_keychain|xdg_file`, while cluster
 status may additionally use `unavailable`. The `linux_xdg_file` string is an
 infrastructure/doctor diagnostic label, not a public JSON enum. The release
@@ -80,13 +95,13 @@ pull-request job has no package-write permission and uses a cache-only
 multi-architecture build; only the main-push job can publish to GHCR.
 
 The Auth Broker workflow follows that same permission and tag split. Before
-building it verifies canonical/snapshot equality, image metadata, GitHub CLI
-2.96.0 archive checksums for both supported architectures, and the bundled MIT
-license/notice. Pull requests run the Python tests and cache-only
+building it verifies canonical/snapshot equality, image metadata,
+provider-CLI absence, and the private bridge/protocol suite. Pull requests run
+the Python tests and cache-only
 multi-architecture build without package-write permission. The main-push job
 alone publishes the GHCR manifest. No login, credential, account fixture,
-device code, handle, root key, vault, or authenticated output is a release
-artifact.
+device code, SSO client/token state, role credential, signed authorization
+field, handle, root key, vault, or authenticated output is a release artifact.
 
 The first Claude and Codex agent-image slices are build-only: their
 pull-request and main-push workflows validate the pinned parent, agent release
@@ -100,11 +115,11 @@ immutable commit tag, while Claude and Codex variants are local/CI build
 artifacts only. The repository does not claim a public agent image, stable
 support window, SBOM/attestation, or redistribution approval until a new
 release decision accepts those claims. The Gateway and Auth Broker source/image
-checks are implemented, and the current Gateway and Auth Broker indexes are
-public and digest-pinned. Each future registry visibility or immutable digest
-promotion remains an explicit owner-side publication handoff; a moving tag or
-successful workflow does not make a digest reviewed runtime authority by
-itself.
+checks are implemented, but the currently reviewed indexes are API v1. API-v2
+code cannot be released until a separate explicitly authorized owner-side
+handoff publishes compatible indexes, verifies their platform, metadata, and
+anonymous visibility, and updates immutable pins. A moving tag or successful
+workflow does not make a digest reviewed runtime authority by itself.
 
 Tobari does not yet claim code signing, notarization, SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact
@@ -132,15 +147,19 @@ task authbroker:test
 task integration:test
 ```
 
-Auth Broker changes additionally require the canonical source and image checks
-used by `task check` and `task runtime:test`. The required reproducible
-synthetic Auth Broker proof is delegated explicitly to `task integration:test`;
+Auth Broker and companion changes additionally require the canonical source,
+image, private protocol, host-driver, and topology checks used by `task check`
+and `task runtime:test`. The required reproducible synthetic Auth Broker proof
+is delegated explicitly to `task integration:test`;
 the manual transcript does not duplicate that synthetic manipulation. Release
-also requires the trusted-host GitHub scenario in
+also requires the trusted-host GitHub and AWS scenarios in
 [Agent Readiness Validation](09_agent_readiness_validation.md), including the
 no-print assertion that `gh auth token --hostname github.com` equals the exact
-projected `GH_TOKEN` handle before the allowed API call. That scenario records
-only secret-free pass/fail outcomes and never becomes a repository fixture.
+projected `GH_TOKEN` handle and that the three AWS credential variables equal
+one handle before the allowed API calls. Those scenarios record only
+secret-free pass/fail outcomes and never become repository fixtures. An
+implementation handoff may report the API-v2 image/pin blocker, but cannot mark
+release completion or publish images without explicit owner authorization.
 
 The first public release also requires a clean-environment Colima or Linux
 Quick Start run and a human review of history, dependencies, licenses, and
