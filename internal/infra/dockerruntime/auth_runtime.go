@@ -29,14 +29,15 @@ const (
 var errLoginVisibleOutputLimit = errors.New("host login visible output exceeded its limit")
 
 type loginVisibleOutput struct {
-	mu          sync.Mutex
-	destination io.Writer
-	openBrowser func(string) error
-	pending     []byte
-	opened      bool
-	written     int
-	visible     int
-	failure     error
+	mu            sync.Mutex
+	destination   io.Writer
+	openBrowser   func(string) error
+	consoleRegion string
+	pending       []byte
+	opened        bool
+	written       int
+	visible       int
+	failure       error
 }
 
 func (w *loginVisibleOutput) Write(data []byte) (int, error) {
@@ -119,7 +120,7 @@ func (w *loginVisibleOutput) flushPending() error {
 	if err := w.writeVisible(visible); err != nil {
 		return err
 	}
-	target, recognized := loginBrowserTarget(normalized)
+	target, recognized := loginBrowserTarget(normalized, w.consoleRegion)
 	if !w.opened && recognized && w.openBrowser != nil {
 		w.opened = true
 		if err := w.openBrowser(target); err != nil {
@@ -163,11 +164,14 @@ func projectLoginVisibleText(value string) string {
 	return output.String()
 }
 
-func loginBrowserTarget(line string) (string, bool) {
+func loginBrowserTarget(line, consoleRegion string) (string, bool) {
 	if strings.Contains(line, githubDeviceURL) {
 		return githubDeviceURL, true
 	}
 	if awsSSODeviceURLPattern.MatchString(line) {
+		return line, true
+	}
+	if consoleRegion != "" && validAWSConsoleAuthorizationURL(line, consoleRegion) {
 		return line, true
 	}
 	if !strings.HasPrefix(line, awsBrowserLinePrefix) {

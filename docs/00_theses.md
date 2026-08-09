@@ -225,8 +225,10 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   helper.
   AWS selection is explicit: the backward-compatible `identity-center` method
   uses the fixed device flow, while `console` uses AWS CLI 2.32-or-newer's
-  cross-device local-development login. Neither method reads an ambient AWS
-  home or starts a callback listener.
+  cross-device local-development login. Console mode opens only the strict
+  region-bound AWS authorization URL emitted by that fixed process and leaves
+  the same terminal URL as fallback. Neither method reads an ambient AWS home
+  or starts a callback listener.
 - One resident trusted-host companion uses the current Tobari executable's
   private same-binary mode. It reaches an unmounted Broker-private socket only
   through a fixed reverse `docker exec -i` stream protected by a root-key-
@@ -271,8 +273,9 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   restart locking, rotation, revocation, and canary-free output.
 - Acquisition tests fix the GitHub and AWS host executable identity, argv,
   environment, conventional non-project installation-root selection,
-  control-safe visible output, checked private-home cleanup, purpose-limited browser target, manual
-  fallback, cancellation, and absence of Broker Git/AWS CLI configuration.
+  control-safe visible output, checked private-home cleanup, purpose-limited
+  fixed or parameterized browser target, manual fallback, cancellation, and
+  absence of Broker Git/AWS CLI configuration.
 - Companion tests fix same-binary private startup, reverse-exec container
   identity, authenticated frame sequencing and bounds, no-listener/no-mount
   topology, post-policy call order, bounded per-record single-flight refresh,

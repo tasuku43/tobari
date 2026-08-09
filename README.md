@@ -1124,8 +1124,9 @@ commercial IAM Identity Center URL, SSO region, 12-digit account ID, and role,
 then runs the fixed device-code login. `--method console` requires AWS CLI 2.32
 or newer, asks for one commercial region, and runs fixed
 `aws login --remote`; it starts no callback listener and uses no ambient AWS
-profile. Each method has a distinct strict opaque state shape encrypted in the
-Context vault. Request region remains ordinary non-secret Context/tool
+profile. Tobari opens only its strictly validated region-bound authorization
+URL when possible and preserves the terminal URL as fallback. Each method has
+a distinct strict opaque state shape encrypted in the Context vault. Request region remains ordinary non-secret Context/tool
 configuration or an explicit AWS CLI option. Unsupported partitions remain
 excluded.
 

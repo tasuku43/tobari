@@ -306,7 +306,11 @@ aws login --remote --profile tobari --region <validated-region> \
   --no-cli-pager --no-cli-auto-prompt
 ```
 
-No callback listener or automatic browser opener is used. After success Tobari
+No callback listener is used. Tobari opens only the first complete authorization
+URL that matches the selected commercial region, exact HTTPS sign-in authority
+and paths, fixed OAuth values, bounded UUID state and PKCE challenge, and
+same-region redirect; any mismatch remains visible text without a browser side
+effect. The terminal URL remains the manual fallback. After success Tobari
 accepts only a single validated `login_session` ARN whose 12-digit account
 matches the stored secret-free label, the same region/output, and bounded
 canonical SHA-256-named JSON cache files. That strict schema-2 state is bound

@@ -37,7 +37,8 @@ an external route.
 The AWS host driver registry is closed over two explicit acquisition methods.
 `identity-center` retains schema-1 `aws_cli_sso` state and its fixed device
 flow. `console` requires AWS CLI 2.32 or newer, uses fixed cross-device
-`aws login --remote`, and stores distinct schema-2
+`aws login --remote`, opens only its validated region-bound authorization URL
+through the host browser boundary with terminal fallback, and stores distinct schema-2
 `aws_cli_console_login` state. Broker accepts either ID as opaque encrypted
 state; the companion decodes it, requires exact driver/state agreement, and
 uses the shared fixed credential-export boundary after policy allow.

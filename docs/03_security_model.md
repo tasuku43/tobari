@@ -40,8 +40,10 @@ homes, and accept no Workspace, repository, manifest, or request-selected
 executable or argument. GitHub recognizes only the fixed
 `https://github.com/login/device` browser target. AWS runs only the explicitly
 selected fixed IAM Identity Center device flow or fixed console-based
-cross-device login, plus typed credential export; neither flow starts a
-callback listener or reads ambient AWS state.
+cross-device login, plus typed credential export. Console browser opening
+requires the selected commercial region, exact HTTPS authority/path, fixed
+OAuth values, bounded UUID state and PKCE challenge, and same-region redirect;
+neither flow starts a callback listener or reads ambient AWS state.
 
 The host Git identity reader is a separate trusted, purpose-limited CLI side
 effect. It accepts one canonical Workspace root and can request only global
@@ -737,7 +739,7 @@ reference-bound mutation.
 | Policy denial cannot resolve a brokered secret | Gateway call-count and ordering tests proving zero resolve calls before or on deny and exactly one after allow |
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
-| GitHub login cannot turn provider text into arbitrary host execution or Broker Git authority | Conventional non-project installation-root selection, canonical executable identity, fixed argv/environment, control-safe visible projection, exact fixed-URL recognition, manual fallback, checked private-home cleanup, cancellation, and no-Git-protocol tests |
+| Provider login cannot turn visible text into arbitrary browser execution or Broker Git authority | Conventional non-project installation-root selection, canonical executable identity, fixed argv/environment, control-safe visible projection, exact fixed-URL and region-bound AWS console URL recognition, duplicate/cross-region/hostile rejection, manual fallback, checked private-home cleanup, cancellation, and no-Git-protocol tests |
 | AWS CLI session state and temporary credentials cannot enter a Workspace | Encrypted SSO/console opaque-driver-state tests, private-home bounds, driver/state mismatch rejection, companion refresh/revision tests, project-binding checks, and secret-free output/log canaries |
 | AWS denial cannot trigger a companion call, refresh, role acquisition, or signing | Gateway two-stage call-order tests and Broker same-revision signing checks |
 | Companion transport cannot become a host service or arbitrary executor | Same-binary bootstrap, exact container/exec argv, no-listener/no-socket-mount assertions, authenticated replay/gap/size tests, closed driver registry, and child environment/FD canaries |

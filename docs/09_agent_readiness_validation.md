@@ -592,9 +592,11 @@ tobari auth logout aws --context default --format json
 ```
 
 The reviewer confirms fixed `aws login --remote` is used, no callback listener
-or ambient profile is used, the parameterized AWS sign-in URL remains a manual
-terminal action, and temporary credentials refresh through the post-policy
-companion path. A separate synthetic driver test proves AWS CLI versions below
+or ambient profile is used, the exact region-bound AWS sign-in URL opens once
+when possible and remains a usable terminal fallback, and temporary credentials
+refresh through the post-policy companion path. A separate synthetic driver
+test proves malformed, duplicated, and cross-region URLs cause no browser
+action and AWS CLI versions below
 2.32 fail before provider login; no live old-version transcript is retained.
 
 Do not save the questionnaire values beyond the non-secret account/session review,

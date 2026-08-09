@@ -426,6 +426,9 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 			var consoleProfile credentialhost.ConsoleProfileConfig
 			consoleProfile, err = profileReader.ReadAWSConsoleProfile(loginContext, input, errOut)
 			if err == nil {
+				visible.consoleRegion = consoleProfile.Region
+			}
+			if err == nil {
 				err = loginContext.Err()
 			}
 			if err == nil {

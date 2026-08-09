@@ -291,7 +291,8 @@ undeclared Docker mutation by the CLI.
   SSO region, 12-digit account ID, and role name, then leaves the validated
   regional device URL and one-time code. Console mode requires AWS CLI 2.32 or
   newer, asks for one commercial AWS region, runs fixed `aws login --remote`,
-  and leaves the AWS sign-in URL for manual cross-device completion. Auth Broker
+  opens only the exact region-bound AWS authorization URL when possible, and
+  leaves that same URL for manual cross-device completion. Auth Broker
   configures no Git or AWS CLI state in a Workspace and contains no provider
   CLI executable. `auth import` accepts a non-empty
   credential of at most

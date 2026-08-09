@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +17,19 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 )
+
+func syntheticAWSConsoleAuthorizationURL(region string) string {
+	query := url.Values{
+		"response_type":         {"code"},
+		"client_id":             {awsConsoleClientID},
+		"state":                 {"00000000-1111-2222-3333-444444444444"},
+		"code_challenge_method": {"SHA-256"},
+		"scope":                 {"openid"},
+		"redirect_uri":          {"https://" + region + ".signin.aws.amazon.com/v1/sessions/confirmation"},
+		"code_challenge":        {strings.Repeat("A", 43)},
+	}
+	return "https://" + region + ".signin.aws.amazon.com/v1/authorize?" + query.Encode()
+}
 
 func TestProviderBindingCollisionUsesDistinctPublicFault(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -214,6 +228,49 @@ func TestLoginVisibleOutputOpensOnlyExactAWSDeviceURLOnce(t *testing.T) {
 	}
 }
 
+func TestLoginVisibleOutputOpensOnlyRegionBoundAWSConsoleURLOnce(t *testing.T) {
+	target := syntheticAWSConsoleAuthorizationURL("ap-northeast-1")
+	var visible bytes.Buffer
+	opened := []string{}
+	filter := &loginVisibleOutput{
+		destination:   &visible,
+		consoleRegion: "ap-northeast-1",
+		openBrowser: func(candidate string) error {
+			opened = append(opened, candidate)
+			return os.ErrNotExist
+		},
+	}
+	for _, line := range []string{
+		syntheticAWSConsoleAuthorizationURL("us-east-1") + "\n",
+		target + "&state=duplicate\n",
+		target + "#fragment\n",
+		"prefix " + target + "\n",
+		target + "\n",
+		target + "\n",
+	} {
+		if _, err := filter.Write([]byte(line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := filter.flush(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(opened, []string{target}) {
+		t.Fatalf("browser opens = %q", opened)
+	}
+	if strings.Count(visible.String(), "visit "+target+" manually") != 1 {
+		t.Fatalf("visible output = %q", visible.String())
+	}
+
+	withoutMethod := &loginVisibleOutput{destination: io.Discard, openBrowser: func(string) error {
+		t.Fatal("console URL opened outside console method")
+		return nil
+	}}
+	if _, err := withoutMethod.Write([]byte(target + "\n")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoginVisibleOutputProjectsHostileProviderText(t *testing.T) {
 	var visible bytes.Buffer
 	opened := []string{}
@@ -264,6 +321,7 @@ func TestHostBrowserCommandAcceptsOnlyReviewedLoginURLs(t *testing.T) {
 		{goos: "linux", executable: "/usr/bin/xdg-open", target: githubDeviceURL},
 		{goos: "darwin", executable: "/usr/bin/open", target: "https://device.sso.us-east-1.amazonaws.com/"},
 		{goos: "linux", executable: "/usr/bin/xdg-open", target: "https://device.sso.us-gov-west-1.amazonaws.com/"},
+		{goos: "darwin", executable: "/usr/bin/open", target: syntheticAWSConsoleAuthorizationURL("ap-northeast-1")},
 	}
 	for _, test := range tests {
 		executable, args, err := hostBrowserCommand(test.goos, test.target)
@@ -281,6 +339,9 @@ func TestHostBrowserCommandAcceptsOnlyReviewedLoginURLs(t *testing.T) {
 		"https://device.sso.US-EAST-1.amazonaws.com/",
 		"https://device.sso.us-east-0.amazonaws.com/",
 		"https://device.sso.us-east-1.amazonaws.com.evil.example/",
+		strings.Replace(syntheticAWSConsoleAuthorizationURL("ap-northeast-1"), "response_type=code", "response_type=token", 1),
+		syntheticAWSConsoleAuthorizationURL("ap-northeast-1") + "&scope=admin",
+		strings.Replace(syntheticAWSConsoleAuthorizationURL("ap-northeast-1"), "signin.aws.amazon.com", "signin.aws.amazon.com.evil.example", 1),
 	} {
 		if _, _, err := hostBrowserCommand("darwin", target); err == nil {
 			t.Fatalf("unsafe browser target %q was accepted", target)

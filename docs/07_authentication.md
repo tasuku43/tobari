@@ -66,9 +66,12 @@ state is accepted.
   no provider home or temporary credential is copied into a Workspace.
 
 For GitHub and Identity Center, opener failure leaves the same validated URL
-and code as the manual action. Console mode is deliberately cross-device and
-always leaves AWS CLI's sign-in URL and authorization-code prompt in the
-terminal; Tobari does not open its parameterized URL. Provider output is bounded
+and code as the manual action. Console mode is deliberately cross-device:
+Tobari opens only the first authorization URL whose HTTPS authority, path,
+fixed OAuth values, UUID state, PKCE challenge, redirect, and selected
+commercial region all match the reviewed contract. It always leaves AWS CLI's
+same sign-in URL and authorization-code prompt in the terminal, and opener
+failure adds a manual-action message. Provider output is bounded
 and projects backslashes, controls/formats, invalid UTF-8, and Unicode line
 separators visibly before writing to the terminal. Only a bounded account label
 may appear in the secret-free result. Credential and SSO state never cross CLI

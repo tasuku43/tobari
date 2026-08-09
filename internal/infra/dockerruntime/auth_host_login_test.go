@@ -56,7 +56,7 @@ func (a *fakeHostCredentialAcquirer) LoginAWSConsole(
 	a.consoleProfile = profile
 	a.consoleInput = input
 	if visible != nil {
-		a.awsVisible = []byte("https://signin.aws.amazon.com/example\n")
+		a.awsVisible = []byte(syntheticAWSConsoleAuthorizationURL(profile.Region) + "\n")
 		_ = visible(credentialhost.OutputStderr, a.awsVisible)
 	}
 	return a.awsPayload, a.awsErr
@@ -346,8 +346,9 @@ func TestHostAWSConsoleLoginCommitsDistinctDriverState(t *testing.T) {
 	}}
 	runner := &hostLoginDockerRunner{response: `{"schema_version":1,"ok":true,"provider":"aws","revision":"` + strings.Repeat("e", 64) + `","account_label":"123456789012"}`}
 	input := strings.NewReader("authorization-code\n")
+	browser := &recordingBrowser{}
 	runtime := &Runtime{
-		runner: runner, browser: &recordingBrowser{}, hostCLIs: resolver, credentialHost: acquirer,
+		runner: runner, browser: browser, hostCLIs: resolver, credentialHost: acquirer,
 		hostLoginProfiles: fixedConsoleProfileReader{profile: credentialhost.ConsoleProfileConfig{Region: "us-east-1"}},
 	}
 	var visible bytes.Buffer
@@ -369,6 +370,9 @@ func TestHostAWSConsoleLoginCommitsDistinctDriverState(t *testing.T) {
 	}
 	if !strings.Contains(visible.String(), "signin.aws.amazon.com") {
 		t.Fatalf("console visible output = %q", visible.String())
+	}
+	if !reflect.DeepEqual(browser.targets, []string{syntheticAWSConsoleAuthorizationURL("us-east-1")}) {
+		t.Fatalf("console browser targets = %q", browser.targets)
 	}
 }
 

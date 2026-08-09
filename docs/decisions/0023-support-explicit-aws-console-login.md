@@ -29,9 +29,12 @@ Selection is explicit; Tobari never infers it from ambient AWS state. Console
 mode runs against the same verified host `aws` executable in a private HOME,
 sets a private `AWS_LOGIN_CACHE_DIRECTORY`, preconfigures one validated
 commercial region, uses terminal stdin for the returned authorization code,
-and starts no callback listener. After success Tobari accepts only one
-validated profile `login_session` ARN, its 12-digit account identity, and a
-bounded canonical JSON login cache.
+and starts no callback listener. Tobari opens only the first authorization URL
+that matches that region plus the exact HTTPS AWS sign-in authority/path,
+fixed OAuth values, bounded UUID state and PKCE challenge, and same-region
+redirect. The same terminal URL remains the manual fallback. After success
+Tobari accepts only one validated profile `login_session` ARN, its 12-digit
+account identity, and a bounded canonical JSON login cache.
 
 The console plan has its own `aws_cli_console_login` driver ID and strict
 schema-2 opaque state. Existing `aws_cli_sso` schema-1 states remain valid. The
@@ -52,6 +55,9 @@ authorize a manifest to choose a driver, argv, refresh flow, or signing logic.
   when the resolved CLI predates 2.32.
 - A user can replace the Context's current AWS grant by logging in with either
   method. Replacement rotates every project handle as before.
+- Console login no longer requires copying the long authorization URL during
+  routine success. Browser failure or an unrecognized URL preserves the
+  cross-device terminal flow without broadening the opener allowlist.
 - Automatic refresh lasts only while AWS's refresh token remains valid. On
   expiry or an unknown refresh outcome, the user explicitly repeats the same
   selected login method.
