@@ -94,6 +94,44 @@ func writePolicyFixture(t *testing.T, state tobari.State, data string) {
 const minimalPolicyDataFixture = `{"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}
 `
 
+func TestPolicyDataValidatesDeclaredGraphQLEndpoints(t *testing.T) {
+	t.Parallel()
+	validEndpoint := `{"scheme":"https","host":"api.example.com","port":443,"path":"/graphql"}`
+	tests := []struct {
+		name      string
+		endpoints string
+		wantError bool
+	}{
+		{name: "absent remains legacy HTTP", endpoints: ""},
+		{name: "empty declaration", endpoints: `,"graphql_endpoints":[]`},
+		{name: "exact endpoint", endpoints: `,"graphql_endpoints":[` + validEndpoint + `]`},
+		{name: "duplicate", endpoints: `,"graphql_endpoints":[` + validEndpoint + `,` + validEndpoint + `]`, wantError: true},
+		{name: "unnormalized host", endpoints: `,"graphql_endpoints":[{"scheme":"https","host":"API.example.com","port":443,"path":"/graphql"}]`, wantError: true},
+		{name: "query in path", endpoints: `,"graphql_endpoints":[{"scheme":"https","host":"api.example.com","port":443,"path":"/graphql?x=1"}]`, wantError: true},
+		{name: "null", endpoints: `,"graphql_endpoints":null`, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := tobari.State{PolicyDirectory: filepath.Join(t.TempDir(), "policy")}
+			fixture := `{"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[]` + test.endpoints + `,"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}`
+			writePolicyFixture(t, state, fixture)
+			file, err := readPolicyData(state.PolicyDirectory)
+			if test.wantError {
+				if err == nil {
+					t.Fatal("invalid GraphQL endpoint declaration was accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.endpoints != "" && strings.Contains(test.endpoints, validEndpoint) && len(file.graphqlEndpoints) != 1 {
+				t.Fatalf("GraphQL endpoints = %#v", file.graphqlEndpoints)
+			}
+		})
+	}
+}
+
 type concurrentPolicyRunner struct{}
 
 func (concurrentPolicyRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {

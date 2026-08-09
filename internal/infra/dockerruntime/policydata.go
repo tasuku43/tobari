@@ -37,6 +37,7 @@ type policyDataFile struct {
 	rules             []tobari.LearnedPolicyRule
 	baselineDenyRules []tobari.PolicyBaselineDenyRule
 	denyRules         []tobari.PolicyDenyRule
+	graphqlEndpoints  []tobari.GraphQLEndpoint
 	source            []byte
 }
 
@@ -141,6 +142,25 @@ func validatePolicyDataShape(tobariData map[string]json.RawMessage) (map[string]
 	if _, err := decodePolicyArray(boundary, "authorities"); err != nil {
 		return nil, fmt.Errorf("data.json boundary: %w", err)
 	}
+	if raw, exists := boundary["graphql_endpoints"]; exists {
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return nil, fmt.Errorf("data.json boundary.graphql_endpoints must be an array")
+		}
+		var endpoints []tobari.GraphQLEndpoint
+		if err := json.Unmarshal(raw, &endpoints); err != nil || endpoints == nil {
+			return nil, fmt.Errorf("data.json boundary.graphql_endpoints must be an array")
+		}
+		seen := map[tobari.GraphQLEndpoint]struct{}{}
+		for _, endpoint := range endpoints {
+			if err := endpoint.Validate(); err != nil {
+				return nil, fmt.Errorf("data.json boundary.graphql_endpoints: %w", err)
+			}
+			if _, duplicate := seen[endpoint]; duplicate {
+				return nil, fmt.Errorf("data.json boundary.graphql_endpoints contains a duplicate endpoint")
+			}
+			seen[endpoint] = struct{}{}
+		}
+	}
 	methods, err := decodePolicyObject(boundary["methods"], "data.json boundary.methods")
 	if err != nil {
 		return nil, err
@@ -239,6 +259,13 @@ func readPolicyData(policyDirectory string) (policyDataFile, error) {
 	if err != nil {
 		return policyDataFile{}, err
 	}
+	graphqlEndpoints := []tobari.GraphQLEndpoint{}
+	boundary, _ := decodePolicyObject(tobariData["boundary"], "data.json boundary")
+	if raw, exists := boundary["graphql_endpoints"]; exists {
+		if err := json.Unmarshal(raw, &graphqlEndpoints); err != nil {
+			return policyDataFile{}, fmt.Errorf("decode graphql_endpoints: %w", err)
+		}
+	}
 	rules := []tobari.LearnedPolicyRule{}
 	if rawRules := ruleData[learnedPolicyDataName]; rawRules != nil {
 		if err := json.Unmarshal(rawRules, &rules); err != nil {
@@ -283,7 +310,8 @@ func readPolicyData(policyDirectory string) (policyDataFile, error) {
 	return policyDataFile{
 		document: document, tobari: tobariData, ruleData: ruleData, rules: rules,
 		baselineDenyRules: baselineDenyRules, denyRules: denyRules,
-		source: append([]byte{}, data...),
+		graphqlEndpoints: append([]tobari.GraphQLEndpoint{}, graphqlEndpoints...),
+		source:           append([]byte{}, data...),
 	}, nil
 }
 

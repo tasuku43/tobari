@@ -71,7 +71,7 @@ test_deny_unknown_authorization_field if {
 }
 
 test_broker_authorization_requires_exact_learned_permission if {
-	request := object.union(request_with_path({"raw": "/graphql", "segments": ["graphql"]}), {"method": "POST"})
+	request := object.union(request_with_path({"raw": "/broker-api", "segments": ["broker-api"]}), {"method": "POST"})
 	result := decision with input as object.union(
 		input_with_request(request),
 		{"authorization": {"requested_profile": null, "broker_provider": "github"}},
@@ -82,8 +82,8 @@ test_broker_authorization_requires_exact_learned_permission if {
 }
 
 test_allow_provider_neutral_broker_authorization_after_learning if {
-	request := object.union(request_with_path({"raw": "/graphql", "segments": ["graphql"]}), {"method": "POST"})
-	allow_rule := object.union(learned_exact_fixture, {"method": "POST"})
+	request := object.union(request_with_path({"raw": "/broker-api", "segments": ["broker-api"]}), {"method": "POST"})
+	allow_rule := object.union(learned_exact_fixture, {"method": "POST", "path": "/broker-api", "examples": ["/broker-api"]})
 	result := decision with input as object.union(
 		input_with_request(request),
 		{"authorization": {"requested_profile": null, "broker_provider": "github"}},
@@ -105,7 +105,7 @@ test_allow_plain_http_test_host if {
 }
 
 test_body_content_is_not_a_policy_dimension if {
-	request := object.union(request_with_path({"raw": "/graphql", "segments": ["graphql"]}), {"method": "PUT"})
+	request := object.union(request_with_path({"raw": "/http-review", "segments": ["http-review"]}), {"method": "PUT"})
 	first := input_with_request(object.union(request, {"body": {"value": "first"}}))
 	second := input_with_request(object.union(request, {"body": {"value": "second"}}))
 	first_result := decision with input as first
@@ -155,7 +155,7 @@ test_deny_github_write_path if {
 }
 
 test_learnable_denial_preserves_bound_credential_profile if {
-	request := object.union(request_with_path({"raw": "/graphql", "segments": ["graphql"]}), {"method": "PUT"})
+	request := object.union(request_with_path({"raw": "/credential-review", "segments": ["credential-review"]}), {"method": "PUT"})
 	result := decision with input as object.union(input_with_request(request), {"authorization": {"requested_profile": "github-development", "broker_provider": null}})
 	not result.allow
 	result.learnable
@@ -170,8 +170,8 @@ learned_exact_fixture := {
 	"host": "api.github.com",
 	"port": 443,
 	"method": "PUT",
-	"path": "/graphql",
-	"examples": ["/graphql"],
+	"path": "/http-review",
+	"examples": ["/http-review"],
 	"source_candidates": ["pcy_0123456789abcdef0123456789abcdef"],
 }
 
@@ -194,6 +194,303 @@ learned_prefix_fixture := {
 		"pcy_1123456789abcdef0123456789abcdef",
 		"pcy_2123456789abcdef0123456789abcdef",
 	],
+}
+
+graphql_endpoint_fixture := {
+	"scheme": "https",
+	"host": "api.github.com",
+	"port": 443,
+	"path": "/graphql",
+}
+
+graphql_request_fixture := object.union(
+	object.union(request_with_path({"raw": "/graphql", "segments": ["graphql"]}), {"method": "POST"}),
+	{"graphql": {"operation_type": "query", "root_fields": ["viewer"]}},
+)
+
+graphql_allow_fixture := object.union(learned_exact_fixture, {
+	"method": "POST",
+	"path": "/graphql",
+	"examples": ["/graphql"],
+	"protocol": "graphql",
+	"graphql_operation_type": "query",
+	"graphql_root_field": "viewer",
+})
+
+graphql_second_allow_fixture := object.union(graphql_allow_fixture, {
+	"id": "plr_1123456789abcdef0123456789abcdef",
+	"graphql_root_field": "repository",
+	"source_candidates": ["pcy_1123456789abcdef0123456789abcdef"],
+})
+
+graphql_deny_fixture := {
+	"id": "pdr_0123456789abcdef0123456789abcdef",
+	"context_id": base_input.principal.context_id,
+	"project_id": base_input.principal.project_id,
+	"host": "api.github.com",
+	"port": 443,
+	"method": "POST",
+	"path": "/graphql",
+	"protocol": "graphql",
+	"graphql_operation_type": "query",
+	"graphql_root_field": "viewer",
+	"source_candidates": ["pcy_0123456789abcdef0123456789abcdef"],
+}
+
+test_graphql_generic_http_allow_does_not_authorize_declared_endpoint if {
+	result := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+	not result.allow
+	result.learnable
+}
+
+test_graphql_http_learned_rule_does_not_authorize_declared_endpoint if {
+	http_rule := object.union(learned_exact_fixture, {"method": "POST"})
+	result := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [http_rule]
+	not result.allow
+	result.learnable
+}
+
+test_graphql_explicit_http_learned_rule_does_not_authorize_declared_endpoint if {
+	http_rule := object.union(learned_exact_fixture, {"method": "POST", "protocol": "http"})
+	result := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [http_rule]
+	not result.allow
+	result.learnable
+}
+
+test_graphql_exact_root_rule_allows_declared_endpoint if {
+	result := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+	result.allow
+}
+
+test_graphql_exact_mutation_rule_allows_declared_endpoint if {
+	request := object.union(graphql_request_fixture, {"graphql": {"operation_type": "mutation", "root_fields": ["updateIssue"]}})
+	allow_rule := object.union(graphql_allow_fixture, {
+		"graphql_operation_type": "mutation",
+		"graphql_root_field": "updateIssue",
+	})
+	result := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [allow_rule]
+	result.allow
+}
+
+test_graphql_requires_every_distinct_root if {
+	request := object.union(graphql_request_fixture, {"graphql": {"operation_type": "query", "root_fields": ["repository", "viewer"]}})
+	partial := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+	complete := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture, graphql_second_allow_fixture]
+	not partial.allow
+	partial.learnable
+	complete.allow
+}
+
+test_graphql_operation_type_is_exact if {
+	request := object.union(graphql_request_fixture, {"graphql": {"operation_type": "mutation", "root_fields": ["viewer"]}})
+	result := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+	not result.allow
+	result.learnable
+}
+
+test_graphql_root_field_is_exact if {
+	request := object.union(graphql_request_fixture, {"graphql": {"operation_type": "query", "root_fields": ["viewerLogin"]}})
+	result := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+	not result.allow
+	result.learnable
+}
+
+test_graphql_prefix_rule_fails_closed if {
+	prefix_rule := object.union(graphql_allow_fixture, {
+		"match": "prefix",
+		"path": "/graphql/",
+		"examples": ["/graphql/a", "/graphql/b", "/graphql/c"],
+		"source_candidates": [
+			"pcy_0123456789abcdef0123456789abcdef",
+			"pcy_1123456789abcdef0123456789abcdef",
+			"pcy_2123456789abcdef0123456789abcdef",
+		],
+	})
+	result := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [prefix_rule]
+	not result.allow
+	result.learnable
+}
+
+test_graphql_exact_deny_wins_over_allow if {
+	result := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+		with data.tobari.rules.learned_denies as [graphql_deny_fixture]
+	not result.allow
+	not result.learnable
+}
+
+test_graphql_deny_for_another_root_does_not_match if {
+	other_deny := object.union(graphql_deny_fixture, {"graphql_root_field": "repository"})
+	result := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+		with data.tobari.rules.learned_denies as [other_deny]
+	result.allow
+}
+
+test_graphql_http_deny_does_not_match if {
+	http_deny := object.remove(graphql_deny_fixture, ["protocol", "graphql_operation_type", "graphql_root_field"])
+	result := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+		with data.tobari.rules.learned_denies as [http_deny]
+	result.allow
+}
+
+test_graphql_baseline_path_deny_remains_protocol_agnostic if {
+	request := object.union(
+		object.union(
+			request_with_authority({"scheme": "http", "host": "mock-upstream", "port": 8080}),
+			{"method": "POST", "path": {"raw": "/denied", "segments": ["denied"]}},
+		),
+		{"graphql": {"operation_type": "mutation", "root_fields": ["updateThing"]}},
+	)
+	endpoint := {"scheme": "http", "host": "mock-upstream", "port": 8080, "path": "/denied"}
+	result := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [endpoint]
+	not result.allow
+	not result.learnable
+}
+
+test_graphql_identity_does_not_authorize_ordinary_http if {
+	request := object.remove(graphql_request_fixture, ["graphql"])
+	request_input := object.union(
+		input_with_request(request),
+		{"authorization": {"requested_profile": null, "broker_provider": "github"}},
+	)
+	result := decision with input as request_input
+		with data.tobari.boundary.graphql_endpoints as []
+		with data.tobari.rules.learned_allows as [graphql_allow_fixture]
+	not result.allow
+	result.learnable
+}
+
+test_explicit_http_protocol_preserves_http_learning if {
+	http_rule := object.union(learned_exact_fixture, {"protocol": "http"})
+	request := object.union(request_with_path({"raw": http_rule.path, "segments": ["graphql"]}), {"method": http_rule.method})
+	result := decision with input as input_with_request(request)
+		with data.tobari.rules.learned_allows as [http_rule]
+	result.allow
+}
+
+test_http_null_graphql_preserves_ordinary_authorization if {
+	request := object.union(base_input.request, {"graphql": null})
+	result := decision with input as input_with_request(request)
+	result.allow
+}
+
+test_explicit_http_protocol_preserves_exact_deny if {
+	deny_rule := {
+		"id": "pdr_0123456789abcdef0123456789abcdef",
+		"context_id": base_input.principal.context_id,
+		"project_id": base_input.principal.project_id,
+		"host": "api.github.com",
+		"port": 443,
+		"method": "GET",
+		"path": "/user",
+		"protocol": "http",
+		"source_candidates": ["pcy_0123456789abcdef0123456789abcdef"],
+	}
+	result := decision with input as base_input
+		with data.tobari.rules.learned_denies as [deny_rule]
+	not result.allow
+	not result.learnable
+}
+
+test_declared_graphql_endpoint_never_falls_back_to_http if {
+	request := object.union(graphql_request_fixture, {"graphql": null})
+	result := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+	not result.allow
+	not result.learnable
+}
+
+test_declared_graphql_endpoint_rejects_absent_identity if {
+	request := object.remove(graphql_request_fixture, ["graphql"])
+	result := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+	not result.allow
+	not result.learnable
+}
+
+test_graphql_identity_requires_exact_declared_endpoint if {
+	every endpoint in {
+		object.union(graphql_endpoint_fixture, {"scheme": "http", "port": 8080}),
+		object.union(graphql_endpoint_fixture, {"host": "example.com"}),
+		object.union(graphql_endpoint_fixture, {"port": 8443}),
+		object.union(graphql_endpoint_fixture, {"path": "/graphql/v2"}),
+	} {
+		result := decision with input as input_with_request(graphql_request_fixture)
+			with data.tobari.boundary.graphql_endpoints as [endpoint]
+		not result.allow
+		not result.learnable
+	}
+}
+
+test_graphql_rejects_non_post_method if {
+	request := object.union(graphql_request_fixture, {"method": "GET"})
+	result := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+	not result.allow
+	not result.learnable
+}
+
+test_graphql_rejects_malformed_identity_shapes if {
+	every malformed in {
+		{},
+		{"operation_type": "query"},
+		{"operation_type": "query", "root_fields": ["viewer"], "variables": {}},
+		{"operation_type": "subscription", "root_fields": ["viewer"]},
+		{"operation_type": "query", "root_fields": "viewer"},
+		{"operation_type": "query", "root_fields": []},
+		{"operation_type": "query", "root_fields": ["viewer", "repository"]},
+		{"operation_type": "query", "root_fields": ["viewer", "viewer"]},
+		{"operation_type": "query", "root_fields": [""]},
+		{"operation_type": "query", "root_fields": ["invalid-name"]},
+		{"operation_type": "query", "root_fields": [17]},
+	} {
+		request := object.union(object.remove(graphql_request_fixture, ["graphql"]), {"graphql": malformed})
+		result := decision with input as input_with_request(request)
+			with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		not result.allow
+		not result.learnable
+	}
+}
+
+test_graphql_rejects_malformed_endpoint_declaration if {
+	malformed_endpoint := object.union(graphql_endpoint_fixture, {"provider": "github"})
+	result := decision with input as input_with_request(graphql_request_fixture)
+		with data.tobari.boundary.graphql_endpoints as [malformed_endpoint]
+	not result.allow
+	not result.learnable
+}
+
+test_malformed_graphql_endpoint_collection_fails_closed_for_http if {
+	malformed_endpoint := object.union(graphql_endpoint_fixture, {"provider": "github"})
+	result := decision with input as base_input
+		with data.tobari.boundary.graphql_endpoints as [malformed_endpoint]
+	not result.allow
+	not result.learnable
 }
 
 test_explicit_deny_wins_over_learned_allow if {

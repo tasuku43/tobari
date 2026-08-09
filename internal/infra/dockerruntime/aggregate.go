@@ -32,12 +32,13 @@ type aggregateProjection struct {
 }
 
 type aggregateContext struct {
-	manifest tobari.ContextManifest
-	paths    tobari.ContextStorePaths
-	data     map[string]any
-	dataJSON []byte
-	rego     []byte
-	creds    map[string]any
+	manifest         tobari.ContextManifest
+	paths            tobari.ContextStorePaths
+	data             map[string]any
+	dataJSON         []byte
+	rego             []byte
+	creds            map[string]any
+	graphqlEndpoints []tobari.GraphQLEndpoint
 }
 
 func (r *Runtime) aggregateRoot() string {
@@ -83,6 +84,7 @@ func (r *Runtime) readAggregateContexts(ctx context.Context) ([]aggregateContext
 		items = append(items, aggregateContext{
 			manifest: manifest, paths: paths, data: contextData,
 			dataJSON: append([]byte{}, policy.source...), rego: rego, creds: creds,
+			graphqlEndpoints: append([]tobari.GraphQLEndpoint{}, policy.graphqlEndpoints...),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].manifest.ID < items[j].manifest.ID })
@@ -144,6 +146,13 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	var builder strings.Builder
 	builder.WriteString("package tobari.http\n\nimport rego.v1\n\n")
 	builder.WriteString("default decision := {\"allow\": false, \"reason\": \"unknown or invalid Context authority\", \"credential_profile\": null, \"status_code\": 403, \"learnable\": false}\n\n")
+	builder.WriteString("decision := result if {\n")
+	builder.WriteString("  input.schema_version == 5\n")
+	builder.WriteString("  input.principal.cluster == \"default\"\n")
+	builder.WriteString("  data.tobari_contexts[input.principal.context_id]\n")
+	builder.WriteString("  object.get(input.request, \"graphql\", null) != null\n")
+	builder.WriteString("  result := data.tobari.system.guided.decision\n")
+	builder.WriteString("}\n\n")
 	for _, item := range items {
 		if err := item.manifest.Validate(); err != nil {
 			return nil, err
@@ -154,6 +163,7 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 		builder.WriteString("  input.principal.context_id == \"")
 		builder.WriteString(item.manifest.ID)
 		builder.WriteString("\"\n")
+		builder.WriteString("  object.get(input.request, \"graphql\", null) == null\n")
 		builder.WriteString("  result := data.")
 		if item.manifest.PolicyMode == tobari.ContextPolicyModeGuided {
 			builder.WriteString("tobari.system.guided")
@@ -188,7 +198,12 @@ func rewriteCredentialProjection(item aggregateContext) (map[string]any, error) 
 		}
 		profile["secret_file"] = "/run/tobari/credentials/" + item.manifest.ID + "/" + filepath.Base(secret)
 	}
-	return map[string]any{"name": item.manifest.Name, "profiles": cloned}, nil
+	endpoints := append([]tobari.GraphQLEndpoint{}, item.graphqlEndpoints...)
+	return map[string]any{
+		"name":              item.manifest.Name,
+		"profiles":          cloned,
+		"graphql_endpoints": endpoints,
+	}, nil
 }
 
 func copyCredentialFiles(source, destination string) error {
@@ -329,7 +344,20 @@ func (r *Runtime) buildAggregateProjection(ctx context.Context) (aggregateProjec
 	if err := os.WriteFile(filepath.Join(policyDirectory, "router.rego"), router, 0o600); err != nil {
 		return aggregateProjection{}, err
 	}
-	var guidedModule []byte
+	canonicalGuided, err := runtimeassets.Read("opa/policy/tobari.rego")
+	if err != nil {
+		return aggregateProjection{}, err
+	}
+	guidedModule, err := transformContextRego(aggregateContext{
+		manifest: tobari.ContextManifest{Name: "system", PolicyMode: tobari.ContextPolicyModeGuided},
+		rego:     canonicalGuided,
+	})
+	if err != nil {
+		return aggregateProjection{}, err
+	}
+	if err := os.WriteFile(filepath.Join(policyDirectory, "guided.rego"), guidedModule, 0o600); err != nil {
+		return aggregateProjection{}, err
+	}
 	for _, item := range items {
 		rego, err := transformContextRego(item)
 		if err != nil {
@@ -338,15 +366,11 @@ func (r *Runtime) buildAggregateProjection(ctx context.Context) (aggregateProjec
 		regoName := aggregateNamespace(item.manifest.ID) + ".rego"
 		if item.manifest.PolicyMode == tobari.ContextPolicyModeGuided {
 			regoName = "guided.rego"
-			if guidedModule != nil {
-				if !bytes.Equal(guidedModule, rego) {
-					return aggregateProjection{}, fmt.Errorf("guided Context policy logic diverged from the shared system module")
-				}
-			} else {
-				guidedModule = append([]byte{}, rego...)
+			if !bytes.Equal(guidedModule, rego) {
+				return aggregateProjection{}, fmt.Errorf("guided Context policy logic diverged from the shared system module")
 			}
 		}
-		if item.manifest.PolicyMode != tobari.ContextPolicyModeGuided || guidedModule != nil {
+		if item.manifest.PolicyMode != tobari.ContextPolicyModeGuided {
 			if _, err := os.Lstat(filepath.Join(policyDirectory, regoName)); errors.Is(err, os.ErrNotExist) {
 				if err := os.WriteFile(filepath.Join(policyDirectory, regoName), rego, 0o600); err != nil {
 					return aggregateProjection{}, err

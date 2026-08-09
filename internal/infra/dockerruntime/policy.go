@@ -17,6 +17,7 @@ import (
 )
 
 type gatewayAuditRecord struct {
+	tobari.PolicyProtocolIdentity
 	SchemaVersion     int     `json:"schema_version"`
 	Timestamp         string  `json:"timestamp"`
 	RequestID         string  `json:"request_id"`
@@ -84,11 +85,17 @@ func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
 		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("Gateway denial line %d contains trailing data", lineNumber+1)
 		}
-		if record.SchemaVersion != 2 || record.Cluster != ownerValue || record.Decision != "deny" || record.DurationMS < 0 {
+		validSchema := record.SchemaVersion == 2 || record.SchemaVersion == 3
+		if !validSchema || record.Cluster != ownerValue || record.Decision != "deny" || record.DurationMS < 0 {
 			return nil, fmt.Errorf("Gateway denial line %d violates the audit contract", lineNumber+1)
 		}
+		if (record.SchemaVersion == 2 && record.Protocol != "") ||
+			(record.SchemaVersion == 3 && record.Protocol != tobari.PolicyProtocolGraphQL) {
+			return nil, fmt.Errorf("Gateway denial line %d violates the audit protocol contract", lineNumber+1)
+		}
 		item := tobari.PolicyDenial{
-			Timestamp: record.Timestamp, RequestID: record.RequestID,
+			PolicyProtocolIdentity: record.PolicyProtocolIdentity,
+			Timestamp:              record.Timestamp, RequestID: record.RequestID,
 			ContextID: record.ContextID, ContextName: record.ContextName,
 			ProjectID: record.ProjectID, ProjectRoot: record.ProjectRoot,
 			Host: record.Host, Port: record.Port, Method: record.Method, Path: record.Path,

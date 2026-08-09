@@ -3,6 +3,7 @@ package tobari
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -65,6 +66,305 @@ func TestPolicyDenialRejectsInterpretationSensitiveFields(t *testing.T) {
 	value.CredentialProfile = &profile
 	if err := value.Validate(); err == nil {
 		t.Fatal("control-bearing credential profile was accepted")
+	}
+}
+
+func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
+	t.Parallel()
+	valid := []PolicyProtocolIdentity{
+		{},
+		{Protocol: PolicyProtocolHTTP},
+		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "_viewer"},
+		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue"},
+	}
+	for _, identity := range valid {
+		if err := identity.Validate(); err != nil {
+			t.Fatalf("valid policy protocol identity %+v was rejected: %v", identity, err)
+		}
+	}
+	if got := (PolicyProtocolIdentity{}).EffectiveProtocol(); got != PolicyProtocolHTTP {
+		t.Fatalf("absent protocol resolved to %q, want %q", got, PolicyProtocolHTTP)
+	}
+
+	invalid := []PolicyProtocolIdentity{
+		{Protocol: "grpc"},
+		{Protocol: PolicyProtocolHTTP, GraphQLOperationType: GraphQLOperationQuery},
+		{Protocol: PolicyProtocolHTTP, GraphQLRootField: "viewer"},
+		{Protocol: PolicyProtocolGraphQL, GraphQLRootField: "viewer"},
+		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery},
+		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: "subscription", GraphQLRootField: "events"},
+		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "1viewer"},
+		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "bad-name"},
+		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: strings.Repeat("a", 257)},
+	}
+	for _, identity := range invalid {
+		if err := identity.Validate(); err == nil {
+			t.Fatalf("invalid policy protocol identity %+v was accepted", identity)
+		}
+	}
+}
+
+func TestGraphQLEndpointValidationAndExactMatch(t *testing.T) {
+	t.Parallel()
+	endpoint := GraphQLEndpoint{Scheme: "https", Host: "api.example.com", Port: 443, Path: "/graphql"}
+	if err := endpoint.Validate(); err != nil {
+		t.Fatalf("valid GraphQL endpoint was rejected: %v", err)
+	}
+	local := GraphQLEndpoint{Scheme: "http", Host: "mock-upstream", Port: 8080, Path: "/graphql/v1/"}
+	if err := local.Validate(); err != nil {
+		t.Fatalf("valid local GraphQL endpoint was rejected: %v", err)
+	}
+	if !endpoint.Matches("https", "api.example.com", 443, "/graphql") {
+		t.Fatal("exact GraphQL endpoint did not match")
+	}
+	for _, coordinates := range []struct {
+		scheme string
+		host   string
+		port   int
+		path   string
+	}{
+		{scheme: "http", host: endpoint.Host, port: endpoint.Port, path: endpoint.Path},
+		{scheme: endpoint.Scheme, host: "other.example.com", port: endpoint.Port, path: endpoint.Path},
+		{scheme: endpoint.Scheme, host: endpoint.Host, port: 8443, path: endpoint.Path},
+		{scheme: endpoint.Scheme, host: endpoint.Host, port: endpoint.Port, path: "/graphql/"},
+	} {
+		if endpoint.Matches(coordinates.scheme, coordinates.host, coordinates.port, coordinates.path) {
+			t.Fatalf("non-exact GraphQL endpoint coordinates %+v matched", coordinates)
+		}
+	}
+
+	invalid := []GraphQLEndpoint{
+		{Scheme: "ws", Host: endpoint.Host, Port: endpoint.Port, Path: endpoint.Path},
+		{Scheme: endpoint.Scheme, Host: "API.example.com", Port: endpoint.Port, Path: endpoint.Path},
+		{Scheme: endpoint.Scheme, Host: "api.example.com.", Port: endpoint.Port, Path: endpoint.Path},
+		{Scheme: endpoint.Scheme, Host: "api_example.com", Port: endpoint.Port, Path: endpoint.Path},
+		{Scheme: endpoint.Scheme, Host: endpoint.Host, Port: 0, Path: endpoint.Path},
+		{Scheme: endpoint.Scheme, Host: endpoint.Host, Port: 65536, Path: endpoint.Path},
+		{Scheme: endpoint.Scheme, Host: endpoint.Host, Port: endpoint.Port, Path: "graphql"},
+		{Scheme: endpoint.Scheme, Host: endpoint.Host, Port: endpoint.Port, Path: "/graphql?op=viewer"},
+		{Scheme: endpoint.Scheme, Host: endpoint.Host, Port: endpoint.Port, Path: "/graphql/../admin"},
+		{Scheme: endpoint.Scheme, Host: endpoint.Host, Port: endpoint.Port, Path: "/graphql//v1"},
+		{Scheme: endpoint.Scheme, Host: endpoint.Host, Port: endpoint.Port, Path: "/graphql%2fv1"},
+	}
+	for _, value := range invalid {
+		if err := value.Validate(); err == nil {
+			t.Fatalf("invalid GraphQL endpoint %+v was accepted", value)
+		}
+	}
+}
+
+func TestHTTPProtocolIdentityRetainsLegacyOpaqueIDs(t *testing.T) {
+	t.Parallel()
+	legacyDenial := validPolicyDenial()
+	explicitHTTPDenial := legacyDenial
+	explicitHTTPDenial.Protocol = PolicyProtocolHTTP
+
+	legacyCandidate, err := NewPolicyCandidate(legacyDenial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicitHTTPCandidate, err := NewPolicyCandidate(explicitHTTPDenial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyCandidate.ID != explicitHTTPCandidate.ID {
+		t.Fatalf("explicit HTTP changed candidate ID: legacy=%s explicit=%s", legacyCandidate.ID, explicitHTTPCandidate.ID)
+	}
+
+	legacyAllow, err := NewExactLearnedPolicyRule(legacyCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicitHTTPAllow, err := NewExactLearnedPolicyRule(explicitHTTPCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyAllow.ID != explicitHTTPAllow.ID {
+		t.Fatalf("explicit HTTP changed allow rule ID: legacy=%s explicit=%s", legacyAllow.ID, explicitHTTPAllow.ID)
+	}
+
+	legacyDeny, err := NewExactPolicyDenyRule(legacyCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicitHTTPDeny, err := NewExactPolicyDenyRule(explicitHTTPCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyDeny.ID != explicitHTTPDeny.ID {
+		t.Fatalf("explicit HTTP changed deny rule ID: legacy=%s explicit=%s", legacyDeny.ID, explicitHTTPDeny.ID)
+	}
+}
+
+func TestGraphQLIdentityBindsCandidatesRulesAndMatching(t *testing.T) {
+	t.Parallel()
+	denial := validPolicyDenial()
+	denial.Method = "POST"
+	denial.Path = "/graphql"
+	denial.PolicyProtocolIdentity = PolicyProtocolIdentity{
+		Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue",
+	}
+	candidate, err := NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.PolicyProtocolIdentity != denial.PolicyProtocolIdentity {
+		t.Fatalf("candidate identity = %+v, want %+v", candidate.PolicyProtocolIdentity, denial.PolicyProtocolIdentity)
+	}
+
+	httpDenial := denial
+	httpDenial.PolicyProtocolIdentity = PolicyProtocolIdentity{}
+	httpCandidate, err := NewPolicyCandidate(httpDenial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queryDenial := denial
+	queryDenial.GraphQLOperationType = GraphQLOperationQuery
+	queryCandidate, err := NewPolicyCandidate(queryDenial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherRootDenial := denial
+	otherRootDenial.GraphQLRootField = "deleteIssue"
+	otherRootCandidate, err := NewPolicyCandidate(otherRootDenial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.ID == httpCandidate.ID || candidate.ID == queryCandidate.ID || candidate.ID == otherRootCandidate.ID {
+		t.Fatalf("GraphQL candidate IDs did not bind protocol coordinates: mutation=%s http=%s query=%s other-root=%s", candidate.ID, httpCandidate.ID, queryCandidate.ID, otherRootCandidate.ID)
+	}
+
+	allow, err := NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deny, err := NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !allow.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
+		!deny.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) {
+		t.Fatal("GraphQL rules did not match their exact coordinate")
+	}
+	if allow.Matches(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) ||
+		deny.Matches(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) {
+		t.Fatal("GraphQL rules matched the legacy HTTP coordinate")
+	}
+	if allow.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, queryDenial.PolicyProtocolIdentity) ||
+		deny.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, otherRootDenial.PolicyProtocolIdentity) {
+		t.Fatal("GraphQL rule matched a different operation type or root field")
+	}
+
+	items, err := CurrentPolicyRules([]LearnedPolicyRule{allow}, []PolicyDenyRule{deny})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].PolicyProtocolIdentity != denial.PolicyProtocolIdentity || items[1].PolicyProtocolIdentity != denial.PolicyProtocolIdentity {
+		t.Fatalf("current rule inventory lost GraphQL identity: %+v", items)
+	}
+
+	allow.GraphQLRootField = "deleteIssue"
+	if err := allow.Validate(); err == nil {
+		t.Fatal("allow rule ID did not bind GraphQL identity")
+	}
+	deny.GraphQLRootField = "deleteIssue"
+	if err := deny.Validate(); err == nil {
+		t.Fatal("deny rule ID did not bind GraphQL identity")
+	}
+}
+
+func TestPolicyCandidateAggregationKeepsGraphQLCoordinatesDistinct(t *testing.T) {
+	t.Parallel()
+	update := validPolicyDenial()
+	update.Method = "POST"
+	update.Path = "/graphql"
+	update.PolicyProtocolIdentity = PolicyProtocolIdentity{
+		Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue",
+	}
+	repeated := update
+	repeated.Timestamp = "2026-07-30T10:42:11Z"
+	repeated.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	deleteIssue := update
+	deleteIssue.Timestamp = "2026-07-30T10:43:11Z"
+	deleteIssue.RequestID = "9185da2688d7469aae9cd9068e920b0b"
+	deleteIssue.GraphQLRootField = "deleteIssue"
+	http := update
+	http.Timestamp = "2026-07-30T10:44:11Z"
+	http.RequestID = "a185da2688d7469aae9cd9068e920b0b"
+	http.PolicyProtocolIdentity = PolicyProtocolIdentity{}
+
+	items, err := PolicyCandidates([]PolicyDenial{update, repeated, deleteIssue, http}, []LearnedPolicyRule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("candidate count = %d, want 3: %+v", len(items), items)
+	}
+	counts := make(map[string]int, len(items))
+	for _, item := range items {
+		key := item.EffectiveProtocol() + ":" + item.GraphQLOperationType + ":" + item.GraphQLRootField
+		counts[key] = item.EffectiveObservationCount()
+	}
+	if counts["graphql:mutation:updateIssue"] != 2 || counts["graphql:mutation:deleteIssue"] != 1 || counts["http::"] != 1 {
+		t.Fatalf("candidate aggregation = %+v", counts)
+	}
+
+	allowedCandidate, err := NewPolicyCandidate(update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed, err := NewExactLearnedPolicyRule(allowedCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = PolicyCandidates([]PolicyDenial{update, deleteIssue}, []LearnedPolicyRule{allowed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].GraphQLRootField != "deleteIssue" {
+		t.Fatalf("exact GraphQL allow hid a sibling root coordinate: %+v", items)
+	}
+}
+
+func TestGraphQLRulesAreExactAndExcludedFromCompaction(t *testing.T) {
+	t.Parallel()
+	rules := make([]LearnedPolicyRule, 0, 3)
+	for index, root := range []string{"createIssue", "updateIssue", "deleteIssue"} {
+		denial := validPolicyDenial()
+		denial.RequestID = fmt.Sprintf("%032x", index+1)
+		denial.Method = "POST"
+		denial.Path = "/api/v1/graphql"
+		denial.PolicyProtocolIdentity = PolicyProtocolIdentity{
+			Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: root,
+		}
+		candidate, err := NewPolicyCandidate(denial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rule, err := NewExactLearnedPolicyRule(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rules = append(rules, rule)
+	}
+	items, err := PolicyCompactions(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("GraphQL rules produced compaction candidates: %+v", items)
+	}
+
+	prefix := rules[0]
+	prefix.Match = PolicyMatchPrefix
+	prefix.Path = "/api/v1/"
+	prefix.Examples = []string{"/api/v1/graphql"}
+	prefix.ID = learnedRuleIDWithIdentity(
+		prefix.Match, prefix.ContextID, prefix.ProjectID, prefix.Host, prefix.Port, prefix.Method, prefix.Path,
+		prefix.Examples, prefix.SourceCandidates, prefix.PolicyProtocolIdentity,
+	)
+	if err := prefix.Validate(); err == nil {
+		t.Fatal("GraphQL prefix rule was accepted")
 	}
 }
 

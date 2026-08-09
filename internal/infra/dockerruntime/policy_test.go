@@ -7,9 +7,12 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const denyAuditLine = `{"schema_version":2,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","credential_profile":null,"decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"GET","path":"/repos/cli/cli","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
+
+const graphqlDenyAuditLine = `{"schema_version":3,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","credential_profile":null,"decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"POST","path":"/graphql","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"graphql","graphql_operation_type":"mutation","graphql_root_field":"updateIssue","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
 
 func TestParseGatewayDenialsFiltersUnrelatedAndAllowedLines(t *testing.T) {
 	t.Parallel()
@@ -26,6 +29,19 @@ func TestParseGatewayDenialsFiltersUnrelatedAndAllowedLines(t *testing.T) {
 		items[0].Path != "/repos/cli/cli" || items[0].StatusCode != 403 ||
 		!items[0].Learnable {
 		t.Fatalf("denials = %+v", items)
+	}
+}
+
+func TestParseGatewayDenialsPreservesGraphQLRootIdentity(t *testing.T) {
+	t.Parallel()
+	items, err := parseGatewayDenials([]byte(graphqlDenyAuditLine + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].EffectiveProtocol() != tobari.PolicyProtocolGraphQL ||
+		items[0].GraphQLOperationType != tobari.GraphQLOperationMutation ||
+		items[0].GraphQLRootField != "updateIssue" {
+		t.Fatalf("GraphQL denial = %+v", items)
 	}
 }
 

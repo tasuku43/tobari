@@ -39,6 +39,51 @@ func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *t
 	}
 }
 
+func TestAggregateRouterAlwaysUsesSystemEvaluatorForGraphQL(t *testing.T) {
+	t.Parallel()
+	item := aggregateContext{manifest: tobari.ContextManifest{
+		SchemaVersion: tobari.ContextSchemaVersion,
+		ID:            "01912345-6789-7abc-8def-0123456789ad",
+		Name:          "restricted",
+		AgentProfile:  tobari.DefaultProfile,
+		PolicyMode:    tobari.ContextPolicyModeAdvanced,
+		Image:         tobari.BuiltinImageSelector,
+	}}
+	router, err := aggregateRouter([]aggregateContext{item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		`object.get(input.request, "graphql", null) != null`,
+		`result := data.tobari.system.guided.decision`,
+		`object.get(input.request, "graphql", null) == null`,
+		`result := data.tobari.contexts.c0191234567897abc8def0123456789ad.http.decision`,
+	} {
+		if !bytes.Contains(router, []byte(required)) {
+			t.Fatalf("aggregate router omitted %q:\n%s", required, router)
+		}
+	}
+}
+
+func TestCredentialProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) {
+	t.Parallel()
+	endpoint := tobari.GraphQLEndpoint{Scheme: "https", Host: "api.example.com", Port: 443, Path: "/graphql"}
+	projection, err := rewriteCredentialProjection(aggregateContext{
+		manifest: tobari.ContextManifest{Name: "default", ID: "01912345-6789-7abc-8def-0123456789ad"},
+		creds: map[string]any{"profiles": map[string]any{
+			"default": map[string]any{"secret_file": "/run/tobari/credentials/token"},
+		}},
+		graphqlEndpoints: []tobari.GraphQLEndpoint{endpoint},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoints, ok := projection["graphql_endpoints"].([]tobari.GraphQLEndpoint)
+	if !ok || len(endpoints) != 1 || endpoints[0] != endpoint {
+		t.Fatalf("GraphQL endpoint projection = %#v", projection["graphql_endpoints"])
+	}
+}
+
 func TestAdvancedPolicyMigratesPreviousSourceInputSchema(t *testing.T) {
 	item := aggregateContext{
 		manifest: tobari.ContextManifest{

@@ -28,6 +28,20 @@
           "ports": [8080]
         }
       ],
+      "graphql_endpoints": [
+        {
+          "scheme": "https",
+          "host": "api.github.com",
+          "port": 443,
+          "path": "/graphql"
+        },
+        {
+          "scheme": "http",
+          "host": "mock-upstream",
+          "port": 8080,
+          "path": "/graphql"
+        }
+      ],
       "methods": {
         "read": [
           "GET",

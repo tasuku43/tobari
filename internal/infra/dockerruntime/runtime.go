@@ -1940,8 +1940,9 @@ func (r *Runtime) checkCredentialConfigAt(path string) (string, doctor.CheckStat
 		var document struct {
 			Version  string `json:"version"`
 			Contexts map[string]struct {
-				Name     string                       `json:"name"`
-				Profiles map[string]credentialProfile `json:"profiles"`
+				Name             string                       `json:"name"`
+				Profiles         map[string]credentialProfile `json:"profiles"`
+				GraphQLEndpoints []tobari.GraphQLEndpoint     `json:"graphql_endpoints"`
 			} `json:"contexts"`
 		}
 		if err := decodeStrictJSON(data, &document); err != nil || document.Contexts == nil {
@@ -1950,6 +1951,16 @@ func (r *Runtime) checkCredentialConfigAt(path string) (string, doctor.CheckStat
 		for contextID, projected := range document.Contexts {
 			if err := tobari.ValidateContextID(contextID); err != nil || tobari.ValidateName(projected.Name) != nil || projected.Profiles == nil {
 				return "credentials.json contains an invalid Context projection", doctor.CheckStatusFail
+			}
+			seenEndpoints := make(map[tobari.GraphQLEndpoint]struct{}, len(projected.GraphQLEndpoints))
+			for _, endpoint := range projected.GraphQLEndpoints {
+				if err := endpoint.Validate(); err != nil {
+					return "credentials.json contains an invalid GraphQL endpoint projection", doctor.CheckStatusFail
+				}
+				if _, duplicate := seenEndpoints[endpoint]; duplicate {
+					return "credentials.json contains duplicate GraphQL endpoint projections", doctor.CheckStatusFail
+				}
+				seenEndpoints[endpoint] = struct{}{}
 			}
 			if detail, status := validateProfiles(projected.Profiles, contextID); status != doctor.CheckStatusPass {
 				return detail, status

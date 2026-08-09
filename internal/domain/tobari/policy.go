@@ -20,17 +20,141 @@ var (
 	policyDenyRuleIDPattern   = regexp.MustCompile(`^pdr_[0-9a-f]{32}$`)
 	learnedRuleIDPattern      = regexp.MustCompile(`^plr_[0-9a-f]{32}$`)
 	httpMethodPattern         = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]{0,31}$`)
+	graphqlNamePattern        = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
 )
 
 const (
-	PolicyMatchExact    = "exact"
-	PolicyMatchPrefix   = "prefix"
-	PolicyDecisionAllow = "allow"
-	PolicyDecisionDeny  = "deny"
+	PolicyMatchExact         = "exact"
+	PolicyMatchPrefix        = "prefix"
+	PolicyDecisionAllow      = "allow"
+	PolicyDecisionDeny       = "deny"
+	PolicyProtocolHTTP       = "http"
+	PolicyProtocolGraphQL    = "graphql"
+	GraphQLOperationQuery    = "query"
+	GraphQLOperationMutation = "mutation"
 )
+
+// PolicyProtocolIdentity optionally refines one HTTP effect to exactly one
+// GraphQL root coordinate. An absent protocol is the legacy spelling of HTTP.
+type PolicyProtocolIdentity struct {
+	Protocol             string `json:"protocol,omitempty"`
+	GraphQLOperationType string `json:"graphql_operation_type,omitempty"`
+	GraphQLRootField     string `json:"graphql_root_field,omitempty"`
+}
+
+// EffectiveProtocol preserves legacy HTTP records whose protocol field was
+// absent while giving matching and identifiers one closed protocol value.
+func (i PolicyProtocolIdentity) EffectiveProtocol() string {
+	if i.Protocol == "" {
+		return PolicyProtocolHTTP
+	}
+	return i.Protocol
+}
+
+func (i PolicyProtocolIdentity) Validate() error {
+	switch i.EffectiveProtocol() {
+	case PolicyProtocolHTTP:
+		if i.Protocol != "" && i.Protocol != PolicyProtocolHTTP {
+			return fmt.Errorf("policy protocol is invalid")
+		}
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" {
+			return fmt.Errorf("HTTP policy identity cannot contain GraphQL fields")
+		}
+	case PolicyProtocolGraphQL:
+		if i.GraphQLOperationType != GraphQLOperationQuery && i.GraphQLOperationType != GraphQLOperationMutation {
+			return fmt.Errorf("GraphQL operation type is invalid")
+		}
+		if len(i.GraphQLRootField) == 0 || len(i.GraphQLRootField) > 256 || !graphqlNamePattern.MatchString(i.GraphQLRootField) {
+			return fmt.Errorf("GraphQL root field is invalid")
+		}
+	default:
+		return fmt.Errorf("policy protocol is invalid")
+	}
+	return nil
+}
+
+func (i PolicyProtocolIdentity) matches(other PolicyProtocolIdentity) bool {
+	return i.EffectiveProtocol() == other.EffectiveProtocol() &&
+		i.GraphQLOperationType == other.GraphQLOperationType &&
+		i.GraphQLRootField == other.GraphQLRootField
+}
+
+func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIdentity) []string {
+	// Keep the exact pre-GraphQL material for both absent and explicit HTTP so
+	// existing opaque candidate and rule IDs remain valid.
+	if identity.EffectiveProtocol() == PolicyProtocolHTTP {
+		return material
+	}
+	return append(material, PolicyProtocolGraphQL, identity.GraphQLOperationType, identity.GraphQLRootField)
+}
+
+// GraphQLEndpoint is one trusted exact transport location where Gateway may
+// classify a request body as GraphQL. It carries no provider or CLI semantics.
+type GraphQLEndpoint struct {
+	Scheme string `json:"scheme"`
+	Host   string `json:"host"`
+	Port   int    `json:"port"`
+	Path   string `json:"path"`
+}
+
+func (e GraphQLEndpoint) Validate() error {
+	if e.Scheme != "http" && e.Scheme != "https" {
+		return fmt.Errorf("GraphQL endpoint scheme is invalid")
+	}
+	if !validNormalizedPolicyHost(e.Host) {
+		return fmt.Errorf("GraphQL endpoint host is invalid")
+	}
+	if e.Port < 1 || e.Port > 65535 {
+		return fmt.Errorf("GraphQL endpoint port is invalid")
+	}
+	if err := validateGraphQLEndpointPath(e.Path); err != nil {
+		return fmt.Errorf("GraphQL endpoint path is invalid")
+	}
+	return nil
+}
+
+func validNormalizedPolicyHost(host string) bool {
+	if len(host) == 0 || len(host) > 253 || host != strings.ToLower(host) || strings.HasSuffix(host, ".") {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if !((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '-') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validateGraphQLEndpointPath(path string) error {
+	if err := validatePolicyPath(path); err != nil {
+		return err
+	}
+	if path == "/" {
+		return nil
+	}
+	if strings.ContainsAny(path, `%\\?#`) || strings.Contains(path, "//") {
+		return fmt.Errorf("GraphQL endpoint path is not normalized")
+	}
+	for _, segment := range strings.Split(strings.Trim(path, "/"), "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return fmt.Errorf("GraphQL endpoint path is not normalized")
+		}
+	}
+	return nil
+}
+
+func (e GraphQLEndpoint) Matches(scheme, host string, port int, path string) bool {
+	return e.Scheme == scheme && e.Host == host && e.Port == port && e.Path == path
+}
 
 // PolicyDenial is one validated, secret-free Gateway audit decision.
 type PolicyDenial struct {
+	PolicyProtocolIdentity
 	Timestamp         string  `json:"timestamp"`
 	RequestID         string  `json:"request_id"`
 	ContextID         string  `json:"context_id"`
@@ -50,6 +174,9 @@ type PolicyDenial struct {
 // Validate rejects audit-shaped data that cannot be safely interpreted as one
 // denied HTTP boundary effect.
 func (d PolicyDenial) Validate() error {
+	if err := d.PolicyProtocolIdentity.Validate(); err != nil {
+		return fmt.Errorf("denial protocol identity: %w", err)
+	}
 	if _, err := time.Parse(time.RFC3339Nano, d.Timestamp); err != nil {
 		return fmt.Errorf("denial timestamp is invalid")
 	}
@@ -164,6 +291,7 @@ func (r DenialReport) Validate() error {
 // PolicyCandidate is one exact permission proposal derived from one retained
 // validated denial. ID is opaque and remains stable for the same exact effect.
 type PolicyCandidate struct {
+	PolicyProtocolIdentity
 	ID                string  `json:"id"`
 	ObservedAt        string  `json:"observed_at"`
 	ObservationCount  int     `json:"observation_count,omitempty"`
@@ -189,14 +317,16 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 	if !denial.Learnable {
 		return PolicyCandidate{}, fmt.Errorf("denial cannot be resolved by an exact learned rule")
 	}
-	sum := sha256.Sum256([]byte(strings.Join(
+	material := appendPolicyProtocolIdentity(
 		[]string{
 			"tobari-policy-candidate-v2", denial.ContextID, denial.ProjectID, denial.Host, strconv.Itoa(denial.Port), denial.Method, denial.Path,
 		},
-		"\x00",
-	)))
+		denial.PolicyProtocolIdentity,
+	)
+	sum := sha256.Sum256([]byte(strings.Join(material, "\x00")))
 	return PolicyCandidate{
-		ID: "pcy_" + hex.EncodeToString(sum[:16]), ObservedAt: denial.Timestamp, ObservationCount: 1,
+		PolicyProtocolIdentity: denial.PolicyProtocolIdentity,
+		ID:                     "pcy_" + hex.EncodeToString(sum[:16]), ObservedAt: denial.Timestamp, ObservationCount: 1,
 		ContextID: denial.ContextID, ContextName: denial.ContextName,
 		ProjectID: denial.ProjectID, ProjectRoot: denial.ProjectRoot,
 		Host: denial.Host, Port: denial.Port, Method: denial.Method, Path: denial.Path,
@@ -240,6 +370,9 @@ func ValidatePolicyRuleID(id string) error {
 }
 
 func (c PolicyCandidate) Validate() error {
+	if err := c.PolicyProtocolIdentity.Validate(); err != nil {
+		return fmt.Errorf("policy candidate protocol identity: %w", err)
+	}
 	if err := ValidatePolicyCandidateID(c.ID); err != nil {
 		return err
 	}
@@ -350,6 +483,7 @@ func (r PolicyBaselineDenyRule) Matches(contextID, host, method, path string) bo
 // candidate. It is CLI-owned policy data and intentionally carries the same
 // dimensions as the candidate it resolves.
 type PolicyDenyRule struct {
+	PolicyProtocolIdentity
 	ID               string   `json:"id"`
 	ContextID        string   `json:"context_id"`
 	ContextName      string   `json:"context"`
@@ -363,14 +497,23 @@ type PolicyDenyRule struct {
 }
 
 func policyDenyRuleID(contextID, projectID, host string, port int, method, path string, sourceCandidates []string) string {
-	material := strings.Join(
+	return policyDenyRuleIDWithIdentity(
+		contextID, projectID, host, port, method, path, sourceCandidates, PolicyProtocolIdentity{},
+	)
+}
+
+func policyDenyRuleIDWithIdentity(
+	contextID, projectID, host string, port int, method, path string, sourceCandidates []string,
+	identity PolicyProtocolIdentity,
+) string {
+	material := appendPolicyProtocolIdentity(
 		[]string{
 			"tobari-policy-deny-v2", contextID, projectID, host, strconv.Itoa(port), method, path,
 			strings.Join(sourceCandidates, "\x1f"),
 		},
-		"\x00",
+		identity,
 	)
-	sum := sha256.Sum256([]byte(material))
+	sum := sha256.Sum256([]byte(strings.Join(material, "\x00")))
 	return "pdr_" + hex.EncodeToString(sum[:16])
 }
 
@@ -380,18 +523,23 @@ func NewExactPolicyDenyRule(candidate PolicyCandidate) (PolicyDenyRule, error) {
 		return PolicyDenyRule{}, err
 	}
 	rule := PolicyDenyRule{
-		ContextID: candidate.ContextID, ContextName: candidate.ContextName,
+		PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
+		ContextID:              candidate.ContextID, ContextName: candidate.ContextName,
 		ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot, Host: candidate.Host, Port: candidate.Port,
 		Method: candidate.Method, Path: candidate.Path,
 		SourceCandidates: []string{candidate.ID},
 	}
-	rule.ID = policyDenyRuleID(
+	rule.ID = policyDenyRuleIDWithIdentity(
 		rule.ContextID, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.SourceCandidates,
+		rule.PolicyProtocolIdentity,
 	)
 	return rule, nil
 }
 
 func (r PolicyDenyRule) Validate() error {
+	if err := r.PolicyProtocolIdentity.Validate(); err != nil {
+		return fmt.Errorf("policy deny rule protocol identity: %w", err)
+	}
 	if !policyDenyRuleIDPattern.MatchString(r.ID) {
 		return fmt.Errorf("policy deny rule ID is invalid")
 	}
@@ -419,15 +567,23 @@ func (r PolicyDenyRule) Validate() error {
 	if len(r.SourceCandidates) != 1 {
 		return fmt.Errorf("exact policy deny rule must have one source candidate")
 	}
-	if r.ID != policyDenyRuleID(r.ContextID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.SourceCandidates) {
+	if r.ID != policyDenyRuleIDWithIdentity(
+		r.ContextID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.SourceCandidates, r.PolicyProtocolIdentity,
+	) {
 		return fmt.Errorf("policy deny rule ID does not bind its content")
 	}
 	return nil
 }
 
 func (r PolicyDenyRule) Matches(contextID, projectID, host string, port int, method, path string) bool {
+	return r.MatchesIdentity(contextID, projectID, host, port, method, path, PolicyProtocolIdentity{})
+}
+
+func (r PolicyDenyRule) MatchesIdentity(
+	contextID, projectID, host string, port int, method, path string, identity PolicyProtocolIdentity,
+) bool {
 	return r.ContextID == contextID && r.ProjectID == projectID && r.Host == host && r.Port == port &&
-		r.Method == method && r.Path == path
+		r.Method == method && r.Path == path && r.PolicyProtocolIdentity.matches(identity)
 }
 
 // PolicyDenyRuleSet is the current effective deny projection used to remove
@@ -466,7 +622,10 @@ func (s PolicyDenyRuleSet) Matches(denial PolicyDenial) bool {
 		}
 	}
 	for _, rule := range s.Exact {
-		if rule.Matches(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) {
+		if rule.MatchesIdentity(
+			denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path,
+			denial.PolicyProtocolIdentity,
+		) {
 			return true
 		}
 	}
@@ -476,6 +635,7 @@ func (s PolicyDenyRuleSet) Matches(denial PolicyDenial) bool {
 // LearnedPolicyRule is the only data.json member owned by policy-learning
 // commands. Examples are retained so compaction remains testable.
 type LearnedPolicyRule struct {
+	PolicyProtocolIdentity
 	ID               string   `json:"id"`
 	Match            string   `json:"match"`
 	ContextID        string   `json:"context_id"`
@@ -493,14 +653,24 @@ type LearnedPolicyRule struct {
 func learnedRuleID(
 	match, contextID, projectID, host string, port int, method, path string, examples, sourceCandidates []string,
 ) string {
-	material := strings.Join(
+	return learnedRuleIDWithIdentity(
+		match, contextID, projectID, host, port, method, path, examples, sourceCandidates,
+		PolicyProtocolIdentity{},
+	)
+}
+
+func learnedRuleIDWithIdentity(
+	match, contextID, projectID, host string, port int, method, path string, examples, sourceCandidates []string,
+	identity PolicyProtocolIdentity,
+) string {
+	material := appendPolicyProtocolIdentity(
 		[]string{
 			"tobari-learned-rule-v2", match, contextID, projectID, host, strconv.Itoa(port), method, path,
 			strings.Join(examples, "\x1f"), strings.Join(sourceCandidates, "\x1f"),
 		},
-		"\x00",
+		identity,
 	)
-	sum := sha256.Sum256([]byte(material))
+	sum := sha256.Sum256([]byte(strings.Join(material, "\x00")))
 	return "plr_" + hex.EncodeToString(sum[:16])
 }
 
@@ -509,23 +679,31 @@ func NewExactLearnedPolicyRule(candidate PolicyCandidate) (LearnedPolicyRule, er
 		return LearnedPolicyRule{}, err
 	}
 	rule := LearnedPolicyRule{
-		Match: PolicyMatchExact, ContextID: candidate.ContextID, ContextName: candidate.ContextName,
+		PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
+		Match:                  PolicyMatchExact, ContextID: candidate.ContextID, ContextName: candidate.ContextName,
 		ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot, Host: candidate.Host, Port: candidate.Port, Method: candidate.Method,
 		Path: candidate.Path, Examples: []string{candidate.Path},
 		SourceCandidates: []string{candidate.ID},
 	}
-	rule.ID = learnedRuleID(
+	rule.ID = learnedRuleIDWithIdentity(
 		rule.Match, rule.ContextID, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.Examples, rule.SourceCandidates,
+		rule.PolicyProtocolIdentity,
 	)
 	return rule, nil
 }
 
 func (r LearnedPolicyRule) Validate() error {
+	if err := r.PolicyProtocolIdentity.Validate(); err != nil {
+		return fmt.Errorf("learned rule protocol identity: %w", err)
+	}
 	if !learnedRuleIDPattern.MatchString(r.ID) {
 		return fmt.Errorf("learned rule ID is invalid")
 	}
 	if r.Match != PolicyMatchExact && r.Match != PolicyMatchPrefix {
 		return fmt.Errorf("learned rule match is invalid")
+	}
+	if r.EffectiveProtocol() == PolicyProtocolGraphQL && r.Match != PolicyMatchExact {
+		return fmt.Errorf("GraphQL learned rule must use exact matching")
 	}
 	if err := validatePolicyScope(r.ContextID, r.ContextName, r.ProjectRoot); err != nil {
 		return fmt.Errorf("learned rule scope: %w", err)
@@ -572,8 +750,9 @@ func (r LearnedPolicyRule) Validate() error {
 			return fmt.Errorf("prefix learned rule example is outside its path")
 		}
 	}
-	if r.ID != learnedRuleID(
+	if r.ID != learnedRuleIDWithIdentity(
 		r.Match, r.ContextID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.Examples, r.SourceCandidates,
+		r.PolicyProtocolIdentity,
 	) {
 		return fmt.Errorf("learned rule ID does not bind its content")
 	}
@@ -629,6 +808,7 @@ func ValidateLearnedPolicyRules(rules []LearnedPolicyRule) error {
 // learned Allow and exact learned Deny inventory. Baseline host policy is not
 // represented because it has no reversible CLI-owned decision.
 type PolicyRule struct {
+	PolicyProtocolIdentity
 	ID               string   `json:"id"`
 	Decision         string   `json:"decision"`
 	Match            string   `json:"match"`
@@ -651,7 +831,8 @@ func NewPolicyRuleFromLearned(rule LearnedPolicyRule) (PolicyRule, error) {
 		return PolicyRule{}, err
 	}
 	result := PolicyRule{
-		ID: rule.ID, Decision: PolicyDecisionAllow, Match: rule.Match,
+		PolicyProtocolIdentity: rule.PolicyProtocolIdentity,
+		ID:                     rule.ID, Decision: PolicyDecisionAllow, Match: rule.Match,
 		ContextID: rule.ContextID, ContextName: rule.ContextName,
 		ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot, Host: rule.Host, Port: rule.Port, Method: rule.Method,
 		Path: rule.Path, Examples: append([]string{}, rule.Examples...),
@@ -671,7 +852,8 @@ func NewPolicyRuleFromDeny(rule PolicyDenyRule) (PolicyRule, error) {
 		return PolicyRule{}, err
 	}
 	result := PolicyRule{
-		ID: rule.ID, Decision: PolicyDecisionDeny, Match: PolicyMatchExact,
+		PolicyProtocolIdentity: rule.PolicyProtocolIdentity,
+		ID:                     rule.ID, Decision: PolicyDecisionDeny, Match: PolicyMatchExact,
 		ContextID: rule.ContextID, ContextName: rule.ContextName,
 		ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot, Host: rule.Host, Port: rule.Port, Method: rule.Method,
 		Path: rule.Path, Examples: []string{},
@@ -692,7 +874,8 @@ func (r PolicyRule) Validate() error {
 	}
 	if r.Decision == PolicyDecisionAllow {
 		learned := LearnedPolicyRule{
-			ID: r.ID, Match: r.Match, ContextID: r.ContextID, ContextName: r.ContextName,
+			PolicyProtocolIdentity: r.PolicyProtocolIdentity,
+			ID:                     r.ID, Match: r.Match, ContextID: r.ContextID, ContextName: r.ContextName,
 			ProjectID: r.ProjectID, ProjectRoot: r.ProjectRoot, Host: r.Host, Port: r.Port,
 			Method: r.Method, Path: r.Path, Examples: r.Examples,
 			SourceCandidates: r.SourceCandidates,
@@ -706,7 +889,8 @@ func (r PolicyRule) Validate() error {
 		return fmt.Errorf("policy rule deny shape is invalid")
 	}
 	deny := PolicyDenyRule{
-		ID: r.ID, ContextID: r.ContextID, ContextName: r.ContextName,
+		PolicyProtocolIdentity: r.PolicyProtocolIdentity,
+		ID:                     r.ID, ContextID: r.ContextID, ContextName: r.ContextName,
 		ProjectID: r.ProjectID, ProjectRoot: r.ProjectRoot, Host: r.Host, Port: r.Port,
 		Method: r.Method, Path: r.Path, SourceCandidates: r.SourceCandidates,
 	}
@@ -865,7 +1049,16 @@ func (r PolicyRuleReset) Validate() error {
 }
 
 func (r LearnedPolicyRule) Matches(contextID, projectID, host string, port int, method, path string) bool {
+	return r.MatchesIdentity(contextID, projectID, host, port, method, path, PolicyProtocolIdentity{})
+}
+
+func (r LearnedPolicyRule) MatchesIdentity(
+	contextID, projectID, host string, port int, method, path string, identity PolicyProtocolIdentity,
+) bool {
 	if r.ContextID != contextID || r.ProjectID != projectID || r.Host != host || r.Port != port || r.Method != method {
+		return false
+	}
+	if !r.PolicyProtocolIdentity.matches(identity) {
 		return false
 	}
 	switch r.Match {
@@ -902,19 +1095,25 @@ func PolicyCandidatesWithDenyRules(
 	}
 	covered := func(denial PolicyDenial) bool {
 		for _, rule := range rules {
-			if rule.Matches(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) {
+			if rule.MatchesIdentity(
+				denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path,
+				denial.PolicyProtocolIdentity,
+			) {
 				return true
 			}
 		}
 		return false
 	}
 	type effectKey struct {
-		contextID string
-		projectID string
-		host      string
-		port      int
-		method    string
-		path      string
+		contextID            string
+		projectID            string
+		host                 string
+		port                 int
+		method               string
+		path                 string
+		protocol             string
+		graphqlOperationType string
+		graphqlRootField     string
 	}
 	type aggregate struct {
 		candidate   PolicyCandidate
@@ -939,7 +1138,8 @@ func PolicyCandidatesWithDenyRules(
 		}
 		key := effectKey{
 			contextID: denial.ContextID, projectID: denial.ProjectID, host: denial.Host, port: denial.Port,
-			method: denial.Method, path: denial.Path,
+			method: denial.Method, path: denial.Path, protocol: denial.EffectiveProtocol(),
+			graphqlOperationType: denial.GraphQLOperationType, graphqlRootField: denial.GraphQLRootField,
 		}
 		current, found := aggregates[key]
 		if !found {
@@ -1125,7 +1325,7 @@ func PolicyCompactions(rules []LearnedPolicyRule) ([]PolicyCompaction, error) {
 	}
 	groups := make(map[string][]LearnedPolicyRule)
 	for _, rule := range rules {
-		if rule.Match != PolicyMatchExact || !safeCompactionRequestPath(rule.Path) {
+		if rule.EffectiveProtocol() != PolicyProtocolHTTP || rule.Match != PolicyMatchExact || !safeCompactionRequestPath(rule.Path) {
 			continue
 		}
 		prefix := exactRuleDirectory(rule.Path)
