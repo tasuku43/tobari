@@ -87,11 +87,17 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	candidateID := policyReviewPTYCandidateID()
 
 	t.Run("allow through real PTY", func(t *testing.T) {
-		output := runPolicyReviewPTYChild(t, "allow", "1ay")
+		output := runPolicyReviewPTYChild(t, "allow", "1a")
 		for _, want := range []string{
 			"Tobari · Permission Inbox",
+			"1 pending permission in 1 Tobari",
+			"default · /workspace/project",
+			"POST   api.example.com:443/repos/example/issues",
+			"Selected",
+			"Observed 1 time · Latest 2026-08-02T10:00:00Z",
 			"Permission 1 of 1",
 			"This decision applies only to this Tobari in this Context.",
+			"[a] Allow exact",
 			"No pending network permissions",
 			"\x1b[?25h",
 			"POLICY_REVIEW_E2E case=allow code=0 apply_calls=1 deny_calls=0",
@@ -104,7 +110,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	})
 
 	t.Run("deny through real PTY", func(t *testing.T) {
-		output := runPolicyReviewPTYChild(t, "deny", "1dy")
+		output := runPolicyReviewPTYChild(t, "deny", "1d")
 		for _, want := range []string{
 			"Tobari · Permission Inbox",
 			"Permission 1 of 1",
@@ -122,7 +128,12 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		input string
-	}{{name: "cancel", input: "q"}, {name: "invalid then cancel", input: "9q"}} {
+	}{
+		{name: "cancel", input: "q"},
+		{name: "invalid then cancel", input: "9q"},
+		{name: "list allow key then cancel", input: "aq"},
+		{name: "list deny key then cancel", input: "dq"},
+	} {
 		t.Run(test.name, func(t *testing.T) {
 			output := runPolicyReviewPTYChild(t, test.name, test.input)
 			if !strings.Contains(output, "Permission review canceled") ||
@@ -150,7 +161,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	})
 }
 
-func TestPolicyReviewDelayedConfirmationRealPTYAndCancellation(t *testing.T) {
+func TestPolicyReviewDirectDetailActionRealPTYAndCancellation(t *testing.T) {
 	if os.Getenv(policyReviewPTYChildEnv) == "1" {
 		return
 	}
@@ -166,27 +177,27 @@ func TestPolicyReviewDelayedConfirmationRealPTYAndCancellation(t *testing.T) {
 	}{
 		{
 			name:     "delayed-allow",
-			input:    "1a|y",
+			input:    "1|a",
 			marker:   "case=delayed-allow code=0 apply_calls=1 deny_calls=0",
 			wantText: []string{"source_candidate=" + policyReviewPTYCandidateID(), "No pending network permissions"},
 		},
 		{
 			name:     "delayed-deny",
-			input:    "1d|y",
+			input:    "1|d",
 			marker:   "case=delayed-deny code=0 apply_calls=0 deny_calls=1",
 			wantText: []string{"deny_candidate=" + policyReviewPTYCandidateID(), "No pending network permissions"},
 		},
 		{
-			name:     "cancel-after-allow",
-			input:    "1a|q|q|q",
-			marker:   "case=cancel-after-allow code=0 apply_calls=0 deny_calls=0",
+			name:     "back-then-cancel",
+			input:    "1|q|q",
+			marker:   "case=back-then-cancel code=0 apply_calls=0 deny_calls=0",
 			wantText: []string{"Permission review canceled", "Changed", "No permissions changed."},
 		},
 		{
-			name:     "interrupt-after-deny",
-			input:    "1d|\x03|\x03|\x03",
-			marker:   "case=interrupt-after-deny code=0 apply_calls=0 deny_calls=0",
-			wantText: []string{"Permission review canceled", "Changed", "No permissions changed."},
+			name:     "invalid-detail-key-then-cancel",
+			input:    "1|x|q|q",
+			marker:   "case=invalid-detail-key-then-cancel code=0 apply_calls=0 deny_calls=0",
+			wantText: []string{"Press a to allow exact, d to deny exact, or q to go back.", "Permission review canceled", "No permissions changed."},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -205,8 +216,11 @@ func TestPolicyReviewDelayedConfirmationRealPTYAndCancellation(t *testing.T) {
 				t.Fatalf("PTY output contains an undeclared fault: %q", output)
 			}
 			if test.name == "delayed-allow" || test.name == "delayed-deny" {
-				if got := strings.Count(output, "Tobari · Permission Inbox"); got != 3 {
-					t.Fatalf("delayed confirmation redrew the screen %d times, output=%q", got, output)
+				if got := strings.Count(output, "Tobari · Permission Inbox"); got != 2 {
+					t.Fatalf("direct detail action redrew the screen %d times, output=%q", got, output)
+				}
+				if strings.Contains(output, "Type y") || strings.Contains(output, "this exact permission?") {
+					t.Fatalf("direct detail action requested redundant confirmation: %q", output)
 				}
 			}
 		})

@@ -35,6 +35,11 @@ type policyReviewSelector struct {
 	style bool
 }
 
+type policyReviewScopeKey struct {
+	ContextID string
+	ProjectID string
+}
+
 func newPolicyReviewSelector() *policyReviewSelector {
 	return newPolicyReviewSelectorWithStyle(true)
 }
@@ -49,6 +54,7 @@ func (s *policyReviewSelector) Select(
 	if err := report.Validate(); err != nil {
 		return policyReviewDecision{}, err
 	}
+	report = groupPolicyReviewReport(report)
 	if len(report.Items) == 0 {
 		return policyReviewDecision{Canceled: true}, nil
 	}
@@ -202,84 +208,20 @@ func selectPolicyReviewDetailRaw(
 		case selectorKeyNone:
 			continue
 		case selectorKeyAllow:
-			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, policyReviewActionAllow, in, out, lineCount, style)
-			if confirmErr != nil {
-				return policyReviewDetailRawResult{err: confirmErr}
-			}
-			lineCount = confirmLines
-			if confirmed {
-				return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
-					CandidateID: candidate.ID, Action: policyReviewActionAllow, Lines: lineCount,
-				}}
-			}
-			message = ""
-			needsRender = true
+			return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
+				CandidateID: candidate.ID, Action: policyReviewActionAllow, Lines: lineCount,
+			}}
 		case selectorKeyDeny:
-			confirmed, confirmLines, confirmErr := confirmPolicyReviewRaw(ctx, report, selected, policyReviewActionDeny, in, out, lineCount, style)
-			if confirmErr != nil {
-				return policyReviewDetailRawResult{err: confirmErr}
-			}
-			lineCount = confirmLines
-			if confirmed {
-				return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
-					CandidateID: candidate.ID, Action: policyReviewActionDeny, Lines: lineCount,
-				}}
-			}
-			message = ""
-			needsRender = true
+			return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
+				CandidateID: candidate.ID, Action: policyReviewActionDeny, Lines: lineCount,
+			}}
 		case selectorKeyBack, selectorKeyCancel:
 			return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
 				Back: true, Lines: lineCount,
 			}}
 		default:
-			message = "Press a to allow, d to deny, or q to go back."
+			message = "Press a to allow exact, d to deny exact, or q to go back."
 			needsRender = true
-		}
-	}
-}
-
-func confirmPolicyReviewRaw(
-	ctx context.Context, report tobari.PolicyCandidateReport, selected int,
-	action policyReviewAction,
-	in io.Reader, out io.Writer, previousLines int, style bool,
-) (bool, int, error) {
-	actionName := "Allow"
-	if action == policyReviewActionDeny {
-		actionName = "Deny"
-	}
-	message := actionName + " this exact permission? Type y to continue; default is no."
-	lineCount := previousLines
-	currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount, style)
-	if currentLines < 0 {
-		finishPolicyReviewSelector(out, lineCount)
-		return false, lineCount, fmt.Errorf("render policy permission confirmation")
-	}
-	lineCount = currentLines
-	for {
-		value, err := readSelectorByte(ctx, in)
-		if err != nil {
-			if errors.Is(err, errSelectorTimeout) {
-				continue
-			}
-			if errors.Is(err, errSelectorEOF) {
-				return false, lineCount, nil
-			}
-			finishPolicyReviewSelector(out, lineCount)
-			return false, lineCount, err
-		}
-		switch value {
-		case 'y', 'Y':
-			return true, lineCount, nil
-		case 'n', 'N', '\r', '\n', 'q', 'Q', 3, 4, 27:
-			return false, lineCount, nil
-		default:
-			message = "Type y to confirm, or n to keep this permission blocked."
-			currentLines := renderPolicyReviewDetailRaw(out, report, selected, message, lineCount, style)
-			if currentLines < 0 {
-				finishPolicyReviewSelector(out, lineCount)
-				return false, lineCount, fmt.Errorf("render policy permission confirmation")
-			}
-			lineCount = currentLines
 		}
 	}
 }
@@ -288,10 +230,14 @@ func renderPolicyReviewListRaw(
 	out io.Writer, report tobari.PolicyCandidateReport, selected, top int, message string, previousLines int,
 	style bool,
 ) int {
+	report = groupPolicyReviewReport(report)
 	lines := []string{
 		selectorTitle(style, "Tobari · Permission Inbox"),
 		"",
-		applyStyleToken(style, styleWarning, fmt.Sprintf("%d pending permission%s", len(report.Items), pluralSuffix(len(report.Items)))),
+		applyStyleToken(style, styleWarning, fmt.Sprintf(
+			"%d pending permission%s in %d Tobari",
+			len(report.Items), pluralSuffix(len(report.Items)), policyReviewScopeCount(report.Items),
+		)),
 		"",
 	}
 	end := top + selectorMaxVisibleOptions
@@ -300,25 +246,91 @@ func renderPolicyReviewListRaw(
 	}
 	for index := top; index < end; index++ {
 		candidate := report.Items[index]
-		prefix := "  "
-		if index == selected {
-			prefix = applyStyleToken(style, styleText, "❯ ")
+		if index == top || !samePolicyReviewScope(report.Items[index-1], candidate) {
+			if index > top {
+				lines = append(lines, "")
+			}
+			lines = append(lines, applyStyleToken(style, styleText, policyReviewScopeHeading(candidate)))
 		}
-		lines = append(lines,
-			prefix+applyStyleToken(style, styleText, safeExternalText(candidate.ContextName)+"  "+safeExternalText(candidate.ProjectRoot)),
-			"  "+applyStyleToken(style, styleMuted, policyReviewCandidateRequest(candidate)),
-		)
+		prefix := "    "
+		if index == selected {
+			prefix = "  " + applyStyleToken(style, styleText, "❯ ")
+		}
+		lines = append(lines, prefix+
+			applyStyleToken(style, styleText, policyReviewCandidateListEffect(candidate))+"  "+
+			applyStyleToken(style, styleMuted, fmt.Sprintf("%d×", candidate.EffectiveObservationCount())))
 	}
 	if top > 0 || end < len(report.Items) {
 		lines = append(lines, applyStyleToken(style, styleMuted, fmt.Sprintf("  Showing %d-%d of %d", top+1, end, len(report.Items))))
 	}
-	lines = append(lines, "", selectorHelp(style, "↑/↓ move   Enter inspect   q cancel"))
+	selectedCandidate := report.Items[selected]
+	lines = append(lines,
+		"",
+		applyStyleToken(style, styleMuted, "Selected"),
+		"  "+applyStyleToken(style, styleText, policyReviewCandidateEffect(selectedCandidate)),
+		"  "+applyStyleToken(style, styleMuted, fmt.Sprintf(
+			"Observed %s · Latest %s",
+			policyCandidateObservationText(selectedCandidate), safeExternalText(selectedCandidate.ObservedAt),
+		)),
+		"",
+		selectorHelp(style, "↑/↓ move   Enter inspect   q cancel"),
+	)
 	if message == "" {
 		lines = append(lines, "")
 	} else {
 		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
 	}
 	return renderPolicyReviewScreen(out, lines, previousLines)
+}
+
+func groupPolicyReviewReport(report tobari.PolicyCandidateReport) tobari.PolicyCandidateReport {
+	groups := make([][]tobari.PolicyCandidate, 0, len(report.Items))
+	groupIndexes := make(map[policyReviewScopeKey]int, len(report.Items))
+	for _, candidate := range report.Items {
+		key := policyReviewScopeKey{ContextID: candidate.ContextID, ProjectID: candidate.ProjectID}
+		groupIndex, found := groupIndexes[key]
+		if !found {
+			groupIndex = len(groups)
+			groupIndexes[key] = groupIndex
+			groups = append(groups, []tobari.PolicyCandidate{})
+		}
+		groups[groupIndex] = append(groups[groupIndex], candidate)
+	}
+	report.Items = make([]tobari.PolicyCandidate, 0, len(report.Items))
+	for _, group := range groups {
+		report.Items = append(report.Items, group...)
+	}
+	return report
+}
+
+func policyReviewScopeCount(items []tobari.PolicyCandidate) int {
+	seen := make(map[policyReviewScopeKey]struct{}, len(items))
+	for _, candidate := range items {
+		seen[policyReviewScopeKey{ContextID: candidate.ContextID, ProjectID: candidate.ProjectID}] = struct{}{}
+	}
+	return len(seen)
+}
+
+func samePolicyReviewScope(left, right tobari.PolicyCandidate) bool {
+	return left.ContextID == right.ContextID && left.ProjectID == right.ProjectID
+}
+
+func policyReviewScopeHeading(candidate tobari.PolicyCandidate) string {
+	return safeExternalText(candidate.ContextName) + " · " + safeExternalText(candidate.ProjectRoot)
+}
+
+func policyReviewCandidateListEffect(candidate tobari.PolicyCandidate) string {
+	return fmt.Sprintf(
+		"%-6s %s:%d%s",
+		safeExternalText(candidate.Method), safeExternalText(candidate.Host), candidate.Port, safeExternalText(candidate.Path),
+	)
+}
+
+func policyReviewCandidateEffect(candidate tobari.PolicyCandidate) string {
+	return fmt.Sprintf(
+		"%s %s:%d%s",
+		safeExternalText(candidate.Method), safeExternalText(candidate.Host), candidate.Port, safeExternalText(candidate.Path),
+	)
 }
 
 func renderPolicyReviewDetailRaw(
@@ -342,8 +354,8 @@ func renderPolicyReviewDetailRaw(
 		selectorHelp(style, "This decision applies only to this Tobari in this Context."),
 		"",
 		selectorActions(
-			styleAction(style, "[a] Allow", styleAccent),
-			styleAction(style, "[d] Deny", styleAccent),
+			styleAction(style, "[a] Allow exact", styleAccent),
+			styleAction(style, "[d] Deny exact", styleAccent),
 			styleAction(style, "[q] Back", styleMuted),
 		),
 	}
@@ -451,7 +463,7 @@ func selectPolicyReviewDetailLine(
 		return policyReviewDetailResult{}, err
 	}
 	for {
-		if _, err := fmt.Fprintln(out, "\nChoose [a] to allow, [d] to deny this exact permission, or [q] to go back:"); err != nil {
+		if _, err := fmt.Fprintln(out, "\nChoose [a] to allow exact, [d] to deny exact, or [q] to go back:"); err != nil {
 			return policyReviewDetailResult{}, err
 		}
 		if err := ctx.Err(); err != nil {
@@ -466,33 +478,13 @@ func selectPolicyReviewDetailLine(
 		case "q", "quit", "esc", "b", "back":
 			return policyReviewDetailResult{Back: true}, nil
 		case "a", "allow", "d", "deny", "reject":
-			action := "Allow"
+			action := policyReviewActionAllow
 			if value == "d" || value == "deny" || value == "reject" {
-				action = "Deny"
+				action = policyReviewActionDeny
 			}
-			if _, writeErr := fmt.Fprintf(out, "%s this exact permission?\nContext  %s\nTobari   %s\nRequest  %s\n[y/N]\n",
-				action, safeExternalText(candidate.ContextName), safeExternalText(candidate.ProjectRoot), policyReviewCandidateRequest(candidate)); writeErr != nil {
-				return policyReviewDetailResult{}, writeErr
-			}
-			confirmation, confirmationErr := reader.ReadString('\n')
-			if confirmationErr != nil && !errors.Is(confirmationErr, io.EOF) {
-				return policyReviewDetailResult{}, confirmationErr
-			}
-			if strings.EqualFold(strings.TrimSpace(confirmation), "y") || strings.EqualFold(strings.TrimSpace(confirmation), "yes") {
-				selectedAction := policyReviewActionAllow
-				if action == "Deny" {
-					selectedAction = policyReviewActionDeny
-				}
-				return policyReviewDetailResult{CandidateID: candidate.ID, Action: selectedAction}, nil
-			}
-			if errors.Is(confirmationErr, io.EOF) {
-				return policyReviewDetailResult{Canceled: true}, nil
-			}
-			if _, writeErr := fmt.Fprintln(out, "Kept blocked. Choose [a] to allow, [d] to deny, or [q] to go back."); writeErr != nil {
-				return policyReviewDetailResult{}, writeErr
-			}
+			return policyReviewDetailResult{CandidateID: candidate.ID, Action: action}, nil
 		default:
-			if _, writeErr := fmt.Fprintln(out, "Use a to allow, d to deny, or q to go back."); writeErr != nil {
+			if _, writeErr := fmt.Fprintln(out, "Use a to allow exact, d to deny exact, or q to go back."); writeErr != nil {
 				return policyReviewDetailResult{}, writeErr
 			}
 		}

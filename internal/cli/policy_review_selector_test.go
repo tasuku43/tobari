@@ -27,8 +27,8 @@ func testPolicyReviewReport() tobari.PolicyCandidateReport {
 			{
 				ID:         "pcy_abcdef0123456789abcdef0123456789",
 				ObservedAt: "2026-08-02T10:01:00Z",
-				ContextID:  "01912345-6789-7abc-8def-0123456789ad", ContextName: "restricted",
-				ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+				ContextID:  "01912345-6789-7abc-8def-0123456789ae", ContextName: "restricted",
+				ProjectID: "01912345-6789-7abc-8def-0123456789ac", ProjectRoot: "/workspace/project",
 				Host: "registry.npmjs.org", Port: 443, Method: "GET", Path: "/package/example",
 				Reason: "request did not match an allow rule", StatusCode: 403,
 			},
@@ -36,13 +36,13 @@ func testPolicyReviewReport() tobari.PolicyCandidateReport {
 	}
 }
 
-func TestPolicyReviewSelectorRawInspectConfirmAndPreservesOpaqueID(t *testing.T) {
+func TestPolicyReviewSelectorRawDetailActionConfirmsAndPreservesOpaqueID(t *testing.T) {
 	t.Parallel()
 	selector := &policyReviewSelector{mode: &selectorModeFake{}, style: true}
 	var output bytes.Buffer
 	decision, err := selector.Select(
 		context.Background(), testPolicyReviewReport(),
-		strings.NewReader("\x1b[B\ray"), &output,
+		strings.NewReader("\x1b[B\ra"), &output,
 	)
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
@@ -57,9 +57,11 @@ func TestPolicyReviewSelectorRawInspectConfirmAndPreservesOpaqueID(t *testing.T)
 		!strings.Contains(output.String(), "restricted") || !strings.Contains(output.String(), "/workspace/project") {
 		t.Fatalf("rich review output = %q", output.String())
 	}
-	if !strings.Contains(output.String(), "Allow this exact permission?") ||
-		!strings.Contains(output.String(), "\x1b[?25h") {
-		t.Fatalf("confirmation or cursor restore missing: %q", output.String())
+	if strings.Contains(output.String(), "Type y") || strings.Contains(output.String(), "Allow this exact permission?") {
+		t.Fatalf("detail action triggered a redundant confirmation: %q", output.String())
+	}
+	if !strings.Contains(output.String(), "\x1b[?25h") {
+		t.Fatalf("cursor restore missing: %q", output.String())
 	}
 }
 
@@ -95,7 +97,12 @@ func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
 	}
 	for _, want := range []string{
 		applyStyleToken(true, styleAccent, "Tobari · Permission Inbox"),
-		applyStyleToken(true, styleWarning, "2 pending permissions"),
+		applyStyleToken(true, styleWarning, "2 pending permissions in 2 Tobari"),
+		applyStyleToken(true, styleText, "default · /workspace/project"),
+		"POST   api.github.com:443/repos/example/issues",
+		applyStyleToken(true, styleMuted, "3×"),
+		applyStyleToken(true, styleMuted, "Selected"),
+		"Latest 2026-08-02T10:00:00Z",
 		"❯ ",
 	} {
 		if !strings.Contains(listOutput.String(), want) {
@@ -113,13 +120,75 @@ func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
 		applyStyleToken(true, styleDanger, "403"),
 		"3 times",
 		"2026-08-02T10:00:00Z",
-		applyStyleToken(true, styleAccent, "[a] Allow"),
-		applyStyleToken(true, styleAccent, "[d] Deny"),
+		applyStyleToken(true, styleAccent, "[a] Allow exact"),
+		applyStyleToken(true, styleAccent, "[d] Deny exact"),
 		applyStyleToken(true, styleMuted, "[q] Back"),
 	} {
 		if !strings.Contains(detailOutput.String(), want) {
 			t.Fatalf("colored detail output %q lacks %q", detailOutput.String(), want)
 		}
+	}
+}
+
+func TestPolicyReviewSelectorGroupsByStableScopeAndKeepsEffectOrderWithinGroup(t *testing.T) {
+	t.Parallel()
+	report := testPolicyReviewReport()
+	first := report.Items[0]
+	secondInFirstScope := first
+	secondInFirstScope.ID = "pcy_11111111111111111111111111111111"
+	secondInFirstScope.ObservedAt = "2026-08-02T10:02:00Z"
+	secondInFirstScope.ObservationCount = 2
+	secondInFirstScope.Method = "GET"
+	secondInFirstScope.Path = "/notifications"
+	report.Items = []tobari.PolicyCandidate{first, report.Items[1], secondInFirstScope}
+
+	display := groupPolicyReviewReport(report)
+	if got := []string{display.Items[0].ID, display.Items[1].ID, display.Items[2].ID}; got[0] != first.ID || got[1] != secondInFirstScope.ID || got[2] != report.Items[1].ID {
+		t.Fatalf("grouped order = %v", got)
+	}
+
+	var output bytes.Buffer
+	if lines := renderPolicyReviewListRaw(&output, report, 1, 0, "", 0, false); lines <= 0 {
+		t.Fatalf("list render lines = %d, output = %q", lines, output.String())
+	}
+	text := output.String()
+	if strings.Count(text, "default · /workspace/project") != 1 ||
+		strings.Count(text, "restricted · /workspace/project") != 1 {
+		t.Fatalf("scope headings were not grouped once: %q", text)
+	}
+	firstEffect := strings.Index(text, "POST   api.github.com:443/repos/example/issues")
+	secondEffect := strings.Index(text, "GET    api.github.com:443/notifications")
+	restricted := strings.Index(text, "restricted · /workspace/project")
+	if firstEffect < 0 || secondEffect <= firstEffect || restricted <= secondEffect {
+		t.Fatalf("effect order is not stable within grouped scopes: %q", text)
+	}
+	for _, want := range []string{
+		"3 pending permissions in 2 Tobari",
+		"Selected",
+		"GET api.github.com:443/notifications",
+		"Observed 2 times · Latest 2026-08-02T10:02:00Z",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("grouped list %q lacks %q", text, want)
+		}
+	}
+}
+
+func TestPolicyReviewSelectorDoesNotGroupMatchingDisplayLabelsAcrossTypedScopes(t *testing.T) {
+	t.Parallel()
+	report := testPolicyReviewReport()
+	report.Items[1].ContextName = report.Items[0].ContextName
+	report.Items[1].ProjectRoot = report.Items[0].ProjectRoot
+
+	var output bytes.Buffer
+	if lines := renderPolicyReviewListRaw(&output, report, 0, 0, "", 0, false); lines <= 0 {
+		t.Fatalf("list render lines = %d, output = %q", lines, output.String())
+	}
+	if got := strings.Count(output.String(), "default · /workspace/project"); got != 2 {
+		t.Fatalf("matching display labels produced %d headings, want 2: %q", got, output.String())
+	}
+	if !strings.Contains(output.String(), "2 pending permissions in 2 Tobari") {
+		t.Fatalf("typed scope count was inferred from labels: %q", output.String())
 	}
 }
 
@@ -142,12 +211,12 @@ func TestPolicyReviewSelectorFinishDoesNotLeaveClearedRowsBehind(t *testing.T) {
 	}
 }
 
-func TestPolicyReviewSelectorFallsBackToLineConfirmation(t *testing.T) {
+func TestPolicyReviewSelectorLineDetailActionConfirmsExactAllow(t *testing.T) {
 	t.Parallel()
 	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}, style: true}
 	var output bytes.Buffer
 	decision, err := selector.Select(
-		context.Background(), testPolicyReviewReport(), strings.NewReader("2\na\ny\n"), &output,
+		context.Background(), testPolicyReviewReport(), strings.NewReader("2\na\n"), &output,
 	)
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
@@ -158,19 +227,22 @@ func TestPolicyReviewSelectorFallsBackToLineConfirmation(t *testing.T) {
 	if strings.Contains(output.String(), "\x1b[") {
 		t.Fatalf("line fallback contains terminal controls: %q", output.String())
 	}
-	for _, want := range []string{"1.", "2.", "Choose [a] to allow", "Allow this exact permission?", "Context  restricted"} {
+	for _, want := range []string{"1.", "2.", "Choose [a] to allow exact", "Context   restricted"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("line review output %q lacks %q", output.String(), want)
 		}
 	}
+	if strings.Contains(output.String(), "[y/N]") || strings.Contains(output.String(), "Allow this exact permission?") {
+		t.Fatalf("line action triggered a redundant confirmation: %q", output.String())
+	}
 }
 
-func TestPolicyReviewSelectorLineCanConfirmExactDeny(t *testing.T) {
+func TestPolicyReviewSelectorLineDetailActionConfirmsExactDeny(t *testing.T) {
 	t.Parallel()
 	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}, style: true}
 	var output bytes.Buffer
 	decision, err := selector.Select(
-		context.Background(), testPolicyReviewReport(), strings.NewReader("1\nd\ny\n"), &output,
+		context.Background(), testPolicyReviewReport(), strings.NewReader("1\nd\n"), &output,
 	)
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
@@ -179,8 +251,11 @@ func TestPolicyReviewSelectorLineCanConfirmExactDeny(t *testing.T) {
 		decision.Action != policyReviewActionDeny || decision.Canceled {
 		t.Fatalf("decision = %+v", decision)
 	}
-	if !strings.Contains(output.String(), "Deny this exact permission?") || !strings.Contains(output.String(), "Context  default") {
-		t.Fatalf("deny confirmation missing: %q", output.String())
+	if !strings.Contains(output.String(), "Choose [a] to allow exact") || !strings.Contains(output.String(), "Context   default") {
+		t.Fatalf("deny detail action missing exact scope: %q", output.String())
+	}
+	if strings.Contains(output.String(), "[y/N]") || strings.Contains(output.String(), "Deny this exact permission?") {
+		t.Fatalf("deny action triggered a redundant confirmation: %q", output.String())
 	}
 }
 

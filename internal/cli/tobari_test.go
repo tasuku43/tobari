@@ -235,7 +235,7 @@ func TestPolicyReviewTTYDelegatesExactAllowAndRefreshesQueue(t *testing.T) {
 		},
 	}
 	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader("1\na\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command := newCLI(strings.NewReader("1\na\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
 	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
 		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
@@ -267,7 +267,7 @@ func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 		},
 	}
 	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader("1\na\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command := newCLI(strings.NewReader("1\na\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
 	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
 		t.Fatalf("redirected policy review code = %d, stderr = %q", code, stderr.String())
