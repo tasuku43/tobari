@@ -88,6 +88,29 @@ func TestContextShellWizardDoesNotRedrawWhenTerminalReadTimesOut(t *testing.T) {
 	}
 }
 
+func TestContextGitWizardRawReturnsToColumnOneForEveryLine(t *testing.T) {
+	mode := &selectorModeFake{}
+	wizard := &terminalContextConfigurationWizard{mode: mode, style: false}
+	report := contextCLIReport(tobari.TaskContextShow, "work", false, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)
+	var output bytes.Buffer
+
+	_, err := wizard.ConfigureGit(context.Background(), report, strings.NewReader("\x1b"), &output)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ConfigureGit() error = %v, want context.Canceled", err)
+	}
+	for _, want := range []string{
+		"\x1b[2K\rTobari · Git identity\n",
+		"\x1b[2K\rContext   work\n",
+		"\x1b[2K\rCurrent   default\n",
+		"\x1b[2K\rChoose an identity source:\n",
+		"\x1b[2K\r↑/↓ move   Enter choose   q cancel\n",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("raw wizard output = %q, missing column-one line %q", output.String(), want)
+		}
+	}
+}
+
 func TestContextShellWizardEnglishLineFallbackPreservesExplicitEmptyLiteral(t *testing.T) {
 	wizard := &terminalContextConfigurationWizard{
 		mode:  &selectorModeFake{enterErr: errors.New("raw mode unavailable")},

@@ -299,9 +299,13 @@ func renderConfigurationWizardRaw(
 		if _, err := fmt.Fprintf(out, "\x1b[%dA\r\x1b[J", previousLines); err != nil {
 			return 0, err
 		}
-	}
-	if _, err := io.WriteString(out, "\x1b[?25l"+strings.Join(lines, "\n")+"\n"); err != nil {
+	} else if _, err := io.WriteString(out, "\x1b[?25l"); err != nil {
 		return 0, err
+	}
+	for _, line := range lines {
+		if _, err := fmt.Fprintf(out, "\x1b[2K\r%s\n", line); err != nil {
+			return 0, err
+		}
 	}
 	return len(lines), nil
 }
