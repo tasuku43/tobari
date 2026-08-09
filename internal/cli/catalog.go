@@ -338,10 +338,10 @@ type MutationContract struct {
 }
 
 // InteractiveWorkflowContract describes a human-only composition of one
-// discover command and one existing action command. The discover command
-// remains read-only in the public reference graph; the action command owns the
-// mutation and receives the selected opaque reference unchanged. Redirected
-// and machine-readable invocations must follow NonInteractiveBehavior.
+// discover command and an existing action command. A reference-bound action
+// receives one selected opaque reference unchanged; a fixed-target action owns
+// one bounded typed set whose entries retain those references unchanged.
+// Redirected and machine-readable invocations follow NonInteractiveBehavior.
 type InteractiveWorkflowContract struct {
 	ActionCommand          string   `json:"action_command,omitempty"`
 	ActionCommands         []string `json:"action_commands,omitempty"`
@@ -700,6 +700,9 @@ func (c Catalog) Validate() error {
 			}
 			if action.Effect != operation.EffectWrite || action.Role != RoleAct {
 				return fmt.Errorf("catalog command %q interactive action %q must be a write act command", command.Path, actionPath)
+			}
+			if action.Agent.FixedTarget != nil {
+				continue
 			}
 			matched := 0
 			for _, consumed := range action.ConsumedRefs() {

@@ -15,6 +15,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		clusterDownSpec(),
 		policyCandidatesSpec(),
 		policyReviewSpec(),
+		policyApplyReviewedSpec(),
 		policyTailSpec(),
 		policyRulesSpec(),
 		policyAllowSpec(),
@@ -644,7 +645,7 @@ func policyReviewSpec() CommandSpec {
 		Args: "[--tail <lines>] [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Review the bounded pending exact network-permission queue, including optional GraphQL operation/root coordinates; an interactive terminal can explicitly allow or deny one exact permission",
+			Outcome:      "Review the bounded pending exact network-permission queue, including optional GraphQL operation/root coordinates; an interactive terminal can stage one Context's exact decisions and apply the reviewed set once",
 			Inputs:       []CommandInput{reviewTailInput(), formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -655,8 +656,7 @@ func policyReviewSpec() CommandSpec {
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy review", true),
 			Interactive: &InteractiveWorkflowContract{
-				ActionCommand:          "policy allow",
-				ActionCommands:         []string{"policy allow", "policy deny"},
+				ActionCommand:          "policy apply-reviewed",
 				SelectionReferenceKind: tobari.PolicyCandidateKind,
 				SelectionOutputField:   "id",
 				Confirmation:           "explicit_yes",
@@ -664,6 +664,57 @@ func policyReviewSpec() CommandSpec {
 			},
 		},
 		handler: runPolicyReview,
+	}
+}
+
+func policyApplyReviewedSpec() CommandSpec {
+	return CommandSpec{
+		Path: "policy apply-reviewed", Summary: "Apply the exact decisions staged by Permission Inbox",
+		Args: "", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "policy.learning",
+			Outcome:      "Revalidate and activate one bounded typed set of exact Allow and Deny decisions for one Context staged by interactive policy review",
+			Inputs:       []CommandInput{},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
+				TextPresentation: TextPresentationSemanticTokens,
+				Fields: []OutputField{
+					{Name: "task", Type: OutputFieldTypeString, Description: "Confirmed reviewed-set task identity."},
+					{Name: "policy", Type: OutputFieldTypeString, Description: "Host policy source associated with the confirmed aggregate."},
+					{Name: "allow_count", Type: OutputFieldTypeInteger, Description: "Number of exact Allows applied."},
+					{Name: "deny_count", Type: OutputFieldTypeInteger, Description: "Number of exact Denies applied."},
+					{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Always true after exact revision confirmation."},
+				},
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
+			},
+			Prerequisites: []string{"An interactive policy review session has a bounded non-empty staged decision set."},
+			FixedTarget: &FixedTarget{
+				Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID,
+				Description: "The one CLI-owned installation policy decision set.", Scope: FixedTargetScopeToolLocal,
+			},
+			Errors: policyMutationCommandErrors("policy apply-reviewed", "policy review",
+				declaredCommandError(fault.KindInvalidInput, "invalid_policy_review_session", false, "policy review", "Stage decisions through an interactive Permission Inbox."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_policy_review_set", false, "policy review", "Review a bounded non-empty set of exact candidates."),
+				declaredCommandError(fault.KindInvalidInput, "empty_policy_review_set", false, "policy review", "Stage at least one exact decision."),
+				declaredCommandError(fault.KindRejected, "policy_review_changed", false, "policy review", "Review the current pending queue again."),
+				declaredCommandError(fault.KindRejected, "policy_review_scope_mixed", false, "policy review", "Apply or discard the current Context decisions before reviewing another Context."),
+				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "policy review", "Review again after the concurrent policy change."),
+				declaredCommandError(fault.KindRejected, "policy_preflight_failed", false, "doctor", "Correct the complete candidate policy."),
+				declaredCommandError(fault.KindUnavailable, "policy_learning_failed", false, "cluster status", "Reconcile OPA and current policy state."),
+				declaredCommandError(fault.KindContract, "invalid_candidate_contract", false, "cluster denials", "Inspect retained denial compatibility."),
+				declaredCommandError(fault.KindContract, "invalid_policy_review_result", false, "cluster status", "Reconcile the confirmed reviewed set."),
+				declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster denials", "Inspect retained denial evidence."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.PolicyDecisionSetKind, TargetInputs: []string{},
+				Impact: operation.Impact{
+					Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+					AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
+				},
+			},
+		},
+		handler: runPolicyApplyReviewed,
 	}
 }
 

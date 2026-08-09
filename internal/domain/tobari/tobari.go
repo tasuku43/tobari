@@ -16,6 +16,7 @@ const (
 	TaskPolicyCandidates  = "policy.candidates"
 	TaskPolicyTail        = "policy.tail"
 	TaskPolicyReview      = "policy.review"
+	TaskPolicyReviewApply = "policy.review.apply"
 	TaskPolicyRules       = "policy.rules"
 	TaskPolicyAllow       = "policy.allow"
 	TaskPolicyDeny        = "policy.deny"
@@ -28,13 +29,15 @@ const (
 	TaskLogs              = "tobari.logs"
 	TaskDetach            = "tobari.detach"
 
-	ClusterTargetKind    = "cluster"
-	ClusterTargetID      = "cluster-default"
-	TargetKind           = "tobari"
-	ReferenceKind        = TargetKind
-	PolicyCandidateKind  = "policy-candidate"
-	PolicyRuleKind       = "policy-rule"
-	PolicyCompactionKind = "policy-compaction"
+	ClusterTargetKind     = "cluster"
+	ClusterTargetID       = "cluster-default"
+	TargetKind            = "tobari"
+	ReferenceKind         = TargetKind
+	PolicyCandidateKind   = "policy-candidate"
+	PolicyRuleKind        = "policy-rule"
+	PolicyCompactionKind  = "policy-compaction"
+	PolicyDecisionSetKind = "policy-decision-set"
+	PolicyDecisionSetID   = "policy-decision-set-default"
 
 	BuiltinImageSelector        = "builtin"
 	RuntimeImageAPILabel        = "io.tobari.runtime-api"

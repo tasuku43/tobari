@@ -876,6 +876,36 @@ func TestPolicyCandidateRejectsControlPathAndOpaqueKindMismatch(t *testing.T) {
 	}
 }
 
+func TestPolicyReviewDecisionSetRequiresBoundedUniqueOpaqueChoices(t *testing.T) {
+	t.Parallel()
+	valid := PolicyReviewDecisionSet{Decisions: []PolicyReviewDecision{
+		{CandidateID: "pcy_0123456789abcdef0123456789abcdef", Decision: PolicyDecisionAllow},
+		{CandidateID: "pcy_abcdef0123456789abcdef0123456789", Decision: PolicyDecisionDeny},
+	}}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, candidate := range map[string]PolicyReviewDecisionSet{
+		"empty": {},
+		"duplicate": {Decisions: []PolicyReviewDecision{
+			valid.Decisions[0], valid.Decisions[0],
+		}},
+		"invalid decision": {Decisions: []PolicyReviewDecision{{
+			CandidateID: valid.Decisions[0].CandidateID, Decision: "prompt",
+		}}},
+		"wrong reference kind": {Decisions: []PolicyReviewDecision{{
+			CandidateID: "pcx_0123456789abcdef0123456789abcdef", Decision: PolicyDecisionAllow,
+		}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if err := candidate.Validate(); err == nil {
+				t.Fatalf("invalid reviewed set was accepted: %+v", candidate)
+			}
+		})
+	}
+}
+
 func TestCurrentPolicyRulesListsReversibleAllowAndDenyDecisions(t *testing.T) {
 	t.Parallel()
 	allowCandidate, err := NewPolicyCandidate(validPolicyDenial())

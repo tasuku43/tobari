@@ -19,6 +19,7 @@ import (
 type policyReviewDecision struct {
 	CandidateID string
 	Action      policyReviewAction
+	Apply       bool
 	Canceled    bool
 }
 
@@ -31,8 +32,11 @@ const (
 )
 
 type policyReviewSelector struct {
-	mode  terminal.Mode
-	style bool
+	mode       terminal.Mode
+	style      bool
+	lineReader *bufio.Reader
+	staged     map[string]policyReviewAction
+	notice     string
 }
 
 type policyReviewScopeKey struct {
@@ -45,7 +49,22 @@ func newPolicyReviewSelector() *policyReviewSelector {
 }
 
 func newPolicyReviewSelectorWithStyle(enabled bool) *policyReviewSelector {
-	return &policyReviewSelector{mode: terminal.New(), style: enabled}
+	return &policyReviewSelector{mode: terminal.New(), style: enabled, staged: map[string]policyReviewAction{}}
+}
+
+func (s *policyReviewSelector) Stage(candidateID string, action policyReviewAction) {
+	if s == nil {
+		return
+	}
+	if s.staged == nil {
+		s.staged = map[string]policyReviewAction{}
+	}
+	s.staged[candidateID] = action
+	label := "Allow exact"
+	if action == policyReviewActionDeny {
+		label = "Deny exact"
+	}
+	s.notice = fmt.Sprintf("Staged %s · %d decision%s ready to apply.", label, len(s.staged), pluralSuffix(len(s.staged)))
 }
 
 func (s *policyReviewSelector) Select(
@@ -62,7 +81,7 @@ func (s *policyReviewSelector) Select(
 	if s != nil && s.mode != nil {
 		restore, rawErr := s.mode.Enter(in)
 		if rawErr == nil {
-			decision, selectErr := selectPolicyReviewRaw(ctx, report, in, out, s.style)
+			decision, selectErr := selectPolicyReviewRaw(ctx, report, in, out, s.style, s.notice)
 			restoreErr := restore()
 			if selectErr != nil {
 				return policyReviewDecision{}, selectErr
@@ -74,7 +93,10 @@ func (s *policyReviewSelector) Select(
 		}
 	}
 
-	return selectPolicyReviewLine(ctx, report, in, out)
+	if s.lineReader == nil {
+		s.lineReader = bufio.NewReader(in)
+	}
+	return selectPolicyReviewLine(ctx, report, s.lineReader, out, len(s.staged), s.notice)
 }
 
 type policyReviewDetailResult struct {
@@ -87,10 +109,13 @@ type policyReviewDetailResult struct {
 
 func selectPolicyReviewRaw(
 	ctx context.Context, report tobari.PolicyCandidateReport, in io.Reader, out io.Writer,
-	style bool,
+	style bool, notice ...string,
 ) (policyReviewDecision, error) {
 	selected := 0
 	message := ""
+	if len(notice) > 0 {
+		message = notice[0]
+	}
 	lineCount := 0
 	needsRender := true
 	for {
@@ -160,6 +185,9 @@ func selectPolicyReviewRaw(
 		case selectorKeyCancel:
 			finishPolicyReviewSelector(out, lineCount)
 			return policyReviewDecision{Canceled: true}, nil
+		case selectorKeyApply:
+			finishPolicyReviewSelector(out, lineCount)
+			return policyReviewDecision{Apply: true}, nil
 		default:
 			message = "Use ↑/↓ to move, Enter to inspect, or q to cancel."
 			needsRender = true
@@ -273,7 +301,7 @@ func renderPolicyReviewListRaw(
 			policyCandidateObservationText(selectedCandidate), safeExternalText(selectedCandidate.ObservedAt),
 		)),
 		"",
-		selectorHelp(style, "↑/↓ move   Enter inspect   q cancel"),
+		selectorHelp(style, "↑/↓ move   Enter inspect   p apply staged   q cancel"),
 	)
 	if message == "" {
 		lines = append(lines, "")
@@ -398,9 +426,9 @@ func finishPolicyReviewSelector(out io.Writer, lines int) {
 }
 
 func selectPolicyReviewLine(
-	ctx context.Context, report tobari.PolicyCandidateReport, in io.Reader, out io.Writer,
+	ctx context.Context, report tobari.PolicyCandidateReport, reader *bufio.Reader, out io.Writer,
+	stagedCount int, notice ...string,
 ) (policyReviewDecision, error) {
-	reader := bufio.NewReader(in)
 	for {
 		if err := ctx.Err(); err != nil {
 			return policyReviewDecision{}, err
@@ -408,7 +436,16 @@ func selectPolicyReviewLine(
 		if err := writePolicyReviewListLine(out, report); err != nil {
 			return policyReviewDecision{}, err
 		}
-		if _, err := fmt.Fprintln(out, "\nChoose a number to inspect, or q to cancel:"); err != nil {
+		if stagedCount > 0 {
+			message := fmt.Sprintf("%d staged decision%s ready to apply.", stagedCount, pluralSuffix(stagedCount))
+			if len(notice) > 0 && notice[0] != "" {
+				message = notice[0]
+			}
+			if _, err := fmt.Fprintln(out, "\n"+message); err != nil {
+				return policyReviewDecision{}, err
+			}
+		}
+		if _, err := fmt.Fprintln(out, "\nChoose a number to inspect, p to apply staged decisions, or q to cancel:"); err != nil {
 			return policyReviewDecision{}, err
 		}
 		line, err := reader.ReadString('\n')
@@ -418,6 +455,9 @@ func selectPolicyReviewLine(
 		value := strings.ToLower(strings.TrimSpace(line))
 		if value == "q" || value == "quit" || value == "esc" {
 			return policyReviewDecision{Canceled: true}, nil
+		}
+		if value == "p" || value == "apply" {
+			return policyReviewDecision{Apply: true}, nil
 		}
 		index, parseErr := strconv.Atoi(value)
 		if parseErr != nil || index < 1 || index > len(report.Items) {

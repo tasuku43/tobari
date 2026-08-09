@@ -163,6 +163,8 @@ func runPolicyReview(
 	}
 
 	selector := newPolicyReviewSelectorWithStyle(humanStyleAllowed(ctx, c, c.Out))
+	staged := make(map[string]policyReviewAction, len(result.Items))
+	stagedContextID := ""
 	for {
 		if len(result.Items) == 0 {
 			output, renderErr := renderPolicyReviewWithCommands(
@@ -181,51 +183,64 @@ func runPolicyReview(
 		if decision.Canceled {
 			return c.emitResult(ctx, renderPolicyReviewCanceled(humanStyleAllowed(ctx, c, c.Out)))
 		}
-		if !policyReviewContainsID(result, decision.CandidateID) {
+		if decision.Apply {
+			if len(staged) == 0 {
+				return c.fail(ctx, fault.New(
+					fault.KindInvalidInput, "empty_policy_review_set",
+					"stage at least one exact permission before Apply", false,
+					fault.NextAction{Command: "policy review", Reason: "Inspect a permission and choose Allow exact or Deny exact."},
+				))
+			}
+			apply, applyFound := c.catalog.Lookup("policy apply-reviewed")
+			if !applyFound || apply.Agent.Mutation == nil || apply.Agent.FixedTarget == nil {
+				return c.fail(ctx, fault.New(
+					fault.KindContract, "invalid_catalog", "reviewed policy Apply contract is missing", false,
+				))
+			}
+			set := tobari.PolicyReviewDecisionSet{Decisions: make([]tobari.PolicyReviewDecision, 0, len(staged))}
+			for _, candidate := range result.Items {
+				action, selected := staged[candidate.ID]
+				if !selected {
+					continue
+				}
+				value := tobari.PolicyDecisionAllow
+				if action == policyReviewActionDeny {
+					value = tobari.PolicyDecisionDeny
+				}
+				set.Decisions = append(set.Decisions, tobari.PolicyReviewDecision{
+					CandidateID: candidate.ID, Decision: value,
+				})
+			}
+			intent := operation.Intent{
+				Command: apply.Path, Effect: apply.Effect,
+				Target: operation.TargetRef{Kind: apply.Agent.FixedTarget.Kind, ID: apply.Agent.FixedTarget.ID},
+				Impact: apply.Agent.Mutation.Impact,
+			}
+			actionCtx := withCommandPath(ctx, apply.Path)
+			change, applyErr := c.tobari.ApplyPolicyReviewDecisionSet(actionCtx, intent, set)
+			if applyErr != nil {
+				return c.fail(actionCtx, applyErr)
+			}
+			return c.emitMutationResult(
+				actionCtx, apply, renderPolicyReviewChange(change, humanStyleAllowed(actionCtx, c, c.Out)),
+			)
+		}
+		candidate, selected := policyReviewCandidateByID(result, decision.CandidateID)
+		if !selected {
 			return c.fail(ctx, fault.New(
 				fault.KindContract, "invalid_policy_candidate_selection",
 				"the interactive review selected an ID outside its validated snapshot", false,
 				fault.NextAction{Command: "policy candidates", Reason: "Rediscover the current pending queue."},
 			))
 		}
-
-		actionCommand := allow
-		if decision.Action == policyReviewActionDeny {
-			deny, denyFound := c.catalog.Lookup("policy deny")
-			if !denyFound {
-				return c.fail(ctx, fault.New(
-					fault.KindContract, "invalid_catalog", "policy deny command is missing", false,
-				))
-			}
-			actionCommand = deny
-		}
-		actionCtx := withCommandPath(ctx, actionCommand.Path)
-		if decision.Action == policyReviewActionDeny {
-			change, denyErr := denyPolicyCandidate(actionCtx, c, actionCommand, decision.CandidateID)
-			if denyErr != nil {
-				return c.fail(actionCtx, denyErr)
-			}
-			if code := c.emitMutationResult(
-				actionCtx, actionCommand, renderPolicyDenyChangeWithColor(change, humanStyleAllowed(actionCtx, c, c.Out)),
-			); code != ExitOK {
-				return code
-			}
-		} else {
-			change, allowErr := allowPolicyCandidate(actionCtx, c, actionCommand, decision.CandidateID)
-			if allowErr != nil {
-				return c.fail(actionCtx, allowErr)
-			}
-			if code := c.emitMutationResult(
-				actionCtx, actionCommand, renderPolicyReviewAllowSuccess(change, humanStyleAllowed(actionCtx, c, c.Out)),
-			); code != ExitOK {
-				return code
-			}
+		if stagedContextID != "" && candidate.ContextID != stagedContextID {
+			selector.notice = "Apply or discard the staged decisions before switching Context."
+			continue
 		}
 
-		result, err = c.tobari.PolicyReview(ctx, int(tail))
-		if err != nil {
-			return c.fail(ctx, err)
-		}
+		staged[decision.CandidateID] = decision.Action
+		stagedContextID = candidate.ContextID
+		selector.Stage(decision.CandidateID, decision.Action)
 	}
 }
 
@@ -314,12 +329,17 @@ func policyReviewInteractiveAllowed(ctx context.Context, c *CLI) bool {
 }
 
 func policyReviewContainsID(result tobari.PolicyCandidateReport, id string) bool {
+	_, found := policyReviewCandidateByID(result, id)
+	return found
+}
+
+func policyReviewCandidateByID(result tobari.PolicyCandidateReport, id string) (tobari.PolicyCandidate, bool) {
 	for _, candidate := range result.Items {
 		if candidate.ID == id {
-			return true
+			return candidate, true
 		}
 	}
-	return false
+	return tobari.PolicyCandidate{}, false
 }
 
 func policyRuleContainsID(result tobari.PolicyRuleReport, id string) bool {
@@ -385,6 +405,16 @@ func runPolicyAllow(
 		return c.fail(ctx, err)
 	}
 	return c.emitMutationResult(ctx, command, renderPolicyLearningChangeWithColor(result, humanStyleAllowed(ctx, c, c.Out)))
+}
+
+func runPolicyApplyReviewed(
+	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, _ ParsedInputs,
+) int {
+	return c.failUsage(
+		ctx, "invalid_policy_review_session",
+		command.Path+" is owned by the interactive policy review session",
+		"policy review", "Stage exact decisions in the Permission Inbox and use its final Apply action.",
+	)
 }
 
 func runPolicyDeny(
@@ -1070,6 +1100,17 @@ func renderPolicyReviewCanceled(color bool) []byte {
 	output.row("Changed", "No permissions changed.", styleText)
 	output.next("policy review", "Review pending permissions when you are ready.")
 	return output.bytes()
+}
+
+func renderPolicyReviewChange(result tobari.PolicyReviewChange, color bool) []byte {
+	var output bytes.Buffer
+	fmt.Fprintln(&output, applyStyleToken(color, styleSuccess, "✓ Reviewed permissions applied"))
+	fmt.Fprintf(&output, "  Allowed  %d\n", result.AllowCount)
+	fmt.Fprintf(&output, "  Denied   %d\n", result.DenyCount)
+	fmt.Fprintln(&output, "  OPA      exact tested revision active; container kept running")
+	fmt.Fprintln(&output)
+	fmt.Fprintln(&output, applyStyleToken(color, styleMuted, "Re-enter the Workspace and retry the allowed requests."))
+	return output.Bytes()
 }
 
 func renderPolicyRulesWithCommands(

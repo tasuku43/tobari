@@ -38,6 +38,14 @@ type RuntimePort interface {
 	Doctor(context.Context, string) (doctor.Report, error)
 }
 
+type policyDecisionSetRuntimePort interface {
+	ApplyPolicyDecisionSet(
+		context.Context, tobari.State,
+		[]tobari.LearnedPolicyRule, []tobari.LearnedPolicyRule,
+		[]tobari.PolicyDenyRule, []tobari.PolicyDenyRule,
+	) error
+}
+
 // clusterUpProgressRuntimePort is an optional extension of RuntimePort. The
 // base port remains available to non-interactive callers and older fakes;
 // production runtimes use it to keep human progress outside application
@@ -122,7 +130,9 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 		validPolicyCandidate := intent.Target.Kind == tobari.PolicyCandidateKind && intent.Target.ID != ""
 		validPolicyRule := intent.Target.Kind == tobari.PolicyRuleKind && intent.Target.ID != ""
 		validPolicyCompaction := intent.Target.Kind == tobari.PolicyCompactionKind && intent.Target.ID != ""
-		if !validCluster && !validTobari && !validPolicyCandidate && !validPolicyRule && !validPolicyCompaction && !validCurrentDirectory {
+		validPolicyDecisionSet := intent.Target.Kind == tobari.PolicyDecisionSetKind &&
+			intent.Target.ID == tobari.PolicyDecisionSetID
+		if !validCluster && !validTobari && !validPolicyCandidate && !validPolicyRule && !validPolicyCompaction && !validPolicyDecisionSet && !validCurrentDirectory {
 			return fault.New(fault.KindRejected, "mutation_rejected", "mutation target is not owned by Tobari", false)
 		}
 	default:
@@ -1148,6 +1158,123 @@ func (s *Service) PolicyReview(
 	ctx context.Context, tail int,
 ) (tobari.PolicyCandidateReport, error) {
 	return s.policyCandidates(ctx, tail, tobari.TaskPolicyReview)
+}
+
+// ApplyPolicyReviewDecisionSet revalidates every staged opaque candidate
+// against fresh retained evidence, then records and activates the complete set
+// through one command-owned installation policy target.
+func (s *Service) ApplyPolicyReviewDecisionSet(
+	ctx context.Context, intent operation.Intent, set tobari.PolicyReviewDecisionSet,
+) (tobari.PolicyReviewChange, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.PolicyReviewChange{}, err
+	}
+	if err := set.Validate(); err != nil {
+		return tobari.PolicyReviewChange{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_policy_review_set",
+			"reviewed policy decisions are invalid", false, err,
+		)
+	}
+	if err := validatePolicyMutationTarget(intent, tobari.PolicyDecisionSetKind, tobari.PolicyDecisionSetID); err != nil {
+		return tobari.PolicyReviewChange{}, err
+	}
+	runtime, ok := s.runtime.(policyDecisionSetRuntimePort)
+	if !ok || portcheck.IsNil(runtime) {
+		return tobari.PolicyReviewChange{}, fault.New(
+			fault.KindInternal, "missing_runtime", "reviewed policy apply is not configured", false,
+		)
+	}
+	state, rules, err := s.loadPolicyState(ctx)
+	if err != nil {
+		return tobari.PolicyReviewChange{}, err
+	}
+	denyRules, err := s.readPolicyDenyRules(ctx, state)
+	if err != nil {
+		return tobari.PolicyReviewChange{}, err
+	}
+	denials, err := s.runtime.ClusterDenials(ctx, state, 10_000)
+	if err != nil {
+		return tobari.PolicyReviewChange{}, fault.Wrap(
+			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
+		)
+	}
+	candidates, err := tobari.PolicyCandidatesWithDenyRules(denials, rules, denyRules)
+	if err != nil {
+		return tobari.PolicyReviewChange{}, fault.Wrap(
+			fault.KindContract, "invalid_candidate_contract", "policy candidates are invalid", false, err,
+		)
+	}
+	byID := make(map[string]tobari.PolicyCandidate, len(candidates))
+	for _, candidate := range candidates {
+		byID[candidate.ID] = candidate
+	}
+	updatedAllows := append([]tobari.LearnedPolicyRule{}, rules...)
+	updatedDenies := append([]tobari.PolicyDenyRule{}, denyRules.Exact...)
+	allowCount, denyCount := 0, 0
+	reviewContextID := ""
+	for _, decision := range set.Decisions {
+		candidate, found := byID[decision.CandidateID]
+		if !found {
+			return tobari.PolicyReviewChange{}, fault.New(
+				fault.KindRejected, "policy_review_changed",
+				"the reviewed permission set changed before Apply", false,
+				fault.NextAction{Command: "policy review", Reason: "Review the current pending queue again."},
+			)
+		}
+		if reviewContextID == "" {
+			reviewContextID = candidate.ContextID
+		} else if candidate.ContextID != reviewContextID {
+			return tobari.PolicyReviewChange{}, fault.New(
+				fault.KindRejected, "policy_review_scope_mixed",
+				"one reviewed Apply cannot span multiple Context policy sources", false,
+				fault.NextAction{Command: "policy review", Reason: "Apply or discard the current Context decisions before reviewing another Context."},
+			)
+		}
+		if decision.Decision == tobari.PolicyDecisionAllow {
+			rule, ruleErr := tobari.NewExactLearnedPolicyRule(candidate)
+			if ruleErr != nil {
+				return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "policy candidate cannot become an exact rule", false, ruleErr)
+			}
+			updatedAllows = append(updatedAllows, rule)
+			allowCount++
+			continue
+		}
+		rule, ruleErr := tobari.NewExactPolicyDenyRule(candidate)
+		if ruleErr != nil {
+			return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "policy candidate cannot become an exact deny", false, ruleErr)
+		}
+		updatedDenies = append(updatedDenies, rule)
+		denyCount++
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: "policy apply-reviewed", ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
+	}
+	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		return runtime.ApplyPolicyDecisionSet(
+			actionContext, state, rules, updatedAllows, denyRules.Exact, updatedDenies,
+		)
+	})
+	if err != nil {
+		if _, structured := fault.PublicCopy(err); structured {
+			return tobari.PolicyReviewChange{}, err
+		}
+		return tobari.PolicyReviewChange{}, fault.Wrap(
+			fault.KindUnavailable, "policy_learning_failed",
+			"reviewed policy activation did not complete; inspect cluster status", false, err,
+			fault.NextAction{Command: "cluster status", Reason: "Reconcile OPA and current policy state."},
+		)
+	}
+	result := tobari.PolicyReviewChange{
+		Task: tobari.TaskPolicyReviewApply, PolicyDirectory: state.PolicyDirectory,
+		AllowCount: allowCount, DenyCount: denyCount, Applied: true,
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.PolicyReviewChange{}, fault.Wrap(
+			fault.KindContract, "invalid_policy_review_result", "reviewed policy result is invalid", false, err,
+		)
+	}
+	return result, nil
 }
 
 // PolicyRules returns the complete current learned-decision inventory. It is

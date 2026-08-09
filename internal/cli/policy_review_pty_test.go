@@ -87,7 +87,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	candidateID := policyReviewPTYCandidateID()
 
 	t.Run("allow through real PTY", func(t *testing.T) {
-		output := runPolicyReviewPTYChild(t, "allow", "1a")
+		output := runPolicyReviewPTYChild(t, "allow", "1ap")
 		for _, want := range []string{
 			"Tobari · Permission Inbox",
 			"1 pending permission in 1 Tobari",
@@ -98,7 +98,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 			"Permission 1 of 1",
 			"This decision applies only to this Tobari in this Context.",
 			"[a] Allow exact",
-			"No pending network permissions",
+			"Reviewed permissions applied",
 			"\x1b[?25h",
 			"POLICY_REVIEW_E2E case=allow code=0 apply_calls=1 deny_calls=0",
 			"source_candidate=" + candidateID,
@@ -110,13 +110,13 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	})
 
 	t.Run("deny through real PTY", func(t *testing.T) {
-		output := runPolicyReviewPTYChild(t, "deny", "1d")
+		output := runPolicyReviewPTYChild(t, "deny", "1dp")
 		for _, want := range []string{
 			"Tobari · Permission Inbox",
 			"Permission 1 of 1",
-			"No pending network permissions",
+			"Reviewed permissions applied",
 			"\x1b[?25h",
-			"POLICY_REVIEW_E2E case=deny code=0 apply_calls=0 deny_calls=1",
+			"POLICY_REVIEW_E2E case=deny code=0 apply_calls=1 deny_calls=1",
 			"deny_candidate=" + candidateID,
 		} {
 			if !strings.Contains(output, want) {
@@ -177,15 +177,15 @@ func TestPolicyReviewDirectDetailActionRealPTYAndCancellation(t *testing.T) {
 	}{
 		{
 			name:     "delayed-allow",
-			input:    "1|a",
+			input:    "1|a|p",
 			marker:   "case=delayed-allow code=0 apply_calls=1 deny_calls=0",
-			wantText: []string{"source_candidate=" + policyReviewPTYCandidateID(), "No pending network permissions"},
+			wantText: []string{"source_candidate=" + policyReviewPTYCandidateID(), "Reviewed permissions applied"},
 		},
 		{
 			name:     "delayed-deny",
-			input:    "1|d",
-			marker:   "case=delayed-deny code=0 apply_calls=0 deny_calls=1",
-			wantText: []string{"deny_candidate=" + policyReviewPTYCandidateID(), "No pending network permissions"},
+			input:    "1|d|p",
+			marker:   "case=delayed-deny code=0 apply_calls=1 deny_calls=1",
+			wantText: []string{"deny_candidate=" + policyReviewPTYCandidateID(), "Reviewed permissions applied"},
 		},
 		{
 			name:     "back-then-cancel",
@@ -216,8 +216,8 @@ func TestPolicyReviewDirectDetailActionRealPTYAndCancellation(t *testing.T) {
 				t.Fatalf("PTY output contains an undeclared fault: %q", output)
 			}
 			if test.name == "delayed-allow" || test.name == "delayed-deny" {
-				if got := strings.Count(output, "Tobari · Permission Inbox"); got != 2 {
-					t.Fatalf("direct detail action redrew the screen %d times, output=%q", got, output)
+				if got := strings.Count(output, "Tobari · Permission Inbox"); got < 2 {
+					t.Fatalf("direct detail action did not return to the staged queue, redraws=%d output=%q", got, output)
 				}
 				if strings.Contains(output, "Type y") || strings.Contains(output, "this exact permission?") {
 					t.Fatalf("direct detail action requested redundant confirmation: %q", output)

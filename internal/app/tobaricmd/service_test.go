@@ -16,21 +16,22 @@ import (
 )
 
 type fakeRuntime struct {
-	state          tobari.State
-	clusterCalls   int
-	loadStateCalls int
-	inspectCalls   int
-	configured     *bool
-	clusterReady   *bool
-	inspectErr     error
-	attachCalls    int
-	detachCalls    int
-	learnedCalls   int
-	denyCalls      int
-	execSeen       tobari.Instance
-	denials        []tobari.PolicyDenial
-	rules          []tobari.LearnedPolicyRule
-	denyRules      []tobari.PolicyDenyRule
+	state            tobari.State
+	clusterCalls     int
+	loadStateCalls   int
+	inspectCalls     int
+	configured       *bool
+	clusterReady     *bool
+	inspectErr       error
+	attachCalls      int
+	detachCalls      int
+	learnedCalls     int
+	denyCalls        int
+	decisionSetCalls int
+	execSeen         tobari.Instance
+	denials          []tobari.PolicyDenial
+	rules            []tobari.LearnedPolicyRule
+	denyRules        []tobari.PolicyDenyRule
 }
 
 func (f *fakeRuntime) ResolveRoot(_ context.Context, root string) (string, error) { return root, nil }
@@ -195,6 +196,16 @@ func (f *fakeRuntime) ApplyPolicyDenyRules(
 ) error {
 	f.denyCalls++
 	f.denyRules = append([]tobari.PolicyDenyRule{}, updated...)
+	return nil
+}
+func (f *fakeRuntime) ApplyPolicyDecisionSet(
+	_ context.Context, _ tobari.State,
+	_ []tobari.LearnedPolicyRule, updatedAllows []tobari.LearnedPolicyRule,
+	_ []tobari.PolicyDenyRule, updatedDenies []tobari.PolicyDenyRule,
+) error {
+	f.decisionSetCalls++
+	f.rules = append([]tobari.LearnedPolicyRule{}, updatedAllows...)
+	f.denyRules = append([]tobari.PolicyDenyRule{}, updatedDenies...)
 	return nil
 }
 func (f *fakeRuntime) TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error) {
@@ -853,6 +864,88 @@ func TestAllowPolicyCandidateBindsReferenceBeforeApplying(t *testing.T) {
 	}
 	if runtime.learnedCalls != 1 {
 		t.Fatalf("mismatched target caused mutation: %d", runtime.learnedCalls)
+	}
+}
+
+func TestApplyPolicyReviewDecisionSetRevalidatesAndActivatesOnce(t *testing.T) {
+	t.Parallel()
+	allowDenial := validServiceDenial()
+	denyDenial := validServiceDenial()
+	denyDenial.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	denyDenial.Path = "/api/v1/items/two"
+	allowCandidate, _ := tobari.NewPolicyCandidate(allowDenial)
+	denyCandidate, _ := tobari.NewPolicyCandidate(denyDenial)
+	runtime := &fakeRuntime{
+		state: testState(t.TempDir()), denials: []tobari.PolicyDenial{allowDenial, denyDenial},
+	}
+	intent := operation.Intent{
+		Command: "policy apply-reviewed", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
+		},
+	}
+	result, err := New(runtime).ApplyPolicyReviewDecisionSet(
+		context.Background(), intent, tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{
+			{CandidateID: allowCandidate.ID, Decision: tobari.PolicyDecisionAllow},
+			{CandidateID: denyCandidate.ID, Decision: tobari.PolicyDecisionDeny},
+		}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.decisionSetCalls != 1 || len(runtime.rules) != 1 || len(runtime.denyRules) != 1 ||
+		result.AllowCount != 1 || result.DenyCount != 1 || !result.Applied {
+		t.Fatalf("result=%+v calls=%d allows=%+v denies=%+v", result, runtime.decisionSetCalls, runtime.rules, runtime.denyRules)
+	}
+
+	stale := tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{{
+		CandidateID: "pcy_0123456789abcdef0123456789abcdef", Decision: tobari.PolicyDecisionAllow,
+	}}}
+	if _, err := New(runtime).ApplyPolicyReviewDecisionSet(context.Background(), intent, stale); err == nil {
+		t.Fatal("stale reviewed candidate was accepted")
+	}
+	if runtime.decisionSetCalls != 1 {
+		t.Fatalf("stale reviewed set caused a mutation: %d", runtime.decisionSetCalls)
+	}
+}
+
+func TestApplyPolicyReviewDecisionSetRejectsMultipleContextSources(t *testing.T) {
+	t.Parallel()
+	first := validServiceDenial()
+	second := validServiceDenial()
+	second.RequestID = "9185da2688d7469aae9cd9068e920b0b"
+	second.ContextID = "01912345-6789-7abc-8def-0123456789ae"
+	second.ContextName = "restricted"
+	second.ProjectID = "01912345-6789-7abc-8def-0123456789ac"
+	second.ProjectRoot = "/workspace/restricted"
+	second.Path = "/api/v1/items/restricted"
+	firstCandidate, _ := tobari.NewPolicyCandidate(first)
+	secondCandidate, _ := tobari.NewPolicyCandidate(second)
+	runtime := &fakeRuntime{
+		state: testState(t.TempDir()), denials: []tobari.PolicyDenial{first, second},
+	}
+	intent := operation.Intent{
+		Command: "policy apply-reviewed", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
+		},
+	}
+	_, err := New(runtime).ApplyPolicyReviewDecisionSet(
+		context.Background(), intent, tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{
+			{CandidateID: firstCandidate.ID, Decision: tobari.PolicyDecisionAllow},
+			{CandidateID: secondCandidate.ID, Decision: tobari.PolicyDecisionDeny},
+		}},
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "policy_review_scope_mixed" {
+		t.Fatalf("mixed-Context reviewed set error = %v", err)
+	}
+	if runtime.decisionSetCalls != 0 {
+		t.Fatalf("mixed-Context reviewed set caused %d runtime calls", runtime.decisionSetCalls)
 	}
 }
 

@@ -1487,6 +1487,62 @@ type PolicyDenyChange struct {
 	Applied         bool           `json:"applied"`
 }
 
+const MaxPolicyReviewDecisions = 128
+
+// PolicyReviewDecision is one explicit exact choice retained from a validated
+// review detail screen. CandidateID remains opaque and unchanged.
+type PolicyReviewDecision struct {
+	CandidateID string `json:"candidate_id"`
+	Decision    string `json:"decision"`
+}
+
+// PolicyReviewDecisionSet is the bounded typed payload of one final human
+// Apply. It is content of the command-owned target, not a collection of public
+// mutation targets.
+type PolicyReviewDecisionSet struct {
+	Decisions []PolicyReviewDecision `json:"decisions"`
+}
+
+func (s PolicyReviewDecisionSet) Validate() error {
+	if len(s.Decisions) == 0 || len(s.Decisions) > MaxPolicyReviewDecisions {
+		return fmt.Errorf("policy review decision count must be between 1 and %d", MaxPolicyReviewDecisions)
+	}
+	seen := make(map[string]struct{}, len(s.Decisions))
+	for _, decision := range s.Decisions {
+		if err := ValidatePolicyCandidateID(decision.CandidateID); err != nil {
+			return err
+		}
+		if decision.Decision != PolicyDecisionAllow && decision.Decision != PolicyDecisionDeny {
+			return fmt.Errorf("policy review decision is invalid")
+		}
+		if _, duplicate := seen[decision.CandidateID]; duplicate {
+			return fmt.Errorf("policy review decision set contains a duplicate candidate")
+		}
+		seen[decision.CandidateID] = struct{}{}
+	}
+	return nil
+}
+
+// PolicyReviewChange is emitted only after the complete reviewed set is active.
+type PolicyReviewChange struct {
+	Task            string `json:"task"`
+	PolicyDirectory string `json:"policy"`
+	AllowCount      int    `json:"allow_count"`
+	DenyCount       int    `json:"deny_count"`
+	Applied         bool   `json:"applied"`
+}
+
+func (c PolicyReviewChange) Validate() error {
+	if c.Task != TaskPolicyReviewApply || c.AllowCount < 0 || c.DenyCount < 0 ||
+		c.AllowCount+c.DenyCount == 0 || c.AllowCount+c.DenyCount > MaxPolicyReviewDecisions || !c.Applied {
+		return fmt.Errorf("policy review result is inconsistent")
+	}
+	if !filepath.IsAbs(c.PolicyDirectory) || filepath.Clean(c.PolicyDirectory) != c.PolicyDirectory {
+		return fmt.Errorf("policy review result directory is invalid")
+	}
+	return nil
+}
+
 func (c PolicyDenyChange) Validate() error {
 	if c.Task != TaskPolicyDeny {
 		return fmt.Errorf("policy deny result task identity is invalid")
