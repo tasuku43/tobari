@@ -208,17 +208,21 @@ func selectConfigurationWizardRaw(
 	selected := 0
 	message := ""
 	lineCount := 0
+	needsRender := true
 	for {
 		if err := ctx.Err(); err != nil {
 			finishSelectorScreen(out, lineCount)
 			return 0, err
 		}
-		currentLines, err := renderConfigurationWizardRaw(out, menu, selected, message, lineCount, style)
-		if err != nil {
-			finishSelectorScreen(out, lineCount)
-			return 0, err
+		if needsRender {
+			currentLines, err := renderConfigurationWizardRaw(out, menu, selected, message, lineCount, style)
+			if err != nil {
+				finishSelectorScreen(out, lineCount)
+				return 0, err
+			}
+			lineCount = currentLines
+			needsRender = false
 		}
-		lineCount = currentLines
 		key, err := readSelectorKey(ctx, in)
 		if err != nil {
 			finishSelectorScreen(out, lineCount)
@@ -230,15 +234,19 @@ func selectConfigurationWizardRaw(
 		case selectorKeyUp:
 			selected = (selected - 1 + len(menu.options)) % len(menu.options)
 			message = ""
+			needsRender = true
 		case selectorKeyDown:
 			selected = (selected + 1) % len(menu.options)
 			message = ""
+			needsRender = true
 		case selectorKeyHome:
 			selected = 0
 			message = ""
+			needsRender = true
 		case selectorKeyEnd:
 			selected = len(menu.options) - 1
 			message = ""
+			needsRender = true
 		case selectorKeyNumber:
 			if key.index >= 0 && key.index < len(menu.options) {
 				finishSelectorScreen(out, lineCount)
@@ -253,6 +261,7 @@ func selectConfigurationWizardRaw(
 			return 0, context.Canceled
 		default:
 			message = "Use ↑/↓ to move, Enter to choose, or q to cancel."
+			needsRender = true
 		}
 	}
 }

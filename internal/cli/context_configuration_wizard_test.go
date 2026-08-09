@@ -4,11 +4,25 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+type configurationWizardTimeoutThenReader struct {
+	timedOut bool
+	reader   io.Reader
+}
+
+func (r *configurationWizardTimeoutThenReader) Read(value []byte) (int, error) {
+	if !r.timedOut {
+		r.timedOut = true
+		return 0, nil
+	}
+	return r.reader.Read(value)
+}
 
 func TestContextGitWizardRawAppliesInheritedIdentityAndRestoresEachMenu(t *testing.T) {
 	mode := &selectorModeFake{}
@@ -55,6 +69,22 @@ func TestContextGitWizardCancellationKeysDoNotReturnASetting(t *testing.T) {
 				t.Fatalf("raw mode entered/restored = %d/%d", mode.entered, mode.restored)
 			}
 		})
+	}
+}
+
+func TestContextShellWizardDoesNotRedrawWhenTerminalReadTimesOut(t *testing.T) {
+	mode := &selectorModeFake{}
+	wizard := &terminalContextConfigurationWizard{mode: mode, style: false}
+	report := contextCLIReport(tobari.TaskContextShow, "work", false, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)
+	input := &configurationWizardTimeoutThenReader{reader: strings.NewReader("\x1b")}
+	var output bytes.Buffer
+
+	_, err := wizard.ConfigureShell(context.Background(), report, input, &output)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ConfigureShell() error = %v, want context.Canceled", err)
+	}
+	if got := strings.Count(output.String(), "Tobari · Shell configuration"); got != 1 {
+		t.Fatalf("shell wizard title count after idle timeout = %d, output = %q", got, output.String())
 	}
 }
 
