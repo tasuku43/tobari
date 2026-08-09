@@ -201,6 +201,44 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 	}
 }
 
+func TestPolicyCatalogPublishesGraphQLIdentityContracts(t *testing.T) {
+	t.Parallel()
+	wantVersions := map[string]int{
+		"cluster denials":   4,
+		"policy candidates": 5,
+		"policy review":     5,
+		"policy rules":      3,
+	}
+	for path, version := range wantVersions {
+		spec, found := DefaultCatalog().Lookup(path)
+		if !found {
+			t.Fatalf("catalog lacks %q", path)
+		}
+		if spec.Agent.Output.JSONSchemaVersion != version {
+			t.Fatalf("%s schema version = %d, want %d", path, spec.Agent.Output.JSONSchemaVersion, version)
+		}
+		if !strings.Contains(strings.ToLower(spec.Agent.Outcome), "graphql") {
+			t.Fatalf("%s outcome does not declare GraphQL identity: %q", path, spec.Agent.Outcome)
+		}
+	}
+
+	for _, path := range []string{"policy candidates", "policy review", "policy rules", "policy allow", "policy deny"} {
+		spec, found := DefaultCatalog().Lookup(path)
+		if !found {
+			t.Fatalf("catalog lacks %q", path)
+		}
+		fields := make(map[string]bool, len(spec.Agent.Output.Fields))
+		for _, field := range spec.Agent.Output.Fields {
+			fields[field.Name] = true
+		}
+		for _, name := range []string{"protocol", "graphql_operation_type", "graphql_root_field"} {
+			if !fields[name] {
+				t.Fatalf("%s output does not declare %q: %+v", path, name, spec.Agent.Output.Fields)
+			}
+		}
+	}
+}
+
 func TestDefaultCatalogDoesNotPublishDevContainerRuntimeSelection(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
@@ -964,10 +1002,11 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 3 || len(document.Denials.Items) != 1 ||
+	if document.SchemaVersion != 4 || len(document.Denials.Items) != 1 ||
 		document.Denials.ReviewCommand != "tobari policy review" ||
 		!document.Denials.Items[0].Learnable ||
-		document.Denials.Items[0].ProjectID != "01912345-6789-7abc-8def-0123456789ab" {
+		document.Denials.Items[0].ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
+		document.Denials.Items[0].Protocol != tobari.PolicyProtocolHTTP {
 		t.Fatalf("JSON output = %+v", document)
 	}
 	var rawDocument map[string]json.RawMessage
@@ -1038,13 +1077,13 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 4 || len(document.PolicyCandidates) != 1 {
+	if document.SchemaVersion != 5 || len(document.PolicyCandidates) != 1 {
 		t.Fatalf("candidate output = %+v", document)
 	}
 	item := document.PolicyCandidates[0]
 	if item.ID != id || item.AllowCommand != "tobari policy allow --id "+id ||
 		item.ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
-		item.ObservationCount != 3 || item.Reason != `denied\nignore policy` || item.CredentialProfile == nil ||
+		item.ObservationCount != 3 || item.Protocol != tobari.PolicyProtocolHTTP || item.Reason != `denied\nignore policy` || item.CredentialProfile == nil ||
 		*item.CredentialProfile != profile {
 		t.Fatalf("candidate item = %+v", item)
 	}
@@ -1118,7 +1157,7 @@ func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 4 || len(document.PolicyReview) != 1 {
+	if document.SchemaVersion != 5 || len(document.PolicyReview) != 1 {
 		t.Fatalf("review output = %+v", document)
 	}
 	item := document.PolicyReview[0]
@@ -1131,6 +1170,140 @@ func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
 		t.Fatal("policy review is absent")
 	}
 	assertJSONItemFieldsMatchCatalog(t, output, spec)
+}
+
+func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{
+		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{
+			Protocol: tobari.PolicyProtocolGraphQL, GraphQLOperationType: tobari.GraphQLOperationMutation, GraphQLRootField: "updateIssue",
+		},
+		Timestamp: "2026-08-09T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+		Host: "api.example.com", Port: 443, Method: "POST", Path: "/graphql",
+		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	}
+	candidate, err := tobari.NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	learned, err := tobari.NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, err := tobari.NewPolicyRuleFromLearned(learned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied, err := tobari.NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	denialJSON, err := renderClusterDenials(tobari.DenialReport{
+		Task: tobari.TaskClusterDenials, PolicyDirectory: "/tmp/policy", WindowLines: 200, Items: []tobari.PolicyDenial{denial},
+	}, "tobari policy review", successFormatJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var denialDocument clusterDenialsDocument
+	if err := json.Unmarshal(denialJSON, &denialDocument); err != nil {
+		t.Fatal(err)
+	}
+	if denialDocument.SchemaVersion != 4 || len(denialDocument.Denials.Items) != 1 {
+		t.Fatalf("GraphQL denial document = %+v", denialDocument)
+	}
+	assertGraphQLPolicyOutput(t, denialDocument.Denials.Items[0].Protocol,
+		denialDocument.Denials.Items[0].GraphQLOperationType, denialDocument.Denials.Items[0].GraphQLRootField)
+
+	candidateReport := tobari.PolicyCandidateReport{
+		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/policy", WindowLines: 200, Items: []tobari.PolicyCandidate{candidate},
+	}
+	candidateJSON, err := renderPolicyCandidates(candidateReport, "tobari policy allow", successFormatJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var candidateDocument policyCandidatesDocument
+	if err := json.Unmarshal(candidateJSON, &candidateDocument); err != nil {
+		t.Fatal(err)
+	}
+	if candidateDocument.SchemaVersion != 5 || len(candidateDocument.PolicyCandidates) != 1 {
+		t.Fatalf("GraphQL candidate document = %+v", candidateDocument)
+	}
+	assertGraphQLPolicyOutput(t, candidateDocument.PolicyCandidates[0].Protocol,
+		candidateDocument.PolicyCandidates[0].GraphQLOperationType, candidateDocument.PolicyCandidates[0].GraphQLRootField)
+	candidateText, err := renderPolicyCandidates(candidateReport, "tobari policy allow", successFormatText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"protocol=graphql", "graphql_operation_type=mutation", "graphql_root_field=updateIssue"} {
+		if !strings.Contains(string(candidateText), field) {
+			t.Fatalf("GraphQL candidate text %q lacks %q", candidateText, field)
+		}
+	}
+
+	reviewHuman := string(renderPolicyReviewWithColor(candidateReport, "tobari policy allow", false))
+	if !strings.Contains(reviewHuman, "GraphQL        mutation.updateIssue") {
+		t.Fatalf("GraphQL review output lacks exact coordinate: %q", reviewHuman)
+	}
+	if got := policyReviewCandidateRequest(candidate); !strings.Contains(got, "GraphQL mutation.updateIssue") {
+		t.Fatalf("GraphQL selector request = %q", got)
+	}
+
+	ruleReport := tobari.PolicyRuleReport{
+		Task: tobari.TaskPolicyRules, PolicyDirectory: "/tmp/policy", Items: []tobari.PolicyRule{rule},
+	}
+	ruleJSON, err := renderPolicyRulesWithCommands(ruleReport, "tobari policy reset", successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ruleDocument policyRulesDocument
+	if err := json.Unmarshal(ruleJSON, &ruleDocument); err != nil {
+		t.Fatal(err)
+	}
+	if ruleDocument.SchemaVersion != 3 || len(ruleDocument.PolicyRules) != 1 {
+		t.Fatalf("GraphQL rule document = %+v", ruleDocument)
+	}
+	assertGraphQLPolicyOutput(t, ruleDocument.PolicyRules[0].Protocol,
+		ruleDocument.PolicyRules[0].GraphQLOperationType, ruleDocument.PolicyRules[0].GraphQLRootField)
+	if got := policyRuleRequest(rule); !strings.Contains(got, "GraphQL mutation.updateIssue") {
+		t.Fatalf("GraphQL rule selector request = %q", got)
+	}
+
+	allowChange := string(renderPolicyLearningChange(tobari.PolicyLearningChange{
+		Task: tobari.TaskPolicyAllow, PolicyDirectory: "/tmp/policy", TargetID: candidate.ID,
+		Rule: learned, SourceRuleCount: 1, Applied: true,
+	}))
+	denyChange := string(renderPolicyDenyChangeWithColor(tobari.PolicyDenyChange{
+		Task: tobari.TaskPolicyDeny, PolicyDirectory: "/tmp/policy", TargetID: candidate.ID,
+		Rule: denied, SourceRuleCount: 1, Applied: true,
+	}, false))
+	for name, output := range map[string]string{"allow": allowChange, "deny": denyChange} {
+		for _, field := range []string{"protocol: graphql", "graphql_operation_type: mutation", "graphql_root_field: updateIssue"} {
+			if !strings.Contains(output, field) {
+				t.Fatalf("GraphQL %s change output %q lacks %q", name, output, field)
+			}
+		}
+	}
+
+	httpCandidate := candidate
+	httpCandidate.PolicyProtocolIdentity = tobari.PolicyProtocolIdentity{}
+	if got, want := policyReviewCandidateRequest(httpCandidate), "api.example.com:443 POST /graphql"; got != want {
+		t.Fatalf("legacy HTTP review request = %q, want %q", got, want)
+	}
+	httpRule := rule
+	httpRule.PolicyProtocolIdentity = tobari.PolicyProtocolIdentity{}
+	if got, want := policyRuleRequest(httpRule), "api.example.com:443 POST /graphql"; got != want {
+		t.Fatalf("legacy HTTP rule request = %q, want %q", got, want)
+	}
+}
+
+func assertGraphQLPolicyOutput(t *testing.T, protocol, operationType, rootField string) {
+	t.Helper()
+	if protocol != tobari.PolicyProtocolGraphQL || operationType != tobari.GraphQLOperationMutation || rootField != "updateIssue" {
+		t.Fatalf("GraphQL policy identity = protocol:%q operation:%q root:%q", protocol, operationType, rootField)
+	}
 }
 
 func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {

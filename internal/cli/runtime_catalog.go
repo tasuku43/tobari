@@ -531,7 +531,7 @@ func clusterDenialsSpec() CommandSpec {
 		Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Identify recent denied HTTP effects and the pending permission review command",
+			Outcome:      "Identify recent denied HTTP effects, including exact GraphQL operation/root coordinates when classified, and the pending permission review command",
 			Inputs: []CommandInput{
 				denialTailInput(),
 				formatInput(),
@@ -543,12 +543,12 @@ func clusterDenialsSpec() CommandSpec {
 					{Name: "window_lines", Type: OutputFieldTypeInteger, Description: "Maximum recent Gateway lines inspected."},
 					{
 						Name: "items", Type: OutputFieldTypeArray,
-						Description: "Validated denials ordered oldest to newest with host-issued project principal, scheme-independent request authority (host and port), method, path, reason, status, and exact-rule learnability.",
+						Description: "Validated denials ordered oldest to newest with host-issued project principal, scheme-independent request authority (host and port), method, path, protocol, optional exact GraphQL operation/root coordinate, reason, status, and exact-rule learnability.",
 					},
 					{Name: "review_command", Type: OutputFieldTypeString, Description: "Exact command that opens the pending permission review queue."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "denials", JSONSchemaVersion: 3,
+				JSONEnvelope: "denials", JSONSchemaVersion: 4,
 			},
 			Prerequisites: []string{"The cluster has been created."},
 			Errors: append(readCommandErrors("cluster denials", true,
@@ -602,13 +602,13 @@ func policyCandidatesSpec() CommandSpec {
 		Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Return unique pending exact host, port, method, and path proposals with opaque approval IDs",
+			Outcome:      "Return unique pending exact host, port, method, path, and optional GraphQL operation/root proposals with opaque approval IDs",
 			Inputs:       []CommandInput{denialTailInput(), formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "policy_candidates", JSONSchemaVersion: 4,
+				JSONEnvelope: "policy_candidates", JSONSchemaVersion: 5,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy candidates", true),
@@ -624,7 +624,7 @@ func policyTailSpec() CommandSpec {
 		Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Review the bounded pending policy queue with exact approval commands",
+			Outcome:      "Review the bounded pending policy queue, including optional GraphQL operation/root coordinates, with exact approval commands",
 			Inputs:       []CommandInput{denialTailInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -644,13 +644,13 @@ func policyReviewSpec() CommandSpec {
 		Args: "[--tail <lines>] [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Review the bounded pending exact network-permission queue; an interactive terminal can explicitly allow or deny one exact permission",
+			Outcome:      "Review the bounded pending exact network-permission queue, including optional GraphQL operation/root coordinates; an interactive terminal can explicitly allow or deny one exact permission",
 			Inputs:       []CommandInput{reviewTailInput(), formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "policy_review", JSONSchemaVersion: 4,
+				JSONEnvelope: "policy_review", JSONSchemaVersion: 5,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy review", true),
@@ -673,13 +673,13 @@ func policyRulesSpec() CommandSpec {
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Inspect the complete current project-bound learned Allow and exact Deny decisions; on a TTY explicitly reset one decision",
+			Outcome:      "Inspect complete current project-bound learned Allow and exact Deny decisions, including optional GraphQL operation/root coordinates; on a TTY explicitly reset one decision",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyRuleOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "policy_rules", JSONSchemaVersion: 2,
+				JSONEnvelope: "policy_rules", JSONSchemaVersion: 3,
 			},
 			Prerequisites: []string{"Every configured Context has a validated policy source and the shared aggregate is current."},
 			Errors:        policyRuleReadErrors("policy rules", true),
@@ -701,7 +701,7 @@ func policyAllowSpec() CommandSpec {
 		Args: "--id <id>", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Test, record, and activate one exact retained host, port, method, and path permission",
+			Outcome:      "Test, record, and activate one exact retained host, port, method, path, and optional GraphQL operation/root permission",
 			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCandidateKind, "policy candidates, policy review, or policy tail")},
 			Output:       policyLearningChangeOutput(),
 			Prerequisites: []string{
@@ -741,7 +741,7 @@ func policyDenySpec() CommandSpec {
 		Args: "--id <id>", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Test, record, and activate one exact project-bound denial for a retained host, port, method, and path",
+			Outcome:      "Test, record, and activate one exact project-bound denial for a retained host, port, method, path, and optional GraphQL operation/root coordinate",
 			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCandidateKind, "policy candidates, policy review, or policy tail")},
 			Output:       policyDenyChangeOutput(),
 			Prerequisites: []string{
@@ -1309,6 +1309,9 @@ func policyRuleOutputFields() []OutputField {
 		{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact decision port."},
 		{Name: "method", Type: OutputFieldTypeString, Description: "Exact uppercase HTTP method."},
 		{Name: "path", Type: OutputFieldTypeString, Description: "Exact path or safe directory prefix."},
+		{Name: "protocol", Type: OutputFieldTypeString, Description: "Effective policy protocol: http or graphql."},
+		{Name: "graphql_operation_type", Type: OutputFieldTypeString, Description: "Exact GraphQL query or mutation type; empty for HTTP."},
+		{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Exact canonical GraphQL root field; empty for HTTP."},
 		{Name: "examples", Type: OutputFieldTypeArray, Description: "Positive request paths retained by an Allow rule; empty for Deny."},
 		{Name: "source_candidates", Type: OutputFieldTypeArray, Description: "Opaque denial candidates that support this decision."},
 		{Name: "reset_command", Type: OutputFieldTypeString, Description: "Exact command that returns this decision to default deny."},
@@ -1342,6 +1345,9 @@ func policyCandidateOutputFields() []OutputField {
 		{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact denied request port."},
 		{Name: "method", Type: OutputFieldTypeString, Description: "Exact denied uppercase HTTP method."},
 		{Name: "path", Type: OutputFieldTypeString, Description: "Exact denied HTTP path without query data."},
+		{Name: "protocol", Type: OutputFieldTypeString, Description: "Effective policy protocol: http or graphql."},
+		{Name: "graphql_operation_type", Type: OutputFieldTypeString, Description: "Exact GraphQL query or mutation type; empty for HTTP."},
+		{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Exact canonical GraphQL root field; empty for HTTP."},
 		{Name: "reason", Type: OutputFieldTypeString, Description: "Bounded secret-free denial reason."},
 		{Name: "status_code", Type: OutputFieldTypeInteger, Description: "Gateway denial status."},
 		{Name: "credential_profile", Type: OutputFieldTypeString, Description: "Requested bound credential profile or null."},
@@ -1362,6 +1368,9 @@ func policyDenyChangeOutput() CommandOutput {
 			{Name: "port", Type: OutputFieldTypeInteger, Description: "Stored exact request port."},
 			{Name: "method", Type: OutputFieldTypeString, Description: "Stored exact uppercase HTTP method."},
 			{Name: "path", Type: OutputFieldTypeString, Description: "Stored exact path."},
+			{Name: "protocol", Type: OutputFieldTypeString, Description: "Effective stored policy protocol: http or graphql."},
+			{Name: "graphql_operation_type", Type: OutputFieldTypeString, Description: "Stored GraphQL query or mutation type; empty for HTTP."},
+			{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Stored canonical GraphQL root field; empty for HTTP."},
 			{Name: "source_rule_count", Type: OutputFieldTypeInteger, Description: "Number of source candidates represented by the result."},
 			{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Whether the tested exact denial is active."},
 		},
@@ -1382,6 +1391,9 @@ func policyLearningChangeOutput() CommandOutput {
 			{Name: "port", Type: OutputFieldTypeInteger, Description: "Stored exact request port."},
 			{Name: "method", Type: OutputFieldTypeString, Description: "Stored exact uppercase HTTP method."},
 			{Name: "path", Type: OutputFieldTypeString, Description: "Stored exact path or directory prefix."},
+			{Name: "protocol", Type: OutputFieldTypeString, Description: "Effective stored policy protocol: http or graphql."},
+			{Name: "graphql_operation_type", Type: OutputFieldTypeString, Description: "Stored GraphQL query or mutation type; empty for HTTP."},
+			{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Stored canonical GraphQL root field; empty for HTTP."},
 			{Name: "source_rule_count", Type: OutputFieldTypeInteger, Description: "Number of source rules represented by the result."},
 			{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Whether the tested rule is active."},
 		},

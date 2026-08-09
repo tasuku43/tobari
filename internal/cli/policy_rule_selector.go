@@ -463,11 +463,15 @@ func selectPolicyRuleDetailLine(
 }
 
 func policyRuleRequest(rule tobari.PolicyRule) string {
-	return fmt.Sprintf(
+	request := fmt.Sprintf(
 		"%s:%d %s %s",
 		safeExternalText(rule.Host), rule.Port,
 		safeExternalText(rule.Method), safeExternalText(rule.Path),
 	)
+	if coordinate := policyGraphQLCoordinate(rule.PolicyProtocolIdentity); coordinate != "" {
+		request += " · GraphQL " + coordinate
+	}
+	return request
 }
 
 func policyRuleDecisionToken(decision string) styleToken {

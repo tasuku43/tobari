@@ -320,17 +320,25 @@ func policyReviewScopeHeading(candidate tobari.PolicyCandidate) string {
 }
 
 func policyReviewCandidateListEffect(candidate tobari.PolicyCandidate) string {
-	return fmt.Sprintf(
+	effect := fmt.Sprintf(
 		"%-6s %s:%d%s",
 		safeExternalText(candidate.Method), safeExternalText(candidate.Host), candidate.Port, safeExternalText(candidate.Path),
 	)
+	if coordinate := policyGraphQLCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
+		effect += " · GraphQL " + coordinate
+	}
+	return effect
 }
 
 func policyReviewCandidateEffect(candidate tobari.PolicyCandidate) string {
-	return fmt.Sprintf(
+	effect := fmt.Sprintf(
 		"%s %s:%d%s",
 		safeExternalText(candidate.Method), safeExternalText(candidate.Host), candidate.Port, safeExternalText(candidate.Path),
 	)
+	if coordinate := policyGraphQLCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
+		effect += " · GraphQL " + coordinate
+	}
+	return effect
 }
 
 func renderPolicyReviewDetailRaw(
@@ -512,11 +520,15 @@ func writePolicyReviewDetailLines(out io.Writer, report tobari.PolicyCandidateRe
 }
 
 func policyReviewCandidateRequest(candidate tobari.PolicyCandidate) string {
-	return fmt.Sprintf(
+	request := fmt.Sprintf(
 		"%s:%d %s %s",
 		safeExternalText(candidate.Host), candidate.Port,
 		safeExternalText(candidate.Method), safeExternalText(candidate.Path),
 	)
+	if coordinate := policyGraphQLCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
+		request += " · GraphQL " + coordinate
+	}
+	return request
 }
 
 func pluralSuffix(count int) string {
