@@ -175,9 +175,9 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/contexts/<context-id>/vault.en
 
 The vault keeps a schema-1 AES-256-GCM envelope with a random 12-byte nonce and
 authenticated data that binds the envelope schema and stable Context ID. Its
-encrypted schema-2 payload stores either a static primary secret or opaque
-schema-v1 AWS host-driver state. Strict valid schema-1 static payloads are
-migrated on read. The file
+encrypted schema-2 payload stores a static primary secret, opaque schema-1 AWS
+host-driver state, or strict schema-1 Datadog OAuth-session state. Strict valid
+schema-1 static payloads are migrated on read. The file
 is written through an owner/mode/symlink-checked atomic fsync-and-rename
 boundary. A provider has at most one active typed credential in one Context.
 Credential and handle
@@ -454,12 +454,14 @@ order:
    owner-only principal registry.
 2. Reject a Tobari handle marker in the URL, cookie, header name, unsupported
    header value, or ambiguous header syntax. Otherwise strictly match exactly
-   one static header binding or the built-in AWS authorization/token
-   placeholders, then remove every placeholder credential field.
+   one static header binding, the built-in AWS authorization/token
+   placeholders, or the exact Datadog bearer binding, then remove every
+   placeholder credential field.
 3. Ask the broker to introspect the full Context/project/provider binding.
    Static introspection binds the exact target/header transformation; AWS
    introspection binds the complete fixed signing plan and concrete HTTPS
-   authority. Introspection returns only the revision and normalized
+   authority; Datadog introspection binds the fixed US1 target and bearer
+   transformation. Introspection returns only the revision and normalized
    non-secret metadata.
 4. For ordinary HTTP, send body-free OPA input schema 5. At an exact
    trusted-host-declared GraphQL endpoint, first buffer and parse the bounded
@@ -470,8 +472,9 @@ order:
    GraphQL root coordinate, return a
    learnable deny for host review even when a broader static host/method rule
    would allow an unauthenticated or fallback-adapter request.
-6. On deny, stop without calling the companion or `resolve`, refreshing AWS,
-   deriving role credentials, signing, or reaching upstream.
+6. On deny, stop without calling the companion or `resolve`, selecting or
+   refreshing a Datadog token, refreshing AWS, deriving role credentials,
+   signing, or reaching upstream.
 7. On a static allow, require OPA's managed `credential_profile` selection to
    remain null, resolve the same handle/revision exactly once, replace only the
    declared destination header, and make one upstream attempt. On an AWS allow,
@@ -481,7 +484,11 @@ order:
    a per-record single-flight lock, releases its global state mutex over host
    I/O, rechecks the record/revision, rejects stale results, persists refreshed
    opaque state, signs locally, and returns final headers. Gateway applies only
-   those headers and makes one upstream attempt.
+   those headers and makes one upstream attempt. On a Datadog allow, Broker
+   selects a token only outside the five-minute refresh window or performs one
+   same-record exact US1 refresh, commits the same revision, and returns one
+   request-local bearer value. Gateway replaces only the declared destination
+   header and makes one upstream attempt.
 
 The resolved secret is request-scoped and is absent from OPA input, audit,
 denial bodies, errors, logs, CLI output, and Workspace mounts. The broker does
@@ -520,7 +527,7 @@ commands.
 |---|---|
 | `invalid_arguments` | Correct the exact command arguments through scoped help. |
 | `invalid_context_name`, `context_not_found` | Choose one existing Context from `context list`; authentication never creates or guesses a Context. |
-| `provider_login_unsupported`, `provider_import_unsupported` | Use only the acquisition mode declared by the installed provider; built-in login supports `github` and `aws`. |
+| `provider_login_unsupported`, `provider_import_unsupported` | Use only the acquisition mode declared by the installed provider; built-in login supports `github`, `aws`, and `datadog`. |
 | `auth_login_tty_required` | Run built-in provider login with interactive stdin and stderr. |
 | `github_cli_unavailable` | Install the reviewed GitHub CLI on the trusted host so Tobari can resolve one absolute executable, then retry login. |
 | `github_login_cancelled`, `github_login_failed` | The trusted-host driver did not commit a replacement; verify the host GitHub CLI, then correct or retry the interactive login and inspect `auth status`. |
@@ -531,6 +538,9 @@ commands.
 | `aws_console_config_invalid`, `aws_console_login_failed` | Correct the commercial AWS region, verify AWS CLI 2.32 or newer and provider connectivity, then retry console login; the previous credential remains unchanged. |
 | `aws_sso_login_cancelled`, `aws_sso_login_timeout` | No AWS replacement was committed. Correct or complete the trusted-host device flow, then retry deliberately. |
 | `aws_sso_config_invalid`, `aws_sso_login_failed` | Correct the bounded IAM Identity Center configuration, verify the host AWS CLI, or recover provider connectivity; the previous credential remains unchanged. |
+| `datadog_cli_unavailable` | Install the reviewed `pup` CLI on the trusted host so Tobari can resolve one identity-checked executable, then retry login. |
+| `datadog_login_cancelled`, `datadog_login_timeout` | No Datadog replacement was committed. Start a new fixed US1 pup OAuth login and complete it deliberately within the bounded window. |
+| `datadog_login_failed` | Inspect the secret-free projected failure, repair trusted-host pup or provider connectivity, and retry the isolated login; the previous credential remains unchanged. |
 | `invalid_credential_input` | Import was empty, oversized, unreadable, or attached to terminal stdin. A terminal is refused before reading; pipe or redirect a trusted no-echo source. |
 | `auth_status_failed`, `invalid_auth_result` | The read result was not trustworthy. Run `cluster up`, then repeat `auth status`; do not infer credential absence. |
 | `auth_broker_unavailable`, `auth_broker_request_failed`, `auth_broker_locked`, `invalid_auth_broker_metadata` | Run `cluster up` to reconcile the shared broker, sockets, projection, and unlock state before another broker operation. |
@@ -546,7 +556,7 @@ commands.
 | `output_encoding_failed`, `output_write_failed` | Auth state was not safely delivered. For a read, repair the output and retry; after a mutation, the catalog uses non-retryable `mutation_output_write_failed` instead. |
 | `missing_runtime` | Run `doctor` and repair CLI runtime composition before another auth command. |
 | `credential_handle_invalid` (HTTP 403) | Leave and re-enter the Workspace for the current project-bound handle. A copied, malformed, stale, revoked, misplaced, ambiguous, or binding-mismatched handle is never forwarded and never falls back. |
-| `credential_broker_unavailable` (HTTP 503) | This is a known pre-execution availability class. A same-record AWS refresh waiter stops after one second without creating a barrier or calling the companion; retry after the current request settles. For cluster/companion absence, leave the Workspace, run `cluster up`, and retry only after readiness. |
+| `credential_broker_unavailable` (HTTP 503) | This is a known pre-execution availability class. A same-record AWS or Datadog refresh waiter stops after one second without creating a barrier or dispatching provider work; retry after the current request settles. For cluster/companion absence, leave the Workspace, run `cluster up`, and retry only after readiness. |
 | `credential_refresh_outcome_unknown` (HTTP 409) | Do not let the caller automatically replay the request. After the original request settles, run `auth status`. If `broker_state=ready` and the affected AWS or Datadog provider is `configured`, Gateway made no upstream attempt and the user may explicitly retry the task. If it is `not_configured`, the encrypted record is durably barred across Broker restart: re-login or logout that provider, then leave and re-enter the Workspace before retrying. Reconcile `locked` or `unavailable` status first. |
 | `broker_signing_request_invalid` (HTTP 403) | The AWS request used an unsupported or ambiguous signing form. Use a standard bounded SigV4 header request to a reviewed AWS HTTPS authority; do not retry as presigned, SigV4a, streaming/event, custom-endpoint, or over-limit traffic. |
 
@@ -633,5 +643,9 @@ and advanced static users may retain the managed adapter.
   and Auth Broker
   `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`;
   their inspected configurations use the required API versions, reviewed
-  roles/entrypoints, and non-root `1000:1000` users. Live trusted-host provider
-  scenarios remain a separate pre-tag release check.
+  roles/entrypoints, and non-root `1000:1000` users. These selected images
+  contain the earlier AWS Identity Center path but predate AWS console login
+  and the Datadog request path now present in canonical source and tests. Those
+  newer paths are not selected for a standard cluster until maintainers review
+  and advance the immutable digests. Live trusted-host provider scenarios
+  remain a separate pre-tag release check.

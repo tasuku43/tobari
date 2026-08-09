@@ -10,14 +10,16 @@ Docker topology for mediated HTTP and HTTPS. It covers the default tool-native
 passthrough credential route, the Auth Broker's project-bound opaque-handle
 route, and the retained static `managed` Gateway adapter.
 
-The model covers strict schema-1 static provider transformations and the one
-reviewed schema-2 AWS plan: fixed trusted-host CLI login selected only from
-conventional non-project installation roots, control-safe bounded login output,
-checked private-home cleanup, post-policy host CLI
-credential export through a resident private companion, and Broker-owned
-bounded SigV4. It does not extend the product boundary to arbitrary provider
-programs, manifest-selected refresh/signing, general TWG authentication,
-multiple accounts per Context, transparent proxying, or non-HTTP protocols.
+The model covers strict schema-1 static provider transformations and two
+reviewed schema-2 plans. AWS uses fixed trusted-host CLI login selected only
+from conventional non-project installation roots, control-safe bounded login
+output, checked private-home cleanup, post-policy host CLI credential export
+through a resident private companion, and Broker-owned bounded SigV4. Datadog
+uses fixed trusted-host pup OAuth acquisition and Broker-owned post-policy
+selection or exact US1 refresh. It does not extend the product boundary to
+arbitrary provider programs, manifest-selected refresh/signing, general TWG
+authentication, multiple accounts per Context, transparent proxying, or
+non-HTTP protocols.
 
 ## Trust classification
 
@@ -348,9 +350,12 @@ On macOS the backend is Keychain service `io.tobari.auth-root.v1`, account
 
 A missing key beside an existing encrypted vault is a recovery fault, not a
 reason to create a replacement key. An unsafe key, invalid vault, locked Broker,
-socket timeout, or unavailable Broker does not expose or forward a credential.
-Broker-path requests fail with the corresponding local 503 condition; an
-invalid handle binding fails with local 403.
+known pre-dispatch socket failure, or unavailable Broker does not expose or
+forward a credential. Those pre-execution Broker-path failures return local
+503; an invalid handle binding returns local 403. A lost or invalid response
+after an AWS companion operation or Datadog refresh was dispatched returns
+non-retryable local 409 with a durable reconciliation barrier, never 503 replay
+permission.
 
 ### Credential replacement and logout
 

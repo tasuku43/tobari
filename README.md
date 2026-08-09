@@ -414,7 +414,9 @@ image on the next `tobari` entry without losing their home.
   when encrypted state exists because Tobari will not silently replace it.
 - `credential_handle_invalid` (HTTP 403): leave and re-enter the Workspace to
   receive the current project-bound handle. `credential_broker_unavailable`
-  (HTTP 503) requires host-side `cluster up` before another request.
+  (HTTP 503) is a known pre-execution class: use host-side `cluster up` for an
+  unavailable cluster/companion, or wait for a same-record AWS/Datadog
+  operation to settle before a deliberate retry.
 - `credential_refresh_outcome_unknown` (HTTP 409): do not rely on caller automatic
   retry. After the request settles, run `tobari auth status`. If
   `broker_state=ready` and the affected AWS or Datadog provider is `configured`,
@@ -1181,7 +1183,11 @@ Routine startup selects the immutable manifest digests recorded in
 `sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
 and Auth Broker
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`;
-moving tags remain development conveniences.
+moving tags remain development conveniences. These selected images include
+the earlier AWS Identity Center path but predate AWS console login and the
+Datadog request path now present in canonical source and tests. Those newer
+paths are not standard-cluster capabilities until reviewed immutable pins
+advance.
 The real credential is encrypted at
 `auth/contexts/<context-id>/vault.enc`. macOS stores the installation root key
 in Keychain service `io.tobari.auth-root.v1`; Linux uses owner-only XDG state
@@ -1205,8 +1211,12 @@ one same-revision SigV4 result. Broker validates the encrypted driver state,
 uses the companion for at most one bounded host credential export, rechecks the
 revision, persists any refreshed opaque cache, and signs locally. Denial
 performs no companion call, resolution, AWS refresh, role acquisition, or
-signing. A copied, stale, malformed, revoked, or mismatched handle fails
-with `credential_handle_invalid` and is never forwarded.
+signing. For Datadog after allow, Broker selects a sufficiently valid token or
+performs one same-record fixed-US1 refresh, commits the replacement state, and
+returns one request-local bearer value for the exact header. Denial performs no
+Datadog token selection or refresh. A copied, stale, malformed, revoked, or
+mismatched handle fails with `credential_handle_invalid` and is never
+forwarded.
 
 The built-in broker route authenticates GitHub API operations, not Git
 transport. `gh api`, `gh issue`, and `gh pr` use the projected handle. Public
@@ -1337,8 +1347,9 @@ cases.
   credential helpers, GitHub App tokens, arbitrary OAuth, manifest-selected
   signing, SigV4a, AWS presigning/streaming/custom endpoints, or
   provider-operation policy semantics. Refreshable AWS CLI sessions acquired
-  through IAM Identity Center or console login, and bounded standard SigV4,
-  are the sole reviewed dynamic plan.
+  through IAM Identity Center or console login with bounded standard SigV4,
+  and the fixed Datadog US1 OAuth-session refresh path, are the only reviewed
+  dynamic plans.
 
 ## Troubleshooting
 
@@ -1372,9 +1383,10 @@ Common failures:
   `mutation_output_write_failed`: the broker may have committed or confirmed
   completion could not be delivered. Do not repeat login, import, or logout;
   run `tobari auth status` and reconcile the selected Context first.
-- `auth_login_tty_required`: run trusted-host GitHub or AWS login with interactive
-  stdin and stderr. `invalid_credential_input` on terminal stdin means import
-  refused before reading; pipe or redirect a trusted no-echo source.
+- `auth_login_tty_required`: run trusted-host GitHub, AWS, or Datadog login
+  with interactive stdin and stderr. `invalid_credential_input` on terminal
+  stdin means import refused before reading; pipe or redirect a trusted
+  no-echo source.
 - `root_key_missing_with_vault`: restore the original macOS Keychain item or
   Linux XDG key, or explicitly remove unrecoverable local auth state. Tobari
   never creates a replacement while an encrypted vault exists.
@@ -1384,8 +1396,10 @@ Common failures:
   scheme/host/port/source-header/source-format recognition, run `tobari doctor`,
   then rerun `cluster up`; no partial provider projection is activated.
 - `credential_handle_invalid` (HTTP 403): leave and re-enter the selected
-  Context's Workspace. `credential_broker_unavailable` (HTTP 503) requires
-  host-side broker reconciliation before another request.
+  Context's Workspace. `credential_broker_unavailable` (HTTP 503) is a known
+  pre-execution class; reconcile host Broker/companion state when unavailable,
+  or wait for the current same-record AWS/Datadog operation to settle before a
+  deliberate retry.
 - `credential_refresh_outcome_unknown` (HTTP 409): do not replay the task;
   after it settles, run `tobari auth status`. Explicitly retry only when
   `broker_state=ready` and the affected AWS or Datadog provider is `configured`;

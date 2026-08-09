@@ -298,9 +298,10 @@ The reviewed GitHub, AWS, and pup drivers keep interactive provider-native execu
 trusted host. Each resolves and hashes one host executable, uses fixed argv and
 a sanitized environment, reconstructs only a private bounded temporary home,
 and deletes it on every outcome. The GitHub driver recognizes only the fixed
-device URL and requests no Git protocol. The AWS driver runs a fixed
-device-code login and later the fixed credential-export command; its cache
-bytes return to Auth Broker only as opaque encrypted state. No URL, executable,
+device URL and requests no Git protocol. The AWS driver runs either the fixed
+Identity Center device-code flow or the explicit fixed console cross-device
+remote flow and later the fixed credential-export command; its cache bytes
+return to Auth Broker only as opaque encrypted state. No URL, executable,
 argument, environment key, or driver supplied by a provider manifest,
 repository, Workspace, or request can alter that behavior. Request region is
 separate Context/tool configuration and is not part of login state. Repository
@@ -590,6 +591,11 @@ client request headers
   -> on an AWS SigV4 allow, keep the request bounded and unstreamed, then hash
      the same complete request; Broker uses one post-policy companion export,
      rechecks/persists the revision, and signs through the reviewed plan
+  -> on a Datadog OAuth allow, Broker selects the same-revision access token or
+     performs one same-record refresh at the exact proxy-free, no-redirect US1
+     token endpoint, commits refreshed state, and returns one bearer value;
+     Gateway validates the same revision, replaces only the declared
+     destination header, and makes one upstream attempt
   -> otherwise strip control headers, then forward client authentication or
      apply the managed profile once after allow
   -> enable ordinary request-body streaming; forward an allowed buffered

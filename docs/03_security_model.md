@@ -388,12 +388,14 @@ The Auth Broker route stores one typed credential record per Context/provider
 in `auth/contexts/<context-id>/vault.enc`. The schema-1 AES-256-GCM envelope
 contains a schema-2 encrypted payload, uses a random 12-byte nonce, and binds
 the envelope schema plus stable Context ID as authenticated data. Strict valid
-schema-1 static payloads are migrated on read; opaque AWS host-driver state
-exists only in the schema-2 encrypted payload. The AWS cache remains opaque to
-the host lifecycle and is materialized only by the reviewed host driver in a
-private bounded temporary home. Identity Center and console login use distinct
-strict state schemas and driver IDs; companion refresh rejects a mismatch
-before provider execution.
+schema-1 static payloads are migrated on read. Opaque AWS host-driver state and
+strict Datadog OAuth-session state exist only in the schema-2 encrypted
+payload. AWS cache state remains opaque to the host lifecycle and is
+materialized only by the reviewed host driver in a private bounded temporary
+home. Identity Center and console login use distinct strict state schemas and
+driver IDs; companion refresh rejects a mismatch before provider execution.
+Datadog state is interpreted only by the fixed Broker-owned US1 plan; it is
+never materialized into a Workspace or provider CLI inside Broker.
 All parent directories, files, ownership, modes, and symlink status are checked
 before use; updates use a durable atomic replace. The broker starts locked and
 retains the 32-byte installation root key only in memory. macOS stores that key
@@ -451,19 +453,27 @@ and signs locally. Before host execution it persists a task-digest barrier in
 the encrypted AWS record; only the exact correlated successful CAS clears that
 barrier while committing new state. An unobserved outcome therefore survives a
 Broker restart and performs no second host refresh until AWS re-login or logout.
+For Datadog, denial makes zero token-selection or refresh calls. After allow,
+Broker selects an access token only outside the five-minute refresh window or
+performs one same-record refresh at the exact proxy-free, no-redirect US1 token
+endpoint. It atomically commits the same-revision state before returning one
+request-local bearer value. A task-digest barrier prevents automatic replay
+when the refresh outcome is unknown.
 A
 copied, malformed, stale, revoked, ambiguous,
 or mismatched handle returns secret-free HTTP 403
 `credential_handle_invalid`; a locked, unavailable, timed-out, or invalid
 broker returns HTTP 503 `credential_broker_unavailable`. Neither failure falls
-back to forwarding the handle. An explicit or post-send transport-unknown AWS
-refresh returns HTTP 409 `credential_refresh_outcome_unknown`, which is outside
-the AWS generic retry status set and likewise never forwards the request.
+back to forwarding the handle. An explicit or post-dispatch transport-unknown
+AWS companion operation or Datadog refresh returns HTTP 409
+`credential_refresh_outcome_unknown`, which is outside automatic retry and
+likewise never forwards the request.
 Because this code also covers loss of a successful Broker response, recovery
 consults `auth status` after the request settles: `broker_state=ready` with
-AWS `configured` permits an explicit user retry because Gateway made no
-upstream attempt, while AWS `not_configured` identifies the durable barrier
-and requires re-login or logout. More
+the affected AWS or Datadog provider `configured` permits an explicit user
+retry because Gateway made no application upstream attempt, while
+`not_configured` identifies the durable barrier and requires re-login or
+logout. More
 precisely, configured passthrough or
 managed fallback is selected only when no Tobari broker-handle marker occurs in
 any inspected URL/header position. Every Tobari-looking marker that is
@@ -507,8 +517,9 @@ Arbitrary OAuth orchestration or request signing, multiple provider accounts
 per Context, provider SDK operation inference, remote logout/revocation, Git
 credential helpers, GitHub App tokens, SigV4a, presigning, AWS streaming
 signatures, and process-level identity are not implemented. Refreshable AWS CLI
-sessions acquired through IAM Identity Center or AWS console login, plus
-standard bounded SigV4, are the sole reviewed dynamic plan;
+sessions acquired through IAM Identity Center or AWS console login plus
+standard bounded SigV4, and the fixed Datadog US1 OAuth-session refresh plan,
+are the only reviewed dynamic plans;
 general TWG login/refresh remains unsupported. The
 optional `session` value remains caller
 metadata, not authentication. Gateway performs all selected credential
@@ -667,7 +678,8 @@ may be unsafe or non-idempotent. Redirect handling remains in the proxy flow and
 each resulting request is independently authorized.
 
 Gateway applies a finite broker-socket timeout and performs at most one
-introspection plus one post-allow static resolution or AWS signing operation.
+introspection plus one post-allow static resolution, AWS signing operation, or
+Datadog token selection/refresh operation.
 It never retries, calls the companion, resolves, refreshes, obtains role
 credentials, or signs on deny. The built-in GitHub host driver runs one fixed
 `gh auth login`, followed by one bounded active-account status capture and one
@@ -806,10 +818,12 @@ configuration. Third-party licenses are reviewed. Tests use synthetic
 credentials and `example.com` identities only. Publication still requires
 `task security` and `task public:check`; neither replaces a human history and
 confidentiality review. The canonical Gateway source is the public `gateway/`
-tree; its embedded snapshot and published image are checked against that
-source. The canonical Auth Broker source is the public `authbroker/` tree; its
-embedded snapshot, provider-CLI absence, bridge/protocol tests, and published
-multi-architecture image are checked against that source. Pull-request image
+tree; its embedded snapshot is byte-checked against the current source, while
+each published image is inspected against the exact source revision that built
+it. The canonical Auth Broker source is the public `authbroker/` tree; its
+embedded snapshot is byte-checked against current source, and provider-CLI
+absence, bridge/protocol behavior, and multi-architecture metadata are checked
+for each image's recorded build revision. Pull-request image
 jobs have no package-write permission. GHCR
 moving tags are development conveniences, not a trusted runtime identity;
 routine Gateway and Auth Broker consumption use reviewed immutable digests
@@ -822,3 +836,9 @@ labels, `1000:1000` user, and reviewed entrypoint. The pinned Gateway digest is
 `sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
 and the Auth Broker digest is
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`.
+Those selected images implement the earlier AWS Identity Center path. Current
+canonical source and tests also contain AWS console login and the Datadog
+request path, but those changes postdate the selected image revisions. Source
+and selected runtime identity are therefore separate facts until reviewed
+immutable pins advance; source/snapshot equality does not silently replace a
+running or newly reconciled standard cluster image.

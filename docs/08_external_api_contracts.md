@@ -3,9 +3,10 @@
 Tobari's enforcement contract remains the generic L7 request crossing
 Gateway: ordinary HTTP identity, plus GraphQL operation type and canonical
 root field at an exact trusted-host-declared endpoint. Reviewed trusted-host
-drivers add three bounded provider-facing acquisition flows: fixed GitHub CLI
-device login, fixed AWS CLI IAM Identity Center login, and fixed pup OAuth login
-for the default Datadog US1 organization. Auth Broker owns encrypted state,
+drivers add four bounded provider-facing acquisition flows: fixed GitHub CLI
+device login, fixed AWS CLI IAM Identity Center login, explicit fixed AWS CLI
+console cross-device login, and fixed pup OAuth login for the default Datadog
+US1 organization. Auth Broker owns encrypted state,
 handles, revisions, Datadog refresh, and AWS signing; a resident private
 companion performs only post-policy AWS CLI credential export. This still adds
 no provider-specific policy operation or raw provider API surface.
@@ -224,9 +225,9 @@ pending state. Gateway owns audit emission.
 ## Timeouts, attempts, redirect, and retry
 
 - OPA decision timeout: 2 seconds by default, configurable up to 10 seconds.
-- Same-record AWS refresh lock wait: at most 1 second. Expiry is known
-  pre-execution `credential_broker_unavailable`; no task barrier or companion
-  call has occurred.
+- Same-record AWS or Datadog refresh lock wait: at most 1 second. Expiry is
+  known pre-execution `credential_broker_unavailable`; no task barrier,
+  companion call, or Datadog refresh send has occurred.
 - Auth Broker runtime timeout: 70 seconds by default, configurable from 70 to
   90 seconds so it remains outside the companion's 60-second terminal refresh
   bound and 5-second cancellation-resolution window.
@@ -358,6 +359,27 @@ private endpoints, normalization-sensitive paths, and unsigned extra
 `x-amz-*` headers fail closed. The supported algorithm follows the AWS
 [Signature Version 4 process](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html).
 
+`auth login --provider datadog` is the fourth supported provider-facing
+acquisition flow. The trusted host resolves and hashes one canonical `pup`
+executable, creates one owner-only temporary home and file-backed
+configuration, and runs exactly:
+
+```text
+pup --no-agent auth login --site datadoghq.com
+```
+
+The fixed environment sets the temporary `HOME` and `PUP_CONFIG_DIR`, forces
+file token storage, fixes `DD_SITE=datadoghq.com`, removes ambient provider and
+proxy state, and bounds visible output. Pup owns browser consent and its
+loopback callback. Tobari accepts only one default-organization US1 session,
+one strict DCR client record, one bearer/refresh token set with a future
+expiry, one reviewed loopback redirect shape, and the same executable identity
+after completion. It canonically packs schema-1 opaque state, clears temporary
+secret bytes, deletes the private home on every outcome, and commits through
+Auth Broker control. Workspace, Gateway, OPA, and Broker image receive no pup
+executable or acquisition-time home. Cancellation, timeout, malformed state,
+or failed cleanup leaves the previous Context credential unchanged.
+
 ## Gateway audit
 
 Every validated ordinary allow/deny audit record uses `schema_version: 2` and contains
@@ -386,14 +408,17 @@ command argument. Non-learnable policy denial advertises no review command.
 A copied, malformed, stale, revoked, ambiguous, or Context/project/provider/
 target/header-mismatched or structurally misplaced handle returns HTTP 403 with
 `credential_handle_invalid`. A locked or unavailable broker, socket timeout,
-invalid response, inconsistent revision, companion disconnect/outcome
-uncertainty, refresh/role/signing failure, or
-malformed secret returns HTTP 503
-with `credential_broker_unavailable`. Every Tobari-looking marker follows one of
-those fail-closed paths unless it is a valid exact broker candidate; fallback
-requires that no marker exists anywhere inspected. Gateway removes a valid
-candidate before broker/OPA processing, so a failed candidate cannot reach OPA
-logs, denial output, or upstream.
+malformed static response, inconsistent revision, or known pre-execution
+companion/refresh/signing failure returns HTTP 503 with
+`credential_broker_unavailable`. After an AWS companion operation or Datadog
+refresh is dispatched, an explicit outcome-unknown result, durable barrier, or
+lost/invalid Broker response returns non-retryable HTTP 409
+`credential_refresh_outcome_unknown`. Neither class permits an application
+upstream attempt or fallback with the handle. Every Tobari-looking marker
+follows one of those fail-closed paths unless it is a valid exact broker
+candidate; fallback requires that no marker exists anywhere inspected. Gateway
+removes a valid candidate before broker/OPA processing, so a failed candidate
+cannot reach OPA logs, denial output, or upstream.
 An unsupported or ambiguous AWS signing form returns HTTP 403
 `broker_signing_request_invalid`; the placeholder authorization and session
 token are removed before the response.
