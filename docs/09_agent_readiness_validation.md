@@ -339,6 +339,12 @@ The Docker integration test supplies the executable loop:
    a sibling, and keeps its adjacent outside-prefix canary denied.
 9. A chunked upload reaches upstream before its delayed second chunk, and an
    SSE response exposes its first event before the delayed second event.
+10. A declared synthetic GraphQL endpoint denies two previously unseen root
+    fields as two independent exact candidates without retaining document or
+    variable canaries. Allowing one root does not authorize the other; after
+    both exact approvals, the unchanged request body reaches upstream once.
+    An HTTP-only rule, malformed document, unsupported method, and exact deny
+    cannot bypass or broaden this check.
 
 Routine success and denial require zero undeclared provider parsers,
 provider-notation decoders, source inspection steps, or exploratory provider
@@ -357,6 +363,9 @@ calls.
 - Neither has direct egress, OPA access, or cross-Tobari reachability.
 - HTTPS is authorized after CONNECT interception and validates the Tobari CA.
 - OPA and Gateway outages fail closed.
+- Declared GraphQL endpoints require every canonical query/mutation root,
+  never fall back to HTTP-only rules, preserve the original body after allow,
+  and keep source documents and variables out of OPA, audit, denial, and CLI.
 - Tool-owned authentication state persists below one Tobari home and is not
   visible from another Tobari.
 - The default passthrough adapter forwards a client-authenticated request only

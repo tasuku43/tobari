@@ -52,14 +52,19 @@ class Handler(BaseHTTPRequestHandler):
         self.rfile.read(2)
         return chunk
 
-    def _discard_request_body(self) -> None:
+    def _discard_request_body(self) -> bytes:
         if self.headers.get("transfer-encoding", "").lower() == "chunked":
-            while self._read_chunk() is not None:
-                pass
-            return
+            chunks: list[bytes] = []
+            while True:
+                chunk = self._read_chunk()
+                if chunk is None:
+                    break
+                chunks.append(chunk)
+            return b"".join(chunks)
         length = int(self.headers.get("content-length", "0"))
         if length:
-            self.rfile.read(length)
+            return self.rfile.read(length)
+        return b""
 
     def _stream_upload(self) -> None:
         if self.headers.get("transfer-encoding", "").lower() != "chunked":
@@ -98,8 +103,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _reply(self, include_body: bool = True, body_already_read: bool = False) -> None:
-        if not body_already_read:
-            self._discard_request_body()
+        request_body = b"" if body_already_read else self._discard_request_body()
         authorization = self.headers.get("authorization")
         placeholder_present = self.headers.get("x-synthetic-auth") is not None
         document = {
@@ -112,6 +116,7 @@ class Handler(BaseHTTPRequestHandler):
             "placeholder_present": placeholder_present,
             "method": self.command,
             "path": self.path,
+            "body_sha256": hashlib.sha256(request_body).hexdigest(),
         }
         body = json.dumps(document, separators=(",", ":")).encode("utf-8")
         self.send_response(200)

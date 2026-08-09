@@ -231,12 +231,15 @@ run_policy() {
 run_gateway() {
   load_runtime_versions
   docker version >/dev/null
+  local gateway_test_image
+  gateway_test_image=$(docker build --quiet --build-arg "MITMPROXY_IMAGE=$MITMPROXY_IMAGE" gateway)
   docker run --rm \
+    --entrypoint python \
     -e PYTHONPATH=/work/addon \
     -v "$PWD/gateway:/work:ro" \
     -w /work \
-    "$MITMPROXY_IMAGE" \
-    python -m unittest -v test_tobari_gateway.py
+    "$gateway_test_image" \
+    -m unittest -v test_tobari_gateway.py test_graphql_request.py
 }
 
 run_authbroker() {

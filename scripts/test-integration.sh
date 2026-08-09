@@ -433,6 +433,22 @@ print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
     "$project_id" "$host" "$method" "$path"
 }
 
+graphql_candidate_id_for_effect() {
+	local project_id=$1
+	local host=$2
+	local operation_type=$3
+	local root_field=$4
+  python3 -c \
+    'import json,sys
+project_id,host,operation_type,root_field=sys.argv[1:]
+print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
+           if item["project_id"] == project_id and item["host"] == host
+           and item["protocol"] == "graphql"
+           and item["graphql_operation_type"] == operation_type
+           and item["graphql_root_field"] == root_field))' \
+    "$project_id" "$host" "$operation_type" "$root_field"
+}
+
 compaction_id_for_prefix() {
 	local project_id=$1
 	local host=$2
@@ -1373,6 +1389,45 @@ if [[ $deny_body == *"$tool_auth_value"* || $deny_body == *'Bearer '* || $deny_b
 fi
 if docker logs "$mock_name" 2>&1 | grep -F '"/denied"' >/dev/null; then
   fail "denied request reached mock upstream"
+fi
+
+graphql_canary=graphql-variable-canary
+# The GraphQL `$value` references stay literal while only the quoted canary expands.
+# shellcheck disable=SC2016
+graphql_body='{"query":"mutation Change($value: String!) { closeIssue(input: {value: $value}) updateIssue(input: {value: $value}) }","variables":{"value":"'"$graphql_canary"'"}}'
+graphql_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -H 'content-type: application/json' --data-binary "$graphql_body" \
+  http://mock-upstream:8080/graphql)
+[[ $graphql_status == 403 ]] ||
+  fail "declared GraphQL roots returned $graphql_status instead of a learnable denial"
+if docker logs "$mock_name" 2>&1 | grep -F '"/graphql"' >/dev/null; then
+  fail "denied GraphQL request reached mock upstream"
+fi
+graphql_candidates=$(run_tobari policy candidates --tail 1000 --format json)
+close_issue_candidate_id=$(graphql_candidate_id_for_effect \
+  "$work_id" mock-upstream mutation closeIssue <<<"$graphql_candidates")
+update_issue_candidate_id=$(graphql_candidate_id_for_effect \
+  "$work_id" mock-upstream mutation updateIssue <<<"$graphql_candidates")
+[[ $close_issue_candidate_id == pcy_* && $update_issue_candidate_id == pcy_* && \
+  $close_issue_candidate_id != "$update_issue_candidate_id" ]] ||
+  fail "GraphQL roots did not produce independent opaque candidates"
+run_tobari policy allow --id "$close_issue_candidate_id" >/dev/null
+graphql_partial_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -H 'content-type: application/json' --data-binary "$graphql_body" \
+  http://mock-upstream:8080/graphql)
+[[ $graphql_partial_status == 403 ]] ||
+  fail "one GraphQL root approval authorized an unapproved sibling root"
+run_tobari policy allow --id "$update_issue_candidate_id" >/dev/null
+graphql_response=$(run_project curl -fsS \
+  -H 'content-type: application/json' --data-binary "$graphql_body" \
+  http://mock-upstream:8080/graphql)
+graphql_body_sha=$(printf '%s' "$graphql_body" | shasum -a 256 | awk '{print $1}')
+assert_contains "$graphql_response" '"path":"/graphql"' "GraphQL upstream response"
+assert_contains "$graphql_response" "\"body_sha256\":\"$graphql_body_sha\"" \
+  "unchanged GraphQL request body"
+graphql_gateway_logs=$(run_tobari cluster logs --component gateway --tail 1000)
+if [[ $graphql_gateway_logs == *"$graphql_canary"* || $graphql_gateway_logs == *'mutation Change'* ]]; then
+  fail "GraphQL source or variables entered Gateway audit"
 fi
 
 review_allow_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \

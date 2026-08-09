@@ -14,7 +14,7 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `release` | `task release:check` | Packaging and release changes | Artifact, metadata, checksum, Formula, and workflow contracts |
 | `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, public-boundary checks, generated references, and the deployable Pages artifact |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
-| `gateway` | `task gateway:test` | Enforcement-point feedback | Pinned mitmproxy addon unit tests |
+| `gateway` | `task gateway:test` | Enforcement-point feedback | Source-built Gateway image with hash-locked dependencies, existing addon tests, and bounded GraphQL parser tests |
 | `authbroker` | `task authbroker:test` | Credential-boundary feedback | Canonical/snapshot drift, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
 | `integration` | `task integration:test` | Real runtime boundary | One Gateway/OPA/Auth Broker shared across multiple Contexts, same-root and overlapping-root Tobari, Context/project principal and handle separation, separate network, home, runtime, policy, and credential boundaries, shared host-file visibility, typed/redacted denial, Context-local learning/reset, exact marker-absence fallback, broker restart/rotation/logout, down/purge authentication-state preservation, migration/restart, recovery, and cleanup scenarios |
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, Auth Broker image/protocol, and integration coverage |
@@ -54,9 +54,10 @@ pushes only the base image; pull-request CI has no package-write permission.
 `gateway/` source and the embedded snapshot. `task gateway:test` runs the
 Gateway unit suite against the canonical source, while the runtime integration
 continues to exercise the embedded snapshot used by the CLI. The Gateway unit
-contract fixes the body-free schema-5 grouped OPA document with trusted
-Context/project principal, null-versus-provider authorization metadata, strict
-decision fields, authorization-before-stream ordering, broker
+contract fixes ordinary body-free and declared GraphQL-derived OPA documents
+with trusted Context/project principal, null-versus-provider authorization
+metadata, strict decision fields, authorization-before-forward ordering,
+exact endpoint classification, bounded parser behavior, broker
 deny-before-resolution, and secret redaction. The Gateway
 image
 workflow builds both supported architectures; only its main-push publish job
@@ -577,9 +578,13 @@ The test suite has complementary levels:
 - Gateway boundary tests resolve and pin an upstream address, reject unsafe
   resolved addresses for dotted hosts, and preserve the explicit single-label
   private-service exception used by the local integration shape.
-- Gateway boundary tests prove body content is absent from policy input, a
-  request stream is enabled only after allow, and local denial responses are
-  not treated as authorized upstream responses.
+- Gateway boundary tests prove ordinary body content is absent from policy
+  input, a request stream is enabled only after allow, and local denial
+  responses are not treated as authorized upstream responses. Declared
+  GraphQL tests prove only operation type and canonical root fields enter
+  policy identity, every root is required, original bytes are forwarded once,
+  unsupported envelopes fail before OPA learning or upstream I/O, and source,
+  variables, arguments, and aliases remain absent from policy and audit.
 - Integration tests prove body variants aggregate into one exact candidate and
   learned rule, allowed chunked uploads and SSE responses arrive incrementally,
   and the fixed 8 MiB advertised-body cap still rejects an over-limit request.
@@ -646,6 +651,7 @@ Every strong statement should identify its enforcement path.
 | Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, identity-checked private nonblocking terminal input with Darwin/Linux real-PTY cancellation/deadline, readiness-flush/EAGAIN, inherited-flag isolation, noncanonical VMIN/VTIME rejection, complete-profile coverage, and zero driver/Broker calls, conventional non-project host installation-root selection, canonical GitHub/AWS executable identity, fixed argv and environment, control-safe provider-output projection, exact fixed-URL recognition/manual fallback, checked private-home cleanup including setup and successful acquisition, TTY enforcement, complete fault inventory, all non-retryable mutation-unknown reconciliation paths, cancellation/failure preservation, required synthetic integration proof, and manual live exact-handle validation |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/host/port/method/path candidate aggregation with latest/count and legacy-count compatibility, Context-scoped reference validation, discover-act graph and allow/deny/reset round trips, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
+| Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, GraphQL compaction rejection, raw-body privacy canaries, and zero-upstream integration |
 | Bounded policy compaction | Pure deterministic same-Context/project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale/cross-Context reference rejection, and Docker canary |
 | Context/project principal and credential scope | Owner-only atomic registry schema 2, local-interface derivation, forged-Context/project and unknown-principal denial, passthrough/managed/broker adapter tests, same-profile and copied-handle cross-Context canaries, Rego canaries, and multi-Context Docker integration |
 | Atomic multi-Context policy activation | Source and projection locks, Context namespace rejection, complete all-Context OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
