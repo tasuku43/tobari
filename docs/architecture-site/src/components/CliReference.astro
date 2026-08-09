@@ -453,6 +453,9 @@ const scopes = catalogData.scopes as unknown as Scope[];
     padding: 0.1rem 0.75rem;
     border: 1px solid var(--sl-color-gray-5);
   }
+  :global(html[data-js]) .command-contract details:not([open]) > :not(summary) {
+    display: none;
+  }
   .command-contract summary {
     padding-block: 0.7rem;
     cursor: pointer;

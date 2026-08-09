@@ -3,7 +3,7 @@ title: The five-part mental model
 description: Start with the five participants in one outbound request before learning their implementation details.
 ---
 
-import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+import SystemMap from "../../../components/SystemMap.astro";
 
 ## The question this page answers
 
@@ -20,11 +20,11 @@ What is the smallest accurate model of Tobari?
 
 **Prerequisite:** [Start with the overview](/start/overview/) if you have not yet seen Tobari's user outcome. No Docker, proxy, or policy knowledge is required here.
 
-<ConceptDiagram name="minimal-system" />
+<SystemMap />
 
 This is a conceptual diagram. It deliberately omits Docker networks, TLS termination, persistent state, and host-side policy review. Those details appear after the five roles are stable in your mental model.
 
-## Read the model from left to right
+## Read the map by conversation
 
 ### 1. Workspace: where project work runs
 
@@ -127,4 +127,4 @@ You should now be able to explain why authentication, policy decision, and netwo
   writable authority, not protected content.
 </details>
 
-If those roles are still blurred, reread [the diagram above](#read-the-model-from-left-to-right). Next, add the actual networks and failure paths in [System overview](/how-it-works/system-overview/).
+If those roles are still blurred, reread [the diagram above](#read-the-map-by-conversation). Next, add the actual networks and failure paths in [System overview](/how-it-works/system-overview/).

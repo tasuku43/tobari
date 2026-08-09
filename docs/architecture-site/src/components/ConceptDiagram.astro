@@ -112,7 +112,7 @@ const kindLabels: Record<DiagramKind, string> = {
     margin: 2rem 0;
     padding: clamp(1rem, 3vw, 1.5rem);
     border: 1px solid var(--sl-color-gray-5);
-    border-radius: 0.6rem;
+    border-radius: 0.15rem;
     background: var(--sl-color-gray-7);
   }
   .concept-diagram figcaption h2,
@@ -134,8 +134,18 @@ const kindLabels: Record<DiagramKind, string> = {
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
     gap: 0.7rem;
   }
+  .diagram-nodes > * {
+    height: 100%;
+    margin: 0;
+  }
+  [data-diagram="code-layers"] .diagram-nodes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .diagram-node {
+    display: grid;
+    grid-template-rows: auto auto 1fr;
     min-width: 0;
+    min-height: 9.5rem;
     padding: 0.8rem;
     border: 2px solid currentColor;
     background: var(--sl-color-bg);
@@ -147,8 +157,8 @@ const kindLabels: Record<DiagramKind, string> = {
   }
   .diagram-node.kind-secret,
   .diagram-node.kind-persistent {
-    border-style: double;
-    border-width: 4px;
+    border-block-start-style: double;
+    border-block-start-width: 4px;
   }
   .diagram-node.kind-denied {
     border-style: double;
@@ -275,8 +285,12 @@ const kindLabels: Record<DiagramKind, string> = {
     font-weight: 700;
   }
   @media (max-width: 42rem) {
-    .diagram-nodes {
+    .diagram-nodes,
+    [data-diagram="code-layers"] .diagram-nodes {
       grid-template-columns: 1fr;
+    }
+    .diagram-node {
+      min-height: 0;
     }
     .diagram-edges li {
       grid-template-columns: 1fr auto 1fr;

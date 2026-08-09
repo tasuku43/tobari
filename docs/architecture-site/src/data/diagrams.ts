@@ -539,7 +539,8 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         id: "decision",
         label: "Explicit allow or deny",
-        detail: "Exact Context/project/destination/port/method/path effect.",
+        detail:
+          "Exact Context, project, destination, port, method, and path effect.",
         kind: "control",
       },
       {

@@ -1,0 +1,411 @@
+---
+import { diagrams } from "../data/diagrams";
+
+interface Props {
+  headingLevel?: 2 | 3;
+}
+
+const { headingLevel = 2 } = Astro.props;
+const diagram = diagrams["policy-loop"];
+const Heading = `h${headingLevel}` as "h2" | "h3";
+const positions: Record<string, { x: number; y: number }> = {
+  deny: { x: 13, y: 20 },
+  evidence: { x: 50, y: 13 },
+  review: { x: 87, y: 20 },
+  decision: { x: 87, y: 57 },
+  validation: { x: 69, y: 87 },
+  activation: { x: 31, y: 87 },
+  retry: { x: 13, y: 57 },
+};
+const nodeById = Object.fromEntries(
+  diagram.nodes.map((node) => [node.id, node]),
+);
+const serialized = JSON.stringify({
+  nodes: diagram.nodes,
+  edges: diagram.edges,
+});
+---
+
+<figure class="policy-loop" data-policy-loop={serialized}>
+  <figcaption>
+    <Heading>{diagram.title}</Heading>
+    <p>{diagram.description}</p>
+  </figcaption>
+
+  <div
+    class="loop-viewport"
+    tabindex="0"
+    aria-label="Scrollable policy loop map"
+  >
+    <div
+      class="loop-stage"
+      role="img"
+      aria-label="Seven policy-learning states arranged as a clockwise loop"
+    >
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <marker
+            id="policy-loop-arrow"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z"></path>
+          </marker>
+        </defs>
+        {
+          diagram.edges.map((edge, index) => {
+            const from = positions[edge.from];
+            const to = positions[edge.to];
+            return (
+              <line
+                class="loop-route"
+                data-edge={index}
+                x1={from.x}
+                y1={from.y}
+                x2={to.x}
+                y2={to.y}
+                marker-end="url(#policy-loop-arrow)"
+              />
+            );
+          })
+        }
+      </svg>
+
+      <div class="loop-center" aria-hidden="true">
+        <span>Host-controlled</span>
+        <strong>No automatic allow</strong>
+        <small>No automatic retry</small>
+      </div>
+
+      {
+        diagram.nodes.map((node) => (
+          <article
+            class:list={["loop-node", `kind-${node.kind}`]}
+            data-node={node.id}
+            style={`--node-x:${positions[node.id].x}%;--node-y:${positions[node.id].y}%`}
+          >
+            <span class="node-index">
+              {diagram.nodes.findIndex(({ id }) => id === node.id) + 1}
+            </span>
+            <h3>{node.label}</h3>
+            <p>{node.detail}</p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+
+  <div class="loop-controls" aria-label="Policy loop controls">
+    <button type="button" data-loop-control="previous" disabled>Previous</button
+    >
+    <p aria-live="polite" aria-atomic="true">
+      <strong data-loop-field="count">Step 1 of {diagram.edges.length}</strong>
+      <span data-loop-field="detail">
+        {nodeById[diagram.edges[0].from].label} → {
+          nodeById[diagram.edges[0].to].label
+        }: {diagram.edges[0].label}.
+      </span>
+    </p>
+    <button type="button" data-loop-control="next">Next</button>
+  </div>
+
+  <details class="loop-transcript">
+    <summary>Read the complete loop as text</summary>
+    <ol>
+      {
+        diagram.edges.map((edge) => (
+          <li>
+            <strong>{nodeById[edge.from].label}</strong> →{" "}
+            <strong>{nodeById[edge.to].label}</strong>: {edge.label}.
+          </li>
+        ))
+      }
+    </ol>
+  </details>
+</figure>
+
+<script>
+  interface LoopNode {
+    id: string;
+    label: string;
+  }
+  interface LoopEdge {
+    from: string;
+    to: string;
+    label: string;
+  }
+
+  document
+    .querySelectorAll<HTMLElement>("[data-policy-loop]")
+    .forEach((loop) => {
+      let data: { nodes: LoopNode[]; edges: LoopEdge[] };
+      try {
+        data = JSON.parse(loop.dataset.policyLoop || "");
+      } catch {
+        return;
+      }
+      let index = 0;
+      const previous = loop.querySelector<HTMLButtonElement>(
+        '[data-loop-control="previous"]',
+      );
+      const next = loop.querySelector<HTMLButtonElement>(
+        '[data-loop-control="next"]',
+      );
+      const count = loop.querySelector<HTMLElement>(
+        '[data-loop-field="count"]',
+      );
+      const detail = loop.querySelector<HTMLElement>(
+        '[data-loop-field="detail"]',
+      );
+      const labelFor = (id: string) =>
+        data.nodes.find((node) => node.id === id)?.label || id;
+      const render = () => {
+        const edge = data.edges[index];
+        loop
+          .querySelectorAll(".loop-route")
+          .forEach((route, routeIndex) =>
+            route.classList.toggle("is-active", routeIndex === index),
+          );
+        loop
+          .querySelectorAll<HTMLElement>(".loop-node")
+          .forEach((node) =>
+            node.classList.toggle(
+              "is-active",
+              node.dataset.node === edge.from || node.dataset.node === edge.to,
+            ),
+          );
+        if (count)
+          count.textContent = `Step ${index + 1} of ${data.edges.length}`;
+        if (detail)
+          detail.textContent = `${labelFor(edge.from)} → ${labelFor(edge.to)}: ${edge.label}.`;
+        if (previous) previous.disabled = index === 0;
+        if (next)
+          next.textContent =
+            index === data.edges.length - 1 ? "Restart" : "Next";
+      };
+      previous?.addEventListener("click", () => {
+        index = Math.max(0, index - 1);
+        render();
+      });
+      next?.addEventListener("click", () => {
+        index = index === data.edges.length - 1 ? 0 : index + 1;
+        render();
+      });
+      render();
+    });
+</script>
+
+<style>
+  .policy-loop {
+    margin: 2rem 0;
+    padding: clamp(1rem, 3vw, 1.5rem);
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-gray-7);
+  }
+  figcaption h2,
+  figcaption h3 {
+    margin: 0 0 0.35rem;
+  }
+  figcaption p {
+    max-width: 58rem;
+    margin: 0;
+    color: var(--sl-color-gray-2);
+  }
+  .loop-viewport {
+    margin-top: 1.25rem;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+  .loop-stage {
+    position: relative;
+    width: 100%;
+    min-width: 42rem;
+    height: 31rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background:
+      linear-gradient(var(--sl-color-gray-5) 1px, transparent 1px),
+      linear-gradient(90deg, var(--sl-color-gray-5) 1px, transparent 1px),
+      var(--sl-color-bg);
+    background-size: 2rem 2rem;
+  }
+  .loop-stage svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .loop-route {
+    stroke: var(--sl-color-gray-3);
+    stroke-width: 0.45;
+    stroke-dasharray: 1.4 1.2;
+    vector-effect: non-scaling-stroke;
+  }
+  .loop-route.is-active {
+    stroke: var(--tobari-control);
+    stroke-width: 0.8;
+    stroke-dasharray: none;
+  }
+  .loop-center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    display: grid;
+    width: 11rem;
+    min-height: 7rem;
+    padding: 0.85rem;
+    place-content: center;
+    text-align: center;
+    border: 1px dashed var(--tobari-trusted);
+    background: var(--sl-color-gray-7);
+    transform: translate(-50%, -50%);
+  }
+  .loop-center span,
+  .loop-center small {
+    color: var(--sl-color-gray-2);
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .loop-center strong {
+    margin: 0.2rem 0;
+    color: var(--tobari-trusted);
+  }
+  .loop-node {
+    position: absolute;
+    left: var(--node-x);
+    top: var(--node-y);
+    width: 10.5rem;
+    min-height: 7.5rem;
+    margin: 0;
+    padding: 0.8rem 0.85rem 0.75rem;
+    border: 1px solid currentColor;
+    background: var(--sl-color-bg);
+    box-shadow: 0 0 0 0.35rem var(--sl-color-bg);
+    transform: translate(-50%, -50%);
+  }
+  .loop-node.is-active {
+    outline: 3px solid currentColor;
+    outline-offset: 3px;
+  }
+  .loop-node h3 {
+    margin: 0.15rem 0 0;
+    color: inherit;
+    font-size: var(--sl-text-sm);
+  }
+  .loop-node p {
+    margin: 0.25rem 0 0;
+    color: var(--sl-color-gray-2);
+    font-size: 0.7rem;
+    line-height: 1.35;
+  }
+  .node-index {
+    display: grid;
+    width: 1.35rem;
+    height: 1.35rem;
+    place-items: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: 0.68rem;
+    font-weight: 800;
+  }
+  .kind-trusted {
+    color: var(--tobari-trusted);
+  }
+  .kind-control {
+    color: var(--tobari-control);
+  }
+  .kind-network {
+    color: var(--tobari-network);
+  }
+  .kind-allowed {
+    color: var(--tobari-allowed);
+  }
+  .kind-denied {
+    color: var(--tobari-denied);
+  }
+  .kind-diagnostic {
+    color: var(--tobari-diagnostic);
+  }
+  .loop-controls {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 0.85rem;
+  }
+  .loop-controls button {
+    min-height: 2.75rem;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--sl-color-gray-4);
+    background: var(--sl-color-bg);
+    color: var(--sl-color-white);
+    cursor: pointer;
+  }
+  .loop-controls button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+  .loop-controls p {
+    display: grid;
+    gap: 0.15rem;
+    margin: 0;
+    text-align: center;
+  }
+  .loop-controls span {
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
+  }
+  .loop-transcript {
+    margin-top: 1rem;
+  }
+  .loop-transcript summary {
+    cursor: pointer;
+    font-weight: 700;
+  }
+  @media (max-width: 42rem) {
+    .loop-stage {
+      min-width: 42rem;
+      height: 31rem;
+    }
+    .loop-controls {
+      grid-template-columns: 1fr 1fr;
+    }
+    .loop-controls p {
+      grid-column: 1 / -1;
+      grid-row: 1;
+      text-align: start;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .loop-node,
+    .loop-route {
+      transition: none !important;
+    }
+  }
+  @media print {
+    .policy-loop,
+    .loop-stage,
+    .loop-node,
+    .loop-center {
+      color: #000 !important;
+      border-color: #000 !important;
+      background: transparent !important;
+      box-shadow: none;
+    }
+    .loop-controls {
+      display: none;
+    }
+    .loop-transcript,
+    .loop-transcript > * {
+      display: block !important;
+    }
+    .loop-transcript summary {
+      display: none !important;
+    }
+  }
+</style>

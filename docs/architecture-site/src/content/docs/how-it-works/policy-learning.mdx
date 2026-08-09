@@ -3,7 +3,7 @@ title: Policy denial, review, and learning
 description: Follow a denied exact effect through host-side review, complete validation, atomic activation, and deliberate retry.
 ---
 
-import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+import PolicyLoopMap from "../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
 ## The question this page answers
@@ -21,7 +21,7 @@ How does a denied request become an explicit rule without teaching the Workspace
 
 **Prerequisite:** [Project identity](/how-it-works/project-identity/) and [Request journey](/how-it-works/request-journey/).
 
-<ConceptDiagram name="policy-loop" />
+<PolicyLoopMap />
 
 The diagram compresses one discovery detail: Gateway's denial response and audit do **not** contain an opaque candidate ID. The host CLI later derives that ID from retained validated evidence.
 

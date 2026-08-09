@@ -3,7 +3,7 @@ title: Overview
 description: What Tobari does, where its boundary is, and the smallest useful model of one outbound request.
 ---
 
-import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+import SystemMap from "../../../components/SystemMap.astro";
 
 ## The question this page answers
 
@@ -23,7 +23,7 @@ No prior Tobari knowledge is required. If you want commands immediately, continu
 
 An agent can read and change the selected project. That is the useful authority you gave it. Tobari narrows what sits outside that selection: other host files are not mounted, Docker control is not exposed, each Workspace has a separate internal network, and ordinary outbound HTTP or HTTPS must pass through a shared enforcement path.
 
-<ConceptDiagram name="minimal-system" headingLevel={2} />
+<SystemMap headingLevel={2} compact />
 
 Read the diagram in this order:
 

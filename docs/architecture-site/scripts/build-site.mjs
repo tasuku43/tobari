@@ -15,6 +15,8 @@ if (!npmExecutable) {
   process.exit(2);
 }
 
+console.log(`Building documentation with base ${base}`);
+
 const child = spawn(
   process.execPath,
   [npmExecutable, "exec", "--", "astro", "build"],

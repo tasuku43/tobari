@@ -4,6 +4,7 @@ description: Follow an outbound request from a Workspace process to a decision, 
 ---
 
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
+import SystemMap from "../../../components/SystemMap.astro";
 
 ## The question this page answers
 
@@ -19,6 +20,12 @@ In what exact order does Tobari process one outbound HTTP or HTTPS request?
 - the difference between policy denial, policy failure, and upstream failure.
 
 **Prerequisite:** [System overview](/how-it-works/system-overview/). Broker details are introduced later; here they appear only as one optional preparation step.
+
+<SystemMap
+  title="Keep the component map fixed"
+  description="The explorer below changes time, not architecture. Gateway remains central while the active conversation moves among Workspace, OPA, Auth Broker, and Upstream."
+  compact
+/>
 
 <SequenceExplorer
   scenarios={["allowed-passthrough", "learnable-denial", "opa-unavailable"]}

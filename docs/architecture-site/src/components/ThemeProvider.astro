@@ -2,6 +2,7 @@
   /* This inline script runs before paint so the stored or system theme does not flash. */
 }
 <script is:inline>
+  document.documentElement.dataset.js = "true";
   window.TobariTheme = (() => {
     const key = "tobari-theme";
     const parse = (value) =>

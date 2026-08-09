@@ -5,6 +5,7 @@ description: See how dedicated project networks, shared enforcement services, an
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
+import SystemMap from "../../../components/SystemMap.astro";
 
 ## The question this page answers
 
@@ -21,7 +22,11 @@ Why can a Workspace not bypass Tobari by ignoring its proxy settings?
 
 **Prerequisite:** [The five-part mental model](/how-it-works/mental-model/).
 
-<ConceptDiagram name="detailed-network" />
+<SystemMap
+  title="The supported network and control map"
+  description="Workspace and Upstream remain outside the shared cluster. Gateway alone crosses the project and egress sides; OPA and Auth Broker remain separate conversations inside the host-owned cluster."
+  networkDetail
+/>
 
 ## Three network scopes
 
