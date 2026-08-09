@@ -533,7 +533,13 @@ argument/intent/mutation validation; infrastructure then validates the selected
 existing Context, installed provider/acquisition mode, and broker readiness
 before broker send. Provider IDs are human selectors validated against the
 installed projection; they are not opaque action references or credential
-authority.
+authority. Login may receive that selector directly or, when it is omitted,
+the CLI reads the same typed Context status and presents only the closed set of
+installed reviewed login providers on terminal stderr. The exact selected ID
+and the resolved Context returned by that snapshot then enter the unchanged
+login use case, preventing a concurrent default-Context change from retargeting
+the reviewed choice. Redirected omission fails before the
+status read or mutation, and an AWS method flag requires explicit `--provider`.
 
 `doctor` composes bounded read-only environment, Docker, policy, provider,
 root-key/vault, broker, and project-binding diagnostics. It reports all checks,

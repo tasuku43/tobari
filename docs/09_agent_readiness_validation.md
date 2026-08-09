@@ -46,7 +46,7 @@ journey is the product baseline to improve:
 | Shell presentation | `config shell`, then enter a new session | A Context inherits exported `PS1` by default or independently selects one of four allowlisted shell variables without inheriting arbitrary host environment or startup files |
 | Git identity | `config git`, then enter the matching root | A Context optionally supplies only a lower-precedence `user.name`/`user.email` pair without copying Git files, authentication, signing, helpers, executable settings, or arbitrary keys |
 | Runtime customization | `runtime init`, edit the current Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image and other Contexts are unchanged |
-| Context authentication | `auth status`; built-in `auth login github|aws|datadog` with explicit AWS `identity-center|console`; protected non-terminal stdin `auth import`; `auth logout` | Reviewed fixed host CLI drivers acquire GitHub/AWS/Datadog state. A private resident companion refreshes strict AWS state and Broker directly refreshes the fixed Datadog DCR session, each only after exact OPA allow. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing static secrets, OAuth state, temporary credentials, or signing keys |
+| Context authentication | `auth status`; built-in `auth login [--provider PROVIDER]` with terminal selection on omission and explicit AWS `identity-center|console`; protected non-terminal stdin `auth import`; `auth logout` | Reviewed fixed host CLI drivers acquire GitHub/AWS/Datadog state. Omitted provider selection uses the typed installed collection and requires one explicit human choice without exposing credential state. A private resident companion refreshes strict AWS state and Broker directly refreshes the fixed Datadog DCR session, each only after exact OPA allow. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing static secrets, OAuth state, temporary credentials, or signing keys |
 | Context-specific work tools | Published-base `gh` and `aws`; optional locally built toolbox adds `kubectl`, `cwk`, `pup`, and `twg` | Public-base contents stay unchanged; local artifacts have pinned identity and license inventory. Datadog pup has exact US1 OAuth login and refresh authority; static examples retain explicit no-refresh limits and general TWG remains unsupported |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
 
@@ -252,6 +252,14 @@ rules exist. The transcript must prove:
   built-in host driver; logout makes no remote-revocation claim. Every success
   reports the credential revision only when configured and requires Workspace
   re-entry.
+- Omitted `auth login` provider input requires interactive stdin and stderr,
+  reads the selected Context's secret-free installed-provider status, and
+  presents only reviewed login providers before mutation. The selected provider
+  ID and the resolved Context returned by that snapshot pass into login, so a
+  concurrent current/default change cannot retarget the choice. An explicit `--provider` performs no status read
+  or selector interaction; `--method` without `--provider`, redirected
+  omission, cancellation, and an installed collection with no reviewed login
+  provider make zero login mutation calls.
 - Built-in GitHub login uses one verified host GitHub CLI with fixed argv and a
   private temporary home, opens only the fixed device URL, and never asks to
   authenticate Git or configure a Git credential helper. AWS login uses one
@@ -527,7 +535,7 @@ trusted host and records only secret-free outcomes outside the repository:
 ```sh
 tobari cluster up
 tobari auth status --context default --format json
-tobari auth login github --context default
+tobari auth login --provider github --context default
 tobari auth status --context default --format json
 (cd /absolute/test/root && tobari) # re-enter to receive the project handle
 # Inside that Workspace, after an exact policy allow:
@@ -565,7 +573,7 @@ secret-free pass/fail outcomes outside the repository:
 
 ```sh
 tobari cluster up
-tobari auth login datadog --context default
+tobari auth login --provider datadog --context default
 tobari auth status --context default --format json
 (cd /absolute/test/root && tobari) # re-enter to receive the project handle
 # Inside that Workspace, after one exact policy allow:
@@ -598,7 +606,7 @@ pass/fail outcomes outside the repository:
 
 ```sh
 tobari cluster up
-tobari auth login aws --method identity-center --context default
+tobari auth login --provider aws --method identity-center --context default
 tobari auth status --context default --format json
 (cd /absolute/test/root && tobari) # re-enter to receive the project handle
 # Inside that Workspace, after one exact policy allow:
@@ -628,7 +636,7 @@ Repeat the scenario with a disposable AWS console identity:
 
 ```sh
 aws --version # trusted-host version is 2.32.0 or newer
-tobari auth login aws --method console --context default
+tobari auth login --provider aws --method console --context default
 tobari auth status --context default --format json
 (cd /absolute/test/root && tobari)
 case "${AWS_ACCESS_KEY_ID-}" in tobari-h1_*) ;; *) exit 1 ;; esac

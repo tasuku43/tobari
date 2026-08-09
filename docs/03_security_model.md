@@ -599,7 +599,12 @@ authentication, signing, provider account authority, or network permission.
 `auth login`, `auth import`, and `auth logout` are trusted-host fixed-target
 writes against the installation credential catalog. They resolve one existing
 explicit or current Context and one installed provider before acquisition or
-vault I/O. Login uses only the reviewed built-in helper; import reads one
+vault I/O. Login accepts that provider directly or requires one terminal-only
+choice from the typed installed reviewed-login-provider collection; omission
+binds the later login to the Context returned by that snapshot, while omission
+with redirected streams fails before the collection read or mutation. An AWS
+method flag requires explicit `--provider`. Login still uses only the reviewed
+built-in helper; import reads one
 bounded secret from non-terminal stdin only under the ordering above. One
 credential belongs to one Context/provider, and every permanently bound project
 is eligible for a distinct handle only on its next matching Workspace entry.

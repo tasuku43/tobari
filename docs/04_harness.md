@@ -190,7 +190,7 @@ duplicate synthetic broker manipulation.
 
 A release candidate also receives manual trusted-host GitHub, AWS, and Datadog
 validations. Run
-`auth login github` with a test account, inspect secret-free `auth status`, and
+`auth login --provider github` with a test account, inspect secret-free `auth status`, and
 re-enter a Context-bound Workspace. Inside it, perform the following no-print
 shape and equality checks before the allowed API request:
 
@@ -206,8 +206,8 @@ the host and prove the old handle fails. The reviewer records only pass/fail
 and secret-free outcomes outside the repository. Tokens, device codes, vaults,
 handles, and raw authenticated transcripts are prohibited evidence.
 
-For AWS, run both `auth login aws --method identity-center` with a disposable
-IAM Identity Center role and `auth login aws --method console` with a disposable
+For AWS, run both `auth login --provider aws --method identity-center` with a disposable
+IAM Identity Center role and `auth login --provider aws --method console` with a disposable
 console identity. Verify the first fixed device flow and the second AWS CLI
 2.32-or-newer fixed remote flow. For each, re-enter the Workspace, confirm
 without printing values that all three AWS credential variables have the same
@@ -468,7 +468,11 @@ The test suite has complementary levels:
   serialization, and known-good retention.
 - Auth domain and catalog tests fix schema-1 static-provider compatibility,
   schema-2 built-in credential/signing plans and aggregate projection, exact
-  command effects/inputs/outputs/failures, exhaustive Context-scoped status,
+  command effects/inputs/outputs/failures, the optional login `--provider`
+  flag with terminal-only selection from the exhaustive Context-scoped
+  installed collection, explicit-provider selector bypass, AWS method/provider
+  dependency, snapshot-returned Context binding, cancellation and redirected
+  zero-mutation behavior, exhaustive Context-scoped status,
   explicit locked/unavailable state, non-terminal stdin-only import and terminal
   refusal before reading, read-after-public-validation/send-after-runtime-
   prerequisite ordering, complete auth fault inventory, public

@@ -199,7 +199,7 @@ The public commands are:
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
-| `auth login PROVIDER [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; AWS method omission preserves the fixed IAM Identity Center device flow, `console` selects fixed cross-device AWS CLI local-development login, and Datadog selects fixed default-organization US1 pup OAuth |
+| `auth login [--provider PROVIDER] [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; provider-option omission opens a terminal selector over installed reviewed login providers, AWS method omission preserves the fixed IAM Identity Center device flow, `console` selects fixed cross-device AWS CLI local-development login, and Datadog selects fixed default-organization US1 pup OAuth |
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
 | `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection and broker state for one Context without reading secrets |
 | `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles without contacting the provider |
@@ -288,8 +288,15 @@ undeclared Docker mutation by the CLI.
   validation uses `tobari-gateway:dev` and `tobari-auth-broker:dev` through
   `task build:dev` without changing the normal binary's selectors.
 - Authentication commands accept only an existing Context name and installed
-  provider ID. `auth login` is interactive and supports the reviewed built-in
-  `github`, `aws`, and `datadog` host drivers. GitHub shows its device code and the trusted
+  provider ID. `auth login` accepts the provider through optional
+  `--provider`: when omitted, interactive terminal stdin and stderr present only
+  the installed reviewed built-in `github`, `aws`, and `datadog` login
+  providers for the selected Context and require one explicit choice. A
+  supplied provider skips that status read and menu. The omitted-provider flow
+  binds login to the Context returned by the status snapshot, so a concurrent
+  current/default change cannot retarget the mutation. `--method` requires an
+  explicitly supplied `--provider`, remains AWS-only, and omission for explicit
+  AWS login means `identity-center`. GitHub shows its device code and the trusted
   host opens exactly `https://github.com/login/device` when possible. AWS
   requires explicit `identity-center` or `console` selection, with omission
   meaning `identity-center`. Identity Center asks for one validated start URL,
@@ -829,6 +836,9 @@ availability uncertainty rather than inferring absence from an unreadable vault.
 Before v1.0, command details and configuration schema may change with release
 notes. Legacy named state is not guessed or migrated automatically; users clean
 it with the matching older binary before adopting the CWD-owned lifecycle.
+The pre-v1 positional `auth login PROVIDER` form is replaced by
+`auth login --provider PROVIDER` without an alias; omitting `--provider`
+deliberately enters the terminal selector instead of guessing a provider.
 Legacy named lifecycle invocations are rejected explicitly and direct users to
 run `tobari` from the project directory. No compatibility alias recreates the
 old name/root lifecycle.

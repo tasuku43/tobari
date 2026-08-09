@@ -11,7 +11,7 @@
 The Datadog built-in projected a protected-stdin `DD_ACCESS_TOKEN`, although
 pup 1.6.6 and the toolbox-pinned 1.10.5 both support OAuth Authorization Code
 with PKCE S256, dynamic client registration, a loopback callback, renewable
-tokens, and file-backed state. Consequently `tobari auth login datadog` failed
+tokens, and file-backed state. Consequently `tobari auth login --provider datadog` failed
 as unsupported and imported tokens could not refresh automatically.
 
 pup does not expose its access token from release builds: `pup auth token` is
@@ -22,7 +22,7 @@ with Context/project authority.
 ## Decision
 
 Datadog becomes a schema-2 built-in `datadog_oauth_session` plan with helper
-`pup-oauth`. `auth login datadog` resolves and hashes a trusted-host pup
+`pup-oauth`. `auth login --provider datadog` resolves and hashes a trusted-host pup
 executable, creates an owner-only temporary home, forces
 `DD_TOKEN_STORAGE=file`, and runs exactly:
 
@@ -93,6 +93,6 @@ re-login rotates the record and handles.
 - `task security`
 - `task authbroker:test`
 - `task gateway:test`
-- Manual `tobari auth login datadog`, Workspace re-entry, handle/site shape
+- Manual `tobari auth login --provider datadog`, Workspace re-entry, handle/site shape
   checks, a policy denial with zero token resolution, an allowed pup read, automatic
   refresh, logout, and stale-handle rejection.

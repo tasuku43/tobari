@@ -884,7 +884,7 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari context use --name NAME` | Change only the current/default Context without mutating existing Tobari or Docker |
 | `tobari runtime init [--format text\|json]` | Create the current Context's runtime/Dockerfile template |
 | `tobari runtime build [--format text\|json]` | Build, validate, and select the current Context runtime image |
-| `tobari auth login PROVIDER [--method identity-center\|console] [--context NAME] [--format text\|json]` | Acquire one supported provider credential through a reviewed fixed trusted-host CLI driver; AWS omission uses IAM Identity Center, `console` selects AWS CLI console login, and Datadog uses default-organization US1 pup OAuth |
+| `tobari auth login [--provider PROVIDER] [--method identity-center\|console] [--context NAME] [--format text\|json]` | Acquire one supported provider credential through a reviewed fixed trusted-host CLI driver; provider-option omission opens a terminal selector, AWS method omission uses IAM Identity Center, `console` selects AWS CLI console login, and Datadog uses default-organization US1 pup OAuth |
 | `tobari auth import PROVIDER [--context NAME] [--format text\|json]` | Import one bounded opaque provider credential from protected non-terminal stdin only |
 | `tobari auth status [--context NAME] [--format text\|json]` | Inspect exhaustive secret-free provider and broker state for one Context |
 | `tobari auth logout PROVIDER [--context NAME] [--format text\|json]` | Remove one local Context/provider credential and revoke every issued handle without remote logout |
@@ -1096,27 +1096,32 @@ The Auth Broker path instead acquires one typed credential on the trusted host
 for an explicit or current Context. Reviewed interactive built-ins are
 GitHub.com, two explicit AWS CLI methods, and Datadog US1 through pup OAuth:
 
+Omit `--provider PROVIDER` to choose among the installed reviewed login providers in a
+terminal. Supplying it keeps the invocation deterministic and skips the menu.
+The AWS-only `--method` flag requires `--provider aws`.
+
 ```sh
 tobari cluster up
 tobari auth status --context default
-tobari auth login github --context default
+tobari auth login --context default # choose GitHub, AWS, or Datadog interactively
+tobari auth login --provider github --context default
 tobari auth status --context default
 tobari                 # re-enter this Context's Workspace
 gh api user            # succeeds only when OPA allows the exact HTTP request
 exit
 tobari auth logout github --context default
 
-tobari auth login aws --method identity-center --context default
+tobari auth login --provider aws --method identity-center --context default
 tobari                 # re-enter this Context's Workspace
 aws sts get-caller-identity --region us-east-1 # or use Context-owned AWS region configuration
 exit
 tobari auth logout aws --context default
 
-tobari auth login aws --method console --context default
+tobari auth login --provider aws --method console --context default
 # Visit the printed AWS sign-in URL and paste the returned authorization code.
 tobari                 # re-enter; the same handle/SigV4 path applies
 
-tobari auth login datadog --context default
+tobari auth login --provider datadog --context default
 # Complete pup's ordinary Datadog browser consent and loopback callback.
 tobari                 # re-enter to receive DD_ACCESS_TOKEN=<project handle>
 pup users --no-agent --read-only list
@@ -1124,13 +1129,13 @@ exit
 tobari auth logout datadog --context default
 ```
 
-`auth login github` runs a reviewed fixed driver around the trusted host's
+`auth login --provider github` runs a reviewed fixed driver around the trusted host's
 GitHub CLI in a private temporary configuration directory. It verifies the
 selected executable identity, disables ambient credentials and browser
 selection, opens only the fixed GitHub device page when possible, and removes
 the temporary state after capturing one bounded API token. Auth Broker stores
 the token; neither the host CLI nor the broker configures Git transport.
-`auth login aws` similarly uses reviewed fixed drivers around the trusted
+`auth login --provider aws` similarly uses reviewed fixed drivers around the trusted
 host's AWS CLI. Omission or `--method identity-center` asks for the classic
 commercial IAM Identity Center URL, SSO region, 12-digit account ID, and role,
 then runs the fixed device-code login. `--method console` requires AWS CLI 2.32
@@ -1142,7 +1147,7 @@ a distinct strict opaque state shape encrypted in the Context vault. Request reg
 configuration or an explicit AWS CLI option. Unsupported partitions remain
 excluded.
 
-`auth login datadog` resolves and hashes the trusted host's pup executable,
+`auth login --provider datadog` resolves and hashes the trusted host's pup executable,
 runs fixed `pup --no-agent auth login --site datadoghq.com` with a private
 file-backed home, and accepts only one default-organization US1 DCR/token
 session. Pup owns the browser consent and bounded loopback callback; Tobari
@@ -1160,7 +1165,7 @@ host socket or CLI home into a container. Only after OPA allows a bounded AWS
 request does Auth Broker ask the companion to run the fixed host
 `aws configure export-credentials --format process` operation. Identity Center
 or console state refreshes automatically while its upstream renewable session
-remains valid; expiry requires `auth login aws` again with the intended method.
+remains valid; expiry requires `auth login --provider aws` again with the intended method.
 Temporary role credentials return only to Auth Broker for one standard SigV4
 header set and are never stored or projected. AWS CLI in the Workspace receives
 the same opaque handle in its three credential variables, not real AWS keys.
@@ -1240,7 +1245,7 @@ provider operations, or a built-in override.
 The built-in protected-stdin provider supports cwk at exact
 `api.chatwork.com:443` through `CWK_API_TOKEN`; import it with
 `tobari auth import chatwork`, then re-enter the Workspace. Datadog is no
-longer a new-import path: use `tobari auth login datadog`. Existing encrypted
+longer a new-import path: use `tobari auth login --provider datadog`. Existing encrypted
 legacy Datadog imports remain readable for compatibility.
 
 The repository also includes bounded owner-manifest examples for kubectl and

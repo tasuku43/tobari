@@ -40,11 +40,15 @@ OAuth. For GitHub, on the trusted host:
 ```sh
 tobari cluster up
 tobari auth status --context default
-tobari auth login github --context default
+tobari auth login --context default # choose an installed reviewed provider
+tobari auth login --provider github --context default
 tobari auth status --context default
 ```
 
-Login requires an interactive trusted-host terminal. The broker runs the pinned GitHub helper with private temporary configuration and obtains the primary credential without returning it in CLI output. The real value is encrypted in the stable Context vault.
+Login requires an interactive trusted-host terminal. Omitting optional
+`--provider` presents only installed reviewed login providers; an explicit
+`--provider` skips that menu. The AWS-only `--method` flag requires
+`--provider aws`. The broker runs the pinned GitHub helper with private temporary configuration and obtains the primary credential without returning it in CLI output. The real value is encrypted in the stable Context vault.
 
 Leave and re-enter a Workspace permanently bound to that Context:
 
@@ -54,7 +58,7 @@ tobari --context default
 
 The Workspace receives a distinct `tobari-h1_...` handle. For the built-in GitHub manifest it is projected for supported GitHub CLI API use, but it is not the upstream token. Private Git transport through a broker Git credential helper is not currently supported.
 
-For Datadog, run `tobari auth login datadog --context default`. Tobari invokes
+For Datadog, run `tobari auth login --provider datadog --context default`. Tobari invokes
 fixed host `pup --no-agent auth login --site datadoghq.com` in a private
 file-backed home; pup owns browser consent and the loopback callback. After
 re-entry, the Workspace receives `DD_ACCESS_TOKEN=<project handle>` and fixed

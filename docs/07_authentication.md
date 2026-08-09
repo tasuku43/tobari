@@ -22,7 +22,7 @@ never falls back to the passthrough or managed adapter.
 The public Catalog owns four commands:
 
 ```text
-tobari auth login <provider> [--method identity-center|console] [--context NAME] [--format text|json]
+tobari auth login [--provider PROVIDER] [--method identity-center|console] [--context NAME] [--format text|json]
 secret-source-command | tobari auth import <provider> [--context NAME] [--format text|json]
 tobari auth status [--context NAME] [--format text|json]
 tobari auth logout <provider> [--context NAME] [--format text|json]
@@ -38,7 +38,19 @@ label when available, an opaque credential revision, root-key storage backend,
 broker state, and explicit Workspace activation guidance. They never contain a
 root key, vault bytes, raw credential, or Workspace handle.
 
-Login requires an interactive terminal and supports two reviewed built-ins:
+Login requires an interactive terminal and supports three reviewed built-ins.
+The provider is supplied through optional `--provider`. When omitted, Tobari reads the
+selected Context's typed, secret-free installed-provider collection and
+presents only `github`, `aws`, and `datadog` entries that have reviewed login
+drivers. The caller must choose one on terminal stderr before the existing
+login mutation begins. Login is bound to the Context returned by that status
+snapshot even if another process changes the current/default Context during
+selection. A supplied provider skips this read and selector.
+`--method` requires an explicitly supplied `--provider` and remains AWS-only.
+Redirected omission fails before provider discovery, terminal input, or login
+mutation.
+The pre-v1 positional provider form is not retained as an alias: use
+`--provider` for deterministic invocation or omit it for terminal selection.
 
 The provider executable must resolve through `PATH` from `/bin`, `/usr/bin`,
 `/usr/local`, `/opt/homebrew`, `/opt/local`, `/nix/store`, or `/snap`.
@@ -52,7 +64,7 @@ state is accepted.
   executable identity, opens only `https://github.com/login/device`, requests
   no Git protocol, captures one API token, and confirms destruction of the
   temporary state before accepting the result.
-- `aws` requires one explicit method, with omission preserving
+- `aws` supports two explicit methods, with method omission preserving
   `identity-center`. Identity Center asks for a classic commercial
   `https://<label>.awsapps.com/start` URL, reviewed commercial SSO region,
   12-digit account ID, and role name, then runs the fixed device-code login.
@@ -512,9 +524,9 @@ commands.
 | `auth_login_tty_required` | Run built-in provider login with interactive stdin and stderr. |
 | `github_cli_unavailable` | Install the reviewed GitHub CLI on the trusted host so Tobari can resolve one absolute executable, then retry login. |
 | `github_login_cancelled`, `github_login_failed` | The trusted-host driver did not commit a replacement; verify the host GitHub CLI, then correct or retry the interactive login and inspect `auth status`. |
-| `aws_cli_unavailable` | Install the reviewed AWS CLI on the trusted host so Tobari can resolve one absolute non-group/world-writable executable, then retry login. If the executable changed after login, repeat `auth login aws` with the intended method to bind fresh state to its new identity. |
+| `aws_cli_unavailable` | Install the reviewed AWS CLI on the trusted host so Tobari can resolve one absolute non-group/world-writable executable, then retry login. If the executable changed after login, repeat `auth login --provider aws` with the intended method to bind fresh state to its new identity. |
 | `auth_login_method_not_applicable` | Remove `--method` for non-AWS providers. |
-| `aws_console_login_unsupported` | Install AWS CLI 2.32 or newer on the trusted host, then retry `auth login aws --method console`. |
+| `aws_console_login_unsupported` | Install AWS CLI 2.32 or newer on the trusted host, then retry `auth login --provider aws --method console`. |
 | `aws_console_login_cancelled`, `aws_console_login_timeout` | No AWS replacement was committed. Start a new console login and complete the remote authorization-code flow deliberately. |
 | `aws_console_config_invalid`, `aws_console_login_failed` | Correct the commercial AWS region, verify AWS CLI 2.32 or newer and provider connectivity, then retry console login; the previous credential remains unchanged. |
 | `aws_sso_login_cancelled`, `aws_sso_login_timeout` | No AWS replacement was committed. Correct or complete the trusted-host device flow, then retry deliberately. |

@@ -242,7 +242,7 @@ pending state. Gateway owns audit emission.
 
 ## Reviewed host credential drivers
 
-`auth login github` is one supported provider-facing acquisition flow. A
+`auth login --provider github` is one supported provider-facing acquisition flow. A
 trusted interactive host driver resolves a canonical GitHub CLI executable,
 binds its SHA-256 identity, and runs these fixed operations in an ephemeral
 configuration directory:
@@ -291,7 +291,7 @@ readiness before broker send. A provider collection with overlapping exact
 scheme/host/port/source-header/source-format recognition fails completely as
 `ambiguous_provider_http_binding` rather than partially activating.
 
-`auth login aws` is the second supported provider flow and has two explicit
+`auth login --provider aws` is the second supported provider flow and has two explicit
 closed methods. Omission means `identity-center`; Tobari never infers a method
 from ambient state. Both resolve a canonical AWS CLI executable, bind its
 SHA-256 identity, use one private `0700` temporary home and sanitized
@@ -348,7 +348,7 @@ exact process-credential JSON with a future expiration is accepted. AWS CLI
 owns Identity Center or console refresh and provider calls; Broker neither
 reimplements AWS authentication endpoints nor stores temporary credentials. If
 the overall renewable session has expired, export fails closed and recovery is
-an explicit `auth login aws` using the intended method.
+an explicit `auth login --provider aws` using the intended method.
 
 AWS signing implements only standard header-based SigV4. Canonicalization is
 local to the broker, uses the complete body SHA-256 supplied by Gateway, adds

@@ -19,7 +19,7 @@ provider home.
 
 ## Decision
 
-`auth login aws` accepts one optional method selector:
+`auth login --provider aws` accepts one optional method selector:
 
 - `identity-center` is the existing fixed IAM Identity Center device flow and
   remains the omission default.

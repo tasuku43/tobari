@@ -148,7 +148,7 @@ up`; static Broker operations remain independently diagnosable.
 
 ### Run AWS IAM Identity Center through host AWS CLI
 
-Trusted-host `auth login aws` validates the access-portal start URL, SSO region,
+Trusted-host `auth login --provider aws` validates the access-portal start URL, SSO region,
 twelve-digit account ID, and role name. Request region remains ordinary
 Context/command configuration rather than credential state. Login
 resolves one host AWS CLI executable from trusted host state, records its
@@ -313,7 +313,7 @@ Schema-v1 built-ins/examples cover exact routine paths:
 Valid schema-v1 provider manifests and static vault records remain readable.
 The dynamic vault payload advances to schema 2. Any valid uncommitted
 broker-native AWS state can be converted only after exact validation; otherwise
-the record remains untouched and `auth login aws` is the recovery. Older
+the record remains untouched and `auth login --provider aws` is the recovery. Older
 binaries fail closed on schema 2 and never overwrite it.
 
 Gateway and Auth Broker image API labels advance together from 1 to 2. New host

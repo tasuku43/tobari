@@ -272,7 +272,7 @@ in `.harness/schemas.json`; no live provider response is vendored.
 - `task integration:test` (required reproducible synthetic Auth Broker proof)
 - `task runtime:test`
 - `task release:check`
-- Manual, trusted-host `tobari auth login github` validation against a test
+- Manual, trusted-host `tobari auth login --provider github` validation against a test
   GitHub account, followed by `auth status`, no-print checks that `GH_TOKEN` has
   the `tobari-h1_` shape and `gh auth token --hostname github.com` equals that
   exact projected handle, an OPA-allowed `gh api user` from a re-entered
