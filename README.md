@@ -1140,13 +1140,14 @@ remains valid; expiry requires `auth login aws` again with the intended method.
 Temporary role credentials return only to Auth Broker for one standard SigV4
 header set and are never stored or projected. AWS CLI in the Workspace receives
 the same opaque handle in its three credential variables, not real AWS keys.
-The reviewed API-v2 Gateway and Auth Broker indexes built from source revision
-`a3fedb66ad5a72c19d6721f3f8da49852882ced8` are anonymously retrievable for
-Linux amd64/arm64. Their platform configurations carry the reviewed API/role
-labels, fixed `1000:1000` non-root user, and entrypoint. Routine startup selects
-the immutable manifest digests recorded in
+The reviewed Gateway API-3 index built from source revision
+`328196221c5be2861b67ec51339d0184b04c6b31` and Auth Broker API-2 index built
+from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8` are anonymously
+retrievable for Linux amd64/arm64. Their platform configurations carry the
+reviewed API/role labels, fixed `1000:1000` non-root user, and entrypoint.
+Routine startup selects the immutable manifest digests recorded in
 [`versions.env`](internal/infra/runtimeassets/assets/versions.env): Gateway
-`sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+`sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
 and Auth Broker
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`;
 moving tags remain development conveniences.
