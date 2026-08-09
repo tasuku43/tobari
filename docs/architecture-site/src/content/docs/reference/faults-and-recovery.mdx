@@ -1,0 +1,237 @@
+---
+title: Faults and recovery
+description: Generated CLI fault contracts, stable kinds and codes, retry semantics, safe mutation recovery, and Gateway failure behavior.
+---
+
+import FaultReference from "../../../components/FaultReference.astro";
+
+## What question does this page answer?
+
+**When Tobari reports a failure, which fields are stable and what is safe to do
+next?**
+
+The short answer is: classify the failure by its stable `kind` and exact
+`code`, then follow the Catalog-owned next action. Never infer that a mutation
+is safe to repeat from an upstream message or a rate-limit timer.
+
+This page is the contract-oriented companion to
+[Troubleshooting](/guides/troubleshooting/). Troubleshooting begins with a
+visible symptom. This page begins with a machine fault.
+
+After reading it, you should be able to:
+
+- map a fault kind to its process exit code;
+- distinguish retryability from mutation replay safety;
+- tell a policy denial from an unavailable policy engine;
+- recognize fail-closed credential-handle behavior; and
+- use an exact recovery command without appending untrusted text.
+
+## Public fault envelope
+
+With `--error-format json`, a CLI failure is schema 1:
+
+```json
+{
+  "schema_version": 1,
+  "error": {
+    "kind": "canceled",
+    "code": "operation_canceled",
+    "message": "The operation was canceled.",
+    "retryable": true,
+    "retry_after": null,
+    "next_actions": [
+      {
+        "command": "doctor",
+        "reason": "Retry when the caller is ready."
+      }
+    ]
+  }
+}
+```
+
+`message` is safe human text, not an upstream response body. Wrapped causes
+remain available inside the implementation for classification but are omitted
+from the public projection because they may contain a request URL, credential,
+or unstable provider prose.
+
+## Stable kinds and exit codes
+
+| Kind             | Exit | Recovery class                                                                            |
+| ---------------- | ---: | ----------------------------------------------------------------------------------------- |
+| `invalid_input`  |    2 | Correct the invocation before any effect.                                                 |
+| `internal`       |    3 | Inspect a Tobari implementation or local adapter failure.                                 |
+| `authentication` |    4 | Establish or repair identity/credential state. This does not grant network authorization. |
+| `permission`     |    5 | The caller lacks permission for the requested operation.                                  |
+| `not_found`      |    6 | Discover or create the required local target.                                             |
+| `ambiguous`      |    7 | Make one explicit selection; do not choose by display order.                              |
+| `rate_limited`   |    8 | Respect authoritative rate-window evidence, then reassess logical retry safety.           |
+| `unavailable`    |    9 | Restore a required component or external prerequisite.                                    |
+| `rejected`       |   10 | The request was understood but violates the current contract or state.                    |
+| `canceled`       |   11 | The caller stopped the operation; reconcile mutations before replay.                      |
+| `unsupported`    |   12 | Use a documented supported path.                                                          |
+| `contract`       |   13 | Producer and consumer contracts disagree; fail closed and repair the contract.            |
+
+Success is exit 0. The kind is deliberately broader than the code: several
+task-specific codes can share one recovery class.
+
+## Generated command fault reference
+
+The table below is generated from exact-command agent help. It preserves the
+Catalog's code, kind, retryability, and recovery actions instead of copying a
+second fault list into MDX.
+
+<FaultReference />
+
+## How to decide whether to retry
+
+Use this order:
+
+1. Determine whether the operation is read-only or a mutation.
+2. Read `retryable` and any `retry_after`.
+3. For a mutation, inspect its structured outcome and current state.
+4. Follow only the declared next action.
+5. Retry deliberately after the precondition is restored.
+
+`retry_after` describes an observed rate window. It does not prove that a
+create or write did not complete. Conversely, a non-retryable fault can still
+name a read-only reconciliation action such as `status`, `context show`, or
+`doctor`.
+
+Mutation results cross a completion boundary after a confirmed side effect.
+Later cancellation cannot turn that success into replay permission. An
+unclassified mutation outcome becomes
+`unclassified_mutation_outcome` and directs the caller to read-only
+reconciliation.
+
+## Request-path failures are fail closed
+
+Not every network failure is a CLI fault envelope. A Workspace observes an
+HTTP response or a failed connection from Gateway:
+
+| Observation                                                    | Meaning                                                                                                                        | Upstream contacted?                                                        |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| Learnable HTTP `403` denial                                    | The normalized Context/project/host/port/method/path did not match an allow rule. Review on the host, then retry deliberately. | No.                                                                        |
+| Non-learnable HTTP `403` denial                                | The request is outside a learnable boundary or its identity is invalid. It cannot become a candidate.                          | No.                                                                        |
+| Policy service unavailable or invalid decision (`503`)         | Gateway could not obtain one valid OPA decision.                                                                               | No.                                                                        |
+| `credential_handle_invalid`                                    | A Tobari-looking handle was malformed, stale, copied, misplaced, ambiguous, or binding-mismatched.                             | No; no passthrough fallback.                                               |
+| Broker unavailable or locked                                   | Broker introspection/resolution cannot complete.                                                                               | No authorized credential-bearing upstream connection.                      |
+| Upstream DNS, TLS, connection, or response failure after allow | Authorization succeeded, but the separate upstream operation failed.                                                           | A connection may have been attempted; Gateway does not replay the request. |
+
+A policy denial can become a candidate only from retained, secret-free
+evidence. The Gateway response contains host-side navigation guidance, not a
+candidate reference and not permission.
+
+## Fault-contract failures
+
+The public boundary has two last-resort contract codes:
+
+- `invalid_fault_contract` replaces a structured fault whose kind, code,
+  message, timing, or next action is malformed.
+- `undeclared_fault_contract` replaces a command fault whose code, kind, or
+  retryability does not match that command's Catalog declaration.
+
+These codes prevent unstable internal errors from silently becoming public API.
+They are implementation diagnostics, not provider-specific failures.
+
+## Guarantees and limits
+
+Tobari guarantees stable classification only for the supported public
+boundary. Docker, OPA, provider, or OS text shown as bounded diagnostics is not
+a stable fault code and must not be parsed. A recovery command can restore a
+precondition; it cannot promise remote revocation, external-service
+availability, or safe replay of an arbitrary HTTP body.
+
+## Evidence
+
+- Fault vocabulary and validation:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/fault/fault.go`}
+  >
+    `internal/domain/fault/fault.go`
+  </a>
+- JSON projection, exit mapping, and contract enforcement:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/errors.go`}
+  >
+    `internal/cli/errors.go`
+  </a>
+- Catalog declarations:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog.go`}
+  >
+    base commands
+  </a>
+  ,
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}
+  >
+    runtime commands
+  </a>
+  , and
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/auth_catalog.go`}
+  >
+    authentication commands
+  </a>
+- Gateway fail-closed implementation and tests:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}
+  >
+    Gateway addon
+  </a>
+  and
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}
+  >
+    Gateway tests
+  </a>
+- CLI fault tests:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/cli_test.go`}
+  >
+    structured error tests
+  </a>
+  and
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/fault/fault_test.go`}
+  >
+    secret-free public-copy tests
+  </a>
+
+## Summary
+
+A fault kind selects a recovery class; a code identifies the exact condition.
+Retryability and rate timing do not replace mutation reconciliation. Gateway
+denials, OPA failures, and invalid broker handles all fail before unauthorized
+upstream traffic.
+
+## Check your understanding
+
+You should now be able to explain why “try it again” is not a universal recovery
+instruction.
+
+<details>
+  <summary>An OPA request times out. Does Gateway send the request upstream while policy recovers?</summary>
+
+No. Gateway requires one valid decision. Policy unavailability fails closed
+before the upstream connection.
+
+</details>
+
+<details>
+  <summary>A write reports cancellation. Is exit code 11 enough to justify replay?</summary>
+
+No. Inspect the mutation outcome and current state first. Cancellation can
+occur after an external effect.
+
+</details>
+
+<details>
+  <summary>Can you append a provider error string to a Catalog recovery command?</summary>
+
+No. Recovery commands are exact checked paths. Upstream prose is untrusted
+data, not argv.
+
+</details>
+
+Next: [Runtime image contract](/reference/runtime-image-contract/).

@@ -1,0 +1,133 @@
+---
+title: Project identity without self-reporting
+description: Understand how a Gateway interface and host-owned registry establish the Context/project principal.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+Why can a Workspace not claim another project's learned rules by changing a header?
+
+**One-sentence answer:** Gateway derives Context and project identity from the local interface on which the request arrived and an owner-controlled principal registry, never from a caller-supplied ID.
+
+### By the end, you can explain
+
+- what the principal registry binds;
+- why one Gateway can distinguish many project networks;
+- when principal establishment happens relative to OPA and credentials; and
+- why the same HTTP effect in another Workspace needs separate learned authority.
+
+**Prerequisite:** [HTTPS and two TLS connections](/how-it-works/https-and-tls/) and the dedicated network concept from [System overview](/how-it-works/system-overview/).
+
+<ConceptDiagram name="project-principal" />
+
+## Principal creation on the trusted host
+
+For each logical Workspace, host-side lifecycle code:
+
+1. validates the stable UUIDv7 project ID and permanent Context ID;
+2. creates or verifies the exact owner-labeled dedicated internal network;
+3. connects Gateway to that network;
+4. inspects Gateway's IP address on that exact network; and
+5. atomically writes a schema 2 binding to the owner-only principal registry.
+
+Each binding contains project ID, Context ID, Context name, canonical root, network name, and Gateway interface IP. Project and address entries must be unique; unsafe loopback, link-local, multicast, or unspecified addresses are rejected.
+
+The registry is mounted read-only into Gateway. A Workspace receives neither write access to it nor Docker control that could author the binding.
+
+## Principal resolution on each request
+
+Gateway observes `flow.client_conn.sockname[0]`: its own local address for the accepted project-network connection. That local address selects one binding.
+
+This detail matters. The value is not:
+
+- the client source IP claimed in a header;
+- `TOBARI_ID` or `TOBARI_CONTEXT_ID` from the Workspace environment;
+- `x-tobari-session` or another request field;
+- a Context display name;
+- a credential profile/provider name; or
+- a URL parameter.
+
+After lookup, Gateway places the registry-derived `context_id` and `project_id` in schema 5 OPA input. The fixed OPA router selects policy by Context ID; learned rules also require the project ID.
+
+## Concrete forgery attempt
+
+Workspace B copies these request headers from Workspace A:
+
+```http
+X-Tobari-Session: project-a
+X-Tobari-Context: review
+Authorization: Bearer example
+```
+
+The connection still arrives on Gateway's Workspace B interface. Gateway selects B's Context/project binding and strips or redacts control/credential values as required. A rule learned for A does not match B even if host, port, method, and path are identical.
+
+If the request contains a copied broker handle from A, the result is stricter still: non-secret Broker introspection checks the derived B principal against the handle's Context, project, provider, credential revision, target, and source-header binding. The mismatch becomes `403 credential_handle_invalid` before OPA.
+
+## Why network identity is used
+
+A Workspace process can modify its request, environment, filesystem, and tool configuration. Any identity located there is attacker-controlled data. The dedicated network gives trusted host lifecycle code a place to establish an interface binding that the Workspace cannot choose per request.
+
+This is a Docker implementation of a more general contract: the runtime supplies a trustworthy connection-to-principal binding. Policy code does not reconstruct identity from names or parsing conventions.
+
+## Failure behavior
+
+- Registry missing, unreadable, too large, wrong version, malformed, unsafe, duplicate, or ambiguous: Gateway returns `403 project_principal_unavailable`.
+- Incoming local interface not registered: the same 403 occurs before OPA or upstream I/O.
+- Network recreation changes Gateway's interface address: lifecycle must reconcile the registry before the Workspace becomes ready.
+- Unknown Context ID at OPA: the aggregate router denies and never falls back to the current/default Context.
+- User changes Context display name/default: stable stored IDs, not names, remain enforcement identity.
+
+The Gateway binding parser validates the exact per-binding shape and required values. The site does not claim a stronger duplicate-key rejection property for Python's general JSON parser.
+
+## Guarantees and limitations
+
+**Guaranteed under supported lifecycle/topology:** caller-supplied identity is not authority; project and Context are established together before OPA; learned rules and broker handles cannot cross project principals; stale network bindings fail closed.
+
+**Not guaranteed:** resistance after host, Docker, Gateway, or registry compromise; tenant isolation for overlapping selected roots; a general cryptographic remote-workload identity; identity derived from arbitrary manually created containers outside Tobari lifecycle.
+
+## Source evidence
+
+- [Principal and Context security contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
+- [Host-network authority decision](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/decisions/0011-bind-project-authority-to-host-network.md)
+- [Shared Context routing decision](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
+- [Principal registry writer and reconciliation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/principal_registry.go)
+- [Gateway registry parser and interface lookup](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/addon/tobari_gateway.py)
+- [Registry negative tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/principal_registry_test.go)
+- [Forged-header and unknown-principal Gateway tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+
+## Summary
+
+The host binds one exact Gateway project-network interface to stable Context/project IDs. Gateway observes that interface on every request. Headers and names can describe a caller, but they cannot grant another principal's authority.
+
+## Check your understanding
+
+You should now be able to explain why shared Gateway/OPA services do not mean shared learned permission.
+
+<details>
+  <summary>
+    A process writes another project ID into a header. Which ID reaches OPA as
+    principal?
+  </summary>
+  The ID selected by Gateway's receiving local interface and the host principal
+  registry. The header is not authority.
+</details>
+
+<details>
+  <summary>
+    Workspace A and B use the same host, port, method, and path. Does A's
+    learned rule authorize B?
+  </summary>
+  No. Exact learned rules also bind stable Context and project IDs.
+</details>
+
+<details>
+  <summary>
+    What happens while a recreated network has no valid registry binding?
+  </summary>
+  Requests fail closed with `project_principal_unavailable`; lifecycle must
+  reconcile the interface binding first.
+</details>
+
+Return to [System overview](/how-it-works/system-overview/) for the network placement. Next, use the principal in [Policy learning](/how-it-works/policy-learning/).

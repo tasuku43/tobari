@@ -1,0 +1,164 @@
+---
+title: Policy review
+description: Review retained denial evidence and activate one exact allow or deny from the trusted host.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+import SequenceExplorer from "../../../components/SequenceExplorer.astro";
+
+## The question this guide answers
+
+**How should a person turn one denied request into a deliberate policy decision?**
+
+Leave the Workspace, inspect the bounded secret-free Permission Inbox on the trusted host, select one unchanged opaque reference, and explicitly allow or deny the exact Context/project/host/port/method/path effect.
+
+After this guide, you should be able to identify a learnable denial, use the TTY and machine flows safely, correct a prior decision, and explain why approval never retries traffic.
+
+Prerequisite: [First denial](../../start/first-denial/) explains the request-side handoff.
+
+<ConceptDiagram name="policy-loop" headingLevel={2} />
+
+## 1. Stop retrying and leave the Workspace
+
+A learnable Gateway `403` contains fixed guidance to run `tobari policy review` on the host. It contains no candidate ID and gives the agent no way to approve itself.
+
+Exit the Workspace before review. Repeated retries do not increase authority; they only refresh bounded evidence for the same effect.
+
+## 2. Open the human review flow
+
+```sh
+tobari policy review --tail 100
+```
+
+The installation-wide TTY queue displays pending effects from its bounded Gateway-log window. Select one item, then inspect:
+
+- Context and stable Context identity;
+- project/root and host-issued project principal;
+- scheme, host, and port;
+- method and normalized path;
+- denial reason, timestamp, and retained observation count; and
+- the proposed exact allow and deny outcomes.
+
+Choose **Allow exact** or **Deny exact** only from the detail view. The choice is the explicit confirmation. It is not inferred from selection order.
+
+<SequenceExplorer
+  title="Host-side policy review and activation"
+  scenarios={["learnable-denial", "policy-review"]}
+  initial="policy-review"
+/>
+
+## 3. Use the machine path only when needed
+
+Redirected review is read-only:
+
+```sh
+tobari policy review --tail 100 --format json
+```
+
+Copy the emitted opaque `pcy_...` ID unchanged into one action:
+
+```sh
+tobari policy allow --id <pcy-id>
+# or
+tobari policy deny --id <pcy-id>
+```
+
+Do not decode, normalize, reconstruct, or append unchecked display text. The action resolves the ID against current retained evidence. A stale or expired reference fails instead of selecting a similar request.
+
+`tobari policy candidates --format json` is the dedicated structured discovery view. `tobari policy tail` is a compatibility view. Neither performs an action.
+
+## 4. Understand activation
+
+An exact allow or deny:
+
+1. resolves the retained reference;
+2. locks policy generation;
+3. changes only the owning Context's learned data;
+4. validates the private Context source;
+5. generates and tests the complete all-Context aggregate;
+6. publishes it atomically;
+7. reconciles only the owned OPA component; and
+8. reports the confirmed decision without replaying the request.
+
+If any validation or activation step fails, Tobari retains or restores the previous known-good aggregate. It does not partially activate the new rule.
+
+## 5. Retry deliberately
+
+After a confirmed allow, re-enter the matching Workspace and issue a new request. The old denied request is gone; Gateway never queues or replays its body.
+
+An exact rule binds Context ID, project ID, scheme, host, port, method, and path. Body, timestamp, display order, request ID, and credential label do not widen or split its authority.
+
+## Correct or compact current policy
+
+List the exhaustive current learned decisions:
+
+```sh
+tobari policy rules
+```
+
+Reset one opaque learned-rule reference:
+
+```sh
+tobari policy reset --id <policy-rule-id>
+```
+
+Reset removes only that CLI-owned learned decision and returns the effect to default deny. It is not an allow, request retry, or baseline-policy edit.
+
+After at least three compatible exact allow rules, optional bounded compaction may be discoverable:
+
+```sh
+tobari policy compactions
+tobari policy compact --id <policy-compaction-id>
+```
+
+Compaction is explicit and test-backed. It never invents a host or method wildcard and never runs automatically.
+
+## Failure behavior
+
+- Empty queue: no valid pending learnable denial exists in the requested retained window; this is not proof that no historical denial occurred.
+- Baseline deny or current exact deny: remains audit evidence but not a pending candidate.
+- Scheme, principal, cluster, or credential-binding failure: not learnable through an ineffective exact rule.
+- `policy_candidate_not_found` or stale compaction: rediscover current state; do not reuse an older reference.
+- `policy_test_failed` or preflight failure: inspect owner-only policy and OPA diagnostics. The prior policy remains authoritative.
+- Uncertain mutation output: use `tobari policy rules` and `tobari cluster status` to reconcile before another mutation.
+
+## Guarantees and limits
+
+Routine learning cannot silently create wildcard rules or authorize from observation alone. Exact decisions are project/Context scoped and body-free. The user still decides whether the destination and effect are appropriate; Tobari cannot infer semantic intent or prevent an allowed effect from carrying sensitive readable data.
+
+## Source evidence
+
+- [Policy-learning product contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Policy Catalog and mutation contracts](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/runtime_catalog.go)
+- [Policy candidate/domain semantics](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/domain/tobari)
+- [Atomic policy implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/policydata.go)
+- [Interactive review and reference tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/tobari_test.go)
+
+## Summary
+
+Review is trusted-host discovery plus one explicit exact decision. References remain opaque, policy activation is whole and atomic, and every retry is a new request initiated by the user or agent after confirmation.
+
+## Check your understanding
+
+<details>
+<summary>Why is the item number in the review list not an action target?</summary>
+
+List order is presentation, not authority. The action consumes the opaque reference that binds the retained effect and is revalidated at execution time.
+
+</details>
+
+<details>
+<summary>Does a learned exact deny keep returning as a pending item?</summary>
+
+No. It remains current resolved policy and audit evidence. Reset it to default deny if you intentionally want a future matching denial to become reviewable again.
+
+</details>
+
+<details>
+<summary>What does approval do with the original request body?</summary>
+
+Nothing. The body was not retained for policy or replay. Approval changes policy; the caller must issue a new request.
+
+</details>
+
+**Next:** use [Advanced policy](../advanced-policy/) only when exact review cannot express the trusted-host rule you need.

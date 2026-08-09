@@ -24,7 +24,10 @@ preflight_commands() {
   local -a missing_commands=()
   local command_name
   if [[ $selected_profile == fast || $selected_profile == full ]]; then
-    required_commands+=(python3)
+    required_commands+=(python3 node npm)
+  fi
+  if [[ $selected_profile == security || $selected_profile == public ]]; then
+    required_commands+=(node npm)
   fi
   if [[ $selected_profile == release ]]; then
     required_commands+=(shellcheck tar unzip ruby)
@@ -47,6 +50,26 @@ preflight_commands() {
     echo "Install the listed tools, or use the documented CI gate, before rerunning ./scripts/check.sh $selected_profile." >&2
     return 1
   fi
+}
+
+preflight_node_toolchain() {
+  local required_node required_npm reported_node reported_npm
+  required_node=$(tr -d '[:space:]' <.node-version)
+  required_npm=$(sed -n 's/.*"packageManager": "npm@\([^"]*\)".*/\1/p' docs/architecture-site/package.json)
+  reported_node=$(node --version)
+  reported_npm=$(npm --version)
+  if [[ $reported_node == "v$required_node" && $reported_npm == "$required_npm" ]]; then
+    return 0
+  fi
+  cat >&2 <<EOF
+check preflight: Node.js toolchain mismatch
+  required (.node-version): v$required_node
+  actual: $reported_node
+  required npm (site packageManager): $required_npm
+  actual: $reported_npm
+Select the repository-pinned Node.js toolchain and npm version, then rerun ./scripts/check.sh $profile.
+EOF
+  return 1
 }
 
 preflight_go_toolchain() {
@@ -123,6 +146,12 @@ preflight() {
       failed=1
     fi
   fi
+  if [[ $selected_profile == fast || $selected_profile == full ||
+    $selected_profile == security || $selected_profile == public ]]; then
+    if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+      preflight_node_toolchain || failed=1
+    fi
+  fi
   return "$failed"
 }
 
@@ -145,6 +174,7 @@ run_fast() {
   ./scripts/check-gateway-source.sh
   ./scripts/check-authbroker-source.sh
   ./scripts/check-authbroker-image.sh
+  ./scripts/check-site.sh fast
   go test ./...
 }
 
@@ -153,6 +183,7 @@ run_security() {
   go run ./tools/repoguard --scope security
   go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 -quiet ./...
   go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+  ./scripts/check-site.sh security
 }
 
 run_release() {
@@ -165,6 +196,7 @@ run_public() {
   go run ./tools/repoguard --scope public
   go run ./tools/contractlint
   require_pinned_auth_broker_image
+  ./scripts/check-site.sh public
 }
 
 load_runtime_versions() {
@@ -234,6 +266,7 @@ run_runtime() {
 
 run_full() {
   run_fast
+  ./scripts/check-site.sh browser
   go vet ./...
   go test -race ./...
   go mod tidy -diff

@@ -1,0 +1,85 @@
+import { readFile, readdir, stat } from "node:fs/promises";
+import { extname, join, relative, resolve } from "node:path";
+
+const root = resolve(import.meta.dirname, "..");
+const scannedRoots = ["src", "public"];
+const textExtensions = new Set([
+  ".astro",
+  ".css",
+  ".html",
+  ".js",
+  ".json",
+  ".md",
+  ".mdx",
+  ".mjs",
+  ".svg",
+  ".ts",
+]);
+const errors = [];
+
+async function filesBelow(directory) {
+  const result = [];
+  for (const entry of await readdir(directory)) {
+    const path = join(directory, entry);
+    if ((await stat(path)).isDirectory())
+      result.push(...(await filesBelow(path)));
+    else result.push(path);
+  }
+  return result;
+}
+
+const files = [
+  join(root, "astro.config.mjs"),
+  join(root, "package.json"),
+  ...(
+    await Promise.all(
+      scannedRoots.map((directory) => filesBelow(join(root, directory))),
+    )
+  ).flat(),
+];
+
+for (const file of files) {
+  if (!textExtensions.has(extname(file))) continue;
+  const label = relative(root, file);
+  const source = await readFile(file, "utf8");
+
+  if (
+    /\b(?:google-analytics|googletagmanager|segment\.com|plausible\.io|mixpanel|hotjar)\b/i.test(
+      source,
+    )
+  ) {
+    errors.push(`${label} contains analytics or tracking code`);
+  }
+  if (/[@]import\s+(?:url\()?['"]?https?:\/\//i.test(source)) {
+    errors.push(`${label} imports a runtime stylesheet from the network`);
+  }
+  if (
+    /<(?:script|img|source|iframe|link)\b[^>]*(?:src|href)\s*=\s*['"](?:https?:)?\/\//i.test(
+      source,
+    )
+  ) {
+    errors.push(`${label} embeds an external runtime asset`);
+  }
+  if (/\bfetch\s*\(\s*['"]https?:\/\//i.test(source)) {
+    errors.push(`${label} performs an external runtime fetch`);
+  }
+  if (
+    /\b(?:AIza[0-9A-Za-z_-]{35}|ghp_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{22,})\b/.test(
+      source,
+    )
+  ) {
+    errors.push(`${label} appears to contain a credential`);
+  }
+}
+
+if (errors.length) {
+  console.error(
+    `Site source verification failed with ${errors.length} problem(s):`,
+  );
+  for (const error of errors) console.error(`- ${error}`);
+  process.exit(1);
+}
+
+console.log(
+  `Verified ${files.length} runtime site source files: no CDN, tracking, external fetch, or credential pattern.`,
+);

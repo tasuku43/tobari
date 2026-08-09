@@ -1,0 +1,468 @@
+---
+title: Glossary
+description: One consistent vocabulary for Tobari's execution, network, policy, authentication, state, and CLI contracts.
+---
+
+## What question does this page answer?
+
+**What does each Tobari term mean, and which similar terms must not be
+collapsed together?**
+
+The short answer is: Tobari uses separate words for logical execution state,
+host-owned configuration, shared enforcement, runtime containers,
+authentication, and authorization. Keeping those words separate prevents most
+security misunderstandings.
+
+This is a reference page, not the best first introduction. Start with [the
+five-part mental model](/how-it-works/mental-model/), then return here when an
+exact term matters.
+
+## Execution and ownership
+
+### Tobari
+
+One long-lived logical untrusted execution environment selected by a canonical
+project root and a stable Context ID. Its work container is a reconciled
+runtime resource, not its identity or lifetime.
+
+### Workspace
+
+The user-facing, directory-bound way to enter and work in one logical Tobari.
+A Workspace includes its stable logical record, selected project root,
+Context binding, independent home, and reconciled runtime resources. “Leaving
+the Workspace” ends a session; it does not delete the logical Workspace.
+
+### project root
+
+The canonical host directory selected from the current working directory and
+mounted read-write into the Workspace. Tobari deliberately delegates the
+ability to read and modify this root. It does not snapshot, overlay, or protect
+files inside it from Workspace processes.
+
+### Context
+
+One host-owned logical execution setup with a stable opaque UUIDv7 ID. It
+selects agent profile, runtime image, policy mode and source, allowlisted shell
+settings, provider configuration, and
+a separate encrypted credential vault. A Workspace is permanently bound to one
+Context.
+
+### current Context
+
+The default Context used when an invocation omits an explicit Context selector.
+Changing it affects later default selection. It does not rewrite an existing
+Workspace's permanent Context binding and is not request authority.
+
+### cluster
+
+The installation-local shared Gateway, OPA, locked Auth Broker, shared
+networks, CA volumes, and aggregate projections. A Context scopes policy and
+credentials; the cluster runs enforcement for all loaded Contexts.
+
+### runtime image
+
+The OCI image that supplies the Workspace's tools and root filesystem. It must
+preserve runtime API `1`, the `tobari` user, fixed lifetime capability, and
+entrypoint. It does not choose mounts, network, policy, credentials, or logical
+Workspace lifetime.
+
+### work container
+
+The Docker container currently realizing one Workspace. Tobari may recreate it
+after image or runtime-spec drift while preserving the logical Workspace,
+project root, and home.
+
+### attached session
+
+A transient shell or exact command running through a child `docker exec`
+process. `exit` ends this process only. Attachment is not persisted as a
+Workspace lifecycle state.
+
+### Workspace home
+
+The independent writable home owned by one logical Workspace. Tool-native
+login state and projected broker handles may live here. It survives session
+exit and work-container recreation, and is removed by Workspace `delete`.
+
+## Request enforcement
+
+### Gateway
+
+The component that accepts Workspace HTTP proxy traffic, terminates
+Workspace-side TLS when needed, derives the host-issued project principal,
+redacts secrets from decision input, asks OPA once, and—only after allow—opens
+the separate upstream connection and streams the body. Gateway enforces the
+decision; OPA does not forward traffic.
+
+### OPA
+
+Open Policy Agent. It evaluates one normalized, body-free HTTP decision input
+against the loaded aggregate Rego/data projection and returns a decision. It
+does not have a Workspace network route, open the upstream connection, or
+resolve a brokered secret.
+
+### upstream
+
+The final HTTP or HTTPS service selected by the authorized request. For HTTPS,
+Gateway creates a separately verified TLS connection to this service after the
+Workspace-side TLS connection has terminated at Gateway.
+
+### HTTP effect
+
+The normalized authorization unit:
+Context ID, project ID, host, port, HTTP method, and path, plus bounded
+non-secret protocol metadata. Request body content is not an identity dimension
+and does not split policy candidates.
+
+### TLS connection A
+
+The HTTPS connection from Workspace to Gateway after an HTTP `CONNECT`.
+Gateway presents a certificate rooted in Tobari's Workspace-trusted CA and
+decrypts the HTTP attributes needed for policy.
+
+### TLS connection B
+
+The independent verified HTTPS connection from Gateway to the upstream.
+Intercepting connection A does not mean Gateway sends plaintext HTTP to the
+final HTTPS destination.
+
+### Tobari CA
+
+The certificate authority whose public certificate is installed into the
+Workspace trust bundle so Gateway can terminate Workspace-side TLS. Trusting
+the CA is a transport prerequisite, not an allow rule. Certificate-pinned
+clients fail rather than bypass Gateway.
+
+### fail closed
+
+Refuse the effect when required identity, policy, broker, schema, state, or
+ownership evidence is missing, invalid, ambiguous, or unavailable. In the
+request path, this means no unauthorized upstream connection.
+
+## Project identity
+
+### project ID
+
+A stable host-issued opaque ID for one logical Workspace. It is not a project
+name and is not accepted from a Workspace header as authority.
+
+### Context ID
+
+The stable host-issued UUIDv7 identity of a Context. It remains distinct from
+the mutable display name and from the current Context marker.
+
+### project principal
+
+The trusted pairing of stable Context ID and project ID derived by Gateway from
+the exact local interface on a dedicated Workspace network. It scopes policy
+and broker handles.
+
+### principal registry
+
+The host-owned schema-2 mapping from exact Gateway project-network interface to
+Context/project identity. Gateway receives only this directory read-only.
+Caller-supplied `X-Tobari-*` text cannot replace the mapping.
+
+### dedicated project network
+
+One Docker internal network belonging to one Workspace. The work container and
+one Gateway interface join it. The Workspace cannot join OPA, Auth Broker, a
+peer Workspace, or a normal external network through the supported topology.
+
+## Policy
+
+### baseline deny
+
+The default policy result when no allow rule matches. It can produce learnable
+secret-free evidence for an otherwise valid request. It is not a learned exact
+deny entry.
+
+### learned allow
+
+An explicitly activated exact rule for one
+Context/project/host/port/method/path effect. It is created only by a trusted
+host action after full policy validation and atomic activation.
+
+### learned deny
+
+An explicitly activated exact denial. Unlike the baseline default, it appears
+in the learned rule inventory and can be explicitly reset.
+
+### policy candidate
+
+A deterministic proposal folded from retained learnable-denial evidence. It is
+not authority and is not an automatic mutation. Body content does not create a
+different candidate.
+
+### opaque reference
+
+A validated value produced by a discovery command and consumed unchanged by
+one matching action. It is not decoded, reconstructed, shortened, or replaced
+by display order.
+
+### policy review
+
+The trusted host-side flow that inspects a candidate and deliberately selects
+allow, deny, or no action. Gateway's denial response only points to this flow.
+
+### policy activation
+
+The host process that locks policy state, validates the target Context source,
+tests the complete all-Context projection, publishes it atomically, reconciles
+OPA, and retains or restores the known-good projection on failure.
+
+### reset
+
+Removal of one selected learned decision so matching falls back to default
+deny. Reset is not allow and does not retry a request.
+
+### compaction
+
+An explicit, bounded transformation of reviewed exact learned rules into a
+safe path-prefix rule, including an adjacent outside-prefix canary. It is not
+automatic and never invents a host or method wildcard.
+
+## Authentication and credentials
+
+### authentication
+
+Establishing or storing credential material for an external service.
+Authentication answers “what credential may be presented?” It does not answer
+“may this HTTP effect leave the Workspace?”
+
+### authorization
+
+OPA's decision about the ordinary HTTP effect, enforced by Gateway. Login,
+import, provider installation, and possession of a handle do not grant it.
+
+### tool-native passthrough
+
+The universal default in which a tool logs in inside its own persistent
+Workspace home. Gateway removes authentication and cookie values from OPA
+input and audit, then forwards them unchanged only after policy allow. The
+Workspace can read these tool-owned secrets.
+
+### retained managed adapter
+
+The earlier Context/project-scoped Gateway adapter that reads reviewed
+host-side credential profile configuration. It remains a separate explicit
+path and does not silently combine with brokered or passthrough behavior.
+
+### Auth Broker
+
+The shared locked service that stores one encrypted primary secret per
+Context/provider, issues project-bound opaque handles, performs non-secret
+introspection, and resolves a matching secret once only after Gateway reports
+policy allow. It has Unix sockets, no Workspace network, and no TCP listener.
+
+### brokered primary secret
+
+The real credential encrypted in one Context vault. It is never projected into
+a Workspace or OPA. On allow, Broker returns it to Gateway over the runtime
+Unix socket for one exact declared header replacement.
+
+### broker handle
+
+A versioned opaque `tobari-h1_…` value projected into an eligible Workspace.
+It is not the real credential and is not sufficient authority. Its use must
+match Context, project, provider, credential revision, target, source header,
+and syntax, followed by OPA allow. Any process in that same Workspace that can
+read the handle can attempt to use the already delegated capability; Tobari
+does not isolate peer processes inside one Workspace.
+
+### non-secret introspection
+
+The pre-policy Broker operation that validates a candidate handle and returns
+only provider, revision, and normalized binding metadata. It does not reveal
+or resolve the primary secret.
+
+### resolve
+
+The one post-allow Broker operation that returns the matching current primary
+secret to Gateway for the declared destination header. Deny causes zero
+resolve calls.
+
+### credential revision
+
+A secret-free random identity for the current Context/provider credential.
+Replacement or logout revokes handles for the prior revision.
+
+### encrypted Context vault
+
+One schema-1 AES-256-GCM file bound by authenticated data to its stable Context
+ID. It contains credential and handle records. Encryption protects the
+container/Workspace boundary under the documented root-key preconditions; it
+does not protect against compromise of the host user and key backend.
+
+### installation root key
+
+The 32-byte key used to unlock Context vaults: an owner-only XDG state file on
+Linux or a fixed macOS Keychain item. `cluster down --purge` preserves it.
+
+### provider manifest
+
+A strict schema-v1, non-secret data document declaring acquisition mode,
+Workspace handle projection, exact HTTPS header binding, and redaction. It is
+not executable code, does not declare method/path policy, and does not grant
+communication permission.
+
+## State and public contracts
+
+### root index
+
+A durable schema-2 record mapping one canonical root and stable Context ID to
+one Workspace ID. Nearest-root selection filters by Context before selecting.
+
+### Workspace instance state
+
+The durable schema-2 logical record for one Workspace, including its permanent
+Context binding and diagnostic runtime identifiers.
+
+### aggregate policy projection
+
+The content-addressed complete projection assembled from all Contexts and
+mounted read-only into OPA. One Context's change becomes authority only after
+the whole candidate validates and activates.
+
+### Catalog
+
+The `cli.Catalog` public source of truth for command path, typed inputs,
+effects, roles, outputs, reference flow, mutations, failures, and recovery.
+Routing, help, and generated CLI reference derive from it.
+
+### command role
+
+`utility`, `discover`, or `act`. Discovery may produce opaque references. An
+action has exactly one reference-bound or command-owned fixed-target mode.
+
+### operation effect
+
+`read`, `create`, or `write`. Every externally visible operation declares one;
+unknown effects fail closed.
+
+### mutation contract
+
+The declared intent, target binding, impact dimensions, and confirmed outcome
+required before and after an external create or write.
+
+### source snapshot
+
+The canonical Gateway or Auth Broker source tree. The CLI embeds a byte-checked
+runtime snapshot for orchestration. Drift checks prevent the embedded copy from
+becoming a second editable implementation.
+
+## Common distinctions
+
+| Do not collapse                          | The difference                                                                                            |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Workspace and work container             | The Workspace is durable logical state; the container is replaceable runtime.                             |
+| Context and cluster                      | Context scopes one setup and its authority; the cluster runs shared enforcement for every loaded Context. |
+| authentication and authorization         | A credential can exist while OPA still denies the HTTP effect.                                            |
+| CA trust and policy allow                | CA trust enables inspection; allow authorizes one normalized effect.                                      |
+| broker handle and primary secret         | The handle is project-bound, revocable, and non-secret; the vault retains the real credential.            |
+| `exit` and `delete`                      | Exit ends a child session; delete removes the logical Workspace and home.                                 |
+| `cluster down --purge` and `auth logout` | Purge removes shared runtime and CA volumes; logout removes one local credential and handles.             |
+| tag and digest                           | A tag can move; a digest identifies immutable OCI content.                                                |
+| manifest schema and report schema        | Stored Context manifest is schema 4; public Context report is schema 5.                                   |
+
+## Failure and limits
+
+These definitions describe the supported implementation. They do not broaden
+Tobari's threat model. In particular, “untrusted Workspace” does not mean that
+the selected project root is protected from that Workspace, or that data
+cannot be sent to an explicitly allowed destination.
+
+When two terms appear to conflict, do not choose one by display order or
+convenience. Return to the governing contract and the exact boundary. Tobari
+fails closed when trusted identity, schema, ownership, policy, or credential
+state is missing or ambiguous; vocabulary is not a fallback source of
+authority.
+
+## Evidence
+
+- Canonical public vocabulary:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/01_product_contract.md`}
+  >
+    product contract
+  </a>
+- Layer and runtime ownership:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/02_architecture.md`}
+  >
+    architecture
+  </a>
+- Trust and limitation vocabulary:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/03_security_model.md`}
+  >
+    security model
+  </a>
+  and
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/THREAT_MODEL.md`}
+  >
+    threat model
+  </a>
+- Authentication vocabulary:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/07_authentication.md`}
+  >
+    authentication contract
+  </a>
+- Domain definitions:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/project.go`}
+  >
+    Workspace identity
+  </a>
+  ,
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}
+  >
+    Context
+  </a>
+  , and
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider.go`}
+  >
+    provider vocabulary
+  </a>
+
+## Summary
+
+Tobari separates durable execution identity, host configuration, shared
+enforcement, runtime realization, credential possession, and network
+authorization. Use the exact term for the exact boundary.
+
+## Check your understanding
+
+You should now be able to explain Tobari without using “container,” “Context,”
+and “Workspace” as synonyms.
+
+<details>
+  <summary>A process has a valid broker handle. Is it authenticated and authorized?</summary>
+
+It has a credential capability candidate, not complete authority. Broker must
+match Context, project, provider, revision, and HTTP binding; OPA must
+separately allow the ordinary HTTP effect before one secret resolution.
+
+</details>
+
+<details>
+  <summary>The current Context changes. Does an existing Workspace move to it?</summary>
+
+No. The Workspace's Context ID binding is permanent. The current Context is
+only the default for an invocation that omits a selector.
+
+</details>
+
+<details>
+  <summary>Who actually opens an allowed upstream connection: Gateway or OPA?</summary>
+
+Gateway. OPA evaluates and returns a decision; it does not forward traffic.
+
+</details>
+
+Next: test the whole model in the [Understanding
+check](/start/understanding-check/).

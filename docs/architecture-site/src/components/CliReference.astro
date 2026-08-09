@@ -1,0 +1,527 @@
+---
+import catalogData from "../generated/catalog.json";
+
+interface InputContract {
+  name: string;
+  source: string;
+  required: boolean;
+  value_kind: string;
+  cardinality: string;
+  description: string;
+  allowed_values?: string[];
+  default_value?: unknown;
+  minimum?: number | null;
+  maximum?: number | null;
+  reference_kind?: string;
+  requires?: string[];
+  conflicts_with?: string[];
+}
+interface OutputField {
+  name: string;
+  type: string;
+  description: string;
+  reference_kind?: string;
+}
+interface ErrorContract {
+  code: string;
+  kind: string;
+  retryable: boolean;
+  next_actions?: { command: string; reason: string }[];
+}
+interface CommandContract {
+  path: string;
+  summary: string;
+  usage: string;
+  effect: string;
+  role: string;
+  produces_refs?: unknown[];
+  consumes_refs?: unknown[];
+  contract: {
+    capability_id: string;
+    outcome: string;
+    inputs?: InputContract[];
+    output?: {
+      formats?: string[];
+      default_format?: string;
+      fields?: OutputField[];
+      delivery?: string;
+      collection_coverage?: string;
+      json_envelope?: string;
+      json_schema_version?: number;
+    };
+    prerequisites?: string[];
+    errors?: ErrorContract[];
+    mutation?: Record<string, unknown>;
+    fixed_target?: Record<string, unknown>;
+  };
+}
+interface Scope {
+  scope?: string;
+  commands: CommandContract[];
+  workflows?: unknown[];
+  invocation_grammar?: unknown;
+  error_contract?: unknown;
+}
+const scopes = catalogData.scopes as unknown as Scope[];
+---
+
+<section class="cli-reference" aria-labelledby="cli-command-index">
+  <div class="catalog-origin">
+    <strong>{catalogData.command_count} public command contracts</strong>
+    <span
+      >Generated from {catalogData.generated_from}; no second command registry
+      is maintained here.</span
+    >
+  </div>
+
+  <nav class="command-index" aria-labelledby="cli-command-index">
+    <h2 id="cli-command-index">Command index</h2>
+    {
+      scopes.map((scope) => (
+        <section>
+          <h3>{scope.commands[0]?.path.split(" ")[0] || "Commands"}</h3>
+          <ul>
+            {scope.commands.map((command) => (
+              <li>
+                <a href={`#command-${command.path.replaceAll(" ", "-")}`}>
+                  {command.path}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </nav>
+
+  {
+    scopes.map((scope) => (
+      <section class="command-scope">
+        <h2>{scope.commands[0]?.path.split(" ")[0] || "Command"} namespace</h2>
+        {scope.commands.map((command) => (
+          <article
+            class="command-contract"
+            id={`command-${command.path.replaceAll(" ", "-")}`}
+          >
+            <header>
+              <div>
+                <code>tobari {command.path}</code>
+                <h3>{command.summary}</h3>
+              </div>
+              <dl class="badges">
+                <div>
+                  <dt>Role</dt>
+                  <dd>{command.role}</dd>
+                </div>
+                <div>
+                  <dt>Effect</dt>
+                  <dd>{command.effect}</dd>
+                </div>
+                <div>
+                  <dt>Capability</dt>
+                  <dd>
+                    <code>{command.contract.capability_id}</code>
+                  </dd>
+                </div>
+              </dl>
+            </header>
+            <p>
+              <strong>Outcome:</strong> {command.contract.outcome}
+            </p>
+            <pre tabindex="0">
+              <code>{command.usage}</code>
+            </pre>
+
+            {command.contract.inputs?.length ? (
+              <details>
+                <summary>Inputs ({command.contract.inputs.length})</summary>
+                <div class="input-list">
+                  {command.contract.inputs.map((input) => (
+                    <section>
+                      <h4>
+                        <code>{input.name}</code>{" "}
+                        <small>
+                          {input.required ? "required" : "optional"}
+                        </small>
+                      </h4>
+                      <p>{input.description}</p>
+                      <dl>
+                        <div>
+                          <dt>Source</dt>
+                          <dd>{input.source}</dd>
+                        </div>
+                        <div>
+                          <dt>Kind</dt>
+                          <dd>{input.value_kind}</dd>
+                        </div>
+                        <div>
+                          <dt>Cardinality</dt>
+                          <dd>{input.cardinality}</dd>
+                        </div>
+                        {input.default_value !== undefined && (
+                          <div>
+                            <dt>Default</dt>
+                            <dd>
+                              <code>{JSON.stringify(input.default_value)}</code>
+                            </dd>
+                          </div>
+                        )}
+                        {input.allowed_values?.length && (
+                          <div>
+                            <dt>Allowed</dt>
+                            <dd>{input.allowed_values.join(", ")}</dd>
+                          </div>
+                        )}
+                        {input.minimum != null && (
+                          <div>
+                            <dt>Minimum</dt>
+                            <dd>
+                              <code>{input.minimum}</code>
+                            </dd>
+                          </div>
+                        )}
+                        {input.maximum != null && (
+                          <div>
+                            <dt>Maximum</dt>
+                            <dd>
+                              <code>{input.maximum}</code>
+                            </dd>
+                          </div>
+                        )}
+                        {input.reference_kind && (
+                          <div>
+                            <dt>Reference</dt>
+                            <dd>
+                              <code>{input.reference_kind}</code>
+                            </dd>
+                          </div>
+                        )}
+                        {input.requires?.length && (
+                          <div>
+                            <dt>Requires</dt>
+                            <dd>{input.requires.join(", ")}</dd>
+                          </div>
+                        )}
+                        {input.conflicts_with?.length && (
+                          <div>
+                            <dt>Conflicts</dt>
+                            <dd>{input.conflicts_with.join(", ")}</dd>
+                          </div>
+                        )}
+                      </dl>
+                    </section>
+                  ))}
+                </div>
+              </details>
+            ) : (
+              <p>
+                <strong>Inputs:</strong> none.
+              </p>
+            )}
+
+            <details>
+              <summary>
+                Output, prerequisites, failures, references, and mutation
+                contract
+              </summary>
+              {command.contract.output && (
+                <section>
+                  <h4>Output</h4>
+                  <p>
+                    Formats:{" "}
+                    <code>
+                      {command.contract.output.formats?.join(", ") || "none"}
+                    </code>
+                    . Default:{" "}
+                    <code>
+                      {command.contract.output.default_format || "none"}
+                    </code>
+                    . Delivery:{" "}
+                    <code>
+                      {command.contract.output.delivery || "not declared"}
+                    </code>
+                    . Coverage:{" "}
+                    <code>
+                      {command.contract.output.collection_coverage ||
+                        "not declared"}
+                    </code>
+                    .
+                    {command.contract.output.json_envelope && (
+                      <>
+                        {" "}
+                        JSON:{" "}
+                        <code>
+                          {command.contract.output.json_envelope}
+                        </code>{" "}
+                        schema{" "}
+                        <code>
+                          {command.contract.output.json_schema_version}
+                        </code>
+                        .
+                      </>
+                    )}
+                  </p>
+                  {command.contract.output.fields?.length && (
+                    <dl class="field-list">
+                      {command.contract.output.fields.map((field) => (
+                        <div>
+                          <dt>
+                            <code>{field.name}</code>{" "}
+                            <small>{field.type}</small>
+                          </dt>
+                          <dd>
+                            {field.description}
+                            {field.reference_kind && (
+                              <>
+                                {" "}
+                                Reference kind:{" "}
+                                <code>{field.reference_kind}</code>.
+                              </>
+                            )}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </section>
+              )}
+              <section>
+                <h4>Prerequisites</h4>
+                {command.contract.prerequisites?.length ? (
+                  <ul>
+                    {command.contract.prerequisites.map((item) => (
+                      <li>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>None declared.</p>
+                )}
+              </section>
+              <section>
+                <h4>Declared failures</h4>
+                {command.contract.errors?.length ? (
+                  <ul>
+                    {command.contract.errors.map((error) => (
+                      <li>
+                        <code>{error.code}</code> — {error.kind};{" "}
+                        {error.retryable
+                          ? "logical retry permitted"
+                          : "do not repeat unchanged"}
+                        .
+                        {error.next_actions?.map((action) => (
+                          <>
+                            {" "}
+                            Recovery: <code>tobari {action.command}</code> (
+                            {action.reason})
+                          </>
+                        ))}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>None declared.</p>
+                )}
+              </section>
+              {(command.produces_refs?.length ||
+                command.consumes_refs?.length) && (
+                <section>
+                  <h4>Opaque references</h4>
+                  <pre tabindex="0">
+                    <code>
+                      {JSON.stringify(
+                        {
+                          produces: command.produces_refs,
+                          consumes: command.consumes_refs,
+                        },
+                        null,
+                        2,
+                      )}
+                    </code>
+                  </pre>
+                </section>
+              )}
+              {(command.contract.mutation || command.contract.fixed_target) && (
+                <section>
+                  <h4>Mutation and target binding</h4>
+                  <pre tabindex="0">
+                    <code>
+                      {JSON.stringify(
+                        {
+                          mutation: command.contract.mutation,
+                          fixed_target: command.contract.fixed_target,
+                        },
+                        null,
+                        2,
+                      )}
+                    </code>
+                  </pre>
+                </section>
+              )}
+            </details>
+
+            <details class="machine-contract">
+              <summary>Complete machine contract JSON</summary>
+              <pre tabindex="0">
+                <code>{JSON.stringify(command, null, 2)}</code>
+              </pre>
+            </details>
+          </article>
+        ))}
+      </section>
+    ))
+  }
+</section>
+
+<style>
+  .catalog-origin {
+    display: grid;
+    min-width: 0;
+    gap: 0.25rem;
+    padding: 1rem;
+    border-inline-start: 0.3rem solid var(--tobari-control);
+    background: var(--sl-color-gray-6);
+  }
+  .catalog-origin span {
+    color: var(--sl-color-gray-2);
+  }
+  .catalog-origin > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .command-index {
+    margin-block: 1.5rem;
+    padding: 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .command-index > section {
+    display: grid;
+    grid-template-columns: minmax(7rem, 0.25fr) 1fr;
+    gap: 1rem;
+  }
+  .command-index h3 {
+    margin-top: 0.4rem;
+  }
+  .command-index ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    padding: 0;
+    list-style: none;
+  }
+  .command-contract {
+    min-width: 0;
+    margin-block: 1.2rem;
+    padding: clamp(0.8rem, 2vw, 1.2rem);
+    border: 1px solid var(--sl-color-gray-5);
+    border-inline-start: 0.28rem solid var(--tobari-control);
+    scroll-margin-top: 5rem;
+  }
+  .command-contract > header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 1rem;
+    align-items: start;
+  }
+  .command-contract h3 {
+    margin: 0.35rem 0;
+    font-size: var(--sl-text-lg);
+  }
+  .badges {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 0.5rem;
+    margin: 0;
+  }
+  .badges div {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--sl-color-gray-5);
+    text-align: center;
+  }
+  .badges dt {
+    color: var(--sl-color-gray-3);
+    font-size: 0.7rem;
+    font-weight: 750;
+    text-transform: uppercase;
+  }
+  .badges dd {
+    margin: 0.15rem 0 0;
+    font-size: var(--sl-text-xs);
+  }
+  .command-contract details {
+    min-width: 0;
+    margin-block: 0.7rem;
+    padding: 0.1rem 0.75rem;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .command-contract summary {
+    padding-block: 0.7rem;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  .input-list,
+  .field-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+  .input-list > section,
+  .field-list > div {
+    padding: 0.7rem;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .input-list h4,
+  .input-list p {
+    margin: 0 0 0.4rem;
+  }
+  .input-list dl {
+    display: grid;
+    gap: 0.25rem;
+  }
+  .input-list dl div {
+    display: grid;
+    grid-template-columns: 6rem 1fr;
+  }
+  .input-list dt,
+  .field-list dt {
+    color: var(--sl-color-gray-3);
+    font-weight: 700;
+  }
+  .input-list dd,
+  .field-list dd {
+    margin: 0;
+  }
+  .field-list {
+    margin: 0;
+  }
+  .field-list dt,
+  .field-list dd {
+    padding: 0.3rem;
+  }
+  pre {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .command-contract :not(pre) > code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 48rem) {
+    .command-index > section,
+    .command-contract > header,
+    .input-list,
+    .field-list {
+      grid-template-columns: 1fr;
+    }
+    .badges {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media print {
+    .machine-contract {
+      display: none;
+    }
+    .command-contract {
+      break-inside: avoid;
+    }
+  }
+</style>

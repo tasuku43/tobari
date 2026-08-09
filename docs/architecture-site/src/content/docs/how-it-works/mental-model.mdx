@@ -1,0 +1,130 @@
+---
+title: The five-part mental model
+description: Start with the five participants in one outbound request before learning their implementation details.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+What is the smallest accurate model of Tobari?
+
+**One-sentence answer:** A project-bound Workspace can reach an HTTP or HTTPS upstream only through Gateway; Gateway asks OPA whether the ordinary request is allowed and uses Auth Broker only when a broker-managed credential is involved.
+
+### By the end, you can explain
+
+- why Tobari is more than a Docker wrapper;
+- the different jobs of Workspace, Gateway, OPA, Auth Broker, and upstream;
+- why authentication does not imply network authorization; and
+- where to look next when a request is denied.
+
+**Prerequisite:** [Start with the overview](/start/overview/) if you have not yet seen Tobari's user outcome. No Docker, proxy, or policy knowledge is required here.
+
+<ConceptDiagram name="minimal-system" />
+
+This is a conceptual diagram. It deliberately omits Docker networks, TLS termination, persistent state, and host-side policy review. Those details appear after the five roles are stable in your mental model.
+
+## Read the model from left to right
+
+### 1. Workspace: where project work runs
+
+A [Workspace](/reference/glossary/#workspace) is the human-facing name for one long-lived, directory-bound Tobari. It runs tools against the selected project root and has its own persistent home. Its runtime container is replaceable; the logical Workspace is not the container.
+
+Treat every process in the Workspace as untrusted. It may read and modify the selected project root. It does not receive a general route to the public Internet, Docker control, another Workspace, or a broker-managed primary credential.
+
+### 2. Gateway: the enforcement point
+
+Gateway accepts the Workspace's proxy traffic. It establishes the trusted Context and project identity, normalizes the HTTP request, asks OPA once, and enforces the answer. On deny, Gateway returns a local response without opening the upstream connection. On allow, Gateway creates the separate upstream connection and streams the request.
+
+OPA does not forward packets. Gateway does.
+
+### 3. OPA: the decision point
+
+[OPA](/reference/glossary/#opa) evaluates the ordinary HTTP effect. The decision includes the trusted Context/project principal, scheme, host, port, method, and path. The input also carries query values and redacted non-secret headers, but no request body or credential value.
+
+OPA returns a structured allow or deny. An unavailable or malformed decision is not treated as permission.
+
+### 4. Auth Broker: credential custody, not permission
+
+Auth Broker is relevant only to the brokered authentication route. It keeps the primary credential in an encrypted Context vault and gives a Workspace an opaque, project-bound handle. Gateway may inspect non-secret binding metadata before policy. It may resolve the primary credential exactly once only after OPA allows the ordinary HTTP effect.
+
+Login can create credential state. It does not add a policy rule.
+
+### 5. Upstream: the requested destination
+
+The upstream service receives a request from Gateway only after the effect is allowed. For HTTPS, the final hop is a separately verified TLS connection. An allowed upstream may receive any data the Workspace can read and chooses to send on that allowed route; Tobari does not inspect request bodies for meaning.
+
+## One concrete request
+
+Suppose a tool in a Workspace sends `PUT https://example.com/api/items/42`.
+
+1. The tool sends the request through the configured HTTP proxy.
+2. Gateway derives project identity from the receiving network interface, not from a caller header.
+3. Gateway builds a body-free policy input and calls OPA.
+4. If no current rule matches, OPA denies. Gateway returns `403 policy_denied` and leaves the upstream untouched.
+5. A trusted host user can review the retained exact effect.
+6. If that exact Context/project/host/port/method/path is allowed and deliberately retried, Gateway makes the upstream connection.
+
+The first request is not an application for automatic permission. It is an attempted effect that either matches current authority or fails.
+
+## Failure behavior
+
+| Failure                    | Observable result                   | What does **not** happen                        |
+| -------------------------- | ----------------------------------- | ----------------------------------------------- |
+| No matching rule           | `403 policy_denied`                 | No upstream connection and no automatic allow   |
+| OPA unavailable or invalid | `503 policy_unavailable`            | No fallback decision                            |
+| Gateway unavailable        | Proxy connection fails              | No direct Internet fallback                     |
+| Invalid broker handle      | `403 credential_handle_invalid`     | No passthrough fallback and no upstream request |
+| Auth Broker unavailable    | `503 credential_broker_unavailable` | No secret resolution                            |
+
+## Guarantees and limitations
+
+### What this model guarantees
+
+Within the supported Docker topology, a Workspace has no direct external route. Gateway must receive an allow decision before it forwards the request. Brokered primary credentials stay outside the Workspace and OPA.
+
+### What this model does not guarantee
+
+It does not protect files inside the selected project root from the Workspace. It does not stop an allowed destination from receiving Workspace-readable data. It assumes the host, Docker Engine or VM, kernel, Gateway, OPA, Auth Broker, and their trusted state are not compromised. It does not provide general SSH, raw TCP, UDP, QUIC, DNS, malware, or same-Workspace process isolation.
+
+## Source evidence
+
+- [Product vocabulary and outcome](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Architecture topology and HTTPS flow](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [Security model and enforcement table](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
+- [Docker Compose topology](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/compose.yaml)
+- [Gateway request enforcement](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/addon/tobari_gateway.py)
+- [Gateway contract tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+
+## Summary
+
+Remember one path: **Workspace → Gateway → upstream**, with **OPA deciding** and **Auth Broker supplying a bound credential only when needed and only after allow**. Gateway is the component that closes or opens the path.
+
+## Check your understanding
+
+You should now be able to explain why authentication, policy decision, and network forwarding are three separate jobs.
+
+<details>
+  <summary>
+    If OPA says allow, which component actually connects upstream?
+  </summary>
+  Gateway. OPA returns the decision; it does not forward the request.
+</details>
+
+<details>
+  <summary>
+    Does a successful broker login authorize traffic to that provider?
+  </summary>
+  No. Login creates Context-owned credential state. The ordinary HTTP effect
+  still needs an OPA allow decision.
+</details>
+
+<details>
+  <summary>
+    What can a Workspace process do to the selected project root?
+  </summary>
+  It can read, modify, and delete files there. The selected root is delegated
+  writable authority, not protected content.
+</details>
+
+If those roles are still blurred, reread [the diagram above](#read-the-model-from-left-to-right). Next, add the actual networks and failure paths in [System overview](/how-it-works/system-overview/).

@@ -1,0 +1,163 @@
+---
+title: Quickstart
+description: Create a synthetic Workspace, observe a denial, review one exact effect, retry, and clean up deliberately.
+---
+
+import SequenceExplorer from "../../../components/SequenceExplorer.astro";
+
+## The question this page answers
+
+**What is the shortest complete Tobari workflow?**
+
+Start the shared cluster on the trusted host, enter a synthetic project Workspace, observe one denied request, review and allow its exact effect on the host, then re-enter and retry deliberately.
+
+After this page, you should be able to distinguish host-owned control commands from commands run inside the Workspace and explain what remains after `exit`.
+
+Prerequisites: complete [Install](../install/) and use an interactive terminal. The commands below match the current CLI Catalog.
+
+## 1. Choose a safe synthetic project
+
+On the trusted host:
+
+```sh
+mkdir -p quickstart-example
+cd quickstart-example
+tobari cluster up
+```
+
+Do not use `/`, your entire home directory, or a Tobari configuration/state directory as the project root. `cluster up` starts and validates the shared Gateway, OPA, and Auth Broker. It does not create the project Workspace.
+
+If startup fails, run `tobari doctor` and `tobari cluster status`. Correct the reported host prerequisite before retrying `tobari cluster up`; do not weaken the runtime topology.
+
+## 2. Enter the Workspace
+
+Still from the synthetic project directory:
+
+```sh
+tobari
+```
+
+The root command chooses or creates the Workspace bound to the current/default Context and opens its interactive shell. The project is mounted read-write. The Workspace receives proxy and CA settings, but it does not receive Docker control or a direct external route.
+
+Run this synthetic request **inside** the Workspace:
+
+```sh
+curl -sS -w '\nhttp=%{http_code}\n' \
+  -X PUT https://example.com/quickstart
+```
+
+The initialized policy does not allow this exact effect. Gateway returns a secret-free `policy_denied` response with HTTP `403` and points to the trusted-host review command. It does not approve or retry the request.
+
+Leave the Workspace:
+
+```sh
+exit
+```
+
+`exit` ends this attached shell only. The logical Workspace, persistent home, Context binding, runtime container, project network, and learned-policy state remain for reuse.
+
+## 3. Review on the trusted host
+
+Now run:
+
+```sh
+tobari policy review --tail 100
+```
+
+In a TTY, select the request and inspect its Context, project, host, port, method, and path. Choose the exact **allow** action. That confirmation tests the complete aggregate policy and activates the new rule atomically.
+
+For a redirected or scripted flow, review is read-only. Copy the opaque ID unchanged from JSON and invoke the reference-bound action:
+
+```sh
+tobari policy review --tail 100 --format json
+tobari policy allow --id <exact-pcy-id-from-policy-review>
+```
+
+Replace the placeholder with the emitted value. Do not derive an ID from row order or reconstruct one from request text. If the effect should remain blocked, use the review UI's deny action or `tobari policy deny --id <exact-pcy-id-from-policy-review>`.
+
+## 4. Re-enter and retry deliberately
+
+```sh
+tobari
+curl -sS -w '\nhttp=%{http_code}\n' \
+  -X PUT https://example.com/quickstart
+exit
+```
+
+This time Gateway evaluates a new request against the active exact rule. The HTTP result now comes from the upstream. Tobari does not promise a particular `example.com` response code; it promises that this exact authorized effect can reach the upstream path.
+
+Another method, path, Context, or project does not inherit this permission automatically. The body is not part of the rule identity, so changing only the body does not create a separately reviewable effect.
+
+<SequenceExplorer
+  title="The quickstart denial and review"
+  scenarios={["learnable-denial", "policy-review", "allowed-passthrough"]}
+  initial="learnable-denial"
+  compact={true}
+/>
+
+## 5. Inspect and clean up
+
+On the host:
+
+```sh
+tobari status
+tobari list
+tobari delete
+tobari cluster down --purge
+```
+
+`status` and `list` are observational. `delete` removes the nearest detached Workspace, including its persistent home and owned runtime resources, but never the project files. `cluster down` requires every Workspace to be deleted; `--purge` additionally removes shared CA volumes. It does not delete the Auth Broker root key or encrypted Context vaults and is not a provider logout.
+
+Use `tobari delete --force` only when intentionally terminating an attached session. `--force` bypasses the attachment safety guard; it does not expand the deletion target.
+
+## Failure behavior
+
+- `tty_required`: use an interactive terminal for the root `tobari` entry.
+- `workspace_selection_stale`: run `tobari` again and select from the refreshed candidates.
+- `image_not_found` or `incompatible_image`: inspect the Context with `tobari context show`; build or restore a compatible runtime before entry.
+- `policy_denied` (`403`): leave the Workspace and review on the host. Do not loop retries.
+- `credential_handle_invalid` (`403`): leave and re-enter to receive the current projection; do not substitute another Workspace's handle.
+- OPA, Gateway, or Broker unavailable: the request fails closed. Reconcile from the host and retry only after readiness is confirmed.
+- `project_session_attached`: exit, then run `tobari delete`; use `--force` only if termination is intended.
+- `cluster_not_empty`: use `tobari list`, delete every Workspace from its root/Context, then run `cluster down` again.
+
+## Guarantees and limits
+
+This workflow demonstrates one exact HTTP effect and lifecycle path. It does not prove that every tool honors proxy/CA settings, that an allowed destination is safe, or that selected project files are protected from the agent. The host, Docker, enforcement services, and reviewed images remain trusted preconditions.
+
+## Source evidence
+
+- [Catalog command specifications](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/runtime_catalog.go)
+- [Catalog contract tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/tobari_test.go)
+- [Public quickstart contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/README.md)
+- [Workspace application selection tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/app/tobaricmd/service_test.go)
+- [End-to-end integration checks](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+
+## Summary
+
+The ordinary loop is: enter, work, receive a denial, leave, review on the host, activate an exact decision, and retry deliberately. Authentication, policy authorization, and Workspace deletion remain separate actions.
+
+## Check your understanding
+
+<details>
+<summary>Why do you leave the Workspace before <code>policy review</code>?</summary>
+
+Policy review and mutation belong to the trusted-host boundary. A Workspace does not contain a second Tobari control path and cannot approve its own request.
+
+</details>
+
+<details>
+<summary>What survives the first <code>exit</code>?</summary>
+
+The logical Workspace, home, Context binding, runtime resources, principal registration, and policy remain. Only the current shell/exec session ends.
+
+</details>
+
+<details>
+<summary>Does the allow action replay the denied HTTP request?</summary>
+
+No. It validates and activates policy. You explicitly re-enter and issue a new request.
+
+</details>
+
+**Next:** [Understand the first denial in detail](../first-denial/).

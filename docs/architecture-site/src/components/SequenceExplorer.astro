@@ -1,0 +1,612 @@
+---
+import { sequenceScenarios } from "../data/sequences";
+
+interface Props {
+  scenarios?: string[];
+  initial?: string;
+  compact?: boolean;
+  title?: string;
+}
+
+const {
+  scenarios: requestedIds,
+  initial,
+  compact = false,
+  title = "Request sequence explorer",
+} = Astro.props;
+const selected = requestedIds?.length
+  ? sequenceScenarios.filter((scenario) => requestedIds.includes(scenario.id))
+  : sequenceScenarios;
+const initialId =
+  initial && selected.some((scenario) => scenario.id === initial)
+    ? initial
+    : selected[0]?.id;
+const serialized = JSON.stringify(selected);
+---
+
+<figure class:list={["sequence-explorer", { compact }]}>
+  <figcaption>
+    <span class="eyebrow">Interactive sequence</span>
+    <h2>{title}</h2>
+    <p>
+      Nothing plays automatically. Choose a scenario, then move through the
+      effect one decision at a time.
+    </p>
+  </figcaption>
+
+  <tobari-sequence
+    data-scenarios={serialized}
+    data-initial={initialId}
+    tabindex="0"
+  >
+    <section class="sequence-interactive" aria-label={title}>
+      <div class="sequence-toolbar">
+        <label>
+          <span>Scenario</span>
+          <select data-control="scenario">
+            {
+              selected.map((scenario) => (
+                <option
+                  value={scenario.id}
+                  selected={scenario.id === initialId}
+                >
+                  {scenario.label}
+                </option>
+              ))
+            }
+          </select>
+        </label>
+        <div class="button-group" aria-label="Sequence controls">
+          <button type="button" data-control="previous">Previous</button>
+          <button type="button" data-control="next">Next</button>
+          <button type="button" data-control="play">Play</button>
+          <button type="button" data-control="pause" disabled>Pause</button>
+          <button type="button" data-control="restart">Restart</button>
+        </div>
+      </div>
+
+      <p class="scenario-summary" data-field="summary"></p>
+      <div
+        class="lane-map"
+        data-field="lanes"
+        role="img"
+        aria-label="Actor lanes and current message"
+      >
+      </div>
+      <div class="step-status" aria-live="polite" aria-atomic="true">
+        <p class="step-count" data-field="count"></p>
+        <h3 data-field="title"></h3>
+        <p data-field="explanation"></p>
+      </div>
+      <dl class="step-facts">
+        <div><dt>Information sent</dt><dd data-field="sent"></dd></div>
+        <div><dt>Information not sent</dt><dd data-field="withheld"></dd></div>
+        <div><dt>Responsible component</dt><dd data-field="owner"></dd></div>
+        <div><dt>If this step fails</dt><dd data-field="failure"></dd></div>
+      </dl>
+      <p class="keyboard-hint">
+        Keyboard: focus this explorer and use Left or Right Arrow. Space toggles
+        Play and Pause.
+      </p>
+    </section>
+  </tobari-sequence>
+
+  <section class="static-sequences" aria-labelledby={`static-${initialId}`}>
+    <h3 id={`static-${initialId}`}>Static sequence descriptions</h3>
+    <p>
+      These transcripts contain the same information as the controls above and
+      remain available without JavaScript or animation.
+    </p>
+    {
+      selected.map((scenario, scenarioIndex) => (
+        <details open={scenarioIndex === 0}>
+          <summary>{scenario.label}</summary>
+          <p>{scenario.summary}</p>
+          <ol>
+            {scenario.steps.map((step) => (
+              <li>
+                <h4>{step.title}</h4>
+                <p>
+                  <strong>
+                    {step.from} → {step.to}:
+                  </strong>{" "}
+                  {step.explanation}
+                </p>
+                <dl>
+                  <div>
+                    <dt>Sent</dt>
+                    <dd>{step.sent}</dd>
+                  </div>
+                  <div>
+                    <dt>Not sent</dt>
+                    <dd>{step.withheld}</dd>
+                  </div>
+                  <div>
+                    <dt>Owner</dt>
+                    <dd>{step.owner}</dd>
+                  </div>
+                  <div>
+                    <dt>Failure</dt>
+                    <dd>{step.failure}</dd>
+                  </div>
+                </dl>
+              </li>
+            ))}
+          </ol>
+        </details>
+      ))
+    }
+  </section>
+</figure>
+
+<script>
+  import type { SequenceScenario } from "../data/sequences";
+
+  class TobariSequence extends HTMLElement {
+    scenarios: SequenceScenario[] = [];
+    scenarioIndex = 0;
+    stepIndex = 0;
+    timer?: number;
+
+    connectedCallback() {
+      try {
+        this.scenarios = JSON.parse(
+          this.dataset.scenarios || "[]",
+        ) as SequenceScenario[];
+      } catch {
+        return;
+      }
+      const requested = this.dataset.initial;
+      const found = this.scenarios.findIndex(({ id }) => id === requested);
+      this.scenarioIndex = found >= 0 ? found : 0;
+      this.querySelector('[data-control="scenario"]')?.addEventListener(
+        "change",
+        (event) => {
+          if (!(event.currentTarget instanceof HTMLSelectElement)) return;
+          const selectedValue = event.currentTarget.value;
+          const index = this.scenarios.findIndex(
+            ({ id }) => id === selectedValue,
+          );
+          if (index >= 0) {
+            this.stop();
+            this.scenarioIndex = index;
+            this.stepIndex = 0;
+            this.render();
+          }
+        },
+      );
+      this.querySelector('[data-control="previous"]')?.addEventListener(
+        "click",
+        () => this.previous(),
+      );
+      this.querySelector('[data-control="next"]')?.addEventListener(
+        "click",
+        () => this.next(),
+      );
+      this.querySelector('[data-control="play"]')?.addEventListener(
+        "click",
+        () => this.play(),
+      );
+      this.querySelector('[data-control="pause"]')?.addEventListener(
+        "click",
+        () => this.stop(),
+      );
+      this.querySelector('[data-control="restart"]')?.addEventListener(
+        "click",
+        () => {
+          this.stop();
+          this.stepIndex = 0;
+          this.render();
+        },
+      );
+      this.addEventListener("keydown", (event) => {
+        if (
+          event.target instanceof HTMLSelectElement ||
+          event.target instanceof HTMLButtonElement
+        )
+          return;
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          this.previous();
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          this.next();
+        } else if (event.key === " ") {
+          event.preventDefault();
+          this.timer ? this.stop() : this.play();
+        }
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) this.stop();
+      });
+      this.render();
+    }
+
+    get scenario() {
+      return this.scenarios[this.scenarioIndex];
+    }
+
+    setText(field: string, value: string) {
+      const element = this.querySelector(`[data-field="${field}"]`);
+      if (element) element.textContent = value;
+    }
+
+    render() {
+      const scenario = this.scenario;
+      const step = scenario?.steps[this.stepIndex];
+      if (!scenario || !step) return;
+      this.setText("summary", scenario.summary);
+      this.setText(
+        "count",
+        `Step ${this.stepIndex + 1} of ${scenario.steps.length}`,
+      );
+      this.setText("title", step.title);
+      this.setText(
+        "explanation",
+        `${step.from} → ${step.to}. ${step.explanation}`,
+      );
+      this.setText("sent", step.sent);
+      this.setText("withheld", step.withheld);
+      this.setText("owner", step.owner);
+      this.setText("failure", step.failure);
+      const lanes = this.querySelector('[data-field="lanes"]');
+      if (lanes) {
+        lanes.replaceChildren();
+        for (const actor of scenario.actors) {
+          const lane = document.createElement("div");
+          lane.className = "actor-lane";
+          const isSource = actor === step.from || step.from.includes(actor);
+          const isTarget = actor === step.to || step.to.includes(actor);
+          if (isSource) lane.dataset.state = "source";
+          if (isTarget) lane.dataset.state = "target";
+          const label = document.createElement("span");
+          label.className = "actor-label";
+          label.textContent = actor;
+          lane.append(label);
+          const track = document.createElement("span");
+          track.className = "actor-track";
+          track.setAttribute("aria-hidden", "true");
+          lane.append(track);
+          if (isSource || isTarget) {
+            const marker = document.createElement("span");
+            marker.className = `message-marker tone-${step.tone}`;
+            marker.textContent =
+              isSource && isTarget ? "●" : isSource ? "SEND" : "RECEIVE";
+            marker.setAttribute("aria-hidden", "true");
+            lane.append(marker);
+          }
+          lanes.append(lane);
+        }
+        lanes.setAttribute(
+          "aria-label",
+          `${step.title}: ${step.from} sends to ${step.to}`,
+        );
+      }
+      const previous = this.querySelector<HTMLButtonElement>(
+        '[data-control="previous"]',
+      );
+      const next = this.querySelector<HTMLButtonElement>(
+        '[data-control="next"]',
+      );
+      if (previous) previous.disabled = this.stepIndex === 0;
+      if (next) next.disabled = this.stepIndex === scenario.steps.length - 1;
+    }
+
+    previous() {
+      if (this.stepIndex > 0) {
+        this.stop();
+        this.stepIndex -= 1;
+        this.render();
+      }
+    }
+
+    next() {
+      if (this.stepIndex < this.scenario.steps.length - 1) {
+        this.stepIndex += 1;
+        this.render();
+      } else {
+        this.stop();
+      }
+    }
+
+    play() {
+      if (this.timer || this.stepIndex >= this.scenario.steps.length - 1)
+        return;
+      const play = this.querySelector<HTMLButtonElement>(
+        '[data-control="play"]',
+      );
+      const pause = this.querySelector<HTMLButtonElement>(
+        '[data-control="pause"]',
+      );
+      if (play) play.disabled = true;
+      if (pause) pause.disabled = false;
+      const interval = matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? 5000
+        : 3000;
+      this.timer = window.setInterval(() => this.next(), interval);
+    }
+
+    stop() {
+      if (this.timer) window.clearInterval(this.timer);
+      this.timer = undefined;
+      const play = this.querySelector<HTMLButtonElement>(
+        '[data-control="play"]',
+      );
+      const pause = this.querySelector<HTMLButtonElement>(
+        '[data-control="pause"]',
+      );
+      if (play)
+        play.disabled =
+          this.stepIndex >= (this.scenario?.steps.length || 1) - 1;
+      if (pause) pause.disabled = true;
+    }
+  }
+
+  if (!customElements.get("tobari-sequence"))
+    customElements.define("tobari-sequence", TobariSequence);
+</script>
+
+<style>
+  .sequence-explorer {
+    margin: 2rem 0;
+    padding: clamp(1rem, 3vw, 1.5rem);
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.6rem;
+    background: var(--sl-color-gray-7);
+  }
+  .sequence-explorer figcaption h2 {
+    margin: 0.2rem 0 0.4rem;
+  }
+  .sequence-explorer figcaption p {
+    margin: 0;
+    color: var(--sl-color-gray-2);
+  }
+  .eyebrow {
+    color: var(--tobari-control);
+    font-size: var(--sl-text-xs);
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .sequence-interactive {
+    margin-top: 1.2rem;
+  }
+  .sequence-toolbar,
+  .button-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.55rem;
+  }
+  .sequence-toolbar {
+    justify-content: space-between;
+  }
+  .sequence-toolbar label {
+    display: grid;
+    gap: 0.3rem;
+    min-width: min(100%, 19rem);
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
+    font-weight: 650;
+  }
+  .sequence-toolbar select,
+  .sequence-toolbar button {
+    min-height: 2.75rem;
+    border: 1px solid var(--sl-color-gray-4);
+    border-radius: 0.35rem;
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-white);
+    font: inherit;
+  }
+  .sequence-toolbar select {
+    padding: 0.5rem 2rem 0.5rem 0.65rem;
+  }
+  .sequence-toolbar button {
+    padding: 0.45rem 0.7rem;
+    cursor: pointer;
+  }
+  .sequence-toolbar button:hover:not(:disabled) {
+    border-color: var(--tobari-control);
+  }
+  .sequence-toolbar button:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
+  }
+  .scenario-summary {
+    margin: 1rem 0 0.75rem;
+    color: var(--sl-color-gray-2);
+  }
+  .lane-map {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+    gap: 0.5rem;
+    min-height: 8.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-bg);
+  }
+  :global(.actor-lane) {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    justify-items: center;
+    gap: 0.45rem;
+    min-height: 6.8rem;
+    padding: 0.5rem;
+    border: 1px solid transparent;
+    text-align: center;
+  }
+  :global(.actor-lane[data-state="source"]) {
+    border-style: dashed;
+    border-color: var(--tobari-network);
+  }
+  :global(.actor-lane[data-state="target"]) {
+    border-style: solid;
+    border-color: var(--tobari-control);
+  }
+  :global(.actor-label) {
+    font-size: var(--sl-text-xs);
+    font-weight: 700;
+  }
+  :global(.actor-track) {
+    width: 1px;
+    min-height: 2.6rem;
+    border-inline-start: 1px dotted var(--sl-color-gray-4);
+  }
+  :global(.message-marker) {
+    min-width: 3.8rem;
+    padding: 0.2rem 0.35rem;
+    border: 2px solid currentColor;
+    border-radius: 999px;
+    background: var(--sl-color-bg);
+    font-size: 0.68rem;
+    font-weight: 800;
+  }
+  :global(.tone-allowed) {
+    color: var(--tobari-allowed);
+  }
+  :global(.tone-denied) {
+    color: var(--tobari-denied);
+  }
+  :global(.tone-control) {
+    color: var(--tobari-control);
+  }
+  :global(.tone-network) {
+    color: var(--tobari-network);
+  }
+  :global(.tone-secret) {
+    color: var(--tobari-secret);
+  }
+  :global(.tone-diagnostic) {
+    color: var(--tobari-diagnostic);
+  }
+  .step-status {
+    min-height: 8rem;
+    padding: 0.9rem 1rem;
+    border-inline-start: 0.3rem solid var(--tobari-control);
+    background: var(--sl-color-gray-6);
+  }
+  .step-count {
+    margin: 0;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .step-status h3 {
+    margin: 0.25rem 0;
+  }
+  .step-status p:last-child {
+    margin: 0;
+  }
+  .step-facts,
+  .static-sequences dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+  .step-facts > div,
+  .static-sequences dl > div {
+    padding: 0.65rem;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .step-facts dt,
+  .static-sequences dt {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    font-weight: 750;
+    text-transform: uppercase;
+  }
+  .step-facts dd,
+  .static-sequences dd {
+    margin: 0.25rem 0 0;
+  }
+  .keyboard-hint {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+  }
+  .static-sequences {
+    margin-top: 1.25rem;
+  }
+  .static-sequences details {
+    margin-block: 0.6rem;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .static-sequences summary {
+    padding: 0.7rem;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  .static-sequences details > p,
+  .static-sequences details > ol {
+    margin-inline: 1rem;
+  }
+  .static-sequences li {
+    margin-block: 1.2rem;
+  }
+  .static-sequences h4 {
+    margin-bottom: 0.2rem;
+  }
+  @media (max-width: 42rem) {
+    .lane-map {
+      grid-template-columns: 1fr;
+    }
+    :global(.actor-lane) {
+      grid-template-columns: minmax(7rem, auto) 1fr auto;
+      grid-template-rows: auto;
+      align-items: center;
+      justify-items: start;
+      min-height: 3rem;
+      text-align: start;
+    }
+    :global(.actor-track) {
+      width: 100%;
+      min-height: 1px;
+      border-inline-start: 0;
+      border-block-start: 1px dotted var(--sl-color-gray-4);
+    }
+    .step-facts,
+    .static-sequences dl {
+      grid-template-columns: 1fr;
+    }
+    .button-group {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      width: 100%;
+    }
+    .button-group button:last-child {
+      grid-column: 1 / -1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sequence-explorer *,
+    .sequence-explorer *::before,
+    .sequence-explorer *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 0.001ms !important;
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+  @media print {
+    .sequence-interactive,
+    .keyboard-hint {
+      display: none !important;
+    }
+    .sequence-explorer {
+      border: 1px solid #222;
+      background: transparent;
+    }
+    .static-sequences details {
+      display: block !important;
+      border: 0;
+    }
+    .static-sequences summary {
+      list-style: none;
+      font-size: 1.1rem;
+    }
+    .static-sequences details > * {
+      display: block !important;
+    }
+  }
+</style>

@@ -920,7 +920,7 @@ func checkFilesystemShape(root string, config projectconfig.Config) ([]issue, er
 			return err
 		}
 		relative = filepath.ToSlash(relative)
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "bin" || entry.Name() == "dist") {
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "bin" || entry.Name() == "dist" || entry.Name() == "node_modules") {
 			return filepath.SkipDir
 		}
 		if strings.EqualFold(entry.Name(), ".claude") {

@@ -26,6 +26,23 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: docs/architecture-site/package-lock.json
+
+      - name: Select the repository-pinned npm version
+        run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
+
+      - name: Install locked site dependencies
+        working-directory: docs/architecture-site
+        run: npm ci
+
+      - name: Install the pinned browser runtime
+        working-directory: docs/architecture-site
+        run: npm exec -- playwright install --with-deps chromium
+
       - name: Run the canonical full gate
         run: ./scripts/check.sh full
 
@@ -42,6 +59,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: docs/architecture-site/package-lock.json
+
+      - name: Select the repository-pinned npm version
+        run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
 
       - name: Run boundary gates
         run: |

@@ -1,0 +1,131 @@
+---
+title: Audit and privacy
+description: What Tobari records for policy learning and diagnosis, what it excludes, and why secret-free does not mean content-free.
+---
+
+## The question this page answers
+
+**What does Tobari retain about a request, and which sensitive material stays out of policy-learning evidence?**
+
+<aside class="one-sentence">
+  <strong>One-sentence answer:</strong> Tobari retains bounded, secret-free
+  decision metadata needed to explain and review an HTTP effect; it excludes
+  bodies, broker handles, resolved secrets, and configured credential headers,
+  but does not claim every ordinary URL/query/header string is non-sensitive.
+</aside>
+
+You should finish able to explain what a policy candidate can reveal without implying that the whole request is logged.
+
+**Prerequisite:** [Request journey](../../how-it-works/request-journey/) and [Credential security](../credential-security/).
+
+## What enters the decision view
+
+Gateway builds schema-5 input with the trusted principal and normalized HTTP information: scheme, normalized host, fixed port, method, raw and decoded path, multi-valued query, redacted headers, and non-secret authorization metadata. The request body is absent.
+
+Configured/recognized secret headers and broker handles are removed or redacted. The implementation should not be described as an oracle that recognizes every secret-looking string. If a user puts confidential data in a URL path, query, or unclassified header, that value may be part of decision metadata or diagnostics.
+
+## What retained denial evidence contains
+
+Learnable denials use a bounded schema-2 JSON audit record with Context/project identity, host, port, method, path, decision/reason, request ID, timestamp, duration, and secret-free classification metadata. Policy discovery reads bounded Docker logs and groups candidates by the exact rule dimensions.
+
+The body does not split candidates. Query and safe headers can appear in OPA input but do not become current learned exact-rule identity. Review references are SHA-256-derived opaque values; users act on the unchanged reference rather than list order or decoded provider notation.
+
+## What never belongs in the public output
+
+- Primary credentials, root keys, or decrypted vault content.
+- Broker handle values.
+- Request or response bodies.
+- Credential-bearing upstream causes.
+- Private organization/account fixtures or accidental build-machine paths. The trusted canonical project root is intentional diagnostic data and can appear in host-side output.
+- Raw control characters that could corrupt terminal, TSV, JSON, or Unicode line structure.
+
+Visible projection distinguishes controls, formats, backslashes, and Unicode line separators. It deliberately does not filter printable text merely because it looks like an instruction. External text remains untrusted data.
+
+## Retention and privacy boundaries
+
+Gateway logs are bounded by Docker logging configuration; discovery is a bounded window, not a complete historical ledger. Missing or expired candidate evidence means the operator cannot safely act on it. Compaction does not happen automatically. This site has no analytics, trackers, runtime API calls, external fonts, or cookies; local theme preference is the only browser state it needs.
+
+## Failure behavior
+
+If audit retention fails, authorization does not change: a denied request stays denied. If a candidate becomes stale or falls outside retention, the host mutation rejects it and requires rediscovery. Diagnostics do not authorize replay.
+
+<aside class="guarantee">
+  <h2>Guaranteed</h2>
+  <div class="prose-block">
+    The supported policy and broker flows intentionally exclude bodies and
+    recognized credential material from OPA and retained audit. Public CLI
+    output has hostile-text projection and bounded schemas.
+  </div>
+</aside>
+
+<aside class="limitation">
+  <h2>Not guaranteed</h2>
+  <div class="prose-block">
+    Ordinary path, query, and unclassified header data may itself be sensitive.
+    Secret-free means excluded credential/body classes, not a universal
+    data-loss-prevention classifier.
+  </div>
+</aside>
+
+<aside class="evidence">
+  <h2>Sources</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md">
+        Security output and audit contract
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/addon/tobari_gateway.py">
+        Policy input/audit builder
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/policy.go">
+        Bounded denial reader
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py">
+        Body and credential redaction tests
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## You should now be able to explain…
+
+…the difference between “body-free,” “secret-free,” and “contains no sensitive user text.”
+
+<div class="question-list">
+  <details>
+    <summary>Does a denial record contain the POST body?</summary>
+    <div class="prose-block">
+      No. Body bytes are neither policy identity nor retained audit content.
+    </div>
+  </details>
+  <details>
+    <summary>
+      Is it safe to place an API key in a URL query because Tobari redacts
+      credentials?
+    </summary>
+    <div class="prose-block">
+      No. Recognized credential headers/handles are protected; ordinary query
+      metadata may be visible to decision and diagnostic paths.
+    </div>
+  </details>
+  <details>
+    <summary>Can row order authorize `policy allow`?</summary>
+    <div class="prose-block">
+      No. The action consumes an opaque reference that is rediscovered and
+      revalidated. Return to{" "}
+      <a href="../../how-it-works/policy-learning/">Policy learning</a> if
+      needed.
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>Next:</strong> trace pinned assets and snapshots in{" "}
+  <a href="../supply-chain/">Supply chain →</a>
+</div>

@@ -123,6 +123,36 @@ tasks:
     cmds:
       - python3 scripts/test-pty-evidence.py
 
+  site:install:
+    desc: Install the exact public-site dependency graph from its lockfile.
+    dir: docs/architecture-site
+    cmds:
+      - npm ci
+
+  site:generate:
+    desc: Regenerate Catalog-derived CLI and repository-derived version references.
+    dir: docs/architecture-site
+    cmds:
+      - npm run generate
+
+  site:check:
+    desc: Run the complete static, accessibility, interaction, and responsive site gate.
+    cmds:
+      - ./scripts/check-site.sh full
+
+  site:build:
+    desc: Build the deployable GitHub Pages artifact under /tobari/.
+    dir: docs/architecture-site
+    cmds:
+      - npm run build:pages
+      - npm run check:dist
+
+  site:dev:
+    desc: Serve the public documentation locally at the root path.
+    dir: docs/architecture-site
+    cmds:
+      - npm run dev
+
   check:fast:
     desc: Run the quick local and agent completion gate.
     cmds:

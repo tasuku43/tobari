@@ -1,0 +1,172 @@
+---
+title: Security overview
+description: Read Tobari security as bounded claims with explicit assumptions, enforcement points, failure behavior, evidence, and limits.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+**What does it mean to rely on Tobari without turning “container,” “proxy,” or “encrypted” into a blanket security claim?**
+
+<aside class="one-sentence">
+  <strong>One-sentence answer:</strong> Tobari reduces a Workspace’s ambient
+  host, network, policy, and broker-managed credential authority when the
+  supported Docker topology and trusted host services hold; it does not make
+  code inside the selected project harmless.
+</aside>
+
+After this page, you should be able to name the enforcement boundary, its trusted base, and the first limitation that must accompany any claim.
+
+**Prerequisite:** [Mental model](../../how-it-works/mental-model/) and [System overview](../../how-it-works/system-overview/).
+
+<ConceptDiagram name="trust-boundaries" />
+
+## Read every claim in six parts
+
+The pages in this section use one discipline:
+
+1. **Claim** — the narrow outcome Tobari asserts.
+2. **Preconditions** — what must already be true.
+3. **Enforcement point** — the code or topology that makes the claim true.
+4. **Failure behavior** — what happens when that point is missing or unhealthy.
+5. **Evidence** — governing documents, implementation, and tests.
+6. **Limitations** — nearby outcomes that the claim deliberately does not cover.
+
+“A Workspace cannot reach the public Internet directly” is useful only with its precondition: the Workspace was created by Tobari’s supported Docker configuration. Its enforcement is the dedicated `internal` network and Gateway’s unique dual attachment. Its failure behavior is loss of communication, not an alternate route. Its limitation is equally important: an allowed destination can receive data readable by the Workspace.
+
+## The trusted computing base
+
+Tobari treats the host user, host filesystem controls, Docker Engine, kernel, Gateway, OPA, Auth Broker, root-key backend, and reviewed runtime assets as trusted enforcement infrastructure. The Workspace process and external HTTP services are untrusted. Policy candidates, request attributes, provider manifests, and external response text remain untrusted data even when trusted code parses them.
+
+That distinction explains why a forged project header is useless but a compromised Gateway is out of scope. Gateway derives project authority from its host-created receiving interface. If Gateway itself is malicious, the enforcement point is gone.
+
+## Four boundaries, four different jobs
+
+<div class="comparison-grid">
+  <section>
+    <h3>Project filesystem</h3>
+    <div class="prose-block">
+      The selected root is mounted for work. Unselected host paths and another
+      Workspace home are outside the normal mount set. The selected files are
+      not protected from the agent.
+    </div>
+  </section>
+  <section>
+    <h3>Network</h3>
+    <div class="prose-block">
+      The Workspace has no supported direct egress route. Gateway alone crosses
+      from its dedicated internal network to egress.
+    </div>
+  </section>
+  <section>
+    <h3>Authorization</h3>
+    <div class="prose-block">
+      OPA decides a normalized HTTP effect. Gateway enforces the result.
+      Missing, malformed, or unavailable policy fails closed.
+    </div>
+  </section>
+  <section>
+    <h3>Brokered credentials</h3>
+    <div class="prose-block">
+      Auth Broker keeps the primary secret in an encrypted Context vault. A
+      Workspace receives only a bound handle; authorization remains separate.
+    </div>
+  </section>
+</div>
+
+## What failure looks like
+
+- No Gateway: proxy connection fails.
+- No valid principal: Gateway returns `project_principal_unavailable` before OPA.
+- OPA unavailable or malformed: Gateway returns `policy_unavailable`; no upstream connection.
+- Auth Broker locked or unavailable: a brokered request fails; there is no secret resolution fallback.
+- Invalid or stale handle: `credential_handle_invalid`; no passthrough downgrade.
+- Invalid policy activation: Tobari preserves or restores the prior source and known projection where possible; if OPA cannot be made healthy, communication remains failed closed rather than assuming the previous service is active.
+
+These are closed failures for the affected path. They do not promise that every process action is rolled back: local file writes inside the selected project may already have happened.
+
+<aside class="guarantee">
+  <h2>What this overview guarantees</h2>
+  <div class="prose-block">
+    The remaining security pages state narrower claims and link each one to an
+    enforcement point and evidence. Denial is not described as protection beyond
+    its actual HTTP effect.
+  </div>
+</aside>
+
+<aside class="limitation">
+  <h2>What this overview does not guarantee</h2>
+  <div class="prose-block">
+    No container boundary protects the selected project root from its own
+    Workspace. No policy prevents data exfiltration to an effect the trusted
+    user explicitly allowed. No claim survives compromise of the trusted base.
+  </div>
+</aside>
+
+<aside class="evidence">
+  <h2>Sources</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md">
+        Security model
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/THREAT_MODEL.md">
+        Legacy threat summary at this commit
+      </a>{" "}
+      — it predates the complete Broker/vault and overlapping-root model, so the
+      governing security model above takes precedence.
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/compose.yaml">
+        Compose topology
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh">
+        Integration evidence
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## You should now be able to explain…
+
+…why Tobari security is a set of conditional boundaries rather than one “secure sandbox” label.
+
+<div class="question-list">
+  <details>
+    <summary>Why is “it runs in Docker” insufficient?</summary>
+    <div class="prose-block">
+      Because the claim depends on exact mounts, internal networks, service
+      attachments, trusted principal derivation, and fail-closed behavior. A
+      generic container fact proves none of those details.
+    </div>
+  </details>
+  <details>
+    <summary>
+      What is the first limitation to state after “direct egress is blocked”?
+    </summary>
+    <div class="prose-block">
+      An explicitly allowed destination can receive any data the Workspace can
+      read and place in that allowed HTTP request.
+    </div>
+  </details>
+  <details>
+    <summary>
+      Where should you return if the trusted/untrusted regions are unclear?
+    </summary>
+    <div class="prose-block">
+      Return to{" "}
+      <a href="../../how-it-works/system-overview/">System overview</a>, then
+      read the detailed <a href="../trust-boundaries/">Trust boundaries</a>.
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>Next:</strong> test each claim in{" "}
+  <a href="../guarantees-and-limitations/">Guarantees and limitations →</a>
+</div>

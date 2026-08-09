@@ -151,6 +151,19 @@ See [Release](06_release.md) for the artifact workflow.
 
 `task public:check` is required, but it cannot decide ownership, confidentiality context, trademark use, or whether an example reveals an internal process. The release owner records manual review evidence in the release work packet.
 
+The public documentation is built from `docs/architecture-site/` into static
+HTML, CSS, and repository-owned assets. It loads no runtime CDN, web font,
+analytics, or tracker. CLI and component-version references are generated from
+the Catalog at the immutable product snapshot named in
+`docs/architecture-site/source-snapshot.txt`; every page displays that product
+snapshot separately from the documentation build commit. Stale generated data
+or product evidence linked to a different commit is a failed gate. Pull
+requests receive read-only build, internal-link,
+accessibility, no-JavaScript, theme, motion, keyboard, mobile, and base-path
+checks. Pages upload and deployment are separate jobs: only a successful push
+to `main` uploads generated `dist/`, and only the deploy job receives
+`pages: write` and `id-token: write`. No workflow secret is required.
+
 Minimum first-public-push checklist:
 
 - [ ] Repository history and all refs were reviewed.

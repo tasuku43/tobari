@@ -1,0 +1,136 @@
+---
+title: HTTPS and two TLS connections
+description: See exactly where Workspace-side HTTPS terminates and where separately verified upstream TLS begins.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+Does Tobari send an HTTPS request as plaintext to its final destination?
+
+**One-sentence answer:** No—Gateway terminates a Workspace-to-Gateway TLS connection under the Tobari CA so it can authorize HTTP attributes, then creates a separate verified Gateway-to-upstream TLS connection after allow.
+
+### By the end, you can explain
+
+- what `CONNECT` does in Tobari's explicit proxy flow;
+- where TLS connection A ends and connection B begins;
+- why accepting the Tobari CA is different from receiving policy permission; and
+- why certificate-pinned clients fail instead of bypassing Gateway.
+
+**Prerequisite:** [One request through Tobari](/how-it-works/request-journey/).
+
+<ConceptDiagram name="tls-split" />
+
+## The HTTPS exchange in order
+
+### 1. The client contacts an HTTP proxy
+
+The Workspace client is configured with Gateway as its HTTP and HTTPS proxy. For an HTTPS URL, it opens the project-network connection to Gateway and sends:
+
+```http
+CONNECT api.example.com:443 HTTP/1.1
+```
+
+This asks the proxy to establish a tunnel-like HTTPS flow for that authority. It does not grant network permission.
+
+### 2. Gateway establishes TLS connection A
+
+Gateway responds to `CONNECT` and presents a leaf certificate signed by Tobari's installation CA. The Workspace runtime builds an ephemeral client trust bundle from the system CA set plus the public Tobari CA.
+
+The client therefore establishes **TLS connection A** with Gateway. Gateway terminates this TLS session and can see the decrypted HTTP method, authority, path, query, and headers needed for the generic decision contract.
+
+### 3. Gateway authorizes the decrypted HTTP request
+
+Gateway derives Context/project identity, removes or redacts credential material, and sends one body-free normalized input to OPA. The request body is not a policy identity dimension. CA trust does not skip this decision.
+
+On deny or decision failure, connection B is never created for that request.
+
+### 4. Gateway establishes TLS connection B
+
+After allow and any credential action, Gateway resolves and pins the upstream address. It then creates **TLS connection B** to the requested upstream and validates the upstream certificate under mitmproxy's normal verification behavior.
+
+The final service receives encrypted TLS from Gateway. Plaintext exists inside the trusted Gateway process because policy needs HTTP attributes; it is not sent as plaintext across the final network hop.
+
+### 5. Gateway streams the authorized message
+
+Gateway forwards headers and streams the allowed body through connection B. The response returns over B, is visible to Gateway, and is re-encrypted over A for the Workspace client.
+
+## A concrete certificate example
+
+Imagine `curl https://api.example.com/v1/data` inside a Workspace.
+
+- `curl` trusts the combined runtime bundle, including the Tobari CA.
+- The certificate it sees for `api.example.com` belongs to TLS A and is generated under that CA.
+- Gateway sees `GET /v1/data` and asks OPA.
+- On allow, Gateway independently validates the real `api.example.com` certificate over TLS B.
+
+If the same client pins the upstream certificate or public key, the certificate presented on A does not match the pin. The connection fails. Tobari does not disable pinning, create a direct route, or silently switch to transparent pass-through.
+
+## CA trust is not authorization
+
+These are separate questions:
+
+| Question                                                            | Mechanism                                | Meaning                                                 |
+| ------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------- |
+| Can the client establish an intercepted HTTPS session with Gateway? | Runtime trusts the Tobari CA             | Gateway can receive the decrypted request               |
+| May this ordinary HTTP effect reach upstream?                       | OPA decision, enforced by Gateway        | Context/project/host/port/method/path is allowed        |
+| May a broker-managed credential be resolved?                        | Full handle binding plus prior OPA allow | One request may receive the declared header replacement |
+
+A working CA solves only the first row.
+
+## Failure behavior
+
+- **Tobari CA missing or not trusted by the client:** TLS A fails before an application request can be authorized.
+- **Certificate pinning:** TLS A fails because Gateway's generated leaf does not match the pin.
+- **OPA deny or outage:** Gateway does not create the authorized upstream path; deny is local.
+- **DNS or address validation failure:** TLS B is not attempted to an unsafe substitute.
+- **Upstream certificate failure:** TLS B fails; Tobari does not mark the policy rule denied or retry insecurely.
+- **Client ignores the proxy:** the dedicated internal network supplies no external route, so there is no TLS bypass.
+
+## Guarantees and limitations
+
+**Guaranteed in the supported flow:** two distinct TLS connections; generic HTTP attributes available to policy; upstream TLS verification remains enabled; policy deny closes the upstream path; pinning is not bypassed.
+
+**Not guaranteed:** compatibility with every TLS stack, custom certificate store, or pinned client; end-to-end TLS directly between the Workspace process and final service; privacy of plaintext from trusted Gateway; HTTP/3/QUIC interception.
+
+The repository's tests validate intercepted HTTPS behavior, scheme normalization, CA use, and failed direct bypass. They do not packet-capture and assert both handshakes byte by byte, so the two-connection claim is also grounded in the architecture decision and fixed mitmproxy configuration.
+
+## Source evidence
+
+- [Architecture HTTPS flow](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [HTTPS interception decision](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/decisions/0005-use-an-explicit-intercepting-proxy.md)
+- [Gateway mitmproxy entrypoint](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/entrypoint.sh)
+- [Workspace CA bundle entrypoint](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/tobari/entrypoint.sh)
+- [HTTPS scheme and Gateway tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+- [Intercepted HTTPS and no-proxy integration](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+
+## Summary
+
+`CONNECT` leads to TLS A between client and Gateway. Gateway authorizes decrypted HTTP attributes. Only after allow does it create separately verified TLS B to upstream. CA trust, policy authority, and credential authority remain distinct.
+
+## Check your understanding
+
+You should now be able to draw both TLS connections and place the policy decision between them.
+
+<details>
+  <summary>Where does HTTPS encryption end the first time?</summary>
+  At Gateway, where TLS connection A from the Workspace terminates under the
+  Tobari CA.
+</details>
+
+<details>
+  <summary>Is the final upstream hop plaintext?</summary>
+  No. Gateway creates separately verified TLS connection B to the upstream after
+  allow.
+</details>
+
+<details>
+  <summary>
+    Why can a pinned client fail even when the route would be allowed?
+  </summary>
+  It rejects Gateway's CA-issued certificate before the ordinary request can
+  complete. Tobari does not bypass the pin.
+</details>
+
+If the ordering is unclear, revisit [Request journey](/how-it-works/request-journey/). Next, see where the trusted Context/project identity comes from in [Project identity](/how-it-works/project-identity/).

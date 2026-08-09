@@ -1,0 +1,182 @@
+---
+title: Guarantees and limitations
+description: The major Tobari security claims, each paired with preconditions, enforcement, failure behavior, evidence, and a nearby limitation.
+---
+
+## The question this page answers
+
+**Which outcomes can you rely on, and where does each outcome stop?**
+
+<aside class="one-sentence">
+  <strong>One-sentence answer:</strong> Tobari narrows a supported Workspace to
+  one selected project, one host-issued principal, Gateway-mediated HTTP/HTTPS,
+  explicit policy, and constrained broker handles—but does not police selected
+  files, allowed payloads, same-Workspace processes, other protocols,
+  overlapping roots, or a compromised trusted base.
+</aside>
+
+After reading, you should be able to answer the acceptance questions about proxy bypass, OPA outage, allowed data, selected files, and trusted-component compromise.
+
+**Prerequisite:** [Security overview](../overview/).
+
+## Claim 1: supported Workspaces have no direct public egress
+
+**Claim.** A Workspace cannot reach the public Internet directly in the supported topology.
+
+**Preconditions.** Tobari created and reconciled the Workspace through its Docker configuration; Docker and the host network behave as configured.
+
+**Enforcement point.** The Workspace joins only its dedicated Docker `internal` network. Gateway is the only component attached to that network and the egress network.
+
+**Failure behavior.** Ignoring proxy variables does not reveal another route. With Gateway unavailable, proxy traffic fails.
+
+**Evidence.** `compose.yaml`, `project_runtime.go`, and integration cases for direct egress and Gateway outage.
+
+**Limitation.** Tobari mediates ordinary HTTP/HTTPS. It is not a general protocol firewall, and an allowed HTTP destination can receive Workspace-readable data.
+
+## Claim 2: a Workspace cannot grant itself another project’s authority
+
+**Claim.** Request bytes cannot select a more privileged Context or project principal.
+
+**Preconditions.** The host lifecycle created a unique Workspace network binding and the principal registry remains intact.
+
+**Enforcement point.** Gateway looks up its own receiving-interface address in the host-owned principal registry and puts that Context/project identity into OPA input. Self-declared headers are ignored for authority.
+
+**Failure behavior.** Unknown, malformed, duplicated, or stale bindings return `project_principal_unavailable` before OPA and upstream.
+
+**Evidence.** `principal_registry.go`; Gateway tests for local-address derivation, forged session headers, and unknown principals.
+
+**Limitation.** Two Contexts can intentionally mount the same or overlapping host roots. Their network, home, and policy principals differ, but file changes in the overlap are shared host effects.
+
+## Claim 3: authorization failure does not become egress
+
+**Claim.** Gateway connects upstream only after one valid OPA allow result.
+
+**Preconditions.** Traffic reaches Gateway and the request can be normalized into the current decision schema.
+
+**Enforcement point.** Gateway sends body-free normalized dimensions once to the fixed OPA endpoint. Lazy upstream connection occurs after allow.
+
+**Failure behavior.** Deny returns `policy_denied`; timeout, connection failure, non-200, oversize, malformed, or incomplete decision returns `policy_unavailable`. Neither opens upstream.
+
+**Evidence.** `tobari_gateway.py`, its tests, Rego tests, and outage integration.
+
+**Limitation.** Current exact learned rules distinguish Context, project, host, port, method, and raw path. They do not distinguish body, query, safe headers, reason, provider, or credential profile. Different bodies can use the same exact effect rule.
+
+## Claim 4: broker-managed primary secrets are not projected to Workspace
+
+**Claim.** A Workspace receives an opaque project-bound handle rather than the broker-managed primary credential.
+
+**Preconditions.** The provider uses the Auth Broker path, the root key is available, and the Context vault and provider manifest validate.
+
+**Enforcement point.** Auth Broker encrypts the credential in a Context vault. Handle records bind Context, project, provider, credential revision, exact target, and header transformation. Gateway removes the handle, introspects without the secret, asks OPA, and resolves only after allow.
+
+**Failure behavior.** Wrong, copied, old, malformed, or ambiguous handles fail closed and never become passthrough. OPA deny causes no resolve.
+
+**Evidence.** `broker.py`, `vault.py`, `broker_credentials.py`, Gateway/Broker tests, and broker integration cases.
+
+**Limitation.** A malicious process inside the same Workspace may use a handle already projected to that Workspace and an already allowed effect. Tool-native credentials remain readable where the tool stores them. Logout does not guarantee provider-side revocation.
+
+## Claim 5: unsafe policy changes do not partially activate
+
+**Claim.** An allow/deny mutation activates only a complete validated aggregate.
+
+**Preconditions.** The host user acts on a current opaque candidate reference; the policy sources and revisions have not raced.
+
+**Enforcement point.** Tobari rediscovers the candidate, validates private source and complete aggregate, checks revisions, writes owner-only source atomically, publishes content-addressed projection, and recreates OPA. Rollback restores known state on failure.
+
+**Failure behavior.** Validation, stale-reference, race, write, aggregate, or OPA activation failure leaves or restores the previous valid policy. The old HTTP request is never replayed.
+
+**Evidence.** policy domain/application/infrastructure tests and end-to-end review/allow/deny/reset cases.
+
+**Limitation.** The trusted operator can intentionally approve a dangerous exact effect. Tobari does not infer payload safety. Compaction is explicit and can widen multiple exact paths only after its own canaries; it is never automatic.
+
+## Explicitly outside the guarantee
+
+- Integrity or confidentiality of files inside the selected project root.
+- Isolation among processes in one Workspace.
+- Isolation of overlapping mounted project roots.
+- Prevention of data transfer through an allowed request.
+- Non-HTTP/HTTPS network mediation.
+- Protection after compromise of host, kernel, Docker, Gateway, OPA, Auth Broker, root-key provider, or reviewed images.
+- Remote credential revocation after local logout.
+- Compatibility with certificate-pinned clients; they are expected to fail rather than bypass interception.
+
+<aside class="evidence">
+  <h2>Evidence index</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md">
+        Governing security model
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/addon/tobari_gateway.py">
+        Gateway enforcement
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/principal_registry.go">
+        Principal registry
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/authbroker/vault.py">
+        Encrypted vault implementation
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh">
+        Integrated boundary evidence
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## You should now be able to explain…
+
+…why each guarantee needs both a precondition and a limitation.
+
+<div class="question-list">
+  <details>
+    <summary>
+      A process ignores `HTTPS_PROXY`. Does Tobari silently permit direct TLS?
+    </summary>
+    <div class="prose-block">
+      No. In the supported topology the Workspace has only its internal project
+      network. Ignoring the proxy removes the usable path; it does not create
+      egress.
+    </div>
+  </details>
+  <details>
+    <summary>
+      OPA stops while a previously allowed path is requested. Is it still
+      allowed?
+    </summary>
+    <div class="prose-block">
+      No. Gateway needs a valid decision for this request. OPA failure is
+      `policy_unavailable` and no upstream connection is made.
+    </div>
+  </details>
+  <details>
+    <summary>
+      Can Tobari stop an agent from uploading the selected source tree to an
+      already allowed endpoint?
+    </summary>
+    <div class="prose-block">
+      No. The selected root is deliberately readable, and policy authorizes an
+      HTTP effect rather than inspecting request-body meaning.
+    </div>
+  </details>
+  <details>
+    <summary>What if Docker or Gateway is compromised?</summary>
+    <div class="prose-block">
+      That breaks the trusted enforcement base and is outside these guarantees.
+      Return to <a href="../overview/">Security overview</a> if the trusted base
+      is unclear.
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>Next:</strong> place secrets and authority in{" "}
+  <a href="../trust-boundaries/">Trust boundaries →</a>
+</div>

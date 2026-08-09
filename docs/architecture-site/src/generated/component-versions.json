@@ -1,0 +1,98 @@
+{
+  "generated_from": "committed repository authorities and executable CLI help at 2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3",
+  "components": [
+    {
+      "component": "Go",
+      "version": "1.26.5",
+      "identity": "go 1.26.5",
+      "authority": "go.mod"
+    },
+    {
+      "component": "OPA",
+      "version": "1.17.0",
+      "identity": "openpolicyagent/opa@sha256:94830e998dd9df8e49a61826f1ad03d8a68d3ecd52f105e06a2adb93b459ad46",
+      "authority": "internal/infra/runtimeassets/assets/versions.env",
+      "note": "Version is declared; runtime identity is the immutable digest."
+    },
+    {
+      "component": "mitmproxy",
+      "version": "12.1.2",
+      "identity": "mitmproxy/mitmproxy@sha256:0d7b2a14b4a71a908cd6f31b8f50e29bbc5c8720fe6caa706acf782da558e5c7",
+      "authority": "internal/infra/runtimeassets/assets/versions.env",
+      "note": "Version is declared; build base identity is the immutable digest."
+    },
+    {
+      "component": "Gateway",
+      "version": "digest identity",
+      "identity": "ghcr.io/tasuku43/tobari/gateway@sha256:11aa900dd6aa5b17ca8ee7e9e910366c69f29afb73939a286d4aee01902be748",
+      "authority": "internal/infra/runtimeassets/assets/versions.env"
+    },
+    {
+      "component": "Auth Broker",
+      "version": "digest identity",
+      "identity": "ghcr.io/tasuku43/tobari/auth-broker@sha256:e574c838a118336856bc6922eee05f03f701b8c9dca72cf0887da395cf712ab0",
+      "authority": "internal/infra/runtimeassets/assets/versions.env"
+    },
+    {
+      "component": "Base runtime build image",
+      "version": "bookworm-20260713-slim",
+      "identity": "debian@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818",
+      "authority": "internal/infra/runtimeassets/assets/versions.env"
+    },
+    {
+      "component": "Tobari CLI",
+      "version": "dev unless release-injected",
+      "identity": "documentation commit supplies source identity",
+      "authority": "cmd/tobari/main.go and scripts/package-release.sh",
+      "note": "The repository does not invent a release version for ordinary builds."
+    }
+  ],
+  "schemas": [
+    {
+      "contract": "Agent help",
+      "version": 8,
+      "authority": "internal/cli/help.go"
+    },
+    {
+      "contract": "Context manifest",
+      "version": 4,
+      "authority": "internal/domain/tobari/context.go"
+    },
+    {
+      "contract": "Public Context report",
+      "version": 5,
+      "authority": "internal/cli/runtime_catalog.go"
+    },
+    {
+      "contract": "Root index and Workspace instance",
+      "version": 2,
+      "authority": "internal/domain/tobari/project.go"
+    },
+    {
+      "contract": "Provider manifest",
+      "version": 1,
+      "authority": "internal/domain/authbroker/provider.go"
+    },
+    {
+      "contract": "Project principal registry",
+      "version": 2,
+      "authority": "internal/infra/dockerruntime/principal_registry.go"
+    },
+    {
+      "contract": "Gateway OPA input",
+      "version": 5,
+      "authority": "gateway/addon/tobari_gateway.py"
+    }
+  ],
+  "runtime": {
+    "default_selector": "ghcr.io/tasuku43/tobari/runtime:latest",
+    "runtime_api": "1",
+    "lifetime_command": "sleep infinity",
+    "metadata_version": "0.1.0",
+    "architectures": [
+      "linux/amd64",
+      "linux/arm64"
+    ],
+    "moving_selector": true
+  }
+}

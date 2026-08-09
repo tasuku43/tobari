@@ -1,0 +1,116 @@
+---
+title: Colima and Lima
+description: Make project and Tobari state paths visible to a VM-hosted Docker daemon without widening Workspace mounts.
+---
+
+## The question this guide answers
+
+**Why can a valid host path fail when Docker runs inside a Colima or Lima VM?**
+
+The Docker daemon, not only the CLI process, must be able to resolve every bind source. Share the selected project root and Tobari's XDG configuration/state paths with the VM, then rerun read-only diagnosis and explicit cluster reconciliation.
+
+After this guide, you should be able to identify the paths that matter, distinguish a VM sharing failure from an HTTP policy denial, and fix sharing without mounting the entire host home into a Workspace.
+
+Prerequisite: install Tobari and select the Docker context you intend to use. Tobari uses the standard Docker CLI adapter; it does not depend on Docker Desktop APIs.
+
+## Why path visibility matters
+
+The CLI runs on the trusted host, while the selected Docker daemon may run in a VM. A path can exist for the CLI but be absent or differently mounted inside that VM.
+
+Tobari needs the daemon to see:
+
+- the selected canonical project root for its read-write Workspace bind;
+- `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` for host-owned policy and generated projections used by services;
+- `${XDG_STATE_HOME:-$HOME/.local/state}/tobari` for runtime materialization, principal registry, Workspace state, and broker state; and
+- any explicit custom image/build source that Docker itself must access.
+
+Do not infer these values from a different shell account. Inspect the environment of the host process that invokes Tobari:
+
+```sh
+printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/tobari"
+printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/tobari"
+pwd -P
+```
+
+## Configure the VM boundary
+
+Use the documented Colima/Lima configuration for your installed version to expose the exact parent paths to the VM. Tobari deliberately does not hide platform-specific mount configuration behind a second command.
+
+Prefer the narrowest stable shared parents that contain:
+
+1. the intended project;
+2. the resolved Tobari config directory; and
+3. the resolved Tobari state directory.
+
+The daemon needs source-path visibility; the Workspace still receives only the selected project mount and its own home. Sharing a path into the Docker VM does not mean mounting that whole path into the Workspace.
+
+## Validate before entry
+
+From the intended project directory:
+
+```sh
+tobari doctor
+tobari cluster status
+```
+
+`doctor` can report host-path validity and Docker bind diagnostics without creating a Workspace. After correcting VM sharing, reconcile explicitly:
+
+```sh
+tobari cluster up
+tobari
+```
+
+Do not use repeated root entry as a repair mechanism. The root `tobari` command requires the shared cluster to be ready and does not silently start it.
+
+## Distinguish common symptoms
+
+| Symptom                                                 | Likely boundary                               | What to inspect                                                                 |
+| ------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
+| Docker says bind source does not exist or is not shared | VM filesystem sharing                         | Project and resolved XDG parents                                                |
+| Workspace starts, but an HTTP request returns `403`     | Gateway/OPA policy or credential binding      | `tobari policy review`, not VM mounts                                           |
+| Workspace cannot trust Gateway TLS                      | Client CA/proxy behavior                      | Tool honors injected CA variables; certificate pinning may reject intentionally |
+| Cluster component cannot see policy/projection          | XDG config/state bind visibility or ownership | `doctor`, `cluster status`, component logs                                      |
+| Registry image unavailable                              | Docker VM registry/network path               | Docker context and registry access; do not change policy rules                  |
+
+## Failure and safe recovery
+
+- Correct VM sharing while the affected Workspace is detached.
+- Rerun `tobari doctor`; warnings alone do not mutate anything.
+- Use `tobari cluster up` to reconcile services after paths are visible.
+- If a partially created logical Workspace remains, inspect `tobari status`. Runtime `missing` or `degraded` can be reconciled on the next valid entry; `incomplete` is cleanup-only and should be removed with `tobari delete`.
+- Do not delete vaults, root keys, or CA state to solve a bind error.
+- Do not add host networking, privileged mode, Docker socket mounts, or broad host-home Workspace mounts.
+
+## Guarantees and limits
+
+Tobari validates the runtime topology it creates and fails setup when required bind sources are unavailable. It cannot configure every VM product/version for you or make an unshared host path visible from inside the daemon. Colima/Lima and the host filesystem remain trusted foundations.
+
+## Source evidence
+
+- [Supported requirements and VM guidance](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/README.md)
+- [Mount and topology security contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
+- [Project path derivation implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/project_paths.go)
+- [Docker bind diagnostics](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/runtime.go)
+- [Bind and mount contract tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/runtime_test.go)
+
+## Summary
+
+A VM-hosted daemon needs visibility into exact host bind sources. Fix that daemon boundary, then let Tobari continue to expose only the selected project and Workspace home to the runtime.
+
+## Check your understanding
+
+<details>
+<summary>The project is visible to your shell but Docker reports an invalid bind. Which view matters?</summary>
+
+Both must resolve it, but the failing view is the selected Docker daemon inside the VM. Configure its shared paths, then rerun `doctor`.
+
+</details>
+
+<details>
+<summary>Does sharing the XDG state parent with the VM authorize the Workspace to read the root key?</summary>
+
+No. Service mounts remain narrowly specified, and the Workspace does not receive the parent directory or root-key file. Broadening the VM's host path visibility does not change Tobari's container mount contract.
+
+</details>
+
+**Next:** [Troubleshooting](../troubleshooting/).

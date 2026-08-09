@@ -1,0 +1,152 @@
+---
+title: Threat model
+description: Assets, adversaries, assumptions, attack paths, mitigations, residual risks, and closed failures for current Tobari.
+---
+
+## The question this page answers
+
+**Against which attacker actions is Tobari designed, under which assumptions, and which risks remain?**
+
+<aside class="one-sentence">
+  <strong>One-sentence answer:</strong> Tobari limits an untrusted Workspace
+  process that attempts to access unselected host/Docker resources, self-assign
+  another project identity, bypass HTTP policy, or obtain broker-managed primary
+  credentials, while explicitly trusting the host enforcement base and the
+  user’s root/rule choices.
+</aside>
+
+You should finish able to distinguish a mitigated attack from an out-of-scope trusted-base compromise.
+
+**Prerequisite:** [Trust boundaries](../trust-boundaries/).
+
+## Assets
+
+- Host files outside the selected root.
+- Docker control and other Workspace runtime resources.
+- Stable Context/project authority and policy sources.
+- Installation root key, encrypted Context vault, and broker-managed credentials.
+- Integrity of active aggregate policy and principal/provider projections.
+- Secret-free diagnostics and structured CLI output.
+
+The selected root is a working resource, not a protected asset against its own Workspace. Payload confidentiality after an effect is explicitly allowed is also not an asset Tobari can guarantee.
+
+## Adversary capabilities
+
+Assume code inside a Workspace can:
+
+- Read and modify the selected project and Workspace home.
+- Start processes and coordinate with other processes in that Workspace.
+- Ignore proxy environment variables and attempt direct connections.
+- Forge headers, URLs, Context/project-looking IDs, credential-like values, and prompt-like text.
+- Copy a projected broker handle and replay it from another Workspace.
+- Trigger policy denials, race user review, and send different bodies for the same HTTP dimensions.
+- Present invalid certificates or consume upstream-controlled responses.
+
+The model does not assume the adversary controls the host user, Docker Engine, kernel, Gateway, OPA, Auth Broker, root-key provider, or reviewed images. Control of any of those is trusted-base compromise.
+
+## Attack paths and mitigations
+
+### Bypass the proxy
+
+The Workspace’s only network is Docker-internal. There is no supported external route. Gateway alone joins that network and egress. Result: direct traffic fails; Gateway outage does not fail open.
+
+### Claim another project
+
+Gateway ignores request-supplied project authority. It resolves its host-created local interface in the principal registry. Result: forged headers cannot switch principal; missing/ambiguous state is denied before OPA.
+
+### Smuggle a secret into policy or logs
+
+Known configured credential headers and broker handles are removed or redacted before OPA and audit, and bodies are never policy input or audit content. Result: those credential and body classes stay out of the normal decision and retained-evidence paths. Limitation: the implementation cannot recognize every arbitrary value as a credential; ordinary query and safe headers can still carry sensitive text into decision metadata.
+
+### Turn a denial into permission
+
+Gateway returns only a denial and review location. Host discovery produces an opaque reference. Mutation rediscovers current state, validates an exact rule and whole aggregate, checks revisions, and activates atomically. Result: a Workspace cannot approve itself, stale references fail, and no request is automatically replayed.
+
+### Copy or forge a broker handle
+
+The marker commits the request to broker processing. Introspection checks Context, project, provider, credential revision, exact HTTPS target, and header binding before OPA. Result: a copied/stale/invalid handle is rejected without passthrough fallback or secret resolution.
+
+### Read the broker vault or root key through Workspace
+
+Workspace has neither broker control mount nor vault/root-key path. Broker runs as a shared locked service. Linux key file and vault paths reject unsafe types/permissions; macOS uses Keychain. Unlock material crosses fixed stdin, not argv/env. Result: broker-managed secret remains host/Broker-owned unless the trusted base is compromised.
+
+## Residual risks
+
+- An agent can destroy or leak selected files.
+- An allowed exact endpoint can receive malicious content.
+- Body-independent policy means an allowed path applies to different bodies.
+- Safe query/header metadata may contain sensitive user data the implementation does not classify as a credential; avoid placing secrets there.
+- Same-Workspace processes can reuse projected abilities.
+- Overlapping roots share host file effects across otherwise separate Workspaces.
+- Local logout cannot promise provider-side revocation and cannot rewrite an already running process environment.
+- Certificate-pinned clients fail; unsupported protocols are not mediated by this HTTP/HTTPS boundary.
+
+## Failure semantics
+
+Authorization, principal, broker, vault, projection, and activation faults are closed for the relevant external effect. Closed does not mean “nothing happened anywhere”: local computation and selected-root writes before the outbound request remain possible. Recovery must respect mutation outcome contracts rather than blindly retrying.
+
+<aside class="evidence">
+  <h2>Sources</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/THREAT_MODEL.md">
+        Legacy threat summary at this commit
+      </a>{" "}
+      — useful for the original boundary, but incomplete for the newer
+      Broker/vault and overlapping-root contract.
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md">
+        Current governing security model
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/addon/broker_credentials.py">
+        Broker-handle Gateway path
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/authbroker/tests/test_broker.py">
+        Broker failure and binding tests
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## You should now be able to explain…
+
+…how Tobari responds to proxy bypass, principal forgery, policy self-approval, and handle replay.
+
+<div class="question-list">
+  <details>
+    <summary>
+      Workspace B copies a valid handle from Workspace A and sends it to the
+      same host. What matters?
+    </summary>
+    <div class="prose-block">
+      Broker introspection compares trusted Context/project principal, provider,
+      credential revision, target, and header binding. Project mismatch rejects
+      it before OPA or resolution. Even a valid binding would still need OPA to
+      allow the ordinary HTTP effect.
+    </div>
+  </details>
+  <details>
+    <summary>Why is a different body not a different learned rule?</summary>
+    <div class="prose-block">
+      The body is streamed only after authorization and is absent from rule
+      identity. Context, project, host, port, method, and raw path are the exact
+      learned dimensions.
+    </div>
+  </details>
+  <details>
+    <summary>If these answers were unclear, where should you return?</summary>
+    <div class="prose-block">
+      Return to <a href="../trust-boundaries/">Trust boundaries</a>.
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>Next:</strong> inspect the narrower secret path in{" "}
+  <a href="../credential-security/">Credential security →</a>
+</div>

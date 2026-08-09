@@ -1,0 +1,172 @@
+---
+title: Code architecture
+description: Understand Tobari's four Go layers, Catalog-owned public contract, and canonical runtime-source boundaries.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+How does the repository keep product policy, use-case interpretation, external effects, and CLI presentation from becoming one inseparable implementation?
+
+**One-sentence answer:** Pure domain invariants sit at the center, application use cases own minimal ports, infrastructure implements controlled effects, and CLI is the sole composition root whose Catalog defines every public command contract.
+
+### By the end, you can explain
+
+- the allowed dependency direction among four Go layers;
+- why application packages own task-specific ports;
+- why the CLI Catalog is more than a help-text list; and
+- why Gateway/Auth Broker canonical source is distinct from its embedded snapshot.
+
+**Prerequisite:** [Implementation stack](/how-it-works/implementation-stack/). This page is for contributors and reviewers, not required for ordinary Tobari use.
+
+<ConceptDiagram name="code-layers" />
+
+## Domain: pure vocabulary and invariants
+
+`internal/domain/` defines stable concepts such as Workspace identity, Context, policy candidates/rules, provider manifests, broker bindings, operations, effects, mutation impact, references, faults, and result schemas.
+
+Domain performs no filesystem, process, Docker, network, terminal, or credential I/O. This makes the security/product claims executable as constructors and validators rather than comments attached to side effects.
+
+Examples include:
+
+- one Workspace per canonical root/Context pair;
+- exact candidate identity and opaque reference shape;
+- provider manifest strictness and collision rejection;
+- declared operation effect and mutation contract; and
+- absent versus explicit values in structured results.
+
+## Application: interpret one user task
+
+`internal/app/` owns use cases such as Workspace lifecycle, policy review/action, Context configuration, authentication, and doctor. Each package defines the smallest port its task needs.
+
+Application code depends on domain vocabulary, not a Docker client or filesystem implementation. A policy action asks a port to read evidence and activate validated policy; it does not construct `docker compose` argv. An auth use case validates public intent before giving secret input to a credential-bearing infrastructure port.
+
+Owning the port next to the consumer prevents infrastructure convenience APIs from becoming undeclared product authority.
+
+## Infrastructure: implement controlled effects
+
+`internal/infra/` contains concrete adapters for Docker CLI execution, XDG state/configuration, runtime assets, root-key backends, provider loading, terminal/process capability, Gateway/Broker control, and system diagnostics.
+
+Infrastructure may satisfy application ports through Go structural typing. It does not decide user-facing policy such as whether a missing reference should be reconstructed or whether a command should exist. Effects cross bounded adapters rather than an unrestricted executor exposed to use cases.
+
+Credential-bearing types, root keys, vault operations, provider acquisition, and exact HTTP bindings remain infrastructure-owned.
+
+## CLI: public contract and composition root
+
+`internal/cli/` is the only production composition root. It constructs concrete infrastructure adapters, injects them into application services, routes typed argv, renders semantic results, and owns signal handoff.
+
+`cli.Catalog` is the single source of truth for every public command. From one `CommandSpec`, Tobari derives:
+
+- path and namespace routing;
+- summary, outcome, role, and effect;
+- typed arguments, cardinality, defaults, bounds, dependencies, and conflicts;
+- human and agent help;
+- output formats, envelopes, schema versions, and collection delivery/coverage;
+- prerequisites and faults;
+- exact recovery commands;
+- reference production/consumption edges; and
+- mutation intent, target binding, impact, and completion contract.
+
+Handlers do not maintain a competing registry or append unchecked argv to recovery advice. The site's [CLI reference](/reference/cli/) is generated from this Catalog for the same reason.
+
+## One policy action across the layers
+
+Consider `policy allow --id pcy_…`:
+
+1. **CLI Catalog** declares a reference-bound write, its opaque ID input, impact, output, failures, and recovery.
+2. **CLI parser** validates the exact public invocation and passes a typed input.
+3. **Application use case** re-discovers current evidence and ensures the reference is current and uniquely identifies one candidate.
+4. **Domain** defines candidate identity, exact learned-rule invariants, and mutation result/fault vocabulary.
+5. **Infrastructure** locks source state, preflights Context and aggregate policy, writes atomically, recreates exact OPA, and rolls back on failure.
+6. **CLI renderer** presents the structured result without inferring new semantics.
+
+No layer alone owns the complete outcome, but responsibility does not move outward against the dependency rule.
+
+## Runtime source and embedded snapshots
+
+Gateway and Auth Broker are Python runtime components rather than Go packages, but they follow an analogous source-of-truth rule:
+
+- editable canonical source and tests live under `gateway/` and `authbroker/`;
+- byte-checked embedded snapshots live under `internal/infra/runtimeassets/assets/`;
+- the Go binary materializes exact embedded runtime bytes; and
+- checks reject drift rather than allowing two independently edited implementations.
+
+OPA policy and Compose/runtime assets are likewise embedded implementation contracts. Generated aggregate policy is derived from Context sources and the Tobari-owned evaluator; it is not a second handwritten router.
+
+## Why architecture constraints are tested
+
+`tools/archlint` checks dependency direction and third-party import boundaries. `cmd` and `internal/cli` have no third-party imports unless one exact presentation-only exception receives an ADR, license review, allowlist entry, and negative sibling test.
+
+Catalog contract tests validate command completeness, grammar, role/reference flow, output schemas, mutation declarations, recovery, and agent-help size. Runtime asset tests validate exact mounts, resource limits, image identities, and canonical snapshots. These checks turn repository architecture into failure conditions rather than reviewer memory.
+
+## Failure behavior
+
+- A domain invariant violation fails before an external effect.
+- An unknown operation effect fails closed.
+- A missing/mismatched opaque action target cannot be reconstructed by application or CLI.
+- An incomplete Catalog command fails catalog/harness tests.
+- A forbidden dependency or third-party CLI import fails architecture lint.
+- Canonical Python source/snapshot drift fails repository checks.
+- A post-mutation unclassified outcome is not reported as safely retryable; it becomes a reconciliation fault.
+
+## Guarantees and limitations
+
+**Guaranteed by repository gates:** enforced dependency direction, one Catalog for public command metadata, task-owned ports, controlled effect boundaries, source/snapshot equality, and tests for declared public schemas and mutations.
+
+**Not guaranteed:** absence of all implementation bugs; runtime safety after trusted infrastructure compromise; semantic correctness of external provider behavior outside declared HTTP contracts; that architecture documentation alone replaces tests or code review.
+
+## Source evidence
+
+- [Canonical architecture contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [Project theses and dependency invariants](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/00_theses.md)
+- [Harness and repository gates](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/04_harness.md)
+- [CLI Catalog definitions](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli)
+- [Application use cases](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/app)
+- [Domain invariants](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/domain)
+- [Infrastructure adapters](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra)
+- [Architecture linter](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/tools/archlint)
+- [Catalog contract tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/catalog_test.go)
+
+## Summary
+
+Domain says what must remain true. Application interprets a user task through minimal ports. Infrastructure performs bounded external work. CLI composes the system and derives the public contract from Catalog. Runtime canonical-source checks prevent embedded Python assets from becoming a second implementation.
+
+## Check your understanding
+
+You should now be able to locate a change in the layer that owns its meaning.
+
+<details>
+  <summary>
+    Why does application code own a minimal port instead of importing Docker
+    infrastructure?
+  </summary>
+  The use case defines exactly the capability it needs without depending on
+  transport details or gaining an unrestricted side-effect surface.
+  Infrastructure then satisfies that contract.
+</details>
+
+<details>
+  <summary>
+    Where is the public CLI command specification authoritative?
+  </summary>
+  In `cli.Catalog`. Routing, parsing, help, output, faults, references, and
+  mutation facts derive from it.
+</details>
+
+<details>
+  <summary>
+    Why are `gateway/` and the embedded Gateway copy both present?
+  </summary>
+  `gateway/` is the editable canonical source. The embedded copy is the exact
+  runtime snapshot materialized by the Go binary, and byte-equality checks
+  prevent independent drift.
+</details>
+
+<details>
+  <summary>May domain code perform filesystem or network I/O?</summary>
+  No. Domain remains pure; external effects belong behind infrastructure
+  adapters composed by CLI.
+</details>
+
+Return to [Implementation stack](/how-it-works/implementation-stack/) for the runtime technologies. Continue with [Security overview](/security/overview/) to evaluate claims, preconditions, enforcement points, failures, and limits.

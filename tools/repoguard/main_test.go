@@ -583,6 +583,25 @@ func TestCheckFilesystemShapeDoesNotTreatIgnoredLocalFilesAsPublishable(t *testi
 	}
 }
 
+func TestCheckFilesystemShapeSkipsInstalledNodeDependencies(t *testing.T) {
+	root := t.TempDir()
+	dependencyRoot := filepath.Join(root, "docs", "site", "node_modules", "fixture")
+	if err := os.MkdirAll(dependencyRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dependencyRoot, "CLAUDE.md"), []byte("third-party package file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := projectconfig.Config{Project: projectconfig.Project{BinaryName: "tobari"}}
+	issues, err := checkFilesystemShape(root, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("installed Node dependencies became shape issues: %#v", issues)
+	}
+}
+
 func TestCheckAgentHarnessRequiresRepositorySkills(t *testing.T) {
 	root := t.TempDir()
 	writeRepositoryFixture(t, root, ".agents/skills/add-capability/SKILL.md", "# Skill\n")

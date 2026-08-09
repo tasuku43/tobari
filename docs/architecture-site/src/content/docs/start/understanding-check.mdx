@@ -1,0 +1,255 @@
+---
+title: Understanding check
+description: Twenty scenario-based checks covering Tobari's lifecycle, request, policy, credential, and trust boundaries.
+---
+
+## How to use this page
+
+For each scenario, answer in your own words before opening the details. A correct answer should name the responsible component and the boundary that matters, not only say “allowed” or “denied.”
+
+Prerequisite: follow the [Learning path](../learning-path/). If several answers are unfamiliar, return to the linked explanation rather than memorizing the text.
+
+## 1. More than a Docker wrapper
+
+A developer says: “Tobari is just a convenient `docker run` command.” What is missing?
+
+<details>
+<summary>Answer</summary>
+
+The runtime container is only one recoverable implementation detail. Tobari also maintains a logical Context-bound Workspace, a host-issued project principal, a dedicated internal network, Gateway enforcement, OPA policy, denial review and atomic activation, persistent home/state, and optional credential brokering. See [System overview](../../how-it-works/system-overview/).
+
+</details>
+
+## 2. Ignoring the proxy
+
+A program clears `HTTP_PROXY` and connects directly to a public IP. What happens in the supported topology?
+
+<details>
+<summary>Answer</summary>
+
+It fails because the Workspace joins only its dedicated internal project network, which has no Docker-provided external route. Gateway alone joins both the project network and egress. Clearing a variable does not create a route. See [Trust boundaries](../../security/trust-boundaries/).
+
+</details>
+
+## 3. Decision versus enforcement
+
+OPA returns `allow`. Which component actually opens the upstream connection?
+
+<details>
+<summary>Answer</summary>
+
+Gateway. OPA decides the normalized effect; Gateway enforces the decision and creates the separate upstream connection. See [Request journey](../../how-it-works/request-journey/).
+
+</details>
+
+## 4. OPA stops
+
+OPA is unavailable while a request is being evaluated. Is the request allowed for availability?
+
+<details>
+<summary>Answer</summary>
+
+No. Gateway returns a service failure and does not connect upstream. Missing, invalid, or unavailable policy decisions fail closed. See [Request journey](../../how-it-works/request-journey/).
+
+</details>
+
+## 5. HTTPS inspection
+
+An HTTPS client reaches `api.example.com` through Tobari. Where does encryption end and begin again?
+
+<details>
+<summary>Answer</summary>
+
+After `CONNECT`, TLS connection A runs between the Workspace client and Gateway and terminates at Gateway using the Tobari CA. After allow, Gateway creates separately verified TLS connection B to the upstream. The final hop is not plaintext HTTP. See [HTTPS and TLS](../../how-it-works/https-and-tls/).
+
+</details>
+
+## 6. Same effect, different body
+
+Two requests have the same Context, project, scheme, host, port, method, and path, but different JSON bodies. Do they require different learned rules?
+
+<details>
+<summary>Answer</summary>
+
+No. Request body is not a policy identity dimension and does not split candidates. Tobari does not infer permission from payload meaning. See [Policy learning](../../how-it-works/policy-learning/).
+
+</details>
+
+## 7. Leaving versus deleting
+
+The agent types `exit`, then the user runs `tobari delete`. What is the difference?
+
+<details>
+<summary>Answer</summary>
+
+`exit` ends the attached shell while preserving the logical Workspace, home, Context binding, runtime resources, and policy. `delete` removes the nearest detached Workspace and its owned home/container/network/principal/state, while preserving project files and Context-owned state. See [Workspace lifecycle](../../how-it-works/workspace-lifecycle/).
+
+</details>
+
+## 8. Switching Contexts
+
+Workspace A was created under Context `default`. The user runs `tobari context use --name review`. Does A change into the `review` Context?
+
+<details>
+<summary>Answer</summary>
+
+No. `context use` changes only the omission default. Existing Workspaces remain permanently bound to their stable Context ID. The same root under `review` can select or create a separate Workspace. See [Contexts](../../guides/contexts/).
+
+</details>
+
+## 9. Same URL, another Workspace
+
+Workspace B sends the same host, method, and path that Workspace A was allowed to use. Does A's rule automatically authorize B?
+
+<details>
+<summary>Answer</summary>
+
+No. Learned rules also bind the stable Context and host-issued project principal. B needs its own matching rule unless it is literally the same Context/project authority. See [Project identity](../../how-it-works/project-identity/).
+
+</details>
+
+## 10. Login versus permission
+
+`tobari auth login github` succeeds. Can the Workspace immediately call every GitHub API path?
+
+<details>
+<summary>Answer</summary>
+
+No. Login stores a Context credential and causes a project-bound handle to be projected on the next matching entry. OPA still evaluates each ordinary HTTP effect, and an exact allow is still required. Authentication does not enlarge authorization. See [Authentication](../../guides/authentication/).
+
+</details>
+
+## 11. What the Workspace receives
+
+The Workspace sees a value beginning `tobari-h1_`. Is that the upstream token?
+
+<details>
+<summary>Answer</summary>
+
+No. It is an opaque random handle bound to Context, project, provider, credential revision, and exact HTTP/header contract. The primary secret remains encrypted in the Context vault and is resolved only on the allowed Gateway path. See [Credentials](../../how-it-works/credentials/).
+
+</details>
+
+## 12. Denied brokered request
+
+A broker handle is valid, but OPA denies the HTTP effect. Does Auth Broker return the primary secret to Gateway?
+
+<details>
+<summary>Answer</summary>
+
+No. Gateway may perform non-secret introspection before policy, but it performs no secret resolution on deny. There is no upstream connection. See [Credential security](../../security/credential-security/).
+
+</details>
+
+## 13. Invalid handle fallback
+
+A request contains a malformed Tobari-looking handle in the declared header. Can Gateway treat it as an ordinary passthrough credential?
+
+<details>
+<summary>Answer</summary>
+
+No. A recognized marker that is malformed, stale, copied, ambiguous, misplaced, or binding-mismatched fails closed. Passthrough/managed fallback is considered only when a Tobari marker is completely absent. See [Credential security](../../security/credential-security/).
+
+</details>
+
+## 14. Purging the cluster
+
+The user deletes every Workspace and runs `tobari cluster down --purge`. Are the encrypted Context vault and installation root key deleted?
+
+<details>
+<summary>Answer</summary>
+
+No. `--purge` additionally removes the shared Gateway CA volumes. Context vaults and the installation root key remain; the command is not `auth logout` and does not contact a provider. See [State and recovery](../../how-it-works/state-and-recovery/).
+
+</details>
+
+## 15. Project file protection
+
+An agent deletes a file inside the selected project root. Is this a Tobari boundary failure?
+
+<details>
+<summary>Answer</summary>
+
+No. The selected root is intentionally mounted read-write. Tobari protects files outside that selection under its preconditions, not the selected project from its authorized Workspace processes. See [Guarantees and limitations](../../security/guarantees-and-limitations/).
+
+</details>
+
+## 16. Data sent to an allowed destination
+
+An exact destination/method/path has been allowed. Can Tobari ensure that the body contains no source code or secret readable by the Workspace?
+
+<details>
+<summary>Answer</summary>
+
+No. The body is streamed after allow and is not an authorization identity field. An allowed upstream can receive any data the Workspace can read and chooses to send. See [Guarantees and limitations](../../security/guarantees-and-limitations/).
+
+</details>
+
+## 17. Trusted foundation compromise
+
+Gateway or the Docker daemon is compromised. Does the documented Workspace guarantee still hold?
+
+<details>
+<summary>Answer</summary>
+
+No. The host, kernel, Docker, Gateway, OPA, Auth Broker, root-key backend, and reviewed runtime configuration are trusted enforcement foundations. Tobari does not claim protection after their compromise. See [Threat model](../../security/threat-model/).
+
+</details>
+
+## 18. Runtime image command
+
+A custom runtime image declares `CMD ["my-agent"]`, and that process exits. Does its `CMD` define the logical Workspace lifetime?
+
+<details>
+<summary>Answer</summary>
+
+No. Tobari explicitly runs its fixed lifetime command and opens work through child exec sessions. The logical Workspace and persistent home also outlive an individual container. See [Runtime customization](../../guides/runtime-customization/).
+
+</details>
+
+## 19. CLI source of truth
+
+A hand-written guide and `tobari help` disagree about an argument. Which specification governs?
+
+<details>
+<summary>Answer</summary>
+
+`cli.Catalog` is the public command and invocation source of truth. Routing, typed argv, help, roles, effects, recovery, and generated site reference derive from it. The hand-written guide must be corrected. See [CLI reference](../../reference/cli/).
+
+</details>
+
+## 20. Evidence for a security claim
+
+Someone claims that a Workspace cannot reach OPA directly and that OPA denial prevents upstream I/O. What evidence should accompany the claim?
+
+<details>
+<summary>Answer</summary>
+
+At minimum: the governing architecture/security contract, Compose/network topology implementation and tests proving OPA joins only control, Gateway tests proving deny performs no upstream connection, and integration canaries for direct egress/control-network isolation. The [Verification evidence](../../security/verification-evidence/) table links claims to enforcement, tests, and source.
+
+</details>
+
+## Bonus scenario: copied broker handle
+
+A process copies a valid handle from Workspace A into Workspace B and sends it to the same host and header. What checks matter?
+
+<details>
+<summary>Answer</summary>
+
+Gateway derives B's principal from the receiving network interface. Broker introspection and resolution require the handle's Context, project, provider, credential revision, exact target, and source/destination header binding to match. A's project binding does not match B, so the request fails before fallback or upstream. Even a valid matching handle would still need an OPA allow for B's ordinary HTTP method/path effect.
+
+</details>
+
+## Source evidence
+
+- [Product contract at the reviewed commit](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Architecture at the reviewed commit](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [Security model and evidence obligations](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
+- [Gateway enforcement tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+- [Integration canaries](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+
+## Summary
+
+You understand the current model when you can connect each answer to an owner: the host selects identity, Workspace holds project authority, OPA decides, Gateway enforces, Auth Broker resolves only after allow, and lifecycle commands remove only the state they own.
+
+If an answer depended on guessing, return to the linked page. For exact arguments, schemas, paths, faults, and versions, continue to [Reference](../../reference/cli/).

@@ -1,0 +1,157 @@
+---
+title: Workspace lifecycle
+description: Understand entry, exit, deletion, runtime reconciliation, and cluster teardown without confusing session and logical state.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+What remains after `exit`, `delete`, runtime loss, or `cluster down`?
+
+**One-sentence answer:** `exit` ends only the attached exec session, `delete` removes one logical Workspace and its owned home/runtime records, and cluster teardown is a separate operation that is allowed only after all Workspaces are deleted.
+
+### By the end, you can explain
+
+- the difference between attached, detached, and absent;
+- what `delete --force` overrides;
+- how container, network, or runtime-image drift is repaired; and
+- why `cluster down --purge` is not Workspace deletion or credential logout.
+
+**Prerequisite:** [Workspace, Context, cluster, and runtime](/how-it-works/workspace-context-cluster/).
+
+<ConceptDiagram name="workspace-lifecycle" />
+
+## State changes in order
+
+### Absent → attached
+
+Running `tobari` from the selected directory chooses an existing Workspace or explicitly creates one for the canonical root and Context. Creation durably records identity and home, reconciles the dedicated network and container, registers the Gateway interface principal, waits for readiness, and starts an interactive `docker exec` shell.
+
+The attached shell is transient process state. It is not the Workspace lifetime process.
+
+### Attached → detached but existing
+
+Shell `exit`, an exact agent command finishing, or a nonzero child exit ends only the exec process. Tobari preserves:
+
+- the root index and instance record;
+- the permanent Context binding and project ID;
+- the per-Workspace home and tool-owned login state;
+- the runtime container and dedicated network;
+- learned policy scoped to that Context/project; and
+- Context-owned broker credentials and this project's current handle projection.
+
+There is no persisted “paused” state. Detached means no observed attached exec session; the logical Workspace still exists.
+
+### Detached → attached again
+
+The next `tobari` entry resolves the same logical record and reconciles runtime drift before entering. It may recreate the container or network, update the desired Context image, reissue current project-bound broker handle projections, and repair principal registration without changing identity or home.
+
+### Detached → absent
+
+`delete` first confirms that no exec session is attached. It verifies exact owner, role, and project labels before removing only that Workspace's container and network. It then removes its root index, instance state, home, and project-auth projection/registry entry. Project files in the mounted root are never removed.
+
+### Attached → absent with `--force`
+
+Normal deletion rejects an attached Workspace. `delete --force` overrides only that attached-session guard. It does not relax Docker ownership/identity checks, broaden the target, or authorize deleting project files.
+
+## Runtime loss and drift
+
+Logical state, not Docker inspection, determines existence.
+
+- **Container lost:** next entry creates a compatible replacement and remounts the existing root/home.
+- **Network lost:** next entry recreates the internal network, reconnects Gateway, and writes the new interface binding before readiness.
+- **Context runtime rebuilt:** next entry compares desired runtime identity and recreates only the project container when needed.
+- **Resource/security contract changed:** the desired-spec hash changes and triggers reconciliation.
+- **Root index exists but instance state is missing:** this is `incomplete`, not an invitation to guess. Entry fails; exact deletion cleans it up.
+
+Durable journals cover interrupted creation and deletion so a partial file set is not silently treated as a second Workspace.
+
+## Cluster lifecycle is separate
+
+`cluster down` is rejected while any logical Workspace instance remains. Delete all Workspaces first.
+
+After that:
+
+| Operation              | Removes                                                                               | Preserves                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `cluster down`         | Shared Gateway, OPA, Auth Broker containers and transient shared networks/projections | Contexts, policy sources, encrypted vaults, root key, Gateway CA volumes |
+| `cluster down --purge` | The same shared runtime resources **and** shared CA volumes                           | Contexts, policy sources, encrypted vaults, installation root key        |
+
+Purge means a later cluster start establishes new shared CA state. It does not revoke provider credentials or delete encrypted vaults. Use `auth logout <provider>` for local credential removal and handle revocation.
+
+## Concrete example
+
+You enter `/work/service`, run a tool-native login, and then type `exit`.
+
+1. The tool's login files remain in that Workspace's persistent home.
+2. The project files and logical records remain.
+3. A later entry resumes the same Workspace and home.
+4. If the container was manually removed meanwhile, Tobari recreates it and remounts that home.
+5. If you instead run `delete` while detached, the Workspace home is deleted. The project root remains.
+
+## Failure behavior
+
+- An attached exec makes ordinary `delete` fail before removal.
+- Wrong/missing ownership labels prevent resource deletion.
+- Runtime incompatibility fails before project resource mutation.
+- Container/network loss never silently deletes logical state.
+- `cluster down` fails while any instance record remains.
+- Interrupted mutation recovery can require the exact lifecycle command; it does not invent completion.
+- A successful mutation followed by cancellation is reported through the mutation-complete boundary so it is not presented as safely replayable.
+
+## Guarantees and limitations
+
+**Guaranteed:** session exit is not deletion; deletion targets one exact Workspace; project files are preserved; runtime resources can be recreated without changing logical identity; purge does not masquerade as logout.
+
+**Not guaranteed:** restoration of manually deleted project files or a manually deleted Workspace home; automatic migration after moving a root; preservation of tool-native login after Workspace deletion; remote provider revocation after local logout.
+
+## Source evidence
+
+- [Lifecycle and command outcome contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Lifecycle state model and reconciliation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [Workspace runtime implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/project_runtime.go)
+- [Root indexes, instance state, and journals](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime)
+- [Application lifecycle tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/app/tobaricmd/service_test.go)
+- [Container/network loss and teardown integration](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+
+## Summary
+
+An attached session, a logical Workspace, its Docker runtime, the shared cluster, and Context credential state have different lifetimes. Use `exit` to leave, `delete` to remove the Workspace, `cluster down` to stop shared services after deletion, and `auth logout` to remove a provider credential.
+
+## Check your understanding
+
+You should now be able to predict what survives each lifecycle operation.
+
+<details>
+  <summary>
+    Does `exit` stop the runtime container or erase tool login state?
+  </summary>
+  No. It ends only the attached exec session. The container, logical record,
+  home, and tool-owned state remain.
+</details>
+
+<details>
+  <summary>What extra authority does `delete --force` grant?</summary>
+  Only permission to override the attached-session guard. Exact target and
+  ownership checks still apply, and project files remain untouched.
+</details>
+
+<details>
+  <summary>
+    Does `cluster down --purge` delete the encrypted vault and root key?
+  </summary>
+  No. It additionally removes shared CA volumes. Vaults and the installation
+  root key survive.
+</details>
+
+<details>
+  <summary>
+    What happens if the runtime container disappears but the instance record
+    remains?
+  </summary>
+  The Workspace still exists logically. The next entry reconciles a replacement
+  container.
+</details>
+
+Return to [Workspace, Context, cluster, and runtime](/how-it-works/workspace-context-cluster/) if ownership scopes are unclear. Next, follow one message in [Request journey](/how-it-works/request-journey/).

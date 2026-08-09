@@ -1,0 +1,147 @@
+---
+title: Workspace, Context, cluster, and runtime
+description: Separate the logical project environment from its host-owned configuration, shared services, and replaceable container.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+What persists when Tobari changes a container, a Context, or the shared cluster?
+
+**One-sentence answer:** A Workspace is one logical directory-bound Tobari identified by a canonical root and stable Context ID; its runtime container is replaceable, its Context supplies host-owned configuration, and the installation shares one cluster of enforcement services.
+
+### By the end, you can explain
+
+- Tobari, Workspace, Context, cluster, and runtime image without treating them as synonyms;
+- how the current directory selects an existing Workspace;
+- why changing the current Context does not migrate a Workspace; and
+- why one project root can have more than one Workspace.
+
+**Prerequisite:** [System overview](/how-it-works/system-overview/).
+
+<ConceptDiagram name="workspace-context-cluster" />
+
+## The concepts, from longest-lived identity to runtime detail
+
+### Tobari and Workspace
+
+A **Tobari** is one long-lived logical untrusted execution environment. A **Workspace** is its human-facing, directory-bound name in lifecycle and list output; it is not a second resource.
+
+Its durable identity combines:
+
+- the canonical host project root;
+- the stable Context ID; and
+- a generated stable internal Tobari/project ID used for state, labels, and principals.
+
+The project ID is diagnostic rather than a routine user-supplied action target.
+
+### Context
+
+A **Context** is a host-owned execution setup with a stable opaque ID and human name. Its manifest refers to:
+
+- a compatible runtime image;
+- a read-only agent profile;
+- guided or advanced policy sources;
+- retained managed-credential stores; and
+- provider configuration whose encrypted Broker vault is stored separately.
+
+The manifest itself contains no root key, primary broker secret, or vault content. The **current Context** is only the default used when a command omits `--context`; it is not shared enforcement authority.
+
+### cluster
+
+The installation-local **cluster** contains exactly one Gateway, one OPA, and one locked Auth Broker, plus control/egress networks, aggregate projections, the principal registry, managed-credential projection, and CA lifecycle.
+
+It is shared by all Context-bound Workspaces. Shared services do not erase project identity: Gateway derives a project/Context principal for every request, and OPA routes to Context policy by stable Context ID.
+
+### runtime image and container
+
+The **runtime image** supplies the OS, tools, entrypoint, and runtime API. The **runtime container** realizes a Workspace at a point in time. Neither defines the Workspace identity.
+
+Tobari creates the container with its own mounts, network, proxy/CA environment, user, security/resource limits, health contract, and explicit `sleep infinity` lifetime command. The image's `CMD` does not determine Workspace lifetime. Drift or loss can recreate the container while preserving the logical Workspace and home.
+
+## Selection from the current directory
+
+Tobari canonicalizes the host current working directory before state or Docker work.
+
+1. An exact indexed root in the selected Context can be reused directly.
+2. If one or more indexed ancestor roots contain the current directory, interactive `tobari` presents every valid candidate nearest-first.
+3. The user can select an existing Workspace, explicitly create at the current directory, or cancel.
+4. Tobari never creates a nested Workspace implicitly.
+
+`status` and `delete` resolve the nearest current-directory Workspace in the explicit or current Context. CWD selection is not a request for the user to manage Docker names or internal IDs.
+
+## Same root, different Context
+
+Assume `/work/payments` is mounted by a Workspace in Context `default`. Running with Context `review` can create a second Workspace for the same canonical root because `(root, Context ID)` is different.
+
+The two Workspaces have separate:
+
+- stable project IDs;
+- homes and tool-owned authentication state;
+- runtime containers and internal networks;
+- project principals; and
+- Context-scoped learned rules and broker handles.
+
+They deliberately share the files below `/work/payments`. Tobari adds no overlay, checkout clone, root lock, or filesystem integrity isolation.
+
+## Changing Context and runtime
+
+`context use --name review` changes only the default marker. It does not mutate an existing Workspace, change its Context, start Docker, or activate a new aggregate.
+
+An existing Workspace is permanently bound to its stored Context ID. A Context runtime rebuild changes that Context's desired image. On the next entry, bound Workspaces reconcile to it; identity and home remain. A missing or incompatible custom image fails before project runtime mutation.
+
+## Failure behavior
+
+- A duplicate `(canonical root, Context ID)` creation is rejected; concurrent creation has one winner.
+- Ambiguous ancestor selection requires an explicit choice; list order is not authority.
+- A durable root index without instance state reports `incomplete`. Entry refuses to invent the missing instance; exact deletion is the cleanup path.
+- A missing runtime container or network is reconciled on the next entry.
+- A missing or incompatible image fails closed before creating/replacing the project runtime.
+- Changing current Context never silently moves existing state.
+
+## Guarantees and limitations
+
+**Guaranteed:** stable Context/project identity survives container reconciliation; one Workspace per exact root/Context pair; Context selection and existing Workspace authority are separate; runtime `CMD` cannot replace Tobari's lifetime contract.
+
+**Not guaranteed:** filesystem isolation for same or overlapping roots; automatic inference after a project directory is moved or copied; trust in an arbitrary custom image; automatic image pulls for configured local/custom images.
+
+## Source evidence
+
+- [Public vocabulary, CWD selection, and path contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Context composition and runtime lifecycle](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [Context/project binding decision](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
+- [Domain Workspace vocabulary](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/domain/tobari)
+- [Root index and instance state implementation](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime)
+- [Runtime and selection contract tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/app/tobaricmd/service_test.go)
+
+## Summary
+
+The Workspace is the durable product concept. Context is its permanent host-owned configuration identity. The cluster is shared enforcement infrastructure. The runtime image supplies an environment, and the runtime container is a replaceable implementation detail.
+
+## Check your understanding
+
+You should now be able to explain what changes—and what does not—when Context or runtime state changes.
+
+<details>
+  <summary>Does `context use` migrate existing Workspaces?</summary>
+  No. It changes only the default for later commands that omit an explicit
+  Context. Existing Workspaces retain their stored Context ID.
+</details>
+
+<details>
+  <summary>Can the same project root have two Workspaces?</summary>
+  Yes, if they use different stable Context IDs. Their runtime and authority are
+  separate, but the overlapping host files are shared.
+</details>
+
+<details>
+  <summary>
+    If a runtime image declares a short-lived `CMD`, does the Workspace stop
+    when that command ends?
+  </summary>
+  No. Tobari ignores the image `CMD` for lifetime and supplies its validated
+  `sleep infinity` contract.
+</details>
+
+Review [System overview](/how-it-works/system-overview/) if shared and per-Workspace scopes are unclear. Next, follow those identities through [Workspace lifecycle](/how-it-works/workspace-lifecycle/).

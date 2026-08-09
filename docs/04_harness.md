@@ -8,11 +8,11 @@ The harness is the executable counterpart of the theses, product contract, archi
 
 | Profile | Task alias | Intended use | Includes |
 |---|---|---|---|
-| `fast` | `task check:fast` | Short local feedback loop | Formatting, architecture checks, capability/schema contracts, focused unit and contract tests |
-| `full` | `task check` | Required implementation gate | Fast profile plus vet, race, tidy/diff checks |
-| `security` | `task security` | Security and dependency changes | Repository guard, module integrity, pinned static and vulnerability analysis |
+| `fast` | `task check:fast` | Short local feedback loop | Formatting, architecture checks, capability/schema contracts, focused unit and contract tests, generated-site drift/type/link checks, and root plus Pages-base static builds |
+| `full` | `task check` | Required implementation gate | Fast profile plus browser accessibility/interaction/responsive checks, vet, race, tidy/diff checks |
+| `security` | `task security` | Security and dependency changes | Repository guard, module integrity, pinned static and vulnerability analysis, and the site runtime-resource/tracking/credential source guard |
 | `release` | `task release:check` | Packaging and release changes | Artifact, metadata, checksum, Formula, and workflow contracts |
-| `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, and public-boundary checks |
+| `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, public-boundary checks, generated references, and the deployable Pages artifact |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Pinned mitmproxy addon unit tests |
 | `authbroker` | `task authbroker:test` | Credential-boundary feedback | Canonical/snapshot drift, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
@@ -104,6 +104,28 @@ Direct invocation is supported for automation:
 
 Every profile starts with a local-toolchain preflight after the gate sanitizes its Go environment. The preflight requires the exact Go version declared by `go.mod` under `GOTOOLCHAIN=local` and verifies the selected binary, its reported version, `GOVERSION`, `GOROOT`, `GOTOOLDIR`, and the compiler in that tool directory as one installation. A mismatch fails once with those values and remediation guidance before formatting, tests, downloads, or release builds begin.
 
+The `fast`, `full`, `security`, and `public` profiles also require the exact
+Node.js version in `.node-version` and npm version in the public site's
+`packageManager` field. Site installation uses only the committed lockfile.
+`task site:check` exposes the complete site gate directly; `task site:build`
+produces and verifies the `/tobari/` Pages artifact, while `task site:dev`
+serves the root-base development view. The full profile installs the pinned
+Playwright Chromium build before testing representative pages with JavaScript
+enabled, disabled, reduced motion, all three theme choices, keyboard controls,
+and a 360 px viewport.
+
+Public reference generation and claim links use the immutable product commit
+recorded in `docs/architecture-site/source-snapshot.txt`; page-source
+provenance separately identifies the documentation build commit. The static
+gate rejects a missing or malformed snapshot, stale generated data, and product
+evidence that drifts to another commit.
+
+The repository-shape pass skips local `node_modules/` installation trees in
+the same way it skips generated `dist/` and `bin/` directories. Git still
+enumerates every tracked or non-ignored repository path separately, so a
+dependency directory accidentally added to publication scope does not bypass
+path, link, locale, or secret checks.
+
 All profiles require Git, Go, and `gofmt`. Container profiles additionally
 require a reachable Docker Engine. The `release` profile additionally requires
 ShellCheck 0.9.0 or newer, Ruby, `tar`, `unzip`, and either `sha256sum` or
@@ -116,7 +138,10 @@ nondeterministic and provider-specific.
 The canonical gate and release packager force module mode and neutralize ambient Go workspace, toolchain, experiment, FIPS, and flag settings before invoking Go. This prevents a local or CI `GOFLAGS` value from silently selecting no tests and keeps agent, developer, and workflow evidence on the same checked command set. A release fixture launches the public profile with hostile values and proves that its first Go-backed check observes only the sanitized contract.
 
 CI is the completion authority. Pull-request CI runs `full`, `runtime`, and the
-security/public boundary profiles in parallel. The repository installs no
+security/public boundary profiles in parallel. The Pages workflow separately
+builds and tests the same site for relevant pull requests without deployment;
+only a successful push to `main` may upload `dist/` and enter the least-
+privilege Pages deploy job. The repository installs no
 automatic Codex Stop hook: a per-turn gate adds latency and does not prove
 completion. Optional local automation must delegate to one named profile and
 must not claim equivalence to a profile it did not run.

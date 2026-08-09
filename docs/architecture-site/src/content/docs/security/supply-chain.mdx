@@ -1,0 +1,125 @@
+---
+title: Supply chain
+description: How runtime source, embedded snapshots, immutable image identities, licenses, workflows, and verification gates relate.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+**How does Tobari know which Gateway, OPA, Auth Broker, and runtime assets it is starting?**
+
+<aside class="one-sentence">
+  <strong>One-sentence answer:</strong> Canonical source is checked against
+  embedded runtime snapshots, service images are selected by reviewed immutable
+  digests, runtime metadata and licenses are validated, and repository gates
+  reject drift before publication or release.
+</aside>
+
+You should finish able to distinguish an immutable service image identity from the moving default runtime selector.
+
+**Prerequisite:** [Implementation stack](../../how-it-works/implementation-stack/).
+
+<ConceptDiagram name="image-supply" />
+
+## Why source and snapshot both exist
+
+The Go CLI must materialize a runtime directory without downloading executable policy or Python source at startup. Canonical editable Gateway code lives under `gateway/`; Auth Broker under `authbroker/`; runtime source under `runtimes/base/`. Byte/content-checked copies live under `internal/infra/runtimeassets/assets/` for embedding.
+
+The copies are not a second implementation. `check-gateway-source.sh`, `check-authbroker-source.sh`, and `check-runtime-base.sh` reject drift. Synchronization is an explicit maintainer operation.
+
+## Immutable and moving identities
+
+`versions.env` pins OPA, mitmproxy build base, Gateway, Auth Broker, and Debian build base by `@sha256:` digest. Gateway and Auth Broker do not invent public SemVer values; their digest is the exact runtime identity. Friendly OPA/mitmproxy version strings are repository declarations paired with those digests.
+
+The official default runtime selector is currently `ghcr.io/tasuku43/tobari/runtime:latest`. It is intentionally a moving selector and must not be described as an immutable digest. Context reconciliation resolves and records the image identity it actually uses; runtime API labels and metadata gate compatibility.
+
+## Build and release controls
+
+- OCI images are built in reviewed workflows and published to GHCR.
+- External workflow actions are pinned to full commit SHAs.
+- Release packaging injects CLI version and commit; ordinary builds remain `dev`.
+- Base/derived runtime metadata records architecture, parent, API, lifetime command, tool source, checksum/signature, and licensing expectations.
+- Public and release guards check repository boundaries, secrets, licenses, package inputs, and immutable service references. Tobari does not claim a separate code-signing, SBOM-attestation, or externally verifiable provenance system here.
+
+## Startup failure behavior
+
+Missing, mutable where immutable is required, incompatible, or unverifiable images stop reconciliation. Missing embedded assets or source drift fail repository gates. Invalid policy/provider projections and locked/unsafe broker state stop dependent services from becoming ready. Failure does not switch to a different unreviewed image or download scripts dynamically.
+
+<aside class="guarantee">
+  <h2>Guaranteed</h2>
+  <div class="prose-block">
+    Reviewed service identities are digest-pinned and source/snapshot equality
+    is mechanically checked. The static documentation site itself uses a
+    lockfile and no runtime CDN.
+  </div>
+</aside>
+
+<aside class="limitation">
+  <h2>Not guaranteed</h2>
+  <div class="prose-block">
+    A digest identifies bytes; it does not prove those bytes have no
+    vulnerability. The default runtime tag is moving. The trusted registries,
+    CI, host, and reviewed dependency process remain part of the supply-chain
+    assumption.
+  </div>
+</aside>
+
+<aside class="evidence">
+  <h2>Sources</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/versions.env">
+        Service versions and digests
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets.go">
+        Embedded asset materialization/hash
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/tools/runtimecheck/main.go">
+        Runtime metadata validator
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/06_release.md">
+        Release contract
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## You should now be able to explain…
+
+…why “pinned image” and “reviewed source snapshot” are related but different controls.
+
+<div class="question-list">
+  <details>
+    <summary>Is `runtime:latest` immutable?</summary>
+    <div class="prose-block">
+      No. It is the current moving official selector. Service component digests
+      and resolved runtime identities must be described separately.
+    </div>
+  </details>
+  <details>
+    <summary>Why embed Python/Rego source if canonical copies exist?</summary>
+    <div class="prose-block">
+      The CLI needs deterministic offline materialization. Equality checks keep
+      the embedded copies from becoming independent implementations.
+    </div>
+  </details>
+  <details>
+    <summary>Does a digest prove an image is safe?</summary>
+    <div class="prose-block">
+      No. It provides exact identity. Review, tests, vulnerability checks,
+      provenance, and trusted infrastructure are additional controls.
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>Next:</strong> map claims to tests in{" "}
+  <a href="../verification-evidence/">Verification evidence →</a>
+</div>

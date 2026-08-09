@@ -1,0 +1,114 @@
+---
+title: Learning path
+description: A ten-step route from Tobari's purpose to its exact security and recovery boundaries.
+---
+
+## The question this page answers
+
+**In what order should a new reader learn Tobari without being overwhelmed by implementation details?**
+
+Begin with the user outcome, add one request path, then learn lifecycle, policy, credentials, failures, and exact reference material only after the mental model is stable.
+
+No prerequisite is required. This page is a map; it deliberately does not duplicate every linked explanation.
+
+## Five levels of understanding
+
+The path is grouped into five levels:
+
+1. **Purpose:** what task Tobari closes for a developer.
+2. **Minimum model:** Workspace → Gateway → Upstream, with OPA and Auth Broker beside Gateway.
+3. **Sequences:** Workspace entry, HTTP/HTTPS, denial review, and credential use in time order.
+4. **Boundaries and failure:** who owns identity and state, what fails closed, and what Tobari does not protect.
+5. **Exact specification:** Catalog-generated CLI, schemas, paths, versions, faults, and evidence.
+
+## Recommended ten-step route
+
+### 1. What Tobari is
+
+Read [Overview](../overview/). Be able to say what authority the agent receives and what outbound effect remains controlled.
+
+### 2. The five-part mental model
+
+Read [Mental model](../../how-it-works/mental-model/). Learn only Workspace, Gateway, OPA, Auth Broker, and Upstream.
+
+### 3. Workspace lifecycle
+
+Read [Workspace lifecycle](../../how-it-works/workspace-lifecycle/). Distinguish `exit`, `delete`, runtime loss, `cluster down`, and `cluster down --purge`.
+
+### 4. One outbound request
+
+Read [Request journey](../../how-it-works/request-journey/). Follow principal derivation, body-free OPA input, allow/deny, separate upstream connection, and secret-free audit.
+
+### 5. HTTPS and TLS
+
+Read [HTTPS and TLS](../../how-it-works/https-and-tls/). Explain `CONNECT`, Workspace-side TLS termination, and the separately verified upstream TLS connection.
+
+### 6. Policy denial and review
+
+Read [Policy learning](../../how-it-works/policy-learning/) and [First denial](../first-denial/). Explain exact rules, opaque references, all-or-nothing activation, and deliberate retry.
+
+### 7. Authentication and credentials
+
+Read [Credentials](../../how-it-works/credentials/) and the [Authentication guide](../../guides/authentication/). Keep authentication separate from authorization.
+
+### 8. Security guarantees and limitations
+
+Read [Guarantees and limitations](../../security/guarantees-and-limitations/) and [Trust boundaries](../../security/trust-boundaries/). For every claim, identify its preconditions and trusted enforcement point.
+
+### 9. State and recovery
+
+Read [State and recovery](../../how-it-works/state-and-recovery/) and [Troubleshooting](../../guides/troubleshooting/). Explain what each destructive-looking command actually preserves.
+
+### 10. Final understanding check
+
+Complete the [Understanding check](../understanding-check/). Open an answer only after explaining the scenario aloud or in writing.
+
+## When to use Reference
+
+Reference pages answer precise operational questions after the model is understood:
+
+- [CLI](../../reference/cli/) is generated from `cli.Catalog`.
+- [Configuration and state](../../reference/configuration-and-state/) lists exact stores and lifetimes.
+- [Provider manifest](../../reference/provider-manifest/) explains current strict schema 1.
+- [Faults and recovery](../../reference/faults-and-recovery/) maps codes to safe actions.
+- [Component versions](../../reference/component-versions/) is generated from repository authorities.
+
+Do not use a path or schema detail as a substitute for understanding ownership. For example, knowing where `vault.enc` lives does not explain why OPA deny prevents resolution.
+
+## If a link describes something unexpected
+
+Stop and return to the immediately preceding conceptual page. In particular:
+
+- if Workspace and container seem interchangeable, return to [Workspace, Context, cluster](../../how-it-works/workspace-context-cluster/);
+- if login seems to create network permission, return to [Credentials](../../how-it-works/credentials/);
+- if OPA appears to forward traffic, return to [Request journey](../../how-it-works/request-journey/); and
+- if “encrypted” sounds like a complete security claim, return to [Credential security](../../security/credential-security/).
+
+## Source evidence
+
+- [Project theses governing the learning model](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/00_theses.md)
+- [Product contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Architecture](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [Security model](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
+
+## Summary
+
+Learn Tobari from outcome to sequence to boundary to specification. The order is intentional: it prevents Docker details, credential schemas, or fault codes from hiding who has authority at each step.
+
+## Check your understanding
+
+<details>
+<summary>Where should you look first if you know a fault code but do not understand why the request crosses Gateway?</summary>
+
+Read the mental model and request journey before the fault reference. Recovery is safer when you understand which component owns the failed step.
+
+</details>
+
+<details>
+<summary>When should you read the complete provider manifest schema?</summary>
+
+After understanding the three credential paths and the authentication/authorization separation. The schema is level-5 reference detail.
+
+</details>
+
+**Next:** begin with [Overview](../overview/) or, if you followed the path already, take the [Understanding check](../understanding-check/).

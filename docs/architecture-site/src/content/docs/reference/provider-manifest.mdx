@@ -1,0 +1,211 @@
+---
+title: Provider manifest
+description: The strict schema-v1 provider data contract for acquisition, Workspace handles, exact HTTPS header binding, and redaction.
+---
+
+import providerManifest from "../../../generated/provider-manifest-example.json";
+
+## What question does this page answer?
+
+**What may an Auth Broker provider manifest declare, and what authority does it
+not receive?**
+
+The short answer is: a provider manifest is bounded, non-secret data parsed by
+a strict Go parser. It describes credential acquisition mode, handle
+projection, and one or more exact HTTPS header transformations. It is not an
+executable adapter, and installing it does not grant network permission.
+
+Read [Credentials](/how-it-works/credentials/) first. After this page, you
+should be able to review a synthetic v1 manifest field by field and explain why
+OPA authorization remains separate.
+
+## Important terminology
+
+The public contract is identified as `tobari.auth-provider.v1` and every
+document has `schema_version: 1`. This repository currently enforces the shape
+with a strict Go parser, domain validation, collection normalization, and
+fixtures. **It does not publish a formal JSON Schema document for the
+manifest.** Do not describe the fixture ledger as a JSON Schema validator.
+
+Owner-controlled manifests are regular, non-symlink, owner-only files below:
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/tobari/auth/providers/*.json
+```
+
+They cannot replace a built-in provider ID and may use only
+`stdin_import`. The one reviewed built-in helper is the GitHub login helper;
+user manifests cannot add another executable helper.
+
+## The complete v1 responsibilities
+
+| Section                  | What it declares                                                                                    | What it cannot declare                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Identity                 | Stable lowercase `id` and secret-free `display_name`.                                               | Account identity, credential value, or authority to overwrite a built-in.              |
+| `acquisition`            | `stdin_import`, or a reviewed built-in's fixed helper ID.                                           | Shell commands, executable paths, arbitrary URLs, refresh code, or signing code.       |
+| `credential`             | Exactly one `primary_secret`.                                                                       | Multiple secret kinds or an embedded secret.                                           |
+| `workspace_projections`  | Bounded `env` or whole `complete_file` templates. At least one projection must include `${HANDLE}`. | Host paths, file patches, process-control variables, or unknown substitutions.         |
+| `header_bindings.target` | Exact lowercase DNS host, exact `https`, and port `1..65535`.                                       | Wildcards, IP literals, route templates, or HTTP method/path policy.                   |
+| `source`                 | Exact lowercase request header and recognized `raw`, `bearer`, or `token` handle syntax.            | Search-and-replace across URL, body, cookies, or unrelated headers.                    |
+| `destination`            | Exact header, `raw`, `bearer`, `token`, or `preserve_scheme`, using `primary_secret`.               | Arbitrary transformations or provider SDK operations.                                  |
+| `secret_headers`         | Complete lowercase redaction set containing both source and destination headers.                    | A partial set that would leave the credential header visible in policy input or audit. |
+
+Allowed template placeholders are `${HANDLE}`, `${PROVIDER_ID}`, and
+`${DISPLAY_NAME}`. A `complete_file` path is a clean relative path below the
+Workspace home. Tobari owns the whole projected file; it does not patch an
+existing file.
+
+## Canonical synthetic example
+
+This example contains no real account or credential. It is the repository's
+canonical schema-v1 fixture:
+
+<pre tabindex="0">
+  <code>{JSON.stringify(providerManifest, null, 2)}</code>
+</pre>
+
+The Workspace sees `EXAMPLE_TOKEN` and the whole generated file containing an
+opaque project-bound handle. It does not see the imported primary secret.
+
+For a matching request, Gateway recognizes and removes the handle, performs
+non-secret broker introspection, and asks OPA about the ordinary HTTP effect.
+Only after allow does Gateway resolve the secret once and write it to the
+declared destination header. A deny performs no secret resolution.
+
+## Validation and collection activation
+
+One manifest is rejected if it is empty, not valid UTF-8, larger than 64 KiB,
+contains duplicate or unknown keys, contains trailing JSON, uses an unsupported
+version, or violates a bounded field rule.
+
+The whole provider collection is normalized deterministically. Activation
+fails if providers collide on:
+
+- provider ID or case-insensitive display name;
+- Workspace environment variable or complete-file path;
+- exact target and source-header recognition range;
+- a `raw` syntax that overlaps a more specific syntax; or
+- another ambiguous binding or redaction contract.
+
+There is no partial activation of the remaining documents. Failing the
+collection prevents ambiguous credential recognition from reaching Gateway.
+
+## What installation changes—and what it does not
+
+Adding a manifest makes a provider definition available for validation and,
+after an explicit import, for handle projection. It does **not**:
+
+- add an allow rule;
+- declare allowed methods or paths;
+- cause denied traffic to be retried;
+- make the handle sufficient authority;
+- expose a primary secret to OPA or a Workspace; or
+- guarantee remote token revocation at logout.
+
+Policy still binds the exact Context ID, project ID, host, port, method, and
+path. The broker additionally checks Context, project, provider, credential
+revision, and normalized HTTP binding. A malformed, stale, misplaced, or
+ambiguous Tobari-looking handle fails closed. A handle copied into another
+project or Context also fails. None of these failures falls back to
+passthrough. Processes in the same Workspace can use that Workspace's valid
+handle; Tobari does not isolate peer processes inside one Workspace.
+
+## Failure and recovery
+
+If provider loading fails, correct or remove the invalid owner-controlled
+document and run the exact diagnostic or cluster command given by the CLI
+fault. Do not loosen file permissions or convert a failing document into an
+executable wrapper.
+
+Replacing a credential revokes the old revision's handles. Leave and re-enter
+the affected Workspace so new process environment and complete-file projection
+can be reconciled. `auth logout` removes the local credential and handles; it
+does not contact the provider.
+
+## Evidence
+
+- Governing authentication contract:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/07_authentication.md`}
+  >
+    `docs/07_authentication.md`
+  </a>
+- Pure manifest model and validation:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider.go`}
+  >
+    `provider.go`
+  </a>
+- Strict JSON parser:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/parser.go`}
+  >
+    `parser.go`
+  </a>
+- Collection collision checks:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/projection.go`}
+  >
+    `projection.go`
+  </a>
+- Owner-controlled loader:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/loader.go`}
+  >
+    `loader.go`
+  </a>
+- Canonical fixture and tests:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/testdata/synthetic-provider-v1.json`}
+  >
+    synthetic provider v1
+  </a>
+  ,
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider_test.go`}
+  >
+    domain negative tests
+  </a>
+  , and
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/loader_test.go`}
+  >
+    loader tests
+  </a>
+
+## Summary
+
+A provider manifest is strict, declarative, non-secret data. It maps one
+project-bound handle position to one exact HTTPS destination header. It neither
+executes acquisition code nor grants the HTTP effect.
+
+## Check your understanding
+
+You should now be able to explain why a valid provider manifest does not make a
+request authorized.
+
+<details>
+  <summary>Can a user provider declare `curl` as its login command?</summary>
+
+No. User providers use protected non-terminal `stdin_import`. Executable
+helpers are reviewed built-ins, not manifest-supplied code.
+
+</details>
+
+<details>
+  <summary>Can a manifest restrict a credential to `GET /v1/items`?</summary>
+
+No. Method and path belong to OPA policy. The manifest declares exact HTTPS
+target and header semantics only.
+
+</details>
+
+<details>
+  <summary>What happens if two providers can recognize the same header value?</summary>
+
+The collection is ambiguous and fails as a whole before activation. Tobari
+does not choose by order.
+
+</details>
+
+Next: [JSON schemas and versioned JSON contracts](/reference/json-schemas/).

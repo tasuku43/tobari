@@ -1,0 +1,147 @@
+---
+title: Contexts
+description: Create, inspect, select, and use host-owned Contexts without changing existing Workspace authority.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this guide answers
+
+**How do you keep different runtime, policy, agent-profile, and credential configurations separate?**
+
+Create named Contexts on the trusted host, select one as the default for omitted `--context` inputs, and remember that every existing Workspace stays permanently bound to the stable Context ID under which it was created.
+
+After this guide, you should be able to explain the difference between a Context, a Workspace, and the shared cluster; create a second Context; and predict what happens at the same project root after a Context switch.
+
+Prerequisite: [Workspace, Context, cluster](../../how-it-works/workspace-context-cluster/) provides the conceptual model.
+
+<ConceptDiagram name="workspace-context-cluster" headingLevel={2} />
+
+## Inspect the current Context collection
+
+On the trusted host:
+
+```sh
+tobari context list
+tobari context show
+```
+
+`context list` reports the complete local collection and identifies the current/default name. `context show` without `--name` inspects that default. The report includes the stable ID, image selector, agent profile, policy mode, allowlisted shell settings, store references, and runtime status. It excludes primary credentials, broker handles, root keys, and vault contents.
+
+The display name is convenient selection text. The stable Context ID is the durable authority bound into Workspaces, policy, principals, and broker records.
+
+## Create a Context
+
+Create a separate guided Context:
+
+```sh
+tobari context create --name review --mode guided
+tobari context show --name=review
+```
+
+Creation initializes owner-only Context stores but does not start Docker, mutate existing Workspaces, or update the shared aggregate. If a cluster already exists, the result reports that explicit reconciliation is required:
+
+```sh
+tobari cluster up
+```
+
+An Advanced Context is an explicit choice for trusted-host Rego ownership:
+
+```sh
+tobari context create --name policy-lab --mode advanced
+```
+
+Use Guided mode for routine exact policy learning. Advanced mode is for a person prepared to maintain Rego and tests; see [Advanced policy](../advanced-policy/).
+
+## Change the omission default
+
+```sh
+tobari context use --name review
+tobari context show
+```
+
+`context use` changes one host marker. It does not start Docker, rewrite the cluster, change a Workspace's Context, move a persistent home, or rotate a credential.
+
+You can avoid changing the default by selecting a Context explicitly:
+
+```sh
+tobari --context review
+tobari status --context review
+tobari delete --context review
+```
+
+At the same canonical project root, `(root, Context A)` and `(root, Context B)` are distinct logical Workspaces. They have different stable project IDs, homes, containers, networks, principals, policy authority, and broker handles. They still mount the same host project files, so Context separation is not a filesystem overlay.
+
+## Configure narrow shell presentation
+
+Configure one allowlisted variable on the trusted host. Shell configuration supports only `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`:
+
+```sh
+tobari context shell configure --context review --variable PS1 --source inherit
+tobari context shell configure --context review --variable COLORTERM --source literal --value truecolor
+tobari context shell configure --context review --variable NO_COLOR --source literal --value=
+tobari context shell configure --context review --variable TERM --source default
+```
+
+`default` removes that Context override. `inherit` reads only the named exported host value when a future shell starts. `literal` stores one bounded Context value and preserves an explicitly empty value. Tobari does not enumerate or copy the host environment, credential variables, startup files, or host home; `PATH`, `HOME`, `BASH_ENV`, `ENV`, and `PROMPT_COMMAND` are outside this feature.
+
+Re-enter the Workspace to start a new shell after changing a setting. Existing processes keep their current environment. Every rejected combination fails before mutation.
+
+## A concrete two-Context example
+
+1. `default` at `/work/app` already owns Workspace A.
+2. Create and select `review`.
+3. Run `tobari` again from `/work/app` and explicitly create or select the `review` binding.
+4. Workspace B receives the same project files but its own home and project principal.
+5. A learned rule or broker handle from A does not authorize B because Context and project IDs differ.
+6. Switching the default back to `default` makes omitted commands select A again; B remains unchanged.
+
+## Failure behavior
+
+- `context_not_found`: use `tobari context list` and choose an existing name.
+- `context_exists`: inspect the existing Context instead of overwriting it.
+- `invalid_context`: correct the name, image selector, or policy mode.
+- `requires_reconcile` after create: run explicit `tobari cluster up` before using the new Context with shared services.
+- `workspace_selection_stale`: rerun `tobari`; the candidate collection changed during selection.
+- An invalid or unavailable Context image prevents new registration or reconciliation but preserves prior logical Workspace state and home.
+
+## Guarantees and limits
+
+Context binding is stable and host-owned; a caller-supplied header or display name cannot switch authority. Contexts isolate policy, home, runtime selection, principals, and credential handles. They do not isolate mutations to the same overlapping host directory, and they all use the same trusted cluster services.
+
+## Source evidence
+
+- [Context product contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Context domain invariants](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/domain/tobari/context.go)
+- [Context store implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/context_store.go)
+- [Current-marker-only tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/context_store_test.go)
+- [Same-root/different-Context tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/project_state_test.go)
+
+## Summary
+
+A Context is host-owned configuration and stable authority, not a running container or shared cluster. Changing the default affects future selection only; an existing Workspace never changes Context implicitly.
+
+## Check your understanding
+
+<details>
+<summary>You run <code>context use</code> while the cluster is stopped. Does the command start Docker?</summary>
+
+No. It validates the Context and atomically changes only the default marker.
+
+</details>
+
+<details>
+<summary>Can two Contexts at the same root safely be described as isolated copies of the files?</summary>
+
+No. They have separate Tobari state and authority but both mount the same host directory. File changes are shared.
+
+</details>
+
+<details>
+<summary>May a Context inherit an arbitrary <code>SERVICE_TOKEN</code> through shell configuration?</summary>
+
+No. Only `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR` are allowed. Credential environment names are intentionally outside this feature.
+
+</details>
+
+**Next:** [Customize a Context runtime](../runtime-customization/).

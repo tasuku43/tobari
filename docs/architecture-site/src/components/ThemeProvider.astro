@@ -1,0 +1,40 @@
+{
+  /* This inline script runs before paint so the stored or system theme does not flash. */
+}
+<script is:inline>
+  window.TobariTheme = (() => {
+    const key = "tobari-theme";
+    const parse = (value) =>
+      value === "light" || value === "dark" || value === "system"
+        ? value
+        : "system";
+    const preferred = () =>
+      matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    const stored = parse(localStorage.getItem(key));
+    const apply = (selection) => {
+      const selected = parse(selection);
+      document.documentElement.dataset.theme =
+        selected === "system" ? preferred() : selected;
+      document.documentElement.dataset.themeSelection = selected;
+      document.documentElement.style.colorScheme =
+        selected === "system" ? "light dark" : selected;
+      return selected;
+    };
+    apply(stored);
+    return {
+      key,
+      apply(selection) {
+        const selected = apply(selection);
+        localStorage.setItem(key, selected);
+        document
+          .querySelectorAll("[data-tobari-theme-select]")
+          .forEach((select) => {
+            select.value = selected;
+          });
+      },
+      current() {
+        return parse(localStorage.getItem(key));
+      },
+    };
+  })();
+</script>

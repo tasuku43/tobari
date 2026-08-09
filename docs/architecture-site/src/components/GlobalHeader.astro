@@ -1,0 +1,102 @@
+---
+import config from "virtual:starlight/user-config";
+import LanguageSelect from "@astrojs/starlight/components/LanguageSelect.astro";
+import Search from "@astrojs/starlight/components/Search.astro";
+import SiteTitle from "@astrojs/starlight/components/SiteTitle.astro";
+import SocialIcons from "@astrojs/starlight/components/SocialIcons.astro";
+import ThemeSelect from "./ThemeSelect.astro";
+
+const shouldRenderSearch =
+  config.pagefind ||
+  config.components.Search !== "@astrojs/starlight/components/Search.astro";
+const sections = [
+  ["Start", "/start/overview/"],
+  ["How it works", "/how-it-works/mental-model/"],
+  ["Security", "/security/overview/"],
+  ["Guides", "/guides/contexts/"],
+  ["Reference", "/reference/cli/"],
+] as const;
+const withBase = (href: string) =>
+  `${import.meta.env.BASE_URL}${href.replace(/^\//, "")}`;
+---
+
+<div class="tobari-header">
+  <div class="title-wrapper sl-flex"><SiteTitle /></div>
+  <nav aria-label="Primary" class="primary-nav print:hidden">
+    {sections.map(([label, href]) => <a href={withBase(href)}>{label}</a>)}
+  </nav>
+  <div class="search sl-flex print:hidden">
+    {shouldRenderSearch && <Search />}
+  </div>
+  <div class="right-group sl-hidden md:sl-flex print:hidden">
+    <div class="social-icons sl-flex"><SocialIcons /></div>
+    <ThemeSelect />
+    <LanguageSelect />
+  </div>
+</div>
+
+<style>
+  @layer starlight.core {
+    .tobari-header {
+      display: grid;
+      grid-template-columns: auto minmax(18rem, 1fr) auto;
+      grid-template-areas: "title search right";
+      align-items: center;
+      gap: 0.5rem 1rem;
+      height: 100%;
+    }
+    .title-wrapper {
+      grid-area: title;
+      min-width: 0;
+      overflow: clip;
+      padding: 0.25rem;
+      margin: -0.25rem;
+    }
+    .primary-nav {
+      display: none;
+      grid-area: nav;
+      gap: 1.1rem;
+      align-items: center;
+      font-size: var(--sl-text-sm);
+      white-space: nowrap;
+    }
+    .primary-nav a {
+      color: var(--sl-color-gray-2);
+      text-decoration: none;
+      text-underline-offset: 0.3em;
+    }
+    .primary-nav a:hover,
+    .primary-nav a:focus-visible {
+      color: var(--sl-color-white);
+      text-decoration: underline;
+    }
+    .search {
+      grid-area: search;
+      justify-content: center;
+      min-width: 0;
+    }
+    .right-group {
+      grid-area: right;
+      gap: 1rem;
+      align-items: center;
+    }
+    .social-icons {
+      gap: 1rem;
+      align-items: center;
+    }
+    .social-icons::after {
+      content: "";
+      height: 2rem;
+      border-inline-end: 1px solid var(--sl-color-gray-5);
+    }
+    @media (min-width: 72rem) {
+      .tobari-header {
+        grid-template-columns: auto auto minmax(15rem, 1fr) auto;
+        grid-template-areas: "title nav search right";
+      }
+      .primary-nav {
+        display: flex;
+      }
+    }
+  }
+</style>

@@ -1,0 +1,171 @@
+---
+title: One request through Tobari
+description: Follow an outbound request from a Workspace process to a decision, an upstream connection, and secret-free audit.
+---
+
+import SequenceExplorer from "../../../components/SequenceExplorer.astro";
+
+## The question this page answers
+
+In what exact order does Tobari process one outbound HTTP or HTTPS request?
+
+**One-sentence answer:** Gateway establishes the host-issued principal, prepares credentials without exposing their values, sends one body-free normalized decision to OPA, and only after allow resolves the destination, applies any credential, and opens the upstream connection.
+
+### By the end, you can explain
+
+- what Gateway knows before it asks OPA;
+- which request data OPA receives and does not receive;
+- why body bytes cannot reach upstream before authorization; and
+- the difference between policy denial, policy failure, and upstream failure.
+
+**Prerequisite:** [System overview](/how-it-works/system-overview/). Broker details are introduced later; here they appear only as one optional preparation step.
+
+<SequenceExplorer
+  scenarios={["allowed-passthrough", "learnable-denial", "opa-unavailable"]}
+  initial="allowed-passthrough"
+  title="Allowed, denied, and unavailable request paths"
+/>
+
+## The processing order
+
+### 1. Receive proxy traffic
+
+The Workspace process connects to `gateway:8080` on its dedicated internal network. For plain HTTP, the proxy sees the request directly. For HTTPS, `CONNECT` and Workspace-side TLS establish an intercepted HTTP flow; [HTTPS and TLS](/how-it-works/https-and-tls/) explains that split.
+
+At this point, request bytes are untrusted. A project-looking header is not a principal.
+
+### 2. Establish Context and project identity
+
+Gateway reads the local address of its interface that accepted the connection and looks it up in the host-owned principal registry. The result supplies stable `context_id` and `project_id`. Missing, unknown, stale, unsafe, or ambiguous bindings stop here, before OPA.
+
+### 3. Prepare the authentication route
+
+The selected credential adapter prepares the request before policy:
+
+- **tool-native passthrough:** credential and cookie values are excluded from OPA input but retained for possible forwarding after allow;
+- **retained managed adapter:** a non-secret requested profile is validated against Context, project, and host, while its secret remains unread;
+- **Auth Broker:** an exactly recognized handle is removed from the forwardable request and introspected for non-secret binding metadata.
+
+An invalid Tobari-looking handle fails here. It does not become passthrough traffic.
+
+### 4. Build one normalized, body-free decision
+
+Gateway posts schema 5 input to one fixed OPA endpoint. It includes:
+
+- registry-derived cluster, Context ID, and project ID;
+- normalized scheme, lowercase host without a trailing dot, and port;
+- uppercase method;
+- raw path and decoded path segments;
+- multi-valued query; and
+- redacted non-secret headers plus non-secret authorization metadata.
+
+It excludes request and response bodies, broker handles, resolved primary credentials, and known/configured credential-header values. The ordinary query is part of OPA input, so do not treat OPA input as a generic secret scrubber for arbitrary data placed in a URL.
+
+### 5. Ask OPA exactly once
+
+Gateway sends one bounded HTTP POST with a finite timeout and no retry. It requires HTTP 200 and one valid result containing a boolean `allow`, non-empty reason, status `403`, boolean `learnable`, and valid optional managed profile.
+
+OPA decides. Gateway enforces.
+
+### 6A. Deny locally
+
+On a valid deny, Gateway creates `403 policy_denied`. A learnable denial includes only a fixed host-side navigation object naming `tobari policy review`, the exact host, port, method, and path, and `automatic_retry: false`.
+
+It contains no candidate ID, query, body, headers, credential, or dynamic command argument. The candidate's opaque reference is derived later from retained host evidence.
+
+### 6B. Continue after allow
+
+Only after allow may Gateway:
+
+1. apply the managed profile or resolve a brokered credential exactly once;
+2. mark the request flow as authorized for streaming;
+3. resolve the upstream hostname;
+4. reject unsafe non-global results for dotted hosts;
+5. pin the selected address so a later DNS answer cannot change the connection; and
+6. create one upstream connection and stream the body.
+
+There is no automatic application request retry. Redirects become new requests and pass through policy again.
+
+### 7. Record the outcome
+
+Denials are logged immediately. An allowed request is logged after response or connection error. Audit schema 2 contains bounded identity, authority, method, redacted path, decision, reason, non-secret profile/provider metadata, status, and timing. It does not contain query, headers, body, handle, or primary credential.
+
+## Concrete example: two different bodies
+
+Suppose a Workspace first sends:
+
+```http
+PATCH /api/items/42 HTTP/1.1
+Host: example.com
+Content-Type: application/json
+
+{"state":"ready"}
+```
+
+and later sends the same Context/project/host/port/method/path with `{"state":"deleted"}`.
+
+The bodies may have very different application meaning, but Tobari's exact policy identity is the same. The body does not create a second review candidate or a narrower rule. If that route is allowed, either body can be sent. The reviewer must evaluate the route-level capability, not infer payload inspection.
+
+## Failure behavior
+
+| Stage                  | Failure                                                         | Result                                                   |
+| ---------------------- | --------------------------------------------------------------- | -------------------------------------------------------- |
+| Principal              | Registry unreadable or interface unknown                        | 403 `project_principal_unavailable`                      |
+| Credential preparation | Invalid/stale/mismatched handle                                 | 403 `credential_handle_invalid`                          |
+| OPA                    | Timeout, connection error, non-200, invalid or oversized result | 503 `policy_unavailable`                                 |
+| Decision               | Valid deny                                                      | 403 `policy_denied`; upstream untouched                  |
+| Post-allow credential  | Broker or managed secret unavailable                            | 503 credential fault; upstream untouched                 |
+| DNS/address            | No safe usable address                                          | Upstream/proxy error; no alternate authority is invented |
+| Upstream               | TCP/TLS/HTTP failure after allow                                | Audit marks `upstream_error`; policy is unchanged        |
+
+A known `Content-Length` greater than mitmproxy's 8 MiB limit may be rejected before the ordinary addon header hook. Allowed unknown-length bodies stream without a total-byte limit in the pinned product contract.
+
+## Guarantees and limitations
+
+**Guaranteed:** one OPA call per ordinary Gateway attempt; no request-body byte forwarded before principal, credential preparation, decision, and post-allow credential application succeed; no application-level retry; secret-free denial/review projection.
+
+**Not guaranteed:** body-aware authorization, application semantic understanding, idempotence, provider-operation interpretation, total-byte limits for allowed unknown-length streaming bodies, or a stable Tobari JSON fault for every low-level upstream failure.
+
+## Source evidence
+
+- [External HTTP contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/08_external_api_contracts.md)
+- [HTTP authorization security boundary](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
+- [Gateway implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/addon/tobari_gateway.py)
+- [Credential adapter boundary](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/addon/credential_adapters.py)
+- [Broker handle adapter](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/addon/broker_credentials.py)
+- [Gateway ordering, redaction, outage, and streaming tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+
+## Summary
+
+Identity comes from the receiving interface. OPA sees a normalized body-free request and answers once. Deny stops locally. Allow is the prerequisite for credential application, destination resolution, upstream connection, and body streaming.
+
+## Check your understanding
+
+You should now be able to narrate an allowed and a denied request without swapping Gateway and OPA responsibilities.
+
+<details>
+  <summary>
+    Does OPA receive the request query? Does the learned exact rule use it as
+    identity?
+  </summary>
+  OPA input includes the multi-valued query. Current exact candidate/rule
+  identity does not include it; identity is Context, project, host, port,
+  method, and path.
+</details>
+
+<details>
+  <summary>When can the first body byte reach upstream?</summary>
+  Only after principal establishment, credential preparation, a valid OPA allow,
+  and any post-allow credential action succeed.
+</details>
+
+<details>
+  <summary>
+    What is the difference between `policy_denied` and `policy_unavailable`?
+  </summary>
+  `policy_denied` is a valid deny decision and may be reviewable.
+  `policy_unavailable` means Gateway did not receive one valid decision; it
+  fails closed and is not a permission proposal.
+</details>
+
+Return to [System overview](/how-it-works/system-overview/) for network placement. Next, split the encrypted path in [HTTPS and TLS](/how-it-works/https-and-tls/).

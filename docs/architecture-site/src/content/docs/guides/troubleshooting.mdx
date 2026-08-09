@@ -1,0 +1,197 @@
+---
+title: Troubleshooting
+description: Start from an observable symptom, identify the owning boundary, and choose a safe read-before-write recovery.
+---
+
+## The question this guide answers
+
+**What should you inspect first when Tobari does not enter, connect, authorize, authenticate, or clean up as expected?**
+
+Begin with read-only diagnostics, identify which owner failed, and use only the recovery command declared for that fault. Do not replay uncertain mutations or remove security state merely to clear an error.
+
+After this guide, you should be able to triage common symptoms without confusing policy, authentication, runtime, or VM failures.
+
+Prerequisite: know the [five-part mental model](../../how-it-works/mental-model/). For exact codes, retryability, and Catalog-declared recovery, use [Faults and recovery](../../reference/faults-and-recovery/).
+
+## Begin with observations
+
+From the trusted host and intended project directory:
+
+```sh
+tobari doctor
+tobari cluster status
+tobari status
+tobari list
+```
+
+These commands observe; they do not start services, create/delete runtime resources, activate policy, or repair credentials. `auth status` is also read-only but needs the configured broker path to report provider state:
+
+```sh
+tobari auth status
+```
+
+Record the exact fault code and declared next action. Do not reduce every failure to “retry.”
+
+## I cannot enter a Workspace
+
+Check in this order:
+
+1. `tobari cluster status`: the shared cluster must already be configured and healthy.
+2. `tobari doctor`: inspect Docker, image, path, policy, provider, broker, and root-key prerequisites.
+3. `tobari status`: distinguish absent logical state from `missing`, `degraded`, `unreachable`, or `incomplete` runtime diagnostics.
+4. Confirm the root command has an interactive terminal and is not already running inside a Workspace.
+
+`missing` container or `degraded` network can be reconciled by the next valid root entry while preserving logical state/home. `incomplete` means the index and instance record disagree; entry refuses to invent identity. Use the exact cleanup path `tobari delete`, then create deliberately.
+
+For `workspace_selection_stale`, rerun `tobari` and choose from the refreshed candidates. For `image_not_found` or `incompatible_image`, inspect the bound Context and fix/build the runtime before another entry.
+
+## A request returns HTTP 403
+
+First identify the response code:
+
+- `policy_denied`: leave the Workspace and run `tobari policy review`. Inspect and explicitly allow or deny one exact candidate, then retry deliberately.
+- `credential_handle_invalid`: leave and re-enter the same Context-bound Workspace. A stale, copied, malformed, misplaced, or mismatched handle must not be forwarded.
+- A baseline or learned exact deny: it is terminal policy, not a pending candidate. Inspect `tobari policy rules`; reset only if changing that decision is intentional.
+
+Do not solve a credential-binding `403` by creating a broad allow rule. The failure occurs before an effective OPA rule can close it.
+
+## Gateway or OPA is unhealthy
+
+```sh
+tobari cluster status
+tobari cluster logs --component gateway --tail 100
+tobari cluster logs --component opa --tail 100
+```
+
+Correct the reported image, projection, policy, mount, ownership, or health issue, then run explicit reconciliation:
+
+```sh
+tobari cluster up
+```
+
+OPA unavailable never becomes allow. Gateway does not connect upstream without a valid decision. An invalid policy candidate should leave the previous known-good aggregate active.
+
+## Auth Broker is locked or unavailable
+
+```sh
+tobari cluster status
+tobari auth status
+tobari doctor
+```
+
+`cluster up` is the supported path that starts/reconciles the Broker and unlocks it through the host root-key backend. The broker starts locked after restart by design.
+
+If an existing vault is present but the root key is missing, restore the original Linux XDG key or macOS Keychain item. Tobari intentionally refuses to generate a replacement over encrypted state. Do not print, hand-edit, or copy vault ciphertext into a Workspace.
+
+## A broker handle is invalid
+
+Credential replacement and logout revoke old handles immediately, but a running process keeps its old environment. Exit and re-enter to receive the current projection:
+
+```sh
+exit
+tobari
+```
+
+If it still fails, inspect `tobari auth status`, the exact Context selection, installed provider binding, and cluster readiness. Do not paste a handle from another Workspace; project and Context checks are intentional.
+
+## Runtime image is missing or incompatible
+
+```sh
+tobari context show
+```
+
+For a managed recipe:
+
+```sh
+tobari runtime init
+# Edit the reported Dockerfile only if no recipe existed.
+tobari runtime build
+```
+
+`runtime init` refuses to overwrite a recipe. A failed build keeps the previous selected image unless a promotion was already confirmed. Existing logical Workspace state and home remain. Correct compatibility instead of changing host mounts, user, entrypoint, lifetime command, or network controls.
+
+## Policy activation fails
+
+Inspect:
+
+```sh
+tobari policy rules
+tobari cluster status
+tobari cluster logs --component opa --tail 100
+```
+
+Exact allow/deny/reset/compaction validates the changed Context and the complete all-Context aggregate before activation. A failure should retain known-good policy. Rediscover opaque references after any concurrent change; do not reuse display order or stale IDs.
+
+For host-authored Advanced policy, correct the Rego and tests on the trusted host, then rerun `tobari doctor` and explicit `tobari cluster up`.
+
+## I cannot delete a Workspace or stop the cluster
+
+- `project_session_attached`: exit the session, then run `tobari delete`. Use `tobari delete --force` only when terminating that exact attached session is intentional.
+- `project_not_found`: run the command from the intended project root/ancestor and selected Context.
+- `cluster_not_empty`: `tobari list` every Workspace, return to the appropriate root/Context, and delete each before `cluster down`.
+- Interrupted state: inspect `status` and `doctor`; use the declared exact cleanup or reconcile command rather than manually deleting labels/files.
+
+`delete` never removes project files. `cluster down --purge` removes shared runtime and CA volumes but preserves Context vaults/root key; it is not credential logout.
+
+## Colima or Lima cannot see a mount
+
+If Docker reports a bind source missing even though the host shell can see it, the selected VM daemon lacks path sharing. Share the exact project and resolved Tobari XDG config/state parents, then run:
+
+```sh
+tobari doctor
+tobari cluster up
+```
+
+See [Colima and Lima](../colima-and-lima/). Do not work around the error with a host-home mount, host network, privileged container, or Docker socket.
+
+## Mutation outcome is uncertain
+
+For `auth_mutation_outcome_unknown`, `unclassified_mutation_outcome`, or `mutation_output_write_failed`, the side effect may already have completed. Do not repeat login, import, logout, policy mutation, or another destructive write merely because output was lost.
+
+Reconcile through the matching read path first:
+
+- authentication: `tobari auth status`;
+- policy: `tobari policy rules` and `tobari cluster status`;
+- Context/runtime: `tobari context show`;
+- Workspace: `tobari status` and `tobari list`.
+
+## Guarantees and limits
+
+Catalog faults declare bounded recovery, and read-only diagnostics avoid surprising repair. Diagnosis still depends on accurate trusted-host/Docker observations. Manual deletion of state, arbitrary image substitution, or broad mount/network changes can invalidate recovery guarantees and the security model.
+
+## Source evidence
+
+- [Catalog-declared faults and recovery](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/runtime_catalog.go)
+- [Authentication fault contracts](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/auth_catalog.go)
+- [Read-only doctor implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/runtime.go)
+- [Workspace recovery tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/project_runtime_test.go)
+- [Integration recovery canaries](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+
+## Summary
+
+Start with what you observed, identify the owning boundary, read current state, and apply only the declared recovery. Availability failures remain closed, and uncertain mutations must be reconciled before replay.
+
+## Check your understanding
+
+<details>
+<summary>A broker login command lost its final output. Should you run login again?</summary>
+
+Not yet. The credential may already have been replaced. Run `tobari auth status` and reconcile the Context before another mutation.
+
+</details>
+
+<details>
+<summary>An HTTPS request gets a policy denial. Should you restart the cluster first?</summary>
+
+No, not when the cluster is healthy and the denial is learnable. Leave the Workspace, review the exact effect on the host, decide, then retry deliberately.
+
+</details>
+
+<details>
+<summary>A Workspace container disappeared. Must you delete the logical Workspace?</summary>
+
+No. Runtime loss is recoverable. A valid next root entry recreates the container while preserving identity and home. Delete only for an `incomplete` cleanup state or when ending the Workspace intentionally.
+
+</details>
+
+**Next:** use [Faults and recovery](../../reference/faults-and-recovery/) for the exact code contract, or return to [State and recovery](../../how-it-works/state-and-recovery/) for ownership and lifetime.

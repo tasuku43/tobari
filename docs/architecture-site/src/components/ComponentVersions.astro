@@ -1,0 +1,193 @@
+---
+import versionData from "../generated/component-versions.json";
+---
+
+<section class="version-reference" aria-labelledby="component-identities">
+  <h2 id="component-identities">Component identities</h2>
+  <p>
+    This table is generated from committed repository authorities. A digest is
+    the runtime identity; a friendly version is shown only when the repository
+    declares one.
+  </p>
+  <div class="responsive-table">
+    <table>
+      <thead
+        ><tr
+          ><th>Component</th><th>Declared version</th><th>Runtime identity</th
+          ><th>Authority</th></tr
+        ></thead
+      >
+      <tbody>
+        {
+          versionData.components.map((component) => (
+            <tr>
+              <th scope="row">{component.component}</th>
+              <td data-label="Declared version">{component.version}</td>
+              <td data-label="Runtime identity">
+                <code>{component.identity}</code>
+                {component.note && <small>{component.note}</small>}
+              </td>
+              <td data-label="Authority">
+                <code>{component.authority}</code>
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="schema-identities">Schema and API versions</h2>
+  <div class="responsive-table narrow">
+    <table>
+      <thead><tr><th>Contract</th><th>Version</th><th>Authority</th></tr></thead
+      >
+      <tbody>
+        {
+          versionData.schemas.map((schema) => (
+            <tr>
+              <>
+                <th scope="row">{schema.contract}</th>
+                <td data-label="Version">
+                  <code>{schema.version}</code>
+                </td>
+                <td data-label="Authority">
+                  <code>{schema.authority}</code>
+                </td>
+              </>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <aside class="runtime-contract">
+    <h2>Default runtime contract</h2>
+    <dl>
+      <div>
+        <dt>Default selector</dt><dd>
+          <code>{versionData.runtime.default_selector}</code>
+        </dd>
+      </div>
+      <div>
+        <dt>Selector kind</dt><dd>
+          {
+            versionData.runtime.moving_selector
+              ? "Moving tag — not an immutable digest"
+              : "Immutable digest"
+          }
+        </dd>
+      </div>
+      <div>
+        <dt>Runtime API</dt><dd>
+          <code>{versionData.runtime.runtime_api}</code>
+        </dd>
+      </div>
+      <div>
+        <dt>Lifecycle command</dt><dd>
+          <code>{versionData.runtime.lifetime_command}</code>
+        </dd>
+      </div>
+      <div>
+        <dt>Base metadata version</dt><dd>
+          <code>{versionData.runtime.metadata_version}</code>
+        </dd>
+      </div>
+      <div>
+        <dt>Architectures</dt><dd>
+          {versionData.runtime.architectures.join(", ")}
+        </dd>
+      </div>
+    </dl>
+  </aside>
+</section>
+
+<style>
+  .responsive-table {
+    overflow: hidden;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  table {
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+    font-size: var(--sl-text-sm);
+  }
+  th,
+  td {
+    padding: 0.65rem;
+    border: 1px solid var(--sl-color-gray-5);
+    vertical-align: top;
+    text-align: start;
+  }
+  thead th {
+    background: var(--sl-color-gray-6);
+  }
+  code {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  small {
+    display: block;
+    margin-top: 0.35rem;
+    color: var(--sl-color-gray-3);
+  }
+  .runtime-contract {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    border-inline-start: 0.3rem solid var(--tobari-warning);
+    background: var(--sl-color-gray-6);
+  }
+  .runtime-contract h2 {
+    margin-top: 0;
+  }
+  .runtime-contract dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1.25rem;
+  }
+  .runtime-contract dt {
+    color: var(--sl-color-gray-3);
+    font-weight: 700;
+  }
+  .runtime-contract dd {
+    margin: 0.2rem 0 0;
+  }
+  @media (max-width: 44rem) {
+    .responsive-table table,
+    .responsive-table tbody,
+    .responsive-table tr,
+    .responsive-table th,
+    .responsive-table td {
+      display: block;
+    }
+    .responsive-table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+    }
+    .responsive-table tr {
+      padding: 0.6rem;
+      border-bottom: 1px solid var(--sl-color-gray-4);
+    }
+    .responsive-table tr:last-child {
+      border-bottom: 0;
+    }
+    .responsive-table th,
+    .responsive-table td {
+      padding: 0.35rem;
+      border: 0;
+    }
+    .responsive-table td::before {
+      content: attr(data-label) ": ";
+      color: var(--sl-color-gray-3);
+      font-weight: 700;
+    }
+    .runtime-contract dl {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

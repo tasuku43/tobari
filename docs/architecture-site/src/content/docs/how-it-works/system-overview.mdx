@@ -1,0 +1,137 @@
+---
+title: System overview
+description: See how dedicated project networks, shared enforcement services, and egress fit together.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+import SequenceExplorer from "../../../components/SequenceExplorer.astro";
+
+## The question this page answers
+
+Why can a Workspace not bypass Tobari by ignoring its proxy settings?
+
+**One-sentence answer:** In the supported topology, each Workspace joins only a dedicated Docker-internal network, while Gateway is the only component with both a project-network interface and an egress interface.
+
+### By the end, you can explain
+
+- the roles of the project, control, and egress networks;
+- why Gateway, OPA, and Auth Broker have different network attachments;
+- how an allowed request reaches upstream; and
+- why Gateway or OPA failure closes the path.
+
+**Prerequisite:** [The five-part mental model](/how-it-works/mental-model/).
+
+<ConceptDiagram name="detailed-network" />
+
+## Three network scopes
+
+### A dedicated network for each Workspace
+
+Tobari creates one Docker network per logical Workspace with Docker's `internal` property. The work container joins only that network. Gateway is connected to it with the alias `gateway`.
+
+The container receives upper- and lower-case HTTP/HTTPS proxy variables pointing to `http://gateway:8080`, empty `NO_PROXY` values, and the Tobari CA bundle. These settings make supported clients use the intended path, but the network topology is the stronger control: a client that removes the variables still has no Docker-provided external route.
+
+### One internal control network
+
+OPA joins the shared `control` network, not project networks or egress. Workspace processes therefore cannot call OPA's policy endpoint directly.
+
+Gateway also joins control so it can call one fixed OPA endpoint. Auth Broker joins control and egress, but exposes no TCP listener. Host commands and Gateway reach its distinct Unix sockets through controlled mounts and fixed operations; neither socket is available to a Workspace or OPA.
+
+### One egress network
+
+Gateway joins `egress` so it can resolve and connect to an allowed destination. Auth Broker can use egress only within its bounded trusted-host acquisition role. A work container never joins this network.
+
+## An allowed request in order
+
+<SequenceExplorer
+  scenarios={["allowed-passthrough", "opa-unavailable"]}
+  initial="allowed-passthrough"
+  title="Network path and closed failure"
+/>
+
+The essential ordering is:
+
+1. traffic arrives through the Workspace's dedicated network;
+2. Gateway establishes the host-issued principal;
+3. Gateway asks OPA once with body-free normalized input;
+4. only after allow does Gateway resolve and pin an upstream address;
+5. Gateway opens one upstream connection and streams the request; and
+6. Gateway records bounded, secret-free audit metadata.
+
+There is no application-layer automatic retry. Redirects are independent requests and must be authorized again.
+
+## Trust boundaries in the same system
+
+<ConceptDiagram name="trust-boundaries" />
+
+The Workspace and upstream are untrusted. The host, Docker execution substrate, Gateway, OPA, Auth Broker, and their owner-controlled state are trusted enforcement infrastructure. “Trusted” means Tobari's claims depend on them; it does not mean they cannot contain bugs.
+
+## Concrete bypass attempts
+
+### The process unsets the proxy
+
+It can try a direct TCP connection, but its internal project network has no external route. The connection fails. Tobari does not transparently redirect it around the network control.
+
+### The process calls `opa:8181`
+
+OPA is not attached to the Workspace network, so the name/service is not reachable from that container.
+
+### The process targets another Workspace
+
+Each Workspace has a distinct internal network. There is no peer route. Gateway joins both, but it does not act as a general router between them.
+
+Host file roots are a different boundary: two Workspaces may intentionally mount the same or overlapping project roots. Their networks, homes, principals, and learned rules remain separate, while writes to overlapping host files are visible to both.
+
+## Failure behavior
+
+- **Gateway unavailable:** the configured proxy cannot accept the connection. Direct egress is still absent.
+- **OPA unavailable, slow, non-200, oversized, malformed, or incomplete:** Gateway returns `503 policy_unavailable`; it does not resolve or connect upstream.
+- **Unknown Context in the aggregate policy:** the fixed OPA router denies; it does not fall back to the current/default Context.
+- **Unsafe dotted-host DNS result:** Gateway rejects non-global addresses and does not silently choose a different authority. This is an upstream/proxy failure, not a stable public JSON fault code.
+- **A Workspace container or network is missing:** the next entry reconciles runtime resources from logical state. Loss of Docker resources does not erase the logical Workspace.
+
+## Guarantees and limitations
+
+**Guaranteed under the supported topology:** no direct Workspace egress; no Workspace route to OPA, Broker sockets, Docker socket, or another project network; no upstream attempt after policy failure; bounded shared-service CPU, memory, PIDs, and Docker logs.
+
+**Not guaranteed:** fair bandwidth or fair shared-service capacity between Workspaces; protection after host, Docker, kernel, Gateway, OPA, or Broker compromise; disk quota below a selected project root; general network policy for non-HTTP protocols; filesystem isolation between overlapping selected roots.
+
+## Source evidence
+
+- [System topology](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [HTTP authorization and network enforcement claims](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
+- [Compose network declarations and service mounts](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/compose.yaml)
+- [Workspace network and container creation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/project_runtime.go)
+- [Cluster reconciliation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/runtime.go)
+- [End-to-end topology, bypass, and outage tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+
+## Summary
+
+Proxy variables guide clients; Docker network attachment enforces the supported route. Gateway bridges one project network to policy and egress. OPA decides without egress, and Auth Broker is not exposed to Workspace networking.
+
+## Check your understanding
+
+You should now be able to explain the difference between a convenient proxy setting and the actual no-direct-egress boundary.
+
+<details>
+  <summary>What happens if a process uses `--noproxy '*'`?</summary>
+  Its direct connection has no external route and fails. The process does not
+  gain an alternate path around Gateway.
+</details>
+
+<details>
+  <summary>Why is OPA not the component that “lets packets through”?</summary>
+  OPA is reachable only on the control network and returns a decision. Gateway
+  owns the project and egress interfaces and enforces that decision.
+</details>
+
+<details>
+  <summary>
+    Does separate networking prevent two overlapping roots from seeing each
+    other's file changes?
+  </summary>
+  No. Network isolation and host-file mount overlap are separate concerns.
+  Writes to the same selected host files remain shared.
+</details>
+
+Return to [Mental model](/how-it-works/mental-model/) if the five roles are unclear. Next, distinguish persistent product concepts in [Workspace, Context, cluster, and runtime](/how-it-works/workspace-context-cluster/).

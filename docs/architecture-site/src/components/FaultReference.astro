@@ -1,0 +1,214 @@
+---
+import catalogData from "../generated/catalog.json";
+
+interface Action {
+  command: string;
+  reason: string;
+}
+interface Occurrence {
+  code: string;
+  kind: string;
+  retryable: boolean;
+  command: string;
+  next_actions: Action[];
+}
+interface FaultGroup {
+  code: string;
+  kind: string;
+  retryable: boolean;
+  occurrences: Occurrence[];
+}
+const groups = new Map<string, FaultGroup>();
+for (const occurrence of catalogData.faults as Occurrence[]) {
+  const existing = groups.get(occurrence.code);
+  if (existing) existing.occurrences.push(occurrence);
+  else
+    groups.set(occurrence.code, {
+      code: occurrence.code,
+      kind: occurrence.kind,
+      retryable: occurrence.retryable,
+      occurrences: [occurrence],
+    });
+}
+const faults = [...groups.values()];
+---
+
+<section class="fault-reference" aria-labelledby="catalog-faults">
+  <div class="fault-summary">
+    <h2 id="catalog-faults">Catalog-declared CLI faults</h2>
+    <p>
+      {faults.length} stable fault codes are generated from the same scoped agent-help
+      contracts as the CLI reference.
+    </p>
+    <p>
+      <strong>Scope:</strong> this is the public Catalog contract, not every internal
+      guard diagnostic. In particular, fail-closed implementation diagnostics such
+      as <code>invalid_fault_contract</code> and <code
+        >undeclared_fault_contract</code
+      >
+      protect the boundary but are not Catalog command faults.
+    </p>
+  </div>
+  <label class="fault-filter">
+    <span>Filter by code, kind, or command</span>
+    <input
+      type="search"
+      data-fault-filter
+      placeholder="For example: policy, unavailable, auth login"
+    />
+  </label>
+  <p class="filter-status" data-filter-status aria-live="polite"></p>
+
+  <div class="fault-list">
+    {
+      faults.map((fault) => (
+        <article
+          data-fault={`${fault.code} ${fault.kind} ${fault.occurrences.map(({ command }) => command).join(" ")}`.toLowerCase()}
+        >
+          <header>
+            <h3>
+              <code>{fault.code}</code>
+            </h3>
+            <span class="fault-kind">{fault.kind}</span>
+            <span
+              class:list={["retry", fault.retryable ? "permitted" : "blocked"]}
+            >
+              {fault.retryable
+                ? "Logical retry permitted"
+                : "Do not repeat unchanged"}
+            </span>
+          </header>
+          <details>
+            <summary>
+              Affected commands and declared recovery (
+              {fault.occurrences.length})
+            </summary>
+            <ul>
+              {fault.occurrences.map((occurrence) => (
+                <li>
+                  <strong>
+                    {occurrence.command === "(global)" ? (
+                      "Global invocation"
+                    ) : (
+                      <code>tobari {occurrence.command}</code>
+                    )}
+                  </strong>
+                  {occurrence.next_actions?.length ? (
+                    <ul>
+                      {occurrence.next_actions.map((action) => (
+                        <li>
+                          <code>tobari {action.command}</code> — {action.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No command recovery is declared.</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </article>
+      ))
+    }
+  </div>
+</section>
+
+<script>
+  const input = document.querySelector<HTMLInputElement>("[data-fault-filter]");
+  const status = document.querySelector<HTMLElement>("[data-filter-status]");
+  const articles = [...document.querySelectorAll<HTMLElement>("[data-fault]")];
+  input?.addEventListener("input", () => {
+    const query = input.value.trim().toLowerCase();
+    let visible = 0;
+    for (const article of articles) {
+      const matches = !query || article.dataset.fault?.includes(query);
+      article.hidden = !matches;
+      if (matches) visible += 1;
+    }
+    if (status)
+      status.textContent = query ? `${visible} matching fault codes.` : "";
+  });
+</script>
+
+<style>
+  .fault-summary {
+    padding: 1rem;
+    border-inline-start: 0.3rem solid var(--tobari-diagnostic);
+    background: var(--sl-color-gray-6);
+  }
+  .fault-summary h2 {
+    margin-top: 0;
+  }
+  .fault-filter {
+    display: grid;
+    gap: 0.35rem;
+    margin: 1.5rem 0 0;
+    font-weight: 700;
+  }
+  .fault-filter input {
+    min-height: 2.8rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--sl-color-gray-4);
+    border-radius: 0.35rem;
+    background: var(--sl-color-bg);
+    color: var(--sl-color-white);
+    font: inherit;
+  }
+  .filter-status {
+    min-height: 1.5rem;
+    color: var(--sl-color-gray-3);
+  }
+  .fault-list {
+    display: grid;
+    gap: 0.65rem;
+  }
+  .fault-list article {
+    padding: 0.75rem;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .fault-list article[hidden] {
+    display: none;
+  }
+  .fault-list header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .fault-list h3 {
+    flex: 1 1 16rem;
+    margin: 0;
+    font-size: var(--sl-text-base);
+  }
+  .fault-kind,
+  .retry {
+    padding: 0.2rem 0.45rem;
+    border: 1px solid currentColor;
+    font-size: var(--sl-text-xs);
+    font-weight: 700;
+  }
+  .fault-kind {
+    color: var(--tobari-diagnostic);
+  }
+  .retry.permitted {
+    color: var(--tobari-allowed);
+  }
+  .retry.blocked {
+    border-style: double;
+    color: var(--tobari-denied);
+  }
+  .fault-list summary {
+    margin-top: 0.45rem;
+    cursor: pointer;
+  }
+  @media print {
+    .fault-filter,
+    .filter-status {
+      display: none;
+    }
+    .fault-list details > * {
+      display: block !important;
+    }
+  }
+</style>

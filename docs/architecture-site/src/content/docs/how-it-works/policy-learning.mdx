@@ -1,0 +1,181 @@
+---
+title: Policy denial, review, and learning
+description: Follow a denied exact effect through host-side review, complete validation, atomic activation, and deliberate retry.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+import SequenceExplorer from "../../../components/SequenceExplorer.astro";
+
+## The question this page answers
+
+How does a denied request become an explicit rule without teaching the Workspace to approve itself?
+
+**One-sentence answer:** Gateway retains secret-free denial evidence, the trusted host derives an opaque exact candidate, an explicit host action validates and atomically activates allow or deny, and the original request is retried only deliberately.
+
+### By the end, you can explain
+
+- the difference between denial evidence, a candidate, and active policy;
+- what fields scope an exact learned decision;
+- baseline deny, learned exact deny, reset, and compaction; and
+- how failed or stale activation preserves the previous policy.
+
+**Prerequisite:** [Project identity](/how-it-works/project-identity/) and [Request journey](/how-it-works/request-journey/).
+
+<ConceptDiagram name="policy-loop" />
+
+The diagram compresses one discovery detail: Gateway's denial response and audit do **not** contain an opaque candidate ID. The host CLI later derives that ID from retained validated evidence.
+
+<SequenceExplorer
+  scenarios={["learnable-denial", "policy-review"]}
+  initial="learnable-denial"
+  title="Denial evidence and trusted-host activation"
+/>
+
+## 1. Denial is not a permission request
+
+OPA is deny-by-default for effects that match neither initialized static authority nor learned allow rules. This does not mean every first request is denied: the initialized policy contains limited static rules. A request outside current authority may be classified as learnable only after its schema, principal, scheme-specific fixed port, and credential binding are valid and no terminal deny matches.
+
+Gateway returns `403 policy_denied`. A learnable response names only the trusted-host review location and exact visible effect. It explicitly says there is no automatic retry.
+
+## 2. Evidence is retained without payload or secrets
+
+Gateway writes bounded schema 2 denial audit into its rotated Docker logs. Candidate discovery reads a bounded tail and accepts only strict validated deny records.
+
+Evidence includes Context/project identity, host, port, method, path, reason, timestamp, and non-secret diagnostics. It omits query, headers, body, handle, credential revision, and primary credential. A handle-bearing URL path is replaced as a whole with `/[redacted-auth-handle]`.
+
+Evidence retention is bounded, not an infinite durable permission inbox. If an observation falls outside the selected log window before action, it can no longer authorize a mutation.
+
+## 3. The CLI derives an exact opaque candidate
+
+Pending observations group by exactly:
+
+- stable Context ID;
+- stable project ID;
+- host;
+- port;
+- method; and
+- normalized raw path.
+
+Body content, body presence, query, headers, reason, status, request ID, timestamp, provider, and profile display evidence do not split the identity.
+
+The candidate ID has the `pcy_…` shape and is derived from those dimensions. It is opaque: actions accept it unchanged rather than decoding, reconstructing, or using list position as authority.
+
+The rule record itself does not store a scheme field. Current HTTP and HTTPS authority remains separated by the fixed, non-overlapping scheme/port contract. Do not infer arbitrary cross-scheme safety if that contract changes.
+
+## 4. Review and action stay separate
+
+`policy candidates` is the machine discovery surface. `policy review` is the human Permission Inbox. Redirected/machine-readable review is read-only; on a TTY, the list is still non-mutating until the user opens one detail and explicitly selects **Allow exact** or **Deny exact**.
+
+The action delegates the unchanged opaque ID to `policy allow --id …` or `policy deny --id …`. Display order, indentation, label text, or a reconstructed host/path is never the target.
+
+At action time, Tobari re-reads current retained evidence and current rules. A stale, expired, already-covered, or mismatched ID produces no policy mutation.
+
+## 5. Validate and activate as one complete policy
+
+For a valid exact action, Tobari:
+
+1. locks aggregate policy mutation;
+2. verifies the current aggregate revision and complete learned allow/deny snapshot;
+3. builds and tests a private candidate for the target Context;
+4. writes the Context source with owner-only fsync-and-rename semantics;
+5. generates a content-addressed aggregate from **every** Context;
+6. tests the complete candidate with OPA;
+7. atomically publishes it;
+8. recreates only the exact owned OPA service and waits for health; and
+9. persists the new state.
+
+On failure it restores source and the prior known-good projection/state. A concurrent change produces `policy_data_changed` rather than silently overwriting it. While OPA is being recreated, Gateway requests fail closed as `policy_unavailable`.
+
+## 6. Retry deliberately
+
+Activation never replays the old request. The user or agent deliberately issues a new request, which passes through principal establishment and policy again.
+
+This matters for non-idempotent methods and bodies: Tobari cannot know whether blind replay would be safe.
+
+## Allow, deny, reset, and compaction
+
+| Decision                 | Meaning                                                                                                              |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Initialized/static allow | Installation policy present before observation; not a learned project rule                                           |
+| Baseline deny            | Host/method/path boundary that is terminal and never enters pending review                                           |
+| Learned exact allow      | One Context/project/host/port/method/path capability                                                                 |
+| Learned exact deny       | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                    |
+| `policy reset`           | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow |
+| Explicit compaction      | Replaces at least three compatible exact sibling rules with a reviewed safe prefix rule                              |
+
+Compaction is never automatic. It groups only the same Context/project/host/port/method, rejects shallow or unsafe prefixes, retains positive examples and source IDs, and checks an outside-prefix canary. Tobari does not invent a wildcard from one denial.
+
+## Concrete example
+
+Three exact allows exist for:
+
+- `PUT /review/items/1`
+- `PUT /review/items/2`
+- `PUT /review/items/3`
+
+Tobari may discover a `pcx_…` compaction proposal for `/review/items/` when all other boundaries match. Nothing changes until a host action selects that opaque proposal. `/review/admin` remains outside the prefix and serves as a negative boundary; a different project or method also remains denied.
+
+## Failure behavior
+
+- Non-learnable denial offers no review command.
+- Malformed or secret-bearing log data is rejected as evidence.
+- Stale candidate/reference creates no rule.
+- Any invalid Context source or aggregate aborts activation.
+- Concurrent source change aborts rather than overwrites.
+- OPA recreation failure restores previous known-good authority as far as the controlled rollback can do so.
+- Reset can make the same request reviewable/denied again; it never means “allow all.”
+
+## Guarantees and limitations
+
+**Guaranteed:** observation alone changes no authority; mutations use one opaque reference; exact rules are Context/project-bound; whole-policy validation precedes activation; no automatic wildcard or request replay; body does not silently narrow the grant.
+
+**Not guaranteed:** infinite denial retention, body-level control, provider-operation semantics, automatic policy minimization, safe human approval decisions, or zero service interruption during OPA recreation.
+
+## Source evidence
+
+- [Policy product contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Policy activation architecture](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [Guided Rego evaluator](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/opa/policy/tobari.rego)
+- [Rego policy tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
+- [Candidate and compaction domain invariants](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/domain/tobari/policy.go)
+- [Policy source mutation and rollback](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/policydata.go)
+- [All-Context aggregate generation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/aggregate.go)
+- [End-to-end allow, deny, reset, body grouping, and compaction tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+
+## Summary
+
+Denial produces bounded evidence, not permission. The host derives a project-bound opaque candidate, explicitly chooses an exact outcome, validates every affected policy source as one aggregate, activates atomically, and retries only by choice.
+
+## Check your understanding
+
+You should now be able to separate observation, discovery, mutation, activation, and retry.
+
+<details>
+  <summary>
+    Do two requests with different bodies create two candidates?
+  </summary>
+  No. Body presence and content are not candidate identity. One exact rule
+  covers any body on that exact Context/project/host/port/method/path.
+</details>
+
+<details>
+  <summary>What authority does list position in `policy review` have?</summary>
+  None. The act consumes one validated opaque reference unchanged after explicit
+  detail selection.
+</details>
+
+<details>
+  <summary>
+    What is the difference between baseline deny and learned exact deny?
+  </summary>
+  Baseline deny is initialized terminal policy and never becomes a candidate.
+  Learned exact deny records an explicit host review for one exact project-bound
+  effect and can later be reset.
+</details>
+
+<details>
+  <summary>Does successful activation retry the denied request?</summary>
+  No. The caller deliberately sends a new request, which is evaluated again.
+</details>
+
+Return to [Project identity](/how-it-works/project-identity/) if rule scope is unclear. Next, keep permission separate from secret custody in [Credentials](/how-it-works/credentials/).

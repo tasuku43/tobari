@@ -1,0 +1,134 @@
+---
+import EditLink from "@astrojs/starlight/components/EditLink.astro";
+import LastUpdated from "@astrojs/starlight/components/LastUpdated.astro";
+import Pagination from "@astrojs/starlight/components/Pagination.astro";
+
+const productCommit = __TOBARI_DOCS_COMMIT__;
+const buildCommit = __TOBARI_DOCS_BUILD_COMMIT__;
+const shortProductCommit = productCommit.slice(0, 12);
+const shortBuildCommit = buildCommit.slice(0, 12);
+const repository = __TOBARI_DOCS_REPOSITORY__;
+const sourcePath = Astro.url.pathname
+  .replace(import.meta.env.BASE_URL, "/")
+  .replace(/^\/+|\/+$/g, "");
+const contentPath = sourcePath ? `${sourcePath}.mdx` : "index.mdx";
+const sourceUrl = `${repository}/blob/${buildCommit}/docs/architecture-site/src/content/docs/${contentPath}`;
+const generatedAt = new Date(__TOBARI_DOCS_GENERATED_AT__).toLocaleString(
+  "en",
+  {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  },
+);
+---
+
+<footer class="page-footer sl-flex">
+  <aside class="provenance" aria-label="Documentation provenance">
+    <h2>Documentation provenance</h2>
+    <dl>
+      <div>
+        <dt>Documentation built from</dt><dd>
+          <a href={`${repository}/commit/${buildCommit}`}
+            ><code>{shortBuildCommit}</code></a
+          >
+        </dd>
+      </div>
+      <div>
+        <dt>Product source snapshot</dt><dd>
+          <a href={`${repository}/commit/${productCommit}`}
+            ><code>{shortProductCommit}</code></a
+          >
+        </dd>
+      </div>
+      <div><dt>Page status</dt><dd>Current at the product snapshot</dd></div>
+      <div><dt>Source snapshot time</dt><dd>{generatedAt} UTC</dd></div>
+      <div>
+        <dt>Page source</dt><dd><a href={sourceUrl}>View this MDX file</a></dd>
+      </div>
+    </dl>
+    <p>
+      Product claims are tied to the product snapshot; page source is tied to
+      the documentation build. Follow each page’s evidence links for the
+      governing contract, implementation, and tests.
+    </p>
+  </aside>
+  <div class="meta sl-flex"><EditLink /><LastUpdated /></div>
+  <Pagination />
+  <nav class="project-links" aria-label="Project links">
+    <a href={repository}>GitHub</a>
+    <a href={`${repository}/blob/${buildCommit}/CONTRIBUTING.md`}
+      >Contributing</a
+    >
+    <a href={`${repository}/blob/${buildCommit}/SECURITY.md`}>Security policy</a
+    >
+  </nav>
+</footer>
+
+<style>
+  @layer starlight.core {
+    .page-footer {
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    .provenance {
+      margin-top: 3rem;
+      padding: 1rem 1.1rem;
+      border: 1px solid var(--sl-color-gray-5);
+      border-inline-start: 0.3rem solid var(--tobari-diagnostic);
+      background: var(--sl-color-gray-6);
+      font-size: var(--sl-text-sm);
+    }
+    .provenance h2 {
+      margin: 0 0 0.75rem;
+      font-size: var(--sl-text-base);
+    }
+    .provenance dl {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.65rem 1.25rem;
+      margin: 0;
+    }
+    .provenance dl div {
+      min-width: 0;
+    }
+    .provenance dt {
+      color: var(--sl-color-gray-3);
+      font-weight: 600;
+    }
+    .provenance dd {
+      margin: 0.15rem 0 0;
+      overflow-wrap: anywhere;
+    }
+    .provenance p {
+      margin: 0.8rem 0 0;
+      color: var(--sl-color-gray-2);
+    }
+    .meta {
+      gap: 0.75rem 3rem;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-3);
+    }
+    .project-links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.25rem;
+      padding-block: 1rem 2rem;
+      font-size: var(--sl-text-sm);
+    }
+    @media (max-width: 38rem) {
+      .provenance dl {
+        grid-template-columns: 1fr;
+      }
+    }
+    @media print {
+      .provenance {
+        break-inside: avoid;
+        background: none;
+      }
+    }
+  }
+</style>

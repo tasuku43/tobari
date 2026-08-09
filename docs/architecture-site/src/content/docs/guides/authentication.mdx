@@ -1,0 +1,150 @@
+---
+title: Authentication
+description: Choose tool-native, brokered, or retained managed authentication without confusing credentials with network permission.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+import SequenceExplorer from "../../../components/SequenceExplorer.astro";
+
+## The question this guide answers
+
+**Where should a tool's credential live, and does registering it authorize traffic?**
+
+Choose one explicit authentication path for the tool, then authorize its ordinary HTTP effects separately. A successful login or import never adds a network allow rule.
+
+After this guide, you should be able to compare all three paths, run the current built-in GitHub broker flow, explain handle binding, and recover safely after rotation or logout.
+
+Prerequisites: understand [Request journey](../../how-it-works/request-journey/) and [Contexts](../contexts/).
+
+## Compare the three paths
+
+| Path                     | Where the primary credential lives                              | What the Workspace can read                           | Gateway behavior                                                                              | Main limit                                                                          |
+| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                              | Removes auth/cookie fields from OPA and audit, then forwards after allow                      | Credential is available to processes in the same Workspace                          |
+| Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not the primary secret | Introspects without secret, asks OPA, resolves once after allow, replaces one declared header | Current schema 1 supports static exact HTTPS/header bindings; no refresh or signing |
+| Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                             | Validates Context/project/host profile and injects after allow                                | Static reviewed adapter; not a general provider program                             |
+
+No path changes the OPA rule requirement. “The request is authenticated” and “this Context/project/method/path may connect” are different claims.
+
+## Tool-native authentication
+
+Enter the Workspace and use the tool's normal supported login. Its state is stored below the Workspace's persistent home and survives `exit`, container loss, and runtime rebuild. It is isolated from other Workspace homes and removed by `tobari delete`.
+
+Tobari does not copy the host home, Keychain, SSH agent, credential environment, or general CLI configuration into the Workspace. Tool-native state is readable by other processes within that same Workspace boundary.
+
+## Brokered GitHub authentication
+
+The current reviewed built-in helper is `github`. On the trusted host:
+
+```sh
+tobari cluster up
+tobari auth status --context default
+tobari auth login github --context default
+tobari auth status --context default
+```
+
+Login requires an interactive trusted-host terminal. The broker runs the pinned GitHub helper with private temporary configuration and obtains the primary credential without returning it in CLI output. The real value is encrypted in the stable Context vault.
+
+Leave and re-enter a Workspace permanently bound to that Context:
+
+```sh
+tobari --context default
+```
+
+The Workspace receives a distinct `tobari-h1_...` handle. For the built-in GitHub manifest it is projected for supported GitHub CLI API use, but it is not the upstream token. Private Git transport through a broker Git credential helper is not currently supported.
+
+<ConceptDiagram name="credential-boundary" headingLevel={2} />
+
+## What happens on one brokered request
+
+1. Gateway derives the Context/project principal from the ingress interface.
+2. It strictly recognizes the provider-declared handle in the exact source header and removes it.
+3. Broker introspection verifies Context, project, provider, credential revision, target, and header binding without returning the secret.
+4. Gateway asks OPA about the ordinary body-free HTTP effect.
+5. On deny, processing stops. There is no secret resolution or upstream connection.
+6. On allow, Gateway resolves the same binding exactly once.
+7. Gateway replaces only the declared destination header and creates the exact HTTPS upstream connection.
+
+<SequenceExplorer
+  title="Brokered credential paths"
+  scenarios={["broker-allowed", "invalid-handle"]}
+  initial="broker-allowed"
+/>
+
+Copying a valid handle from Workspace A to Workspace B fails because the host-derived project principal no longer matches. A stale revision after replacement/logout also fails. Any malformed, misplaced, ambiguous, or binding-mismatched Tobari-looking handle is rejected; Gateway does not fall back to passthrough.
+
+## Import for an installed schema-1 provider
+
+Owner-controlled provider manifests may declare `stdin_import`. Supply one credential through protected non-terminal stdin:
+
+```sh
+trusted-secret-source | tobari auth import example --context default
+```
+
+`example` must already be an installed provider ID; the command does not create a manifest. Terminal stdin is rejected before reading bytes. Credential input is bounded and is never accepted in argv, environment, or output. User manifests cannot add executable helpers, request signing, refresh, arbitrary routes, or method/path policy.
+
+## Rotation and logout
+
+Replacing a Context/provider credential revokes every previously issued handle. A running process still holds its old environment value, but that value is invalid. Leave and re-enter to receive a new project-specific projection.
+
+To remove local broker state:
+
+```sh
+tobari auth logout github --context default
+tobari auth status --context default
+```
+
+Logout removes the local provider record and revokes its handles. It does not contact GitHub or guarantee remote token revocation. It also cannot rewrite the environment of an already running process; next entry removes the projection. `cluster down --purge` is not a substitute for logout and preserves vaults/root key.
+
+## Failure behavior
+
+- `auth_login_tty_required`: run login from a trusted-host interactive terminal.
+- `invalid_credential_input`: pipe or redirect exactly one trusted non-terminal value.
+- `auth_broker_locked` or `auth_broker_unavailable`: run host-side `tobari cluster up`, then inspect `tobari auth status`.
+- `root_key_missing_with_vault`: restore the original root key. Do not generate or substitute a new key over existing encrypted state.
+- `auth_vault_invalid`: diagnose integrity without printing or rewriting vault contents.
+- `invalid_provider_manifest` or `ambiguous_provider_http_binding`: correct the entire strict manifest collection; no partial provider projection activates.
+- `credential_handle_invalid` (`403`): leave and re-enter the matching Workspace; a copied or stale handle must not be forwarded.
+- `credential_broker_unavailable` (`503`): reconcile the broker before retrying the HTTP request.
+- `auth_mutation_outcome_unknown` or an output failure after mutation: inspect `auth status` before another login/import/logout. Blind replay may rotate or remove confirmed state twice.
+
+## Guarantees and limits
+
+The broker keeps the primary credential out of Workspace files/environment and OPA, binds handles to exact authority, and resolves only after allow. It does not isolate mutually hostile processes inside one Workspace, stop use of an already allowed capability, refresh provider credentials, perform remote logout, support multiple accounts per Context, or implement arbitrary signing/OAuth flows.
+
+## Source evidence
+
+- [Authentication governing contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/07_authentication.md)
+- [Auth Catalog specifications](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/auth_catalog.go)
+- [Schema-1 provider domain](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/domain/authbroker/provider.go)
+- [Auth Broker implementation and vault tests](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/authbroker)
+- [Gateway credential-order tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+
+## Summary
+
+Authentication supplies identity material; OPA authorization still controls each HTTP effect. Brokered Workspaces hold opaque, narrowly bound handles. Only an allowed Gateway path resolves and forwards the real credential.
+
+## Check your understanding
+
+<details>
+<summary>Login succeeds while no GitHub API path is allowed. What happens on the first API call?</summary>
+
+The credential exists and a handle may be projected, but OPA denies the ordinary HTTP effect. Gateway performs no secret resolution and does not connect upstream.
+
+</details>
+
+<details>
+<summary>Can Workspace B use a copied handle from Workspace A if both use the same Context and host?</summary>
+
+No. The handle is also bound to A's project ID. Gateway derives B's different principal from the network interface, and broker validation fails.
+
+</details>
+
+<details>
+<summary>Does <code>auth logout</code> revoke the token at the provider?</summary>
+
+No. It removes local broker state and revokes Tobari handles. Remote revocation is outside the command's contract.
+
+</details>
+
+**Next:** [Review denied policy effects](../policy-review/).

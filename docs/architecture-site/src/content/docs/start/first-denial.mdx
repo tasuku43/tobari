@@ -1,0 +1,148 @@
+---
+title: First denial
+description: How a learnable 403 becomes secret-free evidence, an explicit host decision, and a deliberate retry.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+import SequenceExplorer from "../../../components/SequenceExplorer.astro";
+
+## The question this page answers
+
+**What exactly happens after an undeclared request is denied?**
+
+Gateway stops before upstream connection, retains bounded secret-free evidence, and directs the user to a host-side queue where one opaque reference can become an exact allow or exact deny only after explicit confirmation and complete policy validation.
+
+After this page, you should be able to explain why a denial is evidence rather than permission, why review happens on the host, and why retry remains a separate step.
+
+Prerequisite: complete the [Quickstart](../quickstart/) or understand its host/Workspace command split.
+
+<ConceptDiagram name="policy-loop" headingLevel={2} />
+
+## The denial, in time order
+
+1. Gateway derives the Context/project principal from its receiving network interface and the host-owned principal registry.
+2. It constructs a normalized, body-free policy input and asks OPA once.
+3. OPA returns deny for an effect not covered by an allow rule.
+4. Gateway does not resolve a brokered secret, perform DNS for the destination, or create an upstream connection.
+5. Gateway returns a bounded `403` response. The response identifies the fixed host review command, not an action reference.
+6. Secret-free denial evidence enters the retained review window. Repeated observations of the same exact effect coalesce instead of manufacturing new authority.
+
+<SequenceExplorer
+  title="From denied effect to deliberate retry"
+  scenarios={["learnable-denial", "policy-review"]}
+  initial="learnable-denial"
+/>
+
+## Review is discovery; allow and deny are actions
+
+On the trusted host:
+
+```sh
+tobari policy review
+```
+
+The TTY flow lets you select a pending effect, inspect every authority dimension, and choose one exact action. A redirected review is read-only:
+
+```sh
+tobari policy review --format json
+```
+
+Machine callers copy the opaque `pcy_...` reference unchanged into exactly one action:
+
+```sh
+tobari policy allow --id <pcy-id>
+# or
+tobari policy deny --id <pcy-id>
+```
+
+Display order, a host label, or a hand-built identifier is not authority. The action resolves the retained reference, verifies that it still represents the current denial, modifies owner-only policy data, tests the complete aggregate, and atomically activates it. If validation or activation fails, the previous known-good policy remains active.
+
+## What “exact” means
+
+A learned rule binds:
+
+- stable Context ID;
+- host-issued project ID;
+- scheme;
+- destination host and port;
+- HTTP method; and
+- path.
+
+The request body is intentionally absent. Two requests that differ only in body content are the same policy effect. Tobari does not inspect a prompt, JSON payload, upload, or form body to infer intent.
+
+An exact learned deny differs from baseline default deny. Baseline deny means no allow matched. An explicit exact deny records a trusted-host decision and does not keep reappearing as a pending learnable candidate. Both stop the request.
+
+## Correcting a decision
+
+Inspect current learned rules:
+
+```sh
+tobari policy rules
+```
+
+To remove one current decision, copy its opaque rule ID unchanged:
+
+```sh
+tobari policy reset --id <policy-rule-id>
+```
+
+Reset does not allow the effect and does not replay it. It returns that effect to default deny. A later observed denial can then be reviewed again.
+
+Tobari also discovers bounded, test-backed path-prefix compactions after enough related exact rules exist:
+
+```sh
+tobari policy compactions
+tobari policy compact --id <policy-compaction-id>
+```
+
+Compaction is never automatic. It preserves positive examples and checks an adjacent outside-path canary, but finite tests cannot prove every future path is safe.
+
+## Failure behavior
+
+- OPA unavailable or an invalid OPA response produces a service failure and no upstream connection.
+- Immutable scheme, cluster, principal, or credential-binding failures are diagnostics, not learnable candidates.
+- An expired or stale candidate reference is rejected; rediscover the queue.
+- Concurrent policy change makes a stale action or compaction fail rather than guessing.
+- Invalid complete policy leaves the previously active policy unchanged.
+- A confirmed mutation with uncertain output must be reconciled through read-only state before replay; do not blindly repeat mutation commands.
+
+## Guarantees and limits
+
+Tobari guarantees that observed traffic does not automatically become permission and that routine learned decisions remain exact and project-bound. It does not judge whether a destination is trustworthy, inspect bodies for sensitive information, or stop an already allowed effect from carrying any data the Workspace can read.
+
+## Source evidence
+
+- [Policy-learning product contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Policy mutation and activation implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/policydata.go)
+- [Policy Catalog specifications](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/runtime_catalog.go)
+- [CLI review and opaque-reference tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/tobari_test.go)
+- [Gateway deny and OPA-failure tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+
+## Summary
+
+A denial is a stopped effect plus bounded evidence. Only a trusted-host action against an opaque reference can change policy; validation is all-or-nothing, and retry is always a new deliberate request.
+
+## Check your understanding
+
+<details>
+<summary>Two POST requests have the same project, host, port, method, and path but different JSON bodies. Are they two policy candidates?</summary>
+
+No. The body is not a policy identity dimension, so they represent the same ordinary HTTP effect.
+
+</details>
+
+<details>
+<summary>Does <code>policy reset</code> change an exact deny into allow?</summary>
+
+No. It removes the learned decision and returns the effect to baseline default deny.
+
+</details>
+
+<details>
+<summary>What happens if policy validation fails during allow?</summary>
+
+The candidate is not partially activated. The previous known-good aggregate remains active, and the request remains denied until a later valid action.
+
+</details>
+
+**Next:** [Follow the recommended learning path](../learning-path/).

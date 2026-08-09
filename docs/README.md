@@ -2,7 +2,8 @@
 
 This repository separates current product knowledge from work-in-progress
 notes. The current contract is the numbered documentation and accepted
-decision records; `docs/work` is not a second specification.
+decision records, while [`cli.Catalog`](../internal/cli/catalog.go) is the
+executable public-command authority. `docs/work` is not a second specification.
 
 ## Start here
 
@@ -12,7 +13,7 @@ decision records; `docs/work` is not a second specification.
 | Understand the current contract | [`00_theses.md`](00_theses.md) through [`09_agent_readiness_validation.md`](09_agent_readiness_validation.md) | Product outcome, public CLI, architecture, security, checks, release, authentication, external contracts, and readiness |
 | Review a long-lived design choice | [`decisions/`](decisions/0000-template.md) | Why an accepted architecture or security decision exists, and what it superseded |
 | Review abuse cases | [`THREAT_MODEL.md`](THREAT_MODEL.md) | Assets, trust assumptions, abuse cases, accepted risks, and reconsideration triggers |
-| See the system visually | [`architecture-site/index.html`](architecture-site/index.html) | A read-only public presentation derived from the current contract |
+| Read the public documentation | [Published site](https://tasuku43.github.io/tobari/) ([source and maintenance](architecture-site/README.md)) | Guided explanations, diagrams, and generated reference derived from the governing documents and CLI Catalog |
 | See unfinished work | [`work/_template/goal.md`](work/_template/goal.md) | Only active or explicitly deferred work with a named owner and review trigger |
 
 Read the numbered documents in order when a change crosses several boundaries.

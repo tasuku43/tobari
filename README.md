@@ -21,6 +21,16 @@ growth is designed as one interactive review-to-allow-or-deny flow.
 Tobari does not guess intent from command strings. It controls the network
 effect at the point where an HTTP request crosses an isolation boundary.
 
+## Documentation
+
+Read the public documentation at
+[tasuku43.github.io/tobari](https://tasuku43.github.io/tobari/) for the guided
+explanation, diagrams, security boundaries, guides, and generated reference.
+Its [site source and maintainer guide](docs/architecture-site/README.md) live in
+this repository. The numbered documents under [`docs/`](docs/README.md) govern
+product and security claims, and the CLI Catalog remains the executable source
+of truth for public commands.
+
 ## How it feels to use
 
 Once the shared enforcement cluster is ready, the normal loop is progressive

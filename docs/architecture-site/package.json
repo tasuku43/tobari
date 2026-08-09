@@ -1,0 +1,38 @@
+{
+  "name": "@tobari/public-documentation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.18.0"
+  },
+  "packageManager": "npm@11.16.0",
+  "scripts": {
+    "dev": "astro dev",
+    "generate": "go run ../../tools/sitegen --write",
+    "generate:check": "go run ../../tools/sitegen --check",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "typecheck": "astro check",
+    "build": "node scripts/build-site.mjs root",
+    "build:pages": "node scripts/build-site.mjs pages",
+    "check:dist": "node scripts/verify-dist.mjs",
+    "check:dist:root": "node scripts/verify-dist.mjs dist /",
+    "check:source": "node scripts/verify-source.mjs",
+    "test:browser": "playwright test",
+    "test:static": "npm run generate:check && npm run check:source && npm run format && npm run typecheck && npm run build && npm run check:dist:root && npm run build:pages && npm run check:dist",
+    "test": "npm run test:static && npm run test:browser"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "@astrojs/markdown-remark": "7.2.2",
+    "@astrojs/starlight": "0.41.7",
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.62.1",
+    "astro": "7.2.0",
+    "parse5": "8.0.1",
+    "prettier": "3.9.6",
+    "prettier-plugin-astro": "0.14.1",
+    "typescript": "6.0.3"
+  }
+}

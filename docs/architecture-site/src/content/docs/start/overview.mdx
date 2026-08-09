@@ -1,0 +1,121 @@
+---
+title: Overview
+description: What Tobari does, where its boundary is, and the smallest useful model of one outbound request.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+**What does Tobari give a developer who wants to run a coding agent in a project?**
+
+Tobari runs the agent in a project-bound Workspace, denies undeclared HTTP and HTTPS effects at first, and lets a person review and authorize an exact effect from the trusted host before deliberately retrying it.
+
+After this page, you should be able to explain:
+
+- why Tobari is more than a command that starts a Docker container;
+- the five parts in the smallest request model; and
+- the difference between controlling an outbound effect and protecting every asset on the computer.
+
+No prior Tobari knowledge is required. If you want commands immediately, continue to [Install](../install/) after reading this overview.
+
+## Start with one boundary, not the implementation stack
+
+An agent can read and change the selected project. That is the useful authority you gave it. Tobari narrows what sits outside that selection: other host files are not mounted, Docker control is not exposed, each Workspace has a separate internal network, and ordinary outbound HTTP or HTTPS must pass through a shared enforcement path.
+
+<ConceptDiagram name="minimal-system" headingLevel={2} />
+
+Read the diagram in this order:
+
+1. A process in the **Workspace** makes a proxy-aware HTTP or HTTPS request.
+2. **Gateway** receives the request. It derives the project principal from host-owned network state.
+3. **OPA** decides the normalized HTTP effect: Context, project, scheme, destination, port, method, and path. The request body is not a policy identity field.
+4. **Auth Broker** participates only for a recognized broker handle. It can reveal non-secret binding metadata before policy, but resolves the real credential only after allow.
+5. **Gateway**, not the Workspace, opens the separate connection to the **Upstream** after allow.
+
+OPA makes the decision. Gateway enforces it by either refusing the request or creating the upstream connection.
+
+## A concrete first encounter
+
+Suppose an agent in `/work/example` tries:
+
+```sh
+curl -X PUT https://example.com/quickstart
+```
+
+If no rule covers that exact effect, Gateway returns a learnable `403`. It retains bounded, secret-free evidence and tells the agent where the trusted host can review it. Nothing is approved automatically. The person leaves the Workspace, runs `tobari policy review`, chooses allow or deny for the exact effect, and retries only after a confirmed decision.
+
+The rule does not mean “the agent may use example.com.” It remains bound to the stable Context, project principal, HTTPS destination and port, HTTP method, and path represented by the reviewed effect.
+
+## What the boundary protects
+
+In the supported Docker topology, Tobari is designed to keep these outside an untrusted Workspace process:
+
+- host files outside the selected project root;
+- the Docker socket and Docker control plane;
+- another Workspace and its persistent home;
+- a direct public-Internet route that bypasses Gateway;
+- broker-managed primary credentials; and
+- the host-owned policy review and activation path.
+
+When Gateway, OPA, the principal registry, or the broker binding cannot establish a valid decision, the relevant request fails closed. An OPA outage does not become an allow.
+
+## What the boundary does not protect
+
+Tobari deliberately does **not** promise to protect:
+
+- files inside the selected project root from processes in that Workspace;
+- data a process sends to a destination the user has allowed;
+- one process in a Workspace from another process in the same Workspace;
+- overlapping project roots from observing each other's host-file changes;
+- the system after compromise of the host, kernel, Docker, Gateway, OPA, or Auth Broker; or
+- raw TCP, UDP, HTTP/3, Git over SSH, and other non-HTTP protocols.
+
+A client that ignores proxy configuration has no supported direct egress route; it fails. A certificate-pinned HTTPS client that rejects Tobari's CA also fails instead of bypassing Gateway.
+
+## Current implementation status
+
+**Implemented now:** reusable Context-bound Workspaces, dedicated internal project networks, Gateway/OPA mediation, exact denial review, guided and advanced policy modes, Context runtime recipes, tool-native authentication, the retained managed adapter, and the schema-1 Auth Broker path for strict provider manifests. The reviewed built-in broker login provider is GitHub.
+
+This documentation does not present unimplemented credential signing, refresh, arbitrary OAuth helpers, provider-operation policy, Git credential helpers, or additional built-in providers as current behavior.
+
+## Source evidence
+
+These links are fixed to the implementation commit reviewed for this page:
+
+- [Product contract: vocabulary and public outcomes](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Architecture: topology and request path](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [Security model: trust assumptions and limits](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
+- [Workspace runtime implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/project_runtime.go)
+- [Gateway enforcement tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+
+## Summary
+
+Tobari grants useful project access first and controls ordinary outbound web effects separately. A Workspace cannot authorize itself: the host establishes its identity, OPA decides, Gateway enforces, and Auth Broker resolves a brokered secret only on the allowed path.
+
+## Check your understanding
+
+<details>
+<summary>A process ignores <code>HTTPS_PROXY</code>. Does it reach the Internet directly?</summary>
+
+No. In the supported topology its Workspace joins only a dedicated internal Docker network. Gateway is the only component connected to both that network and egress, so ignoring the proxy makes the connection fail.
+
+</details>
+
+<details>
+<summary>Does an OPA allow response itself transmit the request upstream?</summary>
+
+No. OPA returns a decision. Gateway enforces that decision and creates the upstream connection only after allow.
+
+</details>
+
+<details>
+<summary>Does Tobari protect the selected project from the agent?</summary>
+
+No. The selected root is intentionally mounted read-write. Tobari narrows authority outside that selection; it does not make the project read-only.
+
+</details>
+
+If any answer was surprising, reread [What the boundary protects](#what-the-boundary-protects) and [What the boundary does not protect](#what-the-boundary-does-not-protect).
+
+**Next:** [Install Tobari from the repository](../install/).

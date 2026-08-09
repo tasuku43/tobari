@@ -1,0 +1,255 @@
+---
+title: Runtime image contract
+description: The exact compatibility labels, user, entrypoint, lifetime command, build and selection rules for Tobari Workspace images.
+---
+
+## What question does this page answer?
+
+**What makes an OCI image compatible with a Tobari Workspace?**
+
+The short answer is: Tobari inspects four exact properties before creating or
+reconciling a Workspace runtime. A compatible image keeps runtime API `1`, the
+fixed lifetime capability, the `tobari` user, and the reviewed entrypoint. The
+host still owns mounts, resources, network, and Workspace lifetime.
+
+Read [Runtime customization](/guides/runtime-customization/) for the task flow.
+This page defines the image boundary precisely.
+
+## Required image properties
+
+The selected local image must report:
+
+| Property                                   | Required value                                                | Why it exists                                                                                            |
+| ------------------------------------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Label `io.tobari.runtime-api`              | `"1"`                                                         | Selects the supported Workspace/runtime interface.                                                       |
+| Label `io.tobari.runtime-lifetime-command` | `"sleep infinity"`                                            | Declares support for the host-owned long-lived container process.                                        |
+| Image user                                 | `tobari`                                                      | Prevents the image default from silently changing the supported non-root user contract.                  |
+| Entrypoint                                 | `["/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"]` | Installs the public CA bundle, records readiness, and then execs the host-supplied command under `tini`. |
+
+Tobari checks these values with `docker image inspect`. Missing, differently
+ordered, or substituted values are incompatible. The check happens before a
+new logical Workspace creates project home, network, or container state.
+
+The entrypoint waits for the public Gateway CA certificate, combines it with
+the system trust bundle in a temporary file, marks the container ready, and
+executes its arguments. The CA makes interception technically possible; it
+does not grant policy permission.
+
+## Who owns runtime behavior?
+
+The image supplies binaries and its read-only root filesystem. Tobari
+infrastructure supplies the security and lifecycle specification:
+
+- exactly one selected project root mounted read-write;
+- one independent persistent Workspace home;
+- the dedicated internal project network and proxy environment;
+- the Gateway public CA volume;
+- a read-only root filesystem plus bounded temporary filesystems;
+- dropped capabilities, `no-new-privileges`, and no Docker socket;
+- fixed CPU, memory, PID, and container-log bounds;
+- health check and stable ownership labels; and
+- the final `sleep infinity` command.
+
+Docker receives Tobari's lifetime command after the image name. The image
+`CMD` therefore does **not** decide whether the Workspace exists or how long it
+lives. Interactive shells and exact agent commands are separate `docker exec`
+children. Leaving one child does not stop or delete the logical Workspace.
+
+An image cannot use labels to request another mount, credential, network
+route, Linux capability, resource limit, or policy. Project files also cannot
+select a runtime image. The bound Context is the image authority.
+
+## Official base and selector identity
+
+The repository's canonical base runtime metadata is schema 1 and declares:
+
+- package `tobari/runtime`, kind `base`;
+- runtime API `1`;
+- lifetime command `sleep infinity`;
+- the exact entrypoint and `tobari` user; and
+- supported targets `linux/amd64` and `linux/arm64`.
+
+The normal official selector is:
+
+```text
+ghcr.io/tasuku43/tobari/runtime:latest
+```
+
+This is a **moving development tag**, not an immutable image identity. Do not
+write security evidence that calls it a digest. Published infrastructure image
+settings and a successfully inspected local runtime build have separate
+immutable digest fields where the repository records them.
+
+An explicit runtime build whose first base is the exact official selector may
+refresh that moving base. A custom or local base remains local/cache-first; it
+does not receive an implicit registry pull.
+
+## Context-owned customization
+
+`runtime init` creates:
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/tobari/contexts/<name>/runtime/Dockerfile
+```
+
+The generated recipe starts from the official runtime and returns to
+`USER tobari` after the example customization section. Creating or editing the
+file does not select a candidate image.
+
+`runtime build` then:
+
+1. validates the current Context and bounded owner-only Dockerfile;
+2. hashes the source and derives a local candidate image name;
+3. runs one explicit host Docker build;
+4. applies the exact compatibility inspection above;
+5. reads the immutable local image digest; and
+6. atomically promotes image, source digest, and build metadata in the stored
+   Context manifest.
+
+The previous image remains authoritative until promotion. A build or
+compatibility failure does not change selection. Docker BuildKit may retain
+cache, and a post-build validation failure may leave an unselected local
+candidate image; neither is falsely reported as a selected runtime.
+
+Existing Workspaces are not rewritten by `runtime build`. On their next entry,
+Tobari compares the desired image identity and complete runtime-spec hash,
+recreates only a drifting work container, and preserves logical identity,
+project root, and Workspace home.
+
+## Failure behavior
+
+| Condition                                            | Result                                                                                      |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Image is not locally available                       | `image_not_found`; no project runtime mutation.                                             |
+| Required label, user, or entrypoint differs          | `incompatible_image`; no new logical Workspace for first entry, and existing state remains. |
+| Build fails                                          | Candidate is not promoted; previous Context selection remains authoritative.                |
+| Compatibility or digest inspection fails after build | Candidate is not selected; inspect the bounded build diagnostics.                           |
+| Manifest promotion is uncertain                      | Read `context show` before retrying. Do not assume either old or new selection.             |
+| Existing container has runtime-spec drift            | Next entry recreates only the exact owned work container after all validation succeeds.     |
+| Runtime container or network was lost                | Logical Workspace state and home remain; the next entry reconciles owned resources.         |
+
+## Guarantees and limits
+
+Compatibility checks prove the declared local image interface, not the
+trustworthiness of every program in the image. A malicious tool running inside
+the Workspace still has the delegated ability to change the selected project
+root and use already authorized network effects. Docker Engine, the host
+kernel, the image build environment, and registry supply chain remain trusted
+preconditions.
+
+The official base is intended to be extended. Replacing its entrypoint or user,
+or starting from an unrelated image that merely copies a label, is outside the
+supported customization path.
+
+## Evidence
+
+- Product runtime contract:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/01_product_contract.md`}
+  >
+    product contract
+  </a>
+- Security preconditions:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/03_security_model.md`}
+  >
+    security model
+  </a>
+- Pure runtime constants:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/tobari.go`}
+  >
+    runtime API and lifetime labels
+  </a>
+- Compatibility inspection and fixed Docker specification:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime.go`}
+  >
+    image inspection
+  </a>
+  and
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_runtime.go`}
+  >
+    Workspace runtime reconciliation
+  </a>
+- Context build/promotion:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_runtime.go`}
+  >
+    `context_runtime.go`
+  </a>
+- Canonical base:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/runtimes/base/runtime.json`}
+  >
+    runtime metadata
+  </a>
+  ,
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/runtimes/base/Dockerfile`}
+  >
+    Dockerfile
+  </a>
+  , and
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/runtimes/base/entrypoint.sh`}
+  >
+    entrypoint
+  </a>
+- Tests:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime_test.go`}
+  >
+    compatibility tests
+  </a>
+  ,
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_runtime_test.go`}
+  >
+    build promotion tests
+  </a>
+  , and
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_runtime_test.go`}
+  >
+    reconciliation tests
+  </a>
+
+## Summary
+
+A runtime image provides tools behind an exact compatibility interface.
+Tobari—not the image `CMD`—owns the Workspace network, mounts, resource
+contract, and lifetime. The official `runtime:latest` selector is moving; an
+inspected digest is the immutable identity.
+
+## Check your understanding
+
+You should now be able to explain why a runtime image is not the only authority
+for a Workspace.
+
+<details>
+  <summary>Can a compatible image add a Docker socket by declaring a label?</summary>
+
+No. Infrastructure owns the complete mount and security specification. Image
+metadata cannot add host authority.
+
+</details>
+
+<details>
+  <summary>Does changing the Context Dockerfile immediately replace running Workspace containers?</summary>
+
+No. Editing does not select an image. A successful build atomically promotes
+it, and the next Workspace entry reconciles the work container.
+
+</details>
+
+<details>
+  <summary>Is `ghcr.io/tasuku43/tobari/runtime:latest` immutable?</summary>
+
+No. It is a moving tag. Use a recorded inspected digest when immutable image
+identity is required.
+
+</details>
+
+Next: [Component versions](/reference/component-versions/).

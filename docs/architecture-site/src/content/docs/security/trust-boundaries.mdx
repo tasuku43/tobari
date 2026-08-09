@@ -1,0 +1,147 @@
+---
+title: Trust boundaries
+description: Where project files, identities, policy, credentials, control sockets, and external data cross trusted and untrusted regions.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+**Who is trusted with which information, and which boundary rejects self-asserted authority?**
+
+<aside class="one-sentence">
+  <strong>One-sentence answer:</strong> Host-owned lifecycle, registries,
+  policy, root keys, Gateway, OPA, and Auth Broker enforce the boundary;
+  Workspace processes and upstreams supply untrusted data and cannot turn their
+  own labels into authority.
+</aside>
+
+You should finish able to locate project authority, policy authority, primary credentials, and payload data without treating them as one thing.
+
+**Prerequisite:** [Guarantees and limitations](../guarantees-and-limitations/).
+
+<ConceptDiagram name="trust-boundaries" />
+
+<ul class="meaning-key" aria-label="Diagram meaning">
+  <li class="trusted">Trusted enforcement</li>
+  <li class="untrusted">Untrusted data/process</li>
+  <li class="secret">Primary secret</li>
+  <li class="handle">Non-secret handle</li>
+  <li class="allowed">Allowed route</li>
+  <li class="denied">Blocked route</li>
+</ul>
+
+## Boundary 1: selected files
+
+The trusted host selects a canonical project root. Tobari mounts that root into the runtime so work can happen. The Workspace must therefore be considered authorized to read and modify it. Other host paths are excluded from the normal mount set; Docker control is not mounted; each Workspace gets its own persistent home bind from the instance state directory.
+
+The root selection boundary is not a file-integrity sandbox for the selected tree. If `/work/team` and `/work/team/service` are intentionally used by different Workspaces or Contexts, the overlapping host files remain shared even though network, home, identity, and policy bindings differ.
+
+## Boundary 2: project authority
+
+The host creates a dedicated project network and writes one principal binding containing stable Context ID, project ID, canonical root, network, and Gateway local address. Gateway selects it from `flow.client_conn.sockname[0]`, its own receiving-side fact.
+
+A Workspace can write `X-Project-ID: something-else`; that string remains untrusted request data. It cannot change the Gateway interface or host registry lookup. Unknown and ambiguous bindings fail before OPA.
+
+## Boundary 3: policy authority
+
+OPA receives a normalized, body-free view of an ordinary HTTP effect. It decides. Gateway owns the connection and enforces. A denied Workspace response tells the user where host-side review exists; it does not carry authority to mutate policy.
+
+Only the trusted host CLI can take an unchanged opaque review reference, select allow or deny, validate the complete projection, and activate it. Display labels, row order, and reconstructed identifiers are not action authority.
+
+## Boundary 4: credential authority
+
+Tool-native credentials deliberately cross into Workspace storage or environment and are readable there. Managed and brokered paths differ. In the brokered path, the trusted host acquires a credential, the root-key backend unlocks a Context vault, and Auth Broker keeps the primary secret. The Workspace receives a non-secret opaque record selector bound to one project.
+
+Gateway does not send the handle, resolved secret, or request body to OPA. On allow it resolves once and places the secret only in the declared upstream header. On deny it does not resolve.
+
+## Boundary 5: external data
+
+Request URLs, headers, bodies, upstream certificates, responses, provider account labels, diagnostics, and policy candidates can all contain attacker-controlled text. Visible projection escapes terminal/structured-output hazards. It does not claim to make printable prompt-like content trustworthy.
+
+Body streaming is separate from decision identity. The body crosses Gateway to the allowed upstream after authorization, but is absent from the policy candidate and secret-free audit record.
+
+## Failure and recovery
+
+Boundary metadata is validated before effectful use. Unsafe registry, policy, provider, root-key, vault, or handle state fails closed. Recovery happens through explicit host commands—typically `doctor`, `cluster status`, `auth status`, policy rediscovery, or re-entry—not by trusting values sent from the Workspace.
+
+<aside class="guarantee">
+  <h2>Guaranteed</h2>
+  <div class="prose-block">
+    Within the supported topology, authority is derived from host-owned state
+    and fixed component placement rather than Workspace claims.
+  </div>
+</aside>
+
+<aside class="limitation">
+  <h2>Not guaranteed</h2>
+  <div class="prose-block">
+    A trusted host operator can choose unsafe roots or rules. Trusted component
+    compromise defeats its boundary. One Workspace does not isolate its own
+    processes or selected files from one another.
+  </div>
+</aside>
+
+<aside class="evidence">
+  <h2>Sources</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md">
+        Security model
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/decisions/0011-bind-project-authority-to-host-network.md">
+        Network-bound project authority ADR
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/principal_registry.go">
+        Registry implementation
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py">
+        Gateway principal and redaction tests
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## You should now be able to explain…
+
+…which identifiers are authority and which are merely untrusted strings or record selectors.
+
+<div class="question-list">
+  <details>
+    <summary>
+      Why can a forged Context header not borrow another policy?
+    </summary>
+    <div class="prose-block">
+      Gateway chooses Context/project from the host-created receiving-interface
+      binding. The header cannot change that interface or registry entry.
+    </div>
+  </details>
+  <details>
+    <summary>Is a broker handle a secret or independent authority?</summary>
+    <div class="prose-block">
+      No. It is a non-secret opaque record selector, not the primary credential
+      and not sufficient authority. Context, project, provider, revision,
+      target, header binding, and OPA must all agree.
+    </div>
+  </details>
+  <details>
+    <summary>Where should you return if file overlap is surprising?</summary>
+    <div class="prose-block">
+      Re-read{" "}
+      <a href="../guarantees-and-limitations/">Guarantees and limitations</a>;
+      selected and overlapping roots are explicitly outside filesystem integrity
+      isolation.
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>Next:</strong> follow attacker goals and controls in the{" "}
+  <a href="../threat-model/">Threat model →</a>
+</div>

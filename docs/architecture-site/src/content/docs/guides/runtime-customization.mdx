@@ -1,0 +1,141 @@
+---
+title: Runtime customization
+description: Build and select a compatible Context-owned runtime without changing Workspace identity or persistent home.
+---
+
+## The question this guide answers
+
+**How can a project use additional tools without turning its runtime image into the authority for mounts, networking, or Workspace lifetime?**
+
+Initialize the current Context's owner-only Dockerfile recipe, edit it on the trusted host, run the explicit `runtime build`, and let the next Workspace entry reconcile only the work container while preserving logical identity and home.
+
+After this guide, you should be able to describe the recipe/build/promotion sequence, what a compatible image must preserve, and what happens when a build fails.
+
+Prerequisite: know which Context is current; see [Contexts](../contexts/).
+
+## 1. Select and inspect the Context
+
+Runtime commands operate on the current/default Context. To work on a named Context, select it first:
+
+```sh
+tobari context use --name review
+tobari context show
+```
+
+The Context report tells you the selected image and whether a managed recipe already exists. Existing Workspaces permanently bound to this Context will consult its current image on their next entry.
+
+## 2. Initialize once
+
+```sh
+tobari runtime init --format json
+tobari context show --format json
+```
+
+Use the reported runtime recipe path instead of guessing it. `runtime init` creates an owner-only `runtime/Dockerfile` template. It does not build an image, change the selected image, start Docker services, or overwrite an existing recipe.
+
+Edit the recipe on the trusted host. A minimal customization keeps the template's base and user transitions intact, for example adding a package between its existing `USER root` and `USER tobari` lines:
+
+```dockerfile
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tree \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+Do not put real credentials in the Dockerfile, build context, image layers, or examples.
+
+## 3. Build, validate, and promote
+
+```sh
+tobari runtime build --format json
+```
+
+This is one deliberate host Docker-build boundary. Tobari:
+
+1. uses only the Context runtime directory as build context;
+2. derives a local image identity from the Context and recipe source digest;
+3. runs the Docker build with bounded, structured invocation;
+4. validates the resulting image against the Tobari runtime contract;
+5. records the confirmed image digest; and
+6. atomically promotes the image selector in the Context manifest.
+
+Editing the file alone has no effect. A failed build or failed compatibility check leaves the previous selected image authoritative. Docker/BuildKit may retain cache or an unselected candidate image; Tobari does not misreport those as active.
+
+## 4. Re-enter an existing Workspace
+
+From a project bound to this Context:
+
+```sh
+tobari
+tree --version
+exit
+```
+
+Entry compares the desired image and complete runtime spec with the existing container. If they changed, Tobari recreates only that container. It preserves the logical Workspace ID, canonical root, Context binding, persistent home, learned policy, and project files.
+
+The image's `CMD` does not define Workspace lifetime. Tobari supplies its fixed lifetime command and opens each shell or agent command through a child exec session. Container loss is recoverable; the logical Workspace is not the container.
+
+## What compatibility means
+
+A custom image must preserve the declared Tobari runtime API and operational contract, including the expected non-root `tobari` user, entrypoint behavior, fixed lifetime-command capability, CA/proxy environment compatibility, writable home location, health behavior, and supported architecture.
+
+The image cannot grant itself:
+
+- extra host mounts or the host home;
+- Docker socket access;
+- host networking or a direct external route;
+- added Linux capabilities;
+- a different project principal; or
+- a longer logical lifetime by changing `CMD`.
+
+Those controls are owned by the host lifecycle implementation, not image metadata.
+
+## Failure behavior
+
+- `runtime_recipe_exists`: inspect the existing recipe; init refuses to overwrite it.
+- `runtime_recipe_missing`: run `tobari runtime init` before build.
+- `runtime_build_failed`: correct the Dockerfile and inspect `tobari context show`; the old selection remains unless promotion already completed.
+- `image_not_found`: make the declared base or selected image available, then retry the explicit build/reconcile step.
+- `incompatible_image`: restore the required user, labels/API, entrypoint, lifetime capability, and architecture.
+- An uncertain mutation outcome: inspect `tobari context show` before another build instead of assuming promotion failed.
+- Existing Workspace entry failure: prior logical state and home remain; fix the Context image and re-enter.
+
+## Guarantees and limits
+
+Promotion is content-aware and Context-scoped, and failed validation does not silently replace the active selection. Compatibility validation cannot make arbitrary software inside the image trustworthy. Anything running in the Workspace can still modify the selected project and use already allowed network effects.
+
+## Source evidence
+
+- [Runtime customization contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Runtime Catalog specifications](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/runtime_catalog.go)
+- [Context runtime implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/context_runtime.go)
+- [Container drift reconciliation tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/project_runtime_test.go)
+- [Base runtime contract checker](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/tools/runtimecheck/main.go)
+
+## Summary
+
+The recipe is source, `runtime build` is the explicit validated promotion boundary, and Workspace entry is the reconciliation point. Runtime images provide tools; host lifecycle code owns authority and lifetime.
+
+## Check your understanding
+
+<details>
+<summary>Does editing the Dockerfile update running Workspaces?</summary>
+
+No. You must run `runtime build`; existing Workspaces observe a promoted compatible image on their next entry.
+
+</details>
+
+<details>
+<summary>What happens to the Workspace home when image drift recreates its container?</summary>
+
+The home is preserved. It is logical Workspace state mounted separately from the replaceable container.
+
+</details>
+
+<details>
+<summary>Can a custom image add the Docker socket by declaring it in its Dockerfile?</summary>
+
+No. Host lifecycle code fixes mounts and capabilities. Image contents do not select those privileges.
+
+</details>
+
+**Next:** [Choose an authentication path](../authentication/).

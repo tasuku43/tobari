@@ -1,0 +1,49 @@
+<label class="theme-select">
+  <span class="visually-hidden">Color theme</span>
+  <select data-tobari-theme-select aria-label="Color theme">
+    <option value="system">System</option>
+    <option value="light">Light</option>
+    <option value="dark">Dark</option>
+  </select>
+</label>
+
+<script is:inline>
+  (() => {
+    const select = document.currentScript.previousElementSibling.querySelector(
+      "[data-tobari-theme-select]",
+    );
+    select.value = window.TobariTheme.current();
+    select.addEventListener("change", () =>
+      window.TobariTheme.apply(select.value),
+    );
+    const media = matchMedia("(prefers-color-scheme: light)");
+    media.addEventListener("change", () => {
+      if (window.TobariTheme.current() === "system")
+        window.TobariTheme.apply("system");
+    });
+  })();
+</script>
+
+<style>
+  .theme-select select {
+    min-height: 2.4rem;
+    padding: 0.35rem 1.8rem 0.35rem 0.55rem;
+    border: 1px solid var(--sl-color-gray-4);
+    border-radius: 0.35rem;
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-white);
+    font: inherit;
+    font-size: var(--sl-text-sm);
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>

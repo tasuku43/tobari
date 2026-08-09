@@ -1,0 +1,161 @@
+---
+title: State, ownership, and recovery
+description: Map each durable artifact to its owner, lifetime, removal command, and fail-closed recovery behavior.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+## The question this page answers
+
+Which state survives each operation, and which state is safe to reconstruct?
+
+**One-sentence answer:** Tobari separates project, Workspace, Context, cluster, credential, and installation state so that each lifecycle action removes only its declared owner scope and uncertain state fails closed instead of being guessed.
+
+### By the end, you can explain
+
+- what every major state store means, not just where it lives;
+- what `exit`, `delete`, cluster teardown, logout, replacement, and rebuild preserve;
+- how container/network loss differs from durable-state loss; and
+- why some recovery paths refuse automatic repair.
+
+**Prerequisite:** [Workspace lifecycle](/how-it-works/workspace-lifecycle/) and [Credentials](/how-it-works/credentials/).
+
+<ConceptDiagram name="state-retention" />
+
+## State by owner and purpose
+
+Paths below are relative to the effective XDG configuration/state roots unless noted.
+
+| State                                         | Owner and meaning                                                                                          | Lifetime                                                                                             |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Project root                                  | User-selected host files mounted read-write                                                                | Never deleted by Tobari lifecycle commands                                                           |
+| `roots/<hash>.json`                           | Root index for one exact `(canonical root, Context ID)`                                                    | Created/deleted with the logical Workspace                                                           |
+| `instances/<id>/state.json`                   | Schema 2 stable identity, permanent Context binding, desired/reconciled runtime and diagnostic Docker IDs  | Created/deleted with the logical Workspace; authoritative over Docker inspection                     |
+| `instances/<id>/home`                         | Per-Workspace writable home and tool-native login state                                                    | Survives exit/runtime recreation; removed by Workspace delete                                        |
+| Context manifest                              | Host-owned stable ID, agent profile, selected image/runtime recipe, policy mode, and narrow shell settings | Survives every Workspace and cluster runtime operation                                               |
+| Context `runtime/Dockerfile` and build record | Explicit custom runtime recipe and last successful selected image                                          | Survive entry, delete, and cluster teardown                                                          |
+| Context policy sources                        | Guided data or advanced Rego owned by one Context                                                          | Survive cluster runtime; change only through validated activation or explicit advanced editing       |
+| Aggregate policy projection                   | Content-addressed all-Context router/data/module snapshot mounted read-only into OPA                       | Rebuilt and atomically published; transient cluster authority derived from sources                   |
+| Provider manifests                            | Strict non-secret schema 1 acquisition/projection/header declarations                                      | Installation/Context configuration; survive cluster teardown                                         |
+| Provider projection                           | Normalized non-secret all-provider data for Gateway                                                        | Regenerated from complete valid manifests; partial collection is not activated                       |
+| Principal registry                            | Host-issued Workspace-network interface → Context/project binding                                          | Reconciled with existing Workspace networks; mounted read-only into Gateway                          |
+| Encrypted Context vault                       | One Context's brokered provider credentials and raw handles in authenticated ciphertext                    | Survives Workspace deletion and both cluster-down forms; credential entries change on auth mutations |
+| Installation root key                         | Unlocks Context vaults; macOS Keychain or owner-only Linux file                                            | Survives cluster down/purge; missing key beside a vault fails closed                                 |
+| Gateway CA state                              | Installation CA used for Workspace-side HTTPS interception                                                 | Survives ordinary cluster down; shared CA volumes are removed by `--purge`                           |
+
+Cluster state also records shared resource names, loaded Context count, content-addressed aggregate revision, and projection paths. It never turns the current Context into enforcement authority and never contains a primary credential.
+
+## What each operation preserves
+
+| Operation/event         | Workspace identity and home                                        | Context/policy   | Vault and root key                                                        | Shared services/CA                                 | Project files |
+| ----------------------- | ------------------------------------------------------------------ | ---------------- | ------------------------------------------------------------------------- | -------------------------------------------------- | ------------- |
+| `exit`                  | Preserved                                                          | Preserved        | Preserved                                                                 | Running; CA preserved                              | Preserved     |
+| `delete`                | Removed for the exact Workspace, including home/runtime records    | Preserved        | Context credential preserved; project handle registry removed             | Shared services unchanged                          | Preserved     |
+| `cluster down`          | Command is refused until all Workspaces are deleted                | Preserved        | Preserved                                                                 | Services/transient networks removed; CA preserved  | Preserved     |
+| `cluster down --purge`  | Same prerequisite                                                  | Preserved        | Preserved                                                                 | Services removed and shared CA volumes removed     | Preserved     |
+| `auth logout PROVIDER`  | Identity/home remain; running environment unchanged until re-entry | Preserved        | Provider credential removed and all its handles revoked; root key remains | Cluster remains                                    | Preserved     |
+| Credential replacement  | Identity/home remain; re-entry needed for new projection           | Preserved        | New revision stored; old handles revoked                                  | Cluster remains                                    | Preserved     |
+| Context runtime rebuild | Identity/home remain; bound container reconciles next entry        | Policy preserved | Preserved                                                                 | Shared services unchanged                          | Preserved     |
+| Container/network loss  | Logical state/home remain; resources reconcile next entry          | Preserved        | Preserved                                                                 | Gateway attachment/principal is repaired as needed | Preserved     |
+
+## Recovery follows the source of truth
+
+### Docker runtime is missing
+
+If the durable Workspace record is valid but its container or network is missing, runtime resources are derived state. The next entry can recreate them, reconnect Gateway, update the principal registry, and mount the existing root/home.
+
+### Durable state is incomplete
+
+If a root index exists but the instance record is missing, Tobari reports `incomplete`. It will not invent the lost stable identity, Context binding, or home relationship. Exact `delete` is the cleanup route before explicit recreation.
+
+### Policy activation fails
+
+Policy mutation uses a lock, private Context preflight, complete all-Context aggregate test, content-addressed publication, and OPA health wait. Invalid input or activation failure restores source and retains the previous known-good aggregate/state rather than mounting a partial candidate.
+
+### Root key or vault integrity fails
+
+The Broker starts locked. If an encrypted vault exists but the installation key is missing, Tobari does not create a replacement that would make old ciphertext unrecoverable under an ambiguous state. Corrupted authentication, unsafe ownership/modes/symlinks, or authentication failure is reported and fails closed. Backup and recovery of the trusted host key remain operator responsibilities.
+
+### Provider projection is invalid
+
+Unknown fields, malformed strict data, target/header collisions, built-in override attempts, or ambiguous HTTP bindings reject the complete provider collection. Tobari does not activate the valid-looking subset.
+
+## Concrete recovery scenario
+
+After a host restart, the Workspace's container and dedicated network are gone, but its root index, instance state, and home remain.
+
+1. `tobari` resolves the durable root/Context record.
+2. It validates the bound Context runtime image.
+3. It recreates the internal network and container.
+4. It connects Gateway and records the new local interface principal.
+5. It reconciles current broker handle projections.
+6. It enters the same logical Workspace with the same project ID and home.
+
+This is reconciliation, not a new Workspace.
+
+## Failure behavior
+
+- Ownership, mode, symlink, schema, or identity mismatch fails before unsafe reuse.
+- Missing image or incompatible runtime API fails before project runtime mutation.
+- Missing root key with an existing vault never silently creates another key.
+- Failed aggregate/provider generation retains prior known-good authority.
+- Attached deletion fails unless `--force` explicitly overrides that one guard.
+- Cluster teardown fails while any logical Workspace remains.
+- Local logout does not imply provider-side revocation.
+
+## Guarantees and limitations
+
+**Guaranteed:** lifecycle commands have narrow owner scopes; project files are never removed; derived Docker state can be reconciled from valid logical state; vault/root key survive cluster purge; partial policy/provider projections do not activate.
+
+**Not guaranteed:** recovery from lost project files, deleted Workspace home, lost installation root key, corrupted host storage, compromised trusted host, remote credential revocation, or automatically inferred project moves.
+
+## Source evidence
+
+- [State paths and side-effect contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
+- [Lifecycle, aggregate, and recovery architecture](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
+- [Authentication state paths](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/07_authentication.md)
+- [Workspace and cluster state implementation](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime)
+- [Auth Broker vault implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/authbroker/vault.py)
+- [Root-key infrastructure](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/rootkey)
+- [Lifecycle and recovery integration](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+
+## Summary
+
+Durable identity and user data are not inferred from container presence. Each state store has one owner and removal operation. Reconstructible Docker/projection state is reconciled; ambiguous identity, policy, key, or vault state fails closed.
+
+## Check your understanding
+
+You should now be able to predict state retention without equating “container gone” with “Workspace gone.”
+
+<details>
+  <summary>What does `delete` remove that `exit` preserves?</summary>
+  The exact Workspace's root index, instance state, home, container, network,
+  principal/project-auth registry entries. Neither operation deletes project
+  files or Context state.
+</details>
+
+<details>
+  <summary>What additional state does `cluster down --purge` remove?</summary>
+  The shared Gateway CA volumes. It still preserves encrypted Context vaults and
+  the installation root key.
+</details>
+
+<details>
+  <summary>
+    Can Tobari create a new root key if a vault exists but the key is missing?
+  </summary>
+  No. It fails closed because a replacement key cannot decrypt or safely
+  reinterpret the existing vault.
+</details>
+
+<details>
+  <summary>
+    Why can a lost container be repaired but a root index without instance state
+    is not guessed?
+  </summary>
+  The container is derived from valid logical state. Missing instance state
+  loses authoritative identity/binding information, so reconstruction would
+  invent authority.
+</details>
+
+Return to [Workspace lifecycle](/how-it-works/workspace-lifecycle/) for the state machine. Next, see why each technology sits at its boundary in [Implementation stack](/how-it-works/implementation-stack/).

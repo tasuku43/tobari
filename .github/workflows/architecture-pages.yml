@@ -1,41 +1,80 @@
-name: Architecture Pages
+name: Public documentation
 
 on:
+  pull_request:
   push:
     branches: [main]
-    paths:
-      - docs/architecture-site/**
-      - .github/workflows/architecture-pages.yml
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: architecture-pages
+  group: public-documentation-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    name: Publish architecture site
+  build:
+    name: Build and verify the public site
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      - name: Configure Pages
-        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
-
-      - name: Upload architecture site
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          path: docs/architecture-site
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: docs/architecture-site/package-lock.json
+
+      - name: Select the repository-pinned npm version
+        run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
+
+      - name: Install locked site dependencies
+        working-directory: docs/architecture-site
+        run: npm ci
+
+      - name: Install the pinned browser runtime
+        working-directory: docs/architecture-site
+        run: npm exec -- playwright install --with-deps chromium
+
+      - name: Verify sources and both static base paths
+        working-directory: docs/architecture-site
+        run: npm run test:static
+
+      - name: Run browser and accessibility tests
+        working-directory: docs/architecture-site
+        run: npm run test:browser
+
+      - name: Upload the generated Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: docs/architecture-site/dist
+          retention-days: 1
+
+  deploy:
+    name: Deploy the public site
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
       - name: Deploy Pages artifact
         id: deployment
