@@ -44,10 +44,13 @@ func (f *contextCLI) UseContext(context.Context, string) (tobari.ContextReport, 
 }
 
 func (f *contextCLI) ConfigureContextShell(
-	_ context.Context, name string, change tobari.ContextShellEnvironmentSetting,
+	_ context.Context, name string, changes []tobari.ContextShellEnvironmentSetting,
 ) (tobari.ContextReport, error) {
 	f.configureCalls++
-	f.lastShellChange = change
+	f.lastShellChanges = append([]tobari.ContextShellEnvironmentSetting(nil), changes...)
+	if len(changes) > 0 {
+		f.lastShellChange = changes[0]
+	}
 	f.lastShellContext = name
 	f.report.Task = tobari.TaskConfigShell
 	if name == "" {
@@ -57,8 +60,10 @@ func (f *contextCLI) ConfigureContextShell(
 	}
 	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
 	overrides := []tobari.ContextShellEnvironmentSetting{}
-	if change.Source != tobari.ContextShellEnvironmentDefault {
-		overrides = append(overrides, change)
+	for _, change := range changes {
+		if change.Source != tobari.ContextShellEnvironmentDefault {
+			overrides = append(overrides, change)
+		}
 	}
 	f.report.ShellEnvironment, _ = tobari.CompleteContextShellEnvironment(overrides)
 	return f.report, nil
@@ -137,6 +142,7 @@ type fakeContextRuntime struct {
 	showCalls         int
 	showErr           error
 	lastShellChange   tobari.ContextShellEnvironmentSetting
+	lastShellChanges  []tobari.ContextShellEnvironmentSetting
 	lastGitChange     tobari.ContextGitIdentitySetting
 	lastShellContext  string
 	lastGitContext    string
@@ -157,11 +163,11 @@ func (w *contextSwitchingWizard) switchActive(current tobari.ContextReport) {
 
 func (w *contextSwitchingWizard) ConfigureShell(
 	_ context.Context, current tobari.ContextReport, _ io.Reader, _ io.Writer,
-) (tobari.ContextShellEnvironmentSetting, error) {
+) ([]tobari.ContextShellEnvironmentSetting, error) {
 	w.switchActive(current)
-	return tobari.ContextShellEnvironmentSetting{
+	return []tobari.ContextShellEnvironmentSetting{{
 		Variable: "PS1", Source: tobari.ContextShellEnvironmentInherit,
-	}, nil
+	}}, nil
 }
 
 func (w *contextSwitchingWizard) ConfigureGit(
@@ -453,7 +459,7 @@ func TestConfigOmittedSettingsRequireTextTerminalWithoutInspectingContext(t *tes
 func TestConfigGitLineWizardAppliesOnStderrAndEmitsReportOnStdout(t *testing.T) {
 	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "work", false, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader("2\nTobari User\ntobari@example.com\n1\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command := newCLI(strings.NewReader("l\nTobari User\ntobari@example.com\n\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.context = contextcmd.New(fake)
 	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
 	command.noColor = true
@@ -464,17 +470,45 @@ func TestConfigGitLineWizardAppliesOnStderrAndEmitsReportOnStdout(t *testing.T) 
 	if fake.showCalls != 1 || fake.configureGitCalls != 1 || fake.lastGitChange.Source != tobari.ContextGitIdentityLiteral {
 		t.Fatalf("wizard show/config/change = %d/%d/%+v", fake.showCalls, fake.configureGitCalls, fake.lastGitChange)
 	}
-	for _, want := range []string{"Tobari · Git identity", "Context: work", "Only user.name and user.email are projected.", "Apply this setting?"} {
+	for _, want := range []string{"Tobari · Git identity", "Context: work", "Only user.name and user.email are projected.", "Apply this change?"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("wizard stderr = %q, missing %q", stderr.String(), want)
 		}
 	}
-	for _, prompt := range []string{"Tobari · Git identity", "Only user.name and user.email are projected.", "Apply this setting?"} {
+	for _, prompt := range []string{"Tobari · Git identity", "Only user.name and user.email are projected.", "Apply this change?"} {
 		if strings.Contains(stdout.String(), prompt) {
 			t.Fatalf("wizard prompt %q leaked to stdout: %q", prompt, stdout.String())
 		}
 	}
 	if !strings.Contains(stdout.String(), "Context: work") || !strings.Contains(stdout.String(), "Git identity: literal") {
+		t.Fatalf("confirmed report stdout = %q", stdout.String())
+	}
+}
+
+func TestConfigShellLineWizardStagesMultipleSettingsInOneMutation(t *testing.T) {
+	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "work", false, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("1\nh\n2\nd\np\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.noColor = true
+
+	if code := command.RunContext(context.Background(), []string{"config", "shell", "--context", "work"}); code != ExitOK {
+		t.Fatalf("wizard code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.showCalls != 1 || fake.configureCalls != 1 || len(fake.lastShellChanges) != 2 {
+		t.Fatalf("wizard show/config/changes = %d/%d/%+v", fake.showCalls, fake.configureCalls, fake.lastShellChanges)
+	}
+	if fake.lastShellChanges[0].Variable != "COLORTERM" || fake.lastShellChanges[0].Source != tobari.ContextShellEnvironmentInherit ||
+		fake.lastShellChanges[1].Variable != "NO_COLOR" || fake.lastShellChanges[1].Source != tobari.ContextShellEnvironmentDefault {
+		t.Fatalf("wizard changes = %+v", fake.lastShellChanges)
+	}
+	for _, want := range []string{"Tobari · Shell configuration", "COLORTERM", "NO_COLOR", "Apply 2 changes"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("wizard stderr = %q, missing %q", stderr.String(), want)
+		}
+	}
+	if !strings.Contains(stdout.String(), "Context: work") {
 		t.Fatalf("confirmed report stdout = %q", stdout.String())
 	}
 }

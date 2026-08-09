@@ -20,7 +20,7 @@ type RuntimePort interface {
 	ShowContext(context.Context, string) (tobari.ContextReport, error)
 	CreateContext(context.Context, string, string, tobari.ContextPolicyMode) (tobari.ContextReport, error)
 	UseContext(context.Context, string) (tobari.ContextReport, error)
-	ConfigureContextShell(context.Context, string, tobari.ContextShellEnvironmentSetting) (tobari.ContextReport, error)
+	ConfigureContextShell(context.Context, string, []tobari.ContextShellEnvironmentSetting) (tobari.ContextReport, error)
 	ConfigureContextGit(context.Context, string, tobari.ContextGitIdentitySetting) (tobari.ContextReport, error)
 	InitRuntime(context.Context) (tobari.ContextReport, error)
 	BuildRuntime(context.Context) (tobari.ContextReport, error)
@@ -72,12 +72,12 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 	return fault.New(fault.KindRejected, "mutation_rejected", "Context mutation target is not owned by Tobari", false)
 }
 
-// ConfigureShell changes one allowlisted shell variable policy for one
+// ConfigureShell changes one or more distinct allowlisted shell variable policies for one
 // explicit or current Context. Host values are never read by the application;
 // infrastructure resolves inherited values only when a session starts.
 func (s *Service) ConfigureShell(
 	ctx context.Context, intent operation.Intent, contextName string,
-	change tobari.ContextShellEnvironmentSetting,
+	changes []tobari.ContextShellEnvironmentSetting,
 ) (tobari.ContextReport, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ContextReport{}, err
@@ -90,7 +90,7 @@ func (s *Service) ConfigureShell(
 			)
 		}
 	}
-	if err := change.Validate(true); err != nil {
+	if _, err := tobari.ApplyContextShellEnvironmentSettings(nil, changes); err != nil {
 		return tobari.ContextReport{}, fault.Wrap(
 			fault.KindInvalidInput, "invalid_shell_environment", "Context shell environment setting is invalid", false, err,
 			fault.NextAction{Command: "help config shell", Reason: "Choose an allowlisted variable and a valid source/value combination."},
@@ -104,7 +104,7 @@ func (s *Service) ConfigureShell(
 	var result tobari.ContextReport
 	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
 		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
-			configured, configureErr := s.runtime.ConfigureContextShell(actionContext, contextName, change)
+			configured, configureErr := s.runtime.ConfigureContextShell(actionContext, contextName, changes)
 			if errors.Is(configureErr, tobari.ErrContextNotFound) {
 				return fault.New(
 					fault.KindNotFound, "context_not_found", "the named Context does not exist", false,
@@ -118,7 +118,7 @@ func (s *Service) ConfigureShell(
 					fault.NextAction{Command: "context show", Reason: "Inspect the Context shell environment before retrying."},
 				)
 			}
-			if err := validateConfiguredShellResult(configured, contextName, change); err != nil {
+			if err := validateConfiguredShellResult(configured, contextName, changes); err != nil {
 				return fault.Wrap(
 					fault.KindContract, "invalid_context_report", "Context report is invalid", false, err,
 					fault.NextAction{Command: "context show", Reason: "Reconcile the confirmed Context shell setting."},
@@ -224,20 +224,27 @@ func validateSelectedContextResult(result tobari.ContextReport, task, contextNam
 }
 
 func validateConfiguredShellResult(
-	result tobari.ContextReport, contextName string, change tobari.ContextShellEnvironmentSetting,
+	result tobari.ContextReport, contextName string, changes []tobari.ContextShellEnvironmentSetting,
 ) error {
 	if err := validateConfiguredContextResult(result, tobari.TaskConfigShell, contextName); err != nil {
 		return err
 	}
-	for _, setting := range result.ShellEnvironment {
-		if setting.Variable == change.Variable {
-			if setting.Source != change.Source || !sameOptionalString(setting.Value, change.Value) {
-				return errors.New("Context report shell setting does not match the configuration request")
+	for _, change := range changes {
+		matched := false
+		for _, setting := range result.ShellEnvironment {
+			if setting.Variable == change.Variable {
+				matched = true
+				if setting.Source != change.Source || !sameOptionalString(setting.Value, change.Value) {
+					return errors.New("Context report shell setting does not match the configuration request")
+				}
+				break
 			}
-			return nil
+		}
+		if !matched {
+			return errors.New("Context report omits a configured shell setting")
 		}
 	}
-	return errors.New("Context report omits the configured shell setting")
+	return nil
 }
 
 func validateConfiguredGitResult(

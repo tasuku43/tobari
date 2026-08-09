@@ -607,16 +607,16 @@ func (r *Runtime) ShowContext(ctx context.Context, name string) (tobari.ContextR
 	return r.contextReport(ctx, tobari.TaskContextShow, manifest, active)
 }
 
-// ConfigureContextShell atomically updates one allowlisted shell environment
-// setting in an explicit or current Context. Inherited values are deliberately
+// ConfigureContextShell atomically updates one staged set of distinct
+// allowlisted shell environment settings in an explicit or current Context. Inherited values are deliberately
 // resolved later at session entry rather than persisted here.
 func (r *Runtime) ConfigureContextShell(
-	ctx context.Context, name string, change tobari.ContextShellEnvironmentSetting,
+	ctx context.Context, name string, changes []tobari.ContextShellEnvironmentSetting,
 ) (tobari.ContextReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.ContextReport{}, err
 	}
-	if err := change.Validate(true); err != nil {
+	if _, err := tobari.ApplyContextShellEnvironmentSettings(nil, changes); err != nil {
 		return tobari.ContextReport{}, err
 	}
 	if err := r.ensureContextStore(); err != nil {
@@ -635,7 +635,7 @@ func (r *Runtime) ConfigureContextShell(
 		if err != nil {
 			return err
 		}
-		settings, err := tobari.ApplyContextShellEnvironmentSetting(manifest.ShellEnvironment, change)
+		settings, err := tobari.ApplyContextShellEnvironmentSettings(manifest.ShellEnvironment, changes)
 		if err != nil {
 			return err
 		}

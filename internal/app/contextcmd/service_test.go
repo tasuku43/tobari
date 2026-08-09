@@ -43,6 +43,7 @@ type contextRuntimeFake struct {
 	lastImage          string
 	lastMode           tobari.ContextPolicyMode
 	lastChange         tobari.ContextShellEnvironmentSetting
+	lastChanges        []tobari.ContextShellEnvironmentSetting
 	lastGitChange      tobari.ContextGitIdentitySetting
 }
 
@@ -70,10 +71,14 @@ func (f *contextRuntimeFake) UseContext(context.Context, string) (tobari.Context
 }
 
 func (f *contextRuntimeFake) ConfigureContextShell(
-	_ context.Context, name string, change tobari.ContextShellEnvironmentSetting,
+	_ context.Context, name string, changes []tobari.ContextShellEnvironmentSetting,
 ) (tobari.ContextReport, error) {
 	f.configureCalls++
-	f.lastName, f.lastChange = name, change
+	f.lastName = name
+	f.lastChanges = append([]tobari.ContextShellEnvironmentSetting(nil), changes...)
+	if len(changes) > 0 {
+		f.lastChange = changes[0]
+	}
 	return f.configureResult, f.configureErr
 }
 
@@ -251,7 +256,7 @@ func TestConfigureShellValidatesBeforeMutationAndPreservesLiteralEmpty(t *testin
 		Target: operation.TargetRef{Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID},
 		Impact: shellContextImpact(),
 	}
-	result, err := service.ConfigureShell(context.Background(), intent, "project-tools", change)
+	result, err := service.ConfigureShell(context.Background(), intent, "project-tools", []tobari.ContextShellEnvironmentSetting{change})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,10 +267,38 @@ func TestConfigureShellValidatesBeforeMutationAndPreservesLiteralEmpty(t *testin
 
 	fake.configureCalls = 0
 	change.Variable = "PATH"
-	_, err = service.ConfigureShell(context.Background(), intent, "project-tools", change)
+	_, err = service.ConfigureShell(context.Background(), intent, "project-tools", []tobari.ContextShellEnvironmentSetting{change})
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "invalid_shell_environment" || fake.configureCalls != 0 {
 		t.Fatalf("invalid configure = %#v, ok=%t, calls=%d", public, ok, fake.configureCalls)
+	}
+}
+
+func TestConfigureShellSendsOneAtomicStagedBatch(t *testing.T) {
+	changes := []tobari.ContextShellEnvironmentSetting{
+		{Variable: "COLORTERM", Source: tobari.ContextShellEnvironmentInherit},
+		{Variable: "NO_COLOR", Source: tobari.ContextShellEnvironmentDefault},
+	}
+	report := contextReport(tobari.TaskConfigShell, "project-tools")
+	report.Active = false
+	for _, change := range changes {
+		for index := range report.ShellEnvironment {
+			if report.ShellEnvironment[index].Variable == change.Variable {
+				report.ShellEnvironment[index] = change
+			}
+		}
+	}
+	fake := &contextRuntimeFake{configureResult: report}
+	intent := operation.Intent{
+		Command: "config shell", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID},
+		Impact: shellContextImpact(),
+	}
+	if _, err := New(fake).ConfigureShell(context.Background(), intent, "project-tools", changes); err != nil {
+		t.Fatalf("ConfigureShell() error = %v", err)
+	}
+	if fake.configureCalls != 1 || len(fake.lastChanges) != 2 {
+		t.Fatalf("configure calls/changes = %d/%+v", fake.configureCalls, fake.lastChanges)
 	}
 }
 
@@ -333,7 +366,7 @@ func TestConfigureShellRejectsSemanticallyMismatchedResult(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			fake := &contextRuntimeFake{configureResult: test.result()}
-			_, err := New(fake).ConfigureShell(context.Background(), intent, test.contextName, change)
+			_, err := New(fake).ConfigureShell(context.Background(), intent, test.contextName, []tobari.ContextShellEnvironmentSetting{change})
 			if !test.wantFault {
 				if err != nil || fake.configureCalls != 1 {
 					t.Fatalf("ConfigureShell() error = %v, calls = %d", err, fake.configureCalls)
@@ -357,9 +390,9 @@ func TestConfigureShellMapsMissingContext(t *testing.T) {
 		Target: operation.TargetRef{Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID},
 		Impact: shellContextImpact(),
 	}
-	_, err := service.ConfigureShell(context.Background(), intent, "missing", tobari.ContextShellEnvironmentSetting{
+	_, err := service.ConfigureShell(context.Background(), intent, "missing", []tobari.ContextShellEnvironmentSetting{{
 		Variable: "PS1", Source: tobari.ContextShellEnvironmentInherit,
-	})
+	}})
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Kind != fault.KindNotFound || public.Code != "context_not_found" || fake.configureCalls != 1 {
 		t.Fatalf("missing Context configure = %#v, ok=%t, calls=%d", public, ok, fake.configureCalls)

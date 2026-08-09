@@ -86,6 +86,28 @@ func TestContextShellEnvironmentRejectsUnsafeOrAmbiguousSettings(t *testing.T) {
 	}
 }
 
+func TestContextShellEnvironmentAppliesDistinctStagedChangesAtomically(t *testing.T) {
+	literal := "truecolor"
+	changes := []ContextShellEnvironmentSetting{
+		{Variable: "COLORTERM", Source: ContextShellEnvironmentLiteral, Value: &literal},
+		{Variable: "PS1", Source: ContextShellEnvironmentDefault},
+	}
+	result, err := ApplyContextShellEnvironmentSettings(InitialContextShellEnvironment(), changes)
+	if err != nil {
+		t.Fatalf("ApplyContextShellEnvironmentSettings() error = %v", err)
+	}
+	if len(result) != 1 || result[0].Variable != "COLORTERM" || result[0].Value == nil || *result[0].Value != literal {
+		t.Fatalf("result = %+v", result)
+	}
+	duplicate := append(append([]ContextShellEnvironmentSetting(nil), changes...), changes[0])
+	if invalid, err := ApplyContextShellEnvironmentSettings(InitialContextShellEnvironment(), duplicate); err == nil || invalid != nil {
+		t.Fatalf("duplicate staged result/error = %+v / %v", invalid, err)
+	}
+	if invalid, err := ApplyContextShellEnvironmentSettings(InitialContextShellEnvironment(), nil); err == nil || invalid != nil {
+		t.Fatalf("empty staged result/error = %+v / %v", invalid, err)
+	}
+}
+
 func TestContextGitIdentityAcceptsAtomicSourcesAndLiteralPair(t *testing.T) {
 	name, email := "Tobari User", "tobari@example.com"
 	for _, setting := range []ContextGitIdentitySetting{

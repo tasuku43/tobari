@@ -30,17 +30,41 @@ func TestContextGitWizardRawAppliesInheritedIdentityAndRestoresEachMenu(t *testi
 	report := contextCLIReport(tobari.TaskContextShow, "work", false, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)
 	var output bytes.Buffer
 
-	change, err := wizard.ConfigureGit(context.Background(), report, strings.NewReader("\r\r"), &output)
+	change, err := wizard.ConfigureGit(context.Background(), report, strings.NewReader("hp"), &output)
 	if err != nil {
 		t.Fatalf("ConfigureGit() error = %v", err)
 	}
 	if change.Source != tobari.ContextGitIdentityInherit || change.Name != nil || change.Email != nil {
 		t.Fatalf("change = %+v", change)
 	}
-	if mode.entered != 2 || mode.restored != 2 {
+	if mode.entered != 1 || mode.restored != 1 {
 		t.Fatalf("raw mode entered/restored = %d/%d", mode.entered, mode.restored)
 	}
-	for _, want := range []string{"Tobari · Git identity", "Only user.name and user.email are projected.", "Authentication, signing, helpers, aliases", "Apply this setting?", "\x1b["} {
+	for _, want := range []string{"Tobari · Git identity", "Only user.name and user.email are projected", "Pending", "p Apply", "\x1b["} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("raw wizard output = %q, missing %q", output.String(), want)
+		}
+	}
+}
+
+func TestContextShellWizardRawStagesMultipleSettingsAndAppliesOnce(t *testing.T) {
+	mode := &selectorModeFake{}
+	wizard := &terminalContextConfigurationWizard{mode: mode, style: false}
+	report := contextCLIReport(tobari.TaskContextShow, "work", false, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)
+	var output bytes.Buffer
+
+	changes, err := wizard.ConfigureShell(context.Background(), report, strings.NewReader("h\x1b[Bdp"), &output)
+	if err != nil {
+		t.Fatalf("ConfigureShell() error = %v", err)
+	}
+	if mode.entered != 1 || mode.restored != 1 {
+		t.Fatalf("raw mode entered/restored = %d/%d", mode.entered, mode.restored)
+	}
+	if len(changes) != 2 || changes[0].Variable != "COLORTERM" || changes[0].Source != tobari.ContextShellEnvironmentInherit ||
+		changes[1].Variable != "NO_COLOR" || changes[1].Source != tobari.ContextShellEnvironmentDefault {
+		t.Fatalf("changes = %+v", changes)
+	}
+	for _, want := range []string{"Variable", "COLORTERM", "NO_COLOR", "PS1", "TERM", "Pending: 2 changes", "p Apply"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("raw wizard output = %q, missing %q", output.String(), want)
 		}
@@ -102,8 +126,9 @@ func TestContextGitWizardRawReturnsToColumnOneForEveryLine(t *testing.T) {
 		"\x1b[2K\rTobari · Git identity\n",
 		"\x1b[2K\rContext   work\n",
 		"\x1b[2K\rCurrent   default\n",
-		"\x1b[2K\rChoose an identity source:\n",
-		"\x1b[2K\r↑/↓ move   Enter choose   q cancel\n",
+		"\x1b[2K\rPending   none\n",
+		"\x1b[2K\r↑/↓ move   Enter stage   d default   h inherit   l literal\n",
+		"\x1b[2K\rp Apply    q cancel\n",
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("raw wizard output = %q, missing column-one line %q", output.String(), want)
@@ -118,21 +143,21 @@ func TestContextShellWizardEnglishLineFallbackPreservesExplicitEmptyLiteral(t *t
 	}
 	report := contextCLIReport(tobari.TaskContextShow, "work", false, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)
 	var output bytes.Buffer
-	change, err := wizard.ConfigureShell(
+	changes, err := wizard.ConfigureShell(
 		context.Background(), report,
-		strings.NewReader("3\n3\n\n1\n"), &output,
+		strings.NewReader("3\nl\n\np\n"), &output,
 	)
 	if err != nil {
 		t.Fatalf("ConfigureShell() error = %v", err)
 	}
-	if change.Variable != "PS1" || change.Source != tobari.ContextShellEnvironmentLiteral ||
-		change.Value == nil || *change.Value != "" {
-		t.Fatalf("change = %+v", change)
+	if len(changes) != 1 || changes[0].Variable != "PS1" || changes[0].Source != tobari.ContextShellEnvironmentLiteral ||
+		changes[0].Value == nil || *changes[0].Value != "" {
+		t.Fatalf("changes = %+v", changes)
 	}
 	if strings.Contains(output.String(), "\x1b[") {
 		t.Fatalf("line fallback contains terminal controls: %q", output.String())
 	}
-	for _, want := range []string{"Tobari · Shell configuration", "Choose a shell variable", "Choose a source for PS1", "Fixed value:", "Apply this setting?"} {
+	for _, want := range []string{"Tobari · Shell configuration", "Source for PS1", "Fixed value:", "Apply 1 change"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("line fallback output = %q, missing %q", output.String(), want)
 		}

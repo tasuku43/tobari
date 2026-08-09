@@ -310,20 +310,41 @@ func DefaultContextShellEnvironmentReport() []ContextShellEnvironmentSetting {
 func ApplyContextShellEnvironmentSetting(
 	overrides []ContextShellEnvironmentSetting, change ContextShellEnvironmentSetting,
 ) ([]ContextShellEnvironmentSetting, error) {
+	return ApplyContextShellEnvironmentSettings(overrides, []ContextShellEnvironmentSetting{change})
+}
+
+// ApplyContextShellEnvironmentSettings validates a complete staged change set
+// before returning one deterministic persisted override list. No partial
+// result is returned when any change is invalid or targets a variable twice.
+func ApplyContextShellEnvironmentSettings(
+	overrides []ContextShellEnvironmentSetting, changes []ContextShellEnvironmentSetting,
+) ([]ContextShellEnvironmentSetting, error) {
 	if err := validateContextShellEnvironment(overrides, false); err != nil {
 		return nil, err
 	}
-	if err := change.Validate(true); err != nil {
-		return nil, err
+	if len(changes) == 0 {
+		return nil, fmt.Errorf("Context shell environment change set is empty")
 	}
-	byName := make(map[string]ContextShellEnvironmentSetting, len(overrides)+1)
+	seenChanges := make(map[string]struct{}, len(changes))
+	for _, change := range changes {
+		if err := change.Validate(true); err != nil {
+			return nil, err
+		}
+		if _, duplicate := seenChanges[change.Variable]; duplicate {
+			return nil, fmt.Errorf("Context shell environment change for %q is duplicated", change.Variable)
+		}
+		seenChanges[change.Variable] = struct{}{}
+	}
+	byName := make(map[string]ContextShellEnvironmentSetting, len(overrides)+len(changes))
 	for _, setting := range overrides {
 		byName[setting.Variable] = setting
 	}
-	if change.Source == ContextShellEnvironmentDefault {
-		delete(byName, change.Variable)
-	} else {
-		byName[change.Variable] = change
+	for _, change := range changes {
+		if change.Source == ContextShellEnvironmentDefault {
+			delete(byName, change.Variable)
+		} else {
+			byName[change.Variable] = change
+		}
 	}
 	result := make([]ContextShellEnvironmentSetting, 0, len(byName))
 	for _, variable := range contextShellEnvironmentVariables {

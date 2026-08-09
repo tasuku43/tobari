@@ -15,7 +15,7 @@ import (
 type contextConfigurationWizard interface {
 	ConfigureShell(
 		context.Context, tobari.ContextReport, io.Reader, io.Writer,
-	) (tobari.ContextShellEnvironmentSetting, error)
+	) ([]tobari.ContextShellEnvironmentSetting, error)
 	ConfigureGit(
 		context.Context, tobari.ContextReport, io.Reader, io.Writer,
 	) (tobari.ContextGitIdentitySetting, error)
@@ -44,130 +44,604 @@ func newContextConfigurationWizardWithStyle(enabled bool) *terminalContextConfig
 
 func (w *terminalContextConfigurationWizard) ConfigureShell(
 	ctx context.Context, current tobari.ContextReport, in io.Reader, out io.Writer,
-) (tobari.ContextShellEnvironmentSetting, error) {
-	variables := tobari.ContextShellEnvironmentVariables()
-	variableOptions := make([]configurationWizardOption, 0, len(variables))
-	for _, variable := range variables {
-		variableOptions = append(variableOptions, configurationWizardOption{label: variable, value: variable})
-	}
-	variableIndex, err := w.choose(ctx, in, out, configurationWizardMenu{
-		title: "Tobari · Shell configuration", contextName: current.Name,
-		current: "Choose a variable to inspect and change.",
-		prompt:  "Choose a shell variable", options: variableOptions,
-	})
-	if err != nil {
-		return tobari.ContextShellEnvironmentSetting{}, err
-	}
-	variable := variableOptions[variableIndex].value
-	setting, found := contextShellSetting(current.ShellEnvironment, variable)
-	if !found {
-		return tobari.ContextShellEnvironmentSetting{}, fmt.Errorf("current Context shell setting %q is absent", variable)
-	}
-
-	sourceOptions := []configurationWizardOption{
-		{label: "Use Tobari default", description: "Remove this Context override.", value: string(tobari.ContextShellEnvironmentDefault)},
-		{label: "Inherit host value", description: "Read the exported host value on each Workspace entry.", value: string(tobari.ContextShellEnvironmentInherit)},
-		{label: "Use a fixed value", description: "Store one Context-owned literal.", value: string(tobari.ContextShellEnvironmentLiteral)},
-	}
-	sourceIndex, err := w.choose(ctx, in, out, configurationWizardMenu{
-		title: "Tobari · Shell configuration", contextName: current.Name,
-		current: shellSettingSummary(setting), prompt: "Choose a source for " + variable,
-		options: sourceOptions,
-	})
-	if err != nil {
-		return tobari.ContextShellEnvironmentSetting{}, err
-	}
-	change := tobari.ContextShellEnvironmentSetting{
-		Variable: variable,
-		Source:   tobari.ContextShellEnvironmentSource(sourceOptions[sourceIndex].value),
-	}
-	if change.Source == tobari.ContextShellEnvironmentLiteral {
-		value, readErr := readConfigurationWizardValue(
-			ctx, in, out, "Fixed value", tobari.MaxContextShellValueBytes,
-		)
-		if readErr != nil {
-			return tobari.ContextShellEnvironmentSetting{}, readErr
+) ([]tobari.ContextShellEnvironmentSetting, error) {
+	pending := cloneShellSettings(current.ShellEnvironment)
+	staged := make(map[string]tobari.ContextShellEnvironmentSetting)
+	selected := 0
+	message := ""
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		change.Value = &value
+		if w != nil && w.mode != nil {
+			restore, rawErr := w.mode.Enter(in)
+			if rawErr == nil {
+				action, nextSelected, selectErr := selectConfigurationShellRaw(
+					ctx, in, out, current.Name, pending, staged, selected, message, w.style,
+				)
+				restoreErr := restore()
+				if selectErr != nil {
+					return nil, selectErr
+				}
+				if restoreErr != nil {
+					return nil, restoreErr
+				}
+				selected = nextSelected
+				switch action {
+				case configurationShellActionApply:
+					return stagedShellChanges(staged), nil
+				case configurationShellActionLiteral:
+					value, readErr := readConfigurationWizardValue(
+						ctx, in, out, "Fixed value for "+pending[selected].Variable, tobari.MaxContextShellValueBytes,
+					)
+					if readErr != nil {
+						return nil, readErr
+					}
+					setting := tobari.ContextShellEnvironmentSetting{
+						Variable: pending[selected].Variable, Source: tobari.ContextShellEnvironmentLiteral, Value: &value,
+					}
+					pending[selected] = setting
+					staged[setting.Variable] = setting
+					message = setting.Variable + " staged as literal."
+					continue
+				default:
+					return nil, context.Canceled
+				}
+			}
+		}
+		return selectConfigurationShellLine(ctx, current.Name, pending, in, out)
 	}
-
-	selected := shellSettingSummary(change)
-	review, err := w.choose(ctx, in, out, configurationWizardMenu{
-		title: "Tobari · Shell configuration", contextName: current.Name,
-		current: selected, prompt: "Apply this setting?",
-		options: []configurationWizardOption{
-			{label: "Apply", description: "Atomically update the Context setting."},
-			{label: "Cancel", description: "Leave the Context unchanged."},
-		},
-	})
-	if err != nil {
-		return tobari.ContextShellEnvironmentSetting{}, err
-	}
-	if review != 0 {
-		return tobari.ContextShellEnvironmentSetting{}, context.Canceled
-	}
-	return change, nil
 }
 
 func (w *terminalContextConfigurationWizard) ConfigureGit(
 	ctx context.Context, current tobari.ContextReport, in io.Reader, out io.Writer,
 ) (tobari.ContextGitIdentitySetting, error) {
-	sourceOptions := []configurationWizardOption{
+	pending := cloneGitIdentitySetting(current.GitIdentity)
+	selected := gitIdentitySourceIndex(pending.Source)
+	staged := false
+	message := ""
+	for {
+		if err := ctx.Err(); err != nil {
+			return tobari.ContextGitIdentitySetting{}, err
+		}
+		if w != nil && w.mode != nil {
+			restore, rawErr := w.mode.Enter(in)
+			if rawErr == nil {
+				action, next, nextSelected, selectErr := selectConfigurationGitRaw(
+					ctx, in, out, current.Name, current.GitIdentity, pending, staged, selected, message, w.style,
+				)
+				restoreErr := restore()
+				if selectErr != nil {
+					return tobari.ContextGitIdentitySetting{}, selectErr
+				}
+				if restoreErr != nil {
+					return tobari.ContextGitIdentitySetting{}, restoreErr
+				}
+				pending, selected = next, nextSelected
+				switch action {
+				case configurationGitActionApply:
+					return pending, nil
+				case configurationGitActionLiteral:
+					name, readErr := readConfigurationWizardValue(ctx, in, out, "Git user.name", tobari.MaxContextGitIdentityValueBytes)
+					if readErr != nil {
+						return tobari.ContextGitIdentitySetting{}, readErr
+					}
+					email, readErr := readConfigurationWizardValue(ctx, in, out, "Git user.email", tobari.MaxContextGitIdentityValueBytes)
+					if readErr != nil {
+						return tobari.ContextGitIdentitySetting{}, readErr
+					}
+					pending = tobari.ContextGitIdentitySetting{Source: tobari.ContextGitIdentityLiteral, Name: &name, Email: &email}
+					staged = true
+					message = "Fixed identity staged."
+					continue
+				default:
+					return tobari.ContextGitIdentitySetting{}, context.Canceled
+				}
+			}
+		}
+		return selectConfigurationGitLine(ctx, current.Name, current.GitIdentity, in, out)
+	}
+}
+
+type configurationShellAction uint8
+
+const (
+	configurationShellActionCancel configurationShellAction = iota
+	configurationShellActionLiteral
+	configurationShellActionApply
+)
+
+func selectConfigurationShellRaw(
+	ctx context.Context,
+	in io.Reader,
+	out io.Writer,
+	contextName string,
+	pending []tobari.ContextShellEnvironmentSetting,
+	staged map[string]tobari.ContextShellEnvironmentSetting,
+	selected int,
+	message string,
+	style bool,
+) (configurationShellAction, int, error) {
+	if len(pending) == 0 || selected < 0 || selected >= len(pending) {
+		return configurationShellActionCancel, selected, fmt.Errorf("configuration shell editor state is invalid")
+	}
+	lineCount := 0
+	needsRender := true
+	for {
+		if err := ctx.Err(); err != nil {
+			finishSelectorScreen(out, lineCount)
+			return configurationShellActionCancel, selected, err
+		}
+		if needsRender {
+			currentLines, err := renderConfigurationShellRaw(
+				out, contextName, pending, staged, selected, message, lineCount, style,
+			)
+			if err != nil {
+				finishSelectorScreen(out, lineCount)
+				return configurationShellActionCancel, selected, err
+			}
+			lineCount = currentLines
+			needsRender = false
+		}
+		key, err := readSelectorKey(ctx, in)
+		if err != nil {
+			finishSelectorScreen(out, lineCount)
+			return configurationShellActionCancel, selected, err
+		}
+		switch key.kind {
+		case selectorKeyNone:
+			continue
+		case selectorKeyUp:
+			selected = (selected - 1 + len(pending)) % len(pending)
+			message = ""
+			needsRender = true
+		case selectorKeyDown:
+			selected = (selected + 1) % len(pending)
+			message = ""
+			needsRender = true
+		case selectorKeyHome:
+			selected = 0
+			message = ""
+			needsRender = true
+		case selectorKeyEnd:
+			selected = len(pending) - 1
+			message = ""
+			needsRender = true
+		case selectorKeyDeny:
+			setting := tobari.ContextShellEnvironmentSetting{
+				Variable: pending[selected].Variable, Source: tobari.ContextShellEnvironmentDefault,
+			}
+			pending[selected] = setting
+			staged[setting.Variable] = setting
+			message = setting.Variable + " staged as default."
+			needsRender = true
+		case selectorKeyInherit:
+			setting := tobari.ContextShellEnvironmentSetting{
+				Variable: pending[selected].Variable, Source: tobari.ContextShellEnvironmentInherit,
+			}
+			pending[selected] = setting
+			staged[setting.Variable] = setting
+			message = setting.Variable + " staged as inherit."
+			needsRender = true
+		case selectorKeyLiteral:
+			finishSelectorScreen(out, lineCount)
+			return configurationShellActionLiteral, selected, nil
+		case selectorKeyApply:
+			if len(staged) == 0 {
+				message = "Stage at least one change before Apply."
+				needsRender = true
+				continue
+			}
+			finishSelectorScreen(out, lineCount)
+			return configurationShellActionApply, selected, nil
+		case selectorKeyCancel:
+			finishSelectorScreen(out, lineCount)
+			return configurationShellActionCancel, selected, context.Canceled
+		default:
+			message = "Use ↑/↓ to move, d/h/l to stage, p to Apply, or q to cancel."
+			needsRender = true
+		}
+	}
+}
+
+func renderConfigurationShellRaw(
+	out io.Writer,
+	contextName string,
+	pending []tobari.ContextShellEnvironmentSetting,
+	staged map[string]tobari.ContextShellEnvironmentSetting,
+	selected int,
+	message string,
+	previousLines int,
+	style bool,
+) (int, error) {
+	lines := []string{
+		selectorTitle(style, "Tobari · Shell configuration"),
+		selectorDetail(style, "Context", safeExternalText(contextName), styleText),
+		"",
+		applyStyleToken(style, styleMuted, "  Variable     Source     Value"),
+	}
+	for index, setting := range pending {
+		marker := "  "
+		variableToken := styleText
+		if index == selected {
+			marker = "❯ "
+			variableToken = styleAccent
+		}
+		stagedMarker := " "
+		if _, ok := staged[setting.Variable]; ok {
+			stagedMarker = "*"
+		}
+		lines = append(lines, fmt.Sprintf(
+			"%s%s %-12s %-10s %s",
+			marker, stagedMarker,
+			applyStyleToken(style, variableToken, setting.Variable),
+			applyStyleToken(style, styleText, string(setting.Source)),
+			applyStyleToken(style, styleMuted, shellSettingDisplayValue(setting)),
+		))
+	}
+	lines = append(lines, "", applyStyleToken(style, styleMuted, fmt.Sprintf("Pending: %d change%s", len(staged), pluralSuffix(len(staged)))))
+	if message != "" {
+		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
+	} else {
+		lines = append(lines, "")
+	}
+	lines = append(lines, "",
+		selectorHelp(style, "↑/↓ move   d default   h inherit   l literal"),
+		selectorHelp(style, "p Apply    q cancel"),
+	)
+	return renderConfigurationWizardLines(out, lines, previousLines)
+}
+
+func selectConfigurationShellLine(
+	ctx context.Context,
+	contextName string,
+	pending []tobari.ContextShellEnvironmentSetting,
+	in io.Reader,
+	out io.Writer,
+) ([]tobari.ContextShellEnvironmentSetting, error) {
+	staged := make(map[string]tobari.ContextShellEnvironmentSetting)
+	for {
+		if _, err := fmt.Fprintf(out, "Tobari · Shell configuration\nContext: %s\n\n", safeExternalText(contextName)); err != nil {
+			return nil, err
+		}
+		for index, setting := range pending {
+			marker := " "
+			if _, ok := staged[setting.Variable]; ok {
+				marker = "*"
+			}
+			if _, err := fmt.Fprintf(out, "  %d. %s %s · %s · %s\n", index+1, marker, setting.Variable, setting.Source, shellSettingDisplayValue(setting)); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := fmt.Fprintf(out, "\nChoose a variable, p to Apply %d change%s, or q to cancel: ", len(staged), pluralSuffix(len(staged))); err != nil {
+			return nil, err
+		}
+		choice, err := readConfigurationWizardLine(ctx, in, maxConfigurationWizardChoiceBytes)
+		if err != nil {
+			return nil, err
+		}
+		value := strings.ToLower(strings.TrimSpace(choice))
+		if value == "q" || value == "quit" || value == "esc" {
+			return nil, context.Canceled
+		}
+		if value == "p" || value == "apply" {
+			if len(staged) > 0 {
+				return stagedShellChanges(staged), nil
+			}
+			if _, err := fmt.Fprintln(out, "Stage at least one change before Apply."); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		index, parseErr := strconv.Atoi(value)
+		if parseErr != nil || index < 1 || index > len(pending) {
+			if _, err := fmt.Fprintln(out, "Choose a listed variable, p, or q."); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		selected := index - 1
+		if _, err := fmt.Fprintf(out, "Source for %s [d default, h inherit, l literal]: ", pending[selected].Variable); err != nil {
+			return nil, err
+		}
+		source, err := readConfigurationWizardLine(ctx, in, maxConfigurationWizardChoiceBytes)
+		if err != nil {
+			return nil, err
+		}
+		setting := tobari.ContextShellEnvironmentSetting{Variable: pending[selected].Variable}
+		switch strings.ToLower(strings.TrimSpace(source)) {
+		case "d", "default":
+			setting.Source = tobari.ContextShellEnvironmentDefault
+		case "h", "inherit":
+			setting.Source = tobari.ContextShellEnvironmentInherit
+		case "l", "literal":
+			setting.Source = tobari.ContextShellEnvironmentLiteral
+			literal, readErr := readConfigurationWizardValue(ctx, in, out, "Fixed value", tobari.MaxContextShellValueBytes)
+			if readErr != nil {
+				return nil, readErr
+			}
+			setting.Value = &literal
+		default:
+			if _, err := fmt.Fprintln(out, "Choose d, h, or l."); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		pending[selected] = setting
+		staged[setting.Variable] = setting
+	}
+}
+
+func cloneShellSettings(settings []tobari.ContextShellEnvironmentSetting) []tobari.ContextShellEnvironmentSetting {
+	result := make([]tobari.ContextShellEnvironmentSetting, len(settings))
+	for index, setting := range settings {
+		result[index] = setting
+		if setting.Value != nil {
+			value := *setting.Value
+			result[index].Value = &value
+		}
+	}
+	return result
+}
+
+func stagedShellChanges(staged map[string]tobari.ContextShellEnvironmentSetting) []tobari.ContextShellEnvironmentSetting {
+	result := make([]tobari.ContextShellEnvironmentSetting, 0, len(staged))
+	for _, variable := range tobari.ContextShellEnvironmentVariables() {
+		if setting, ok := staged[variable]; ok {
+			result = append(result, setting)
+		}
+	}
+	return result
+}
+
+func shellSettingDisplayValue(setting tobari.ContextShellEnvironmentSetting) string {
+	if setting.Source != tobari.ContextShellEnvironmentLiteral || setting.Value == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%q", truncateSelectorPath(safeExternalText(*setting.Value), 36))
+}
+
+type configurationGitAction uint8
+
+const (
+	configurationGitActionCancel configurationGitAction = iota
+	configurationGitActionLiteral
+	configurationGitActionApply
+)
+
+func configurationGitOptions() []configurationWizardOption {
+	return []configurationWizardOption{
 		{label: "Inherit host identity", description: "Resolve host global user.name and user.email on Workspace entry.", value: string(tobari.ContextGitIdentityInherit)},
 		{label: "Use a fixed identity", description: "Store one Context-owned name and email pair.", value: string(tobari.ContextGitIdentityLiteral)},
 		{label: "No Context fallback", description: "Remove the Context identity projection.", value: string(tobari.ContextGitIdentityDefault)},
 	}
-	sourceIndex, err := w.choose(ctx, in, out, configurationWizardMenu{
-		title: "Tobari · Git identity", contextName: current.Name,
-		current: gitIdentitySummary(current.GitIdentity),
-		information: []string{
-			"Only user.name and user.email are projected.",
-			"Authentication, signing, helpers, aliases, and other Git configuration stay isolated.",
-		},
-		prompt: "Choose an identity source", options: sourceOptions,
-	})
+}
+
+func selectConfigurationGitRaw(
+	ctx context.Context,
+	in io.Reader,
+	out io.Writer,
+	contextName string,
+	current tobari.ContextGitIdentitySetting,
+	pending tobari.ContextGitIdentitySetting,
+	staged bool,
+	selected int,
+	message string,
+	style bool,
+) (configurationGitAction, tobari.ContextGitIdentitySetting, int, error) {
+	options := configurationGitOptions()
+	lineCount := 0
+	needsRender := true
+	for {
+		if err := ctx.Err(); err != nil {
+			finishSelectorScreen(out, lineCount)
+			return configurationGitActionCancel, pending, selected, err
+		}
+		if needsRender {
+			currentLines, err := renderConfigurationGitRaw(
+				out, contextName, current, pending, staged, options, selected, message, lineCount, style,
+			)
+			if err != nil {
+				finishSelectorScreen(out, lineCount)
+				return configurationGitActionCancel, pending, selected, err
+			}
+			lineCount = currentLines
+			needsRender = false
+		}
+		key, err := readSelectorKey(ctx, in)
+		if err != nil {
+			finishSelectorScreen(out, lineCount)
+			return configurationGitActionCancel, pending, selected, err
+		}
+		source := tobari.ContextGitIdentitySource("")
+		switch key.kind {
+		case selectorKeyNone:
+			continue
+		case selectorKeyUp:
+			selected = (selected - 1 + len(options)) % len(options)
+			message = ""
+			needsRender = true
+			continue
+		case selectorKeyDown:
+			selected = (selected + 1) % len(options)
+			message = ""
+			needsRender = true
+			continue
+		case selectorKeyHome:
+			selected = 0
+			message = ""
+			needsRender = true
+			continue
+		case selectorKeyEnd:
+			selected = len(options) - 1
+			message = ""
+			needsRender = true
+			continue
+		case selectorKeyEnter:
+			source = tobari.ContextGitIdentitySource(options[selected].value)
+		case selectorKeyDeny:
+			source = tobari.ContextGitIdentityDefault
+			selected = gitIdentitySourceIndex(source)
+		case selectorKeyInherit:
+			source = tobari.ContextGitIdentityInherit
+			selected = gitIdentitySourceIndex(source)
+		case selectorKeyLiteral:
+			source = tobari.ContextGitIdentityLiteral
+			selected = gitIdentitySourceIndex(source)
+		case selectorKeyApply:
+			if !staged {
+				message = "Stage an identity source before Apply."
+				needsRender = true
+				continue
+			}
+			finishSelectorScreen(out, lineCount)
+			return configurationGitActionApply, pending, selected, nil
+		case selectorKeyCancel:
+			finishSelectorScreen(out, lineCount)
+			return configurationGitActionCancel, pending, selected, context.Canceled
+		default:
+			message = "Use ↑/↓ and Enter or d/h/l to stage, p to Apply, or q to cancel."
+			needsRender = true
+			continue
+		}
+		if source == tobari.ContextGitIdentityLiteral {
+			finishSelectorScreen(out, lineCount)
+			return configurationGitActionLiteral, pending, selected, nil
+		}
+		pending = tobari.ContextGitIdentitySetting{Source: source}
+		staged = true
+		message = "Git identity staged as " + string(source) + "."
+		needsRender = true
+	}
+}
+
+func renderConfigurationGitRaw(
+	out io.Writer,
+	contextName string,
+	current tobari.ContextGitIdentitySetting,
+	pending tobari.ContextGitIdentitySetting,
+	staged bool,
+	options []configurationWizardOption,
+	selected int,
+	message string,
+	previousLines int,
+	style bool,
+) (int, error) {
+	lines := []string{
+		selectorTitle(style, "Tobari · Git identity"),
+		selectorDetail(style, "Context", safeExternalText(contextName), styleText),
+		selectorDetail(style, "Current", safeExternalText(gitIdentitySummary(current)), styleText),
+		selectorHelp(style, "Only user.name and user.email are projected."),
+		selectorHelp(style, "Authentication and signing stay isolated."),
+		"",
+	}
+	for index, option := range options {
+		marker := "  "
+		labelToken := styleText
+		if index == selected {
+			marker = "❯ "
+			labelToken = styleAccent
+		}
+		pendingMarker := " "
+		if staged && pending.Source == tobari.ContextGitIdentitySource(option.value) {
+			pendingMarker = "*"
+		}
+		lines = append(lines,
+			marker+pendingMarker+" "+applyStyleToken(style, labelToken, option.label),
+			"    "+applyStyleToken(style, styleMuted, option.description),
+		)
+	}
+	if staged {
+		lines = append(lines, "", selectorDetail(style, "Pending", safeExternalText(gitIdentitySummary(pending)), styleText))
+	} else {
+		lines = append(lines, "", selectorDetail(style, "Pending", "none", styleMuted))
+	}
+	if message != "" {
+		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
+	} else {
+		lines = append(lines, "")
+	}
+	lines = append(lines, "",
+		selectorHelp(style, "↑/↓ move   Enter stage   d default   h inherit   l literal"),
+		selectorHelp(style, "p Apply    q cancel"),
+	)
+	return renderConfigurationWizardLines(out, lines, previousLines)
+}
+
+func selectConfigurationGitLine(
+	ctx context.Context,
+	contextName string,
+	current tobari.ContextGitIdentitySetting,
+	in io.Reader,
+	out io.Writer,
+) (tobari.ContextGitIdentitySetting, error) {
+	if _, err := fmt.Fprintf(
+		out,
+		"Tobari · Git identity\nContext: %s\nCurrent: %s\nOnly user.name and user.email are projected.\n\nSource [d default, h inherit, l literal]: ",
+		safeExternalText(contextName), safeExternalText(gitIdentitySummary(current)),
+	); err != nil {
+		return tobari.ContextGitIdentitySetting{}, err
+	}
+	input, err := readConfigurationWizardLine(ctx, in, maxConfigurationWizardChoiceBytes)
 	if err != nil {
 		return tobari.ContextGitIdentitySetting{}, err
 	}
-	change := tobari.ContextGitIdentitySetting{
-		Source: tobari.ContextGitIdentitySource(sourceOptions[sourceIndex].value),
+	if value := strings.ToLower(strings.TrimSpace(input)); value == "q" || value == "quit" || value == "esc" {
+		return tobari.ContextGitIdentitySetting{}, context.Canceled
 	}
-	if change.Source == tobari.ContextGitIdentityLiteral {
-		name, readErr := readConfigurationWizardValue(
-			ctx, in, out, "Git user.name", tobari.MaxContextGitIdentityValueBytes,
-		)
+	change := tobari.ContextGitIdentitySetting{}
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "d", "default":
+		change.Source = tobari.ContextGitIdentityDefault
+	case "h", "inherit":
+		change.Source = tobari.ContextGitIdentityInherit
+	case "l", "literal":
+		change.Source = tobari.ContextGitIdentityLiteral
+		name, readErr := readConfigurationWizardValue(ctx, in, out, "Git user.name", tobari.MaxContextGitIdentityValueBytes)
 		if readErr != nil {
 			return tobari.ContextGitIdentitySetting{}, readErr
 		}
-		email, readErr := readConfigurationWizardValue(
-			ctx, in, out, "Git user.email", tobari.MaxContextGitIdentityValueBytes,
-		)
+		email, readErr := readConfigurationWizardValue(ctx, in, out, "Git user.email", tobari.MaxContextGitIdentityValueBytes)
 		if readErr != nil {
 			return tobari.ContextGitIdentitySetting{}, readErr
 		}
 		change.Name, change.Email = &name, &email
+	default:
+		return tobari.ContextGitIdentitySetting{}, fmt.Errorf("Git identity source must be d, h, or l")
 	}
-
-	review, err := w.choose(ctx, in, out, configurationWizardMenu{
-		title: "Tobari · Git identity", contextName: current.Name,
-		current: gitIdentitySummary(change),
-		information: []string{
-			"Only user.name and user.email are projected.",
-			"Authentication, signing, helpers, aliases, and other Git configuration stay isolated.",
-		},
-		prompt: "Apply this setting?",
-		options: []configurationWizardOption{
-			{label: "Apply", description: "Atomically update the Context identity policy."},
-			{label: "Cancel", description: "Leave the Context unchanged."},
-		},
-	})
+	if _, err := fmt.Fprintf(out, "Pending: %s\nApply this change? [Y/n]: ", safeExternalText(gitIdentitySummary(change))); err != nil {
+		return tobari.ContextGitIdentitySetting{}, err
+	}
+	confirm, err := readConfigurationWizardLine(ctx, in, maxConfigurationWizardChoiceBytes)
 	if err != nil {
 		return tobari.ContextGitIdentitySetting{}, err
 	}
-	if review != 0 {
+	if value := strings.ToLower(strings.TrimSpace(confirm)); value == "n" || value == "no" || value == "q" {
 		return tobari.ContextGitIdentitySetting{}, context.Canceled
 	}
 	return change, nil
+}
+
+func cloneGitIdentitySetting(setting tobari.ContextGitIdentitySetting) tobari.ContextGitIdentitySetting {
+	result := setting
+	if setting.Name != nil {
+		value := *setting.Name
+		result.Name = &value
+	}
+	if setting.Email != nil {
+		value := *setting.Email
+		result.Email = &value
+	}
+	return result
+}
+
+func gitIdentitySourceIndex(source tobari.ContextGitIdentitySource) int {
+	for index, option := range configurationGitOptions() {
+		if tobari.ContextGitIdentitySource(option.value) == source {
+			return index
+		}
+	}
+	return 0
 }
 
 type configurationWizardMenu struct {
@@ -295,6 +769,10 @@ func renderConfigurationWizardRaw(
 		lines = append(lines, "", applyStyleToken(style, styleWarning, message))
 	}
 	lines = append(lines, "", selectorHelp(style, "↑/↓ move   Enter choose   q cancel"))
+	return renderConfigurationWizardLines(out, lines, previousLines)
+}
+
+func renderConfigurationWizardLines(out io.Writer, lines []string, previousLines int) (int, error) {
 	if previousLines > 0 {
 		if _, err := fmt.Fprintf(out, "\x1b[%dA\r\x1b[J", previousLines); err != nil {
 			return 0, err

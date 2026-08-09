@@ -77,7 +77,7 @@ func runConfigShell(
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	var change tobari.ContextShellEnvironmentSetting
+	var changes []tobari.ContextShellEnvironmentSetting
 	if shellSettingInputsOmitted(inputs) {
 		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON ||
 			c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
@@ -94,7 +94,7 @@ func runConfigShell(
 		if wizard == nil {
 			wizard = newContextConfigurationWizard()
 		}
-		change, err = wizard.ConfigureShell(ctx, current, c.In, c.Err)
+		changes, err = wizard.ConfigureShell(ctx, current, c.In, c.Err)
 		if err != nil {
 			return c.fail(ctx, normalizeConfigurationWizardError(command.Path, err))
 		}
@@ -104,15 +104,15 @@ func runConfigShell(
 			literal := inputs.One("--value")
 			value = &literal
 		}
-		change = tobari.ContextShellEnvironmentSetting{
+		changes = []tobari.ContextShellEnvironmentSetting{{
 			Variable: inputs.One("--variable"),
 			Source:   tobari.ContextShellEnvironmentSource(inputs.One("--source")),
 			Value:    value,
-		}
+		}}
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
-	result, err := c.context.ConfigureShell(ctx, intent, contextName, change)
+	result, err := c.context.ConfigureShell(ctx, intent, contextName, changes)
 	if err != nil {
 		return c.fail(ctx, err)
 	}

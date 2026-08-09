@@ -193,9 +193,9 @@ func TestConfigureContextShellPersistsOnlyAllowlistedContextSetting(t *testing.T
 	runner := &contextSwitchRunner{}
 	runtime := newContextSwitchRuntime(t, runner)
 	prompt := `\[\e[33m\]\$\[\e[0m\] `
-	result, err := runtime.ConfigureContextShell(context.Background(), "project-tools", tobari.ContextShellEnvironmentSetting{
+	result, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ContextShellEnvironmentSetting{{
 		Variable: "PS1", Source: tobari.ContextShellEnvironmentLiteral, Value: &prompt,
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,14 +214,48 @@ func TestConfigureContextShellPersistsOnlyAllowlistedContextSetting(t *testing.T
 		t.Fatalf("shell configuration touched Docker: %+v", runner.runs)
 	}
 
-	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", tobari.ContextShellEnvironmentSetting{
+	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ContextShellEnvironmentSetting{{
 		Variable: "PS1", Source: tobari.ContextShellEnvironmentDefault,
-	}); err != nil {
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	manifest, err = runtime.readContextManifest("project-tools")
 	if err != nil || len(manifest.ShellEnvironment) != 0 {
 		t.Fatalf("default shell setting = %+v, error = %v", manifest.ShellEnvironment, err)
+	}
+}
+
+func TestConfigureContextShellCommitsOneValidatedBatch(t *testing.T) {
+	t.Parallel()
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	literal := "truecolor"
+	changes := []tobari.ContextShellEnvironmentSetting{
+		{Variable: "COLORTERM", Source: tobari.ContextShellEnvironmentLiteral, Value: &literal},
+		{Variable: "TERM", Source: tobari.ContextShellEnvironmentInherit},
+	}
+	result, err := runtime.ConfigureContextShell(context.Background(), "project-tools", changes)
+	if err != nil {
+		t.Fatalf("ConfigureContextShell() error = %v", err)
+	}
+	if result.Task != tobari.TaskConfigShell || result.Name != "project-tools" {
+		t.Fatalf("configure result = %+v", result)
+	}
+	manifest, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	complete, err := tobari.CompleteContextShellEnvironment(manifest.ShellEnvironment)
+	if err != nil || complete[0].Source != tobari.ContextShellEnvironmentLiteral || complete[0].Value == nil ||
+		*complete[0].Value != literal || complete[3].Source != tobari.ContextShellEnvironmentInherit {
+		t.Fatalf("persisted shell batch = %+v", manifest.ShellEnvironment)
+	}
+	duplicate := append(append([]tobari.ContextShellEnvironmentSetting(nil), changes...), changes[0])
+	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", duplicate); err == nil {
+		t.Fatal("duplicate shell batch was accepted")
+	}
+	after, err := runtime.readContextManifest("project-tools")
+	if err != nil || !reflect.DeepEqual(after.ShellEnvironment, manifest.ShellEnvironment) {
+		t.Fatalf("invalid batch changed manifest = %+v, error = %v", after.ShellEnvironment, err)
 	}
 }
 
@@ -283,9 +317,9 @@ func TestContextManifestRoundTripsEveryMaximumSchemaFiveProjectionValue(t *testi
 	shellValue := strings.Repeat("\x01", tobari.MaxContextShellValueBytes)
 	for _, variable := range tobari.ContextShellEnvironmentVariables() {
 		if _, err := runtime.ConfigureContextShell(
-			context.Background(), "project-tools", tobari.ContextShellEnvironmentSetting{
+			context.Background(), "project-tools", []tobari.ContextShellEnvironmentSetting{{
 				Variable: variable, Source: tobari.ContextShellEnvironmentLiteral, Value: &shellValue,
-			},
+			}},
 		); err != nil {
 			t.Fatalf("configure maximum %s literal: %v", variable, err)
 		}

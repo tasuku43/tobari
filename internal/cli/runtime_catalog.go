@@ -41,12 +41,12 @@ func runtimeCommandSpecs() []CommandSpec {
 
 func configShellSpec() CommandSpec {
 	return CommandSpec{
-		Path: "config shell", Summary: "Configure one Context shell environment variable directly or interactively",
+		Path: "config shell", Summary: "Configure Context shell presentation directly or with one staged terminal Apply",
 		Args:   "[--variable COLORTERM|NO_COLOR|PS1|TERM] [--source default|inherit|literal] [--value <value>] [--context <name>] [--format text|json]",
 		Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
-			Outcome:      "Choose Tobari default behavior, exported host inheritance, or one Context-owned literal for an allowlisted shell variable through complete flags or a text-terminal wizard",
+			Outcome:      "Configure one allowlisted shell variable through complete flags, or stage several rows from the complete terminal inventory and apply them atomically",
 			Inputs: []CommandInput{
 				{
 					Name: "--variable", Source: InputSourceFlag, Required: false,
@@ -58,7 +58,7 @@ func configShellSpec() CommandSpec {
 				{
 					Name: "--source", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "default removes the override; inherit reads an exported host value at entry; literal uses --value. Omit all setting flags to use the text-terminal wizard.",
+					Description:   "default removes the override; inherit reads an exported host value at entry; literal uses --value. Omit all setting flags to use the staged terminal editor.",
 					AllowedValues: []string{"default", "inherit", "literal"},
 					Requires:      []string{"--variable"},
 				},
@@ -96,17 +96,17 @@ func configShellSpec() CommandSpec {
 
 func configGitSpec() CommandSpec {
 	return CommandSpec{
-		Path: "config git", Summary: "Configure one Context Git identity directly or interactively",
+		Path: "config git", Summary: "Configure one Context Git identity directly or from one staged terminal screen",
 		Args:   "[--source default|inherit|literal] [--name <name>] [--email <email>] [--context <name>] [--format text|json]",
 		Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
-			Outcome:      "Choose no Context fallback, inherited host user.name and user.email, or one fixed Context-owned Git identity through complete flags or a text-terminal wizard",
+			Outcome:      "Choose no Context fallback, inherited host user.name and user.email, or one fixed Context-owned Git identity through complete flags or one staged terminal screen",
 			Inputs: []CommandInput{
 				{
 					Name: "--source", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "default removes the Context fallback; inherit projects host user.name and user.email at Workspace entry; literal uses --name and --email. Omit all setting flags to use the text-terminal wizard.",
+					Description:   "default removes the Context fallback; inherit projects host user.name and user.email at Workspace entry; literal uses --name and --email. Omit all setting flags to use the staged terminal editor.",
 					AllowedValues: []string{"default", "inherit", "literal"},
 				},
 				{
