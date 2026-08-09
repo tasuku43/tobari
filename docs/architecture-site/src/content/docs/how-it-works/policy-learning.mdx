@@ -64,15 +64,15 @@ The rule record itself does not store a scheme field. Current HTTP and HTTPS aut
 
 ## 4. Review and action stay separate
 
-`policy candidates` is the machine discovery surface. `policy review` is the human Permission Inbox. Redirected/machine-readable review is read-only; on a TTY, the list is still non-mutating until the user opens one detail and explicitly selects **Allow exact** or **Deny exact**.
+`policy candidates` is the machine discovery surface. `policy review` is the human Permission Inbox. Redirected/machine-readable review is read-only; on a TTY, the list is still non-mutating while the user opens details and stages **Allow exact** or **Deny exact** choices for one Context.
 
-The action delegates the unchanged opaque ID to `policy allow --id …` or `policy deny --id …`. Display order, indentation, label text, or a reconstructed host/path is never the target.
+Each staged choice retains the unchanged opaque ID. Pressing **Apply** revalidates the complete staged set and activates it once; canceling first discards every choice without a write. Apply or discard before switching Context so durable source promotion remains one atomic file replacement. Display order, indentation, label text, or a reconstructed host/path is never the target. Machine callers continue to delegate one unchanged ID to `policy allow --id …` or `policy deny --id …`.
 
 At action time, Tobari re-reads current retained evidence and current rules. A stale, expired, already-covered, or mismatched ID produces no policy mutation.
 
 ## 5. Validate and activate as one complete policy
 
-For a valid exact action, Tobari:
+For a valid exact action or reviewed set, Tobari:
 
 1. locks aggregate policy mutation;
 2. verifies the current aggregate revision and complete learned allow/deny snapshot;
@@ -80,11 +80,12 @@ For a valid exact action, Tobari:
 4. writes the Context source with owner-only fsync-and-rename semantics;
 5. generates a content-addressed aggregate from **every** Context;
 6. tests the complete candidate with OPA;
-7. atomically publishes it;
-8. recreates only the exact owned OPA service and waits for health; and
-9. persists the new state.
+7. atomically publishes the content-addressed aggregate projection;
+8. publishes a revisioned complete bundle to the owner-labeled Docker-managed policy volume;
+9. waits for the running OPA to report that exact revision; and
+10. persists the new state.
 
-On failure it restores source and the prior known-good projection/state. A concurrent change produces `policy_data_changed` rather than silently overwriting it. While OPA is being recreated, Gateway requests fail closed as `policy_unavailable`.
+On failure it restores source and the prior known-good projection/state. A concurrent change produces `policy_data_changed` rather than silently overwriting it. Authority-reducing changes first activate a deny-all transition revision, so stale broader authority is not served while the candidate changes. Routine activation keeps the OPA container running.
 
 ## 6. Retry deliberately
 

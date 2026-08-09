@@ -39,10 +39,13 @@ The core product loop is progressive policy learning: work freely in Tobari,
 observe a denied boundary effect as secret-free evidence, receive a fixed
 host-side review cue, review the pending exact permission, approve the minimum
 rule, and retry. The normal path does not require writing OPA or Rego by hand:
-interactive `policy review` presents a Permission Inbox and delegates one
-explicitly confirmed candidate to `policy allow` or `policy deny`; its
-non-interactive and machine-readable path remains read-only. Exact actions
-test and activate their private policy copy without restarting active Tobari.
+interactive `policy review` presents a Permission Inbox, stages explicit exact
+Allow or Deny choices from candidate detail, and applies the reviewed set once;
+its non-interactive and machine-readable path remains read-only. Staging grants
+no authority. Final Apply revalidates every unchanged opaque candidate, tests
+one complete all-Context candidate, and hot-activates one revision without
+restarting active Tobari or the shared OPA. Single-reference `policy allow` and
+`policy deny` remain available to machines and recovery workflows.
 A separate `policy rules` view makes the complete current learned Allow and
 exact Deny decisions visible, and its TTY flow can explicitly reset one
 decision to default deny. Reset never grants or retries; it makes the retained
@@ -397,7 +400,8 @@ name prefix or broad Docker query as authority.
   deletion and `--force` explicitly overrides that guard. It can continue
   after partial runtime cleanup and never selects by a Docker name or prefix.
 - `cluster down` refuses to remove shared enforcement while any Tobari remains;
-  `--purge` affects only shared CA state after the cluster is empty.
+  `--purge` affects only shared CA and active policy-bundle state after the
+  cluster is empty.
 - Docker CLI is behind an infrastructure port so another engine can replace it
   later without changing application outcomes.
 - The project runtime spec hash includes the fixed resource contract, so an old
@@ -498,11 +502,13 @@ administration project.
   the agent; a completed session also summarizes the pending queue on host
   stderr. Neither notification can mutate policy or trigger a retry.
 - Interactive `policy review` is the installation-wide human Permission Inbox
-  over retained queues from every Context: selection, detail inspection, and
-  one explicit Allow-exact or Deny-exact action choice can
-  delegate exactly one opaque candidate to `policy allow` or `policy deny`.
-  The action choice is accepted only from the exact detail screen and is itself
-  the confirmation; a second yes/no prompt adds no authority or evidence.
+  over retained queues from every Context. Selection and detail inspection may
+  stage several explicit Allow-exact or Deny-exact choices, but staging grants
+  no authority and cancellation discards the whole staged set. A choice is
+  accepted only from its exact detail screen. One final Apply confirmation
+  binds the complete typed snapshot and applies the staged set as one
+  command-owned installation policy decision-set mutation. Every opaque
+  candidate ID is retained unchanged and revalidated against fresh evidence.
   Its list groups by validated stable Context/project identity, presents that
   scope once per group, and leads each selectable row with the exact HTTP
   effect plus bounded observation evidence. Display labels, adjacency, and
@@ -531,27 +537,34 @@ administration project.
   for a fixed host, port, and method beneath a sufficiently specific path prefix.
   `policy compact --id` is a separate explicit action whose positive examples
   and boundary canaries must pass before the source rules are replaced.
-- OPA watches the policy directory mounted read-only from XDG. Exact allow,
-  deny, reset, and compaction actions test a private complete policy copy, atomically
-  update CLI-owned data, and activate only the exact owned OPA component. The
-  trusted host remains the only policy writer.
+- OPA watches one revisioned complete bundle mounted read-only from an exact
+  owner-labeled Docker-managed volume. Exact allow, deny, reset, compaction,
+  and reviewed-set actions test a private complete policy copy, atomically
+  update CLI-owned data, build a revision-named archive through pinned OPA,
+  atomically rename it through a fixed pinned publisher, and
+  report success only after the running OPA proves the expected revision is
+  active. Authority-reducing or mixed changes first confirm a complete
+  deny-all transition revision and restore the prior known-good revision on
+  failure. The trusted host remains the only policy writer.
 - Audit evidence never includes credential values, cookies, raw bodies, or raw
   response data.
 - Tobari never changes permission from observation alone. Every learned rule,
-  reset, or compaction remains an explicit opaque-reference-bound trusted-host action;
-  interactive review is only a confirmation UI for that action and it must
-  pass `opa test`; finite examples and canaries detect declared
+  reset, or compaction remains an explicit trusted-host mutation. Machine
+  actions stay opaque-reference-bound; interactive reviewed-set Apply is one
+  fixed-target mutation whose typed contents are unchanged opaque references
+  selected from exact detail screens. Every candidate must pass `opa test`;
+  finite examples and canaries detect declared
   regressions but do not prove safety for every unknown future request.
 
 ### Mechanical enforcement
 
 - Gateway tests assert both useful denial dimensions and absence of secret/body
   canaries.
-- Integration tests deny a known request, retrieve its typed audit record
+- Integration tests deny known requests, retrieve their typed audit records
   through the CLI, assert the structured agent navigation and host-only session
-  summary, review exact candidates through the human queue, allow one and deny
-  one, exercise the allowed rule, compact repeated exact rules, and retain a
-  denied boundary without restarting any Tobari.
+  summary, stage exact Allow and Deny choices through the human queue, apply
+  them with one activation, exercise the allowed rule, compact repeated exact
+  rules, and retain a denied boundary without restarting any Tobari or OPA.
 - README makes the observe-review-decide-retry loop the primary operating
   workflow, keeps routine permission growth free of hand-authored OPA/Rego,
   and keeps tested host editing as the advanced escape hatch.

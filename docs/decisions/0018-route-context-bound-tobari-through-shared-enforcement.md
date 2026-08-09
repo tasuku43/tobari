@@ -53,9 +53,9 @@ Contexts under an owner-only temporary directory, validates every source policy
 and the complete candidate with OPA, and only then atomically publishes it.
 The revision covers Context manifests, policy data and modules, credential
 metadata, and credential secret contents. Activation serializes mutations,
-recreates only the shared OPA when policy changes, waits for health, and rolls
-back the source and prior known-good projection on failure. Partial projections
-are never mounted.
+hot-activates one tested revision in the stable shared OPA, confirms the exact
+active revision, and rolls back the source and prior known-good projection on
+failure, as refined by ADR 0024. Partial projections are never mounted.
 
 Guided Contexts share one Tobari-owned evaluation module and have Context data
 under `data.tobari_contexts[context_id]`. Advanced source continues to declare

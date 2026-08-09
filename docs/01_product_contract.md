@@ -40,15 +40,16 @@ without secrets, the CLI presents a bounded exact proposal and a concrete
 trusted-host next action, the user approves the minimum rule, and the same
 workload is retried. A learnable denial also gives the agent a fixed host-side
 review command, and the human path enters through `policy review`; machine
-discovery remains `policy candidates` and the exact opaque reference remains
-the safety boundary for `policy allow --id` and `policy deny --id`.
+discovery remains `policy candidates`. Exact opaque references remain the
+safety boundary for `policy allow --id` and `policy deny --id`, while the TTY
+may stage several unchanged references and apply the reviewed set once.
 `policy rules` is the exhaustive current-decision view; `policy reset --id`
 returns one learned Allow or exact Deny to default deny so the retained effect
 can be reviewed again. Reset does not authorize or retry the request.
 Trusted-host Rego editing remains the advanced path for behavior that exact
 learned rules cannot express; ordinary permission growth must not require it.
-Exact policy actions perform the bounded activation required for their own
-mutation.
+Exact policy actions and final reviewed-set Apply perform the bounded
+activation required for their own mutation.
 Denial evidence is a product output, not incidental debug noise.
 The host-issued project principal is retained in denial, candidate, learned
 rule, and compaction evidence; an approval made from one current-directory
@@ -176,9 +177,10 @@ The public commands are:
 | `cluster status [--format text|json]` | utility | read | Inspect three-service and companion health, loaded Context count, aggregate revision, policy/provider projection integrity, root-key backend, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|auth-broker|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential or handle output |
-| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted while preserving Auth Broker vaults and the installation root key; `--purge` additionally removes only shared CA volumes |
+| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted while preserving Auth Broker vaults and the installation root key; `--purge` additionally removes shared CA and active policy-bundle volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
-| `policy review [--tail N] [--format text|json]` | discover | read | Review the installation-wide Permission Inbox; on a TTY, inspect Context/root and explicitly choose one exact allow or deny from detail |
+| `policy review [--tail N] [--format text|json]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; on a TTY, stage exact allow or deny choices from detail and apply the reviewed set once; redirected and JSON output remain read-only |
+| `policy apply-reviewed` | act, fixed target | write | Catalog-owned completion action for a non-empty typed set staged inside an interactive Permission Inbox; direct invocation is rejected |
 | `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact allow and deny commands |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
@@ -433,9 +435,11 @@ changed candidate set fails closed and asks the user to run `tobari` again.
 When a learnable network request is denied, the Gateway's 403 response carries
 fixed secret-free host-review navigation for the agent, and an interactive
 session close may summarize the pending queue on host stderr. These are
-advisory only; the interactive `policy review` queue is the human entry point
-and delegates one explicitly confirmed opaque reference to the separate exact
-reference-bound `policy allow` or `policy deny` action. `policy rules` is the
+advisory only; the interactive `policy review` queue is the human entry point.
+It stages unchanged opaque references only from exact detail screens and uses
+one final `policy apply-reviewed` fixed-target action to revalidate and activate
+one Context's set. Apply or discard is required before switching Context so the
+source change remains one atomic file replacement. `policy rules` is the
 current learned-decision inventory; its TTY reset flow delegates one explicit
 opaque reference to `policy reset`. Redirected and machine-readable review and
 inventory remain read-only. The Permission Inbox groups candidates by their
@@ -445,8 +449,8 @@ observation count. A compact selected-effect preview exposes the latest retained
 observation before detail inspection. Matching display names, paths, order, or
 indentation do not merge distinct typed identities. Allow-exact and Deny-exact
 keys are inactive on the list; on the exact detail screen the chosen action is
-itself the explicit confirmation and delegates immediately without a second
-yes/no prompt.
+explicitly staged without a second yes/no prompt. Only the final Apply delegates
+the reviewed set to the mutation boundary.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
 a small state marker, aligned detail rows, semantic style tokens, and an exact
@@ -656,7 +660,7 @@ When the recipe's first base is the exact official
 refreshes that moving base. An explicit local or custom base is not given a
 registry-pull request, so local-only base images remain usable.
 
-OPA reads one cluster-owned aggregate policy projection with `--watch`. The
+OPA reads one cluster-owned revisioned aggregate bundle with `--watch`. The
 projection has one fixed `tobari.http/decision` router, Context-ID data
 namespaces, one shared guided evaluator, and isolated Advanced package names.
 Guided Contexts own policy data but no executable Rego source; projection uses
@@ -665,8 +669,11 @@ targets input schema 4, may retain source schema 3 for compatibility, and is
 rewritten to Gateway runtime input schema 5 before testing and activation.
 Exact policy mutations lock aggregate generation, test the changed Context
 source privately, generate and test the complete all-Context candidate, publish
-it atomically, recreate only the exact owned OPA component, and retain the prior
-known-good aggregate if activation fails. Host-authored edits remain an
+it by building a revision-named archive and atomically renaming it inside one
+exact owner-labeled Docker-managed volume, and retain the prior known-good
+aggregate if activation fails. Success requires the stable running
+OPA to report the exact expected revision. Authority-reducing or mixed changes
+first activate a complete deny-all transition revision. Host-authored edits remain an
 advanced, explicit workflow.
 
 ## Side effects
@@ -751,16 +758,17 @@ index, instance state, and home after confirming that no session is attached;
 `cluster down` rejects while any
 Tobari remains
 and removes only exact shared resources; its `--purge` also removes shared CA
-volumes. Both forms preserve every encrypted Context vault and the installation
+and active policy-bundle volumes. Both forms preserve every encrypted Context vault and the installation
 root key; cluster cleanup is not credential logout or revocation. No command
 removes a mounted root or files inside it. Each project
 work container is created with fixed CPU, memory, PID-count, and container-log
 bounds; a resource-contract change is treated as runtime drift and recreates
 only that work container. These limits do not claim a disk quota for the
 explicitly mounted root or network bandwidth shaping.
-`policy allow`, `policy deny`, `policy reset`, and `policy compact` first build and test the complete candidate
+`policy allow`, `policy deny`, `policy reset`, `policy compact`, and final TTY
+review Apply first build and test the complete candidate
 policy in a private host temporary directory. After successful tests they
-atomically replace only `policy/data.json` and invoke the same activation
+atomically replace only the affected `policy/data.json` sources and invoke the same activation
 boundary. They never write Rego source, managed credential files, or tool-owned
 home files.
 OPA marks a denial learnable only when its version, cluster, scheme, fixed

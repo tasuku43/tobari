@@ -49,7 +49,7 @@ For `workspace_selection_stale`, rerun `tobari` and choose from the refreshed ca
 
 First identify the response code:
 
-- `policy_denied`: leave the Workspace and run `tobari policy review`. Inspect and explicitly allow or deny one exact candidate, then retry deliberately.
+- `policy_denied`: leave the Workspace and run `tobari policy review`. Inspect and stage exact choices for one Context, Apply the reviewed set once, then retry deliberately.
 - `credential_handle_invalid`: leave and re-enter the same Context-bound Workspace. A stale, copied, malformed, misplaced, or mismatched handle must not be forwarded.
 - A baseline or learned exact deny: it is terminal policy, not a pending candidate. Inspect `tobari policy rules`; reset only if changing that decision is intentional.
 

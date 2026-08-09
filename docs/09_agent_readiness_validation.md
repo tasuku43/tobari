@@ -39,7 +39,7 @@ journey is the product baseline to improve:
 | First isolated session | Explicit `cluster up`, then `tobari`; `doctor` is recovery-only | One obvious CWD-first entry with cluster/bootstrap complexity guided or hidden while retaining an explicit recovery command |
 | Agent work | Reusable root, home, and deny-by-default Gateway | The user sets the boundary first; the agent works freely inside it without per-command supervision, host credentials, or direct egress |
 | First denied request | 403 plus host-side `policy review` | The agent can explain that the host must review the secret-free exact request; brokered authentication inherits no broad static allow and one fixed next command is available |
-| Permission growth | Installation-wide human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users scan exact HTTP effects grouped by stable Context/project identity, see bounded observation evidence, inspect Context/root/request, and choose one exact action from detail without a second confirmation prompt; redirected review remains read-only and the action remains bound to one Context-scoped opaque reference |
+| Permission growth | Installation-wide human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users scan exact effects, stage several choices for one Context from detail, and Apply once without a second confirmation prompt; redirected review remains read-only and machine actions remain bound to one Context-scoped opaque reference |
 | Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
 | Execution setup | `context list`, `context show`, `context use --name NAME`, `tobari --context NAME` | The user can inspect stable Contexts, change only the omitted-Context default, and create same-root Tobari in different Contexts while one Gateway/OPA/Auth Broker cluster routes trusted principals and bound handles |
 | Context configuration | Human `config shell` / `config git` wizard or complete direct flags, then a matching entry | A terminal user reviews current and proposed state without assembling every flag, while agents and scripts use one deterministic invocation; partial/redirected/JSON input never prompts |
@@ -303,15 +303,17 @@ rules exist. The transcript must prove:
 - Permission Inbox selection groups only matching stable Context/project IDs,
   keeps same-label different-ID scopes separate, and exposes the exact effect,
   observation count, and latest retained observation before detail. The detail
-  retains Context, root, and request; `a` or `d` is accepted only there and is
-  the explicit action confirmation without a second `y`. `PCY_ID` denotes one exact value emitted by `policy review` or `policy
-  candidates`; the transcript passes it unchanged to either `policy allow` or
-  `policy deny`. Allow tests the complete policy and records one exact learned
-  rule; deny records one exact Context/project-bound terminal rule. Both activate
-  without restarting a Tobari.
+  retains Context, root, and request; `a` or `d` is accepted only there and
+  stages that unchanged opaque ID without granting authority. Several choices
+  from one Context produce one final `p` Apply and one exact-revision bundle
+  activation; switching Context first requires Apply or discard, and `q`
+  discards with zero writes. `PCY_ID` denotes one exact value emitted by
+  `policy review` or `policy candidates`; the machine transcript passes it
+  unchanged to either `policy allow` or `policy deny`. All paths test the
+  complete policy and activate without restarting OPA or a Tobari.
 - Cleanup verifies exact owner and opaque-ID labels. Both `cluster down` forms
   preserve encrypted Context vaults and the installation root key; `--purge`
-  additionally removes only shared CA volumes.
+  additionally removes only shared CA and active policy-bundle volumes.
 
 ## Policy-learning scenario
 
@@ -327,8 +329,10 @@ The Docker integration test supplies the executable loop:
    and exact review command. `policy review`, `policy candidates`, and
    `policy tail` expose the same pending exact proposals and opaque references;
    redirected review does not mutate policy.
-5. `policy allow` tests a private complete policy copy, atomically stores the
-   exact learned rule, recreates only OPA, and confirms it healthy. The exact
+5. Interactive review stages several same-Context decisions and activates one
+   complete revisioned bundle on final Apply. The OPA container ID remains
+   stable and OPA reports the exact expected revision. The machine `policy
+   allow` path retains its one-reference contract. The exact
    retry succeeds with a third body value while a child path remains denied.
 6. `policy deny` records and activates one exact project-bound terminal rule;
    the rejected request remains denied and its historical lines disappear from
@@ -389,7 +393,7 @@ calls.
   current Tobari-owned projection.
 - Cluster down and purge preserve the encrypted Context vaults and installation
   root key, and a later cluster up unlocks the preserved state; purge removes
-  only the additional shared CA volumes.
+  only the additional shared CA and active policy-bundle volumes.
 - Identical effects may be allowed in one Context and denied in another;
   learning, exact deny, reset, and compaction never cross that boundary.
 - Changing current Context does not migrate existing Tobari, and restart
@@ -471,8 +475,10 @@ At minimum, exercise:
   overwrite or removal;
 - malformed or legacy state;
 - invalid Rego before cluster reconciliation;
-- invalid Rego before policy activation and exact OPA-only recreation after a
-  valid edit;
+- invalid Rego before policy activation and stable OPA container identity after
+  a valid hot bundle activation;
+- invalid or stale policy bundles, exact revision timeout, authority-reducing
+  transition order, and cross-Context reviewed sets before source write;
 - invalid, stale, already-covered, or wrong-kind policy candidate references;
 - duplicate, symlinked, group/world-accessible, concurrently changed, or
   malformed managed policy data before write;
@@ -486,7 +492,7 @@ At minimum, exercise:
   with the prior projection preserved and no raw diagnostic or identity value;
 - non-empty cluster removal rejection;
 - down/purge preservation of encrypted Context vaults and the installation root
-  key, with only shared CA volumes added by purge;
+  key, with only shared CA and active policy-bundle volumes added by purge;
 - unknown or modified opaque ID before Docker calls;
 - partial delete remains retryable through `delete` and never removes logical
   state before exact resource cleanup;

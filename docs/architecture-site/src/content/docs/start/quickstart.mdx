@@ -106,7 +106,7 @@ tobari delete
 tobari cluster down --purge
 ```
 
-`status` and `list` are observational. `delete` removes the nearest detached Workspace, including its persistent home and owned runtime resources, but never the project files. `cluster down` requires every Workspace to be deleted; `--purge` additionally removes shared CA volumes. It does not delete the Auth Broker root key or encrypted Context vaults and is not a provider logout.
+`status` and `list` are observational. `delete` removes the nearest detached Workspace, including its persistent home and owned runtime resources, but never the project files. `cluster down` requires every Workspace to be deleted; `--purge` additionally removes shared CA and active policy-bundle volumes. It does not delete the Auth Broker root key or encrypted Context vaults and is not a provider logout.
 
 Use `tobari delete --force` only when intentionally terminating an attached session. `--force` bypasses the attachment safety guard; it does not expand the deletion target.
 

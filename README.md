@@ -452,7 +452,8 @@ tobari cluster down --purge
 ```
 
 Cluster cleanup preserves encrypted Context vaults and the installation root
-key. `--purge` additionally removes only shared CA volumes; use `auth logout`
+key. `--purge` additionally removes shared CA and active policy-bundle volumes;
+use `auth logout`
 for credential deletion and handle revocation.
 
 The published base runtime keeps its existing Git, HTTP, JSON, Python, SSH,
@@ -851,7 +852,7 @@ The shared cluster can be removed only after every Tobari is deleted:
 
 ```sh
 tobari cluster down
-tobari cluster down --purge # also removes shared CA volumes
+tobari cluster down --purge # also removes shared CA and active policy-bundle volumes
 ```
 
 Both forms preserve Auth Broker Context vaults and the installation root key.
@@ -864,8 +865,8 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari cluster status [--format text\|json]` | Show three-service and companion readiness, Context count, aggregate revision, policy/provider projection integrity, root-key backend, project count, and diagnostics |
 | `tobari cluster denials [--tail N] [--format text\|json]` | Read typed denial evidence, policy path, and review command |
 | `tobari cluster logs [--component auth-broker\|gateway\|opa\|all] [--tail N]` | Read bounded shared logs and denial evidence without credential contents |
-| `tobari cluster down [--purge]` | Remove an empty cluster while preserving Auth Broker vaults/root key; purge additionally removes shared CA state |
-| `tobari policy review [--tail N] [--format text\|json]` | Installation-wide Permission Inbox: inspect Context/root/request and explicitly allow or deny one exact permission on a TTY; read-only when redirected |
+| `tobari cluster down [--purge]` | Remove an empty cluster while preserving Auth Broker vaults/root key; purge additionally removes shared CA and active policy-bundle state |
+| `tobari policy review [--tail N] [--format text\|json]` | Installation-wide Permission Inbox: stage exact decisions for one Context on a TTY, then apply the reviewed set once; read-only when redirected |
 | `tobari policy candidates [--tail N] [--format text\|json]` | Discover Context/project-scoped pending exact decisions and opaque IDs |
 | `tobari policy tail [--tail N]` | Compatibility view of the bounded queue with exact allow and deny commands |
 | `tobari policy allow --id ID` | Test, store, and activate one exact observed permission |
@@ -965,10 +966,11 @@ cannot claim the router, system packages, or another Context's entrypoint.
 
 `context use` changes only the current/default marker. `cluster up` and exact
 policy mutations serialize aggregate generation, test every source and the
-complete candidate, atomically publish only valid state, and retain the prior
-known-good revision on activation failure. Exact allow, deny, reset, and
-compaction actions derive Context and Tobari authority solely from their opaque
-reference and recreate only the exact shared OPA component. Advanced
+complete candidate, publish only valid revisioned bundles, wait for the running
+OPA to report the exact revision, and retain the prior known-good revision on
+activation failure. Routine allow, deny, reset, compaction, and reviewed-set
+actions derive Context and Tobari authority solely from validated opaque
+references and keep the shared OPA container running. Advanced
 host-authored edits remain explicit and are not part of the routine queue.
 
 Only an Advanced Context owns editable Rego. Use its policy directory as a
@@ -1013,11 +1015,13 @@ tobari policy reset --id PLR_OR_PDR_ID  # return one decision to default deny
 
 On a TTY, `policy review` is the installation-wide human flow: select a request,
 inspect its Context, Tobari/root, and exact host/port/method/path, keep those
-dimensions visible, then press `a` for Allow exact or `d` for Deny exact. That
-detail action is the explicit confirmation; there is no second `y` prompt, and
-the same keys do not act from the list. Tobari delegates the selected ID to
-`policy allow` or `policy deny` and refreshes the queue after
-each successful decision. Redirected or `--error-format json` review is read-only. `PCY_ID` is
+dimensions visible, then press `a` for Allow exact or `d` for Deny exact. Each
+detail choice is explicit but remains staged and grants no authority. Continue
+reviewing exact candidates from the same Context, then press `p` to revalidate
+and activate the complete reviewed set once. Pressing `q` before Apply discards
+the set with no policy write. A staged Apply is limited to one Context so source
+promotion remains one atomic file replacement; apply or discard it before
+switching Context. Redirected or `--error-format json` review is read-only. `PCY_ID` is
 emitted by the review or machine discovery queue and must be copied unchanged
 when invoking the explicit action; `policy candidates` remains the structured
 machine path.

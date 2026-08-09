@@ -553,7 +553,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
         id: "activation",
         label: "Atomic activation",
         detail:
-          "OPA is recreated on one validated aggregate; no partial rule set or invented wildcard.",
+          "Running OPA loads one validated complete bundle revision; no partial rule set or invented wildcard.",
         kind: "allowed",
       },
       {

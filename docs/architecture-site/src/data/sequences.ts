@@ -473,7 +473,7 @@ export const sequenceScenarios: SequenceScenario[] = [
         failure:
           "The candidate is not partially activated; retained source/projection state is restored and Gateway fails closed if OPA is unavailable.",
         explanation:
-          "OPA is recreated on the validated aggregate. Reset removes learned decisions and returns to baseline default deny; it is not an allow.",
+          "OPA hot-loads the validated complete bundle and reports its exact revision. Reset removes learned decisions and returns to baseline default deny; it is not an allow.",
         tone: "allowed",
       },
       {

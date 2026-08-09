@@ -1,6 +1,6 @@
 ---
 title: Policy review
-description: Review retained denial evidence and activate one exact allow or deny from the trusted host.
+description: Review retained denial evidence, stage exact choices, and activate one Context's set once.
 ---
 
 import PolicyLoopMap from "../../../components/PolicyLoopMap.astro";
@@ -8,9 +8,9 @@ import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
 ## The question this guide answers
 
-**How should a person turn one denied request into a deliberate policy decision?**
+**How should a person turn denied requests into deliberate policy decisions?**
 
-Leave the Workspace, inspect the bounded secret-free Permission Inbox on the trusted host, select one unchanged opaque reference, and explicitly allow or deny the exact Context/project/host/port/method/path effect.
+Leave the Workspace, inspect the bounded secret-free Permission Inbox on the trusted host, stage explicit choices from exact detail screens, and Apply one Context's reviewed set once.
 
 After this guide, you should be able to identify a learnable denial, use the TTY and machine flows safely, correct a prior decision, and explain why approval never retries traffic.
 
@@ -39,7 +39,7 @@ The installation-wide TTY queue displays pending effects from its bounded Gatewa
 - denial reason, timestamp, and retained observation count; and
 - the proposed exact allow and deny outcomes.
 
-Choose **Allow exact** or **Deny exact** only from the detail view. The choice is the explicit confirmation. It is not inferred from selection order.
+Choose **Allow exact** or **Deny exact** only from the detail view. The choice is explicit but remains staged and grants no authority. Continue reviewing candidates from the same Context, then press **Apply** to revalidate and activate the complete set once. Canceling before Apply discards every staged choice. Apply or discard before switching Context; this keeps the source update to one atomic file replacement.
 
 <SequenceExplorer
   title="Host-side policy review and activation"
@@ -69,15 +69,15 @@ Do not decode, normalize, reconstruct, or append unchecked display text. The act
 
 ## 4. Understand activation
 
-An exact allow or deny:
+One reviewed Apply:
 
-1. resolves the retained reference;
+1. resolves every retained reference against a fresh queue snapshot;
 2. locks policy generation;
-3. changes only the owning Context's learned data;
+3. changes only the one owning Context's learned data;
 4. validates the private Context source;
 5. generates and tests the complete all-Context aggregate;
-6. publishes it atomically;
-7. reconciles only the owned OPA component; and
+6. publishes one revisioned complete bundle;
+7. waits until the running OPA reports that exact revision; and
 8. reports the confirmed decision without replaying the request.
 
 If any validation or activation step fails, Tobari retains or restores the previous known-good aggregate. It does not partially activate the new rule.
@@ -136,7 +136,7 @@ Routine learning cannot silently create wildcard rules or authorize from observa
 
 ## Summary
 
-Review is trusted-host discovery plus one explicit exact decision. References remain opaque, policy activation is whole and atomic, and every retry is a new request initiated by the user or agent after confirmation.
+Review is trusted-host discovery plus explicit staged exact decisions. References remain opaque, one Context's set activates as a whole, and every retry is a new request initiated by the user or agent after confirmation.
 
 ## Check your understanding
 

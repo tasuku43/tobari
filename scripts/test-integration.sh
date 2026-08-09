@@ -486,7 +486,7 @@ cleanup() {
   done
   docker network rm "$auth_network" >/dev/null 2>&1 || true
   docker network rm tobari-control tobari-egress >/dev/null 2>&1 || true
-  docker volume rm tobari-gateway-ca tobari-public-ca >/dev/null 2>&1 || true
+  docker volume rm tobari-gateway-ca tobari-public-ca tobari-policy-bundle >/dev/null 2>&1 || true
   docker image rm -f "$custom_image" >/dev/null 2>&1 || true
   docker image rm -f "$gateway_base_image" >/dev/null 2>&1 || true
   if [[ -n $test_keychain_service ]]; then
@@ -546,6 +546,11 @@ fi
 for name in tobari-auth-broker tobari-gateway tobari-opa "$mock_name" "$auth_mock_name"; do
   if docker inspect "$name" >/dev/null 2>&1; then
     fail "container $name already exists; stop the active Tobari cluster before integration tests"
+  fi
+done
+for volume in tobari-gateway-ca tobari-public-ca tobari-policy-bundle; do
+  if docker volume inspect "$volume" >/dev/null 2>&1; then
+    fail "volume $volume already exists; use a clean Docker Engine for integration tests"
   fi
 done
 if docker network inspect "$auth_network" >/dev/null 2>&1; then
@@ -1363,8 +1368,11 @@ gateway_gid=$(docker exec tobari-gateway sh -c "awk '/^Gid:/{print \$2}' /proc/1
 [[ $gateway_uid == "$(id -u)" ]] || fail "Gateway runs as uid $gateway_uid instead of the host uid"
 [[ $gateway_gid == "$(id -g)" ]] || fail "Gateway runs as gid $gateway_gid instead of the host gid"
 
-policy_mount_rw=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/policy"}}{{.RW}}{{end}}{{end}}' tobari-opa)
-[[ $policy_mount_rw == false ]] || fail "OPA policy bind is writable"
+policy_bundle_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/bundle"}}{{println .Name .RW}}{{end}}{{end}}' tobari-opa)
+[[ $policy_bundle_mount == 'tobari-policy-bundle false' ]] ||
+  fail "OPA does not mount the exact read-only policy bundle volume: $policy_bundle_mount"
+[[ $(docker volume inspect --format '{{index .Labels "io.tobari.owner"}}' tobari-policy-bundle) == default ]] ||
+  fail "policy bundle volume is missing its Tobari owner label"
 
 expected_digest=$(printf 'Bearer %s' "$tool_auth_value" | shasum -a 256 | awk '{print $1}')
 auth_response=$(run_project curl -fsS \
@@ -1411,6 +1419,7 @@ update_issue_candidate_id=$(graphql_candidate_id_for_effect \
 [[ $close_issue_candidate_id == pcy_* && $update_issue_candidate_id == pcy_* && \
   $close_issue_candidate_id != "$update_issue_candidate_id" ]] ||
   fail "GraphQL roots did not produce independent opaque candidates"
+opa_before_graphql_policy=$(docker inspect --format '{{.Id}}' tobari-opa)
 run_tobari policy allow --id "$close_issue_candidate_id" >/dev/null
 graphql_partial_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -H 'content-type: application/json' --data-binary "$graphql_body" \
@@ -1418,6 +1427,8 @@ graphql_partial_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
 [[ $graphql_partial_status == 403 ]] ||
   fail "one GraphQL root approval authorized an unapproved sibling root"
 run_tobari policy allow --id "$update_issue_candidate_id" >/dev/null
+[[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_graphql_policy" ]] ||
+  fail "routine GraphQL policy activation recreated OPA"
 graphql_response=$(run_project curl -fsS \
   -H 'content-type: application/json' --data-binary "$graphql_body" \
   http://mock-upstream:8080/graphql)
@@ -1542,6 +1553,7 @@ assert_contains "$review_json" \
 	"\"deny_command\":\"tobari policy deny --id $deny_candidate_id\"" \
 	"machine policy review"
 
+opa_before_exact_policy=$(docker inspect --format '{{.Id}}' tobari-opa)
 allow_output=$(run_tobari policy allow --id "$allow_candidate_id")
 assert_contains "$allow_output" "context: default" "exact policy approval"
 assert_contains "$allow_output" 'match: exact' "exact policy approval"
@@ -1554,6 +1566,8 @@ assert_contains "$body_allow_output" 'applied: true' "body-independent policy ap
 patch_deny_output=$(run_tobari policy deny --id "$patch_candidate_id")
 assert_contains "$patch_deny_output" 'path: /review-patch' "body-bearing PATCH policy review"
 assert_contains "$patch_deny_output" 'applied: true' "body-bearing PATCH policy review"
+[[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_exact_policy" ]] ||
+  fail "routine exact policy mutations recreated OPA"
 body_applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT -H 'content-type: application/json' --data '{"value":"third"}' \
   http://mock-upstream:8080/review-body)
@@ -1695,8 +1709,7 @@ selection = "\x1b[B" * (int(index) - 1) + "\r"
 print(json.dumps([
     {"after_ms": 5000, "data": selection},
     {"after_ms": 750, "data": "d"},
-    {"after_ms": 750, "data": "y"},
-    {"after_ms": 750, "data": "q"},
+    {"after_ms": 750, "data": "p"},
 ]))
 ' "$interactive_index")
 if ! interactive_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
@@ -1705,8 +1718,8 @@ if ! interactive_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
   printf '%s\n' "$interactive_output" >&2
   fail "interactive policy review PTY session failed"
 fi
-if [[ $interactive_output != *'Permission denied'* && \
-  ! ($interactive_output == *'path: /review-interactive'* && $interactive_output == *'applied: true'*) ]]; then
+if [[ $interactive_output != *'Reviewed permissions applied'* || \
+  $interactive_output != *'Denied'* || $interactive_output != *'1'* ]]; then
   printf '%s\n' "$interactive_output" >&2
   fail "interactive policy review did not contain the expected value"
 fi

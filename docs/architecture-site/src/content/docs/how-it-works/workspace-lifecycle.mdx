@@ -76,7 +76,7 @@ After that:
 | Operation              | Removes                                                                               | Preserves                                                                |
 | ---------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `cluster down`         | Shared Gateway, OPA, Auth Broker containers and transient shared networks/projections | Contexts, policy sources, encrypted vaults, root key, Gateway CA volumes |
-| `cluster down --purge` | The same shared runtime resources **and** shared CA volumes                           | Contexts, policy sources, encrypted vaults, installation root key        |
+| `cluster down --purge` | The same shared runtime resources, shared CA volumes, and active policy-bundle volume | Contexts, policy sources, encrypted vaults, installation root key        |
 
 Purge means a later cluster start establishes new shared CA state. It does not revoke provider credentials or delete encrypted vaults. Use `auth logout <provider>` for local credential removal and handle revocation.
 
@@ -141,8 +141,8 @@ You should now be able to predict what survives each lifecycle operation.
   <summary>
     Does `cluster down --purge` delete the encrypted vault and root key?
   </summary>
-  No. It additionally removes shared CA volumes. Vaults and the installation
-  root key survive.
+  No. It additionally removes shared CA and active policy-bundle volumes. Vaults
+  and the installation root key survive.
 </details>
 
 <details>

@@ -92,11 +92,13 @@ where applicable.
 remain valid
 internal seams today. They are not permission to expose Docker, OPA, or opaque
 resource identifiers as the routine mental model. `policy review` is the
-ordinary human-facing Permission Inbox: on a TTY it composes selection,
-detail inspection, one explicit Allow-exact or Deny-exact detail action, and the existing `policy allow` or
-`policy deny` action for one candidate; redirected and machine-readable review remains
-read-only. The detail action is the confirmation and no second yes/no prompt
-intervenes; the same keys cannot mutate from the list. `policy rules` is the exhaustive current learned-decision inventory;
+ordinary human-facing Permission Inbox: on a TTY it composes selection, detail
+inspection, explicit Allow-exact or Deny-exact staging, and one final Apply of
+the complete reviewed set. Staging grants no authority; redirected and
+machine-readable review remains read-only. Detail actions cannot mutate from
+the list, and final Apply is a command-owned fixed-target mutation that
+revalidates every unchanged opaque candidate ID. Single-reference `policy
+allow` and `policy deny` remain machine and recovery actions. `policy rules` is the exhaustive current learned-decision inventory;
 on a TTY it composes selection, detail inspection, explicit reset confirmation,
 and `policy reset` for one current decision, while redirected and
 machine-readable inventory remains read-only. `policy candidates` is the
@@ -457,8 +459,8 @@ without treating a partial file set as a second project. Runtime convergence
 stores a hash of the bound Context's desired image identity, mounts, security,
 environment, health contract, fixed resource contract, and profile revision on
 the project container; drift recreates only that container and updates the
-stored project image only after success. OPA runs with `--watch` against one
-read-only, content-addressed aggregate bind. Source edits become authority only
+stored project image only after success. OPA runs with `--watch --bundle`
+against one read-only Docker-managed bundle volume. Source edits become authority only
 after explicit whole-projection validation and activation. The principal registry is a generic host-issued
 contract: Docker currently supplies the network/address observation, while a
 future stronger runtime may supply the same binding through another adapter.
@@ -470,8 +472,12 @@ Logical Tobari and Context IDs are not trusted when echoed by a caller; Gateway
 derives both from the local interface address. Exact allow, deny, and compaction
 actions provide the deterministic portable activation path: each locks the
 projection, tests the target Context's private source copy and the complete
-all-Context candidate, verifies the exact OPA ownership label, atomically
-publishes, recreates only OPA, waits for health, and rolls back on failure.
+all-Context candidate, verifies the exact OPA and bundle-volume ownership
+labels, builds a revision-named archive through pinned OPA, atomically renames
+it through a fixed networkless pinned publisher,
+waits for the running OPA to report the exact expected revision, and rolls back
+on failure. Reducing or mixed authority first activates a deny-all transition
+revision.
 `delete` observes active Docker exec IDs before ordinary removal, then verifies
 owner, ID, and role labels before removing the selected container and network;
 an attached exec rejects ordinary deletion and `--force` skips only that guard.
@@ -485,7 +491,8 @@ delete remains the exact cleanup path.
 Cluster removal is rejected until no instance record remains. Both `cluster
 down` forms remove shared runtime resources while preserving encrypted Context
 vaults and the installation root key. `--purge` additionally removes only the
-shared CA volumes; cluster teardown is not credential logout or revocation.
+shared CA and active policy-bundle volumes; cluster teardown is not credential
+logout or revocation.
 
 The root-index collection enforces one logical Workspace per `(canonical root,
 Context ID)`. Its hash includes both values, and the project lock performs the
@@ -626,8 +633,10 @@ read projection also converges concurrent identical audit records without a
 second persisted inbox or write race. They remove effects already covered by
 the CLI-owned learned allow or deny data and trusted baseline deny rules.
 Baseline denies remain audit-only. `policy review` is the routine human text
-projection and, after explicit TTY confirmation, delegates one unchanged
-candidate ID to `policy allow` or `policy deny`; redirected review is read-only.
+workflow: it stages explicit decisions over unchanged opaque candidate IDs for
+one Context and applies the complete typed set once. Apply or discard precedes
+switching Context, keeping source promotion to one atomic file replacement;
+redirected review is read-only.
 `policy rules` is the exhaustive current inventory of CLI-owned learned Allows
 and exact Denies. `policy reset --id` removes exactly one such decision through
 the same preflight, atomic-write, and OPA activation boundary, leaving the

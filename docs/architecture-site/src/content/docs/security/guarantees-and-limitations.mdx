@@ -81,7 +81,7 @@ After reading, you should be able to answer the acceptance questions about proxy
 
 **Preconditions.** The host user acts on a current opaque candidate reference; the policy sources and revisions have not raced.
 
-**Enforcement point.** Tobari rediscovers the candidate, validates private source and complete aggregate, checks revisions, writes owner-only source atomically, publishes content-addressed projection, and recreates OPA. Rollback restores known state on failure.
+**Enforcement point.** Tobari rediscovers each candidate, validates private source and complete aggregate, checks revisions, writes one Context's owner-only source atomically, publishes a revisioned complete bundle, and waits for the running OPA to report the exact revision. Authority reduction first installs a deny-all transition revision. Rollback restores known state on failure.
 
 **Failure behavior.** Validation, stale-reference, race, write, aggregate, or OPA activation failure leaves or restores the previous valid policy. The old HTTP request is never replayed.
 

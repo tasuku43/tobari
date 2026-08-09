@@ -139,11 +139,14 @@ policy sources, and aggregate projection are separate owner-only host state.
 
 Trusted-host policy mutations use opaque references, validate the selected
 Context source and the complete all-Context candidate, test it privately, and
-publish the content-addressed aggregate atomically before recreating only the
-owned OPA component. Unsafe, malformed, stale, ambiguous, or failed candidates
-do not become active. A failed action retains or restores the prior source and
-known projection; traffic still fails closed if no valid OPA decision is
-available.
+publish a revisioned complete bundle to the owner-labeled Docker-managed policy
+volume. The running OPA must report the exact expected revision before success.
+An authority-reducing change first activates a deny-all transition bundle.
+Unsafe, malformed, stale, ambiguous, or failed candidates do not become active.
+A failed action retains or restores the prior source and known projection;
+traffic still fails closed if no valid OPA decision is available. Interactive
+review may stage several exact decisions for one Context only, preserving one
+atomic source-file promotion before the all-Context aggregate activation.
 
 ### Forged authorization
 
@@ -350,8 +353,8 @@ Logout removes local Tobari credential state; it does not contact the provider
 or guarantee remote revocation. It does not remove tool-native credentials in
 a Workspace home or retained managed-adapter files. `cluster down` and
 `cluster down --purge` preserve both encrypted Context vaults and the
-installation root key; purge additionally removes shared CA volumes and is not
-an authentication reset.
+installation root key; purge additionally removes shared CA and active
+policy-bundle volumes and is not an authentication reset.
 
 ### Shared service exhaustion
 

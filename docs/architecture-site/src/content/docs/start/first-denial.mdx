@@ -41,7 +41,7 @@ On the trusted host:
 tobari policy review
 ```
 
-The TTY flow lets you select a pending effect, inspect every authority dimension, and choose one exact action. A redirected review is read-only:
+The TTY flow lets you inspect pending effects, stage exact choices for one Context, and press **Apply** once after reviewing the set. Canceling before Apply changes nothing. A redirected review is read-only:
 
 ```sh
 tobari policy review --format json
@@ -55,7 +55,7 @@ tobari policy allow --id <pcy-id>
 tobari policy deny --id <pcy-id>
 ```
 
-Display order, a host label, or a hand-built identifier is not authority. The action resolves the retained reference, verifies that it still represents the current denial, modifies owner-only policy data, tests the complete aggregate, and atomically activates it. If validation or activation fails, the previous known-good policy remains active.
+Display order, a host label, or a hand-built identifier is not authority. The action resolves the retained reference, verifies that it still represents the current denial, modifies owner-only policy data, tests the complete aggregate, and activates one complete revisioned bundle. If validation or activation fails, the previous known-good policy remains active.
 
 ## What “exact” means
 

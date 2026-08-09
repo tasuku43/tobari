@@ -78,7 +78,7 @@ Consider `policy allow --id pcy_…`:
 2. **CLI parser** validates the exact public invocation and passes a typed input.
 3. **Application use case** re-discovers current evidence and ensures the reference is current and uniquely identifies one candidate.
 4. **Domain** defines candidate identity, exact learned-rule invariants, and mutation result/fault vocabulary.
-5. **Infrastructure** locks source state, preflights Context and aggregate policy, writes atomically, recreates exact OPA, and rolls back on failure.
+5. **Infrastructure** locks source state, preflights Context and aggregate policy, writes atomically, publishes a complete watched bundle, confirms the exact running OPA revision, and rolls back on failure.
 6. **CLI renderer** presents the structured result without inferring new semantics.
 
 No layer alone owns the complete outcome, but responsibility does not move outward against the dependency rule.

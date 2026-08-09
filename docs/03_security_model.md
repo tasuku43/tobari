@@ -253,16 +253,21 @@ instance's persistent XDG home and records after the session-attachment guard;
 `--force` explicitly overrides an attached-session warning.
 Shared cluster removal is rejected while any Tobari record remains.
 Both `cluster down` and `cluster down --purge` preserve encrypted Context vaults
-and the installation root key. Purge removes only the shared CA volumes in
+and the installation root key. Purge removes only the shared CA volumes and
+the rebuildable active policy-bundle volume in
 addition to transient cluster resources; it is not credential deletion or
 revocation.
 
 No Context directory is mounted wholesale into OPA or a Workspace. OPA sees
 only one read-only content-addressed projection generated from every Context
 source. Generation and policy mutation are serialized; each source and the
-whole candidate are tested before atomic publication and exact owner-labeled
-OPA recreation. A failed activation restores the source and prior known-good
-projection. Partial state is never mounted, and OPA receives no authority to
+whole candidate are tested before atomic publication to an exact owner-labeled
+Docker-managed bundle volume. A fixed networkless pinned OPA invocation writes
+only a revision-named candidate; a fixed networkless pinned publisher renames
+that candidate to the watched path in the same volume. The running owner-labeled OPA must report the expected revision
+before success. A failed activation restores the source and prior known-good
+bundle; a reducing or mixed change first confirms a deny-all transition
+revision. Partial state is never mounted, and OPA receives no authority to
 rewrite source or projection.
 
 ## HTTP authorization boundary
@@ -331,10 +336,15 @@ for the child process, not an authorization token or an instruction to retry;
 it contains no candidate ID, query, body, header, credential, policy path, or
 dynamic command argument. Non-learnable denials advertise no review command.
 The host-owned retained denial queue remains the source of truth, and only the
-reference-bound host action can change policy. Interactive `policy review` is
-only a confirmation surface for those actions: it cannot allow or deny from a
-display position, batch candidates, create wildcards, or act when input/output is
-redirected. Session-close summaries use the same untrusted request projection
+reference-bound host action can change policy. Interactive `policy review`
+instead permits one command-bound fixed-target Apply over a bounded typed set:
+each entry must originate on its exact detail screen, retain its opaque ID
+unchanged, belong to one Context, and pass fresh snapshot validation. The
+one-Context bound preserves one atomic policy-source promotion even if the host
+process is interrupted. Display position cannot create authority, staging
+writes nothing, cancellation discards the set, wildcard creation is impossible,
+and redirected or machine-readable review is read-only.
+Session-close summaries use the same untrusted request projection
 and are best-effort host stderr output.
 
 ## Credentials
@@ -716,10 +726,10 @@ optional GraphQL-coordinate proposals from
 that evidence, treating reason, status, request identity, timestamps, and
 credential-profile display evidence as non-identity fields. The latest evidence
 and bounded observation count do not grant authority. `policy review`
-presents the same queue and, after an explicit Allow-exact or Deny-exact choice
-on one candidate's TTY detail screen, delegates one unchanged opaque reference
-to `policy allow` or `policy deny`. The action choice is the confirmation, is
-inactive on the list, and requires no second yes/no prompt; `policy rules`
+presents the same queue, stages explicit Allow-exact or Deny-exact choices only
+from each candidate's TTY detail screen, retains every unchanged opaque
+reference, and applies the reviewed set once after final confirmation. Staging
+is inactive authority; `policy rules`
 projects every current CLI-owned learned Allow and exact Deny, and its TTY flow
 delegates one unchanged opaque reference to `policy reset`. All redirected and
 machine-readable paths remain read-only. Observation alone never changes
@@ -757,7 +767,7 @@ reference-bound mutation.
 | Optional toolbox artifacts retain reviewed identity | Pinned versions, vendor checksums, explicit local build validation, and no public TWG publication claim |
 | Project metadata cannot become a second runtime boundary | Context-only image resolution, ignored-project-metadata regression test, and fixed runtime adapter |
 | OPA cannot rewrite Context policy | Read-only mount-spec test |
-| Tested host policy activates across Docker hosts | Fixed-target OPA recreation test and integration scenario |
+| Tested host policy activates across Docker hosts | Docker-managed watched-bundle test, exact revision assertion, stable OPA identity, and Linux integration scenario |
 | CWD lifecycle actions use exact Tobari identity | Canonical-root, state, and label-validation tests |
 | One canonical root/Context pair has one Workspace | Pair-derived root-index hash naming, locked exact-pair checks, domain duplicate-index validation, same-root/different-Context tests, and concurrent explicit-creation tests |
 | Session exit cannot delete a Workspace | Child exit-status tests, host-stderr summary tests, and logical-state preservation after entry |
