@@ -229,6 +229,33 @@ class HostCompletedLoginTests(unittest.TestCase):
         self.assertIsNone(record["refresh_task_digest"])
         self.assertEqual(decode_secret(record["state"]), INITIAL_STATE)
 
+    def test_console_login_driver_is_distinct_and_remains_opaque(self) -> None:
+        arguments = control_parser().parse_args(
+            [
+                "login",
+                "--context-id",
+                CONTEXT,
+                "--provider",
+                "aws",
+                "--account-label",
+                "123456789012",
+                "--driver-id",
+                "aws_cli_console_login",
+                "--driver-revision",
+                DRIVER_REVISION,
+            ]
+        )
+        with mock.patch("authbroker.control.sys.stdin", BinaryInput(INITIAL_STATE)):
+            request, payload = control_request(arguments)
+        self.assertEqual(request["driver_id"], "aws_cli_console_login")
+        self.assertEqual(payload, INITIAL_STATE)
+
+        result = self.dispatcher.dispatch(request, payload)
+        self.assertEqual(result["account_label"], "123456789012")
+        record = self.store.load(CONTEXT, KEY)["providers"]["aws"]
+        self.assertEqual(record["driver_id"], "aws_cli_console_login")
+        self.assertEqual(decode_secret(record["state"]), INITIAL_STATE)
+
     def test_aws_login_shape_and_metadata_are_strict(self) -> None:
         base = {
             "schema_version": 1,

@@ -27,7 +27,9 @@ func runAuthLogin(
 		return c.fail(ctx, err)
 	}
 	bindAuthMutationIntent(&intent, command)
-	result, err := c.auth.Login(ctx, intent, contextName, inputs.One("provider"), c.In, c.Err)
+	result, err := c.auth.Login(
+		ctx, intent, contextName, inputs.One("provider"), inputs.One("--method"), c.In, c.Err,
+	)
 	if err != nil {
 		return c.fail(ctx, err)
 	}

@@ -157,10 +157,11 @@ image, private protocol, host-driver, and topology checks used by `task check`
 and `task runtime:test`. The required reproducible synthetic Auth Broker proof
 is delegated explicitly to `task integration:test`;
 the manual transcript does not duplicate that synthetic manipulation. Release
-also requires the trusted-host GitHub and AWS scenarios in
+also requires the trusted-host GitHub and both AWS login-method scenarios in
 [Agent Readiness Validation](09_agent_readiness_validation.md), including the
 no-print assertion that `gh auth token --hostname github.com` equals the exact
-projected `GH_TOKEN` handle and that the three AWS credential variables equal
+projected `GH_TOKEN` handle, that console mode rejects AWS CLI older than 2.32
+before provider login, and that the three AWS credential variables equal
 one handle before the allowed API calls. Those scenarios record only
 secret-free pass/fail outcomes and never become repository fixtures. An
 implementation handoff may report the reviewed image evidence, but release

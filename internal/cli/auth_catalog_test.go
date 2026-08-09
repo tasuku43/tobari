@@ -90,6 +90,16 @@ func TestAuthLoginCatalogDeclaresGitHubAndAWSSSOContracts(t *testing.T) {
 		!strings.Contains(login.Agent.Inputs[0].Description, "aws") {
 		t.Fatalf("auth login provider input = %+v", login.Agent.Inputs)
 	}
+	methodFound := false
+	for _, input := range login.Agent.Inputs {
+		if input.Name == "--method" {
+			methodFound = reflect.DeepEqual(input.AllowedValues, []string{"identity-center", "console"}) &&
+				strings.Contains(input.Description, "backward compatibility")
+		}
+	}
+	if !methodFound {
+		t.Fatalf("auth login method input = %+v", login.Agent.Inputs)
+	}
 	joinedPrerequisites := strings.Join(login.Agent.Prerequisites, "\n")
 	for _, want := range []string{"github", "aws", "trusted-host PATH", "access-portal start URL", "SSO region", "account ID", "role name", "request region"} {
 		if !strings.Contains(joinedPrerequisites, want) {
@@ -97,14 +107,19 @@ func TestAuthLoginCatalogDeclaresGitHubAndAWSSSOContracts(t *testing.T) {
 		}
 	}
 	wantErrors := map[string]bool{
-		"github_cli_unavailable":  false,
-		"github_login_cancelled":  false,
-		"github_login_failed":     false,
-		"aws_cli_unavailable":     false,
-		"aws_sso_login_cancelled": false,
-		"aws_sso_config_invalid":  false,
-		"aws_sso_login_timeout":   false,
-		"aws_sso_login_failed":    false,
+		"github_cli_unavailable":        false,
+		"github_login_cancelled":        false,
+		"github_login_failed":           false,
+		"aws_cli_unavailable":           false,
+		"aws_console_login_unsupported": false,
+		"aws_console_config_invalid":    false,
+		"aws_console_login_cancelled":   false,
+		"aws_console_login_timeout":     false,
+		"aws_console_login_failed":      false,
+		"aws_sso_login_cancelled":       false,
+		"aws_sso_config_invalid":        false,
+		"aws_sso_login_timeout":         false,
+		"aws_sso_login_failed":          false,
 	}
 	for _, declared := range login.Agent.Errors {
 		if _, expected := wantErrors[declared.Code]; expected {

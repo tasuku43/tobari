@@ -101,8 +101,8 @@ non-learnable and cannot become policy candidates.
 - **brokered credential:** one typed credential record owned by a stable Context
   and provider. A static provider stores one opaque primary secret acquired
   through protected non-terminal stdin or the reviewed host GitHub driver. The
-  AWS provider stores encrypted opaque AWS CLI state acquired through the
-  reviewed host device flow; derived role credentials are transient and are
+  AWS provider stores encrypted opaque AWS CLI state acquired through one
+  explicitly selected reviewed host flow; derived credentials are transient and are
   never persisted.
 - **credential companion:** one resident trusted-host process entered through
   the current Tobari executable's private same-binary mode. It accepts only the
@@ -188,7 +188,7 @@ The public commands are:
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
-| `auth login PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; `aws` uses a fixed classic-portal commercial IAM Identity Center device-code profile |
+| `auth login PROVIDER [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; AWS method omission preserves the fixed IAM Identity Center device flow and `console` selects fixed cross-device AWS CLI local-development login |
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
 | `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection and broker state for one Context without reading secrets |
 | `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles without contacting the provider |
@@ -279,11 +279,13 @@ undeclared Docker mutation by the CLI.
 - Authentication commands accept only an existing Context name and installed
   provider ID. `auth login` is interactive and supports the reviewed built-in
   `github` and `aws` host drivers. GitHub shows its device code and the trusted
-  host opens exactly `https://github.com/login/device` when possible. AWS asks
-  for one validated start URL, SSO region, 12-digit account ID, and role name,
-  then its fixed host CLI driver leaves the validated regional device URL and
-  one-time code for browser/manual completion. Request region remains explicit
-  Context or tool configuration and is not credential state. Auth Broker
+  host opens exactly `https://github.com/login/device` when possible. AWS
+  requires explicit `identity-center` or `console` selection, with omission
+  meaning `identity-center`. Identity Center asks for one validated start URL,
+  SSO region, 12-digit account ID, and role name, then leaves the validated
+  regional device URL and one-time code. Console mode requires AWS CLI 2.32 or
+  newer, asks for one commercial AWS region, runs fixed `aws login --remote`,
+  and leaves the AWS sign-in URL for manual cross-device completion. Auth Broker
   configures no Git or AWS CLI state in a Workspace and contains no provider
   CLI executable. `auth import` accepts a non-empty
   credential of at most
@@ -762,9 +764,10 @@ discovery excludes other denials, preventing a successful no-op approval.
 credential-catalog target and mutation impact before acquisition or vault I/O.
 Login runs the selected reviewed built-in host driver through an interactive
 trusted-host terminal. GitHub retains its purpose-limited fixed device-page
-open and no-Git behavior. AWS uses a fixed, validated IAM Identity Center
-profile and host CLI device-code flow and prints only bounded, control-safe CLI guidance; its
-opaque SSO cache and role selection commit only into the encrypted Context
+open and no-Git behavior. AWS uses either a fixed validated IAM Identity Center
+profile/device flow or a fixed AWS CLI 2.32-or-newer console-based remote flow.
+Both print only bounded, control-safe guidance; their opaque cache and selected
+session commit only into the encrypted Context
 vault. Neither driver reads an ambient provider home or writes project or
 Workspace CLI configuration; Auth Broker contains no provider CLI. Import
 rejects terminal stdin before reading and reads bounded non-terminal input only
@@ -819,8 +822,9 @@ The deliberate non-goals in [Project Theses](00_theses.md) are not hidden
 commands or transport escape hatches. In particular, Tobari does not promise to
 control non-proxy-aware traffic semantically; it prevents all direct egress and
 supports HTTP/HTTPS through the explicit proxy only.
-The built-in slice supports one GitHub.com credential and one configured AWS
-IAM Identity Center role per Context. It does not add provider-specific policy
+The built-in slice supports one GitHub.com credential and one configured
+refreshable AWS CLI session per Context, acquired through IAM Identity Center
+or AWS console-based login. It does not add provider-specific policy
 semantics, multiple accounts per provider, remote revocation, Git credential
 helpers, GitHub App tokens, arbitrary OAuth, manifest-selected refresh/signing,
 SigV4a, query presigning, AWS streaming signatures, custom AWS endpoints, or a

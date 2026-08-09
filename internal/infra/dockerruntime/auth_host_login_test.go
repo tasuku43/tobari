@@ -30,16 +30,36 @@ func (r *fakeHostCLIResolver) Resolve(name string) (string, error) {
 }
 
 type fakeHostCredentialAcquirer struct {
-	githubPayload hostCredentialPayload
-	githubErr     error
-	githubPath    string
-	githubStreams credentialhost.GitHubLoginStreams
-	awsPayload    hostCredentialPayload
-	awsErr        error
-	awsPath       string
-	awsProfile    credentialhost.ProfileConfig
-	awsVisible    []byte
-	awsCalls      int
+	githubPayload  hostCredentialPayload
+	githubErr      error
+	githubPath     string
+	githubStreams  credentialhost.GitHubLoginStreams
+	awsPayload     hostCredentialPayload
+	awsErr         error
+	awsPath        string
+	awsProfile     credentialhost.ProfileConfig
+	consoleProfile credentialhost.ConsoleProfileConfig
+	consoleInput   io.Reader
+	awsVisible     []byte
+	awsCalls       int
+}
+
+func (a *fakeHostCredentialAcquirer) LoginAWSConsole(
+	_ context.Context,
+	path string,
+	profile credentialhost.ConsoleProfileConfig,
+	input io.Reader,
+	visible credentialhost.VisibleOutput,
+) (hostCredentialPayload, error) {
+	a.awsCalls++
+	a.awsPath = path
+	a.consoleProfile = profile
+	a.consoleInput = input
+	if visible != nil {
+		a.awsVisible = []byte("https://signin.aws.amazon.com/example\n")
+		_ = visible(credentialhost.OutputStderr, a.awsVisible)
+	}
+	return a.awsPayload, a.awsErr
 }
 
 func (a *fakeHostCredentialAcquirer) LoginGitHub(
@@ -83,6 +103,34 @@ func (immediateHostLoginProfileReader) ReadAWSProfile(
 		func(context.Context, io.Reader) error { return nil },
 		func(input io.Reader, destination []byte) (int, error) { return input.Read(destination) },
 	)
+}
+
+func (immediateHostLoginProfileReader) ReadAWSConsoleProfile(
+	ctx context.Context,
+	input io.Reader,
+	output io.Writer,
+) (credentialhost.ConsoleProfileConfig, error) {
+	return readAWSConsoleLoginProfile(
+		ctx, input, output,
+		func(context.Context, io.Reader) error { return nil },
+		func(input io.Reader, destination []byte) (int, error) { return input.Read(destination) },
+	)
+}
+
+type fixedConsoleProfileReader struct {
+	profile credentialhost.ConsoleProfileConfig
+}
+
+func (fixedConsoleProfileReader) ReadAWSProfile(
+	context.Context, io.Reader, io.Writer,
+) (credentialhost.ProfileConfig, error) {
+	return credentialhost.ProfileConfig{}, errors.New("unexpected identity-center profile read")
+}
+
+func (r fixedConsoleProfileReader) ReadAWSConsoleProfile(
+	context.Context, io.Reader, io.Writer,
+) (credentialhost.ConsoleProfileConfig, error) {
+	return r.profile, nil
 }
 
 type waitingHostLoginProfileReader struct {
@@ -286,6 +334,41 @@ func TestHostAWSLoginPromptsFourFieldsAndCommitsOpaqueState(t *testing.T) {
 	}
 	if strings.Contains(visible.String(), "sso-cache-canary") {
 		t.Fatalf("AWS state reached visible output: %q", visible.String())
+	}
+}
+
+func TestHostAWSConsoleLoginCommitsDistinctDriverState(t *testing.T) {
+	state := []byte(`{"schema_version":2,"opaque":"console-cache-canary"}`)
+	resolver := &fakeHostCLIResolver{path: "/usr/local/bin/aws"}
+	acquirer := &fakeHostCredentialAcquirer{awsPayload: hostCredentialPayload{
+		secret: state, accountLabel: "123456789012", driverID: awsConsoleDriverID,
+		driverRevision: strings.Repeat("d", 64),
+	}}
+	runner := &hostLoginDockerRunner{response: `{"schema_version":1,"ok":true,"provider":"aws","revision":"` + strings.Repeat("e", 64) + `","account_label":"123456789012"}`}
+	input := strings.NewReader("authorization-code\n")
+	runtime := &Runtime{
+		runner: runner, browser: &recordingBrowser{}, hostCLIs: resolver, credentialHost: acquirer,
+		hostLoginProfiles: fixedConsoleProfileReader{profile: credentialhost.ConsoleProfileConfig{Region: "us-east-1"}},
+	}
+	var visible bytes.Buffer
+	response, err := runtime.runHostCredentialLoginOnTTY(
+		context.Background(), hostLoginContextID, "aws", input, &visible, awsConsoleMethod,
+	)
+	if err != nil || response.Provider != "aws" || acquirer.consoleProfile.Region != "us-east-1" ||
+		acquirer.consoleInput != input {
+		t.Fatalf("response/error/profile/input = %+v/%v/%+v/%T", response, err, acquirer.consoleProfile, acquirer.consoleInput)
+	}
+	wantTail := []string{
+		"login", "--context-id", hostLoginContextID,
+		"--provider", "aws", "--account-label", "123456789012",
+		"--driver-id", awsConsoleDriverID, "--driver-revision", strings.Repeat("d", 64),
+	}
+	if len(runner.args) < len(wantTail) || !reflect.DeepEqual(runner.args[len(runner.args)-len(wantTail):], wantTail) ||
+		string(runner.input) != `{"schema_version":2,"opaque":"console-cache-canary"}` {
+		t.Fatalf("console broker argv/state = %#v/%q", runner.args, runner.input)
+	}
+	if !strings.Contains(visible.String(), "signin.aws.amazon.com") {
+		t.Fatalf("console visible output = %q", visible.String())
 	}
 }
 

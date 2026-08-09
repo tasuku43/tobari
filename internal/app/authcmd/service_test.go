@@ -28,6 +28,7 @@ type authRuntimeFake struct {
 	secret             []byte
 	contextName        string
 	provider           string
+	method             string
 }
 
 func (f *authRuntimeFake) IsInputTerminal(io.Reader) bool {
@@ -41,10 +42,10 @@ func (f *authRuntimeFake) IsTerminal(io.Writer) bool {
 }
 
 func (f *authRuntimeFake) LoginAuth(
-	_ context.Context, contextName, provider string, _ io.Reader, _ io.Writer,
+	_ context.Context, contextName, provider, method string, _ io.Reader, _ io.Writer,
 ) (authbroker.Result, error) {
 	f.loginCalls++
-	f.contextName, f.provider = contextName, provider
+	f.contextName, f.provider, f.method = contextName, provider, method
 	return f.result, f.err
 }
 
@@ -304,7 +305,7 @@ func TestLoginRejectsUnsupportedHelperBeforeRuntime(t *testing.T) {
 	fake := &authRuntimeFake{result: validAuthResult(authbroker.TaskLogin)}
 	service := New(fake)
 	_, err := service.Login(
-		context.Background(), authIntent("auth login"), "default", "example", strings.NewReader(""), io.Discard,
+		context.Background(), authIntent("auth login"), "default", "example", "", strings.NewReader(""), io.Discard,
 	)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Kind != fault.KindUnsupported || public.Code != "provider_login_unsupported" {
@@ -324,7 +325,7 @@ func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
 				errorTerminal: true,
 			}
 			result, err := New(fake).Login(
-				context.Background(), authIntent("auth login"), "default", provider,
+				context.Background(), authIntent("auth login"), "default", provider, "",
 				strings.NewReader(""), io.Discard,
 			)
 			if err != nil {
@@ -333,7 +334,39 @@ func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
 			if result.Provider != provider || fake.provider != provider || fake.loginCalls != 1 {
 				t.Fatalf("result/provider/calls = %+v/%q/%d", result, fake.provider, fake.loginCalls)
 			}
+			wantMethod := ""
+			if provider == BuiltinAWSProviderID {
+				wantMethod = string(LoginMethodIdentityCenter)
+			}
+			if fake.method != wantMethod {
+				t.Fatalf("login method = %q, want %q", fake.method, wantMethod)
+			}
 		})
+	}
+}
+
+func TestLoginSelectsConsoleAndRejectsMethodForGitHubBeforeRuntime(t *testing.T) {
+	fake := &authRuntimeFake{
+		result:        validAuthResultForProvider(authbroker.TaskLogin, BuiltinAWSProviderID),
+		inputTerminal: true, errorTerminal: true,
+	}
+	_, err := New(fake).Login(
+		context.Background(), authIntent("auth login"), "default", BuiltinAWSProviderID,
+		string(LoginMethodConsole), strings.NewReader(""), io.Discard,
+	)
+	if err != nil || fake.loginCalls != 1 || fake.method != string(LoginMethodConsole) {
+		t.Fatalf("console login error/calls/method = %v/%d/%q", err, fake.loginCalls, fake.method)
+	}
+
+	fake = &authRuntimeFake{inputTerminal: true, errorTerminal: true}
+	_, err = New(fake).Login(
+		context.Background(), authIntent("auth login"), "default", BuiltinGitHubProviderID,
+		string(LoginMethodConsole), strings.NewReader(""), io.Discard,
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "auth_login_method_not_applicable" || fake.loginCalls != 0 ||
+		fake.inputTerminalCalls != 0 || fake.errorTerminalCalls != 0 {
+		t.Fatalf("GitHub method fault/calls = %+v/%d/%d/%d", public, fake.loginCalls, fake.inputTerminalCalls, fake.errorTerminalCalls)
 	}
 }
 
@@ -355,7 +388,7 @@ func TestLoginRequiresInputAndErrorTerminalsBeforeRuntime(t *testing.T) {
 				result: validAuthResult(authbroker.TaskLogin), inputTerminal: test.inputTerminal, errorTerminal: test.errorTerminal,
 			}
 			_, err := New(fake).Login(
-				context.Background(), authIntent("auth login"), "default", BuiltinGitHubProviderID,
+				context.Background(), authIntent("auth login"), "default", BuiltinGitHubProviderID, "",
 				strings.NewReader(""), io.Discard,
 			)
 			public, ok := fault.PublicCopy(err)
@@ -391,7 +424,7 @@ func TestLoginAndLogoutUseOneFixedMutationBoundary(t *testing.T) {
 			name: "login", task: authbroker.TaskLogin, command: "auth login",
 			call: func(service *Service, intent operation.Intent) (authbroker.Result, error) {
 				return service.Login(
-					context.Background(), intent, "default", BuiltinGitHubProviderID, strings.NewReader(""), io.Discard,
+					context.Background(), intent, "default", BuiltinGitHubProviderID, "", strings.NewReader(""), io.Discard,
 				)
 			},
 			calls:  func(fake *authRuntimeFake) int { return fake.loginCalls },

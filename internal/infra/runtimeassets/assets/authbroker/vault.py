@@ -39,6 +39,8 @@ LEGACY_PAYLOAD_SCHEMA_VERSION = 1
 STATIC_CREDENTIAL_KIND = "static_primary_secret"
 AWS_SSO_CREDENTIAL_KIND = "aws_sso_session"
 AWS_DRIVER_ID = "aws_cli_sso"
+AWS_CONSOLE_DRIVER_ID = "aws_cli_console_login"
+AWS_DRIVER_IDS = frozenset({AWS_DRIVER_ID, AWS_CONSOLE_DRIVER_ID})
 
 
 class VaultError(Exception):
@@ -373,7 +375,7 @@ def _validate_v2_record(provider: str, record: Any) -> None:
         if (
             not isinstance(account_label, str)
             or AWS_ACCOUNT_LABEL_PATTERN.fullmatch(account_label) is None
-            or record.get("driver_id") != AWS_DRIVER_ID
+            or record.get("driver_id") not in AWS_DRIVER_IDS
             or not isinstance(record.get("driver_revision"), str)
             or DRIVER_REVISION_PATTERN.fullmatch(record["driver_revision"]) is None
             or isinstance(state_generation, bool)
@@ -487,7 +489,7 @@ def new_aws_sso_record(
         or AWS_ACCOUNT_LABEL_PATTERN.fullmatch(account_label) is None
     ):
         raise VaultError("invalid_account_label")
-    if driver_id != AWS_DRIVER_ID:
+    if driver_id not in AWS_DRIVER_IDS:
         raise VaultError("invalid_driver")
     if (
         not isinstance(driver_revision, str)

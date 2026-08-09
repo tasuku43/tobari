@@ -877,7 +877,7 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari context use --name NAME` | Change only the current/default Context without mutating existing Tobari or Docker |
 | `tobari runtime init [--format text\|json]` | Create the current Context's runtime/Dockerfile template |
 | `tobari runtime build [--format text\|json]` | Build, validate, and select the current Context runtime image |
-| `tobari auth login PROVIDER [--context NAME] [--format text\|json]` | Acquire one supported provider credential through a reviewed fixed trusted-host CLI driver; built-ins are `github` and AWS IAM Identity Center `aws` |
+| `tobari auth login PROVIDER [--method identity-center\|console] [--context NAME] [--format text\|json]` | Acquire one supported provider credential through a reviewed fixed trusted-host CLI driver; AWS omission uses IAM Identity Center and `console` selects AWS CLI console-based local-development login |
 | `tobari auth import PROVIDER [--context NAME] [--format text\|json]` | Import one bounded opaque provider credential from protected non-terminal stdin only |
 | `tobari auth status [--context NAME] [--format text\|json]` | Inspect exhaustive secret-free provider and broker state for one Context |
 | `tobari auth logout PROVIDER [--context NAME] [--format text\|json]` | Remove one local Context/provider credential and revoke every issued handle without remote logout |
@@ -1084,7 +1084,7 @@ is isolated from other Tobaris, and is removed by exact `tobari delete`.
 
 The Auth Broker path instead acquires one typed credential on the trusted host
 for an explicit or current Context. Reviewed interactive built-ins are
-GitHub.com and AWS IAM Identity Center:
+GitHub.com and two explicit AWS CLI methods:
 
 ```sh
 tobari cluster up
@@ -1096,11 +1096,15 @@ gh api user            # succeeds only when OPA allows the exact HTTP request
 exit
 tobari auth logout github --context default
 
-tobari auth login aws --context default
+tobari auth login aws --method identity-center --context default
 tobari                 # re-enter this Context's Workspace
 aws sts get-caller-identity --region us-east-1 # or use Context-owned AWS region configuration
 exit
 tobari auth logout aws --context default
+
+tobari auth login aws --method console --context default
+# Visit the printed AWS sign-in URL and paste the returned authorization code.
+tobari                 # re-enter; the same handle/SigV4 path applies
 ```
 
 `auth login github` runs a reviewed fixed driver around the trusted host's
@@ -1109,24 +1113,25 @@ selected executable identity, disables ambient credentials and browser
 selection, opens only the fixed GitHub device page when possible, and removes
 the temporary state after capturing one bounded API token. Auth Broker stores
 the token; neither the host CLI nor the broker configures Git transport.
-`auth login aws` similarly uses a reviewed fixed driver around the trusted
-host's AWS CLI. It asks for the classic commercial IAM Identity Center
-`https://<label>.awsapps.com/start` URL, reviewed commercial SSO region,
-12-digit account ID, and role, then runs the fixed device-code login in a
-private temporary AWS home. The resulting opaque AWS CLI cache is encrypted in
-the Context vault. Request region is ordinary non-secret Context/tool
-configuration or an explicit AWS CLI option; login does not store a default
-request region. China, GovCloud, ISO, sovereign partitions, and newer portal
-URL forms are excluded from this first driver.
+`auth login aws` similarly uses reviewed fixed drivers around the trusted
+host's AWS CLI. Omission or `--method identity-center` asks for the classic
+commercial IAM Identity Center URL, SSO region, 12-digit account ID, and role,
+then runs the fixed device-code login. `--method console` requires AWS CLI 2.32
+or newer, asks for one commercial region, and runs fixed
+`aws login --remote`; it starts no callback listener and uses no ambient AWS
+profile. Each method has a distinct strict opaque state shape encrypted in the
+Context vault. Request region remains ordinary non-secret Context/tool
+configuration or an explicit AWS CLI option. Unsupported partitions remain
+excluded.
 
 After `cluster up`, a resident private companion uses the same Tobari binary
 and an authenticated encrypted reverse `docker exec` channel to serve only
 reviewed credential-driver operations. It opens no host listener and mounts no
 host socket or CLI home into a container. Only after OPA allows a bounded AWS
 request does Auth Broker ask the companion to run the fixed host
-`aws configure export-credentials --format process` operation. Renewable IAM
-Identity Center state refreshes automatically while the upstream session
-remains valid; an expired overall session requires `auth login aws` again.
+`aws configure export-credentials --format process` operation. Identity Center
+or console state refreshes automatically while its upstream renewable session
+remains valid; expiry requires `auth login aws` again with the intended method.
 Temporary role credentials return only to Auth Broker for one standard SigV4
 header set and are never stored or projected. AWS CLI in the Workspace receives
 the same opaque handle in its three credential variables, not real AWS keys.
@@ -1293,8 +1298,9 @@ cases.
   provider logout, multiple accounts or roles per provider/Context, Git
   credential helpers, GitHub App tokens, arbitrary OAuth, manifest-selected
   signing, SigV4a, AWS presigning/streaming/custom endpoints, or
-  provider-operation policy semantics. AWS IAM Identity Center refresh and
-  bounded standard SigV4 are the sole reviewed dynamic plan.
+  provider-operation policy semantics. Refreshable AWS CLI sessions acquired
+  through IAM Identity Center or console login, and bounded standard SigV4,
+  are the sole reviewed dynamic plan.
 
 ## Troubleshooting
 

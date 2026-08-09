@@ -17,6 +17,8 @@ import (
 )
 
 const (
+	SSODriverID            = "aws_cli_sso"
+	ConsoleDriverID        = "aws_cli_console_login"
 	stateSchemaVersion     = 1
 	fixedProfileName       = "tobari"
 	fixedSSOSessionName    = "tobari"
@@ -61,6 +63,7 @@ type ProfileConfig struct {
 // private so formatting cannot expose cached SSO material.
 type State struct {
 	payload statePayload
+	console consoleStatePayload
 }
 
 type statePayload struct {
@@ -93,6 +96,9 @@ type stateCacheFile struct {
 
 // Encode returns the only accepted canonical JSON representation of State.
 func (s State) Encode() ([]byte, error) {
+	if s.console.SchemaVersion != 0 {
+		return encodeConsoleState(s.console)
+	}
 	payload := clonePayload(s.payload)
 	if err := validateStatePayload(payload); err != nil {
 		return nil, ErrInvalidState
@@ -109,6 +115,15 @@ func (s State) Encode() ([]byte, error) {
 func DecodeState(encoded []byte) (State, error) {
 	if len(encoded) == 0 || len(encoded) > maxEncodedStateBytes {
 		return State{}, ErrInvalidState
+	}
+	var version struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(encoded, &version); err != nil {
+		return State{}, ErrInvalidState
+	}
+	if version.SchemaVersion == consoleStateSchemaVersion {
+		return decodeConsoleState(encoded)
 	}
 	var payload statePayload
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
@@ -140,9 +155,34 @@ func (s State) Profile() ProfileConfig {
 	}
 }
 
+// DriverID returns the fixed reviewed driver variant encoded by this state.
+func (s State) DriverID() string {
+	if s.console.SchemaVersion == consoleStateSchemaVersion {
+		return ConsoleDriverID
+	}
+	if s.payload.SchemaVersion == stateSchemaVersion {
+		return SSODriverID
+	}
+	return ""
+}
+
+// AccountID returns the validated 12-digit AWS account identity without
+// exposing the provider session ARN or cache content.
+func (s State) AccountID() string {
+	if s.console.SchemaVersion == consoleStateSchemaVersion {
+		return s.console.Profile.AccountID
+	}
+	return s.payload.Profile.AccountID
+}
+
 // DriverRevision returns the non-secret SHA-256 identity of the pinned AWS
 // executable. Broker records bind refresh requests to this exact revision.
-func (s State) DriverRevision() string { return s.payload.Executable.SHA256 }
+func (s State) DriverRevision() string {
+	if s.console.SchemaVersion == consoleStateSchemaVersion {
+		return s.console.Executable.SHA256
+	}
+	return s.payload.Executable.SHA256
+}
 
 func (State) String() string   { return "credentialhost.State{redacted}" }
 func (State) GoString() string { return "credentialhost.State{redacted}" }
@@ -156,7 +196,11 @@ func (s *State) Clear() {
 	for index := range s.payload.Cache {
 		s.payload.Cache[index].ContentBase64URL = ""
 	}
+	for index := range s.console.Cache {
+		s.console.Cache[index].ContentBase64URL = ""
+	}
 	s.payload = statePayload{}
+	s.console = consoleStatePayload{}
 }
 
 func newState(profile ProfileConfig, executablePath, executableDigest string, cache []stateCacheFile) (State, error) {
@@ -327,6 +371,13 @@ func hashExecutable(path string) (string, error) {
 }
 
 func packCache(cacheDirectory string) ([]stateCacheFile, error) {
+	return packCacheWithPattern(cacheDirectory, cacheNamePattern)
+}
+
+func packCacheWithPattern(cacheDirectory string, namePattern *regexp.Regexp) ([]stateCacheFile, error) {
+	if namePattern == nil {
+		return nil, ErrInvalidCache
+	}
 	directoryInfo, err := os.Lstat(cacheDirectory)
 	if err != nil || !directoryInfo.IsDir() || directoryInfo.Mode()&os.ModeSymlink != 0 ||
 		directoryInfo.Mode().Perm()&0o077 != 0 {
@@ -355,7 +406,7 @@ func packCache(cacheDirectory string) ([]stateCacheFile, error) {
 	total := int64(0)
 	for _, entry := range entries {
 		name := entry.Name()
-		if !cacheNamePattern.MatchString(name) || filepath.Base(name) != name || strings.Contains(name, "..") ||
+		if !namePattern.MatchString(name) || filepath.Base(name) != name || strings.Contains(name, "..") ||
 			entry.Type()&os.ModeSymlink != 0 {
 			return nil, ErrInvalidCache
 		}

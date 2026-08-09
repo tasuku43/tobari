@@ -29,7 +29,6 @@ from .companion_protocol import (
 )
 from .protocol import MAX_SECRET_BYTES, ProtocolError, require_exact_keys
 from .vault import (
-    AWS_DRIVER_ID,
     AWS_SSO_CREDENTIAL_KIND,
     STATIC_CREDENTIAL_KIND,
     VaultError,

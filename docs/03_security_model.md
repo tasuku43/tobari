@@ -38,8 +38,10 @@ effects. They select a canonical host executable and bind its SHA-256 identity,
 construct only fixed argv, use sanitized environments and private temporary
 homes, and accept no Workspace, repository, manifest, or request-selected
 executable or argument. GitHub recognizes only the fixed
-`https://github.com/login/device` browser target. AWS runs only device-code
-login and typed credential export; request region is not login state.
+`https://github.com/login/device` browser target. AWS runs only the explicitly
+selected fixed IAM Identity Center device flow or fixed console-based
+cross-device login, plus typed credential export; neither flow starts a
+callback listener or reads ambient AWS state.
 
 The host Git identity reader is a separate trusted, purpose-limited CLI side
 effect. It accepts one canonical Workspace root and can request only global
@@ -362,7 +364,9 @@ the envelope schema plus stable Context ID as authenticated data. Strict valid
 schema-1 static payloads are migrated on read; opaque AWS host-driver state
 exists only in the schema-2 encrypted payload. The AWS cache remains opaque to
 the host lifecycle and is materialized only by the reviewed host driver in a
-private bounded temporary home.
+private bounded temporary home. Identity Center and console login use distinct
+strict state schemas and driver IDs; companion refresh rejects a mismatch
+before provider execution.
 All parent directories, files, ownership, modes, and symlink status are checked
 before use; updates use a durable atomic replace. The broker starts locked and
 retains the 32-byte installation root key only in memory. macOS stores that key
@@ -458,7 +462,8 @@ provider CLI. The built-in GitHub and AWS drivers execute on the trusted host,
 resolve one canonical executable identity, use fixed argv and sanitized
 environments, and delete private temporary homes on every outcome. GitHub asks
 for no Git protocol and recognizes only its fixed device URL. AWS performs one
-fixed device-code login or typed credential export. Broker encrypts the opaque
+fixed Identity Center device login, one fixed console-based remote login, or
+typed credential export. Broker encrypts the opaque
 AWS cache between calls; temporary role credentials exist only while Broker
 signs one authorized request. User providers use protected non-terminal
 stdin import only. A terminal stream is refused before reading. Non-terminal
@@ -472,8 +477,9 @@ scheme/host/port/source-header/source-format recognition fail completely as
 Arbitrary OAuth orchestration or request signing, multiple provider accounts
 per Context, provider SDK operation inference, remote logout/revocation, Git
 credential helpers, GitHub App tokens, SigV4a, presigning, AWS streaming
-signatures, and process-level identity are not implemented. AWS IAM Identity
-Center host-CLI refresh and standard bounded SigV4 are the sole reviewed plan;
+signatures, and process-level identity are not implemented. Refreshable AWS CLI
+sessions acquired through IAM Identity Center or AWS console login, plus
+standard bounded SigV4, are the sole reviewed dynamic plan;
 general TWG login/refresh remains unsupported. The
 optional `session` value remains caller
 metadata, not authentication. Gateway performs all selected credential
@@ -633,7 +639,7 @@ mutation failure. The driver performs no Git configuration, pagination, or
 automatic retry; user cancellation or any failed capture preserves the
 previous Context credential.
 
-The AWS host driver collects its four non-secret profile fields through
+The AWS Identity Center host driver collects its four non-secret profile fields through
 canonical terminal line input whose finite readiness polling observes command
 cancellation and the login deadline without an abandoned reader. It verifies
 canonical mode before prompting and again after readiness; a noncanonical
@@ -653,6 +659,15 @@ temporary role tuple plus updated opaque cache, rechecks record/revision and
 driver identity, and creates one local signature. Neither driver inherits an
 ambient provider home, credential, proxy, loader, or browser selector, and
 automated tests make no live provider call.
+
+The AWS console method instead collects one validated commercial region,
+checks that the resolved host AWS CLI is at least 2.32, pre-renders one empty
+private profile, sets a private `AWS_LOGIN_CACHE_DIRECTORY`, and runs fixed
+`aws login --remote`. AWS CLI reads the returned authorization code directly
+from terminal stdin. Tobari accepts only the resulting profile's validated
+`login_session` ARN/account match and one bounded canonical JSON login cache.
+The companion later materializes that exact state and uses the same fixed
+credential export; AWS CLI owns refresh while its refresh token remains valid.
 
 Inherited Git identity reconciliation performs at most two host Git calls, one
 per exact key, with one attempt and a finite timeout each. It performs no
@@ -708,7 +723,7 @@ reference-bound mutation.
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | GitHub login cannot turn provider text into arbitrary host execution or Broker Git authority | Conventional non-project installation-root selection, canonical executable identity, fixed argv/environment, control-safe visible projection, exact fixed-URL recognition, manual fallback, checked private-home cleanup, cancellation, and no-Git-protocol tests |
-| AWS SSO state and role credentials cannot enter a Workspace | Encrypted opaque-driver-state tests, private-home bounds, resolve rejection, companion refresh/revision tests, project-binding checks, and secret-free output/log canaries |
+| AWS CLI session state and temporary credentials cannot enter a Workspace | Encrypted SSO/console opaque-driver-state tests, private-home bounds, driver/state mismatch rejection, companion refresh/revision tests, project-binding checks, and secret-free output/log canaries |
 | AWS denial cannot trigger a companion call, refresh, role acquisition, or signing | Gateway two-stage call-order tests and Broker same-revision signing checks |
 | Companion transport cannot become a host service or arbitrary executor | Same-binary bootstrap, exact container/exec argv, no-listener/no-socket-mount assertions, authenticated replay/gap/size tests, closed driver registry, and child environment/FD canaries |
 | Published tools retain reviewed identity and redistribution evidence | Base-runtime baseline checks for GitHub CLI and AWS CLI; optional local toolbox locks for kubectl, cwk, pup, and local-only TWG |

@@ -210,6 +210,10 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   GitHub driver is API-authentication-only, opens exactly the fixed device page
   or leaves the same manual URL, and configures no Git protocol or credential
   helper.
+  AWS selection is explicit: the backward-compatible `identity-center` method
+  uses the fixed device flow, while `console` uses AWS CLI 2.32-or-newer's
+  cross-device local-development login. Neither method reads an ambient AWS
+  home or starts a callback listener.
 - One resident trusted-host companion uses the current Tobari executable's
   private same-binary mode. It reaches an unmounted Broker-private socket only
   through a fixed reverse `docker exec -i` stream protected by a root-key-
@@ -231,7 +235,9 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   exact L7 effect remains reviewable until the host installs one exact learned
   rule.
 - Refresh and signing are permitted only for a finite reviewed built-in plan.
-  The first is AWS IAM Identity Center plus standard SigV4: Auth Broker owns
+  The first is a refreshable AWS CLI session plus standard SigV4. Acquisition
+  is either the reviewed IAM Identity Center device flow or AWS console-based
+  local-development login: Auth Broker owns
   encrypted opaque AWS CLI state, handle/revision authority, and signing; only
   after OPA allow does the companion run the fixed host AWS credential export.
   Broker rechecks the record/revision, persists any refreshed opaque state,

@@ -210,6 +210,10 @@ func (s *companionSessionState) executeRefresh(
 		s.sendRefreshError(channel, request, active, "invalid_state")
 		return
 	}
+	if state.DriverID() != request.driverID {
+		s.sendRefreshError(channel, request, active, "invalid_state")
+		return
+	}
 	started, cancelRequested := s.beginProvider(ctx, request.requestID, active)
 	if !started {
 		code := refreshErrorCode(ctx, ctx.Err())

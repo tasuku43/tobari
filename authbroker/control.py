@@ -10,7 +10,7 @@ from typing import Any
 from . import SCHEMA_VERSION
 from .daemon import DEFAULT_CONTROL_SOCKET
 from .protocol import MAX_SECRET_BYTES, ProtocolError, call_unix_socket
-from .vault import AWS_DRIVER_ID
+from .vault import AWS_DRIVER_IDS
 
 
 def _read_stdin(limit: int, exact: int | None = None) -> bytes:
@@ -66,7 +66,7 @@ def _request(arguments: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
             return base, secret
         if arguments.provider == "aws":
             if (
-                arguments.driver_id != AWS_DRIVER_ID
+                arguments.driver_id not in AWS_DRIVER_IDS
                 or arguments.driver_revision is None
             ):
                 raise ProtocolError("invalid_request")

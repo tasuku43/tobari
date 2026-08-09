@@ -22,7 +22,7 @@ never falls back to the passthrough or managed adapter.
 The public Catalog owns four commands:
 
 ```text
-tobari auth login <provider> [--context NAME] [--format text|json]
+tobari auth login <provider> [--method identity-center|console] [--context NAME] [--format text|json]
 secret-source-command | tobari auth import <provider> [--context NAME] [--format text|json]
 tobari auth status [--context NAME] [--format text|json]
 tobari auth logout <provider> [--context NAME] [--format text|json]
@@ -52,19 +52,23 @@ state is accepted.
   executable identity, opens only `https://github.com/login/device`, requests
   no Git protocol, captures one API token, and confirms destruction of the
   temporary state before accepting the result.
-- `aws` asks on the trusted host terminal for a classic commercial IAM Identity
-  Center `https://<label>.awsapps.com/start` URL, reviewed commercial SSO
-  region, 12-digit account ID, and role name. China, GovCloud, ISO, sovereign
-  partitions, and newer portal URL forms are excluded from this first driver. A reviewed fixed
-  driver runs the trusted host's AWS CLI device-code login in a private
-  temporary home and captures only bounded opaque SSO cache state. Setup and
-  successful login both fail closed if that private home cannot be removed. That state
-  enters the encrypted Context vault; no provider home or role credential is
-  copied into a Workspace. Request region is Context/tool configuration or an
-  explicit AWS CLI option and is not stored by login.
+- `aws` requires one explicit method, with omission preserving
+  `identity-center`. Identity Center asks for a classic commercial
+  `https://<label>.awsapps.com/start` URL, reviewed commercial SSO region,
+  12-digit account ID, and role name, then runs the fixed device-code login.
+  `console` asks for one commercial region, requires trusted-host AWS CLI 2.32
+  or newer, and runs fixed `aws login --remote`; AWS CLI reads the returned
+  authorization code from terminal stdin. Both methods use a private temporary
+  home, bind the executable digest, and capture only their distinct bounded
+  opaque cache state. China, GovCloud, ISO, sovereign partitions, newer portal
+  URL forms, same-device callback login, and ambient profiles are excluded.
+  Cleanup failure rejects the result. State enters the encrypted Context vault;
+  no provider home or temporary credential is copied into a Workspace.
 
-If a browser opener is unavailable, the same validated URL and one-time code
-remain the manual next action and login continues. Provider output is bounded
+For GitHub and Identity Center, opener failure leaves the same validated URL
+and code as the manual action. Console mode is deliberately cross-device and
+always leaves AWS CLI's sign-in URL and authorization-code prompt in the
+terminal; Tobari does not open its parameterized URL. Provider output is bounded
 and projects backslashes, controls/formats, invalid UTF-8, and Unicode line
 separators visibly before writing to the terminal. Only a bounded account label
 may appear in the secret-free result. Credential and SSO state never cross CLI
@@ -306,7 +310,10 @@ The built-in static providers are:
   `DD_SITE=datadoghq.com`, and exact bearer replacement at
   `https://api.datadoghq.com:443`.
 
-The built-in schema-2 `aws` provider uses reviewed host driver `aws-sso`, projects the same
+The built-in schema-2 `aws` provider retains compatibility helper ID `aws-sso`
+for its closed refreshable AWS CLI session plan. Public method selection maps to
+strict `aws_cli_sso` or `aws_cli_console_login` state; manifests cannot select
+either driver. The provider projects the same
 handle into `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
 `AWS_SESSION_TOKEN`, disables EC2 metadata lookup, and declares the fixed
 `aws_sigv4` plan. The handle is deliberately accepted only as AWS CLI's
@@ -479,7 +486,11 @@ commands.
 | `auth_login_tty_required` | Run built-in provider login with interactive stdin and stderr. |
 | `github_cli_unavailable` | Install the reviewed GitHub CLI on the trusted host so Tobari can resolve one absolute executable, then retry login. |
 | `github_login_cancelled`, `github_login_failed` | The trusted-host driver did not commit a replacement; verify the host GitHub CLI, then correct or retry the interactive login and inspect `auth status`. |
-| `aws_cli_unavailable` | Install the reviewed AWS CLI on the trusted host so Tobari can resolve one absolute non-group/world-writable executable, then retry login. If the executable changed after login, repeat `auth login aws` to bind fresh state to its new identity. |
+| `aws_cli_unavailable` | Install the reviewed AWS CLI on the trusted host so Tobari can resolve one absolute non-group/world-writable executable, then retry login. If the executable changed after login, repeat `auth login aws` with the intended method to bind fresh state to its new identity. |
+| `auth_login_method_not_applicable` | Remove `--method` for non-AWS providers. |
+| `aws_console_login_unsupported` | Install AWS CLI 2.32 or newer on the trusted host, then retry `auth login aws --method console`. |
+| `aws_console_login_cancelled`, `aws_console_login_timeout` | No AWS replacement was committed. Start a new console login and complete the remote authorization-code flow deliberately. |
+| `aws_console_config_invalid`, `aws_console_login_failed` | Correct the commercial AWS region, verify AWS CLI 2.32 or newer and provider connectivity, then retry console login; the previous credential remains unchanged. |
 | `aws_sso_login_cancelled`, `aws_sso_login_timeout` | No AWS replacement was committed. Correct or complete the trusted-host device flow, then retry deliberately. |
 | `aws_sso_config_invalid`, `aws_sso_login_failed` | Correct the bounded IAM Identity Center configuration, verify the host AWS CLI, or recover provider connectivity; the previous credential remains unchanged. |
 | `invalid_credential_input` | Import was empty, oversized, unreadable, or attached to terminal stdin. A terminal is refused before reading; pipe or redirect a trusted no-echo source. |

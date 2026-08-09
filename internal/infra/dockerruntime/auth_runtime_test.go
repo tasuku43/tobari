@@ -344,6 +344,26 @@ func TestClassifyHostAWSLoginFailuresUsesStableSecretFreeFaults(t *testing.T) {
 	}
 }
 
+func TestClassifyHostAWSConsoleLoginFailuresUsesDistinctFaults(t *testing.T) {
+	tests := []struct {
+		err  error
+		code string
+		kind fault.Kind
+	}{
+		{err: credentialhost.ErrConsoleLoginUnsupported, code: "aws_console_login_unsupported", kind: fault.KindUnsupported},
+		{err: credentialhost.ErrInvalidProfile, code: "aws_console_config_invalid", kind: fault.KindInvalidInput},
+		{err: context.Canceled, code: "aws_console_login_cancelled", kind: fault.KindRejected},
+		{err: context.DeadlineExceeded, code: "aws_console_login_timeout", kind: fault.KindRejected},
+		{err: credentialhost.ErrCommandFailed, code: "aws_console_login_failed", kind: fault.KindUnavailable},
+	}
+	for _, test := range tests {
+		public, ok := fault.PublicCopy(classifyHostLoginError(test.err, "aws", awsConsoleMethod))
+		if !ok || public.Code != test.code || public.Kind != test.kind || public.Retryable {
+			t.Fatalf("console fault = %+v, ok=%t", public, ok)
+		}
+	}
+}
+
 func TestInvalidBrokerAccountLabelDoesNotReachPublicError(t *testing.T) {
 	label := "synthetic-secret-canary\n"
 	_, err := validatedAccountLabel(&label)

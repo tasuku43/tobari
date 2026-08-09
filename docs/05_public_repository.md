@@ -101,7 +101,7 @@ support promises before maintainers invite external users.
   protocol tests, non-root construction, and absence of every provider CLI or
   provider configuration file. Host GitHub/AWS drivers are Go infrastructure,
   not Broker image artifacts; tests and image layers must contain no live SSO
-  cache, token, role credential, or signed-request material.
+  or console-login cache, token, temporary credential, or signed-request material.
 - For the public base runtime, retain its pre-change GitHub CLI and AWS CLI
   artifact, publisher, redistribution, multi-architecture, and native-smoke
   checks. Verify `kubectl`, `cwk`, `pup`, and TWG only in the explicit local
@@ -135,7 +135,8 @@ image any authority beyond its declared root filesystem.
 
 The Auth Broker is a credential-bearing runtime, so its public image requires
 additional negative evidence: no credential, live account fixture, GitHub or
-AWS CLI configuration, SSO registration/client state, access or refresh token,
+AWS CLI configuration, SSO registration/client state, console login session or
+private key, access or refresh token,
 role credential, root key, vault, runtime-issued handle, device code, signed
 authorization field, or authenticated output is present in source, layers,
 workflow artifacts, logs, or notices. Deterministic synthetic canaries are

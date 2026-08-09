@@ -188,7 +188,7 @@ func manualBrowserFallback(target string) string {
 }
 
 func (r *Runtime) LoginAuth(
-	ctx context.Context, contextName, providerID string, input io.Reader, errOut io.Writer,
+	ctx context.Context, contextName, providerID, method string, input io.Reader, errOut io.Writer,
 ) (authbroker.Result, error) {
 	manifest, provider, err := r.authOperationTarget(ctx, contextName, providerID)
 	if err != nil {
@@ -207,9 +207,9 @@ func (r *Runtime) LoginAuth(
 	if err := r.requireAuthBroker(ctx); err != nil {
 		return authbroker.Result{}, err
 	}
-	response, err := r.runHostCredentialLogin(ctx, manifest.ID, provider.ID, input, errOut)
+	response, err := r.runHostCredentialLogin(ctx, manifest.ID, provider.ID, input, errOut, method)
 	if err != nil {
-		return authbroker.Result{}, classifyHostLoginError(err, provider.ID)
+		return authbroker.Result{}, classifyHostLoginError(err, provider.ID, method)
 	}
 	return buildAuthResult(authbroker.TaskLogin, manifest.Name, manifest.ID, provider.ID, response, true)
 }
@@ -232,7 +232,11 @@ func supportsBuiltinAuthHelper(provider authbroker.Provider) bool {
 		(provider.ID == "aws" && provider.Acquisition.Helper == "aws-sso")
 }
 
-func classifyHostLoginError(err error, provider string) error {
+func classifyHostLoginError(err error, provider string, methods ...string) error {
+	method := ""
+	if len(methods) == 1 {
+		method = methods[0]
+	}
 	if public, ok := fault.PublicCopy(err); ok {
 		return public
 	}
@@ -260,7 +264,7 @@ func classifyHostLoginError(err error, provider string) error {
 			)
 		}
 		if errors.Is(err, credentialhost.ErrGitHubExecutable) {
-			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider)
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
 		}
 		if hostLoginFailureIsCredentialDriver(err) {
 			return fault.New(
@@ -273,6 +277,47 @@ func classifyHostLoginError(err error, provider string) error {
 	}
 	if provider != "aws" {
 		return classifyBrokerError(err, "auth login "+provider)
+	}
+	if method == awsConsoleMethod {
+		if errors.Is(err, credentialhost.ErrConsoleLoginUnsupported) {
+			return fault.New(
+				fault.KindUnsupported, "aws_console_login_unsupported",
+				"The trusted-host AWS CLI does not support console-based login; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Install AWS CLI 2.32 or newer on the trusted host, then retry console login."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrInvalidProfile) {
+			return fault.New(
+				fault.KindInvalidInput, "aws_console_config_invalid",
+				"The AWS console login configuration is invalid; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "help auth login", Reason: "Provide a valid commercial AWS region for console login."},
+			)
+		}
+		if hostLoginTimedOut(err) {
+			return fault.New(
+				fault.KindRejected, "aws_console_login_timeout",
+				"The bounded AWS console login timed out; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Start a new AWS console login and complete it within the bounded window."},
+			)
+		}
+		if hostLoginCancelled(err) {
+			return fault.New(
+				fault.KindRejected, "aws_console_login_cancelled",
+				"AWS console login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host AWS console login when ready."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrInvalidExecutable) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		}
+		if hostLoginFailureIsCredentialDriver(err) {
+			return fault.New(
+				fault.KindUnavailable, "aws_console_login_failed",
+				"AWS console login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host AWS console login after inspecting the failure."},
+			)
+		}
+		return classifyBrokerError(err, "auth login aws")
 	}
 	if errors.Is(err, credentialhost.ErrInvalidProfile) {
 		return fault.New(
@@ -297,7 +342,7 @@ func classifyHostLoginError(err error, provider string) error {
 		)
 	}
 	if errors.Is(err, credentialhost.ErrInvalidExecutable) {
-		return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider)
+		return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
 	}
 	if hostLoginFailureIsCredentialDriver(err) {
 		return fault.New(

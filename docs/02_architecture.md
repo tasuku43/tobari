@@ -9,6 +9,7 @@ host
       |                                      |
       |                               encrypted Context vaults
       +-- reviewed fixed GitHub/AWS login drivers --> provider HTTPS
+      |       `-- AWS method: identity-center or console (explicit)
       +-- private same-binary credential companion
       |       |-- reviewed fixed AWS refresh driver --> provider HTTPS
       |       +-- encrypted reverse docker exec stream
@@ -32,6 +33,14 @@ private Unix socket. Provider CLIs remain on the host and cannot be selected by
 a Workspace, request, or owner manifest. Tobari and control networks
 use Docker's `internal` property; the egress network is the only network with
 an external route.
+
+The AWS host driver registry is closed over two explicit acquisition methods.
+`identity-center` retains schema-1 `aws_cli_sso` state and its fixed device
+flow. `console` requires AWS CLI 2.32 or newer, uses fixed cross-device
+`aws login --remote`, and stores distinct schema-2
+`aws_cli_console_login` state. Broker accepts either ID as opaque encrypted
+state; the companion decodes it, requires exact driver/state agreement, and
+uses the shared fixed credential-export boundary after policy allow.
 
 For HTTPS, Tobari connects to the HTTP proxy and sends `CONNECT host:443`.
 Gateway responds, terminates client TLS with the installation CA, evaluates the

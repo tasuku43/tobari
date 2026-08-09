@@ -725,6 +725,19 @@ func TestCompanionSessionRefreshesAWSStateAndEnforcesDriverAndLeaseBindings(t *t
 	if string(badResult["ok"]) != "false" || fieldNotEqual(badResult, "error", "invalid_state") {
 		t.Fatalf("driver mismatch result = %s", mustJSON(badResult))
 	}
+	badDriverType := testRefreshRequest(stateBytes, state.DriverRevision(), now, strings.Repeat("5", 32))
+	badDriverType.driverID = awsConsoleDriverID
+	badDriverType.taskDigest = badDriverType.computeDigest()
+	if err := channel.send(makeRefreshDocument(badDriverType), badDriverType.payload); err != nil {
+		t.Fatal(err)
+	}
+	_, payload = receiveMessage(t, channel, "refresh_accepted")
+	clear(payload)
+	badTypeResult, payload := receiveMessage(t, channel, "refresh_result")
+	clear(payload)
+	if string(badTypeResult["ok"]) != "false" || fieldNotEqual(badTypeResult, "error", "invalid_state") {
+		t.Fatalf("driver type mismatch result = %s", mustJSON(badTypeResult))
+	}
 	runner.expiration = now.Add(20 * time.Second)
 	shortLease := testRefreshRequest(stateBytes, state.DriverRevision(), now, strings.Repeat("4", 32))
 	if err := channel.send(makeRefreshDocument(shortLease), shortLease.payload); err != nil {

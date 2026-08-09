@@ -258,11 +258,15 @@ readiness before broker send. A provider collection with overlapping exact
 scheme/host/port/source-header/source-format recognition fails completely as
 `ambiguous_provider_http_binding` rather than partially activating.
 
-`auth login aws` is the second supported flow. The host driver accepts only the
-validated start URL, SSO region, 12-digit account ID, and role described in
-[Authentication handling](07_authentication.md). It resolves a canonical AWS
-CLI executable and binds its SHA-256 identity, renders one fixed `tobari`
-profile and SSO session in a private `0700` temporary home, and runs:
+`auth login aws` is the second supported provider flow and has two explicit
+closed methods. Omission means `identity-center`; Tobari never infers a method
+from ambient state. Both resolve a canonical AWS CLI executable, bind its
+SHA-256 identity, use one private `0700` temporary home and sanitized
+environment, and delete it on every outcome.
+
+Identity Center accepts only the validated start URL, SSO region, 12-digit
+account ID, and role described in [Authentication handling](07_authentication.md),
+renders one fixed `tobari` profile/session, and runs:
 
 ```text
 aws sso login --profile tobari --use-device-code --no-browser --no-cli-pager
@@ -273,9 +277,26 @@ driver-owned. The child inherits no ambient AWS configuration, credential,
 proxy, loader, browser, companion key, or channel descriptor. Login output and
 cache file count/name/size/JSON shape are bounded. After success the executable
 digest is rechecked, cache bytes are canonically packed, and only opaque driver
-state is committed through Auth Broker. The temporary home is removed on every
-outcome. Request region is deliberately absent; it comes from non-secret
-Context/tool configuration or an explicit AWS CLI request option.
+state under `aws_cli_sso` is committed through Auth Broker. Request region is
+deliberately absent; it comes from non-secret Context/tool configuration or an
+explicit AWS CLI request option.
+
+Console mode first runs fixed `aws --version` and requires 2.32 or newer. It
+accepts one validated commercial region, pre-renders an otherwise empty
+`tobari` profile, sets `AWS_LOGIN_CACHE_DIRECTORY` to the private home, passes
+the trusted terminal as stdin, and runs:
+
+```text
+aws login --remote --profile tobari --region <validated-region> \
+  --no-cli-pager --no-cli-auto-prompt
+```
+
+No callback listener or automatic browser opener is used. After success Tobari
+accepts only a single validated `login_session` ARN whose 12-digit account
+matches the stored secret-free label, the same region/output, and bounded
+canonical SHA-256-named JSON cache files. That strict schema-2 state is bound
+to `aws_cli_console_login`; companion execution rejects either driver ID with
+the other state shape.
 
 For post-policy refresh the resident companion reconstructs the same private
 home and fixed executable identity from encrypted driver state and runs:
@@ -287,10 +308,10 @@ aws configure export-credentials --profile tobari --format process \
 
 The operation has a 45-second process bound and bounded stdout/stderr. Only
 exact process-credential JSON with a future expiration is accepted. AWS CLI
-owns its IAM Identity Center refresh and provider calls; Broker neither
-reimplements AWS OIDC/Portal endpoints nor stores a role credential. If the
-overall SSO session has expired, export fails closed and recovery is explicit
-`auth login aws`.
+owns Identity Center or console refresh and provider calls; Broker neither
+reimplements AWS authentication endpoints nor stores temporary credentials. If
+the overall renewable session has expired, export fails closed and recovery is
+an explicit `auth login aws` using the intended method.
 
 AWS signing implements only standard header-based SigV4. Canonicalization is
 local to the broker, uses the complete body SHA-256 supplied by Gateway, adds

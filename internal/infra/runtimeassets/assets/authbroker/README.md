@@ -50,7 +50,7 @@ tobari-auth-control status --context-id <uuidv7> --provider <provider>
 tobari-auth-control unlock                         # exactly 32 stdin bytes
 tobari-auth-control import --context-id <uuidv7> --provider <provider>  # secret on stdin
 tobari-auth-control login --context-id <uuidv7> --provider github --account-label <login>  # token on stdin
-tobari-auth-control login --context-id <uuidv7> --provider aws --account-label <account> --driver-id aws_cli_sso --driver-revision <sha256>  # opaque state on stdin
+tobari-auth-control login --context-id <uuidv7> --provider aws --account-label <account> --driver-id aws_cli_sso|aws_cli_console_login --driver-revision <sha256>  # opaque state on stdin
 tobari-auth-control companion_prepare --epoch-id <companion-e1_epoch>
 tobari-auth-control companion_status
 tobari-auth-control logout --context-id <uuidv7> --provider <provider>
@@ -69,7 +69,7 @@ Control requests have these exact schema-1 keys:
   `account_label` obtained by the reviewed host driver, and `secret_length`,
   followed by the raw token captured on the host
 - AWS `login`: `context_id`, `provider: "aws"`, the 12-digit non-secret
-  `account_label`, `driver_id: "aws_cli_sso"`, lowercase SHA-256
+  `account_label`, `driver_id: "aws_cli_sso" | "aws_cli_console_login"`, lowercase SHA-256
   `driver_revision`, and `state_length`, followed by canonical opaque host
   driver state
 - `companion_prepare`: `epoch_id`; the Broker derives an epoch key from the
@@ -99,7 +99,7 @@ can never pass through `resolve`.
 The reviewed GitHub and AWS login drivers run on the trusted host before any
 Broker mutation begins. GitHub uses a private temporary `GH_CONFIG_DIR` and
 fixed API-only commands; AWS uses a private temporary home and one fixed IAM
-Identity Center device-code profile. A successful driver sends only its final
+Identity Center device-code or console-based remote profile. A successful driver sends only its final
 bounded token or opaque state through control stdin. Failure leaves the prior
 Context credential unchanged. Neither host CLI home nor a browser/GUI socket
 is mounted into the Broker or a Workspace.

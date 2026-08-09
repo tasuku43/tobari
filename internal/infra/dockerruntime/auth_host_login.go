@@ -18,8 +18,11 @@ import (
 )
 
 const (
-	awsHostDriverID      = "aws_cli_sso"
-	maxAWSLoginFieldSize = 1024
+	awsHostDriverID         = credentialhost.SSODriverID
+	awsConsoleDriverID      = credentialhost.ConsoleDriverID
+	awsIdentityCenterMethod = "identity-center"
+	awsConsoleMethod        = "console"
+	maxAWSLoginFieldSize    = 1024
 )
 
 var (
@@ -127,6 +130,16 @@ type hostCredentialAcquirer interface {
 	) (hostCredentialPayload, error)
 }
 
+type hostConsoleCredentialAcquirer interface {
+	LoginAWSConsole(
+		context.Context,
+		string,
+		credentialhost.ConsoleProfileConfig,
+		io.Reader,
+		credentialhost.VisibleOutput,
+	) (hostCredentialPayload, error)
+}
+
 // hostLoginProfileReader owns interactive, context-bounded collection of the
 // non-secret AWS profile fields. Keeping this terminal capability narrower
 // than the credential acquirer prevents the provider driver and Broker commit
@@ -137,6 +150,14 @@ type hostLoginProfileReader interface {
 		io.Reader,
 		io.Writer,
 	) (credentialhost.ProfileConfig, error)
+}
+
+type hostConsoleProfileReader interface {
+	ReadAWSConsoleProfile(
+		context.Context,
+		io.Reader,
+		io.Writer,
+	) (credentialhost.ConsoleProfileConfig, error)
 }
 
 type osHostLoginProfileReader struct {
@@ -196,6 +217,58 @@ func (r osHostLoginProfileReader) ReadAWSProfile(
 	return profile, readErr
 }
 
+func (r osHostLoginProfileReader) ReadAWSConsoleProfile(
+	ctx context.Context,
+	input io.Reader,
+	output io.Writer,
+) (credentialhost.ConsoleProfileConfig, error) {
+	if ctx == nil {
+		return credentialhost.ConsoleProfileConfig{}, errHostLoginPrompt
+	}
+	if err := ctx.Err(); err != nil {
+		return credentialhost.ConsoleProfileConfig{}, err
+	}
+	if !terminal.IsCanonical(input) {
+		return credentialhost.ConsoleProfileConfig{}, errHostLoginPrompt
+	}
+	openInput := r.openInput
+	if openInput == nil {
+		openInput = openHostLoginInput
+	}
+	privateInput, err := openInput(input)
+	if err != nil || !terminal.IsCanonical(privateInput) {
+		if privateInput != nil {
+			_ = privateInput.Close()
+		}
+		return credentialhost.ConsoleProfileConfig{}, errHostLoginPrompt
+	}
+	waitInput := r.waitInput
+	if waitInput == nil {
+		waitInput = waitHostLoginInput
+	}
+	profile, readErr := readAWSConsoleLoginProfile(
+		ctx, privateInput, output,
+		func(ctx context.Context, input io.Reader) error {
+			if err := waitInput(ctx, input); err != nil {
+				return err
+			}
+			if !terminal.IsCanonical(input) {
+				return errHostLoginPrompt
+			}
+			return nil
+		},
+		readHostLoginInput,
+	)
+	closeErr := privateInput.Close()
+	if closeErr != nil {
+		if readErr != nil {
+			return credentialhost.ConsoleProfileConfig{}, errors.Join(readErr, errHostLoginPrompt)
+		}
+		return credentialhost.ConsoleProfileConfig{}, errHostLoginPrompt
+	}
+	return profile, readErr
+}
+
 type osHostCredentialAcquirer struct {
 	github *credentialhost.GitHubDriver
 	aws    *credentialhost.Driver
@@ -247,8 +320,33 @@ func (a *osHostCredentialAcquirer) LoginAWS(
 	}
 	return hostCredentialPayload{
 		secret:         encoded,
-		accountLabel:   profile.AccountID,
-		driverID:       awsHostDriverID,
+		accountLabel:   state.AccountID(),
+		driverID:       state.DriverID(),
+		driverRevision: state.DriverRevision(),
+	}, nil
+}
+
+func (a *osHostCredentialAcquirer) LoginAWSConsole(
+	ctx context.Context,
+	executable string,
+	profile credentialhost.ConsoleProfileConfig,
+	input io.Reader,
+	visible credentialhost.VisibleOutput,
+) (hostCredentialPayload, error) {
+	if a == nil || a.aws == nil {
+		return hostCredentialPayload{}, credentialhost.ErrCommandFailed
+	}
+	state, err := a.aws.ConsoleLogin(ctx, executable, profile, input, visible)
+	if err != nil {
+		return hostCredentialPayload{}, err
+	}
+	defer state.Clear()
+	encoded, err := state.Encode()
+	if err != nil {
+		return hostCredentialPayload{}, err
+	}
+	return hostCredentialPayload{
+		secret: encoded, accountLabel: state.AccountID(), driverID: state.DriverID(),
 		driverRevision: state.DriverRevision(),
 	}, nil
 }
@@ -259,11 +357,12 @@ func (r *Runtime) runHostCredentialLogin(
 	provider string,
 	input io.Reader,
 	errOut io.Writer,
+	methods ...string,
 ) (brokerControlResponse, error) {
 	if !r.IsInputTerminal(input) || !r.IsTerminal(errOut) {
 		return brokerControlResponse{}, authLoginTerminalRequiredFault()
 	}
-	return r.runHostCredentialLoginOnTTY(ctx, contextID, provider, input, errOut)
+	return r.runHostCredentialLoginOnTTY(ctx, contextID, provider, input, errOut, methods...)
 }
 
 func (r *Runtime) runHostCredentialLoginOnTTY(
@@ -272,7 +371,18 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 	provider string,
 	input io.Reader,
 	errOut io.Writer,
+	methods ...string,
 ) (brokerControlResponse, error) {
+	method := ""
+	if len(methods) > 1 {
+		return brokerControlResponse{}, credentialhost.ErrInvalidProfile
+	}
+	if len(methods) == 1 {
+		method = methods[0]
+	}
+	if provider == "aws" && method == "" {
+		method = awsIdentityCenterMethod
+	}
 	if r.hostCLIs == nil || r.credentialHost == nil {
 		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
 	}
@@ -304,11 +414,36 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 		if r.hostLoginProfiles == nil {
 			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
 		}
-		profile, err = r.hostLoginProfiles.ReadAWSProfile(loginContext, input, errOut)
+		switch method {
+		case awsIdentityCenterMethod:
+			profile, err = r.hostLoginProfiles.ReadAWSProfile(loginContext, input, errOut)
+		case awsConsoleMethod:
+			profileReader, ok := r.hostLoginProfiles.(hostConsoleProfileReader)
+			acquirer, acquirerOK := r.credentialHost.(hostConsoleCredentialAcquirer)
+			if !ok || !acquirerOK {
+				return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+			}
+			var consoleProfile credentialhost.ConsoleProfileConfig
+			consoleProfile, err = profileReader.ReadAWSConsoleProfile(loginContext, input, errOut)
+			if err == nil {
+				err = loginContext.Err()
+			}
+			if err == nil {
+				payload, err = acquirer.LoginAWSConsole(
+					loginContext, executable, consoleProfile, input,
+					func(_ credentialhost.OutputStream, content []byte) error {
+						_, writeErr := visible.Write(content)
+						return writeErr
+					},
+				)
+			}
+		default:
+			err = credentialhost.ErrInvalidProfile
+		}
 		if err == nil {
 			err = loginContext.Err()
 		}
-		if err == nil {
+		if err == nil && method == awsIdentityCenterMethod {
 			payload, err = r.credentialHost.LoginAWS(
 				loginContext,
 				executable,
@@ -382,41 +517,78 @@ func readAWSLoginProfile(
 	waitInput func(context.Context, io.Reader) error,
 	readInput func(io.Reader, []byte) (int, error),
 ) (credentialhost.ProfileConfig, error) {
-	if ctx == nil || input == nil || output == nil || waitInput == nil || readInput == nil {
-		return credentialhost.ProfileConfig{}, errHostLoginPrompt
-	}
-	const maxBufferedProfileSize = 4 * (maxAWSLoginFieldSize + 2)
-	pending := make([]byte, 0, maxBufferedProfileSize)
-	available := make([]byte, maxBufferedProfileSize)
-	inputEnded := false
-	values := make([]string, 0, 4)
-	for _, prompt := range []string{
+	values, err := readAWSLoginFields(ctx, input, output, waitInput, readInput, []string{
 		"AWS IAM Identity Center access portal URL",
 		"AWS IAM Identity Center region",
 		"AWS account ID",
 		"AWS role name",
-	} {
+	})
+	if err != nil {
+		return credentialhost.ProfileConfig{}, err
+	}
+	return credentialhost.ProfileConfig{
+		StartURL: values[0], SSORegion: values[1],
+		AccountID: values[2], RoleName: values[3],
+	}, nil
+}
+
+func readAWSConsoleLoginProfile(
+	ctx context.Context,
+	input io.Reader,
+	output io.Writer,
+	waitInput func(context.Context, io.Reader) error,
+	readInput func(io.Reader, []byte) (int, error),
+) (credentialhost.ConsoleProfileConfig, error) {
+	values, err := readAWSLoginFields(
+		ctx, input, output, waitInput, readInput, []string{"AWS region for console login"},
+	)
+	if err != nil {
+		return credentialhost.ConsoleProfileConfig{}, err
+	}
+	return credentialhost.ConsoleProfileConfig{Region: values[0]}, nil
+}
+
+func readAWSLoginFields(
+	ctx context.Context,
+	input io.Reader,
+	output io.Writer,
+	waitInput func(context.Context, io.Reader) error,
+	readInput func(io.Reader, []byte) (int, error),
+	prompts []string,
+) ([]string, error) {
+	if ctx == nil || input == nil || output == nil || waitInput == nil || readInput == nil {
+		return nil, errHostLoginPrompt
+	}
+	if len(prompts) == 0 || len(prompts) > 4 {
+		return nil, errHostLoginPrompt
+	}
+	maxBufferedProfileSize := len(prompts) * (maxAWSLoginFieldSize + 2)
+	pending := make([]byte, 0, maxBufferedProfileSize)
+	available := make([]byte, maxBufferedProfileSize)
+	inputEnded := false
+	values := make([]string, 0, len(prompts))
+	for _, prompt := range prompts {
 		if err := ctx.Err(); err != nil {
-			return credentialhost.ProfileConfig{}, err
+			return nil, err
 		}
 		if _, err := fmt.Fprintf(output, "%s: ", prompt); err != nil {
-			return credentialhost.ProfileConfig{}, errHostLoginPrompt
+			return nil, errHostLoginPrompt
 		}
 		for bytes.IndexByte(pending, '\n') < 0 {
 			if len(pending) >= maxAWSLoginFieldSize+2 || inputEnded {
-				return credentialhost.ProfileConfig{}, errHostLoginPrompt
+				return nil, errHostLoginPrompt
 			}
 			if err := waitInput(ctx, input); err != nil {
 				if contextErr := ctx.Err(); contextErr != nil {
-					return credentialhost.ProfileConfig{}, contextErr
+					return nil, contextErr
 				}
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return credentialhost.ProfileConfig{}, err
+					return nil, err
 				}
-				return credentialhost.ProfileConfig{}, errHostLoginPrompt
+				return nil, errHostLoginPrompt
 			}
 			if err := ctx.Err(); err != nil {
-				return credentialhost.ProfileConfig{}, err
+				return nil, err
 			}
 			// Production readInput is one nonblocking read on the private
 			// terminal description. A readiness flush or partial line therefore
@@ -424,7 +596,7 @@ func readAWSLoginProfile(
 			// read.
 			count, readErr := readInput(input, available[:maxBufferedProfileSize-len(pending)])
 			if err := ctx.Err(); err != nil {
-				return credentialhost.ProfileConfig{}, err
+				return nil, err
 			}
 			if count > 0 {
 				pending = append(pending, available[:count]...)
@@ -434,34 +606,31 @@ func readAWSLoginProfile(
 					continue
 				}
 				if !errors.Is(readErr, io.EOF) {
-					return credentialhost.ProfileConfig{}, errHostLoginPrompt
+					return nil, errHostLoginPrompt
 				}
 				inputEnded = true
 			}
 			if count == 0 && readErr == nil {
-				return credentialhost.ProfileConfig{}, errHostLoginPrompt
+				return nil, errHostLoginPrompt
 			}
 		}
 		lineEnd := bytes.IndexByte(pending, '\n')
 		line := pending[:lineEnd+1]
 		if len(line) > maxAWSLoginFieldSize+2 {
-			return credentialhost.ProfileConfig{}, errHostLoginPrompt
+			return nil, errHostLoginPrompt
 		}
 		pending = pending[lineEnd+1:]
 		line = bytes.TrimSuffix(line, []byte{'\n'})
 		line = bytes.TrimSuffix(line, []byte{'\r'})
 		if len(line) == 0 || len(line) > maxAWSLoginFieldSize || bytes.IndexByte(line, 0) >= 0 {
-			return credentialhost.ProfileConfig{}, credentialhost.ErrInvalidProfile
+			return nil, credentialhost.ErrInvalidProfile
 		}
 		values = append(values, string(line))
 	}
 	if err := ctx.Err(); err != nil {
-		return credentialhost.ProfileConfig{}, err
+		return nil, err
 	}
-	return credentialhost.ProfileConfig{
-		StartURL: values[0], SSORegion: values[1],
-		AccountID: values[2], RoleName: values[3],
-	}, nil
+	return values, nil
 }
 
 func validateHostCredentialPayload(provider string, payload hostCredentialPayload) error {
@@ -476,7 +645,7 @@ func validateHostCredentialPayload(provider string, payload hostCredentialPayloa
 		}
 	case "aws":
 		if !hostAWSAccountPattern.MatchString(payload.accountLabel) ||
-			payload.driverID != awsHostDriverID ||
+			(payload.driverID != awsHostDriverID && payload.driverID != awsConsoleDriverID) ||
 			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {
 			return errHostCredentialResult
 		}

@@ -12,12 +12,15 @@ import (
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 )
 
 const (
 	companionProtocolVersion = 1
 	refreshTaskDomain        = "tobari/credential-companion/refresh-task/v1\x00"
-	awsDriverID              = "aws_cli_sso"
+	awsDriverID              = credentialhost.SSODriverID
+	awsConsoleDriverID       = credentialhost.ConsoleDriverID
 	maxRefreshDuration       = 60 * time.Second
 	maxRefreshStatePayload   = 32 * 1024
 	maxDigestComponentBytes  = 128
@@ -197,7 +200,8 @@ func parseRefresh(fields map[string]json.RawMessage, payload []byte, now time.Ti
 		!read("provider", &request.provider) || request.provider != "aws" ||
 		!read("record_id", &request.recordID) || !safeIDPattern.MatchString(request.recordID) ||
 		!read("grant_revision", &request.grantRevision) || !safeIDPattern.MatchString(request.grantRevision) ||
-		!read("driver_id", &request.driverID) || request.driverID != awsDriverID ||
+		!read("driver_id", &request.driverID) ||
+		(request.driverID != awsDriverID && request.driverID != awsConsoleDriverID) ||
 		!read("driver_revision", &request.driverRevision) || !hex32Pattern.MatchString(request.driverRevision) ||
 		!read("binding_digest", &request.bindingDigest) || !hex32Pattern.MatchString(request.bindingDigest) ||
 		!read("request_digest", &request.requestDigest) || !hex32Pattern.MatchString(request.requestDigest) ||

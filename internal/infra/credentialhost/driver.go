@@ -131,6 +131,9 @@ func (d *Driver) Login(
 // executable digest, and exports one temporary credential tuple. The returned
 // State contains any cache update made by the AWS CLI.
 func (d *Driver) Refresh(ctx context.Context, state State) (TemporaryCredentials, State, error) {
+	if state.DriverID() == ConsoleDriverID {
+		return d.refreshConsole(ctx, state)
+	}
 	return d.refresh(ctx, state)
 }
 
@@ -283,6 +286,19 @@ func (d *Driver) prepareHome(profile ProfileConfig, cache []stateCacheFile) (hom
 	if err != nil {
 		return "", err
 	}
+	return d.prepareHomeState(configuration, filepath.Join(".aws", "sso", "cache"), cacheNamePattern, cache)
+}
+
+func (d *Driver) prepareHomeState(
+	configuration []byte,
+	relativeCacheDirectory string,
+	namePattern *regexp.Regexp,
+	cache []stateCacheFile,
+) (home string, resultErr error) {
+	if len(configuration) == 0 || relativeCacheDirectory == "" || namePattern == nil {
+		return "", ErrInvalidState
+	}
+	var err error
 	home, err = os.MkdirTemp(d.tempRoot, "tobari-aws-host-*")
 	if err != nil {
 		return "", err
@@ -322,12 +338,7 @@ func (d *Driver) prepareHome(profile ProfileConfig, cache []stateCacheFile) (hom
 	if err := root.WriteFile(filepath.Join(".aws", "credentials"), nil, 0o600); err != nil {
 		return "", err
 	}
-	const relativeSSODirectory = ".aws/sso"
-	const relativeCacheDirectory = relativeSSODirectory + "/cache"
 	if err := root.MkdirAll(relativeCacheDirectory, 0o700); err != nil {
-		return "", err
-	}
-	if err := root.Chmod(relativeSSODirectory, 0o700); err != nil { // #nosec G302 -- sso is a directory; owner-only 0700 is the required private mode.
 		return "", err
 	}
 	if err := root.Chmod(relativeCacheDirectory, 0o700); err != nil { // #nosec G302 -- cache is a directory; owner-only 0700 is the required private mode.
@@ -336,7 +347,7 @@ func (d *Driver) prepareHome(profile ProfileConfig, cache []stateCacheFile) (hom
 	for _, item := range cache {
 		content, decodeErr := base64.RawURLEncoding.DecodeString(item.ContentBase64URL)
 		defer clear(content)
-		if decodeErr != nil || !cacheNamePattern.MatchString(item.Name) || !validJSONObject(content) {
+		if decodeErr != nil || !namePattern.MatchString(item.Name) || !validJSONObject(content) {
 			return "", ErrInvalidState
 		}
 		path := filepath.Join(relativeCacheDirectory, item.Name)

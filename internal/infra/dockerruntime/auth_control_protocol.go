@@ -124,7 +124,7 @@ func brokerLoginControlExpectation(arguments []string) (brokerControlExpectation
 		if len(arguments) != 11 || arguments[7] != "--driver-id" ||
 			arguments[9] != "--driver-revision" ||
 			!hostAWSAccountPattern.MatchString(expectation.AccountLabel) ||
-			arguments[8] != awsHostDriverID ||
+			(arguments[8] != awsHostDriverID && arguments[8] != awsConsoleDriverID) ||
 			!hostDriverRevisionPattern.MatchString(arguments[10]) {
 			return brokerControlExpectation{}, fmt.Errorf("Auth Broker AWS login arguments are invalid")
 		}

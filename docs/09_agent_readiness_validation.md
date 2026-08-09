@@ -46,7 +46,7 @@ journey is the product baseline to improve:
 | Shell presentation | `config shell`, then enter a new session | A Context inherits exported `PS1` by default or independently selects one of four allowlisted shell variables without inheriting arbitrary host environment or startup files |
 | Git identity | `config git`, then enter the matching root | A Context optionally supplies only a lower-precedence `user.name`/`user.email` pair without copying Git files, authentication, signing, helpers, executable settings, or arbitrary keys |
 | Runtime customization | `runtime init`, edit the current Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image and other Contexts are unchanged |
-| Context authentication | `auth status`; built-in `auth login github|aws`; protected non-terminal stdin `auth import`; `auth logout` | Reviewed fixed host CLI drivers acquire GitHub/AWS state; a private resident companion refreshes AWS only after exact OPA allow. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing static secrets, opaque SSO cache, role credentials, or signing keys |
+| Context authentication | `auth status`; built-in `auth login github|aws` with explicit AWS `identity-center|console`; protected non-terminal stdin `auth import`; `auth logout` | Reviewed fixed host CLI drivers acquire GitHub/AWS state; a private resident companion refreshes either strict AWS state variant only after exact OPA allow. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing static secrets, opaque login cache, temporary credentials, or signing keys |
 | Context-specific work tools | Published-base `gh` and `aws`; optional locally built toolbox adds `kubectl`, `cwk`, `pup`, and `twg` | Public-base contents stay unchanged; local artifacts have pinned identity and license inventory. Static broker examples state exact authority and no-refresh limits, while general TWG remains unsupported |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
 
@@ -531,7 +531,7 @@ terminal capture, or authenticated API responses. Manual evidence cannot prove
 future provider availability or account authorization; it covers only the
 reviewed release candidate and environment.
 
-## Manual AWS IAM Identity Center validation
+## Manual AWS login-method validation
 
 Before publishing an AWS-capable Auth Broker release candidate, a reviewer
 uses a disposable test role on a trusted host and records only secret-free
@@ -539,7 +539,7 @@ pass/fail outcomes outside the repository:
 
 ```sh
 tobari cluster up
-tobari auth login aws --context default
+tobari auth login aws --method identity-center --context default
 tobari auth status --context default --format json
 (cd /absolute/test/root && tobari) # re-enter to receive the project handle
 # Inside that Workspace, after one exact policy allow:
@@ -554,7 +554,7 @@ tobari auth logout aws --context default --format json
 (cd /absolute/test/root && tobari) # reconcile the revoked projection
 ```
 
-The reviewer verifies Tobari asks only for the supported start URL, SSO region,
+The reviewer verifies Identity Center asks only for the supported start URL, SSO region,
 account ID, and role; the reviewed host AWS CLI runs its fixed device-code flow
 in a private temporary home; and output contains no SSO cache, role credential,
 or signed header. Request region comes from an explicit CLI option or reviewed
@@ -565,8 +565,31 @@ and signing calls. The first bounded STS request succeeds once, and the second
 proves automatic post-policy host-CLI refresh without re-login while the SSO
 session remains renewable; logout revokes the prior handle.
 
-Do not save the questionnaire values beyond the non-secret account/role review,
-device code, SSO client/token state, role credentials, handles, signed request,
+Repeat the scenario with a disposable AWS console identity:
+
+```sh
+aws --version # trusted-host version is 2.32.0 or newer
+tobari auth login aws --method console --context default
+tobari auth status --context default --format json
+(cd /absolute/test/root && tobari)
+case "${AWS_ACCESS_KEY_ID-}" in tobari-h1_*) ;; *) exit 1 ;; esac
+test "$AWS_ACCESS_KEY_ID" = "$AWS_SECRET_ACCESS_KEY"
+test "$AWS_ACCESS_KEY_ID" = "$AWS_SESSION_TOKEN"
+aws sts get-caller-identity --region us-east-1 >/dev/null
+# Repeat after the temporary lease expires while the login refresh token is valid.
+aws sts get-caller-identity --region us-east-1 >/dev/null
+exit
+tobari auth logout aws --context default --format json
+```
+
+The reviewer confirms fixed `aws login --remote` is used, no callback listener
+or ambient profile is used, the parameterized AWS sign-in URL remains a manual
+terminal action, and temporary credentials refresh through the post-policy
+companion path. A separate synthetic driver test proves AWS CLI versions below
+2.32 fail before provider login; no live old-version transcript is retained.
+
+Do not save the questionnaire values beyond the non-secret account/session review,
+device or authorization code, SSO/login cache state, temporary credentials, handles, signed request,
 raw terminal capture, or authenticated response. The flow validates only the
 standard bounded header-based SigV4 subset, not SigV4a, presigning, streaming,
 custom endpoints, or every AWS service.

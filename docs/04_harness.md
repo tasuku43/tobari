@@ -204,15 +204,17 @@ the host and prove the old handle fails. The reviewer records only pass/fail
 and secret-free outcomes outside the repository. Tokens, device codes, vaults,
 handles, and raw authenticated transcripts are prohibited evidence.
 
-For AWS, run `auth login aws` with a test IAM Identity Center role, verify the
-fixed host AWS CLI device-code flow and bounded output, and
-re-enter the Workspace. Confirm without printing values that all three AWS
-credential variables have the same `tobari-h1_` handle, then allow and run one
-bounded `aws sts get-caller-identity --region <region>` request. Repeat after
-the temporary role lease expires to prove post-policy automatic refresh while
-the SSO session remains renewable. Logout on the host and prove the
-old handle fails. Record only pass/fail and secret-free account/role metadata;
-never retain SSO state, role credentials, handles, codes, or signed headers.
+For AWS, run both `auth login aws --method identity-center` with a disposable
+IAM Identity Center role and `auth login aws --method console` with a disposable
+console identity. Verify the first fixed device flow and the second AWS CLI
+2.32-or-newer fixed remote flow. For each, re-enter the Workspace, confirm
+without printing values that all three AWS credential variables have the same
+`tobari-h1_` handle, then allow and run one bounded
+`aws sts get-caller-identity --region <region>` request. Repeat after the
+temporary lease expires to prove post-policy automatic refresh while the
+upstream session remains renewable. Logout and prove the old handle fails.
+Record only pass/fail and secret-free account/session metadata; never retain
+SSO/login state, temporary credentials, handles, codes, or signed headers.
 
 ## Harness components
 

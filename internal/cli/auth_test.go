@@ -23,6 +23,7 @@ type authCLIRuntime struct {
 	secret             []byte
 	contextName        string
 	provider           string
+	method             string
 	statusCalls        int
 	importCalls        int
 	loginCalls         int
@@ -59,10 +60,10 @@ func (r *authCountingReader) Read(data []byte) (int, error) {
 }
 
 func (r *authCLIRuntime) LoginAuth(
-	_ context.Context, contextName, provider string, _ io.Reader, _ io.Writer,
+	_ context.Context, contextName, provider, method string, _ io.Reader, _ io.Writer,
 ) (authbroker.Result, error) {
 	r.loginCalls++
-	r.contextName, r.provider = contextName, provider
+	r.contextName, r.provider, r.method = contextName, provider, method
 	return r.result, r.err
 }
 
@@ -218,10 +219,12 @@ func TestAuthLoginAndLogoutDispatchThroughFixedMutationHandlers(t *testing.T) {
 		name     string
 		args     []string
 		provider string
+		method   string
 		result   authbroker.Result
 	}{
 		{name: "github login", args: []string{"auth", "login", "github", "--format=json"}, provider: "github", result: authCLIResult(authbroker.TaskLogin)},
-		{name: "aws login", args: []string{"auth", "login", "aws", "--format=json"}, provider: "aws", result: authCLIResultForProvider(authbroker.TaskLogin, "aws")},
+		{name: "aws login", args: []string{"auth", "login", "aws", "--format=json"}, provider: "aws", method: "identity-center", result: authCLIResultForProvider(authbroker.TaskLogin, "aws")},
+		{name: "aws console login", args: []string{"auth", "login", "aws", "--method=console", "--format=json"}, provider: "aws", method: "console", result: authCLIResultForProvider(authbroker.TaskLogin, "aws")},
 		{name: "logout", args: []string{"auth", "logout", "github", "--format=json"}, provider: "github", result: authCLILogoutResult()},
 	}
 	for _, test := range tests {
@@ -232,8 +235,9 @@ func TestAuthLoginAndLogoutDispatchThroughFixedMutationHandlers(t *testing.T) {
 			if code := runCLI(command, test.args); code != ExitOK {
 				t.Fatalf("%s code = %d, stderr = %q", test.name, code, stderr.String())
 			}
-			if runtime.provider != test.provider || !strings.Contains(stdout.String(), `"provider":"`+test.provider+`"`) || stderr.Len() != 0 {
-				t.Fatalf("%s provider/stdout/stderr = %q/%q/%q", test.name, runtime.provider, stdout.String(), stderr.String())
+			if runtime.provider != test.provider || runtime.method != test.method ||
+				!strings.Contains(stdout.String(), `"provider":"`+test.provider+`"`) || stderr.Len() != 0 {
+				t.Fatalf("%s provider/method/stdout/stderr = %q/%q/%q/%q", test.name, runtime.provider, runtime.method, stdout.String(), stderr.String())
 			}
 		})
 	}

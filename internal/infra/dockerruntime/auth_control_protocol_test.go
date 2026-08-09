@@ -36,6 +36,7 @@ func TestDecodeBrokerControlResponseAcceptsOnlyOperationSpecificSuccessFrames(t 
 		{name: "status ready label", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"ready","provider":"github","revision":"revision_synthetic","account_label":"octocat"}`, state: "ready"},
 		{name: "login", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "github", "--account-label", "octocat"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic","account_label":"octocat"}`},
 		{name: "aws login", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_sso", "--driver-revision", testAWSDriverRevision}, response: `{"schema_version":1,"ok":true,"provider":"aws","revision":"revision_synthetic","account_label":"123456789012"}`},
+		{name: "aws console login", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_console_login", "--driver-revision", testAWSDriverRevision}, response: `{"schema_version":1,"ok":true,"provider":"aws","revision":"revision_synthetic","account_label":"123456789012"}`},
 		{name: "import", args: []string{"import", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic"}`},
 		{name: "logout changed", args: []string{"logout", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"provider":"github","state":"logged_out","changed":true}`, state: "logged_out"},
 		{name: "logout unchanged", args: []string{"logout", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"provider":"github","state":"logged_out","changed":false}`, state: "logged_out"},
@@ -135,7 +136,12 @@ func TestBrokerControlLoginExpectationsRequireExactProviderShape(t *testing.T) {
 		"--provider", "aws", "--account-label", "123456789012",
 		"--driver-id", "aws_cli_sso", "--driver-revision", testAWSDriverRevision,
 	}
-	for _, arguments := range [][]string{validGitHub, validAWS} {
+	validAWSConsole := []string{
+		"login", "--context-id", testBrokerContextID,
+		"--provider", "aws", "--account-label", "123456789012",
+		"--driver-id", "aws_cli_console_login", "--driver-revision", testAWSDriverRevision,
+	}
+	for _, arguments := range [][]string{validGitHub, validAWS, validAWSConsole} {
 		expectation, err := brokerControlExpectationFor(arguments)
 		if err != nil {
 			t.Fatalf("brokerControlExpectationFor(%v): %v", arguments, err)

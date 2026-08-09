@@ -16,9 +16,16 @@ import (
 )
 
 const (
-	BuiltinGitHubProviderID = "github"
-	BuiltinAWSProviderID    = "aws"
+	BuiltinGitHubProviderID               = "github"
+	BuiltinAWSProviderID                  = "aws"
+	LoginMethodIdentityCenter LoginMethod = "identity-center"
+	LoginMethodConsole        LoginMethod = "console"
 )
+
+// LoginMethod selects one reviewed AWS CLI acquisition plan. The empty value
+// is accepted only at the public boundary and normalizes to identity-center for
+// AWS so the pre-existing command remains backward compatible.
+type LoginMethod string
 
 // MutationImpact is the application-owned generic impact contract shared by
 // login, import, and logout. Each may rotate or revoke every project handle
@@ -35,7 +42,7 @@ func MutationImpact() operation.Impact {
 type RuntimePort interface {
 	IsInputTerminal(io.Reader) bool
 	IsTerminal(io.Writer) bool
-	LoginAuth(context.Context, string, string, io.Reader, io.Writer) (authbroker.Result, error)
+	LoginAuth(context.Context, string, string, string, io.Reader, io.Writer) (authbroker.Result, error)
 	ImportAuth(context.Context, string, string, io.Reader) (authbroker.Result, error)
 	AuthStatus(context.Context, string) (authbroker.StatusResult, error)
 	LogoutAuth(context.Context, string, string) (authbroker.Result, error)
@@ -69,7 +76,7 @@ func New(runtime RuntimePort) *Service {
 }
 
 func (s *Service) Login(
-	ctx context.Context, intent operation.Intent, contextName, provider string,
+	ctx context.Context, intent operation.Intent, contextName, provider, method string,
 	input io.Reader, errOut io.Writer,
 ) (authbroker.Result, error) {
 	if err := validateContextName(contextName); err != nil {
@@ -87,6 +94,10 @@ func (s *Service) Login(
 			fault.NextAction{Command: "help auth import", Reason: "Import one credential through protected stdin instead."},
 		)
 	}
+	loginMethod, err := normalizeLoginMethod(provider, method)
+	if err != nil {
+		return authbroker.Result{}, err
+	}
 	if err := s.requireRuntime(); err != nil {
 		return authbroker.Result{}, err
 	}
@@ -100,8 +111,36 @@ func (s *Service) Login(
 				fault.NextAction{Command: "help auth login", Reason: "Run trusted-host provider login from an interactive terminal."},
 			)
 		}
-		return s.runtime.LoginAuth(actionContext, contextName, provider, input, errOut)
+		return s.runtime.LoginAuth(actionContext, contextName, provider, string(loginMethod), input, errOut)
 	})
+}
+
+func normalizeLoginMethod(provider, method string) (LoginMethod, error) {
+	if provider != BuiltinAWSProviderID {
+		if method == "" {
+			return "", nil
+		}
+		return "", fault.New(
+			fault.KindInvalidInput,
+			"auth_login_method_not_applicable",
+			"The login method selector applies only to the AWS provider.",
+			false,
+			fault.NextAction{Command: "help auth login", Reason: "Remove --method for non-AWS providers."},
+		)
+	}
+	if method == "" || method == string(LoginMethodIdentityCenter) {
+		return LoginMethodIdentityCenter, nil
+	}
+	if method == string(LoginMethodConsole) {
+		return LoginMethodConsole, nil
+	}
+	return "", fault.New(
+		fault.KindInvalidInput,
+		"invalid_aws_login_method",
+		"The AWS login method is invalid.",
+		false,
+		fault.NextAction{Command: "help auth login", Reason: "Choose identity-center or console."},
+	)
 }
 
 func supportsBuiltinLogin(provider string) bool {
