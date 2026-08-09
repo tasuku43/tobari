@@ -18,6 +18,7 @@ import (
 const (
 	BuiltinGitHubProviderID               = "github"
 	BuiltinAWSProviderID                  = "aws"
+	BuiltinDatadogProviderID              = "datadog"
 	LoginMethodIdentityCenter LoginMethod = "identity-center"
 	LoginMethodConsole        LoginMethod = "console"
 )
@@ -144,7 +145,7 @@ func normalizeLoginMethod(provider, method string) (LoginMethod, error) {
 }
 
 func supportsBuiltinLogin(provider string) bool {
-	return provider == BuiltinGitHubProviderID || provider == BuiltinAWSProviderID
+	return provider == BuiltinGitHubProviderID || provider == BuiltinAWSProviderID || provider == BuiltinDatadogProviderID
 }
 
 func (s *Service) Import(

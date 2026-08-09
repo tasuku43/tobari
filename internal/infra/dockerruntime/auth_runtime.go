@@ -233,7 +233,8 @@ func supportsBuiltinAuthHelper(provider authbroker.Provider) bool {
 		return false
 	}
 	return (provider.ID == "github" && provider.Acquisition.Helper == "github-gh") ||
-		(provider.ID == "aws" && provider.Acquisition.Helper == "aws-sso")
+		(provider.ID == "aws" && provider.Acquisition.Helper == "aws-sso") ||
+		(provider.ID == "datadog" && provider.Acquisition.Helper == "pup-oauth")
 }
 
 func classifyHostLoginError(err error, provider string, methods ...string) error {
@@ -252,6 +253,8 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 			name = "GitHub"
 		} else if provider == "aws" {
 			name = "AWS"
+		} else if provider == "datadog" {
+			name = "Datadog pup"
 		}
 		return fault.New(
 			fault.KindUnavailable, code,
@@ -278,6 +281,33 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 			)
 		}
 		return classifyBrokerError(err, "auth login github")
+	}
+	if provider == "datadog" {
+		if hostLoginTimedOut(err) {
+			return fault.New(
+				fault.KindRejected, "datadog_login_timeout",
+				"The bounded Datadog OAuth login timed out; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Start a new Datadog login and complete browser consent within the bounded window."},
+			)
+		}
+		if hostLoginCancelled(err) {
+			return fault.New(
+				fault.KindRejected, "datadog_login_cancelled",
+				"Datadog OAuth login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host Datadog login when ready."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrInvalidExecutable) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		}
+		if hostLoginFailureIsCredentialDriver(err) {
+			return fault.New(
+				fault.KindUnavailable, "datadog_login_failed",
+				"Datadog OAuth login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the isolated trusted-host pup login after inspecting the failure."},
+			)
+		}
+		return classifyBrokerError(err, "auth login datadog")
 	}
 	if provider != "aws" {
 		return classifyBrokerError(err, "auth login "+provider)

@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	maxVisibleOutputBytes = 64 << 10
-	maxProcessStdoutBytes = 64 << 10
-	maxProcessStderrBytes = 16 << 10
-	refreshTimeout        = 45 * time.Second
+	maxVisibleOutputBytes  = 64 << 10
+	maxProcessStdoutBytes  = 64 << 10
+	maxProcessStderrBytes  = 16 << 10
+	refreshTimeout         = 45 * time.Second
+	defaultPupLoginTimeout = 5 * time.Minute
 )
 
 var (
@@ -40,23 +41,27 @@ const (
 	OutputStderr
 )
 
-// VisibleOutput receives bounded AWS CLI device-login text. The caller owns
-// presentation, prompt collection, and any trusted browser opening.
+// VisibleOutput receives bounded reviewed provider-CLI login text. The caller
+// owns presentation, prompt collection, and any trusted browser opening.
 type VisibleOutput func(OutputStream, []byte) error
 
-// Driver owns only trusted-host AWS CLI state and fixed process execution.
+// Driver owns only reviewed trusted-host AWS/pup state and fixed process execution.
 type Driver struct {
-	runner    CommandRunner
-	tempRoot  string
-	now       func() time.Time
-	removeAll func(string) error
+	runner     CommandRunner
+	tempRoot   string
+	now        func() time.Time
+	removeAll  func(string) error
+	pupTimeout time.Duration
 }
 
 func NewDriver(runner CommandRunner) *Driver {
 	if runner == nil {
 		runner = ExecRunner{}
 	}
-	return &Driver{runner: runner, now: time.Now, removeAll: os.RemoveAll}
+	return &Driver{
+		runner: runner, now: time.Now, removeAll: os.RemoveAll,
+		pupTimeout: defaultPupLoginTimeout,
+	}
 }
 
 // Login runs the fixed device-code login command in a private temporary HOME.

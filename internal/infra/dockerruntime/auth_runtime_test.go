@@ -127,7 +127,9 @@ func TestSupportsOnlyReviewedBuiltinAuthHelpers(t *testing.T) {
 	}{
 		{name: "github", provider: authbroker.Provider{ID: "github", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}, want: true},
 		{name: "aws", provider: authbroker.Provider{ID: "aws", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "aws-sso"}}, want: true},
+		{name: "datadog", provider: authbroker.Provider{ID: "datadog", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "pup-oauth"}}, want: true},
 		{name: "aws wrong helper", provider: authbroker.Provider{ID: "aws", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
+		{name: "datadog wrong helper", provider: authbroker.Provider{ID: "datadog", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
 		{name: "other reused helper", provider: authbroker.Provider{ID: "other", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "aws-sso"}}},
 		{name: "stdin import", provider: authbroker.Provider{ID: "github", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionStdinImport}}},
 	}
@@ -402,6 +404,28 @@ func TestClassifyHostAWSLoginFailuresUsesStableSecretFreeFaults(t *testing.T) {
 				t.Fatalf("classified fault = %+v, ok=%t", public, ok)
 			}
 		})
+	}
+}
+
+func TestClassifyHostDatadogLoginFailuresUsesStableSecretFreeFaults(t *testing.T) {
+	tests := []struct {
+		err  error
+		code string
+		kind fault.Kind
+	}{
+		{err: context.Canceled, code: "datadog_login_cancelled", kind: fault.KindRejected},
+		{err: context.DeadlineExceeded, code: "datadog_login_timeout", kind: fault.KindRejected},
+		{err: credentialhost.ErrPupLoginFailed, code: "datadog_login_failed", kind: fault.KindUnavailable},
+		{err: credentialhost.ErrInvalidPupState, code: "datadog_login_failed", kind: fault.KindUnavailable},
+		{err: credentialhost.ErrInvalidExecutable, code: "datadog_cli_unavailable", kind: fault.KindUnavailable},
+		{err: hostCLIUnavailableError{provider: "datadog"}, code: "datadog_cli_unavailable", kind: fault.KindUnavailable},
+	}
+	for _, test := range tests {
+		public, ok := fault.PublicCopy(classifyHostLoginError(test.err, "datadog"))
+		if !ok || public.Code != test.code || public.Kind != test.kind || public.Retryable ||
+			strings.Contains(public.Message, test.err.Error()) {
+			t.Fatalf("Datadog fault = %+v, ok=%t", public, ok)
+		}
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 )
 
 const testBrokerRevision = "revision_synthetic"
@@ -141,7 +142,12 @@ func TestBrokerControlLoginExpectationsRequireExactProviderShape(t *testing.T) {
 		"--provider", "aws", "--account-label", "123456789012",
 		"--driver-id", "aws_cli_console_login", "--driver-revision", testAWSDriverRevision,
 	}
-	for _, arguments := range [][]string{validGitHub, validAWS, validAWSConsole} {
+	validDatadog := []string{
+		"login", "--context-id", testBrokerContextID,
+		"--provider", "datadog", "--account-label", credentialhost.PupAccountLabel,
+		"--driver-id", credentialhost.PupDriverID, "--driver-revision", testAWSDriverRevision,
+	}
+	for _, arguments := range [][]string{validGitHub, validAWS, validAWSConsole, validDatadog} {
 		expectation, err := brokerControlExpectationFor(arguments)
 		if err != nil {
 			t.Fatalf("brokerControlExpectationFor(%v): %v", arguments, err)
@@ -160,6 +166,8 @@ func TestBrokerControlLoginExpectationsRequireExactProviderShape(t *testing.T) {
 		{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123", "--driver-id", "aws_cli_sso", "--driver-revision", testAWSDriverRevision},
 		{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
 		{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_sso", "--driver-revision", "UPPER"},
+		{"login", "--context-id", testBrokerContextID, "--provider", "datadog", "--account-label", "other", "--driver-id", credentialhost.PupDriverID, "--driver-revision", testAWSDriverRevision},
+		{"login", "--context-id", testBrokerContextID, "--provider", "datadog", "--account-label", credentialhost.PupAccountLabel, "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
 		{"login", "--context-id", testBrokerContextID, "--provider", "example", "--account-label", "example"},
 	} {
 		if _, err := brokerControlExpectationFor(arguments); err == nil {

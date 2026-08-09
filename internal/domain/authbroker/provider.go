@@ -55,13 +55,14 @@ const (
 	// CredentialPrimarySecret is the schema-v1 static credential spelling. It
 	// remains valid only so owner manifests and existing built-ins keep their
 	// exact public contract.
-	CredentialPrimarySecret CredentialKind = "primary_secret"
-	CredentialAWSSSOSession CredentialKind = "aws_sso_session"
+	CredentialPrimarySecret       CredentialKind = "primary_secret"
+	CredentialAWSSSOSession       CredentialKind = "aws_sso_session"
+	CredentialDatadogOAuthSession CredentialKind = "datadog_oauth_session" // #nosec G101 -- public credential-kind discriminator, not a credential.
 )
 
 func (k CredentialKind) Validate() error {
 	switch k {
-	case CredentialPrimarySecret, CredentialAWSSSOSession:
+	case CredentialPrimarySecret, CredentialAWSSSOSession, CredentialDatadogOAuthSession:
 		return nil
 	default:
 		return fmt.Errorf("provider credential kind is invalid: %q", k)
@@ -315,6 +316,11 @@ func validateProvider(p Provider) error {
 			return fmt.Errorf("provider %q: %w", p.ID, err)
 		}
 	}
+	if p.Credential.Kind == CredentialDatadogOAuthSession {
+		if err := validateDatadogWorkspaceProjection(p.WorkspaceProjections); err != nil {
+			return fmt.Errorf("provider %q: %w", p.ID, err)
+		}
+	}
 	return nil
 }
 
@@ -328,7 +334,8 @@ func validateCredentialPlan(p Provider) error {
 			return fmt.Errorf("schema-v1 provider cannot declare signing bindings")
 		}
 	case ProviderSchemaVersion:
-		if p.Credential.Kind == CredentialAWSSSOSession {
+		switch p.Credential.Kind {
+		case CredentialAWSSSOSession:
 			if p.ID != "aws" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "aws-sso" {
 				return fmt.Errorf("aws_sso_session is reserved for the reviewed aws/aws-sso built-in plan")
 			}
@@ -336,9 +343,48 @@ func validateCredentialPlan(p Provider) error {
 				p.SigningBindings[0].Kind != SigningBindingAWSSigV4 {
 				return fmt.Errorf("aws_sso_session must declare exactly one aws_sigv4 signing binding and no header binding")
 			}
-		} else {
-			return fmt.Errorf("schema-v2 provider credential kind must be %q", CredentialAWSSSOSession)
+		case CredentialDatadogOAuthSession:
+			if p.ID != "datadog" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "pup-oauth" {
+				return fmt.Errorf("datadog_oauth_session is reserved for the reviewed datadog/pup-oauth built-in plan")
+			}
+			if len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
+				return fmt.Errorf("datadog_oauth_session must declare exactly one header binding and no signing binding")
+			}
+			binding := p.HeaderBindings[0]
+			if binding.Target != (BindingTarget{Scheme: "https", Host: "api.datadoghq.com", Port: 443}) ||
+				binding.Source.Header != "authorization" || len(binding.Source.Formats) != 1 ||
+				binding.Source.Formats[0] != SourceFormatBearer ||
+				binding.Destination.Header != "authorization" ||
+				binding.Destination.Format != DestinationFormatBearer ||
+				binding.Destination.SecretField != CredentialDatadogOAuthSession ||
+				len(binding.SecretHeaders) != 1 || binding.SecretHeaders[0] != "authorization" {
+				return fmt.Errorf("datadog_oauth_session binding does not match the reviewed Datadog US1 bearer contract")
+			}
+		default:
+			return fmt.Errorf("schema-v2 provider credential kind is invalid")
 		}
+	}
+	return nil
+}
+
+func validateDatadogWorkspaceProjection(projections []WorkspaceProjection) error {
+	want := map[string]string{
+		"DD_ACCESS_TOKEN": "${HANDLE}",
+		"DD_SITE":         "datadoghq.com",
+	}
+	if len(projections) != len(want) {
+		return fmt.Errorf("datadog_oauth_session must declare exactly the reviewed pup environment projection")
+	}
+	seen := make(map[string]struct{}, len(projections))
+	for _, projection := range projections {
+		if projection.Kind != WorkspaceProjectionEnvironment || projection.Path != "" ||
+			want[projection.Name] != projection.Template {
+			return fmt.Errorf("datadog_oauth_session projection %q does not match the reviewed pup contract", projection.Name)
+		}
+		if _, duplicate := seen[projection.Name]; duplicate {
+			return fmt.Errorf("datadog_oauth_session projection contains duplicate environment %q", projection.Name)
+		}
+		seen[projection.Name] = struct{}{}
 	}
 	return nil
 }
@@ -564,8 +610,9 @@ func validateHeaderBinding(binding HeaderBinding) error {
 	if err := binding.Destination.SecretField.Validate(); err != nil {
 		return fmt.Errorf("header binding destination secret_field: %w", err)
 	}
-	if binding.Destination.SecretField != CredentialPrimarySecret {
-		return fmt.Errorf("header binding destination must reference a static primary secret")
+	if binding.Destination.SecretField != CredentialPrimarySecret &&
+		binding.Destination.SecretField != CredentialDatadogOAuthSession {
+		return fmt.Errorf("header binding destination must reference a reviewed header credential")
 	}
 	if len(binding.SecretHeaders) == 0 || len(binding.SecretHeaders) > maxSecretHeaders {
 		return fmt.Errorf("header binding must declare 1..%d secret_headers", maxSecretHeaders)

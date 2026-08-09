@@ -42,6 +42,26 @@ type fakeHostCredentialAcquirer struct {
 	consoleInput   io.Reader
 	awsVisible     []byte
 	awsCalls       int
+	pupPayload     hostCredentialPayload
+	pupErr         error
+	pupPath        string
+	pupVisible     []byte
+	pupCalls       int
+}
+
+func (a *fakeHostCredentialAcquirer) LoginPup(
+	_ context.Context,
+	path string,
+	_ io.Reader,
+	visible credentialhost.VisibleOutput,
+) (hostCredentialPayload, error) {
+	a.pupCalls++
+	a.pupPath = path
+	if visible != nil {
+		a.pupVisible = []byte("OAuth login complete\n")
+		_ = visible(credentialhost.OutputStderr, a.pupVisible)
+	}
+	return a.pupPayload, a.pupErr
 }
 
 func (a *fakeHostCredentialAcquirer) LoginAWSConsole(
@@ -273,6 +293,49 @@ func TestHostGitHubLoginCommitsOnlyAfterAcquisitionUsingNonTTYControl(t *testing
 	}
 }
 
+func TestHostDatadogLoginCommitsOnlyCanonicalPupState(t *testing.T) {
+	state := []byte(`{"client":"oauth-canary"}`)
+	resolver := &fakeHostCLIResolver{path: "/opt/homebrew/bin/pup"}
+	acquirer := &fakeHostCredentialAcquirer{pupPayload: hostCredentialPayload{
+		secret: state, accountLabel: credentialhost.PupAccountLabel,
+		driverID: credentialhost.PupDriverID, driverRevision: strings.Repeat("d", 64),
+	}}
+	runner := &hostLoginDockerRunner{response: `{"schema_version":1,"ok":true,"provider":"datadog","revision":"` + strings.Repeat("e", 64) + `","account_label":"datadog-us1"}`}
+	runtime := &Runtime{
+		runner: runner, browser: &recordingBrowser{}, hostCLIs: resolver,
+		credentialHost: acquirer, hostLoginProfiles: immediateHostLoginProfileReader{},
+	}
+	var visible bytes.Buffer
+	response, err := runtime.runHostCredentialLoginOnTTY(
+		context.Background(), hostLoginContextID, "datadog",
+		strings.NewReader(""), &visible,
+	)
+	if err != nil || response.Provider != "datadog" || response.AccountLabel == nil ||
+		*response.AccountLabel != credentialhost.PupAccountLabel {
+		t.Fatalf("response=%+v error=%v", response, err)
+	}
+	if !reflect.DeepEqual(resolver.names, []string{"pup"}) || acquirer.pupPath != resolver.path ||
+		acquirer.pupCalls != 1 {
+		t.Fatalf("resolver=%v path=%q calls=%d", resolver.names, acquirer.pupPath, acquirer.pupCalls)
+	}
+	wantTail := []string{
+		"login", "--context-id", hostLoginContextID,
+		"--provider", "datadog", "--account-label", credentialhost.PupAccountLabel,
+		"--driver-id", credentialhost.PupDriverID, "--driver-revision", strings.Repeat("d", 64),
+	}
+	if len(runner.args) < len(wantTail) || !reflect.DeepEqual(runner.args[len(runner.args)-len(wantTail):], wantTail) ||
+		string(runner.input) != `{"client":"oauth-canary"}` {
+		t.Fatalf("Datadog Broker argv/state = %#v/%q", runner.args, runner.input)
+	}
+	if !strings.Contains(visible.String(), "OAuth login complete") ||
+		strings.Contains(visible.String(), "oauth-canary") {
+		t.Fatalf("visible output = %q", visible.String())
+	}
+	if bytes.Contains(state, []byte("oauth-canary")) {
+		t.Fatal("Datadog opaque state was not cleared after Broker commit")
+	}
+}
+
 func TestHostAWSLoginPromptsFourFieldsAndCommitsOpaqueState(t *testing.T) {
 	state := []byte(`{"schema_version":1,"opaque":"sso-cache-canary"}`)
 	resolver := &fakeHostCLIResolver{path: "/usr/local/bin/aws"}
@@ -384,9 +447,12 @@ func TestHostAcquisitionFailureDoesNotBeginBrokerMutation(t *testing.T) {
 	}{
 		{provider: "github", failure: credentialhost.ErrGitHubLoginFailed},
 		{provider: "aws", input: "https://example.awsapps.com/start\nus-east-1\n123456789012\nDeveloper\n", failure: credentialhost.ErrCommandFailed},
+		{provider: "datadog", failure: credentialhost.ErrPupLoginFailed},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
-			acquirer := &fakeHostCredentialAcquirer{githubErr: test.failure, awsErr: test.failure}
+			acquirer := &fakeHostCredentialAcquirer{
+				githubErr: test.failure, awsErr: test.failure, pupErr: test.failure,
+			}
 			runner := &hostLoginDockerRunner{}
 			runtime := &Runtime{
 				runner:            runner,

@@ -10,6 +10,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/companionruntime"
+	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 )
 
 type brokerControlOperation string
@@ -127,6 +128,16 @@ func brokerLoginControlExpectation(arguments []string) (brokerControlExpectation
 			(arguments[8] != awsHostDriverID && arguments[8] != awsConsoleDriverID) ||
 			!hostDriverRevisionPattern.MatchString(arguments[10]) {
 			return brokerControlExpectation{}, fmt.Errorf("Auth Broker AWS login arguments are invalid")
+		}
+		expectation.DriverID = arguments[8]
+		expectation.DriverRevision = arguments[10]
+	case "datadog":
+		if len(arguments) != 11 || arguments[7] != "--driver-id" ||
+			arguments[9] != "--driver-revision" ||
+			expectation.AccountLabel != credentialhost.PupAccountLabel ||
+			arguments[8] != credentialhost.PupDriverID ||
+			!hostDriverRevisionPattern.MatchString(arguments[10]) {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker Datadog login arguments are invalid")
 		}
 		expectation.DriverID = arguments[8]
 		expectation.DriverRevision = arguments[10]

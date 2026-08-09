@@ -49,12 +49,12 @@ func newPathHostCLIResolver() pathHostCLIResolver {
 	return pathHostCLIResolver{lookPath: exec.LookPath}
 }
 
-// Resolve accepts only the two source-reviewed driver names and an absolute,
+// Resolve accepts only the three source-reviewed driver names and an absolute,
 // canonical, non-writable executable under a conventional host installation
 // root. PATH may select among those installations, but a relative, project,
 // home-local, or temporary directory cannot become provider authority.
 func (r pathHostCLIResolver) Resolve(name string) (string, error) {
-	if r.lookPath == nil || (name != "gh" && name != "aws") {
+	if r.lookPath == nil || (name != "gh" && name != "aws" && name != "pup") {
 		return "", hostCLIUnavailableError{provider: name}
 	}
 	selected, err := r.lookPath(name)
@@ -138,6 +138,10 @@ type hostConsoleCredentialAcquirer interface {
 		io.Reader,
 		credentialhost.VisibleOutput,
 	) (hostCredentialPayload, error)
+}
+
+type hostPupCredentialAcquirer interface {
+	LoginPup(context.Context, string, io.Reader, credentialhost.VisibleOutput) (hostCredentialPayload, error)
 }
 
 // hostLoginProfileReader owns interactive, context-bounded collection of the
@@ -351,6 +355,30 @@ func (a *osHostCredentialAcquirer) LoginAWSConsole(
 	}, nil
 }
 
+func (a *osHostCredentialAcquirer) LoginPup(
+	ctx context.Context,
+	executable string,
+	input io.Reader,
+	visible credentialhost.VisibleOutput,
+) (hostCredentialPayload, error) {
+	if a == nil || a.aws == nil {
+		return hostCredentialPayload{}, credentialhost.ErrPupLoginFailed
+	}
+	state, err := a.aws.PupLogin(ctx, executable, input, visible)
+	if err != nil {
+		return hostCredentialPayload{}, err
+	}
+	defer state.Clear()
+	encoded, err := state.Encode()
+	if err != nil {
+		return hostCredentialPayload{}, err
+	}
+	return hostCredentialPayload{
+		secret: encoded, accountLabel: credentialhost.PupAccountLabel, driverID: state.DriverID(),
+		driverRevision: state.DriverRevision(),
+	}, nil
+}
+
 func (r *Runtime) runHostCredentialLogin(
 	ctx context.Context,
 	contextID string,
@@ -457,6 +485,18 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 				},
 			)
 		}
+	case "datadog":
+		acquirer, ok := r.credentialHost.(hostPupCredentialAcquirer)
+		if !ok {
+			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+		}
+		payload, err = acquirer.LoginPup(
+			loginContext, executable, input,
+			func(_ credentialhost.OutputStream, content []byte) error {
+				_, writeErr := visible.Write(content)
+				return writeErr
+			},
+		)
 	default:
 		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
 	}
@@ -480,7 +520,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 		"--provider", provider,
 		"--account-label", payload.accountLabel,
 	}
-	if provider == "aws" {
+	if provider == "aws" || provider == "datadog" {
 		arguments = append(
 			arguments,
 			"--driver-id", payload.driverID,
@@ -496,6 +536,8 @@ func providerHostExecutable(provider string) string {
 		return "gh"
 	case "aws":
 		return "aws"
+	case "datadog":
+		return "pup"
 	default:
 		return ""
 	}
@@ -652,6 +694,11 @@ func validateHostCredentialPayload(provider string, payload hostCredentialPayloa
 			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {
 			return errHostCredentialResult
 		}
+	case "datadog":
+		if payload.accountLabel != credentialhost.PupAccountLabel || payload.driverID != credentialhost.PupDriverID ||
+			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {
+			return errHostCredentialResult
+		}
 	default:
 		return errHostCredentialResult
 	}
@@ -682,6 +729,8 @@ func hostLoginFailureIsCredentialDriver(err error) bool {
 		errors.Is(err, credentialhost.ErrInvalidExecutable) ||
 		errors.Is(err, credentialhost.ErrInvalidState) ||
 		errors.Is(err, credentialhost.ErrInvalidCache) ||
+		errors.Is(err, credentialhost.ErrPupLoginFailed) ||
+		errors.Is(err, credentialhost.ErrInvalidPupState) ||
 		errors.Is(err, errLoginVisibleOutputLimit) ||
 		errors.Is(err, errHostLoginPrompt) ||
 		errors.Is(err, errHostCredentialResult)

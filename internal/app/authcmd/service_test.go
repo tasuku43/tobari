@@ -317,7 +317,7 @@ func TestLoginRejectsUnsupportedHelperBeforeRuntime(t *testing.T) {
 }
 
 func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
-	for _, provider := range []string{BuiltinGitHubProviderID, BuiltinAWSProviderID} {
+	for _, provider := range []string{BuiltinGitHubProviderID, BuiltinAWSProviderID, BuiltinDatadogProviderID} {
 		t.Run(provider, func(t *testing.T) {
 			fake := &authRuntimeFake{
 				result:        validAuthResultForProvider(authbroker.TaskLogin, provider),

@@ -112,19 +112,37 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 		destinationHeader: "x-chatworktoken",
 		destinationFormat: authbroker.DestinationFormatRaw,
 	})
-	assertImportedHeaderProvider(t, projection, importedHeaderExpectation{
-		providerID:  BuiltinDatadogProviderID,
-		displayName: "Datadog access token for pup",
-		environment: map[string]string{
-			"DD_ACCESS_TOKEN": "${HANDLE}",
-			"DD_SITE":         "datadoghq.com",
-		},
-		host:              "api.datadoghq.com",
-		sourceHeader:      "authorization",
-		sourceFormat:      authbroker.SourceFormatBearer,
-		destinationHeader: "authorization",
-		destinationFormat: authbroker.DestinationFormatBearer,
-	})
+	datadog := providers[BuiltinDatadogProviderID]
+	if datadog.SchemaVersion != authbroker.ProviderSchemaVersion ||
+		datadog.Acquisition != (authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "pup-oauth"}) ||
+		datadog.Credential.Kind != authbroker.CredentialDatadogOAuthSession {
+		t.Fatalf("Datadog provider plan = %#v", datadog)
+	}
+	datadogEnvironment := map[string]string{}
+	for _, item := range projection.Environment {
+		if item.ProviderID == BuiltinDatadogProviderID {
+			datadogEnvironment[item.Name] = item.Template
+		}
+	}
+	if datadogEnvironment["DD_ACCESS_TOKEN"] != "${HANDLE}" || datadogEnvironment["DD_SITE"] != "datadoghq.com" {
+		t.Fatalf("Datadog Workspace environment = %#v", datadogEnvironment)
+	}
+	datadogBindings := 0
+	for _, binding := range projection.HeaderBindings {
+		if binding.ProviderID != BuiltinDatadogProviderID {
+			continue
+		}
+		datadogBindings++
+		if binding.Target != (authbroker.BindingTarget{Scheme: "https", Host: "api.datadoghq.com", Port: 443}) ||
+			binding.Source.Header != "authorization" || binding.Source.Format != authbroker.SourceFormatBearer ||
+			binding.Destination.Header != "authorization" || binding.Destination.Format != authbroker.DestinationFormatBearer ||
+			binding.Destination.SecretField != authbroker.CredentialDatadogOAuthSession {
+			t.Fatalf("Datadog normalized binding = %#v", binding)
+		}
+	}
+	if datadogBindings != 1 {
+		t.Fatalf("Datadog normalized bindings = %#v", projection.HeaderBindings)
+	}
 }
 
 type importedHeaderExpectation struct {

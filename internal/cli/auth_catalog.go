@@ -21,7 +21,7 @@ func authLoginSpec() CommandSpec {
 			CapabilityID: authCapabilityID,
 			Outcome:      "Acquire one supported provider credential on the trusted host for an explicit or current Context without exposing it to a Workspace",
 			Inputs: []CommandInput{
-				authProviderInput("Built-in provider helper to use: github runs the reviewed gh device flow; aws runs one explicitly selected reviewed AWS CLI flow."),
+				authProviderInput("Built-in provider helper to use: github runs the reviewed gh device flow; aws runs one explicitly selected AWS CLI flow; datadog runs the reviewed pup OAuth PKCE flow."),
 				{
 					Name: "--method", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
@@ -35,8 +35,8 @@ func authLoginSpec() CommandSpec {
 			Prerequisites: []string{
 				"The selected Context exists.",
 				"The shared Auth Broker is already running, ready, and unlocked.",
-				"The reviewed GitHub CLI or AWS CLI executable is available through the trusted-host PATH from a conventional installation root (/bin, /usr/bin, /usr/local, /opt/homebrew, /opt/local, /nix/store, or /snap); project, temporary, and home-local executable paths are rejected.",
-				"The caller has interactive terminal streams on stdin and stderr and can complete the selected github or aws provider flow on the trusted host.",
+				"The reviewed GitHub CLI, AWS CLI, or pup executable is available through the trusted-host PATH from a conventional installation root (/bin, /usr/bin, /usr/local, /opt/homebrew, /opt/local, /nix/store, or /snap); project, temporary, and home-local executable paths are rejected.",
+				"The caller has interactive terminal streams on stdin and stderr and can complete the selected github, aws, or datadog provider flow on the trusted host.",
 				"For aws identity-center, the caller knows the access-portal start URL, SSO region, 12-digit account ID, and role name; request region remains ordinary Context or command configuration.",
 				"For aws console, AWS CLI 2.32 or newer is installed, the caller chooses one commercial AWS region, and the caller can paste the browser authorization code into the trusted-host terminal.",
 			},
@@ -47,6 +47,10 @@ func authLoginSpec() CommandSpec {
 				declaredCommandError(fault.KindUnavailable, "github_cli_unavailable", false, "auth login", "Install the reviewed GitHub CLI on the trusted host and retry."),
 				declaredCommandError(fault.KindRejected, "github_login_cancelled", false, "auth login", "Retry the trusted-host GitHub login when ready."),
 				declaredCommandError(fault.KindRejected, "github_login_failed", false, "auth login", "Retry the trusted-host GitHub login after inspecting the failure."),
+				declaredCommandError(fault.KindUnavailable, "datadog_cli_unavailable", false, "auth login", "Install the reviewed pup CLI on the trusted host and retry."),
+				declaredCommandError(fault.KindRejected, "datadog_login_cancelled", false, "auth login", "Retry the trusted-host Datadog login when ready."),
+				declaredCommandError(fault.KindRejected, "datadog_login_timeout", false, "auth login", "Start a new Datadog OAuth login and complete it within the bounded window."),
+				declaredCommandError(fault.KindUnavailable, "datadog_login_failed", false, "auth login", "Retry the isolated trusted-host pup login after inspecting the failure."),
 				declaredCommandError(fault.KindUnavailable, "aws_cli_unavailable", false, "auth login", "Install the reviewed AWS CLI on the trusted host and retry."),
 				declaredCommandError(fault.KindInvalidInput, "auth_login_method_not_applicable", false, "help auth login", "Remove --method for non-AWS providers."),
 				declaredCommandError(fault.KindUnsupported, "aws_console_login_unsupported", false, "auth login", "Install AWS CLI 2.32 or newer on the trusted host, then retry console login."),

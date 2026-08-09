@@ -1,12 +1,13 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "datadog",
   "display_name": "Datadog access token for pup",
   "acquisition": {
-    "mode": "stdin_import"
+    "mode": "builtin_helper",
+    "helper": "pup-oauth"
   },
   "credential": {
-    "kind": "primary_secret"
+    "kind": "datadog_oauth_session"
   },
   "workspace_projections": [
     {
@@ -36,7 +37,7 @@
       "destination": {
         "header": "authorization",
         "format": "bearer",
-        "secret_field": "primary_secret"
+        "secret_field": "datadog_oauth_session"
       },
       "secret_headers": [
         "authorization"
