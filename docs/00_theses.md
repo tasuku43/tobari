@@ -12,7 +12,9 @@ it makes the safe execution path a more natural choice than running the agent
 directly on the host.**
 
 Every HTTP and HTTPS effect that crosses that boundary is denied by default and
-authorized as a normalized request by one shared OPA-backed Gateway.
+authorized as a normalized request by one shared OPA-backed Gateway. Trusted
+policy may declare an exact GraphQL endpoint whose generic L7 identity extends
+the HTTP coordinates with one operation type and root field per effect.
 
 The primary users are developers who run Claude Code, Codex, shells, tests, and
 other arbitrary programs against project roots. Success has two inseparable
@@ -113,13 +115,21 @@ brand.
 ### Consequences
 
 - Any process that honors the explicit proxy receives the same enforcement.
-- Gateway sends generic HTTP attributes to OPA rather than service-specific
-  operations.
-- Request bodies are payload, not permission identity. Gateway authorizes the
-  project, authority, method, and path from request headers before forwarding
-  body bytes; body presence and content do not split approval candidates.
-- Allowed request and response bodies stream through Gateway without entering
-  OPA input, retained policy evidence, learned rules, or audit records.
+- Gateway sends generic HTTP attributes and, only for a trusted exact GraphQL
+  endpoint, normalized GraphQL operation type and root-field attributes to OPA
+  rather than service-specific operations.
+- Ordinary request bodies are payload, not permission identity. Gateway
+  authorizes the project, authority, method, and path from request headers
+  before forwarding body bytes; body presence and content do not split
+  approval candidates. A declared GraphQL endpoint is the narrow exception:
+  Gateway buffers one strictly bounded body before policy and derives only its
+  selected operation type and canonical root fields as additional identity.
+- Allowed ordinary request and response bodies stream through Gateway. A
+  declared GraphQL request is forwarded byte-for-byte after allow and its
+  response still streams. Raw bodies, body hashes, GraphQL source, operation
+  names, variables, arguments, aliases, fragment names, directives, nested
+  selections, and literal values never enter OPA input, retained policy
+  evidence, learned rules, or audit records.
 - Provider-specific HTTP semantics are not part of policy. The first supported
   Auth Broker provider uses a declarative exact host/header contract for
   GitHub.com, but Gateway and OPA still authorize only the normalized HTTP
@@ -128,9 +138,12 @@ brand.
 
 ### Mechanical enforcement
 
-- Gateway unit tests fix the OPA input schema and secret-header redaction.
-- Rego tests exercise host, port, method, path, scheme, project-principal, and
-  body-independent decision boundaries.
+- Gateway unit tests fix the OPA input schema, secret-header redaction,
+  trusted GraphQL endpoint classification, bounded parser behavior, and
+  authorization-before-forward ordering.
+- Rego tests exercise host, port, method, path, scheme, project-principal,
+  ordinary body-independent decisions, and exact GraphQL operation/root-field
+  boundaries.
 - Docker integration tests use curl and Python rather than a named coding agent.
 
 ## Thesis 2: Network topology is an enforcement mechanism
@@ -426,15 +439,19 @@ Gateway errors do not authorize traffic.
   mitmproxy's streaming path rather than full-body retention. The reviewed AWS
   SigV4 plan is the sole exception: after allow it retains one complete request
   within the same 8 MiB cap only long enough to hash and sign it, then forwards
-  once. Unknown-length ordinary bodies remain streaming; unsupported AWS
-  streaming forms fail closed.
+  once. A trusted declared GraphQL endpoint is the other narrow exception: it
+  requires an unambiguous positive length of at most 1 MiB, retains the request
+  before policy only long enough to parse generic operation/root identity, and
+  forwards the original bytes once after allow. Unknown-length ordinary bodies
+  remain streaming; unsupported GraphQL and AWS streaming forms fail closed.
 - Audit logs contain route metadata, never body content, body hashes, or secret
   values.
 
 ### Mechanical enforcement
 
 - Gateway unit tests cover timeout, invalid decision, authorization-before-
-  stream ordering, body-free policy input, and secret redaction. Runtime-asset
+  stream ordering, ordinary body-free policy input, bounded GraphQL-derived
+  identity, and secret redaction. Runtime-asset
   tests keep the advertised-body cap present; integration proves an over-limit
   declared body stops at Gateway and allowed chunked request/SSE response bytes
   arrive incrementally.

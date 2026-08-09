@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product and architecture
 - Supersedes: None
-- Superseded by: None
+- Superseded by: [ADR 0022: Authorize declared GraphQL root fields](0022-authorize-declared-graphql-root-fields.md)
 
 ## Context
 

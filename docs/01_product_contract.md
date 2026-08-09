@@ -34,7 +34,8 @@ the current explicit owner of shared Gateway and OPA setup; reducing that
 first-use bootstrap is an adoption goal, not the reason a user adopts Tobari.
 
 The primary operating loop is progressive policy learning: a Tobari workload is
-denied by default, Gateway records the rejected host/port/method/path and reason
+denied by default, Gateway records the rejected HTTP effect, including one
+operation-type/root-field coordinate for a declared GraphQL endpoint, and reason
 without secrets, the CLI presents a bounded exact proposal and a concrete
 trusted-host next action, the user approves the minimum rule, and the same
 workload is retried. A learnable denial also gives the agent a fixed host-side
@@ -52,11 +53,16 @@ Denial evidence is a product output, not incidental debug noise.
 The host-issued project principal is retained in denial, candidate, learned
 rule, and compaction evidence; an approval made from one current-directory
 Tobari cannot be replayed as another project's permission.
-Request bodies are not a policy identity dimension. A body-bearing POST, PUT,
-PATCH, or other method is authorized and learned from the same project, host,
-port, method, and path dimensions as a body-free request. Changing body content
-does not create another review item or rule. Gateway does not expose body
-content to OPA, retained evidence, policy actions, or audit output.
+Ordinary request bodies are not a policy identity dimension. A body-bearing
+POST, PUT, PATCH, or other method is authorized and learned from the same
+project, host, port, method, and path dimensions as a body-free request.
+Changing ordinary body content does not create another review item or rule.
+For an exact trusted GraphQL endpoint, Gateway derives only the selected
+operation type and canonical root fields from one bounded body; each root is a
+separate exact permission. Gateway does not expose body content, body hashes,
+GraphQL source, operation names, variables, arguments, aliases, fragments,
+directives, nested selections, or literal values to OPA, retained evidence,
+policy actions, audit output, or CLI output.
 Denial audit retains only the URL path component, never the query or headers.
 If that path contains a Tobari handle marker, the whole recorded path is the
 literal `/[redacted-auth-handle]`. Structural URL/header handle rejections are
@@ -171,7 +177,7 @@ The public commands are:
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|auth-broker|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential or handle output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted while preserving Auth Broker vaults and the installation root key; `--purge` additionally removes only shared CA volumes |
-| `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact host/port/method/path candidates and opaque IDs across the installation |
+| `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
 | `policy review [--tail N] [--format text|json]` | discover | read | Review the installation-wide Permission Inbox; on a TTY, inspect Context/root and explicitly choose one exact allow or deny from detail |
 | `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact allow and deny commands |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
@@ -537,7 +543,8 @@ Gateway-line window and omit effects already covered by learned allow rules,
 baseline deny rules, or exact learned deny rules. Baseline and exact denies
 remain available as audit evidence but never become pending queue items.
 Within that window, candidates aggregate by exact Context identity, project
-principal, host, port, method, and normalized path. Reason, status, request ID, timestamp, and
+principal, host, port, method, normalized path, and optional GraphQL operation
+type/root field. Reason, status, request ID, timestamp, and
 credential-profile evidence do not create a second permission identity. The
 candidate retains the latest matching evidence and reports the number of
 matching retained observations; a missing count in the legacy additive shape
@@ -562,7 +569,8 @@ Configuration is resolved from
 - `contexts/<name>/runtime/Dockerfile`: optional owner-only Context runtime
   recipe created by `runtime init`; its source digest and last successful
   managed image build are recorded additively in `context.json`;
-- `contexts/<name>/policy/data.json`: authoritative boundary, baseline, and
+- `contexts/<name>/policy/data.json`: authoritative HTTP and exact GraphQL
+  endpoint boundary, baseline, and
   learned allow/deny data for that Context; Guided Contexts own no Rego files,
   while Advanced Contexts additionally own `tobari.rego` and
   `tobari_test.rego`; the directory is never mounted directly as the shared
@@ -755,7 +763,8 @@ atomically replace only `policy/data.json` and invoke the same activation
 boundary. They never write Rego source, managed credential files, or tool-owned
 home files.
 OPA marks a denial learnable only when its version, cluster, scheme, fixed
-request port, project-principal boundary, and (when selected) managed
+request port, project-principal boundary, trusted GraphQL endpoint and parsed
+coordinate when applicable, and (when selected) managed
 credential binding already satisfy the orthogonal boundary.
 Candidate
 discovery excludes other denials, preventing a successful no-op approval.
@@ -808,7 +817,7 @@ without an alias. Context manifest schema 4 migrates atomically to schema 5,
 preserving its stable ID, runtime recipe, and exact shell overrides while
 adding no Git identity. Context report schema advances from 5 to 6.
 Command names, resource labels, state schema, OPA input version, audit schema,
-Gateway decision schema, auth JSON schema 1, provider/projection schemas 1 and
+Gateway decision schema, policy data and policy output schemas, auth JSON schema 1, provider/projection schemas 1 and
 2, broker protocol schema 1, private companion epoch/frame schema 1, vault
 envelope schema 1 and encrypted payload
 schema 2, the `tobari-h1_` handle prefix, root-key backend identifiers, Unix

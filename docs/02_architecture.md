@@ -553,10 +553,15 @@ client request headers
   -> only when no Tobari handle marker exists, select the trusted
      passthrough/managed adapter
   -> redact client authentication and cookie headers for OPA input
-  -> normalize the body-free schema-5 OPA input
+  -> classify only trusted Context-declared exact GraphQL endpoints
+  -> for ordinary HTTP, normalize body-free OPA input at the header hook
+  -> for a declared GraphQL endpoint, require and retain one bounded request,
+     parse the selected operation and canonical root fields, and normalize only
+     those derived protocol coordinates with the HTTP input
   -> POST one fixed decision endpoint with finite timeout
   -> route by trusted Context ID inside the Tobari-owned OPA package
-  -> require an exact learned L7 rule for a broker-provider request rather
+  -> require every declared GraphQL root coordinate and any broker-provider
+     request to have its exact learned L7 rule rather
      than inheriting a broad static host/method allow
   -> deny on any invalid/unavailable decision
   -> on a static brokered allow, resolve the same revision exactly once and
@@ -566,14 +571,21 @@ client request headers
      rechecks/persists the revision, and signs through the reviewed plan
   -> otherwise strip control headers, then forward client authentication or
      apply the managed profile once after allow
-  -> enable ordinary request-body streaming; forward a signed bounded AWS body once
+  -> enable ordinary request-body streaming; forward an allowed buffered
+     GraphQL body or a signed bounded AWS body once
   -> resolve and pin the upstream address; reject unsafe dotted-host results
   -> stream the authorized upstream response from its headers
   -> emit redacted audit JSON
 ```
 
-Body content is deliberately opaque to policy. Ordinary bodies are neither
-retained nor hashed by Gateway. The reviewed AWS signing plan temporarily
+Ordinary body content is deliberately opaque to policy. Ordinary bodies are
+neither retained nor hashed by Gateway. A trusted exact GraphQL endpoint is a
+narrow pre-policy exception: Gateway requires a positive length no greater
+than 1 MiB, parses one strict UTF-8 JSON request, and sends only operation type
+and sorted canonical root fields to OPA. The original bytes are forwarded once
+after allow; source text, operation name, aliases, fragment names, directives,
+nested selections, arguments, variables, extensions, literal values, and body
+hashes never enter policy, audit, learned state, or CLI output. The reviewed AWS signing plan temporarily
 retains and hashes only an already-authorized request within the fixed body cap;
 the bytes never enter policy, audit, logs, vault state, or retry state. Client authentication can be present on the forwarded
 request but is absent from OPA input and audit output. No query or headers are
@@ -597,13 +609,16 @@ stderr. These are advisory only: they contain no action reference and cannot
 approve or retry a request. `tobari cluster denials` parses one bounded Gateway
 log window, rejects
 malformed denial-shaped records, and returns typed Context and project principal, host, port,
-method, path, reason, status, exact-rule learnability, request identity, timestamp, the
+method, path, optional GraphQL operation/root coordinate, reason, status,
+exact-rule learnability, request identity, timestamp, the
 trusted host policy directory, and the exact review command. OPA computes
 learnability only when version, cluster, Context, scheme, fixed port, project-principal,
 and (for the managed adapter) credential-binding boundaries already pass, so an exact
-Context/project/host/port/method/path rule can close the request. `policy review` and
+Context/project/host/port/method/path rule, plus the GraphQL coordinate when
+present, can close the request. `policy review` and
 `policy candidates` deterministically fold only that eligible retained evidence
-by the structured Context/project/host/port/method/path effect key. They emit one opaque
+by the structured Context/project/host/port/method/path and optional GraphQL
+effect key. They emit one opaque
 exact-rule reference, the latest evidence, and an observation count for each
 pending effect; references remain stable across repeated denials. This pure
 read projection also converges concurrent identical audit records without a
@@ -635,14 +650,15 @@ is rewritten to Gateway runtime input schema 5, and rejects any other shape. The
 projection is schema 1 and stores those sources below
 `tobari_contexts[context_id]`; the Tobari-owned router is the only
 `tobari.http` decision entrypoint. `boundary.authorities` and
-`boundary.methods` describe the configured request boundary, `boundary.ports`
+`boundary.methods` describe the configured request boundary,
+`boundary.graphql_endpoints` declares exact protocol-classification points, `boundary.ports`
 describes the scheme-specific candidate transport boundary, and `rules` keeps
 baseline denies, learned allows, and learned denies in separate collections.
 Gateway and OPA share this structure; the CLI only owns the mutation of the
 two learned collections and never rewrites the host-authored boundary.
 
 Guided Contexts use one current Tobari-owned evaluator, projected once, with
-Context-specific authorities, methods, ports, baseline decisions, learned
+Context-specific authorities, methods, ports, GraphQL endpoints, baseline decisions, learned
 decisions, and credential metadata supplied as data. Advanced source retains
 the editable `package tobari.http` source contract, but projection rewrites it
 to `tobari.contexts.c<uuid>.http`. Validation rejects source that claims the
@@ -650,12 +666,20 @@ cluster router, `tobari.system`, another Context package, or
 `data.tobari_contexts`. This is namespace and routing enforcement within one
 OPA process, not a claim of Rego process-level confidentiality.
 
+The cluster router sends every input carrying a GraphQL coordinate through the
+current Tobari-owned system evaluator, even for an Advanced Context; the
+Context's data still supplies its endpoint and rules. Only ordinary HTTP input
+routes to editable Advanced Rego. This prevents older or custom policy source
+from ignoring the new coordinate and accidentally authorizing it through one
+coarse HTTP rule.
+
 `policy deny` resolves the same exact candidate reference and appends one
 Context/project-bound exact deny rule through the same aggregate preflight, atomic-write, and OPA
 activation boundary. Exact denies are terminal and win over learned allows for
-the same Context/project/host/port/method/path.
+the same Context/project/host/port/method/path and optional GraphQL coordinate.
 
-Compaction discovery is pure over current learned rules. It groups at least
+Compaction discovery is pure over current ordinary HTTP learned rules. GraphQL
+rules are exact-only and never enter compaction. It groups at least
 three exact rules only when Context, project, host, port, method, and a sufficiently deep
 directory prefix agree. The opaque proposal binds the exact source-rule set.
 `policy compact` resolves that current proposal, replaces only those sources

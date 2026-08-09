@@ -1,7 +1,8 @@
 # External HTTP and provider contract
 
-Tobari's enforcement contract remains the generic HTTP request crossing
-Gateway. Reviewed trusted-host drivers add two bounded provider-facing
+Tobari's enforcement contract remains the generic L7 request crossing
+Gateway: ordinary HTTP identity, plus GraphQL operation type and canonical
+root field at an exact trusted-host-declared endpoint. Reviewed trusted-host drivers add two bounded provider-facing
 acquisition flows: fixed GitHub CLI device login and fixed AWS CLI IAM Identity
 Center device login. Auth Broker owns encrypted state, handles, revisions, and
 signing; a resident private companion performs only post-policy AWS CLI
@@ -46,7 +47,11 @@ Context.
 Header names are lowercase. Host excludes a trailing dot and uses the
 normalized request authority. Query values retain occurrence order. Request
 and response bodies, decoded values, and hashes are outside the policy
-contract.
+contract. At a declared GraphQL endpoint only, `request.graphql` is also
+present as exactly `{"operation_type":"query|mutation","root_fields":[...]}`.
+The sorted unique root names are derived from the selected executable document;
+the source document, operation name, variables, arguments, directives,
+fragments, aliases, literals, extensions, and nested fields are excluded.
 
 The authorization object is always present:
 
@@ -63,16 +68,26 @@ secret resolution. A non-null `broker_provider` also prevents the request from
 inheriting a broad static host/method allow: one exact learned
 Context/project/host/port/method/path rule is required before broker resolution.
 
-## Body-independent authorization and streaming
+## Ordinary streaming and declared GraphQL capture
 
-Gateway evaluates OPA from request headers before forwarding a body byte.
-Ordinary requests enable streaming only after principal validation,
+For ordinary HTTP, Gateway evaluates OPA from request headers before forwarding
+a body byte. Ordinary requests enable streaming only after principal validation,
 credential preparation, policy allow, and any post-allow credential action
 succeed. AWS signing requests remain unstreamed after allow until one complete
 bounded body has been hashed and signed; the body itself is not policy input.
 Responses stream after their headers arrive. Body presence and content do not
-alter or split the exact Context/project/host/port/method/path candidate or
-learned rule.
+alter or split an ordinary exact Context/project/host/port/method/path
+candidate or learned rule.
+
+An exact GraphQL endpoint declaration changes that endpoint's protocol
+contract. It never falls back to ordinary HTTP authorization. Gateway requires
+one positive unambiguous `Content-Length` no greater than 1 MiB, buffers the
+strict UTF-8 `application/json` POST object, selects one query or mutation,
+and asks OPA about its sorted canonical root fields. Every root requires its
+own exact learned rule. The original bytes are forwarded unchanged only after
+the complete root set is allowed. GET, subscription, batch, multipart,
+persisted-query-only, compressed, transfer-encoded, ambiguous, malformed, or
+over-limit forms fail locally and are not learnable.
 
 Mitmproxy retains a fixed 8 MiB `body_size_limit`. A message with a known
 `Content-Length` above that value is rejected before the ordinary addon header
@@ -323,7 +338,7 @@ private endpoints, normalization-sensitive paths, and unsigned extra
 
 ## Gateway audit
 
-Every validated allow/deny audit record uses `schema_version: 2` and contains
+Every validated ordinary allow/deny audit record uses `schema_version: 2` and contains
 Context name and stable ID, project ID and safe root, cluster, request
 authority, method, redacted path, decision, reason, adapter-dependent credential
 profile name, upstream outcome, and timing. It contains no query or headers.
@@ -333,7 +348,10 @@ URL/header handle rejections are non-learnable and cannot become policy
 candidates. A broker provider may be present only as secret-free authorization
 metadata; a handle, credential revision, primary secret, request body, and raw
 authorization value are excluded. Host-side
-denial, candidate, learned-rule, and compaction projections retain the same
+For GraphQL, audit schema 3 emits one record per canonical root with only
+`protocol: graphql`, `graphql_operation_type`, and `graphql_root_field` added;
+it never retains the document or variables. Host-side denial, candidate,
+learned-rule, and compaction projections retain the same
 Context/project pair so an opaque approval cannot lose its authority scope.
 
 ## Errors
@@ -358,16 +376,19 @@ An unsupported or ambiguous AWS signing form returns HTTP 403
 `broker_signing_request_invalid`; the placeholder authorization and session
 token are removed before the response.
 OPA unavailability or malformed decisions return 503 `policy_unavailable`.
+An unsupported or malformed request at a declared GraphQL endpoint returns a
+secret-free local 400 parser code and never reaches OPA or upstream.
 Other Gateway normalization failures remain secret-free 4xx/5xx failures.
 
 ## Schema and compatibility
 
-The OPA input schema version `5`, audit schema version `2`, decision fields,
+The OPA input schema version `5`, ordinary audit schema version `2`, GraphQL
+audit schema version `3`, decision fields,
 timeouts, attempt count, owner provider schema `1`, built-in/projection schema
 `2`, broker control/runtime schema `1`, private companion epoch/frame schema
 `1`, encrypted vault envelope schema `1` and payload schema `2`, handle prefix
 `tobari-h1_`, and Gateway/Auth Broker image
-API labels `2` are explicit pre-v1 compatibility boundaries. Valid schema-1 static
+API labels `3` for Gateway and `2` for Auth Broker are explicit pre-v1 compatibility boundaries. Valid schema-1 static
 provider projections and vault payloads remain readable through their strict
 compatibility/migration paths. Gateway does not accept former OPA input shapes,
 incomplete decisions, or unknown broker frames.
@@ -378,14 +399,18 @@ socket, handle, and backend inventory is in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
 
 The principal registry remains schema version 2. Each Context policy data
-source uses `tobari.schema_version=2`. Aggregate projection schema 1 loads one
+source uses `tobari.schema_version=2`; the optional exact
+`boundary.graphql_endpoints` array is additive, and absence retains legacy
+ordinary HTTP behavior. Aggregate projection schema 1 loads one
 current shared evaluator for every data-only Guided Context. Advanced Rego
 source targets OPA input schema 4, accepts source schema 3 only for
 compatibility, and rewrites either source version to runtime schema 5. It
 stores Context data below `tobari_contexts[context_id]` and rejects other
-shapes. Guided Contexts share one system evaluator, while Advanced source is
-projected into a Context-ID package and cannot claim router or system
-namespaces.
+shapes. Guided Contexts share one system evaluator. GraphQL input always routes
+through that system evaluator, including for an Advanced Context, so older or
+custom Rego cannot ignore the coordinate and authorize it as coarse HTTP.
+Ordinary Advanced input is projected into a Context-ID package and cannot
+claim router or system namespaces.
 
 No live upstream provider response fixture is vendored. The repository-authored
 synthetic provider manifest is pinned as `auth-provider.v1` in
@@ -400,7 +425,8 @@ credentials, signed headers, device codes, vaults, or raw authenticated output.
 
 Pinned OPA tests prove schema-5 rejection of older or incomplete input,
 deny-by-default behavior, structured authority and port boundaries,
-body-independent decisions, Context/project-bound learned rules, null versus
+ordinary body-independent decisions, declared-endpoint no-fallback behavior,
+all-root GraphQL authorization, Context/project-bound learned rules, null versus
 broker-provider authorization metadata, and managed profile binding. Gateway
 tests independently prove handle removal, deny-before-resolve/sign, exact
 static replacement, two-stage same-revision AWS signing after allow and

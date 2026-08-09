@@ -429,9 +429,13 @@ order:
    introspection binds the complete fixed signing plan and concrete HTTPS
    authority. Introspection returns only the revision and normalized
    non-secret metadata.
-4. Send body-free OPA input schema 5. The authorization object contains the
-   null managed profile and the non-secret broker provider ID.
-5. Until one exact learned rule covers the ordinary L7 effect, return a
+4. For ordinary HTTP, send body-free OPA input schema 5. At an exact
+   trusted-host-declared GraphQL endpoint, first buffer and parse the bounded
+   request, then send only operation type and sorted canonical root fields;
+   document text and variables never enter OPA. The authorization object
+   contains the null managed profile and the non-secret broker provider ID.
+5. Until one exact learned rule covers the ordinary L7 effect, or every
+   GraphQL root coordinate, return a
    learnable deny for host review even when a broader static host/method rule
    would allow an unauthenticated or fallback-adapter request.
 6. On deny, stop without calling the companion or `resolve`, refreshing AWS,
@@ -451,13 +455,15 @@ The resolved secret is request-scoped and is absent from OPA input, audit,
 denial bodies, errors, logs, CLI output, and Workspace mounts. The broker does
 not interpret method or path and cannot grant network authority. OPA remains
 the sole decision point for the normalized Context/project/scheme/host/port/
-method/path effect.
+method/path effect and, at a declared GraphQL endpoint, its operation type/root
+coordinate.
 
-Request bodies remain opaque to policy and are never searched for a handle or
-used for credential selection. Ordinary bodies stream after allow. The AWS
-plan alone buffers one complete bounded body after header-time allow so the
-broker can sign its SHA-256 digest; the body itself never enters the broker,
-OPA, audit, or Tobari logs. A Workspace already knows its own handle and may
+Request bodies are never searched for a handle or used for credential
+selection. Ordinary bodies stream after allow. AWS buffers one complete
+bounded body after header-time allow so the broker can sign its SHA-256 digest.
+A declared GraphQL endpoint instead buffers at most 1 MiB before policy and
+derives only operation type and root fields; document text and variables never
+enter the broker, OPA, audit, or Tobari logs. A Workspace already knows its own handle and may
 deliberately place those bytes in an otherwise policy-allowed request body.
 Such a body value grants no credential authority; preventing deliberate
 payload exfiltration remains outside the boundary.
@@ -569,21 +575,24 @@ and advanced static users may retain the managed adapter.
   without printing either value that `GH_TOKEN` has the `tobari-h1_` shape and
   `gh auth token --hostname github.com` returns that exact handle, perform one
   OPA-allowed `gh api` request, logout, and prove the prior handle fails.
-  For AWS: login to a test IAM Identity Center role through the fixed host AWS
-  CLI device-code driver, re-enter, confirm without printing that the three AWS
-  credential variables equal one handle, run one OPA-allowed bounded
-  `aws sts get-caller-identity --region <region>`, repeat after the temporary
-  role lease expires to exercise automatic post-policy refresh, logout, and
-  prove the old handle fails.
+  For AWS: validate both `--method identity-center` and `--method console`
+  against disposable test identities. For each, re-enter, confirm without
+  printing that the three AWS credential variables equal one handle, run one
+  OPA-allowed bounded `aws sts get-caller-identity --region <region>`, repeat
+  after the temporary lease expires to exercise automatic post-policy refresh,
+  logout, and prove the old handle fails. Console validation additionally
+  proves AWS CLI 2.32-or-newer preflight and fixed remote flow.
   `task integration:test` supplies the required reproducible synthetic Auth
   Broker proof. Credential values, SSO state, role credentials, signed headers,
   device codes, vaults, handles, and raw authenticated transcripts are never
-  committed as evidence. The reviewed API-v2 indexes built from source revision
+  committed as evidence. The reviewed API-2 indexes built from source revision
   `a3fedb66ad5a72c19d6721f3f8da49852882ced8` are anonymously retrievable for
   Linux amd64/arm64 and pinned as Gateway
   `sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
   and Auth Broker
   `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`;
   their inspected configurations use API 2, the reviewed roles/entrypoints,
-  and non-root `1000:1000` users. Live trusted-host provider scenarios remain a
+  and non-root `1000:1000` users. This revision's Gateway API-3 source requires
+  a new reviewed Gateway index and pin before publication; the Auth Broker API-2
+  evidence remains current. Live trusted-host provider scenarios remain a
   separate pre-tag release check.

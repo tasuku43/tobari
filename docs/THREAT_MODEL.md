@@ -69,16 +69,17 @@ an exact live broker binding, and an OPA allow.
 | Retained managed secrets | Workspace reads or injects them | Gateway-only files and binding checks | Context-scoped owner-only files mount read-only only into Gateway; Context, project, host, and OPA-selected profile are checked before post-allow reading and injection |
 | Authorization integrity | Request or credential reaches upstream before authorization | Gateway request-header hook and lazy upstream connection | Gateway establishes the principal, prepares credential metadata, asks OPA once, applies credentials only after allow, then creates a separate upstream connection and enables body streaming |
 | Authority binding | An exact decision is replayed for a different effect | OPA decision and Gateway connection boundary | Learned rules bind Context, project, host, port, method, and raw path; the current fixed, non-overlapping scheme-port contract prevents a rule crossing schemes; Gateway classifies and pins resolved addresses |
+| GraphQL multiplexing | One coarse `POST /graphql` allow authorizes unrelated roots | Trusted endpoint declaration, bounded parser, and system OPA evaluator | Declared endpoints never fall back to HTTP rules; Gateway sends only query/mutation plus sorted canonical roots, every root needs an exact rule, and Advanced Context input cannot bypass the system GraphQL evaluator |
 | HTTPS confidentiality in transit | TLS inspection is described as plaintext egress or silently bypassed | Explicit proxy and two TLS connections | Workspace sends `CONNECT`; Gateway terminates Workspace-side TLS with the Tobari CA, authorizes decrypted HTTP attributes, then creates a separate verified TLS connection to upstream |
-| Body payload exfiltration | An allowed route carries different or sensitive bytes | Deliberate route-level policy boundary | Body content is not policy or candidate identity; one exact allow covers every body value at that Context/project/host/port/method/path |
-| Gateway buffering | One Workspace exhausts shared memory with a large body | mitmproxy transport boundary | Ordinary allowed bodies stream; a known `Content-Length` above 8 MiB retains the transport rejection, while unknown-length ordinary bodies have no total-byte quota. AWS signing alone buffers one already-authorized body within the same cap |
+| Body payload exfiltration | An allowed route carries different or sensitive bytes | Deliberate route-level policy boundary | Ordinary body content is not policy or candidate identity; one exact HTTP allow covers every body value at that Context/project/host/port/method/path. Declared GraphQL narrows only by operation type/root, not arguments or variables |
+| Gateway buffering | One Workspace exhausts shared memory with a large body | mitmproxy transport boundary | Ordinary allowed bodies stream; a known `Content-Length` above 8 MiB retains the transport rejection, while unknown-length ordinary bodies have no total-byte quota. AWS signing buffers one already-authorized body within that cap; declared GraphQL requires a positive length no greater than 1 MiB before buffering |
 | Audit confidentiality | Recognized credentials, handles, query, headers, or bodies leak into retained denial evidence | Gateway projection and logger | Audit omits query, headers, request and response bodies, broker primary secrets, handles, and revisions; recognized credential values are redacted before OPA and audit, and handle-bearing paths are replaced; an ordinary path remains potentially sensitive application text |
 | Shared runtime capacity | One Workspace exhausts work-container or shared-service resources | Docker resource contract | Work containers and shared Gateway, OPA, and Auth Broker have fixed CPU, memory-plus-swap, PID, and rotated-log ceilings; there is no per-project fairness guarantee |
 | Docker lifecycle state | Cleanup removes unrelated or credential state | Exact names, labels, and separate host state | Lifecycle code verifies installation owner, opaque ID, and role; cluster purge removes transient cluster resources and CA volumes, not encrypted vaults or the installation root key |
 
-OPA is the policy decision point: it evaluates the normalized ordinary HTTP
-effect. Gateway is the enforcement point: it derives the principal, prepares
-body-free decision input, refuses invalid or unavailable decisions, applies any
+OPA is the policy decision point: it evaluates normalized ordinary HTTP or a
+declared GraphQL root effect. Gateway is the enforcement point: it derives the principal, prepares
+body-free ordinary input or bounded GraphQL-derived coordinates, refuses invalid or unavailable decisions, applies any
 post-allow credential transformation, connects upstream, and streams the
 request. Auth Broker neither interprets method/path policy nor grants network
 permission; it validates and resolves an exact credential binding only when
@@ -91,7 +92,10 @@ scheme, host, port, method, raw path and path segments, multi-valued query,
 redacted headers, and non-secret adapter metadata such as a successfully
 introspected broker provider ID. It excludes request and response bodies,
 broker handles and revisions, resolved primary secrets, and recognized client
-credential values. Those excluded values cannot become decision dimensions.
+credential values. At a declared GraphQL endpoint the schema additionally
+carries only operation type and canonical root names; document text, operation
+name, arguments, variables, directives, aliases, fragments, and nested fields
+remain excluded. Those excluded values cannot become decision dimensions.
 
 ## Credible abuse cases
 
@@ -204,15 +208,22 @@ same-host/port/method exact sources, retains positive examples, checks an
 outside-prefix canary, and never creates host or method wildcards. Observation,
 display position, and elapsed time never grow permission automatically.
 
-### Body-independent route authority
+### Ordinary route authority and GraphQL root authority
 
-Tobari deliberately does not claim that policy inspected, understood, or bound
-the body. Gateway authorizes the principal, authority, method, and raw path from
+For ordinary HTTP, Tobari deliberately does not claim that policy inspected,
+understood, or bound the body. Gateway authorizes the principal, authority, method, and raw path from
 request-header state before enabling upstream body streaming. An exact approval
 therefore permits any body at that route, including a later value different
 from the denied observation. Review and audit do not retain body content, so a
 reviewer must assess the whole route-level grant rather than infer a payload
 restriction.
+
+At an exact trusted-host-declared GraphQL endpoint, the coarse HTTP identity is
+ineligible. Gateway parses one bounded executable POST and conservatively
+collects every reachable canonical root regardless of aliases, directives, or
+variable values. Each root needs an exact query/mutation rule. Arguments,
+variables, nested selections, and resolver meaning remain outside policy, so a
+reviewer grants the whole root capability rather than one argument instance.
 
 The reviewed AWS signing plan is the only buffering exception. After the exact
 effect is allowed, Gateway retains one complete request within the same 8 MiB

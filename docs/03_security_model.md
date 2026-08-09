@@ -265,8 +265,11 @@ rewrite source or projection.
 
 ## HTTP authorization boundary
 
-Gateway constructs body-free OPA input schema `5` in mitmproxy's request-header
-hook. It includes the host-issued Context/project principal, a structured request
+Gateway constructs normalized OPA input in mitmproxy. Ordinary HTTP remains
+body-free at the request-header hook. A trusted Context-declared exact GraphQL
+endpoint instead requires one positive-length body no larger than 1 MiB and
+defers policy until Gateway has derived only the selected query/mutation type
+and sorted canonical root fields. The input includes the host-issued Context/project principal, a structured request
 authority, method, path and path segments, multi-valued query, redacted headers,
 and an authorization object containing an adapter-dependent requested
 credential profile plus a non-secret broker provider ID when a handle has been
@@ -282,7 +285,10 @@ the sole compatibility input, both are rewritten to the runtime schema-5
 document, and other input shapes fail before policy activation.
 
 Secret header values, handles, credential revisions, queries, headers, and
-request/response body content are absent from denial audit. Audit retains the
+request/response body content are absent from denial audit. GraphQL source,
+operation name, variables, aliases, fragment names, directives, nested
+selections, arguments, extensions, literals, and body hashes are also absent;
+only an exact operation type/root-field coordinate may be retained. Audit retains the
 path component, but replaces the whole path with
 `/[redacted-auth-handle]` when it contains a Tobari handle marker. Structural
 URL/header handle rejections are non-learnable and cannot enter policy
@@ -298,13 +304,17 @@ Mitmproxy retains an 8 MiB `body_size_limit`; a request or response with a known
 hook. Allowed unknown-length ordinary bodies stream without a total-byte limit,
 avoiding full-body memory retention while preserving the advertised-size cap;
 unknown-length or specialized streaming AWS signing forms are rejected.
+Declared GraphQL endpoints reject unknown, ambiguous, transfer-encoded,
+compressed, non-JSON, non-UTF-8, or over-1-MiB request forms before OPA
+learning, credential resolution, and upstream I/O.
 
 OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
 to non-local destinations is denied by the initialized policy. The initialized
 policy also requires an explicit port for each supported scheme; learned rules
-retain the observed Context/project/host/port/method/path and cannot be used on another Context, project, port, or
-scheme. Body presence and content are not authorization or learning dimensions;
+retain the observed Context/project/host/port/method/path and optional GraphQL
+coordinate and cannot be used on another Context, project, port, or scheme.
+Ordinary body presence and content are not authorization or learning dimensions;
 an exact learned rule covers every body value at its exact
 Context/project/host/port/method/path. Immediately before an upstream connection,
 Gateway resolves the
@@ -596,11 +606,13 @@ access-changing writes bound to opaque references. Discovery never mutates. An
 allow reference identifies one retained validated denial that OPA marked
 exact-rule learnable; a
 deny reference identifies one retained validated denial and binds its exact
-Context/project/host/port/method/path; a compaction reference identifies one current
+Context/project/host/port/method/path plus optional GraphQL coordinate; a compaction reference identifies one current
 exact source-rule set; a reset reference identifies one current CLI-owned
 learned Allow or exact Deny and removes it, returning the effect to default
 deny. Scheme, cluster, and credential-binding failures never become permission
-candidates. Body presence and content neither disqualify nor split a candidate.
+candidates. Ordinary body presence and content neither disqualify nor split a
+candidate. Declared GraphQL documents split only by selected operation type and
+canonical root field; every other document and payload detail is excluded.
 Host-authored baseline denies are terminal, excluded from both the actionable
 queue and the reversible decision inventory, while their bounded audit records
 remain visible. CLI-owned exact Deny rules remain terminal in enforcement but
@@ -610,10 +622,11 @@ The mutation rejects stale or ambiguous references, unsafe policy files,
 malformed learned data, failed preflight tests, and unrecognized compaction
 shapes before the atomic policy write.
 
-Learned rules never broaden a project, host, port, or method beyond the
+Learned rules never broaden a project, host, port, method, or GraphQL root
+coordinate beyond the
 explicitly approved evidence. Baseline and exact deny rules remain terminal; an
 exact deny wins over a learned allow for the same Context/project/host/port/method/path.
-Prefix compaction requires three exact
+Prefix compaction accepts ordinary HTTP rules only and requires three exact
 sources, keeps host, port, and method fixed, requires a multi-segment directory
 boundary, rejects percent
 encoding, backslashes, empty segments, and dot segments, retains positive
@@ -680,7 +693,8 @@ identity values.
 ## Logging
 
 Audit JSON includes timestamp, request ID, cluster, stable Context ID and name,
-project ID, safe project root, host, port, method, redacted path, decision,
+project ID, safe project root, host, port, method, redacted path, an optional
+GraphQL operation type and one root field, decision,
 reason, selected credential profile name, upstream status, and duration. It
 emits no query or headers. Ordinarily the redacted path is the URL path
 component; if that component contains a Tobari handle marker, the whole value is
@@ -695,7 +709,8 @@ a learnable denial until an exact Context/project-bound L7 rule exists.
 CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
 and preserves only non-secret credential-profile names. Read-only policy
-candidate commands aggregate exact Context/project/host/port/method/path proposals from
+candidate commands aggregate exact Context/project/host/port/method/path and
+optional GraphQL-coordinate proposals from
 that evidence, treating reason, status, request identity, timestamps, and
 credential-profile display evidence as non-identity fields. The latest evidence
 and bounded observation count do not grant authority. `policy review`
@@ -755,6 +770,7 @@ reference-bound mutation.
 | Compaction preserves declared boundaries | Three-source same-host/port/method grouping invariant, retained positive examples, outside-prefix canary, stale-reference rejection, and OPA tests |
 | Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
 | Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test and over-limit `Content-Length` integration request |
+| GraphQL identity cannot collapse into one HTTP route grant | Trusted exact-endpoint projection, bounded parser fixtures, OPA all-roots matching, HTTP-rule non-matching canaries, GraphQL-aware opaque-reference round trips, and zero-upstream integration tests |
 
 ## Supply chain and publication
 

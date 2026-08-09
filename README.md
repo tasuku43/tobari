@@ -122,7 +122,12 @@ Proxy-aware tools such as `gh`, Git over HTTPS, and `curl` receive the same
 URL: the client uses HTTP `CONNECT` to reach Gateway, Gateway authorizes the
 decrypted request, and the upstream leg is a separate verified HTTPS
 connection. Policy remains generic HTTP and needs no provider-specific URL
-rewriting. By default, tool authentication prerequisites belong to that tool
+rewriting. For exact trusted-host-declared GraphQL endpoints, that same
+provider- and CLI-independent L7 boundary is finer: Gateway parses one bounded
+POST and asks OPA about `query|mutation + canonical root field`. Every root
+needs an exact approval; `POST /graphql` alone cannot authorize unrelated
+operations. Query documents, variables, arguments, and response bodies are not
+retained in policy, audit, or CLI output. By default, tool authentication prerequisites belong to that tool
 and its per-Tobari home. The supported brokered route recognizes only a strict
 provider-declared handle at an exact HTTPS authority/header binding, and the
 retained Gateway managed adapter remains available for the earlier static
