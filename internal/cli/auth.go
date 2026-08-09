@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/tasuku43/tobari/internal/app/authcmd"
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
@@ -27,8 +28,26 @@ func runAuthLogin(
 		return c.fail(ctx, err)
 	}
 	bindAuthMutationIntent(&intent, command)
+	if err := intent.Validate(); err != nil {
+		return c.fail(ctx, fault.Wrap(
+			fault.KindContract,
+			"invalid_mutation_contract",
+			"Authentication mutation contract is invalid.",
+			false,
+			err,
+		))
+	}
+	provider := inputs.One("--provider")
+	if !inputs.Provided("--provider") {
+		var selectedContext string
+		provider, selectedContext, err = c.selectAuthLoginProvider(ctx, contextName)
+		if err != nil {
+			return c.fail(ctx, err)
+		}
+		contextName = selectedContext
+	}
 	result, err := c.auth.Login(
-		ctx, intent, contextName, inputs.One("provider"), inputs.One("--method"), c.In, c.Err,
+		ctx, intent, contextName, provider, inputs.One("--method"), c.In, c.Err,
 	)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -38,6 +57,56 @@ func runAuthLogin(
 		return c.fail(ctx, err)
 	}
 	return c.emitMutationResult(ctx, command, output)
+}
+
+func (c *CLI) selectAuthLoginProvider(ctx context.Context, contextName string) (string, string, error) {
+	if err := c.auth.ValidateLoginTerminal(c.In, c.Err); err != nil {
+		return "", "", err
+	}
+	status, err := c.auth.Status(ctx, contextName)
+	if err != nil {
+		return "", "", err
+	}
+	providers := make([]string, 0, len(status.Providers))
+	for _, provider := range status.Providers {
+		if authcmd.SupportsLoginProvider(provider.Provider) {
+			providers = append(providers, provider.Provider)
+		}
+	}
+	if len(providers) == 0 {
+		return "", "", fault.New(
+			fault.KindUnsupported,
+			"provider_login_unsupported",
+			"No installed provider supports the reviewed interactive login flow.",
+			false,
+			fault.NextAction{Command: "help auth import", Reason: "Import one credential through protected stdin instead."},
+		)
+	}
+	if c.authLogin == nil {
+		return "", "", fault.New(
+			fault.KindContract,
+			"invalid_auth_result",
+			"Authentication provider selection is not configured.",
+			false,
+			fault.NextAction{Command: "auth status", Reason: "Reconcile the Context's authentication state before another mutation."},
+		)
+	}
+	selected, err := c.authLogin.Select(ctx, status.Context, providers, c.In, c.Err)
+	if err != nil {
+		return "", "", err
+	}
+	for _, provider := range providers {
+		if selected == provider {
+			return selected, status.Context, nil
+		}
+	}
+	return "", "", fault.New(
+		fault.KindContract,
+		"invalid_auth_result",
+		"Authentication provider selection did not match the installed provider snapshot.",
+		false,
+		fault.NextAction{Command: "auth status", Reason: "Reconcile the Context's authentication state before another mutation."},
+	)
 }
 
 func runAuthImport(

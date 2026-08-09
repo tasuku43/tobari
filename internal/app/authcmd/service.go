@@ -76,6 +76,32 @@ func New(runtime RuntimePort) *Service {
 	return &Service{runtime: runtime, mutator: execution.New(ownedPolicy{})}
 }
 
+// ValidateLoginTerminal verifies the interactive stream boundary without
+// reading input or starting provider acquisition. The CLI uses it before an
+// omitted-provider menu; Login repeats the check immediately before the host
+// driver runs.
+func (s *Service) ValidateLoginTerminal(input io.Reader, errOut io.Writer) error {
+	if err := s.requireRuntime(); err != nil {
+		return err
+	}
+	if !s.runtime.IsInputTerminal(input) || !s.runtime.IsTerminal(errOut) {
+		return fault.New(
+			fault.KindInvalidInput,
+			"auth_login_tty_required",
+			"Built-in provider login requires interactive terminal streams on stdin and stderr.",
+			false,
+			fault.NextAction{Command: "help auth login", Reason: "Run trusted-host provider login from an interactive terminal."},
+		)
+	}
+	return nil
+}
+
+// SupportsLoginProvider reports whether provider is backed by one of the
+// closed, reviewed host login drivers compiled into Tobari.
+func SupportsLoginProvider(provider string) bool {
+	return supportsBuiltinLogin(provider)
+}
+
 func (s *Service) Login(
 	ctx context.Context, intent operation.Intent, contextName, provider, method string,
 	input io.Reader, errOut io.Writer,
@@ -103,14 +129,8 @@ func (s *Service) Login(
 		return authbroker.Result{}, err
 	}
 	return s.invokeMutation(ctx, intent, "auth login", authbroker.TaskLogin, contextName, provider, func(actionContext context.Context) (authbroker.Result, error) {
-		if !s.runtime.IsInputTerminal(input) || !s.runtime.IsTerminal(errOut) {
-			return authbroker.Result{}, fault.New(
-				fault.KindInvalidInput,
-				"auth_login_tty_required",
-				"Built-in provider login requires interactive terminal streams on stdin and stderr.",
-				false,
-				fault.NextAction{Command: "help auth login", Reason: "Run trusted-host provider login from an interactive terminal."},
-			)
+		if err := s.ValidateLoginTerminal(input, errOut); err != nil {
+			return authbroker.Result{}, err
 		}
 		return s.runtime.LoginAuth(actionContext, contextName, provider, string(loginMethod), input, errOut)
 	})

@@ -14,19 +14,26 @@ func authCommandSpecs() []CommandSpec {
 }
 
 func authLoginSpec() CommandSpec {
+	provider := CommandInput{
+		Name: "--provider", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description:   "Built-in provider helper to use. Omission opens an interactive selector containing the installed reviewed login providers: github runs the reviewed gh device flow; aws runs one explicitly selected AWS CLI flow; datadog runs the reviewed pup OAuth PKCE flow.",
+		AllowedValues: []string{},
+	}
 	return CommandSpec{
 		Path: "auth login", Summary: "Authenticate one Context through a reviewed host CLI driver",
-		Args: "<provider> [--method identity-center|console] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: "[--provider <provider>] [--method identity-center|console] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
 			Outcome:      "Acquire one supported provider credential on the trusted host for an explicit or current Context without exposing it to a Workspace",
 			Inputs: []CommandInput{
-				authProviderInput("Built-in provider helper to use: github runs the reviewed gh device flow; aws runs one explicitly selected AWS CLI flow; datadog runs the reviewed pup OAuth PKCE flow."),
+				provider,
 				{
 					Name: "--method", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "AWS login method. Omission selects identity-center for backward compatibility; console selects AWS CLI console-based local-development login. The flag is invalid for other providers.",
+					Description:   "AWS login method. Omission selects identity-center for backward compatibility; console selects AWS CLI console-based local-development login. The flag requires an explicit provider and is invalid for other providers.",
 					AllowedValues: []string{string(authcmd.LoginMethodIdentityCenter), string(authcmd.LoginMethodConsole)},
+					Requires:      []string{"--provider"},
 				},
 				executionContextInput(),
 				formatInput(),
@@ -35,6 +42,7 @@ func authLoginSpec() CommandSpec {
 			Prerequisites: []string{
 				"The selected Context exists.",
 				"The shared Auth Broker is already running, ready, and unlocked.",
+				"When provider is omitted, stdin and stderr are interactive terminals and the caller explicitly selects one installed reviewed login provider.",
 				"The reviewed GitHub CLI, AWS CLI, or pup executable is available through the trusted-host PATH from a conventional installation root (/bin, /usr/bin, /usr/local, /opt/homebrew, /opt/local, /nix/store, or /snap); project, temporary, and home-local executable paths are rejected.",
 				"The caller has interactive terminal streams on stdin and stderr and can complete the selected github, aws, or datadog provider flow on the trusted host.",
 				"For aws identity-center, the caller knows the access-portal start URL, SSO region, 12-digit account ID, and role name; request region remains ordinary Context or command configuration.",

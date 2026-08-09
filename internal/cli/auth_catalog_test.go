@@ -85,15 +85,19 @@ func TestAuthLoginCatalogDeclaresGitHubAndAWSSSOContracts(t *testing.T) {
 	if !found {
 		t.Fatal("catalog lacks auth login")
 	}
-	if len(login.Agent.Inputs) == 0 ||
+	if len(login.Agent.Inputs) == 0 || login.Agent.Inputs[0].Required ||
+		login.Agent.Inputs[0].Name != "--provider" || login.Agent.Inputs[0].Source != InputSourceFlag ||
+		login.Args != "[--provider <provider>] [--method identity-center|console] [--context <name>] [--format text|json]" ||
 		!strings.Contains(login.Agent.Inputs[0].Description, "github") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "aws") {
+		!strings.Contains(login.Agent.Inputs[0].Description, "aws") ||
+		!strings.Contains(login.Agent.Inputs[0].Description, "interactive selector") {
 		t.Fatalf("auth login provider input = %+v", login.Agent.Inputs)
 	}
 	methodFound := false
 	for _, input := range login.Agent.Inputs {
 		if input.Name == "--method" {
 			methodFound = reflect.DeepEqual(input.AllowedValues, []string{"identity-center", "console"}) &&
+				reflect.DeepEqual(input.Requires, []string{"--provider"}) &&
 				strings.Contains(input.Description, "backward compatibility")
 		}
 	}
@@ -130,6 +134,29 @@ func TestAuthLoginCatalogDeclaresGitHubAndAWSSSOContracts(t *testing.T) {
 		if !found {
 			t.Fatalf("auth login lacks %q", code)
 		}
+	}
+}
+
+func TestAuthLoginMethodRequiresExplicitProvider(t *testing.T) {
+	t.Parallel()
+	spec, found := DefaultCatalog().Lookup("auth login")
+	if !found {
+		t.Fatal("catalog lacks auth login")
+	}
+	if _, err := parseCommandInputs(spec, []string{"--method=console"}); err == nil ||
+		!strings.Contains(err.Error(), "--method requires --provider") {
+		t.Fatalf("parse auth login method without provider error = %v", err)
+	}
+	inputs, err := parseCommandInputs(spec, []string{})
+	if err != nil {
+		t.Fatalf("parse omitted provider: %v", err)
+	}
+	if inputs.Provided("--provider") || inputs.One("--provider") != "" {
+		t.Fatalf("omitted provider = provided:%t value:%q", inputs.Provided("--provider"), inputs.One("--provider"))
+	}
+	if _, err := parseCommandInputs(spec, []string{"github"}); err == nil ||
+		!strings.Contains(err.Error(), `unexpected argument "github"`) {
+		t.Fatalf("legacy positional provider error = %v", err)
 	}
 }
 

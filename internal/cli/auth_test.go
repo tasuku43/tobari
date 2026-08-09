@@ -33,6 +33,23 @@ type authCLIRuntime struct {
 	errorTerminalCalls int
 }
 
+type authLoginSelectorFake struct {
+	provider    string
+	err         error
+	contextName string
+	providers   []string
+	calls       int
+}
+
+func (s *authLoginSelectorFake) Select(
+	_ context.Context, contextName string, providers []string, _ io.Reader, _ io.Writer,
+) (string, error) {
+	s.calls++
+	s.contextName = contextName
+	s.providers = append([]string{}, providers...)
+	return s.provider, s.err
+}
+
 func (r *authCLIRuntime) IsInputTerminal(io.Reader) bool {
 	r.inputTerminalCalls++
 	return r.inputTerminal
@@ -222,9 +239,9 @@ func TestAuthLoginAndLogoutDispatchThroughFixedMutationHandlers(t *testing.T) {
 		method   string
 		result   authbroker.Result
 	}{
-		{name: "github login", args: []string{"auth", "login", "github", "--format=json"}, provider: "github", result: authCLIResult(authbroker.TaskLogin)},
-		{name: "aws login", args: []string{"auth", "login", "aws", "--format=json"}, provider: "aws", method: "identity-center", result: authCLIResultForProvider(authbroker.TaskLogin, "aws")},
-		{name: "aws console login", args: []string{"auth", "login", "aws", "--method=console", "--format=json"}, provider: "aws", method: "console", result: authCLIResultForProvider(authbroker.TaskLogin, "aws")},
+		{name: "github login", args: []string{"auth", "login", "--provider=github", "--format=json"}, provider: "github", result: authCLIResult(authbroker.TaskLogin)},
+		{name: "aws login", args: []string{"auth", "login", "--provider=aws", "--format=json"}, provider: "aws", method: "identity-center", result: authCLIResultForProvider(authbroker.TaskLogin, "aws")},
+		{name: "aws console login", args: []string{"auth", "login", "--provider=aws", "--method=console", "--format=json"}, provider: "aws", method: "console", result: authCLIResultForProvider(authbroker.TaskLogin, "aws")},
 		{name: "logout", args: []string{"auth", "logout", "github", "--format=json"}, provider: "github", result: authCLILogoutResult()},
 	}
 	for _, test := range tests {
@@ -243,13 +260,158 @@ func TestAuthLoginAndLogoutDispatchThroughFixedMutationHandlers(t *testing.T) {
 	}
 }
 
+func TestAuthLoginOmittedProviderSelectsInstalledReviewedProviderBeforeMutation(t *testing.T) {
+	status := authCLIStatusResult(false)
+	status.Context = "snapshot-context"
+	status.Providers = []authbroker.ProviderStatus{
+		{Provider: authcmd.BuiltinAWSProviderID, State: authbroker.ProviderCredentialNotConfigured},
+		{Provider: "chatwork", State: authbroker.ProviderCredentialNotConfigured},
+		{Provider: authcmd.BuiltinDatadogProviderID, State: authbroker.ProviderCredentialNotConfigured},
+		{Provider: authcmd.BuiltinGitHubProviderID, State: authbroker.ProviderCredentialNotConfigured},
+	}
+	result := authCLIResultForProvider(authbroker.TaskLogin, authcmd.BuiltinDatadogProviderID)
+	result.Context = status.Context
+	runtime := &authCLIRuntime{
+		result:       result,
+		statusResult: status, inputTerminal: true, errorTerminal: true,
+	}
+	selector := &authLoginSelectorFake{provider: authcmd.BuiltinDatadogProviderID}
+	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
+	command.authLogin = selector
+
+	if code := runCLI(command, []string{"auth", "login", "--format=json"}); code != ExitOK {
+		t.Fatalf("auth login code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.statusCalls != 1 || runtime.loginCalls != 1 || runtime.provider != authcmd.BuiltinDatadogProviderID ||
+		runtime.contextName != status.Context || runtime.method != "" || selector.calls != 1 || selector.contextName != status.Context ||
+		!reflect.DeepEqual(selector.providers, []string{"aws", "datadog", "github"}) {
+		t.Fatalf(
+			"status/login/provider/context/method/selector = %d/%d/%q/%q/%q/%d/%q/%v",
+			runtime.statusCalls, runtime.loginCalls, runtime.provider, runtime.contextName, runtime.method,
+			selector.calls, selector.contextName, selector.providers,
+		)
+	}
+	if !strings.Contains(stdout.String(), `"provider":"datadog"`) || stderr.Len() != 0 {
+		t.Fatalf("stdout/stderr = %q/%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestAuthLoginExplicitProviderSkipsStatusAndSelector(t *testing.T) {
+	runtime := &authCLIRuntime{
+		result: authCLIResult(authbroker.TaskLogin), inputTerminal: true, errorTerminal: true,
+	}
+	selector := &authLoginSelectorFake{provider: authcmd.BuiltinDatadogProviderID}
+	command, _, stderr := newAuthCLI(strings.NewReader(""), runtime)
+	command.authLogin = selector
+
+	if code := runCLI(command, []string{"auth", "login", "--provider=github", "--format=json"}); code != ExitOK {
+		t.Fatalf("auth login code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.statusCalls != 0 || runtime.loginCalls != 1 || runtime.provider != "github" || selector.calls != 0 {
+		t.Fatalf(
+			"status/login/provider/selector calls = %d/%d/%q/%d",
+			runtime.statusCalls, runtime.loginCalls, runtime.provider, selector.calls,
+		)
+	}
+}
+
+func TestAuthLoginOmittedProviderRejectsRedirectedTerminalBeforeStatusOrMutation(t *testing.T) {
+	runtime := &authCLIRuntime{
+		statusResult: authCLIStatusResult(false), inputTerminal: true, errorTerminal: false,
+	}
+	selector := &authLoginSelectorFake{provider: authcmd.BuiltinGitHubProviderID}
+	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
+	command.authLogin = selector
+
+	if code := runCLI(command, []string{"auth", "login"}); code != ExitUsage {
+		t.Fatalf("auth login code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.statusCalls != 0 || runtime.loginCalls != 0 || selector.calls != 0 || stdout.Len() != 0 {
+		t.Fatalf(
+			"status/login/selector/stdout = %d/%d/%d/%q",
+			runtime.statusCalls, runtime.loginCalls, selector.calls, stdout.String(),
+		)
+	}
+	if !strings.Contains(stderr.String(), "code: auth_login_tty_required") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestAuthLoginOmittedProviderCancellationPerformsNoMutation(t *testing.T) {
+	runtime := &authCLIRuntime{
+		statusResult: authCLIStatusResult(false), inputTerminal: true, errorTerminal: true,
+	}
+	selector := &authLoginSelectorFake{err: context.Canceled}
+	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
+	command.authLogin = selector
+
+	if code := runCLI(command, []string{"auth", "login"}); code != ExitCanceled {
+		t.Fatalf("auth login code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.statusCalls != 1 || runtime.loginCalls != 0 || selector.calls != 1 || stdout.Len() != 0 {
+		t.Fatalf(
+			"status/login/selector/stdout = %d/%d/%d/%q",
+			runtime.statusCalls, runtime.loginCalls, selector.calls, stdout.String(),
+		)
+	}
+	if !strings.Contains(stderr.String(), "code: operation_canceled") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestAuthLoginOmittedProviderRejectsSelectionOutsideSnapshotBeforeMutation(t *testing.T) {
+	runtime := &authCLIRuntime{
+		statusResult: authCLIStatusResult(false), inputTerminal: true, errorTerminal: true,
+	}
+	selector := &authLoginSelectorFake{provider: "chatwork"}
+	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
+	command.authLogin = selector
+
+	if code := runCLI(command, []string{"auth", "login"}); code != ExitContract {
+		t.Fatalf("auth login code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.statusCalls != 1 || runtime.loginCalls != 0 || selector.calls != 1 || stdout.Len() != 0 {
+		t.Fatalf(
+			"status/login/selector/stdout = %d/%d/%d/%q",
+			runtime.statusCalls, runtime.loginCalls, selector.calls, stdout.String(),
+		)
+	}
+	if !strings.Contains(stderr.String(), "code: invalid_auth_result") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestAuthLoginOmittedProviderRejectsCollectionWithoutReviewedLoginProvider(t *testing.T) {
+	status := authCLIStatusResult(false)
+	status.Providers = []authbroker.ProviderStatus{{
+		Provider: "chatwork", State: authbroker.ProviderCredentialNotConfigured,
+	}}
+	runtime := &authCLIRuntime{statusResult: status, inputTerminal: true, errorTerminal: true}
+	selector := &authLoginSelectorFake{provider: "chatwork"}
+	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
+	command.authLogin = selector
+
+	if code := runCLI(command, []string{"auth", "login"}); code != ExitUnsupported {
+		t.Fatalf("auth login code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.statusCalls != 1 || runtime.loginCalls != 0 || selector.calls != 0 || stdout.Len() != 0 {
+		t.Fatalf(
+			"status/login/selector/stdout = %d/%d/%d/%q",
+			runtime.statusCalls, runtime.loginCalls, selector.calls, stdout.String(),
+		)
+	}
+	if !strings.Contains(stderr.String(), "code: provider_login_unsupported") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestAuthLoginRejectsRedirectedTerminalBeforeRuntimeMutation(t *testing.T) {
 	t.Parallel()
 	runtime := &authCLIRuntime{
 		result: authCLIResult(authbroker.TaskLogin), inputTerminal: true, errorTerminal: false,
 	}
 	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
-	if code := runCLI(command, []string{"auth", "login", "github"}); code != ExitUsage {
+	if code := runCLI(command, []string{"auth", "login", "--provider=github"}); code != ExitUsage {
 		t.Fatalf("auth login code = %d, stderr = %q", code, stderr.String())
 	}
 	if runtime.loginCalls != 0 || runtime.inputTerminalCalls != 1 || runtime.errorTerminalCalls != 1 || stdout.Len() != 0 {
