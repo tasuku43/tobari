@@ -39,6 +39,21 @@ func (f *contextCLI) UseContext(context.Context, string) (tobari.ContextReport, 
 	return f.report, nil
 }
 
+func (f *contextCLI) ConfigureContextShell(
+	_ context.Context, _ string, change tobari.ContextShellEnvironmentSetting,
+) (tobari.ContextReport, error) {
+	f.configureCalls++
+	f.lastShellChange = change
+	f.report.Task = tobari.TaskContextShellConfigure
+	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
+	overrides := []tobari.ContextShellEnvironmentSetting{}
+	if change.Source != tobari.ContextShellEnvironmentDefault {
+		overrides = append(overrides, change)
+	}
+	f.report.ShellEnvironment, _ = tobari.CompleteContextShellEnvironment(overrides)
+	return f.report, nil
+}
+
 func (f *contextCLI) InitRuntime(context.Context) (tobari.ContextReport, error) {
 	f.report.Task = tobari.TaskRuntimeInit
 	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
@@ -84,12 +99,14 @@ func (f *contextCLI) BuildRuntimeWithProgress(
 }
 
 type fakeContextRuntime struct {
-	list       tobari.ContextListResult
-	report     tobari.ContextReport
-	useCalls   int
-	buildCalls int
-	buildLog   string
-	buildErr   error
+	list            tobari.ContextListResult
+	report          tobari.ContextReport
+	useCalls        int
+	buildCalls      int
+	buildLog        string
+	buildErr        error
+	configureCalls  int
+	lastShellChange tobari.ContextShellEnvironmentSetting
 }
 
 func TestContextUseReportsReconciliationStatusAndParsesBeforeMutation(t *testing.T) {
@@ -128,13 +145,49 @@ func contextCLIReport(task, name string, active bool, image string, mode tobari.
 	return tobari.ContextReport{
 		Task: task, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
 		Image: image, PolicyMode: mode, Cluster: tobari.ContextClusterStatusNotApplicable,
-		Runtime:        tobari.ContextRuntimeReport{Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial},
-		Authentication: authentication,
+		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
+		Runtime:          tobari.ContextRuntimeReport{Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial},
+		Authentication:   authentication,
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials.json"),
 			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials"),
 		},
+	}
+}
+
+func TestContextShellConfigurePreservesSourceAndExplicitEmptyValue(t *testing.T) {
+	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+
+	if code := command.RunContext(context.Background(), []string{
+		"context", "shell", "configure", "--variable", "PS1", "--source", "literal", "--value=", "--format", "json",
+	}); code != ExitOK {
+		t.Fatalf("context shell configure code = %d, stderr = %q", code, stderr.String())
+	}
+	var document struct {
+		SchemaVersion int                  `json:"schema_version"`
+		Context       tobari.ContextReport `json:"context"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
+		t.Fatalf("context shell configure JSON = %q, error = %v", stdout.String(), err)
+	}
+	if document.SchemaVersion != 5 || fake.configureCalls != 1 || fake.lastShellChange.Value == nil ||
+		*fake.lastShellChange.Value != "" || document.Context.Task != tobari.TaskContextShellConfigure {
+		t.Fatalf("configure document/call = %+v / %d %+v", document, fake.configureCalls, fake.lastShellChange)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{
+		"context", "shell", "configure", "--variable", "PATH", "--source", "inherit",
+	}); code != ExitUsage {
+		t.Fatalf("unlisted variable code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.configureCalls != 1 {
+		t.Fatalf("unlisted variable reached mutation, calls = %d", fake.configureCalls)
 	}
 }
 
@@ -159,6 +212,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 		t.Fatalf("context show code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "Runtime: official (official)") ||
+		!strings.Contains(stdout.String(), "Shell PS1: default") ||
 		!strings.Contains(stdout.String(), "run `tobari runtime init`") {
 		t.Fatalf("context show output = %q", stdout.String())
 	}
@@ -293,7 +347,7 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &initDocument); err != nil {
 		t.Fatalf("runtime init JSON = %q, error = %v", stdout.String(), err)
 	}
-	if initDocument.SchemaVersion != 4 || initDocument.Context.Task != tobari.TaskRuntimeInit {
+	if initDocument.SchemaVersion != 5 || initDocument.Context.Task != tobari.TaskRuntimeInit {
 		t.Fatalf("runtime init document = %+v", initDocument)
 	}
 	for _, retained := range []string{
@@ -330,13 +384,14 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 
 func runtimeInitReportFixture() tobari.ContextReport {
 	return tobari.ContextReport{
-		Task:         tobari.TaskRuntimeInit,
-		ID:           "018bcfe5-687b-7000-8000-000000000099",
-		Name:         "default",
-		Active:       true,
-		AgentProfile: tobari.DefaultProfile,
-		Image:        tobari.OfficialRuntimeBase,
-		PolicyMode:   tobari.ContextPolicyModeGuided,
+		Task:             tobari.TaskRuntimeInit,
+		ID:               "018bcfe5-687b-7000-8000-000000000099",
+		Name:             "default",
+		Active:           true,
+		AgentProfile:     tobari.DefaultProfile,
+		Image:            tobari.OfficialRuntimeBase,
+		PolicyMode:       tobari.ContextPolicyModeGuided,
+		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory:     "/config/contexts/default/policy",
 			CredentialConfig:    "/config/contexts/default/credentials.json",

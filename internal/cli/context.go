@@ -59,6 +59,46 @@ func runContextShow(
 	return c.emitResult(ctx, output)
 }
 
+func runContextShellConfigure(
+	ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs,
+) int {
+	if c == nil {
+		return ExitInternal
+	}
+	if c.context == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context shell configure", "Correct the command arguments.")
+	}
+	var value *string
+	if inputs.Provided("--value") {
+		literal := inputs.One("--value")
+		value = &literal
+	}
+	change := tobari.ContextShellEnvironmentSetting{
+		Variable: inputs.One("--variable"),
+		Source:   tobari.ContextShellEnvironmentSource(inputs.One("--source")),
+		Value:    value,
+	}
+	contextName := executionContextName(ctx)
+	if inputs.Provided("--context") {
+		contextName = inputs.One("--context")
+	}
+	intent.Target = operation.TargetRef{Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID}
+	intent.Impact = command.Agent.Mutation.Impact
+	result, err := c.context.ConfigureShell(ctx, intent, contextName, change)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	output, err := renderContextReport(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
 func runContextCreate(
 	ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs,
 ) int {
@@ -238,7 +278,7 @@ func renderContextReport(result tobari.ContextReport, format successFormat, colo
 		return nil, fault.Wrap(fault.KindContract, "invalid_context_report", "Context report is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(contextReportDocument{SchemaVersion: 4, Context: result})
+		output, err := json.Marshal(contextReportDocument{SchemaVersion: 5, Context: result})
 		if err != nil {
 			return nil, err
 		}
@@ -258,6 +298,13 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	writeStyledLine(&output, color, "Image:", safeExternalText(result.Image), styleText)
 	writeStyledLine(&output, color, "Agent profile:", safeExternalText(result.AgentProfile), styleText)
 	writeStyledLine(&output, color, "Policy mode:", string(result.PolicyMode), styleText)
+	for _, setting := range result.ShellEnvironment {
+		value := string(setting.Source)
+		if setting.Source == tobari.ContextShellEnvironmentLiteral && setting.Value != nil {
+			value += " " + fmt.Sprintf("%q", safeExternalText(*setting.Value))
+		}
+		writeStyledLine(&output, color, "Shell "+setting.Variable+":", value, styleText)
+	}
 	if result.Task == tobari.TaskContextShow {
 		writeStyledLine(&output, color, "Auth Broker:", result.Authentication.BrokerState, humanStatusToken(result.Authentication.BrokerState))
 		writeStyledLine(&output, color, "Authentication scope:", "Context-wide eligibility; each permanently bound project receives a distinct handle on its next Workspace entry.", styleText)
@@ -300,6 +347,8 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		)
 	}
 	switch result.Task {
+	case tobari.TaskContextShellConfigure:
+		writeStyledCommandLine(&output, color, "Next:", "start a new session with ", "`tobari`", "; running sessions are unchanged.")
 	case tobari.TaskRuntimeBuild:
 		writeStyledLine(&output, color, "Note:", "existing Workspaces keep their home. On the next `tobari`, Tobari recreates only the work container when this runtime image changes the spec.", styleText)
 		writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari`", " from a project directory.")

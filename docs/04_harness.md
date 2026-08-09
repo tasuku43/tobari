@@ -340,8 +340,9 @@ The test suite has complementary levels:
   schema version, envelope, and item keys with its catalog `CommandOutput`
   declaration and enforce the always-present string cursor for any paged probe.
   Auth additions specifically pin cluster status schema 3, Context report
-  schema 4, and auth result/status schema 1, including explicit empty provider
-  collections and null account labels.
+  schema 5, and auth result/status schema 1, including the complete shell
+  environment inventory, explicit empty literal values, explicit empty provider
+  collections, and null account labels.
   Help's catalog fields describe root `view: index`; separate exact-key tests
   cover both that view and the input-selected `view: scope` variant.
 - Adversarial output tests keep TSV/JSON records and stdout/stderr ownership intact across controls, Unicode format/line separators, existing backslashes, and printable prompt-like data while preserving opaque IDs exactly.
@@ -565,6 +566,7 @@ Every strong statement should identify its enforcement path.
 | Context runtime boundary | Context manifest tests, compatibility validation, ignored-project-metadata regression, existing-Workspace image reconciliation tests, and failure-before-state-update tests |
 | Portable policy activation | Pre-mutation OPA tests, exact owner-label check, OPA-only recreation argv, and Docker integration |
 | Context composition and selection | Stable-ID manifest/domain tests, catalog effect/target contracts, owner-only atomic store tests, current-default-only selection, permanent Tobari binding, safe/ambiguous legacy migration fixtures, and agent-readiness transcript |
+| Context shell environment boundary | Fixed allowlist and source-enum domain tests, explicit-empty preservation, schema migration to inherited PS1, zero-I/O rejection for arbitrary names and ambiguous values, owner-only atomic update tests, complete Context report output, exact child-exec environment assertions, missing-export fallback, Bash-quote and bounded inherited-value canaries, and host-credential non-copy assertions |
 | Context runtime build boundary | Fixed current-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv including official-base refresh versus local-base behavior, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and bound-Context next-entry reconciliation coverage |
 | Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, canonical-source unit tests, stable Gateway labels, immutable digest/platform/entrypoint preflight, non-root host-UID-independent Dockerfile, and pull-request/main workflow permission separation |
 | Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, pinned GitHub CLI checksums and MIT notice, stable API/role labels, immutable digest/platform/entrypoint preflight, non-root Dockerfile, and pull-request/main workflow permission separation |

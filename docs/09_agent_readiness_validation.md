@@ -41,6 +41,7 @@ journey is the product baseline to improve:
 | Permission growth | Installation-wide human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users scan exact HTTP effects grouped by stable Context/project identity, see bounded observation evidence, inspect Context/root/request, and choose one exact action from detail without a second confirmation prompt; redirected review remains read-only and the action remains bound to one Context-scoped opaque reference |
 | Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
 | Execution setup | `context list`, `context show`, `context use --name NAME`, `tobari --context NAME` | The user can inspect stable Contexts, change only the omitted-Context default, and create same-root Tobari in different Contexts while one Gateway/OPA/Auth Broker cluster routes trusted principals and bound handles |
+| Shell presentation | `context shell configure`, then enter a new session | A Context inherits exported `PS1` by default or independently selects one of four allowlisted shell variables without inheriting arbitrary host environment or startup files |
 | Runtime customization | `runtime init`, edit the current Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image and other Contexts are unchanged |
 | Context authentication | `auth status`; built-in `auth login github`; protected non-terminal stdin `auth import`; `auth logout` | The host opens the fixed GitHub device page when possible, otherwise gives one exact manual URL; no Broker browser/Git setup error intervenes. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing the primary secret |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
@@ -105,6 +106,7 @@ go run ./cmd/tobari help auth logout --format agent
 go build -o /tmp/tobari ./cmd/tobari
 go run ./cmd/tobari context show --format json
 go run ./cmd/tobari context list --format json
+go run ./cmd/tobari context shell configure --variable PS1 --source inherit --format json
 go run ./cmd/tobari context use --name default --format json # changes only the current default without starting Docker
 go run ./cmd/tobari cluster up
 go run ./cmd/tobari auth status --format json
@@ -154,6 +156,10 @@ rules exist. The transcript must prove:
   and separated agent, policy, and managed-adapter credential stores. `context
   show` reports separate secret-free broker/provider observation but no broker
   vault path/content, root key, primary secret, or handle.
+- Context shell configuration reports all four allowlisted variables, preserves
+  explicit empty literals, rejects arbitrary exported names before I/O, and
+  applies inherited values only to a later child shell. An absent exported
+  `PS1` retains the built-in prompt; no credential or startup-file state crosses.
 - `context use` reports `default_updated`, never starts Docker, and does not
   mutate existing Tobari or shared enforcement. Explicit root `--context`
   selection leaves the marker unchanged.
@@ -173,8 +179,9 @@ rules exist. The transcript must prove:
   start/reconcile/unlock the cluster, create/replace a key, or mutate auth state.
 - Cluster status schema 3 names all three shared components and explicitly
   reports auth provider-projection integrity, broker state, and root-key
-  backend. Context report schema 4 carries matching secret-free authentication
-  state; agents do not infer it from labels or filesystem paths. Public backend
+  backend. Context report schema 5 carries a complete shell-environment
+  inventory plus matching secret-free authentication state; agents do not
+  infer either from labels or filesystem paths. Public backend
   values are exactly `macos_keychain|xdg_file`, plus cluster diagnostic
   `unavailable`; `linux_xdg_file` is doctor-only diagnostic prose, not a public
   JSON enum.

@@ -163,6 +163,7 @@ The public commands are:
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `context list [--format text|json]` | utility | read | List named Contexts with stable IDs and identify the current default |
 | `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's agent, policy, managed-adapter store references, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
+| `context shell configure --variable COLORTERM\|NO_COLOR\|PS1\|TERM --source default\|inherit\|literal [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable for the explicit or current Context; the next shell session applies it |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced]` | act, fixed target | create | Create one named Context with a runtime image and separate owner-only stores |
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
@@ -265,6 +266,18 @@ undeclared Docker mutation by the CLI.
   `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
   place to add tools and environment configuration for the Context. The
   command does not overwrite an existing recipe.
+- `context shell configure` changes only one allowlisted shell-presentation
+  policy in the explicit or current Context. `default` removes its override;
+  `inherit` reads that exported variable from the host process launching each
+  future `tobari` session; `literal` requires `--value` and preserves an
+  explicit empty value. `--value` is invalid for the other sources. The fixed
+  inventory is `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`; it excludes
+  `PATH`, `HOME`, `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, credential variables,
+  and arbitrary names. New and migrated Contexts select `PS1=inherit`; when
+  the launcher has no exported `PS1`, the built-in `\h:\w\$ ` prompt remains.
+  Running sessions are unchanged, and no host startup file is sourced or
+  mounted. Literal values are ordinary owner-only configuration and must not
+  contain secrets.
 - `runtime build` is the explicit exception to the no-implicit-pull rule. It
   runs a host Docker build using only the Context runtime directory as build
   context; Docker may obtain a missing base image for this explicit build.
@@ -312,7 +325,8 @@ undeclared Docker mutation by the CLI.
 Human output is concise text. Cluster status JSON is schema version 3; list and
 Workspace status JSON remain schema version 2. Cluster denials are schema
 version 3 and Context reports are schema
-version 4 with explicit secret-free Auth Broker/provider state. Policy
+version 5 with a complete four-item shell-environment inventory and explicit
+secret-free Auth Broker/provider state. Policy
 candidates and review JSON are schema version 4; policy rules are schema version
 2; policy compactions are schema version 3; every auth result uses schema
 version 1 with envelope `auth`. Public authentication backend values are
@@ -478,9 +492,10 @@ Configuration is resolved from
 `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on both macOS and Linux:
 
 - `config.json`: schema-v1 default Tobari image selector;
-- `contexts/<name>/context.json`: host-owned schema-v3 Context manifest with a
+- `contexts/<name>/context.json`: host-owned schema-v4 Context manifest with a
   stable UUIDv7 Context ID, the named agent profile, compatible Tobari runtime
-  image selector, and guided/advanced policy mode;
+  image selector, guided/advanced policy mode, and allowlisted shell-environment
+  overrides;
 - `contexts/<name>/runtime/Dockerfile`: optional owner-only Context runtime
   recipe created by `runtime init`; its source digest and last successful
   managed image build are recorded additively in `context.json`;
@@ -539,9 +554,11 @@ Project and cluster mutation journals are durable recovery markers. An
 interrupted cluster marker, aggregate revision mismatch, or failed projection
 activation makes entry and policy operations fail closed until the exact shared
 cluster operation completes.
-Environment variables select only XDG locations and test/runtime overrides
-documented in scoped help; they do not carry managed token values and Tobari
-does not copy host credential values into the runtime environment.
+Environment variables select XDG locations and documented test/runtime
+overrides. The one user-facing exception is Context shell inheritance: at
+session entry Tobari reads only a Context-selected subset of `PS1`, `TERM`,
+`COLORTERM`, and `NO_COLOR`. It does not enumerate the host environment, and
+it never copies host credential values into the runtime environment.
 
 Image selection uses the selected Tobari's bound Context image selector. The
 legacy `config.json.default_image` seeds the default Context once, and `builtin`
@@ -626,7 +643,10 @@ environment recreates only the work container; the Workspace identity, root,
 and home remain. Docker create
 appends Tobari's fixed `sleep infinity` lifetime command after the image; the
 image `CMD` is not used to own Workspace lifetime. Shells and exact agent
-commands run through child exec sessions, so a child command's nonzero exit is
+commands run through child exec sessions. Each shell exec late-binds only the
+bound Context's declared shell-environment inheritance and applies its fixed
+fallbacks without changing container identity; ANSI color sequences in `PS1`
+remain interpreted by the attached terminal. A child command's nonzero exit is
 returned without stopping the reusable Workspace. A changed image identity,
 runtime contract, mount/security/environment/health specification, or shared
 profile revision recreates only the project container and preserves its

@@ -73,7 +73,7 @@ type ProjectRuntimePort interface {
 	EnsureProjectRuntime(context.Context, tobari.State, tobari.ProjectInstance) (tobari.ProjectInstance, error)
 	InspectProjectRuntime(context.Context, tobari.ProjectInstance) (tobari.RuntimeDiagnostic, error)
 	ProjectSessionAttached(context.Context, tobari.ProjectInstance) (bool, error)
-	EnterProjectRuntime(context.Context, tobari.ProjectInstance, string, io.Reader, io.Writer, io.Writer) (int, error)
+	EnterProjectRuntime(context.Context, tobari.ProjectInstance, tobari.ContextManifest, string, io.Reader, io.Writer, io.Writer) (int, error)
 	InsideProject(context.Context) bool
 	DeleteProject(context.Context, tobari.ProjectInstance) error
 }
@@ -532,7 +532,7 @@ func (s *Service) EnterProjectInContext(
 	if err != nil {
 		return 0, err
 	}
-	code, err := project.EnterProjectRuntime(ctx, instance, cwd, in, out, errOut)
+	code, err := project.EnterProjectRuntime(ctx, instance, manifest, cwd, in, out, errOut)
 	if err != nil {
 		return 0, fault.Wrap(fault.KindInternal, "enter_failed", "Tobari session could not be started", false, err,
 			fault.NextAction{Command: "status", Reason: "Inspect the selected project's runtime."})

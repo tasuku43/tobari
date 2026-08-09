@@ -290,7 +290,7 @@ func (f *projectRuntimeFake) ProjectSessionAttached(context.Context, tobari.Proj
 	f.sessionCalls++
 	return f.sessionAttached, f.sessionErr
 }
-func (f *projectRuntimeFake) EnterProjectRuntime(context.Context, tobari.ProjectInstance, string, io.Reader, io.Writer, io.Writer) (int, error) {
+func (f *projectRuntimeFake) EnterProjectRuntime(context.Context, tobari.ProjectInstance, tobari.ContextManifest, string, io.Reader, io.Writer, io.Writer) (int, error) {
 	f.enterCalls++
 	return 0, nil
 }

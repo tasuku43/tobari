@@ -20,6 +20,7 @@ type RuntimePort interface {
 	ShowContext(context.Context, string) (tobari.ContextReport, error)
 	CreateContext(context.Context, string, string, tobari.ContextPolicyMode) (tobari.ContextReport, error)
 	UseContext(context.Context, string) (tobari.ContextReport, error)
+	ConfigureContextShell(context.Context, string, tobari.ContextShellEnvironmentSetting) (tobari.ContextReport, error)
 	InitRuntime(context.Context) (tobari.ContextReport, error)
 	BuildRuntime(context.Context) (tobari.ContextReport, error)
 }
@@ -49,6 +50,11 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 		intent.Target.ID == tobari.ActiveContextTargetID {
 		return nil
 	}
+	if intent.Effect == operation.EffectWrite &&
+		intent.Target.Kind == tobari.ContextShellTargetKind &&
+		intent.Target.ID == tobari.ContextShellTargetID {
+		return nil
+	}
 	if intent.Effect == operation.EffectCreate && intent.Target.Kind == tobari.ContextRuntimeTargetKind &&
 		intent.Target.ParentID == tobari.ActiveContextRuntimeID && intent.Target.ID == "" {
 		return nil
@@ -58,6 +64,68 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 		return nil
 	}
 	return fault.New(fault.KindRejected, "mutation_rejected", "Context mutation target is not owned by Tobari", false)
+}
+
+// ConfigureShell changes one allowlisted shell variable policy for one
+// explicit or current Context. Host values are never read by the application;
+// infrastructure resolves inherited values only when a session starts.
+func (s *Service) ConfigureShell(
+	ctx context.Context, intent operation.Intent, contextName string,
+	change tobari.ContextShellEnvironmentSetting,
+) (tobari.ContextReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if contextName != "" {
+		if err := tobari.ValidateName(contextName); err != nil {
+			return tobari.ContextReport{}, fault.Wrap(
+				fault.KindInvalidInput, "invalid_context_name", "Context name is invalid", false, err,
+				fault.NextAction{Command: "context list", Reason: "Choose a named Context from the local collection."},
+			)
+		}
+	}
+	if err := change.Validate(true); err != nil {
+		return tobari.ContextReport{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_shell_environment", "Context shell environment setting is invalid", false, err,
+			fault.NextAction{Command: "help context shell configure", Reason: "Choose an allowlisted variable and a valid source/value combination."},
+		)
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID},
+		ExpectedImpact: intent.Impact,
+	}
+	var result tobari.ContextReport
+	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			configured, configureErr := s.runtime.ConfigureContextShell(actionContext, contextName, change)
+			if errors.Is(configureErr, tobari.ErrContextNotFound) {
+				return fault.New(
+					fault.KindNotFound, "context_not_found", "the named Context does not exist", false,
+					fault.NextAction{Command: "context list", Reason: "Choose an existing Context."},
+				)
+			}
+			if configureErr != nil {
+				return fault.Wrap(
+					fault.KindRejected, "context_shell_configure_failed", "Context shell environment could not be updated", false,
+					configureErr,
+					fault.NextAction{Command: "context show", Reason: "Inspect the Context shell environment before retrying."},
+				)
+			}
+			if err := configured.Validate(); err != nil {
+				return fault.Wrap(
+					fault.KindContract, "invalid_context_report", "Context report is invalid", false, err,
+					fault.NextAction{Command: "context show", Reason: "Reconcile the confirmed Context shell setting."},
+				)
+			}
+			result = configured
+			return nil
+		})
+	})
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	return result, nil
 }
 
 // Service coordinates Context tasks without depending on the filesystem or

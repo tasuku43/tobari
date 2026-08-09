@@ -122,12 +122,13 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 		}
 	}
 	if err := r.ensureContext(tobari.ContextManifest{
-		SchemaVersion: tobari.ContextSchemaVersion,
-		ID:            defaultID,
-		Name:          tobari.DefaultContextName,
-		AgentProfile:  tobari.DefaultProfile,
-		Image:         image,
-		PolicyMode:    tobari.ContextPolicyModeGuided,
+		SchemaVersion:    tobari.ContextSchemaVersion,
+		ID:               defaultID,
+		Name:             tobari.DefaultContextName,
+		AgentProfile:     tobari.DefaultProfile,
+		Image:            image,
+		PolicyMode:       tobari.ContextPolicyModeGuided,
+		ShellEnvironment: tobari.InitialContextShellEnvironment(),
 	}, true); err != nil {
 		return err
 	}
@@ -377,12 +378,15 @@ func (r *Runtime) upgradeLegacyContextManifests() error {
 		if manifest.SchemaVersion == tobari.ContextSchemaVersion {
 			continue
 		}
-		id, err := tobari.NewProductionContextID()
-		if err != nil {
-			return err
+		if manifest.ID == "" {
+			id, err := tobari.NewProductionContextID()
+			if err != nil {
+				return err
+			}
+			manifest.ID = id
 		}
 		manifest.SchemaVersion = tobari.ContextSchemaVersion
-		manifest.ID = id
+		manifest.ShellEnvironment = tobari.InitialContextShellEnvironment()
 		if err := manifest.Validate(); err != nil {
 			return err
 		}
@@ -584,6 +588,54 @@ func (r *Runtime) ShowContext(ctx context.Context, name string) (tobari.ContextR
 	return r.contextReport(ctx, tobari.TaskContextShow, manifest, active)
 }
 
+// ConfigureContextShell atomically updates one allowlisted shell environment
+// setting in an explicit or current Context. Inherited values are deliberately
+// resolved later at session entry rather than persisted here.
+func (r *Runtime) ConfigureContextShell(
+	ctx context.Context, name string, change tobari.ContextShellEnvironmentSetting,
+) (tobari.ContextReport, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if err := change.Validate(true); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if err := r.ensureContextStore(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	var result tobari.ContextReport
+	err := r.withContextStoreLock(func() error {
+		active, err := r.readActiveContext()
+		if err != nil {
+			return err
+		}
+		if name == "" {
+			name = active
+		}
+		manifest, err := r.readContextManifest(name)
+		if err != nil {
+			return err
+		}
+		settings, err := tobari.ApplyContextShellEnvironmentSetting(manifest.ShellEnvironment, change)
+		if err != nil {
+			return err
+		}
+		manifest.ShellEnvironment = settings
+		if err := manifest.Validate(); err != nil {
+			return err
+		}
+		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
+			return fmt.Errorf("write Context shell environment: %w", err)
+		}
+		result, err = r.contextReport(ctx, tobari.TaskContextShellConfigure, manifest, active)
+		return err
+	})
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	return result, nil
+}
+
 // CreateContext initializes one named Context without accepting any secret.
 func (r *Runtime) CreateContext(ctx context.Context, name string, image string, mode tobari.ContextPolicyMode) (tobari.ContextReport, error) {
 	if err := ctx.Err(); err != nil {
@@ -595,6 +647,7 @@ func (r *Runtime) CreateContext(ctx context.Context, name string, image string, 
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: r.resolveBuiltinImageSelector(image), PolicyMode: mode,
+		ShellEnvironment: tobari.InitialContextShellEnvironment(),
 	}
 	id, err := tobari.NewProductionContextID()
 	if err != nil {

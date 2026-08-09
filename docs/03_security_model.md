@@ -451,6 +451,15 @@ existing validated Context and atomically changes only the current/default
 marker. It does not touch Docker, the aggregate projection, an existing Tobari,
 or any enforcement authority. `context create` likewise does not start Docker;
 an explicit `cluster up` validates and activates the new all-Context candidate.
+`context shell configure` is a trusted-host fixed-target write to owner-only
+Context configuration. It accepts only `PS1`, `TERM`, `COLORTERM`, and
+`NO_COLOR`, never enumerates the host environment, and resolves `inherit` only
+when a future child shell is entered. `PATH`, `HOME`, `BASH_ENV`, `ENV`,
+`PROMPT_COMMAND`, credential names, host startup files, and host home mounts
+remain outside the boundary. Values are bounded, valid UTF-8 without NUL, and
+Bash-quoted when assigned by the CLI-owned prompt hook. Prompt contents may
+still exercise Bash prompt expansion inside the untrusted Workspace; they gain
+no host authority or Gateway permission.
 `auth login`, `auth import`, and `auth logout` are trusted-host fixed-target
 writes against the installation credential catalog. They resolve one existing
 explicit or current Context and one installed provider before acquisition or

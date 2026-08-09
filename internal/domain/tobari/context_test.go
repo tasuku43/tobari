@@ -38,6 +38,54 @@ func TestContextManifestValidatesRuntimeImageAndMode(t *testing.T) {
 	}
 }
 
+func TestContextShellEnvironmentIsAllowlistedAndPreservesExplicitEmptyLiteral(t *testing.T) {
+	empty := ""
+	overrides, err := ApplyContextShellEnvironmentSetting(nil, ContextShellEnvironmentSetting{
+		Variable: "PS1", Source: ContextShellEnvironmentLiteral, Value: &empty,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	complete, err := CompleteContextShellEnvironment(overrides)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(complete) != 4 || complete[2].Variable != "PS1" || complete[2].Source != ContextShellEnvironmentLiteral ||
+		complete[2].Value == nil || *complete[2].Value != "" {
+		t.Fatalf("complete shell environment = %+v", complete)
+	}
+	overrides, err = ApplyContextShellEnvironmentSetting(overrides, ContextShellEnvironmentSetting{
+		Variable: "PS1", Source: ContextShellEnvironmentDefault,
+	})
+	if err != nil || len(overrides) != 0 {
+		t.Fatalf("default shell environment update = %+v, %v", overrides, err)
+	}
+}
+
+func TestContextShellEnvironmentRejectsUnsafeOrAmbiguousSettings(t *testing.T) {
+	value := "value"
+	tooLarge := strings.Repeat("x", MaxContextShellValueBytes+1)
+	for name, setting := range map[string]ContextShellEnvironmentSetting{
+		"unlisted variable":     {Variable: "PATH", Source: ContextShellEnvironmentInherit},
+		"inherit with value":    {Variable: "PS1", Source: ContextShellEnvironmentInherit, Value: &value},
+		"literal without value": {Variable: "PS1", Source: ContextShellEnvironmentLiteral},
+		"oversized literal":     {Variable: "PS1", Source: ContextShellEnvironmentLiteral, Value: &tooLarge},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ApplyContextShellEnvironmentSetting(nil, setting); err == nil {
+				t.Fatalf("invalid setting was accepted: %+v", setting)
+			}
+		})
+	}
+	duplicate := []ContextShellEnvironmentSetting{
+		{Variable: "TERM", Source: ContextShellEnvironmentInherit},
+		{Variable: "TERM", Source: ContextShellEnvironmentInherit},
+	}
+	if _, err := CompleteContextShellEnvironment(duplicate); err == nil {
+		t.Fatal("duplicate shell environment setting was accepted")
+	}
+}
+
 func TestContextRuntimeRecipeValidatesFixedRecipeAndDigests(t *testing.T) {
 	recipe := ContextRuntimeRecipe{
 		Kind:          ContextRuntimeKindDockerfile,
@@ -91,12 +139,22 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials.json"),
 			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials"),
 		},
-		Runtime:        report,
-		Authentication: ContextAuthentication{BrokerState: ContextAuthBrokerNotApplicable},
+		Runtime:          report,
+		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
+		Authentication:   ContextAuthentication{BrokerState: ContextAuthBrokerNotApplicable},
 	}
 	if err := contextReport.Validate(); err != nil {
 		t.Fatalf("valid runtime Context report rejected: %v", err)
 	}
+}
+
+func mustCompleteContextShellEnvironment(t *testing.T, overrides []ContextShellEnvironmentSetting) []ContextShellEnvironmentSetting {
+	t.Helper()
+	result, err := CompleteContextShellEnvironment(overrides)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
 }
 
 func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {

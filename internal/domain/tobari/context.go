@@ -13,26 +13,31 @@ import (
 )
 
 const (
-	ContextSchemaVersion        = 3
+	ContextSchemaVersion        = 4
 	LegacyContextSchemaVersion  = 1
 	LegacyContextSchemaVersion2 = 2
+	LegacyContextSchemaVersion3 = 3
 	DefaultContextName          = "default"
 
-	TaskContextList   = "context.list"
-	TaskContextShow   = "context.show"
-	TaskContextCreate = "context.create"
-	TaskContextUse    = "context.use"
-	TaskRuntimeInit   = "runtime.init"
-	TaskRuntimeBuild  = "runtime.build"
+	TaskContextList           = "context.list"
+	TaskContextShow           = "context.show"
+	TaskContextCreate         = "context.create"
+	TaskContextUse            = "context.use"
+	TaskContextShellConfigure = "context.shell.configure"
+	TaskRuntimeInit           = "runtime.init"
+	TaskRuntimeBuild          = "runtime.build"
 
-	ContextCatalogTargetKind = "contexts"
-	ContextCatalogTargetID   = "context-catalog"
-	ContextTargetKind        = "context"
-	ActiveContextTargetID    = "active-context"
-	ContextRuntimeTargetKind = "context-runtime"
-	ActiveContextRuntimeID   = "active-context-runtime"
-	ContextRuntimeRecipeFile = "runtime/Dockerfile"
-	OfficialRuntimeBase      = "ghcr.io/tasuku43/tobari/runtime:latest"
+	ContextCatalogTargetKind  = "contexts"
+	ContextCatalogTargetID    = "context-catalog"
+	ContextTargetKind         = "context"
+	ActiveContextTargetID     = "active-context"
+	ContextRuntimeTargetKind  = "context-runtime"
+	ActiveContextRuntimeID    = "active-context-runtime"
+	ContextRuntimeRecipeFile  = "runtime/Dockerfile"
+	OfficialRuntimeBase       = "ghcr.io/tasuku43/tobari/runtime:latest"
+	ContextShellTargetKind    = "context-shell-environment"
+	ContextShellTargetID      = "context-shell-environment"
+	MaxContextShellValueBytes = 4096
 )
 
 var (
@@ -168,6 +173,161 @@ func (s ContextClusterStatus) Validate() error {
 	}
 }
 
+// ContextShellEnvironmentSource selects how one allowlisted shell variable is
+// resolved for each new interactive Workspace session. Default is a public
+// update value only; manifests persist only inherit and literal overrides.
+type ContextShellEnvironmentSource string
+
+const (
+	ContextShellEnvironmentDefault ContextShellEnvironmentSource = "default"
+	ContextShellEnvironmentInherit ContextShellEnvironmentSource = "inherit"
+	ContextShellEnvironmentLiteral ContextShellEnvironmentSource = "literal"
+)
+
+var contextShellEnvironmentVariables = []string{"COLORTERM", "NO_COLOR", "PS1", "TERM"}
+
+func ContextShellEnvironmentVariables() []string {
+	return append([]string(nil), contextShellEnvironmentVariables...)
+}
+
+// InitialContextShellEnvironment makes exported PS1 inheritance the ordinary
+// Context behavior while retaining the built-in prompt when the launcher did
+// not export PS1.
+func InitialContextShellEnvironment() []ContextShellEnvironmentSetting {
+	return []ContextShellEnvironmentSetting{{Variable: "PS1", Source: ContextShellEnvironmentInherit}}
+}
+
+func ValidateContextShellEnvironmentVariable(value string) error {
+	for _, allowed := range contextShellEnvironmentVariables {
+		if value == allowed {
+			return nil
+		}
+	}
+	return fmt.Errorf("Context shell environment variable %q is not allowlisted", value)
+}
+
+func ValidateContextShellEnvironmentValue(value string) error {
+	if !utf8.ValidString(value) || len(value) > MaxContextShellValueBytes || strings.IndexByte(value, 0) >= 0 {
+		return fmt.Errorf("shell environment value must be valid UTF-8 without NUL and at most %d bytes", MaxContextShellValueBytes)
+	}
+	return nil
+}
+
+// ContextShellEnvironmentSetting is one persisted or reported variable
+// policy. Value is present only for literal, including an explicit empty value.
+type ContextShellEnvironmentSetting struct {
+	Variable string                        `json:"variable"`
+	Source   ContextShellEnvironmentSource `json:"source"`
+	Value    *string                       `json:"value,omitempty"`
+}
+
+func (s ContextShellEnvironmentSetting) Validate(allowDefault bool) error {
+	if err := ValidateContextShellEnvironmentVariable(s.Variable); err != nil {
+		return err
+	}
+	switch s.Source {
+	case ContextShellEnvironmentDefault:
+		if !allowDefault {
+			return fmt.Errorf("default shell environment source is not persisted")
+		}
+		if s.Value != nil {
+			return fmt.Errorf("default shell environment source cannot contain a value")
+		}
+	case ContextShellEnvironmentInherit:
+		if s.Value != nil {
+			return fmt.Errorf("inherited shell environment source cannot contain a value")
+		}
+	case ContextShellEnvironmentLiteral:
+		if s.Value == nil {
+			return fmt.Errorf("literal shell environment source requires a value")
+		}
+		if err := ValidateContextShellEnvironmentValue(*s.Value); err != nil {
+			return fmt.Errorf("literal %w", err)
+		}
+	default:
+		return fmt.Errorf("Context shell environment source is invalid: %q", s.Source)
+	}
+	return nil
+}
+
+func validateContextShellEnvironment(settings []ContextShellEnvironmentSetting, complete bool) error {
+	seen := make(map[string]struct{}, len(settings))
+	for _, setting := range settings {
+		if err := setting.Validate(complete); err != nil {
+			return err
+		}
+		if _, duplicate := seen[setting.Variable]; duplicate {
+			return fmt.Errorf("Context shell environment variable %q is duplicated", setting.Variable)
+		}
+		seen[setting.Variable] = struct{}{}
+	}
+	if complete && len(seen) != len(contextShellEnvironmentVariables) {
+		return fmt.Errorf("Context shell environment report must contain every allowlisted variable")
+	}
+	return nil
+}
+
+// CompleteContextShellEnvironment expands persisted overrides into the fixed
+// public variable inventory so callers never infer a missing setting.
+func CompleteContextShellEnvironment(overrides []ContextShellEnvironmentSetting) ([]ContextShellEnvironmentSetting, error) {
+	if err := validateContextShellEnvironment(overrides, false); err != nil {
+		return nil, err
+	}
+	byName := make(map[string]ContextShellEnvironmentSetting, len(overrides))
+	for _, setting := range overrides {
+		byName[setting.Variable] = setting
+	}
+	complete := make([]ContextShellEnvironmentSetting, 0, len(contextShellEnvironmentVariables))
+	for _, variable := range contextShellEnvironmentVariables {
+		setting, found := byName[variable]
+		if !found {
+			setting = ContextShellEnvironmentSetting{Variable: variable, Source: ContextShellEnvironmentDefault}
+		}
+		complete = append(complete, setting)
+	}
+	return complete, nil
+}
+
+func DefaultContextShellEnvironmentReport() []ContextShellEnvironmentSetting {
+	complete := make([]ContextShellEnvironmentSetting, 0, len(contextShellEnvironmentVariables))
+	for _, variable := range contextShellEnvironmentVariables {
+		complete = append(complete, ContextShellEnvironmentSetting{
+			Variable: variable,
+			Source:   ContextShellEnvironmentDefault,
+		})
+	}
+	return complete
+}
+
+// ApplyContextShellEnvironmentSetting returns a deterministic persisted
+// override list. Selecting default removes that variable's override.
+func ApplyContextShellEnvironmentSetting(
+	overrides []ContextShellEnvironmentSetting, change ContextShellEnvironmentSetting,
+) ([]ContextShellEnvironmentSetting, error) {
+	if err := validateContextShellEnvironment(overrides, false); err != nil {
+		return nil, err
+	}
+	if err := change.Validate(true); err != nil {
+		return nil, err
+	}
+	byName := make(map[string]ContextShellEnvironmentSetting, len(overrides)+1)
+	for _, setting := range overrides {
+		byName[setting.Variable] = setting
+	}
+	if change.Source == ContextShellEnvironmentDefault {
+		delete(byName, change.Variable)
+	} else {
+		byName[change.Variable] = change
+	}
+	result := make([]ContextShellEnvironmentSetting, 0, len(byName))
+	for _, variable := range contextShellEnvironmentVariables {
+		if setting, found := byName[variable]; found {
+			result = append(result, setting)
+		}
+	}
+	return result, nil
+}
+
 // ContextRuntimeBuild is the last successful build record for a recipe.
 // Image is a Tobari-managed local reference; ImageDigest is the immutable
 // Docker image identity used for diagnostics and drift detection.
@@ -291,25 +451,30 @@ func ValidateDigest(value string) error {
 // Paths are deliberately resolved by infrastructure rather than persisted in
 // the manifest so stores remain independently protected.
 type ContextManifest struct {
-	SchemaVersion int                   `json:"schema_version"`
-	ID            string                `json:"id"`
-	Name          string                `json:"name"`
-	AgentProfile  string                `json:"agent_profile"`
-	Image         string                `json:"image"`
-	PolicyMode    ContextPolicyMode     `json:"policy_mode"`
-	Runtime       *ContextRuntimeRecipe `json:"runtime,omitempty"`
+	SchemaVersion    int                              `json:"schema_version"`
+	ID               string                           `json:"id"`
+	Name             string                           `json:"name"`
+	AgentProfile     string                           `json:"agent_profile"`
+	Image            string                           `json:"image"`
+	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
+	Runtime          *ContextRuntimeRecipe            `json:"runtime,omitempty"`
+	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
 }
 
 func (m ContextManifest) Validate() error {
-	if m.SchemaVersion != ContextSchemaVersion && m.SchemaVersion != LegacyContextSchemaVersion && m.SchemaVersion != LegacyContextSchemaVersion2 {
-		return fmt.Errorf("context schema version must be %d, %d, or %d", LegacyContextSchemaVersion, LegacyContextSchemaVersion2, ContextSchemaVersion)
+	if m.SchemaVersion != ContextSchemaVersion && m.SchemaVersion != LegacyContextSchemaVersion &&
+		m.SchemaVersion != LegacyContextSchemaVersion2 && m.SchemaVersion != LegacyContextSchemaVersion3 {
+		return fmt.Errorf("context schema version must be %d, %d, %d, or %d", LegacyContextSchemaVersion, LegacyContextSchemaVersion2, LegacyContextSchemaVersion3, ContextSchemaVersion)
 	}
-	if m.SchemaVersion == ContextSchemaVersion {
+	if m.SchemaVersion == ContextSchemaVersion || m.SchemaVersion == LegacyContextSchemaVersion3 {
 		if err := ValidateContextID(m.ID); err != nil {
 			return err
 		}
 	} else if m.ID != "" {
 		return fmt.Errorf("legacy Context manifest cannot contain a Context ID")
+	}
+	if m.SchemaVersion != ContextSchemaVersion && len(m.ShellEnvironment) != 0 {
+		return fmt.Errorf("legacy Context manifest cannot contain shell environment settings")
 	}
 	if err := ValidateName(m.Name); err != nil {
 		return fmt.Errorf("context name: %w", err)
@@ -327,6 +492,9 @@ func (m ContextManifest) Validate() error {
 		if err := m.Runtime.Validate(); err != nil {
 			return err
 		}
+	}
+	if err := validateContextShellEnvironment(m.ShellEnvironment, false); err != nil {
+		return err
 	}
 	return nil
 }
@@ -523,22 +691,23 @@ func (a ContextAuthentication) Validate(observed bool) error {
 
 // ContextReport is the complete selected Context view.
 type ContextReport struct {
-	Task           string                `json:"task"`
-	ID             string                `json:"id"`
-	Name           string                `json:"name"`
-	Active         bool                  `json:"active"`
-	AgentProfile   string                `json:"agent_profile"`
-	Image          string                `json:"image"`
-	PolicyMode     ContextPolicyMode     `json:"policy_mode"`
-	Stores         ContextStorePaths     `json:"stores"`
-	Runtime        ContextRuntimeReport  `json:"runtime"`
-	Cluster        ContextClusterStatus  `json:"cluster"`
-	Authentication ContextAuthentication `json:"authentication"`
+	Task             string                           `json:"task"`
+	ID               string                           `json:"id"`
+	Name             string                           `json:"name"`
+	Active           bool                             `json:"active"`
+	AgentProfile     string                           `json:"agent_profile"`
+	Image            string                           `json:"image"`
+	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
+	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment"`
+	Stores           ContextStorePaths                `json:"stores"`
+	Runtime          ContextRuntimeReport             `json:"runtime"`
+	Cluster          ContextClusterStatus             `json:"cluster"`
+	Authentication   ContextAuthentication            `json:"authentication"`
 }
 
 func (r ContextReport) Validate() error {
 	if r.Task != TaskContextShow && r.Task != TaskContextCreate && r.Task != TaskContextUse &&
-		r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
+		r.Task != TaskContextShellConfigure && r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
 		return fmt.Errorf("context report task is invalid")
 	}
 	manifest := ContextManifest{
@@ -556,6 +725,9 @@ func (r ContextReport) Validate() error {
 		return err
 	}
 	if err := r.Runtime.Validate(); err != nil {
+		return err
+	}
+	if err := validateContextShellEnvironment(r.ShellEnvironment, true); err != nil {
 		return err
 	}
 	if err := r.Authentication.Validate(r.Task == TaskContextShow); err != nil {

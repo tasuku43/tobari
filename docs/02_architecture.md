@@ -129,12 +129,22 @@ mutations serialize this same all-Context activation and preserve the previous
 known-good revision on any failure.
 Cluster status schema 3 projects all three component states plus
 `auth_provider_projection`, `auth_broker_state`, and `root_key_backend` as
-secret-free diagnostics. Context report schema 4 similarly exposes broker and
-installed-provider state without returning a vault path/content, root key,
-primary secret, or handle. Public Linux backend values are `xdg_file`; the
+secret-free diagnostics. Context report schema 5 exposes the complete Context
+shell-environment inventory plus broker and installed-provider state without
+returning a vault path/content, root key, primary secret, or handle. Public Linux backend values are `xdg_file`; the
 infrastructure/doctor detail `linux_xdg_file` is not a public JSON enum. The
 canonical schema/path/backend table is in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
+
+Context shell presentation is a separate composition concern. Domain owns the
+fixed `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR` vocabulary plus
+`default|inherit|literal` invariants; the Context application use case owns the
+single-setting write; the owner-only Context store persists overrides. Project
+runtime infrastructure resolves only declared `inherit` entries from the
+launching process at child-exec time and passes exact values to Bash. It always
+owns `PROMPT_COMMAND` so the chosen `PS1` survives image startup behavior, but
+that hook is neither configurable nor inherited. The report includes explicit
+`default` entries so CLI presentation does not infer omitted state.
 
 ## Runtime assets
 

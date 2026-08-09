@@ -34,8 +34,63 @@ const (
 	projectLogMaxSize        = "10m"
 	projectLogMaxFiles       = "3"
 	projectInteractivePrompt = "\\h:\\w\\$ "
-	projectPromptCommand     = "PS1='" + projectInteractivePrompt + "'"
 )
+
+func bashSingleQuoted(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func projectShellExecEnvironment(
+	manifest tobari.ContextManifest, lookup func(string) (string, bool),
+) ([]string, error) {
+	if err := manifest.Validate(); err != nil {
+		return nil, err
+	}
+	if lookup == nil {
+		return nil, fmt.Errorf("host shell environment lookup is required")
+	}
+	prompt := projectInteractivePrompt
+	resolved := make(map[string]string, len(manifest.ShellEnvironment))
+	for _, setting := range manifest.ShellEnvironment {
+		var value string
+		var present bool
+		switch setting.Source {
+		case tobari.ContextShellEnvironmentInherit:
+			value, present = lookup(setting.Variable)
+		case tobari.ContextShellEnvironmentLiteral:
+			if setting.Value == nil {
+				return nil, fmt.Errorf("literal shell environment %s has no value", setting.Variable)
+			}
+			value, present = *setting.Value, true
+		default:
+			return nil, fmt.Errorf("persisted shell environment %s has invalid source %q", setting.Variable, setting.Source)
+		}
+		if !present {
+			continue
+		}
+		if err := tobari.ValidateContextShellEnvironmentValue(value); err != nil {
+			return nil, fmt.Errorf("resolve shell environment %s: %w", setting.Variable, err)
+		}
+		if setting.Variable == "PS1" {
+			prompt = value
+			continue
+		}
+		resolved[setting.Variable] = value
+	}
+	environment := []string{
+		"PS1=" + prompt,
+		"PROMPT_COMMAND=PS1=" + bashSingleQuoted(prompt),
+	}
+	for _, variable := range tobari.ContextShellEnvironmentVariables() {
+		if variable == "PS1" {
+			continue
+		}
+		if value, found := resolved[variable]; found {
+			environment = append(environment, variable+"="+value)
+		}
+	}
+	return environment, nil
+}
 
 func projectLifetimeCommand() []string {
 	return strings.Fields(tobari.RuntimeImageLifetimeCommand)
@@ -292,11 +347,17 @@ func (r *Runtime) ProjectSessionAttached(ctx context.Context, instance tobari.Pr
 // container, maps the host directory below its root, and preserves child exit
 // status.
 func (r *Runtime) EnterProjectRuntime(
-	ctx context.Context, instance tobari.ProjectInstance, cwd string,
+	ctx context.Context, instance tobari.ProjectInstance, manifest tobari.ContextManifest, cwd string,
 	in io.Reader, out, errOut io.Writer,
 ) (int, error) {
 	if err := instance.Validate(); err != nil {
 		return 0, err
+	}
+	if err := manifest.Validate(); err != nil {
+		return 0, err
+	}
+	if manifest.ID != instance.ContextID {
+		return 0, fmt.Errorf("Context shell environment does not belong to the selected Workspace")
 	}
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
@@ -311,14 +372,19 @@ func (r *Runtime) EnterProjectRuntime(
 		return 0, err
 	}
 	uid, gid := currentIDs()
+	shellEnvironment, err := projectShellExecEnvironment(manifest, os.LookupEnv)
+	if err != nil {
+		return 0, err
+	}
 	args := []string{
 		// Docker's attached exec path owns the PTY resize and terminal signal
 		// forwarding; inherit the caller's streams without a shell wrapper.
 		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
-		"--env", "PS1=" + projectInteractivePrompt,
-		"--env", "PROMPT_COMMAND=" + projectPromptCommand,
-		"--workdir", workdir, container, "/bin/bash",
 	}
+	for _, environment := range shellEnvironment {
+		args = append(args, "--env", environment)
+	}
+	args = append(args, "--workdir", workdir, container, "/bin/bash")
 	if err := r.runner.Run(ctx, args, os.Environ(), in, out, errOut); err == nil {
 		return 0, nil
 	} else {

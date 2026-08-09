@@ -187,6 +187,74 @@ func TestUseContextDoesNotConsultOrMutateClusterReconcileState(t *testing.T) {
 	}
 }
 
+func TestConfigureContextShellPersistsOnlyAllowlistedContextSetting(t *testing.T) {
+	t.Parallel()
+	runner := &contextSwitchRunner{}
+	runtime := newContextSwitchRuntime(t, runner)
+	prompt := `\[\e[33m\]\$\[\e[0m\] `
+	result, err := runtime.ConfigureContextShell(context.Background(), "project-tools", tobari.ContextShellEnvironmentSetting{
+		Variable: "PS1", Source: tobari.ContextShellEnvironmentLiteral, Value: &prompt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Task != tobari.TaskContextShellConfigure || result.Name != "project-tools" {
+		t.Fatalf("configure result = %+v", result)
+	}
+	manifest, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.ShellEnvironment) != 1 || manifest.ShellEnvironment[0].Value == nil ||
+		*manifest.ShellEnvironment[0].Value != prompt {
+		t.Fatalf("persisted shell environment = %+v", manifest.ShellEnvironment)
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("shell configuration touched Docker: %+v", runner.runs)
+	}
+
+	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", tobari.ContextShellEnvironmentSetting{
+		Variable: "PS1", Source: tobari.ContextShellEnvironmentDefault,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err = runtime.readContextManifest("project-tools")
+	if err != nil || len(manifest.ShellEnvironment) != 0 {
+		t.Fatalf("default shell setting = %+v, error = %v", manifest.ShellEnvironment, err)
+	}
+}
+
+func TestContextSchemaThreeMigrationPreservesIdentityAndEnablesPS1Inheritance(t *testing.T) {
+	t.Parallel()
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	manifest, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantID := manifest.ID
+	manifest.SchemaVersion = tobari.LegacyContextSchemaVersion3
+	manifest.ShellEnvironment = nil
+	if err := writeAtomicJSON(runtime.contextManifestPath(manifest.Name), manifest); err != nil {
+		t.Fatal(err)
+	}
+	shown, err := runtime.ShowContext(context.Background(), "project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upgraded.SchemaVersion != tobari.ContextSchemaVersion || upgraded.ID != wantID ||
+		len(upgraded.ShellEnvironment) != 1 || upgraded.ShellEnvironment[0].Variable != "PS1" ||
+		upgraded.ShellEnvironment[0].Source != tobari.ContextShellEnvironmentInherit {
+		t.Fatalf("upgraded Context = %+v", upgraded)
+	}
+	if len(shown.ShellEnvironment) != len(tobari.ContextShellEnvironmentVariables()) {
+		t.Fatalf("shown shell environment = %+v", shown.ShellEnvironment)
+	}
+}
+
 func TestContextStoreMigratesLegacyStoresAndPersistsRuntimeImage(t *testing.T) {
 	root := t.TempDir()
 	config := filepath.Join(root, "config")

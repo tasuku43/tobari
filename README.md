@@ -227,7 +227,9 @@ tobari
 
 The command opens the supported interactive Bash shell as user `tobari`
 (`BASH=/bin/bash`). The shell is inside the Workspace; `exit` returns to the
-host and leaves the Workspace reusable. Run this request inside that shell.
+host and leaves the Workspace reusable. New Contexts inherit an exported host
+`PS1` for each new shell session, including its ANSI colors; if `PS1` was not
+exported, Tobari keeps its built-in prompt. Run this request inside that shell.
 `example.com` and the path are
 synthetic public values; the `PUT` is intentionally outside the initialized
 allow rules while remaining eligible for exact policy learning.
@@ -645,6 +647,28 @@ reconciles Docker. Creating a Context while cluster state exists reports that
 an explicit `cluster up` is required to validate and activate the new complete
 all-Context projection.
 
+Shell presentation is also Context-owned. Select host inheritance, an
+independent literal, or the built-in default per variable:
+
+```sh
+# PS1 inheritance is already the default for new and migrated Contexts.
+export PS1='\[\e[33m\]\u@\h:\w\$ \[\e[0m\]'
+tobari context shell configure --variable PS1 --source inherit
+
+# An independent Context-specific setting; --value= preserves explicit empty.
+tobari context shell configure --variable COLORTERM --source literal --value truecolor
+tobari context shell configure --variable NO_COLOR --source literal --value=
+
+# Remove one override and return to Tobari's default for that variable.
+tobari context shell configure --variable TERM --source default
+```
+
+Only `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR` are configurable. Tobari does
+not inherit arbitrary exports, credentials, `PATH`, shell startup hooks, or
+host shell files. Changes apply to the next `tobari` shell session; existing
+sessions are unchanged. Literal values are stored in the owner-only Context
+manifest, so do not use them for secrets.
+
 Then ordinary root invocations stay short:
 
 ```sh
@@ -769,6 +793,7 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
 | `tobari context list [--format text\|json]` | List stable named Contexts and identify the current default |
 | `tobari context show [--name NAME] [--format text\|json]` | Inspect runtime, agent, policy, managed-adapter store references, and secret-free broker/provider state without a broker vault path/content, key, primary secret, or handle |
+| `tobari context shell configure --variable VAR --source default\|inherit\|literal [--value VALUE] [--context NAME] [--format text\|json]` | Configure one allowlisted shell-presentation variable for the explicit or current Context |
 | `tobari context create --name NAME [--image IMAGE] [--mode guided\|advanced]` | Create a named execution Context without secrets |
 | `tobari context use --name NAME` | Change only the current/default Context without mutating existing Tobari or Docker |
 | `tobari runtime init [--format text\|json]` | Create the current Context's runtime/Dockerfile template |
@@ -806,7 +831,7 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
   contexts/
     active.json           # compatibility-named current/default Context marker
     <name>/
-      context.json        # stable Context ID, agent profile, runtime, policy mode
+      context.json        # stable Context ID, agent profile, runtime, policy, shell settings
       runtime/
         Dockerfile         # optional Context runtime recipe
       policy/

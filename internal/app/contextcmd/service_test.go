@@ -20,18 +20,22 @@ type contextRuntimeFake struct {
 	useResult          tobari.ContextReport
 	initResult         tobari.ContextReport
 	buildResult        tobari.ContextReport
+	configureResult    tobari.ContextReport
 	createErr          error
 	useErr             error
 	initErr            error
 	buildErr           error
+	configureErr       error
 	createCalls        int
 	useCalls           int
 	initCalls          int
 	buildCalls         int
+	configureCalls     int
 	buildProgressCalls int
 	lastName           string
 	lastImage          string
 	lastMode           tobari.ContextPolicyMode
+	lastChange         tobari.ContextShellEnvironmentSetting
 }
 
 func (f *contextRuntimeFake) ListContexts(context.Context) (tobari.ContextListResult, error) {
@@ -53,6 +57,14 @@ func (f *contextRuntimeFake) CreateContext(
 func (f *contextRuntimeFake) UseContext(context.Context, string) (tobari.ContextReport, error) {
 	f.useCalls++
 	return f.useResult, f.useErr
+}
+
+func (f *contextRuntimeFake) ConfigureContextShell(
+	_ context.Context, name string, change tobari.ContextShellEnvironmentSetting,
+) (tobari.ContextReport, error) {
+	f.configureCalls++
+	f.lastName, f.lastChange = name, change
+	return f.configureResult, f.configureErr
 }
 
 func (f *contextRuntimeFake) InitRuntime(context.Context) (tobari.ContextReport, error) {
@@ -92,14 +104,69 @@ func contextReport(task, name string) tobari.ContextReport {
 	return tobari.ContextReport{
 		Task: task, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: task == tobari.TaskContextUse,
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-		PolicyMode:     tobari.ContextPolicyModeGuided,
-		Cluster:        tobari.ContextClusterStatusNotApplicable,
-		Authentication: authentication,
+		PolicyMode:       tobari.ContextPolicyModeGuided,
+		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
+		Cluster:          tobari.ContextClusterStatusNotApplicable,
+		Authentication:   authentication,
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials.json"),
 			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials"),
 		},
+	}
+}
+
+func shellContextImpact() operation.Impact {
+	return operation.Impact{
+		Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+		AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo,
+	}
+}
+
+func TestConfigureShellValidatesBeforeMutationAndPreservesLiteralEmpty(t *testing.T) {
+	empty := ""
+	fake := &contextRuntimeFake{configureResult: contextReport(tobari.TaskContextShellConfigure, "project-tools")}
+	service := New(fake)
+	intent := operation.Intent{
+		Command: "context shell configure", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID},
+		Impact: shellContextImpact(),
+	}
+	change := tobari.ContextShellEnvironmentSetting{
+		Variable: "PS1", Source: tobari.ContextShellEnvironmentLiteral, Value: &empty,
+	}
+	result, err := service.ConfigureShell(context.Background(), intent, "project-tools", change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Task != tobari.TaskContextShellConfigure || fake.configureCalls != 1 || fake.lastName != "project-tools" ||
+		fake.lastChange.Value == nil || *fake.lastChange.Value != "" {
+		t.Fatalf("result/call = %+v / %d %q %+v", result, fake.configureCalls, fake.lastName, fake.lastChange)
+	}
+
+	fake.configureCalls = 0
+	change.Variable = "PATH"
+	_, err = service.ConfigureShell(context.Background(), intent, "project-tools", change)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_shell_environment" || fake.configureCalls != 0 {
+		t.Fatalf("invalid configure = %#v, ok=%t, calls=%d", public, ok, fake.configureCalls)
+	}
+}
+
+func TestConfigureShellMapsMissingContext(t *testing.T) {
+	fake := &contextRuntimeFake{configureErr: tobari.ErrContextNotFound}
+	service := New(fake)
+	intent := operation.Intent{
+		Command: "context shell configure", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID},
+		Impact: shellContextImpact(),
+	}
+	_, err := service.ConfigureShell(context.Background(), intent, "missing", tobari.ContextShellEnvironmentSetting{
+		Variable: "PS1", Source: tobari.ContextShellEnvironmentInherit,
+	})
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindNotFound || public.Code != "context_not_found" || fake.configureCalls != 1 {
+		t.Fatalf("missing Context configure = %#v, ok=%t, calls=%d", public, ok, fake.configureCalls)
 	}
 }
 

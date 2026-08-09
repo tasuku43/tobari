@@ -24,6 +24,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		policyCompactSpec(),
 		contextListSpec(),
 		contextShowSpec(),
+		contextShellConfigureSpec(),
 		contextCreateSpec(),
 		contextUseSpec(),
 		runtimeInitSpec(),
@@ -34,6 +35,56 @@ func runtimeCommandSpecs() []CommandSpec {
 		deleteSpec(),
 	}
 	return append(specs, authCommandSpecs()...)
+}
+
+func contextShellConfigureSpec() CommandSpec {
+	return CommandSpec{
+		Path: "context shell configure", Summary: "Configure one Context shell environment variable",
+		Args:   "--variable COLORTERM|NO_COLOR|PS1|TERM --source default|inherit|literal [--value <value>] [--context <name>] [--format text|json]",
+		Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "context.composition",
+			Outcome:      "Choose Tobari default behavior, exported host inheritance, or one Context-owned literal for an allowlisted shell variable",
+			Inputs: []CommandInput{
+				{
+					Name: "--variable", Source: InputSourceFlag, Required: true,
+					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+					Description:   "Allowlisted shell environment variable configured for future interactive sessions.",
+					AllowedValues: tobari.ContextShellEnvironmentVariables(),
+				},
+				{
+					Name: "--source", Source: InputSourceFlag, Required: true,
+					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+					Description:   "default removes the override; inherit reads an exported host value at entry; literal uses --value.",
+					AllowedValues: []string{"default", "inherit", "literal"},
+				},
+				{
+					Name: "--value", Source: InputSourceFlag, Required: false,
+					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+					Description:   "Exact Context-owned value; required only for literal and may be explicitly empty.",
+					AllowedValues: []string{}, Requires: []string{"--source"},
+				},
+				executionContextInput(),
+				formatInput(),
+			},
+			Output:        contextReportOutput(),
+			Prerequisites: []string{"The selected Context exists on the trusted host; inherited values must be exported by the process that starts Tobari."},
+			FixedTarget:   fixedContextShellTarget(),
+			Errors: mutationCommandErrors("context shell configure", "context show",
+				declaredCommandError(fault.KindInvalidInput, "invalid_shell_environment", false, "help context shell configure", "Choose an allowlisted variable and a valid source/value combination."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
+				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindRejected, "context_shell_configure_failed", false, "context show", "Inspect the Context shell environment before retrying."),
+				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context shell setting."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.ContextShellTargetKind, TargetInputs: []string{},
+				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
+			},
+		},
+		handler: runContextShellConfigure,
+	}
 }
 
 func contextListSpec() CommandSpec {
@@ -1042,6 +1093,14 @@ func fixedActiveContextTarget() *FixedTarget {
 	}
 }
 
+func fixedContextShellTarget() *FixedTarget {
+	return &FixedTarget{
+		Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID,
+		Description: "This installation's Context-owned allowlisted shell environment configuration.",
+		Scope:       FixedTargetScopeToolLocal,
+	}
+}
+
 func fixedActiveContextRuntimeTarget() *FixedTarget {
 	return &FixedTarget{
 		Kind:        tobari.ContextRuntimeTargetKind,
@@ -1095,12 +1154,13 @@ func contextReportOutput() CommandOutput {
 			{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only shared agent profile reference."},
 			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Context."},
 			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Guided or advanced policy-development mode."},
+			{Name: "shell_environment", Type: OutputFieldTypeArray, Description: "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal."},
 			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."},
 			{Name: "runtime", Type: OutputFieldTypeObject, Description: "Selected runtime source, recipe status, source digest, and image digest."},
 			{Name: "cluster", Type: OutputFieldTypeString, Description: "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "context", JSONSchemaVersion: 3,
+		JSONEnvelope: "context", JSONSchemaVersion: 5,
 	}
 }
 

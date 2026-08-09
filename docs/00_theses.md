@@ -529,6 +529,13 @@ a handle selects authority without the trusted principal and OPA allow.
   host-facing composition surface. `context use` changes only the omitted-
   Context default. `tobari --context NAME` chooses an invocation Context
   without changing that default.
+- `context shell configure` owns the narrow shell-presentation boundary. Each
+  Context may independently select `default`, late-bound exported-host
+  `inherit`, or an explicit `literal` value for only `PS1`, `TERM`,
+  `COLORTERM`, and `NO_COLOR`. New and migrated Contexts inherit exported
+  `PS1`; an absent export retains Tobari's built-in prompt. No credential,
+  executable startup hook, host shell file, or arbitrary environment name
+  crosses this boundary.
 - `runtime init` and `runtime build` are the host-facing runtime customization
   surface. The selected Context owns one fixed `runtime/Dockerfile`; build
   validates the resulting image and promotes it into that Context without

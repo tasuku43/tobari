@@ -30,6 +30,16 @@ func projectRuntimeInstance(t *testing.T, runtime *Runtime) tobari.ProjectInstan
 	return instance
 }
 
+func projectRuntimeContext(t *testing.T, runtime *Runtime, instance tobari.ProjectInstance) tobari.ContextManifest {
+	t.Helper()
+	manifest, _, err := runtime.contextByID(instance.ContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.ShellEnvironment = nil
+	return manifest
+}
+
 func TestInspectProjectRuntimeClassifiesDockerUnreachable(t *testing.T) {
 	t.Parallel()
 	runner := &recordingRunner{outputErr: errors.New("Docker daemon unavailable")}
@@ -132,11 +142,12 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	instance := projectRuntimeInstance(t, runtime)
+	manifest := projectRuntimeContext(t, runtime, instance)
 	nested := filepath.Join(instance.Root, "root")
 	if err := os.MkdirAll(nested, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, nested, nil, nil, nil); err != nil {
+	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, nested, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(runner.runs) != 1 {
@@ -151,7 +162,7 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 	wantArgs := []string{
 		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		"--env", "PS1=" + projectInteractivePrompt,
-		"--env", "PROMPT_COMMAND=" + projectPromptCommand,
+		"--env", "PROMPT_COMMAND=PS1=" + bashSingleQuoted(projectInteractivePrompt),
 		"--workdir", want, container, "/bin/bash",
 	}
 	if got := strings.Join(runner.runs[0].args, " "); got != strings.Join(wantArgs, " ") {
@@ -176,7 +187,8 @@ func TestEnterProjectRuntimeSetsPromptWithoutUserName(t *testing.T) {
 		t.Fatal(err)
 	}
 	instance := projectRuntimeInstance(t, runtime)
-	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, instance.Root, nil, nil, nil); err != nil {
+	manifest := projectRuntimeContext(t, runtime, instance)
+	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(runner.runs) != 1 {
@@ -185,7 +197,7 @@ func TestEnterProjectRuntimeSetsPromptWithoutUserName(t *testing.T) {
 	args := strings.Join(runner.runs[0].args, "\n")
 	for _, want := range []string{
 		"PS1=" + projectInteractivePrompt,
-		"PROMPT_COMMAND=" + projectPromptCommand,
+		"PROMPT_COMMAND=PS1=" + bashSingleQuoted(projectInteractivePrompt),
 	} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("EnterProjectRuntime() args missing %q in %v", want, runner.runs[0].args)
@@ -193,6 +205,85 @@ func TestEnterProjectRuntimeSetsPromptWithoutUserName(t *testing.T) {
 	}
 	if strings.Contains(projectInteractivePrompt, "\\u") {
 		t.Fatalf("projectInteractivePrompt includes username escape: %q", projectInteractivePrompt)
+	}
+}
+
+func TestProjectShellExecEnvironmentUsesOnlyDeclaredSourcesAndQuotesPrompt(t *testing.T) {
+	literal := "truecolor"
+	manifest := tobari.ContextManifest{
+		SchemaVersion: tobari.ContextSchemaVersion,
+		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
+		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		PolicyMode: tobari.ContextPolicyModeGuided,
+		ShellEnvironment: []tobari.ContextShellEnvironmentSetting{
+			{Variable: "PS1", Source: tobari.ContextShellEnvironmentInherit},
+			{Variable: "TERM", Source: tobari.ContextShellEnvironmentInherit},
+			{Variable: "COLORTERM", Source: tobari.ContextShellEnvironmentLiteral, Value: &literal},
+			{Variable: "NO_COLOR", Source: tobari.ContextShellEnvironmentInherit},
+		},
+	}
+	host := map[string]string{
+		"PS1":      "\\[\\e[33m\\]$'\\[\\e[0m\\] ",
+		"TERM":     "xterm-256color",
+		"GH_TOKEN": "must-not-cross",
+	}
+	environment, err := projectShellExecEnvironment(manifest, func(name string) (string, bool) {
+		value, found := host[name]
+		return value, found
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(environment, "\n")
+	for _, want := range []string{
+		"PS1=" + host["PS1"],
+		"PROMPT_COMMAND=PS1=" + bashSingleQuoted(host["PS1"]),
+		"COLORTERM=truecolor",
+		"TERM=xterm-256color",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("shell environment %q lacks %q", joined, want)
+		}
+	}
+	for _, absent := range []string{"GH_TOKEN", "NO_COLOR="} {
+		if strings.Contains(joined, absent) {
+			t.Fatalf("shell environment copied undeclared or absent value %q: %q", absent, joined)
+		}
+	}
+}
+
+func TestProjectShellExecEnvironmentFallsBackWhenInheritedPS1IsAbsent(t *testing.T) {
+	manifest := tobari.ContextManifest{
+		SchemaVersion: tobari.ContextSchemaVersion,
+		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
+		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		PolicyMode:       tobari.ContextPolicyModeGuided,
+		ShellEnvironment: tobari.InitialContextShellEnvironment(),
+	}
+	environment, err := projectShellExecEnvironment(manifest, func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := environment[0], "PS1="+projectInteractivePrompt; got != want {
+		t.Fatalf("fallback prompt = %q, want %q", got, want)
+	}
+}
+
+func TestProjectShellExecEnvironmentRejectsOversizedInheritedValue(t *testing.T) {
+	manifest := tobari.ContextManifest{
+		SchemaVersion: tobari.ContextSchemaVersion,
+		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
+		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		PolicyMode: tobari.ContextPolicyModeGuided,
+		ShellEnvironment: []tobari.ContextShellEnvironmentSetting{
+			{Variable: "TERM", Source: tobari.ContextShellEnvironmentInherit},
+		},
+	}
+	_, err := projectShellExecEnvironment(manifest, func(string) (string, bool) {
+		return strings.Repeat("x", tobari.MaxContextShellValueBytes+1), true
+	})
+	if err == nil || !strings.Contains(err.Error(), "at most") {
+		t.Fatalf("oversized inherited value error = %v", err)
 	}
 }
 
@@ -1083,7 +1174,8 @@ func TestEnterProjectRuntimePreservesChildExitStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	instance := projectRuntimeInstance(t, runtime)
-	code, err := runtime.EnterProjectRuntime(context.Background(), instance, instance.Root, nil, io.Discard, io.Discard)
+	manifest := projectRuntimeContext(t, runtime, instance)
+	code, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, nil, io.Discard, io.Discard)
 	if err != nil || code != 37 {
 		t.Fatalf("EnterProjectRuntime() = (%d, %v), want child status 37", code, err)
 	}

@@ -144,18 +144,23 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
+	shellEnvironment, err := tobari.CompleteContextShellEnvironment(manifest.ShellEnvironment)
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
 	result := tobari.ContextReport{
-		Task:           task,
-		ID:             manifest.ID,
-		Name:           manifest.Name,
-		Active:         manifest.Name == active,
-		AgentProfile:   manifest.AgentProfile,
-		Image:          manifest.Image,
-		PolicyMode:     manifest.PolicyMode,
-		Stores:         r.contextPaths(manifest.Name),
-		Runtime:        runtimeReport,
-		Cluster:        tobari.ContextClusterStatusNotApplicable,
-		Authentication: tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable},
+		Task:             task,
+		ID:               manifest.ID,
+		Name:             manifest.Name,
+		Active:           manifest.Name == active,
+		AgentProfile:     manifest.AgentProfile,
+		Image:            manifest.Image,
+		PolicyMode:       manifest.PolicyMode,
+		ShellEnvironment: shellEnvironment,
+		Stores:           r.contextPaths(manifest.Name),
+		Runtime:          runtimeReport,
+		Cluster:          tobari.ContextClusterStatusNotApplicable,
+		Authentication:   tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable},
 	}
 	if task == tobari.TaskContextShow {
 		result.Authentication, err = r.contextAuthentication(ctx, manifest.ID)
