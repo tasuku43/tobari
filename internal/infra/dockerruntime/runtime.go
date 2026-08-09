@@ -36,6 +36,7 @@ const (
 	defaultLogTail           = 200
 	gatewayContainer         = "tobari-gateway"
 	opaContainer             = "tobari-opa"
+	policyBundleVolume       = "tobari-policy-bundle"
 	authBrokerContainer      = "tobari-auth-broker"
 	policyTestFailureMessage = "OPA policy tests failed; check Rego syntax and ensure the XDG policy directory is accessible to the Docker Engine VM"
 )
@@ -517,7 +518,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 			_ = r.clearClusterJournal()
 			return fault.Wrap(fault.KindRejected, "policy_test_failed", policyTestFailureMessage, false, err)
 		}
-		return nil
+		return r.preparePolicyBundle(ctx, state)
 	}); err != nil {
 		return tobari.State{}, err
 	}
@@ -1577,7 +1578,7 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 		return fmt.Errorf("clear project principal registry: %w", err)
 	}
 	if purge {
-		for _, volume := range []string{"tobari-gateway-ca", "tobari-public-ca"} {
+		for _, volume := range []string{"tobari-gateway-ca", "tobari-public-ca", policyBundleVolume} {
 			if err := r.verifyOwned(ctx, "volume", volume); errors.Is(err, errOwnedResourceMissing) {
 				continue
 			} else if err != nil {

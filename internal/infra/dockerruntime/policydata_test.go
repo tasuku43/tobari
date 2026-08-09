@@ -139,7 +139,7 @@ func (concurrentPolicyRunner) Run(context.Context, []string, []string, io.Reader
 }
 
 func (concurrentPolicyRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
-	if len(args) > 0 && args[0] == "inspect" {
+	if len(args) > 0 && (args[0] == "inspect" || (args[0] == "volume" && len(args) > 1 && args[1] == "inspect")) {
 		return []byte(ownerValue + "\n"), nil
 	}
 	return nil, nil
@@ -315,6 +315,39 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	}
 }
 
+func TestApplyPolicyDecisionSetRejectsMultipleContextSourcesBeforeDocker(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
+	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+		t.Fatal(err)
+	}
+	defaultContext, _, err := runtimeStore.resolveContext("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restrictedContext, _, err := runtimeStore.resolveContext("restricted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := []tobari.LearnedPolicyRule{
+		contextRuleFixture(t, defaultContext, "01912345-6789-7abc-8def-0123456789ab", "/default-reviewed"),
+		contextRuleFixture(t, restrictedContext, "01912345-6789-7abc-8def-0123456789ac", "/restricted-reviewed"),
+	}
+	err = runtimeStore.ApplyPolicyDecisionSet(
+		context.Background(), runtimeState(root),
+		[]tobari.LearnedPolicyRule{}, updated,
+		[]tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{},
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "policy_review_scope_mixed" {
+		t.Fatalf("mixed-Context runtime decision set error = %v", err)
+	}
+}
+
 func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -338,16 +371,7 @@ func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testi
   }
 }
 `)
-	runner := &recordingRunner{outputQueue: [][]byte{
-		nil,
-		nil,
-		[]byte("default\n"),
-		nil,
-		nil,
-		nil,
-		[]byte("default\n"),
-		nil,
-	}}
+	runner := &recordingRunner{}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	rule := learnedRuleFixture(t, "/repos/cli/cli")
 
@@ -356,7 +380,7 @@ func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testi
 	); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.outputs) != 4 {
+	if len(runner.outputs) != 7 {
 		t.Fatalf("Docker calls = %v", runner.outputs)
 	}
 	if got := runner.outputs[0].args; len(got) < 2 || got[0] != "run" {
@@ -404,7 +428,7 @@ func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testi
 		t.Fatal(err)
 	}
 	read, err := runtime.ReadLearnedPolicyRules(context.Background(), state)
-	if err != nil || len(read) != 0 || len(runner.outputs) != 8 {
+	if err != nil || len(read) != 0 || len(runner.outputs) != 20 {
 		t.Fatalf("removed learned rule = %+v, error = %v, Docker calls = %v", read, err, runner.outputs)
 	}
 }
@@ -456,16 +480,7 @@ func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) 
   }
 }
 `)
-	runner := &recordingRunner{outputQueue: [][]byte{
-		nil,
-		nil,
-		[]byte("default\n"),
-		nil,
-		nil,
-		nil,
-		[]byte("default\n"),
-		nil,
-	}}
+	runner := &recordingRunner{}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	rule := deniedRuleFixture(t, "/user/settings")
 
@@ -508,7 +523,7 @@ func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) 
 		t.Fatal(err)
 	}
 	read, err = runtime.ReadPolicyDenyRules(context.Background(), state)
-	if err != nil || len(read.Exact) != 0 || len(runner.outputs) != 8 {
+	if err != nil || len(read.Exact) != 0 || len(runner.outputs) != 20 {
 		t.Fatalf("removed deny rule = %+v, error = %v, Docker calls = %v", read, err, runner.outputs)
 	}
 }

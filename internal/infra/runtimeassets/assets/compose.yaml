@@ -15,7 +15,8 @@ services:
       - --addr=0.0.0.0:8181
       - --log-format=json
       - --watch
-      - /policy
+      - --bundle
+      - /bundle/bundle.tar.gz
     read_only: true
     cap_drop: [ALL]
     security_opt:
@@ -28,7 +29,7 @@ services:
         max-size: "10m"
         max-file: "3"
     volumes:
-      - ${TOBARI_POLICY_DIR}:/policy:ro
+      - policy-bundle:/bundle:ro
     networks:
       control: {}
     labels:
@@ -158,6 +159,10 @@ networks:
       io.tobari.owner: default
 
 volumes:
+  policy-bundle:
+    name: tobari-policy-bundle
+    labels:
+      io.tobari.owner: default
   gateway-ca:
     name: tobari-gateway-ca
     labels:

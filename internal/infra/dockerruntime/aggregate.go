@@ -383,7 +383,10 @@ func (r *Runtime) buildAggregateProjection(ctx context.Context) (aggregateProjec
 			return aggregateProjection{}, fmt.Errorf("Context %q credential projection: %w", item.manifest.Name, err)
 		}
 	}
-	dataDocument := map[string]any{"tobari_contexts": dataContexts, "tobari": map[string]any{"aggregate_schema_version": aggregateSchemaVersion}}
+	dataDocument := map[string]any{"tobari_contexts": dataContexts, "tobari": map[string]any{
+		"aggregate_schema_version": aggregateSchemaVersion,
+		"aggregate_revision":       revision,
+	}}
 	if err := writeAtomicJSON(filepath.Join(policyDirectory, "data.json"), dataDocument); err != nil {
 		return aggregateProjection{}, err
 	}

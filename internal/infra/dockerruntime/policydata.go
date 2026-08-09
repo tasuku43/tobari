@@ -735,16 +735,41 @@ func (r *Runtime) applyPolicyData(
 			"tested policy data could not be written atomically", false, err,
 		)
 	}
-	if err := r.ApplyPolicy(ctx, state); err != nil {
+	if err := r.activatePolicyRevision(ctx, state, policyAuthorityReduces(expectedAllows, updatedAllows, expectedDenies, updatedDenies)); err != nil {
 		return err
 	}
 	return nil
 }
 
-func policyMutationContext(
+func policyAuthorityReduces(
 	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
-) (string, error) {
+) bool {
+	updatedAllowIDs := make(map[string]struct{}, len(updatedAllows))
+	for _, rule := range updatedAllows {
+		updatedAllowIDs[rule.ID] = struct{}{}
+	}
+	for _, rule := range expectedAllows {
+		if _, retained := updatedAllowIDs[rule.ID]; !retained {
+			return true
+		}
+	}
+	expectedDenyIDs := make(map[string]struct{}, len(expectedDenies))
+	for _, rule := range expectedDenies {
+		expectedDenyIDs[rule.ID] = struct{}{}
+	}
+	for _, rule := range updatedDenies {
+		if _, existed := expectedDenyIDs[rule.ID]; !existed {
+			return true
+		}
+	}
+	return false
+}
+
+func policyMutationContexts(
+	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
+	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
+) ([]string, error) {
 	ids := map[string]struct{}{}
 	allowExpected := map[string]tobari.LearnedPolicyRule{}
 	for _, rule := range expectedAllows {
@@ -778,13 +803,15 @@ func policyMutationContext(
 			ids[rule.ContextID] = struct{}{}
 		}
 	}
-	if len(ids) != 1 {
-		return "", fmt.Errorf("one policy mutation must affect exactly one Context")
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("policy mutation has no Context target")
 	}
+	result := make([]string, 0, len(ids))
 	for id := range ids {
-		return id, nil
+		result = append(result, id)
 	}
-	return "", fmt.Errorf("policy mutation has no Context target")
+	sort.Strings(result)
+	return result, nil
 }
 
 func rulesForContext(rules []tobari.LearnedPolicyRule, contextID string) []tobari.LearnedPolicyRule {
@@ -832,9 +859,15 @@ func (r *Runtime) applyAggregatePolicyData(
 	if err := tobari.ValidateLearnedPolicyRules(updatedAllows); err != nil {
 		return err
 	}
-	targetContext, err := policyMutationContext(expectedAllows, updatedAllows, expectedDenies, updatedDenies)
+	targetContexts, err := policyMutationContexts(expectedAllows, updatedAllows, expectedDenies, updatedDenies)
 	if err != nil {
 		return fault.Wrap(fault.KindContract, "invalid_policy_scope", "policy mutation Context scope is invalid", false, err)
+	}
+	if checkDenySnapshot && len(targetContexts) != 1 {
+		return fault.New(
+			fault.KindRejected, "policy_review_scope_mixed",
+			"one reviewed Apply cannot span multiple Context policy sources", false,
+		)
 	}
 	return r.withPolicyProjectionLock(ctx, func() error {
 		stored, configured, err := r.LoadState(ctx)
@@ -857,52 +890,76 @@ func (r *Runtime) applyAggregatePolicyData(
 		if !reflect.DeepEqual(currentAllows, expectedAllows) || !reflect.DeepEqual(currentDenies.Exact, expectedDenies) {
 			return fault.New(fault.KindRejected, "policy_data_changed", "policy decisions changed after discovery", false)
 		}
-		manifest, paths, err := r.contextByID(targetContext)
-		if err != nil {
-			return fault.Wrap(fault.KindRejected, "context_unavailable", "policy target Context is unavailable", false, err)
+		type contextUpdate struct {
+			sourcePath string
+			original   []byte
+			candidate  []byte
 		}
-		file, err := readPolicyData(paths.PolicyDirectory)
-		if err != nil {
-			return err
-		}
-		contextAllows := rulesForContext(updatedAllows, targetContext)
-		contextDenies := deniesForContext(updatedDenies, targetContext)
-		for _, rule := range contextAllows {
-			if rule.ContextName != manifest.Name {
-				return fault.New(fault.KindContract, "context_mismatch", "learned rule Context binding is inconsistent", false)
+		updates := make([]contextUpdate, 0, len(targetContexts))
+		for _, targetContext := range targetContexts {
+			manifest, paths, err := r.contextByID(targetContext)
+			if err != nil {
+				return fault.Wrap(fault.KindRejected, "context_unavailable", "policy target Context is unavailable", false, err)
 			}
-		}
-		for _, rule := range contextDenies {
-			if rule.ContextName != manifest.Name {
-				return fault.New(fault.KindContract, "context_mismatch", "deny rule Context binding is inconsistent", false)
+			file, err := readPolicyData(paths.PolicyDirectory)
+			if err != nil {
+				return err
 			}
-		}
-		data, err := file.withPolicyRules(contextAllows, contextDenies)
-		if err != nil {
-			return err
-		}
-		preflight, err := prepareContextPolicyPreflight(manifest, paths.PolicyDirectory, data)
-		if err != nil {
-			return err
-		}
-		defer os.RemoveAll(preflight)
-		if err := r.testPolicyDirectory(ctx, preflight); err != nil {
-			return fault.Wrap(fault.KindRejected, "policy_preflight_failed", "candidate Context policy failed OPA tests", false, err)
-		}
-		sourcePath := filepath.Join(paths.PolicyDirectory, "data.json")
-		original := append([]byte{}, file.source...)
-		if err := atomicWriteOwnerFile(sourcePath, data); err != nil {
-			return err
+			contextAllows := rulesForContext(updatedAllows, targetContext)
+			contextDenies := deniesForContext(updatedDenies, targetContext)
+			for _, rule := range contextAllows {
+				if rule.ContextName != manifest.Name {
+					return fault.New(fault.KindContract, "context_mismatch", "learned rule Context binding is inconsistent", false)
+				}
+			}
+			for _, rule := range contextDenies {
+				if rule.ContextName != manifest.Name {
+					return fault.New(fault.KindContract, "context_mismatch", "deny rule Context binding is inconsistent", false)
+				}
+			}
+			data, err := file.withPolicyRules(contextAllows, contextDenies)
+			if err != nil {
+				return err
+			}
+			preflight, err := prepareContextPolicyPreflight(manifest, paths.PolicyDirectory, data)
+			if err != nil {
+				return err
+			}
+			testErr := r.testPolicyDirectory(ctx, preflight)
+			_ = os.RemoveAll(preflight)
+			if testErr != nil {
+				return fault.Wrap(fault.KindRejected, "policy_preflight_failed", "candidate Context policy failed OPA tests", false, testErr)
+			}
+			updates = append(updates, contextUpdate{
+				sourcePath: filepath.Join(paths.PolicyDirectory, "data.json"),
+				original:   append([]byte{}, file.source...), candidate: data,
+			})
 		}
 		rollback := func() {
-			_ = atomicWriteOwnerFile(sourcePath, original)
+			for _, update := range updates {
+				_ = atomicWriteOwnerFile(update.sourcePath, update.original)
+			}
 			rollbackContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			_ = r.ApplyPolicy(rollbackContext, stored)
+			_ = r.activatePolicyRevision(rollbackContext, stored, false)
+		}
+		for index, update := range updates {
+			current, readErr := readOwnerPolicyFile(update.sourcePath, maxPolicyDataBytes)
+			if readErr != nil || !bytes.Equal(current, update.original) {
+				return fault.Wrap(fault.KindRejected, "policy_data_changed", "policy data changed while the reviewed set was being tested", false, readErr)
+			}
+			if err := atomicWriteOwnerFile(update.sourcePath, update.candidate); err != nil {
+				for rollbackIndex := 0; rollbackIndex < index; rollbackIndex++ {
+					_ = atomicWriteOwnerFile(updates[rollbackIndex].sourcePath, updates[rollbackIndex].original)
+				}
+				return err
+			}
 		}
 		projection, err := r.buildAggregateProjection(ctx)
 		if err != nil {
-			_ = atomicWriteOwnerFile(sourcePath, original)
+			for _, update := range updates {
+				_ = atomicWriteOwnerFile(update.sourcePath, update.original)
+			}
 			return fault.Wrap(fault.KindRejected, "aggregate_policy_invalid", "candidate aggregate policy was not activated", false, err)
 		}
 		candidateState := stored
@@ -911,7 +968,10 @@ func (r *Runtime) applyAggregatePolicyData(
 		candidateState.PolicyDirectory = projection.PolicyDirectory
 		candidateState.CredentialConfig = projection.CredentialConfig
 		candidateState.CredentialDir = projection.CredentialDirectory
-		if err := r.ApplyPolicy(ctx, candidateState); err != nil {
+		if err := r.activatePolicyRevision(
+			ctx, candidateState,
+			policyAuthorityReduces(expectedAllows, updatedAllows, expectedDenies, updatedDenies),
+		); err != nil {
 			rollback()
 			return err
 		}
@@ -921,4 +981,17 @@ func (r *Runtime) applyAggregatePolicyData(
 		}
 		return nil
 	})
+}
+
+// ApplyPolicyDecisionSet records a bounded reviewed set in one Context source
+// and performs exactly one aggregate activation. The one-source bound keeps
+// source promotion atomic across process interruption.
+func (r *Runtime) ApplyPolicyDecisionSet(
+	ctx context.Context, state tobari.State,
+	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
+	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
+) error {
+	return r.applyAggregatePolicyData(
+		ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, true,
+	)
 }

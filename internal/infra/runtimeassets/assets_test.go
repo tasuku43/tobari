@@ -69,7 +69,9 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"cap_drop: [ALL]",
 		"no-new-privileges:true",
 		"--watch",
-		"${TOBARI_POLICY_DIR}:/policy:ro",
+		"--bundle",
+		"policy-bundle:/bundle:ro",
+		"name: tobari-policy-bundle",
 		"${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro",
 		"TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json",
 		"TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json",
@@ -90,6 +92,7 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"${TOBARI_ROOT}",
 		"${TOBARI_PRINCIPAL_CONFIG}",
 		"/policy:rw",
+		"${TOBARI_POLICY_DIR}",
 	} {
 		if strings.Contains(spec, forbidden) {
 			t.Errorf("compose spec contains forbidden boundary %q", forbidden)

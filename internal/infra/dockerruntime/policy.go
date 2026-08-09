@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,10 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 type gatewayAuditRecord struct {
@@ -110,10 +112,128 @@ func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
 	return items, nil
 }
 
-// ApplyPolicy validates the current host policy, then recreates only the exact
-// owned OPA component and waits for it to become healthy. This is the portable
-// activation path when Docker-host file watching does not propagate events.
-func (r *Runtime) ApplyPolicy(ctx context.Context, state tobari.State) error {
+func (r *Runtime) ensurePolicyBundleVolume(ctx context.Context) error {
+	err := r.verifyOwned(ctx, "volume", policyBundleVolume)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, errOwnedResourceMissing) {
+		return err
+	}
+	output, createErr := r.runner.Output(ctx, []string{
+		"volume", "create",
+		"--label", ownerLabel + "=" + ownerValue,
+		"--label", componentLabel + "=opa-policy",
+		policyBundleVolume,
+	}, os.Environ())
+	if createErr != nil {
+		return fmt.Errorf("create policy bundle volume: %w: %s", createErr, boundedDiagnostic(output))
+	}
+	return r.verifyOwned(ctx, "volume", policyBundleVolume)
+}
+
+func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) error {
+	if err := state.Validate(); err != nil {
+		return err
+	}
+	versions, err := runtimeassets.Versions()
+	if err != nil {
+		return fmt.Errorf("read embedded runtime versions: %w", err)
+	}
+	candidate := "/bundle/.candidate-" + state.AggregateRevision + ".tar.gz"
+	output, err := r.runner.Output(ctx, []string{
+		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--tmpfs", "/tmp:size=16m,mode=1777",
+		"--mount", "type=bind,src=" + state.PolicyDirectory + ",dst=/candidate,readonly",
+		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
+		versions["OPA_IMAGE"], "build", "-b", "/candidate",
+		"-o", candidate, "--revision", state.AggregateRevision,
+	}, os.Environ())
+	if err != nil {
+		return fmt.Errorf("build tested policy bundle: %w: %s", err, boundedDiagnostic(output))
+	}
+	output, err = r.runner.Output(ctx, []string{
+		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
+		"--entrypoint", "sh", versions["DEBIAN_IMAGE"], "-eu", "-c",
+		`mv -f -- "$1" "$2"`, "tobari-policy-publish", candidate, "/bundle/bundle.tar.gz",
+	}, os.Environ())
+	if err != nil {
+		return fmt.Errorf("atomically publish tested policy bundle: %w: %s", err, boundedDiagnostic(output))
+	}
+	return nil
+}
+
+func (r *Runtime) preparePolicyBundle(ctx context.Context, state tobari.State) error {
+	if err := r.ensurePolicyBundleVolume(ctx); err != nil {
+		return err
+	}
+	return r.publishPolicyBundle(ctx, state)
+}
+
+func (r *Runtime) waitForPolicyRevision(ctx context.Context, revision string) error {
+	if revision == "" {
+		return fmt.Errorf("policy revision is required")
+	}
+	expression := `response := http.send({"method":"get","url":"http://127.0.0.1:8181/v1/data/tobari/aggregate_revision"}); response.status_code == 200; response.body.result == ` + strconv.Quote(revision)
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	var last []byte
+	for {
+		output, err := r.runner.Output(ctx, []string{
+			"exec", opaContainer, "/opa", "eval", "--fail", "--format", "raw", expression,
+		}, os.Environ())
+		last = output
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("OPA did not activate expected policy revision: %s", boundedDiagnostic(last))
+		case <-ticker.C:
+		}
+	}
+}
+
+func (r *Runtime) policyFenceState(state tobari.State) (tobari.State, func(), error) {
+	digest := sha256.Sum256([]byte("tobari-policy-transition:" + state.AggregateRevision))
+	revision := fmt.Sprintf("%x", digest[:])
+	if err := r.ensurePrivateDirectory(r.stateDirectory); err != nil {
+		return tobari.State{}, nil, err
+	}
+	directory, err := os.MkdirTemp(r.stateDirectory, ".policy-transition-")
+	if err != nil {
+		return tobari.State{}, nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(directory) }
+	if err := os.Chmod(directory, 0o700); err != nil { // #nosec G302 -- transition policy is owner-only.
+		cleanup()
+		return tobari.State{}, nil, err
+	}
+	rego := []byte(`package tobari.http
+
+default decision := {"allow": false, "reason": "policy transition in progress", "credential_profile": null, "status_code": 503, "learnable": false}
+`)
+	data := []byte(fmt.Sprintf(`{"tobari":{"aggregate_schema_version":%d,"aggregate_revision":%q}}`+"\n", aggregateSchemaVersion, revision))
+	for name, contents := range map[string][]byte{"fence.rego": rego, "data.json": data} {
+		if err := os.WriteFile(filepath.Join(directory, name), contents, 0o600); err != nil { // #nosec G306 -- transition policy is owner-only.
+			cleanup()
+			return tobari.State{}, nil, err
+		}
+	}
+	fence := state
+	fence.PolicyDirectory = directory
+	fence.AggregateRevision = revision
+	return fence, cleanup, nil
+}
+
+func (r *Runtime) applyPolicyRevision(ctx context.Context, state tobari.State) error {
 	if err := state.Validate(); err != nil {
 		return err
 	}
@@ -122,36 +242,45 @@ func (r *Runtime) ApplyPolicy(ctx context.Context, state tobari.State) error {
 			fault.KindRejected, "policy_test_failed", policyTestFailureMessage, false, err,
 		)
 	}
-	label, err := r.runner.Output(
-		ctx,
-		[]string{
-			"inspect", "--format", `{{index .Config.Labels "` + ownerLabel + `"}}`,
-			opaContainer,
-		},
-		os.Environ(),
-	)
-	if err != nil {
-		return fmt.Errorf("inspect owned OPA container: %w: %s", err, boundedDiagnostic(label))
+	if err := r.verifyOwned(ctx, "container", opaContainer); err != nil {
+		return fmt.Errorf("inspect owned OPA container: %w", err)
 	}
-	if strings.TrimSpace(string(label)) != ownerValue {
-		return fmt.Errorf("OPA container is not owned by Tobari")
+	if err := r.verifyOwned(ctx, "volume", policyBundleVolume); err != nil {
+		return fmt.Errorf("inspect owned policy bundle volume: %w", err)
 	}
-	environment, err := r.composeEnvironment(state)
+	if err := r.publishPolicyBundle(ctx, state); err != nil {
+		return err
+	}
+	return r.waitForPolicyRevision(ctx, state.AggregateRevision)
+}
+
+// ApplyPolicy validates and hot-activates one complete revision in the stable
+// owned OPA. The Docker-managed volume creates a Docker-host filesystem event
+// without relying on host bind-mount notification behavior.
+func (r *Runtime) ApplyPolicy(ctx context.Context, state tobari.State) error {
+	fence, cleanup, err := r.policyFenceState(state)
 	if err != nil {
 		return err
 	}
-	output, err := r.runner.Output(
-		ctx,
-		[]string{
-			"compose", "--project-directory", state.RuntimeDirectory,
-			"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
-			"up", "-d", "--no-deps", "--force-recreate", "--wait", "opa",
-		},
-		environment,
-	)
-	if err != nil {
+	defer cleanup()
+	if err := r.applyPolicyRevision(ctx, fence); err != nil {
 		_ = r.recordRecentError(state, "Policy activation did not complete; inspect OPA logs.")
-		return fmt.Errorf("recreate OPA with tested policy: %w: %s", err, boundedDiagnostic(output))
+		return err
+	}
+	if err := r.applyPolicyRevision(ctx, state); err != nil {
+		_ = r.recordRecentError(state, "Policy activation did not complete; inspect OPA logs.")
+		return err
+	}
+	return nil
+}
+
+func (r *Runtime) activatePolicyRevision(ctx context.Context, state tobari.State, reducing bool) error {
+	if reducing {
+		return r.ApplyPolicy(ctx, state)
+	}
+	if err := r.applyPolicyRevision(ctx, state); err != nil {
+		_ = r.recordRecentError(state, "Policy activation did not complete; inspect OPA logs.")
+		return err
 	}
 	return nil
 }

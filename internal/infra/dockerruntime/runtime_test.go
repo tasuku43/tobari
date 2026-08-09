@@ -70,6 +70,12 @@ func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []str
 }
 
 func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if len(args) >= 2 && args[0] == "volume" && args[1] == "inspect" {
+		return []byte(ownerValue + "\n"), nil
+	}
+	if len(args) >= 2 && args[0] == "volume" && args[1] == "create" {
+		return []byte(policyBundleVolume + "\n"), nil
+	}
 	if len(args) >= 1 && args[0] == "image" {
 		if strings.Contains(strings.Join(args, " "), tobari.RuntimeImageAPILabel) {
 			return compatibleImageInspection(), nil
@@ -261,6 +267,10 @@ func (r *recordingRunner) Output(_ context.Context, args, _ []string) ([]byte, e
 		output := append([]byte{}, r.outputQueue[0]...)
 		r.outputQueue = r.outputQueue[1:]
 		return output, r.outputErr
+	}
+	if r.outputErr == nil && len(r.outputData) == 0 && len(args) > 0 &&
+		(args[0] == "inspect" || (args[0] == "volume" && len(args) > 1 && args[1] == "inspect")) {
+		return []byte(ownerValue + "\n"), nil
 	}
 	return append([]byte{}, r.outputData...), r.outputErr
 }
