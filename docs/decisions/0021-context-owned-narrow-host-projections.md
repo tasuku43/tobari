@@ -49,9 +49,11 @@ rejected.
 
 ### Add a configuration-first namespace with narrow projections
 
-`config shell` configures one allowlisted shell-presentation value and `config
-git` configures the atomic `user.name`/`user.email` identity pair. Both target
-one explicit or current Context. This option is selected.
+Direct `config shell` configures one allowlisted shell-presentation value and
+direct `config git` configures the atomic `user.name`/`user.email` identity
+pair. Their terminal mode presents complete current and pending state on one
+screen; Shell stages several distinct rows for one atomic Apply. Both target one
+explicit or current Context. This option is selected.
 
 ## Decision
 
@@ -77,9 +79,9 @@ different trust and side-effect boundaries.
 
 Each configuration command supports two input modes for the same fixed-target
 mutation. A complete setting group executes directly and never prompts. A
-wholly omitted setting group with text success and error formats may be
-completed through terminal stdin and stderr, reviewed, and then passed to the
-same application use case.
+wholly omitted setting group with text success and error formats opens a
+terminal staged editor. Shell passes every distinct staged row to the same
+application use case once; Git stages its atomic source on the same screen.
 Partial setting groups fail instead of prompting. Redirected or JSON
 invocations require complete direct input. Cancellation before apply performs
 no mutation. The catalog declares the input dependencies, terminal failures,

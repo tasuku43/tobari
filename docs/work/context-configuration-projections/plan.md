@@ -16,6 +16,13 @@ invocations fail before mutation. Git identity is an atomic Context policy with
 global Git keys for each stable Workspace root and re-encoded as a low-priority
 runtime-owned fallback.
 
+The terminal interaction is a single-screen staged editor. Shell shows all
+four variables together, accepts direct source shortcuts for the selected row,
+and applies every staged change through one atomic application/infrastructure
+call. Git shows its three sources on one screen and uses the same stage/apply
+vocabulary. Literal input temporarily leaves raw mode, then returns to the
+same staged screen. The deterministic flag mode remains unchanged.
+
 ## Alternatives considered
 
 ### Prompt for missing direct-mode fields

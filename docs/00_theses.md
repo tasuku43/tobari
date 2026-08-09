@@ -608,9 +608,11 @@ a handle selects authority without the trusted principal and OPA allow.
   without changing that default.
 - `config shell` and `config git` own the Context's narrow non-secret host
   projections. A complete setting group is deterministic for agents and
-  scripts; wholly omitted setting flags may be collected and reviewed only
-  through terminal text input. Partial, redirected, and JSON wizard attempts
-  fail before mutation. `config shell` retains only `PS1`, `TERM`,
+  scripts; wholly omitted setting flags open a terminal-only staged editor.
+  Shell presents the complete fixed inventory and commits every distinct
+  staged row through one atomic Apply; Git presents its complete source choice
+  and uses the same stage/Apply vocabulary. Partial, redirected, and JSON
+  wizard attempts fail before mutation. `config shell` retains only `PS1`, `TERM`,
   `COLORTERM`, and `NO_COLOR`; new Contexts and Contexts migrated from schemas
   1–3 inherit exported `PS1`, while schema-4 migration preserves its existing
   shell policy. An absent export retains Tobari's built-in prompt. `config git`
@@ -650,10 +652,11 @@ a handle selects authority without the trusted principal and OPA allow.
 
 - Context domain and catalog tests validate stable identity, modes, current-
   default selection, effects, fixed targets, and complete output/error contracts.
-- Configuration tests validate the all-or-none direct/wizard state machine,
+- Configuration tests validate the all-or-none direct/staged-editor state machine,
   terminal cancellation and explicit-empty Context rejection with zero
   mutation, binding of Apply to the Context shown across concurrent default
-  changes, fixed shell and Git inventories, schema migration, bounded host Git
+  changes, one atomic multi-row shell write, fixed shell and Git inventories,
+  schema migration, bounded host Git
   calls with an exact child-environment allowlist, lower-precedence read-only
   projection, and exclusion of authentication and executable Git settings.
 - Infrastructure tests prove legacy default migration, owner-only separate

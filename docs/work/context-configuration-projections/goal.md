@@ -55,6 +55,10 @@ practice.
       complete configuration state.
 - [x] Human and agent help expose both interaction modes without exploratory
       calls; routine success requires zero external reconstruction steps.
+- [ ] The terminal wizard presents the complete current configuration on one
+      screen, stages multiple shell changes, and commits them with one atomic
+      Apply; Git uses the same stage/apply vocabulary without a second review
+      screen.
 - [ ] `task check`, `task security`, `task public:check`, and the relevant
       runtime/agent-readiness scenarios pass.
 

@@ -563,12 +563,13 @@ marker. It does not touch Docker, the aggregate projection, an existing Tobari,
 or any enforcement authority. `context create` likewise does not start Docker;
 an explicit `cluster up` validates and activates the new all-Context candidate.
 `config shell` and `config git` are trusted-host fixed-target writes to
-owner-only Context configuration. A terminal wizard may complete a wholly
-omitted setting group, but it shows typed current state and performs no write
-before Apply. Apply is bound to the Context name returned by that read, even if
+owner-only Context configuration. A terminal staged editor may complete a
+wholly omitted setting group, but it shows typed complete current state and
+performs no write before Apply. Shell validates every distinct staged row
+before one atomic manifest replacement. Apply is bound to the Context name returned by that read, even if
 another process changes the current/default marker during review. Explicit-
 empty Context input, partial direct input, and redirected, JSON, canceled, or
-invalid wizard attempts make zero mutation calls. Direct and wizard modes
+invalid editor attempts make zero mutation calls. Direct and interactive modes
 reach the same application policy and atomic store boundary.
 
 Shell accepts only `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`, never enumerates

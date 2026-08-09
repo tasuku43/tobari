@@ -38,6 +38,10 @@
 - [x] Add structured output/error, cancellation, hostile-output, and zero-side-effect tests.
 - [x] Update durable documentation and claims-to-checks enforcement.
 - [x] Complete presentation evidence from frozen synthetic fixtures.
+- [x] Replace the stepwise wizard with the selected single-screen staged
+      editor and one atomic multi-shell-setting write.
+- [x] Add raw-terminal, line-fallback, multi-setting, discard, and one-write
+      regression tests for the revised interaction.
 
 ## Verify
 
@@ -47,6 +51,13 @@
 - [ ] `task public:check` passes. Evidence: the same scoped snapshot passes; the latest shared-tree run is stopped by the same parallel credential-host fixture finding.
 - [x] Relevant runtime/integration tests pass. Evidence: real Git conditional-global selection and system/global/local precedence tests pass, including malicious local-include exclusion.
 - [x] Wizard raw and line modes are observed with synthetic values. Evidence: a real PTY drove Git inherit through Apply successfully; deterministic raw-mode restoration and bounded English line fallback pass focused tests.
+- [x] Revised staged editor is observed in a real PTY. Evidence: Shell showed
+      all four settings, staged two rows, redrew without drift, and discarded
+      with zero mutation; Git showed current, pending, and all sources on one
+      screen. Domain, application, CLI, and store focused suites pass.
+- [ ] Latest shared-tree `task check:fast` passes. Evidence: it currently stops
+      in unrelated Japanese site localization at a pre-existing public-guard
+      machine-specific home-path finding.
 - [x] Agent-readiness discovery budget and zero external processing are recorded. Evidence: one exact scoped-help lookup exposes each complete argv contract; one direct invocation returns schema-6 task-owned state with zero external reconstruction.
 - [x] Generated diff and unrelated worktree changes are understood. Evidence: the parallel public site intentionally remains on the committed product snapshot, so its authored pages and generated Catalog retain the old command until this complete product tree has a commit to pin; `sitegen --check` and the static site gate pass for that snapshot.
 

@@ -16,6 +16,10 @@ identified separately from current behavior.
   and the host home are not.
 - The worktree contains unrelated in-progress Auth Broker, runtime-base, site,
   and documentation changes. They are user-owned and must remain intact.
+- Manual observation on 2026-08-09 found that the stepwise wizard requires a
+  variable choice, a source choice, conditional literal input, and a separate
+  Apply screen. Repeating the command is required to change another shell
+  variable. The product owner selected a single-screen staged editor instead.
 
 ## Relevant structure
 
@@ -61,6 +65,8 @@ identified separately from current behavior.
 - [ ] Verify whether the repository gates require a live Docker integration
       run in this dirty worktree or whether deterministic runtime tests provide
       the completion evidence available in this environment.
+- [x] Interaction revision: show every setting and its pending state on one
+      screen, stage multiple shell changes, and perform one atomic Apply.
 
 ## Thesis evidence
 

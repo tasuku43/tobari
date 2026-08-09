@@ -172,9 +172,11 @@ mount. Domain owns each fixed scalar inventory, `default|inherit|literal`
 invariants, complete reports, and Git's atomic name/email pair. Context
 application use cases own the fixed-target writes; the owner-only Context store
 persists only non-default policy. CLI owns two input-completion modes for the
-same use cases: complete typed argv, or a terminal-only wizard when the entire
-setting group is omitted. The wizard first reads typed current state, writes no
-mutation before Apply, binds the returned Context name across the human review,
+same use cases: complete typed argv, or a terminal-only staged editor when the
+entire setting group is omitted. The editor first reads typed complete current
+state, writes no mutation before Apply, binds the returned Context name across
+the human review, sends every distinct staged Shell row through one application
+call and one atomic manifest replacement,
 and never completes a partial direct invocation. Explicit-empty Context input
 is rejected rather than collapsed into the omitted current-Context selector.
 

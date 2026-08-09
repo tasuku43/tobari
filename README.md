@@ -746,8 +746,10 @@ signing setting, hook, alias, URL rewrite, filter, proxy, or arbitrary Git key.
 An absent or incomplete inherited pair adds no fallback. Identity does not
 authenticate private Git transport.
 
-For both commands, a wholly omitted setting group opens the wizard only when
+For both commands, a wholly omitted setting group opens the staged editor only when
 stdin and stderr are terminals and both success and error formats are text.
+Shell shows all four variables together and applies every staged row with one
+atomic write; Git shows current, pending, and every source on one screen.
 Supplying any setting flag selects strict direct mode; partial flags,
 redirected input, and JSON wizard attempts fail without mutation. Wizard
 prompts use stderr, while the confirmed complete Context report uses stdout.
@@ -878,8 +880,8 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
 | `tobari context list [--format text\|json]` | List stable named Contexts and identify the current default |
 | `tobari context show [--name NAME] [--format text\|json]` | Inspect runtime, agent, policy, managed-adapter store references, and secret-free broker/provider state without a broker vault path/content, key, primary secret, or handle |
-| `tobari config shell [--variable VAR] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | Configure one allowlisted shell-presentation variable directly or through the terminal wizard |
-| `tobari config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | Configure one atomic lower-precedence Git identity fallback directly or through the terminal wizard |
+| `tobari config shell [--variable VAR] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | Configure one shell variable directly or stage several allowlisted rows in one atomic terminal Apply |
+| `tobari config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | Configure one atomic lower-precedence Git identity fallback directly or from one staged terminal screen |
 | `tobari context create --name NAME [--image IMAGE] [--mode guided\|advanced]` | Create a named execution Context without secrets |
 | `tobari context use --name NAME` | Change only the current/default Context without mutating existing Tobari or Docker |
 | `tobari runtime init [--format text\|json]` | Create the current Context's runtime/Dockerfile template |

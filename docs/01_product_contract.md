@@ -193,8 +193,8 @@ The public commands are:
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `context list [--format text|json]` | utility | read | List named Contexts with stable IDs and identify the current default |
 | `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's agent, policy, managed-adapter store references, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
-| `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or collect a wholly omitted setting group through a text terminal wizard |
-| `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or collect a wholly omitted setting group through a text terminal wizard |
+| `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
+| `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced]` | act, fixed target | create | Create one named Context with a runtime image and separate owner-only stores |
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
@@ -323,8 +323,10 @@ undeclared Docker mutation by the CLI.
   `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
   place to add tools and environment configuration for the Context. The
   command does not overwrite an existing recipe.
-- `config shell` changes only one allowlisted shell-presentation
-  policy in the explicit or current Context. `default` removes its override;
+- Direct `config shell` changes one allowlisted shell-presentation policy in
+  the explicit or current Context. Its terminal editor may stage several
+  distinct rows and commits the complete change set with one atomic write.
+  `default` removes its override;
   `inherit` reads that exported variable from the host process launching each
   future `tobari` session; `literal` requires `--value` and preserves an
   explicit empty value. `--value` is invalid for the other sources. The fixed
@@ -348,8 +350,9 @@ undeclared Docker mutation by the CLI.
   credential helper, token, HTTP header, SSH command, signing setting, hook,
   alias, URL rewrite, filter, proxy, or arbitrary key is projected.
 - For both `config` commands, omitting the entire setting group in text mode
-  uses terminal stdin and stderr to show the selected Context, current state,
-  conditional inputs, and an Apply/Cancel review. Text mode requires both the
+  uses terminal stdin and stderr to show the selected Context, complete current
+  state, pending changes, and Apply/Cancel controls on one screen. Shell stages
+  multiple rows; Git stages one atomic identity source. Text mode requires both the
   success and error formats to be text. Supplying any setting input selects
   direct mode and requires a complete valid group; partial input never prompts.
   Redirected or JSON invocations require direct mode. An explicit empty
@@ -717,8 +720,9 @@ result directs the user to explicit `cluster up` so the all-Context projection
 can be validated and activated.
 
 `config shell` and `config git` atomically update only the selected Context
-manifest after typed input, intent, target, and impact validation. The wizard
-performs no write before Apply. Git inheritance performs no Git read during the
+manifest after typed input, intent, target, and impact validation. The terminal
+editor performs no write before Apply, and one Shell Apply writes its entire
+validated distinct-variable batch or nothing. Git inheritance performs no Git read during the
 configuration mutation; the next matching root reconciliation runs at most two
 fixed, one-attempt, finite-time host Git queries, validates a complete pair,
 and atomically refreshes one private per-Workspace fallback before Docker
