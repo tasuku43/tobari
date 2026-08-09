@@ -115,11 +115,16 @@ immutable commit tag, while Claude and Codex variants are local/CI build
 artifacts only. The repository does not claim a public agent image, stable
 support window, SBOM/attestation, or redistribution approval until a new
 release decision accepts those claims. The Gateway and Auth Broker source/image
-checks are implemented, but the currently reviewed indexes are API v1. API-v2
-code cannot be released until a separate explicitly authorized owner-side
-handoff publishes compatible indexes, verifies their platform, metadata, and
-anonymous visibility, and updates immutable pins. A moving tag or successful
-workflow does not make a digest reviewed runtime authority by itself.
+checks are implemented. The reviewed API-v2 Gateway and Auth Broker indexes
+built from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8`
+satisfy the image handoff: anonymous access, Linux amd64/arm64 members,
+API/role metadata, non-root `1000:1000` users, and entrypoints were
+independently inspected. `versions.env` records Gateway
+`sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+and Auth Broker
+`sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`.
+A moving tag or successful workflow does not make a digest reviewed runtime
+authority by itself.
 
 Tobari does not yet claim code signing, notarization, SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact
@@ -158,8 +163,9 @@ no-print assertion that `gh auth token --hostname github.com` equals the exact
 projected `GH_TOKEN` handle and that the three AWS credential variables equal
 one handle before the allowed API calls. Those scenarios record only
 secret-free pass/fail outcomes and never become repository fixtures. An
-implementation handoff may report the API-v2 image/pin blocker, but cannot mark
-release completion or publish images without explicit owner authorization.
+implementation handoff may report the reviewed image evidence, but release
+completion still requires those manual trusted-host scenarios and every
+release gate; image publication alone is insufficient.
 
 The first public release also requires a clean-environment Colima or Linux
 Quick Start run and a human review of history, dependencies, licenses, and

@@ -758,6 +758,10 @@ jobs have no package-write permission. GHCR
 moving tags are development conveniences, not a trusted runtime identity;
 routine Gateway and Auth Broker consumption use reviewed immutable digests
 recorded in `versions.env`. A marker or moving tag is not an accepted image
-reference. The API-v2 implementation is not releasable with currently pinned
-API-v1 images: compatible Gateway/Auth Broker indexes must be published,
-reviewed, and pinned by a separate explicitly authorized release action.
+reference. The reviewed API-v2 indexes built from source revision
+`a3fedb66ad5a72c19d6721f3f8da49852882ced8` are anonymously retrievable for
+Linux amd64/arm64; their platform metadata fixes the API/role labels,
+`1000:1000` user, and reviewed entrypoint. The pinned Gateway digest is
+`sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+and the Auth Broker digest is
+`sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`.

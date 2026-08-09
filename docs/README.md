@@ -32,17 +32,9 @@ The short purpose of each document is:
 | [`08_external_api_contracts.md`](08_external_api_contracts.md) | Gateway and OPA protocol contracts |
 | [`09_agent_readiness_validation.md`](09_agent_readiness_validation.md) | New-user and coding-agent readiness scenarios |
 
-## Current open work
+## Deferred product boundaries
 
-The temporary
-[`default-runtime-brokered-tools`](work/default-runtime-brokered-tools/goal.md)
-packet is active. It keeps requested provider tools in an optional local
-Context toolbox and adds reviewed host GitHub/AWS credential drivers plus a
-private resident companion for post-policy AWS refresh. The currently pinned
-Gateway/Auth Broker images are API v1; publishing and pinning compatible API-v2
-indexes is a separate explicitly authorized release blocker.
-
-The following are deliberate product boundaries, not completed features:
+The following are deliberate product boundaries, not unfinished work:
 
 - Public Claude and Codex image publication is deferred until redistribution,
   licensing, support, and provenance decisions are accepted. See

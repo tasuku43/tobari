@@ -317,10 +317,15 @@ the record remains untouched and `auth login aws` is the recovery. Older
 binaries fail closed on schema 2 and never overwrite it.
 
 Gateway and Auth Broker image API labels advance together from 1 to 2. New host
-binaries must reject the currently published API-v1 image digests. Compatible
-API-v2 images require an explicitly authorized publication and immutable digest
-update before release. Existing Workspaces require normal leave/re-entry after
-login or binding changes.
+binaries reject API-v1 image digests. The transition was completed by
+publishing and anonymously inspecting the Linux amd64/arm64 API-v2 indexes from
+source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8`, then recording the
+reviewed immutable Gateway
+`sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+and Auth Broker
+`sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`
+digests in `versions.env`. Existing Workspaces require normal leave/re-entry
+after login or binding changes.
 
 ## Security and public-boundary impact
 

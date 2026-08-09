@@ -573,10 +573,15 @@ custom endpoints, or every AWS service.
 
 ## Evidence
 
-Synthetic and manual readiness can validate the implementation, but release
-remains blocked while the CLI is pinned to API-v1 Gateway/Auth Broker images.
-Publishing and pinning compatible API-v2 indexes is a separate explicitly
-authorized release action, not an automatic consequence of this scenario.
+The API-v2 image prerequisite is satisfied by anonymously retrievable Linux
+amd64/arm64 indexes built from source revision
+`a3fedb66ad5a72c19d6721f3f8da49852882ced8`, with reviewed API/role labels,
+non-root `1000:1000` users, and entrypoints. Routine startup pins Gateway
+`sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+and Auth Broker
+`sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`
+in `versions.env`. This image evidence does not replace the manual trusted-host
+scenarios or release gates below.
 
 ```sh
 task check

@@ -149,12 +149,16 @@ validation is cache-only and has no package-write permission; only the
 main-push job may publish moving `latest`/`main` and immutable
 `sha-<commit>` development identities. Routine CLI startup must use a reviewed
 manifest digest rather than those moving tags.
-The currently reviewed Gateway and Auth Broker publications are API v1. The
-API-v2 implementation is a separate release blocker until an
-explicitly authorized publication produces compatible indexes and reviewed
-immutable pins. An unpublished marker, invented digest, wrong repository,
-moving identity, or API-v1 pin beside API-v2 code is a public-boundary failure;
-this implementation change does not authorize publication.
+The reviewed API-v2 Gateway and Auth Broker indexes were built from source
+revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8`, are anonymously retrievable
+for Linux amd64/arm64, and expose the reviewed API/role labels, non-root
+`1000:1000` user, and entrypoint. Routine startup pins Gateway
+`sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+and Auth Broker
+`sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`
+in `versions.env`; moving tags are not runtime authority. An unpublished
+marker, invented digest, wrong repository, moving identity, or API-label/pin
+mismatch remains a public-boundary failure.
 
 See [Release](06_release.md) for the artifact workflow.
 

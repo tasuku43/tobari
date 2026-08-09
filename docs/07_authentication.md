@@ -567,6 +567,12 @@ and advanced static users may retain the managed adapter.
   `task integration:test` supplies the required reproducible synthetic Auth
   Broker proof. Credential values, SSO state, role credentials, signed headers,
   device codes, vaults, handles, and raw authenticated transcripts are never
-  committed as evidence. The API-v2 release remains blocked until compatible
-  Gateway/Auth Broker images are published and pinned through a separate
-  explicitly authorized release action.
+  committed as evidence. The reviewed API-v2 indexes built from source revision
+  `a3fedb66ad5a72c19d6721f3f8da49852882ced8` are anonymously retrievable for
+  Linux amd64/arm64 and pinned as Gateway
+  `sha256:9b4dbfaf587f22a1a036dec85df8637cc323d4377142b0463781b25e3ef15049`
+  and Auth Broker
+  `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`;
+  their inspected configurations use API 2, the reviewed roles/entrypoints,
+  and non-root `1000:1000` users. Live trusted-host provider scenarios remain a
+  separate pre-tag release check.
