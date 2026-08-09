@@ -456,8 +456,14 @@ The test suite has complementary levels:
   vault/broker/project-binding observation does not create a key, start or
   unlock services, or mutate auth state.
 - The human permission path is exercised through `policy review`; its TTY
-  Permission Inbox covers bounded selection, detail inspection, explicit
-  allow/deny confirmation, cancellation, and refresh after each decision. The
+  Permission Inbox covers bounded selection, detail inspection, direct exact
+  allow/deny action, pre-action cancellation, and refresh after each decision.
+  PTY tests prove action keys are ineffective on the list, one detail action
+  delegates exactly once without a second yes/no byte or redraw, and
+  cancellation before that action delegates nothing. Its
+  presentation tests group by stable Context/project IDs, keep same-label
+  different-ID scopes separate, lead rows with the exact HTTP effect, and keep
+  selected observation evidence visible before inspection. The
   TTY `policy rules` path separately covers exhaustive current-decision
   inventory, explicit reset confirmation, refresh, and re-review of the
   retained denial. Neither path requires hand-editing OPA or Rego. Redirected

@@ -153,7 +153,7 @@ The public commands are:
 | `cluster logs [--component gateway|opa|auth-broker|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential or handle output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted while preserving Auth Broker vaults and the installation root key; `--purge` additionally removes only shared CA volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact host/port/method/path candidates and opaque IDs across the installation |
-| `policy review [--tail N] [--format text|json]` | discover | read | Review the installation-wide Permission Inbox; on a TTY, inspect Context/root and explicitly confirm one exact allow or deny |
+| `policy review [--tail N] [--format text|json]` | discover | read | Review the installation-wide Permission Inbox; on a TTY, inspect Context/root and explicitly choose one exact allow or deny from detail |
 | `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact allow and deny commands |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
@@ -354,7 +354,15 @@ and delegates one explicitly confirmed opaque reference to the separate exact
 reference-bound `policy allow` or `policy deny` action. `policy rules` is the
 current learned-decision inventory; its TTY reset flow delegates one explicit
 opaque reference to `policy reset`. Redirected and machine-readable review and
-inventory remain read-only.
+inventory remain read-only. The Permission Inbox groups candidates by their
+validated stable Context and project identities, renders the Context/root scope
+once per group, and leads each selectable row with the exact HTTP effect and
+observation count. A compact selected-effect preview exposes the latest retained
+observation before detail inspection. Matching display names, paths, order, or
+indentation do not merge distinct typed identities. Allow-exact and Deny-exact
+keys are inactive on the list; on the exact detail screen the chosen action is
+itself the explicit confirmation and delegates immediately without a second
+yes/no prompt.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
 a small state marker, aligned detail rows, semantic style tokens, and an exact

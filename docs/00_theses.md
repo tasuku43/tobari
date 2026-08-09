@@ -442,8 +442,14 @@ administration project.
   stderr. Neither notification can mutate policy or trigger a retry.
 - Interactive `policy review` is the installation-wide human Permission Inbox
   over retained queues from every Context: selection, detail inspection, and
-  explicit confirmation can
+  one explicit Allow-exact or Deny-exact action choice can
   delegate exactly one opaque candidate to `policy allow` or `policy deny`.
+  The action choice is accepted only from the exact detail screen and is itself
+  the confirmation; a second yes/no prompt adds no authority or evidence.
+  Its list groups by validated stable Context/project identity, presents that
+  scope once per group, and leads each selectable row with the exact HTTP
+  effect plus bounded observation evidence. Display labels, adjacency, and
+  indentation never create policy identity.
   Redirected and
   machine-readable `policy review` remains read-only. `policy candidates`
   remains the machine discovery surface, and `policy tail` remains a

@@ -76,9 +76,10 @@ remain valid
 internal seams today. They are not permission to expose Docker, OPA, or opaque
 resource identifiers as the routine mental model. `policy review` is the
 ordinary human-facing Permission Inbox: on a TTY it composes selection,
-detail inspection, explicit confirmation, and the existing `policy allow` or
+detail inspection, one explicit Allow-exact or Deny-exact detail action, and the existing `policy allow` or
 `policy deny` action for one candidate; redirected and machine-readable review remains
-read-only. `policy rules` is the exhaustive current learned-decision inventory;
+read-only. The detail action is the confirmation and no second yes/no prompt
+intervenes; the same keys cannot mutate from the list. `policy rules` is the exhaustive current learned-decision inventory;
 on a TTY it composes selection, detail inspection, explicit reset confirmation,
 and `policy reset` for one current decision, while redirected and
 machine-readable inventory remains read-only. `policy candidates` is the

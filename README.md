@@ -29,8 +29,8 @@ policy learning:
 1. Run `tobari` from a project directory.
 2. Work freely until an undeclared request receives `403`.
 3. The agent explains that the host must review the secret-free pending queue.
-4. Run `tobari policy review`, select one permission, confirm the exact allow or
-   deny,
+4. Run `tobari policy review`, inspect one permission, then choose its exact
+   allow or deny action,
    then retry.
 
 ```sh
@@ -38,7 +38,7 @@ cd quickstart-example
 tobari
 
 # Review is the human host-side entry point; in a TTY it offers selection,
-# detail, explicit confirmation, and exact allow/deny without editing OPA or Rego.
+# exact detail, and one explicit allow/deny action without editing OPA or Rego.
 tobari policy review
 ```
 
@@ -899,8 +899,10 @@ tobari policy reset --id PLR_OR_PDR_ID  # return one decision to default deny
 
 On a TTY, `policy review` is the installation-wide human flow: select a request,
 inspect its Context, Tobari/root, and exact host/port/method/path, keep those
-dimensions visible during allow/deny confirmation, and let Tobari delegate the
-selected ID to `policy allow` or `policy deny`. It refreshes the queue after
+dimensions visible, then press `a` for Allow exact or `d` for Deny exact. That
+detail action is the explicit confirmation; there is no second `y` prompt, and
+the same keys do not act from the list. Tobari delegates the selected ID to
+`policy allow` or `policy deny` and refreshes the queue after
 each successful decision. Redirected or `--error-format json` review is read-only. `PCY_ID` is
 emitted by the review or machine discovery queue and must be copied unchanged
 when invoking the explicit action; `policy candidates` remains the structured

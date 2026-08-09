@@ -38,7 +38,7 @@ journey is the product baseline to improve:
 | First isolated session | Explicit `cluster up`, then `tobari`; `doctor` is recovery-only | One obvious CWD-first entry with cluster/bootstrap complexity guided or hidden while retaining an explicit recovery command |
 | Agent work | Reusable root, home, and deny-by-default Gateway | The user sets the boundary first; the agent works freely inside it without per-command supervision, host credentials, or direct egress |
 | First denied request | 403 plus host-side `policy review` | The agent can explain that the host must review the secret-free exact request; brokered authentication inherits no broad static allow and one fixed next command is available |
-| Permission growth | Installation-wide human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users see Context/root/request at selection, detail, and confirmation; redirected review remains read-only and the action remains bound to one Context-scoped opaque reference |
+| Permission growth | Installation-wide human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users scan exact HTTP effects grouped by stable Context/project identity, see bounded observation evidence, inspect Context/root/request, and choose one exact action from detail without a second confirmation prompt; redirected review remains read-only and the action remains bound to one Context-scoped opaque reference |
 | Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
 | Execution setup | `context list`, `context show`, `context use --name NAME`, `tobari --context NAME` | The user can inspect stable Contexts, change only the omitted-Context default, and create same-root Tobari in different Contexts while one Gateway/OPA/Auth Broker cluster routes trusted principals and bound handles |
 | Runtime customization | `runtime init`, edit the current Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image and other Contexts are unchanged |
@@ -254,8 +254,11 @@ rules exist. The transcript must prove:
   without changing authority; orthogonal scheme, project-principal, or
   managed-credential failures remain diagnostics and do not become ineffective
   candidates.
-- Permission Inbox selection, detail, and confirmation retain Context, root,
-  and request. `PCY_ID` denotes one exact value emitted by `policy review` or `policy
+- Permission Inbox selection groups only matching stable Context/project IDs,
+  keeps same-label different-ID scopes separate, and exposes the exact effect,
+  observation count, and latest retained observation before detail. The detail
+  retains Context, root, and request; `a` or `d` is accepted only there and is
+  the explicit action confirmation without a second `y`. `PCY_ID` denotes one exact value emitted by `policy review` or `policy
   candidates`; the transcript passes it unchanged to either `policy allow` or
   `policy deny`. Allow tests the complete policy and records one exact learned
   rule; deny records one exact Context/project-bound terminal rule. Both activate
