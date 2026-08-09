@@ -657,20 +657,29 @@ reconciles Docker. Creating a Context while cluster state exists reports that
 an explicit `cluster up` is required to validate and activate the new complete
 all-Context projection.
 
-Shell presentation is also Context-owned. Select host inheritance, an
-independent literal, or the built-in default per variable:
+Narrow non-secret configuration is Context-owned. For a guided terminal flow,
+omit the setting flags and review the proposed change before Apply:
 
 ```sh
-# PS1 inheritance is already the default for new and migrated Contexts.
+tobari config shell --context project-tools
+tobari config git --context project-tools
+```
+
+Agents and scripts use the same commands with complete flags; they never
+prompt. Shell presentation selects host inheritance, an independent literal,
+or the built-in default per variable:
+
+```sh
+# PS1 inheritance is the default for new Contexts and schema 1–3 migrations.
 export PS1='\[\e[33m\]\u@\h:\w\$ \[\e[0m\]'
-tobari context shell configure --variable PS1 --source inherit
+tobari config shell --variable PS1 --source inherit
 
 # An independent Context-specific setting; --value= preserves explicit empty.
-tobari context shell configure --variable COLORTERM --source literal --value truecolor
-tobari context shell configure --variable NO_COLOR --source literal --value=
+tobari config shell --variable COLORTERM --source literal --value truecolor
+tobari config shell --variable NO_COLOR --source literal --value=
 
 # Remove one override and return to Tobari's default for that variable.
-tobari context shell configure --variable TERM --source default
+tobari config shell --variable TERM --source default
 ```
 
 Only `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR` are configurable. Tobari does
@@ -678,6 +687,37 @@ not inherit arbitrary exports, credentials, `PATH`, shell startup hooks, or
 host shell files. Changes apply to the next `tobari` shell session; existing
 sessions are unchanged. Literal values are stored in the owner-only Context
 manifest, so do not use them for secrets.
+
+Git identity is one atomic fallback pair and is opt-in for every new or
+migrated Context:
+
+```sh
+# Resolve only host-global user.name and user.email for each Workspace root.
+tobari config git --source inherit
+
+# Or own a fixed pair in this Context.
+tobari config git --source literal \
+  --name "Tobari User" \
+  --email tobari@example.com
+
+# Remove only Tobari's fallback.
+tobari config git --source default
+```
+
+The fallback has lower precedence than the Workspace's global Git config and
+the repository's local/worktree config. Tobari never copies `.gitconfig`, a
+host path/include directive, credential helper, token/header, SSH command,
+signing setting, hook, alias, URL rewrite, filter, proxy, or arbitrary Git key.
+An absent or incomplete inherited pair adds no fallback. Identity does not
+authenticate private Git transport.
+
+For both commands, a wholly omitted setting group opens the wizard only when
+stdin and stderr are terminals and both success and error formats are text.
+Supplying any setting flag selects strict direct mode; partial flags,
+redirected input, and JSON wizard attempts fail without mutation. Wizard
+prompts use stderr, while the confirmed complete Context report uses stdout.
+An explicit empty Context is rejected, and Apply remains bound to the Context
+shown even if another process changes the current Context during review.
 
 Then ordinary root invocations stay short:
 
@@ -803,7 +843,8 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari policy compact --id ID` | Test and activate one current bounded compaction |
 | `tobari context list [--format text\|json]` | List stable named Contexts and identify the current default |
 | `tobari context show [--name NAME] [--format text\|json]` | Inspect runtime, agent, policy, managed-adapter store references, and secret-free broker/provider state without a broker vault path/content, key, primary secret, or handle |
-| `tobari context shell configure --variable VAR --source default\|inherit\|literal [--value VALUE] [--context NAME] [--format text\|json]` | Configure one allowlisted shell-presentation variable for the explicit or current Context |
+| `tobari config shell [--variable VAR] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | Configure one allowlisted shell-presentation variable directly or through the terminal wizard |
+| `tobari config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | Configure one atomic lower-precedence Git identity fallback directly or through the terminal wizard |
 | `tobari context create --name NAME [--image IMAGE] [--mode guided\|advanced]` | Create a named execution Context without secrets |
 | `tobari context use --name NAME` | Change only the current/default Context without mutating existing Tobari or Docker |
 | `tobari runtime init [--format text\|json]` | Create the current Context's runtime/Dockerfile template |
@@ -992,7 +1033,9 @@ tobari cluster logs --component opa --tail 100
 Tobari has three explicit authentication paths. Tool-native passthrough remains
 the universal default: enter the Workspace and run the tool's normal login
 flow. The tool persists its own state below `HOME=/var/lib/tobari`; Tobari never
-copies the host home, Keychain, SSH agent, or host CLI configuration into it:
+copies the host home, Keychain, SSH agent, or host CLI configuration file into
+it. The separate `config` boundary re-encodes only its documented non-secret
+shell or Git identity scalars and never transfers authentication state:
 
 ```sh
 cd quickstart-example
@@ -1218,6 +1261,10 @@ Common failures:
 - `image_not_found`: run `tobari runtime build` on the host; a new Workspace
   is not registered, and an existing Workspace runtime is not replaced, until
   its selected compatible image is available locally.
+- `git_identity_resolution_failed`: run `tobari context show` and inspect the
+  selected Context's Git identity policy. Tobari leaves the previous private
+  projection and Docker resources unchanged; no host Git diagnostic or
+  identity value is emitted.
 - `incompatible_image`: extend the official Tobari runtime base, or another
   compatible image, without replacing its user, lifetime-command capability, or
   entrypoint.

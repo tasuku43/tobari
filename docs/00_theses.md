@@ -180,8 +180,11 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
 
 ### Consequences
 
-- Host home, host CLI configuration, keychains, SSH agents, and credential
-  environment variables are never mounted or copied into Tobari.
+- Host home, host CLI configuration files, keychains, SSH agents, and
+  credential environment variables are never mounted or copied into Tobari.
+  A thesis-declared narrow projection may instead read and re-encode only its
+  fixed non-secret scalar allowlist. It never transfers the source file, path,
+  include directive, executable setting, credential, or an undeclared key.
 - Tool-owned credential state is available to every process in the same
   Tobari by design, survives runtime-container recreation, and is removed by
   the explicit Tobari delete operation.
@@ -529,13 +532,20 @@ a handle selects authority without the trusted principal and OPA allow.
   host-facing composition surface. `context use` changes only the omitted-
   Context default. `tobari --context NAME` chooses an invocation Context
   without changing that default.
-- `context shell configure` owns the narrow shell-presentation boundary. Each
-  Context may independently select `default`, late-bound exported-host
-  `inherit`, or an explicit `literal` value for only `PS1`, `TERM`,
-  `COLORTERM`, and `NO_COLOR`. New and migrated Contexts inherit exported
-  `PS1`; an absent export retains Tobari's built-in prompt. No credential,
-  executable startup hook, host shell file, or arbitrary environment name
-  crosses this boundary.
+- `config shell` and `config git` own the Context's narrow non-secret host
+  projections. A complete setting group is deterministic for agents and
+  scripts; wholly omitted setting flags may be collected and reviewed only
+  through terminal text input. Partial, redirected, and JSON wizard attempts
+  fail before mutation. `config shell` retains only `PS1`, `TERM`,
+  `COLORTERM`, and `NO_COLOR`; new Contexts and Contexts migrated from schemas
+  1–3 inherit exported `PS1`, while schema-4 migration preserves its existing
+  shell policy. An absent export retains Tobari's built-in prompt. `config git`
+  owns one atomic `user.name`/`user.email` fallback and defaults to no
+  projection so personal identity is opt-in. Git inheritance reads only those
+  two host-global values for the stable Workspace root. No credential,
+  executable startup hook, host shell or Git file, include directive, helper,
+  signing setting, arbitrary environment name, or arbitrary Git key crosses
+  either boundary.
 - `runtime init` and `runtime build` are the host-facing runtime customization
   surface. The selected Context owns one fixed `runtime/Dockerfile`; build
   validates the resulting image and promotes it into that Context without
