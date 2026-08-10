@@ -1,26 +1,37 @@
 name: Temporary documentation voice fix
 
 on:
-  push:
-    branches:
-      - agent/docs-publisher-voice
+  pull_request:
+    paths:
+      - .github/workflows/temporary-doc-voice-fix.yml
+      - docs/architecture-site/**
 
 permissions:
   contents: write
 
 jobs:
   fix:
-    if: ${{ github.event.head_commit.message != 'docs: use publisher voice in security documentation' }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Check out branch
+      - name: Check out pull request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           persist-credentials: true
 
+      - name: Check whether the rewrite is already applied
+        id: applied
+        shell: bash
+        run: |
+          if [ "$(git log -1 --pretty=%s)" = "docs: use publisher voice in security documentation" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Node.js
+        if: steps.applied.outputs.skip != 'true'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version-file: .node-version
@@ -28,13 +39,16 @@ jobs:
           cache-dependency-path: docs/architecture-site/package-lock.json
 
       - name: Select repository-pinned npm
+        if: steps.applied.outputs.skip != 'true'
         run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
 
       - name: Install documentation dependencies
+        if: steps.applied.outputs.skip != 'true'
         working-directory: docs/architecture-site
         run: npm ci
 
       - name: Rewrite documentation voice
+        if: steps.applied.outputs.skip != 'true'
         shell: python
         run: |
           from pathlib import Path
@@ -116,13 +130,15 @@ jobs:
           replace_exact('src/components/PageFooter.astro', [('製品の動作に関する説明は、参照した製品コミットに固定しています。ページ自体のソースはドキュメントのコミットに固定し、契約・実装・テストへのリンクは各ページに記載しています。', '製品の動作に関する説明は、参照した製品コミットに固定しています。ページ自体のソースはドキュメントのコミットに固定し、必要な実装・テストへの参照は対応する技術ページにまとめています。')])
 
       - name: Format documentation
+        if: steps.applied.outputs.skip != 'true'
         working-directory: docs/architecture-site
         run: npm exec -- prettier --write .
 
       - name: Commit and push
+        if: steps.applied.outputs.skip != 'true'
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add docs/architecture-site
           git commit -m "docs: use publisher voice in security documentation"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
