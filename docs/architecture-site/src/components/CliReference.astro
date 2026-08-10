@@ -63,23 +63,109 @@ interface Scope {
   error_contract?: unknown;
 }
 const scopes = catalogData.scopes as unknown as Scope[];
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const ui = isJapanese
+  ? {
+      publicContracts: (count: number) => `${count} 件の公開コマンド契約`,
+      generatedFrom: (source: string) =>
+        `${source} から生成しています。ここに第二のコマンドレジストリはありません。`,
+      commandIndex: "コマンド索引",
+      commands: "コマンド",
+      namespace: "名前空間",
+      role: "役割",
+      effect: "作用",
+      capability: "機能 ID",
+      outcome: "成果",
+      inputs: "入力",
+      required: "必須",
+      optional: "任意",
+      source: "入力元",
+      kind: "種類",
+      cardinality: "個数",
+      default: "既定値",
+      allowed: "許可値",
+      minimum: "最小値",
+      maximum: "最大値",
+      reference: "参照",
+      requires: "依存",
+      conflicts: "競合",
+      none: "なし",
+      detailsSummary: "出力・前提条件・失敗・参照・変更契約",
+      output: "出力",
+      formats: "形式",
+      delivery: "提供方式",
+      coverage: "収集範囲",
+      notDeclared: "未宣言",
+      schema: "スキーマ",
+      referenceKind: "参照種別",
+      prerequisites: "前提条件",
+      noneDeclared: "宣言なし。",
+      declaredFailures: "宣言された失敗",
+      retryPermitted: "論理的な再試行が許可されています",
+      doNotRepeat: "同じ条件のまま繰り返さないでください",
+      recovery: "復旧",
+      opaqueReferences: "不透明な参照",
+      mutationBinding: "変更と対象の結び付け",
+      machineContract: "完全な機械可読契約（JSON）",
+    }
+  : {
+      publicContracts: (count: number) => `${count} public command contracts`,
+      generatedFrom: (source: string) =>
+        `Generated from ${source}; no second command registry is maintained here.`,
+      commandIndex: "Command index",
+      commands: "Commands",
+      namespace: "namespace",
+      role: "Role",
+      effect: "Effect",
+      capability: "Capability",
+      outcome: "Outcome",
+      inputs: "Inputs",
+      required: "required",
+      optional: "optional",
+      source: "Source",
+      kind: "Kind",
+      cardinality: "Cardinality",
+      default: "Default",
+      allowed: "Allowed",
+      minimum: "Minimum",
+      maximum: "Maximum",
+      reference: "Reference",
+      requires: "Requires",
+      conflicts: "Conflicts",
+      none: "none",
+      detailsSummary:
+        "Output, prerequisites, failures, references, and mutation contract",
+      output: "Output",
+      formats: "Formats",
+      delivery: "Delivery",
+      coverage: "Coverage",
+      notDeclared: "not declared",
+      schema: "schema",
+      referenceKind: "Reference kind",
+      prerequisites: "Prerequisites",
+      noneDeclared: "None declared.",
+      declaredFailures: "Declared failures",
+      retryPermitted: "logical retry permitted",
+      doNotRepeat: "do not repeat unchanged",
+      recovery: "Recovery",
+      opaqueReferences: "Opaque references",
+      mutationBinding: "Mutation and target binding",
+      machineContract: "Complete machine contract JSON",
+    };
 ---
 
 <section class="cli-reference" aria-labelledby="cli-command-index">
   <div class="catalog-origin">
-    <strong>{catalogData.command_count} public command contracts</strong>
-    <span
-      >Generated from {catalogData.generated_from}; no second command registry
-      is maintained here.</span
-    >
+    <strong>{ui.publicContracts(catalogData.command_count)}</strong>
+    <span>{ui.generatedFrom(catalogData.generated_from)}</span>
   </div>
 
   <nav class="command-index" aria-labelledby="cli-command-index">
-    <h2 id="cli-command-index">Command index</h2>
+    <h2 id="cli-command-index">{ui.commandIndex}</h2>
     {
       scopes.map((scope) => (
         <section>
-          <h3>{scope.commands[0]?.path.split(" ")[0] || "Commands"}</h3>
+          <h3>{scope.commands[0]?.path.split(" ")[0] || ui.commands}</h3>
           <ul>
             {scope.commands.map((command) => (
               <li>
@@ -97,7 +183,9 @@ const scopes = catalogData.scopes as unknown as Scope[];
   {
     scopes.map((scope) => (
       <section class="command-scope">
-        <h2>{scope.commands[0]?.path.split(" ")[0] || "Command"} namespace</h2>
+        <h2>
+          {scope.commands[0]?.path.split(" ")[0] || ui.commands} {ui.namespace}
+        </h2>
         {scope.commands.map((command) => (
           <article
             class="command-contract"
@@ -110,15 +198,15 @@ const scopes = catalogData.scopes as unknown as Scope[];
               </div>
               <dl class="badges">
                 <div>
-                  <dt>Role</dt>
+                  <dt>{ui.role}</dt>
                   <dd>{command.role}</dd>
                 </div>
                 <div>
-                  <dt>Effect</dt>
+                  <dt>{ui.effect}</dt>
                   <dd>{command.effect}</dd>
                 </div>
                 <div>
-                  <dt>Capability</dt>
+                  <dt>{ui.capability}</dt>
                   <dd>
                     <code>{command.contract.capability_id}</code>
                   </dd>
@@ -126,7 +214,7 @@ const scopes = catalogData.scopes as unknown as Scope[];
               </dl>
             </header>
             <p>
-              <strong>Outcome:</strong> {command.contract.outcome}
+              <strong>{ui.outcome}:</strong> {command.contract.outcome}
             </p>
             <pre tabindex="0">
               <code>{command.usage}</code>
@@ -134,33 +222,35 @@ const scopes = catalogData.scopes as unknown as Scope[];
 
             {command.contract.inputs?.length ? (
               <details>
-                <summary>Inputs ({command.contract.inputs.length})</summary>
+                <summary>
+                  {ui.inputs} ({command.contract.inputs.length})
+                </summary>
                 <div class="input-list">
                   {command.contract.inputs.map((input) => (
                     <section>
                       <h4>
                         <code>{input.name}</code>{" "}
                         <small>
-                          {input.required ? "required" : "optional"}
+                          {input.required ? ui.required : ui.optional}
                         </small>
                       </h4>
                       <p>{input.description}</p>
                       <dl>
                         <div>
-                          <dt>Source</dt>
+                          <dt>{ui.source}</dt>
                           <dd>{input.source}</dd>
                         </div>
                         <div>
-                          <dt>Kind</dt>
+                          <dt>{ui.kind}</dt>
                           <dd>{input.value_kind}</dd>
                         </div>
                         <div>
-                          <dt>Cardinality</dt>
+                          <dt>{ui.cardinality}</dt>
                           <dd>{input.cardinality}</dd>
                         </div>
                         {input.default_value !== undefined && (
                           <div>
-                            <dt>Default</dt>
+                            <dt>{ui.default}</dt>
                             <dd>
                               <code>{JSON.stringify(input.default_value)}</code>
                             </dd>
@@ -168,13 +258,13 @@ const scopes = catalogData.scopes as unknown as Scope[];
                         )}
                         {input.allowed_values?.length && (
                           <div>
-                            <dt>Allowed</dt>
+                            <dt>{ui.allowed}</dt>
                             <dd>{input.allowed_values.join(", ")}</dd>
                           </div>
                         )}
                         {input.minimum != null && (
                           <div>
-                            <dt>Minimum</dt>
+                            <dt>{ui.minimum}</dt>
                             <dd>
                               <code>{input.minimum}</code>
                             </dd>
@@ -182,7 +272,7 @@ const scopes = catalogData.scopes as unknown as Scope[];
                         )}
                         {input.maximum != null && (
                           <div>
-                            <dt>Maximum</dt>
+                            <dt>{ui.maximum}</dt>
                             <dd>
                               <code>{input.maximum}</code>
                             </dd>
@@ -190,7 +280,7 @@ const scopes = catalogData.scopes as unknown as Scope[];
                         )}
                         {input.reference_kind && (
                           <div>
-                            <dt>Reference</dt>
+                            <dt>{ui.reference}</dt>
                             <dd>
                               <code>{input.reference_kind}</code>
                             </dd>
@@ -198,13 +288,13 @@ const scopes = catalogData.scopes as unknown as Scope[];
                         )}
                         {input.requires?.length && (
                           <div>
-                            <dt>Requires</dt>
+                            <dt>{ui.requires}</dt>
                             <dd>{input.requires.join(", ")}</dd>
                           </div>
                         )}
                         {input.conflicts_with?.length && (
                           <div>
-                            <dt>Conflicts</dt>
+                            <dt>{ui.conflicts}</dt>
                             <dd>{input.conflicts_with.join(", ")}</dd>
                           </div>
                         )}
@@ -215,35 +305,32 @@ const scopes = catalogData.scopes as unknown as Scope[];
               </details>
             ) : (
               <p>
-                <strong>Inputs:</strong> none.
+                <strong>{ui.inputs}:</strong> {ui.none}.
               </p>
             )}
 
             <details>
-              <summary>
-                Output, prerequisites, failures, references, and mutation
-                contract
-              </summary>
+              <summary>{ui.detailsSummary}</summary>
               {command.contract.output && (
                 <section>
-                  <h4>Output</h4>
+                  <h4>{ui.output}</h4>
                   <p>
-                    Formats:{" "}
+                    {ui.formats}:{" "}
                     <code>
-                      {command.contract.output.formats?.join(", ") || "none"}
+                      {command.contract.output.formats?.join(", ") || ui.none}
                     </code>
-                    . Default:{" "}
+                    . {ui.default}:{" "}
                     <code>
-                      {command.contract.output.default_format || "none"}
+                      {command.contract.output.default_format || ui.none}
                     </code>
-                    . Delivery:{" "}
+                    . {ui.delivery}:{" "}
                     <code>
-                      {command.contract.output.delivery || "not declared"}
+                      {command.contract.output.delivery || ui.notDeclared}
                     </code>
-                    . Coverage:{" "}
+                    . {ui.coverage}:{" "}
                     <code>
                       {command.contract.output.collection_coverage ||
-                        "not declared"}
+                        ui.notDeclared}
                     </code>
                     .
                     {command.contract.output.json_envelope && (
@@ -253,7 +340,7 @@ const scopes = catalogData.scopes as unknown as Scope[];
                         <code>
                           {command.contract.output.json_envelope}
                         </code>{" "}
-                        schema{" "}
+                        {ui.schema}{" "}
                         <code>
                           {command.contract.output.json_schema_version}
                         </code>
@@ -274,7 +361,7 @@ const scopes = catalogData.scopes as unknown as Scope[];
                             {field.reference_kind && (
                               <>
                                 {" "}
-                                Reference kind:{" "}
+                                {ui.referenceKind}:{" "}
                                 <code>{field.reference_kind}</code>.
                               </>
                             )}
@@ -286,7 +373,7 @@ const scopes = catalogData.scopes as unknown as Scope[];
                 </section>
               )}
               <section>
-                <h4>Prerequisites</h4>
+                <h4>{ui.prerequisites}</h4>
                 {command.contract.prerequisites?.length ? (
                   <ul>
                     {command.contract.prerequisites.map((item) => (
@@ -294,38 +381,35 @@ const scopes = catalogData.scopes as unknown as Scope[];
                     ))}
                   </ul>
                 ) : (
-                  <p>None declared.</p>
+                  <p>{ui.noneDeclared}</p>
                 )}
               </section>
               <section>
-                <h4>Declared failures</h4>
+                <h4>{ui.declaredFailures}</h4>
                 {command.contract.errors?.length ? (
                   <ul>
                     {command.contract.errors.map((error) => (
                       <li>
                         <code>{error.code}</code> — {error.kind};{" "}
-                        {error.retryable
-                          ? "logical retry permitted"
-                          : "do not repeat unchanged"}
-                        .
+                        {error.retryable ? ui.retryPermitted : ui.doNotRepeat}.
                         {error.next_actions?.map((action) => (
                           <>
                             {" "}
-                            Recovery: <code>tobari {action.command}</code> (
-                            {action.reason})
+                            {ui.recovery}: <code>tobari {action.command}</code>{" "}
+                            ({action.reason})
                           </>
                         ))}
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p>None declared.</p>
+                  <p>{ui.noneDeclared}</p>
                 )}
               </section>
               {(command.produces_refs?.length ||
                 command.consumes_refs?.length) && (
                 <section>
-                  <h4>Opaque references</h4>
+                  <h4>{ui.opaqueReferences}</h4>
                   <pre tabindex="0">
                     <code>
                       {JSON.stringify(
@@ -342,7 +426,7 @@ const scopes = catalogData.scopes as unknown as Scope[];
               )}
               {(command.contract.mutation || command.contract.fixed_target) && (
                 <section>
-                  <h4>Mutation and target binding</h4>
+                  <h4>{ui.mutationBinding}</h4>
                   <pre tabindex="0">
                     <code>
                       {JSON.stringify(
@@ -360,7 +444,7 @@ const scopes = catalogData.scopes as unknown as Scope[];
             </details>
 
             <details class="machine-contract">
-              <summary>Complete machine contract JSON</summary>
+              <summary>{ui.machineContract}</summary>
               <pre tabindex="0">
                 <code>{JSON.stringify(command, null, 2)}</code>
               </pre>

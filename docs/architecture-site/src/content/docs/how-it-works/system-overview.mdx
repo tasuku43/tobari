@@ -40,11 +40,22 @@ The container receives upper- and lower-case HTTP/HTTPS proxy variables pointing
 
 OPA joins the shared `control` network, not project networks or egress. Workspace processes therefore cannot call OPA's policy endpoint directly.
 
-Gateway also joins control so it can call one fixed OPA endpoint. Auth Broker joins control and egress, but exposes no TCP listener. Host commands and Gateway reach its distinct Unix sockets through controlled mounts and fixed operations; neither socket is available to a Workspace or OPA.
+Gateway also joins control so it can call one fixed OPA endpoint. Auth Broker
+joins control and egress, but exposes no TCP listener. Host commands and Gateway
+reach its distinct Unix sockets through controlled mounts and fixed operations;
+neither socket is available to a Workspace or OPA. A separate Broker-private
+companion socket exists only inside the Auth Broker container namespace and is
+bridged by one authenticated reverse `docker exec -i` session to the resident
+trusted-host companion. It is not mounted into a Workspace or published on the
+host.
 
 ### One egress network
 
-Gateway joins `egress` so it can resolve and connect to an allowed destination. Auth Broker can use egress only within its bounded trusted-host acquisition role. A work container never joins this network.
+Gateway joins `egress` so it can resolve and connect to an allowed destination.
+Auth Broker uses egress only for its compiled post-policy Datadog refresh plan
+at one exact US1 token endpoint. Interactive GitHub, AWS, and Datadog
+acquisition runs through fixed drivers directly on the trusted host, not over
+Broker egress. A work container never joins this network.
 
 ## An allowed request in order
 
@@ -103,12 +114,12 @@ Host file roots are a different boundary: two Workspaces may intentionally mount
 
 ## Source evidence
 
-- [System topology](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
-- [HTTP authorization and network enforcement claims](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
-- [Compose network declarations and service mounts](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/compose.yaml)
-- [Workspace network and container creation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/project_runtime.go)
-- [Cluster reconciliation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/runtime.go)
-- [End-to-end topology, bypass, and outage tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+- [System topology](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [HTTP authorization and network enforcement claims](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Compose network declarations and service mounts](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml)
+- [Workspace network and container creation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime.go)
+- [Cluster reconciliation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/runtime.go)
+- [End-to-end topology, bypass, and outage tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
 
 ## Summary
 

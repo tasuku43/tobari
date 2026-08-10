@@ -3,7 +3,8 @@ title: Authentication
 description: Choose tool-native, brokered, or retained managed authentication without confusing credentials with network permission.
 ---
 
-import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+import CredentialArchitectureMap from "../../../components/CredentialArchitectureMap.astro";
+import ProviderToolMap from "../../../components/ProviderToolMap.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
 ## The question this guide answers
@@ -18,19 +19,40 @@ Prerequisites: understand [Request journey](../../how-it-works/request-journey/)
 
 ## Compare the three paths
 
-| Path                     | Where the primary credential lives                              | What the Workspace can read                           | Gateway behavior                                                         | Main limit                                                              |
-| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                              | Removes auth/cookie fields from OPA and audit, then forwards after allow | Credential is available to processes in the same Workspace              |
-| Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not the primary secret | Introspects without secret, asks OPA, then resolves or signs after allow | Static exact bindings plus reviewed GitHub, AWS, and Datadog plans only |
-| Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                             | Validates Context/project/host profile and injects after allow           | Static reviewed adapter; not a general provider program                 |
+| Path                     | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                     | Main limit                                                              |
+| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace              |
+| Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Introspects without secret, asks OPA, then resolves, refreshes, or signs after allow | Static exact bindings plus reviewed GitHub, AWS, and Datadog plans only |
+| Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                                               | Validates Context/project/host profile and injects after allow                       | Static reviewed adapter; not a general provider program                 |
 
 No path changes the OPA rule requirement. “The request is authenticated” and “this Context/project/method/path may connect” are different claims.
+
+<aside class="warning">
+  <strong>Artifact status:</strong> the source and tests implement the Datadog
+  acquisition and post-policy refresh path, but the current immutable Gateway
+  and Auth Broker pins predate AWS console login and that request path. The
+  standard cluster selects the earlier AWS Identity Center artifacts today; use
+  [Component versions](/reference/component-versions/) to verify the selected
+  identities before following the Datadog steps.
+</aside>
 
 ## Tool-native authentication
 
 Enter the Workspace and use the tool's normal supported login. Its state is stored below the Workspace's persistent home and survives `exit`, container loss, and runtime rebuild. It is isolated from other Workspace homes and removed by `tobari delete`.
 
 Tobari does not copy the host home, Keychain, SSH agent, credential environment, or general CLI configuration into the Workspace. Tool-native state is readable by other processes within that same Workspace boundary.
+
+## Provider first, Tool second
+
+A credential Provider and the Workspace client Tool that uses it are different
+abstractions. Tobari supports a complete pairing: acquisition, handle
+projection, exact request binding, and the client that emits that request.
+Today every reviewed built-in pairing has one supported client Tool. The CLI
+therefore asks for the Provider, shows the Tool, and selects it automatically.
+It does not pretend that the two concepts are identical, and it does not add a
+redundant `--tool` input.
+
+<ProviderToolMap />
 
 ## Reviewed built-in authentication
 
@@ -47,8 +69,13 @@ tobari auth status --context default
 
 Login requires an interactive trusted-host terminal. Omitting optional
 `--provider` presents only installed reviewed login providers; an explicit
-`--provider` skips that menu. The AWS-only `--method` flag requires
-`--provider aws`. The broker runs the pinned GitHub helper with private temporary configuration and obtains the primary credential without returning it in CLI output. The real value is encrypted in the stable Context vault.
+`--provider` skips that menu. Each menu row names its automatically selected
+Workspace client Tool. The AWS-only `--method` flag requires
+`--provider aws`. Tobari runs the trusted host's identity-checked GitHub CLI
+with fixed argv, sanitized private configuration, bounded projected output,
+and checked cleanup. Neither Gateway nor Auth Broker runs `gh`; the acquired
+static value is committed through Broker control and encrypted in the stable
+Context vault without appearing in CLI output.
 
 Leave and re-enter a Workspace permanently bound to that Context:
 
@@ -58,6 +85,23 @@ tobari --context default
 
 The Workspace receives a distinct `tobari-h1_...` handle. For the built-in GitHub manifest it is projected for supported GitHub CLI API use, but it is not the upstream token. Private Git transport through a broker Git credential helper is not currently supported.
 
+For AWS, choose one explicit trusted-host method:
+
+```sh
+tobari auth login --provider aws --method identity-center --context default
+# or, with AWS CLI 2.32 or newer:
+tobari auth login --provider aws --method console --context default
+```
+
+Identity Center collects the reviewed commercial start URL, SSO region,
+12-digit account ID, and role and runs fixed device login. Console login asks
+for one commercial region, opens only the validated cross-device URL, and lets
+AWS CLI read the authorization code from terminal stdin. Both use an isolated
+temporary home and encrypt only distinct bounded opaque AWS state. After
+re-entry, the Workspace's three AWS credential variables contain the same
+project handle—not access key material. Request region remains ordinary
+Context or command configuration.
+
 For Datadog, run `tobari auth login --provider datadog --context default`. Tobari invokes
 fixed host `pup --no-agent auth login --site datadoghq.com` in a private
 file-backed home; pup owns browser consent and the loopback callback. After
@@ -66,7 +110,7 @@ re-entry, the Workspace receives `DD_ACCESS_TOKEN=<project handle>` and fixed
 near expiry, Broker performs one bounded fixed-US1 refresh and persists the
 replacement encrypted state. Pup is not installed in Broker.
 
-<ConceptDiagram name="credential-boundary" headingLevel={2} />
+<CredentialArchitectureMap headingLevel={2} initial="acquisition" />
 
 ## What happens on one brokered request
 
@@ -74,14 +118,28 @@ replacement encrypted state. Pup is not installed in Broker.
 2. It strictly recognizes the provider-declared handle in the exact source header and removes it.
 3. Broker introspection verifies Context, project, provider, credential revision, target, and header binding without returning the secret.
 4. Gateway asks OPA about the ordinary body-free HTTP effect.
-5. On deny, processing stops. There is no secret resolution or upstream connection.
-6. On allow, Gateway resolves the same binding exactly once; reviewed AWS signs
-   and Datadog may refresh only at this post-policy boundary.
-7. Gateway replaces only the declared destination header and creates the exact HTTPS upstream connection.
+5. On deny, processing stops. There is no static resolution, Datadog token
+   selection/refresh, AWS companion call/signing, or upstream connection.
+6. On a static allow, Gateway resolves the same revision once and replaces the
+   declared header.
+7. On an AWS allow, Gateway captures the complete authorized request within
+   8 MiB. Broker uses the authenticated private host companion for one fixed
+   AWS CLI credential export, rechecks/persists the revision, and signs
+   standard header-based SigV4 locally.
+8. On a Datadog allow, Broker selects a sufficiently valid token or performs
+   one same-record strict refresh at the exact proxy-free, no-redirect US1
+   token endpoint and commits state before returning a bearer value.
+9. Gateway creates one exact HTTPS upstream connection. It does not replay.
 
 <SequenceExplorer
   title="Brokered credential paths"
-  scenarios={["broker-allowed", "invalid-handle"]}
+  scenarios={[
+    "broker-allowed",
+    "aws-brokered-allowed",
+    "datadog-refresh-allowed",
+    "credential-outcome-unknown",
+    "invalid-handle",
+  ]}
   initial="broker-allowed"
 />
 
@@ -119,27 +177,42 @@ Logout removes the local provider record and revokes its handles. It does not co
 - `auth_vault_invalid`: diagnose integrity without printing or rewriting vault contents.
 - `invalid_provider_manifest` or `ambiguous_provider_http_binding`: correct the entire strict manifest collection; no partial provider projection activates.
 - `credential_handle_invalid` (`403`): leave and re-enter the matching Workspace; a copied or stale handle must not be forwarded.
-- `credential_broker_unavailable` (`503`): reconcile the broker before retrying the HTTP request.
+- `credential_broker_unavailable` (`503`): this is a known pre-execution
+  availability class. Reconcile Broker/companion state and retry only after
+  readiness; no application upstream attempt was made.
 - `credential_refresh_outcome_unknown` (`409`): do not replay automatically;
-  inspect `auth status` and re-login or logout the affected AWS/Datadog provider
-  when it is `not_configured`.
+  after the original request settles, inspect `auth status`. Ready/configured
+  permits an explicit retry because Gateway made no application upstream
+  attempt. `not_configured` retains a durable barrier: re-login or logout the
+  affected AWS/Datadog provider, then leave and re-enter before retrying.
 - `auth_mutation_outcome_unknown` or an output failure after mutation: inspect `auth status` before another login/import/logout. Blind replay may rotate or remove confirmed state twice.
 
 ## Guarantees and limits
 
-The broker keeps the primary credential out of Workspace files/environment and OPA, binds handles to exact authority, and resolves only after allow. It does not isolate mutually hostile processes inside one Workspace, stop use of an already allowed capability, perform remote logout, support multiple accounts per Context, or implement refresh/signing/OAuth beyond the reviewed AWS and Datadog plans.
+The broker keeps static and renewable credential state out of Workspace
+files/environment and OPA, binds handles to exact authority, and performs
+secret-bearing actions only after allow. It does not isolate mutually hostile
+processes inside one Workspace, stop use of an already allowed capability,
+perform remote logout, support multiple accounts per Context, or implement
+refresh/signing/OAuth beyond the reviewed AWS and Datadog plans.
 
 ## Source evidence
 
-- [Authentication governing contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/07_authentication.md)
-- [Auth Catalog specifications](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/auth_catalog.go)
-- [Schema-1 provider domain](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/domain/authbroker/provider.go)
-- [Auth Broker implementation and vault tests](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/authbroker)
-- [Gateway credential-order tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+- [Authentication governing contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/07_authentication.md)
+- [Auth Catalog specifications](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/auth_catalog.go)
+- [Schema-1/2 provider domain](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/authbroker/provider.go)
+- [Auth Broker implementation and vault tests](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker)
+- [Gateway credential-order tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [Trusted-host credential drivers](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/credentialhost)
+- [Private companion protocol](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/companion_protocol.py)
+- [Datadog fixed refresh](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/datadog_oauth.py)
 
 ## Summary
 
-Authentication supplies identity material; OPA authorization still controls each HTTP effect. Brokered Workspaces hold opaque, narrowly bound handles. Only an allowed Gateway path resolves and forwards the real credential.
+Authentication supplies identity material; OPA authorization still controls
+each HTTP effect. Brokered Workspaces hold opaque, narrowly bound handles. Only
+an allowed Gateway path can trigger the declared static resolve, AWS signing,
+or Datadog token action.
 
 ## Check your understanding
 

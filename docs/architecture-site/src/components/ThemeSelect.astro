@@ -1,9 +1,26 @@
+---
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const labels = isJapanese
+  ? {
+      accessible: "カラーテーマ",
+      system: "システム",
+      light: "ライト",
+      dark: "ダーク",
+    }
+  : {
+      accessible: "Color theme",
+      system: "System",
+      light: "Light",
+      dark: "Dark",
+    };
+---
+
 <label class="theme-select">
-  <span class="visually-hidden">Color theme</span>
-  <select data-tobari-theme-select aria-label="Color theme">
-    <option value="system">System</option>
-    <option value="light">Light</option>
-    <option value="dark">Dark</option>
+  <span class="visually-hidden">{labels.accessible}</span>
+  <select data-tobari-theme-select aria-label={labels.accessible}>
+    <option value="system">{labels.system}</option>
+    <option value="light">{labels.light}</option>
+    <option value="dark">{labels.dark}</option>
   </select>
 </label>
 

@@ -1,5 +1,11 @@
 ---
 import { sequenceScenarios } from "../data/sequences";
+import {
+  localizeSequenceScenarioJa,
+  sequenceActorLabelsJa,
+  sequenceTitleJa,
+  sequenceUiJa,
+} from "../data/sequences.ja";
 
 interface Props {
   scenarios?: string[];
@@ -12,37 +18,80 @@ const {
   scenarios: requestedIds,
   initial,
   compact = false,
-  title = "Request sequence explorer",
+  title: requestedTitle = "Request sequence explorer",
 } = Astro.props;
-const selected = requestedIds?.length
-  ? sequenceScenarios.filter((scenario) => requestedIds.includes(scenario.id))
+const isJapanese = Astro.url.pathname.split("/").filter(Boolean).includes("ja");
+// Localize the complete registry before filtering so a missing scenario or step
+// translation fails the build even when a page renders only a subset.
+const localizedScenarios = isJapanese
+  ? sequenceScenarios.map(localizeSequenceScenarioJa)
   : sequenceScenarios;
+const selected = requestedIds?.length
+  ? localizedScenarios.filter((scenario) => requestedIds.includes(scenario.id))
+  : localizedScenarios;
 const initialId =
   initial && selected.some((scenario) => scenario.id === initial)
     ? initial
     : selected[0]?.id;
 const serialized = JSON.stringify(selected);
+const serializedActorLabels = JSON.stringify(
+  isJapanese ? sequenceActorLabelsJa : {},
+);
+const title = isJapanese
+  ? (sequenceTitleJa[requestedTitle] ?? requestedTitle)
+  : requestedTitle;
+const ui = isJapanese
+  ? sequenceUiJa
+  : {
+      eyebrow: "Interactive sequence",
+      introduction:
+        "Nothing plays automatically. Choose a scenario, then move through the effect one decision at a time.",
+      scenario: "Scenario",
+      controlsLabel: "Sequence controls",
+      previous: "Previous",
+      next: "Next",
+      play: "Play",
+      pause: "Pause",
+      restart: "Restart",
+      sharedCluster: "Shared cluster",
+      fixedActorMap: "Fixed actor map",
+      sent: "Information sent",
+      withheld: "Information not sent",
+      owner: "Responsible component",
+      failure: "If this step fails",
+      keyboardHint:
+        "Keyboard: focus this explorer and use Left or Right Arrow. Space toggles Play and Pause.",
+      staticDisclosure: "Read the complete static transcript",
+      staticHeading: "Static sequence descriptions",
+      staticIntroduction:
+        "These transcripts contain the same information as the controls above and remain available without JavaScript or animation.",
+      staticSent: "Sent",
+      staticWithheld: "Not sent",
+      staticOwner: "Owner",
+      staticFailure: "Failure",
+    };
+const staticActorLabel = (actor: string) =>
+  isJapanese ? sequenceActorLabelsJa[actor] : actor;
 ---
 
 <figure class:list={["sequence-explorer", { compact }]}>
   <figcaption>
-    <span class="eyebrow">Interactive sequence</span>
+    <span class="eyebrow">{ui.eyebrow}</span>
     <h2>{title}</h2>
-    <p>
-      Nothing plays automatically. Choose a scenario, then move through the
-      effect one decision at a time.
-    </p>
+    <p>{ui.introduction}</p>
   </figcaption>
 
   <tobari-sequence
     data-scenarios={serialized}
     data-initial={initialId}
+    data-locale={isJapanese ? "ja" : "en"}
+    data-actor-labels={serializedActorLabels}
     tabindex="0"
   >
     <section class="sequence-interactive" aria-label={title}>
       <div class="sequence-toolbar">
         <label>
-          <span>Scenario</span>
+          <span>{ui.scenario}</span>
           <select data-control="scenario">
             {
               selected.map((scenario) => (
@@ -56,12 +105,13 @@ const serialized = JSON.stringify(selected);
             }
           </select>
         </label>
-        <div class="button-group" aria-label="Sequence controls">
-          <button type="button" data-control="previous">Previous</button>
-          <button type="button" data-control="next">Next</button>
-          <button type="button" data-control="play">Play</button>
-          <button type="button" data-control="pause" disabled>Pause</button>
-          <button type="button" data-control="restart">Restart</button>
+        <div class="button-group" aria-label={ui.controlsLabel}>
+          <button type="button" data-control="previous">{ui.previous}</button>
+          <button type="button" data-control="next">{ui.next}</button>
+          <button type="button" data-control="play">{ui.play}</button>
+          <button type="button" data-control="pause" disabled>{ui.pause}</button
+          >
+          <button type="button" data-control="restart">{ui.restart}</button>
         </div>
       </div>
 
@@ -69,11 +119,12 @@ const serialized = JSON.stringify(selected);
       <div
         class="lane-map"
         role="img"
-        aria-label="Fixed actor map"
+        aria-label={ui.fixedActorMap}
         tabindex="0"
       >
         <div class="sequence-map-stage">
-          <span class="sequence-cluster" aria-hidden="true">Shared cluster</span
+          <span class="sequence-cluster" aria-hidden="true"
+            >{ui.sharedCluster}</span
           >
           <svg
             viewBox="0 0 100 100"
@@ -104,26 +155,20 @@ const serialized = JSON.stringify(selected);
         <p data-field="explanation"></p>
       </div>
       <dl class="step-facts">
-        <div><dt>Information sent</dt><dd data-field="sent"></dd></div>
-        <div><dt>Information not sent</dt><dd data-field="withheld"></dd></div>
-        <div><dt>Responsible component</dt><dd data-field="owner"></dd></div>
-        <div><dt>If this step fails</dt><dd data-field="failure"></dd></div>
+        <div><dt>{ui.sent}</dt><dd data-field="sent"></dd></div>
+        <div><dt>{ui.withheld}</dt><dd data-field="withheld"></dd></div>
+        <div><dt>{ui.owner}</dt><dd data-field="owner"></dd></div>
+        <div><dt>{ui.failure}</dt><dd data-field="failure"></dd></div>
       </dl>
-      <p class="keyboard-hint">
-        Keyboard: focus this explorer and use Left or Right Arrow. Space toggles
-        Play and Pause.
-      </p>
+      <p class="keyboard-hint">{ui.keyboardHint}</p>
     </section>
   </tobari-sequence>
 
   <details class="static-sequence-disclosure" open>
-    <summary>Read the complete static transcript</summary>
+    <summary>{ui.staticDisclosure}</summary>
     <section class="static-sequences" aria-labelledby={`static-${initialId}`}>
-      <h3 id={`static-${initialId}`}>Static sequence descriptions</h3>
-      <p>
-        These transcripts contain the same information as the controls above and
-        remain available without JavaScript or animation.
-      </p>
+      <h3 id={`static-${initialId}`}>{ui.staticHeading}</h3>
+      <p>{ui.staticIntroduction}</p>
       {
         selected.map((scenario, scenarioIndex) => (
           <details open={scenarioIndex === 0}>
@@ -135,25 +180,26 @@ const serialized = JSON.stringify(selected);
                   <h4>{step.title}</h4>
                   <p>
                     <strong>
-                      {step.from} → {step.to}:
+                      {staticActorLabel(step.from)} →{" "}
+                      {staticActorLabel(step.to)}:
                     </strong>{" "}
                     {step.explanation}
                   </p>
                   <dl>
                     <div>
-                      <dt>Sent</dt>
+                      <dt>{ui.staticSent}</dt>
                       <dd>{step.sent}</dd>
                     </div>
                     <div>
-                      <dt>Not sent</dt>
+                      <dt>{ui.staticWithheld}</dt>
                       <dd>{step.withheld}</dd>
                     </div>
                     <div>
-                      <dt>Owner</dt>
+                      <dt>{ui.staticOwner}</dt>
                       <dd>{step.owner}</dd>
                     </div>
                     <div>
-                      <dt>Failure</dt>
+                      <dt>{ui.staticFailure}</dt>
                       <dd>{step.failure}</dd>
                     </div>
                   </dl>
@@ -168,17 +214,29 @@ const serialized = JSON.stringify(selected);
 </figure>
 
 <script>
-  import type { SequenceScenario } from "../data/sequences";
+  import type { SequenceScenario, SequenceStep } from "../data/sequences";
+
+  interface DisplayStep extends SequenceStep {
+    fromLabel?: string;
+    toLabel?: string;
+  }
+
+  interface DisplayScenario extends Omit<SequenceScenario, "steps"> {
+    steps: DisplayStep[];
+  }
 
   const actorAliases: Record<string, string> = {
     "Gateway network interface": "Gateway",
     "OPA runtime": "OPA",
+    "OPA / Upstream": "Upstream",
   };
   const actorPositions: Record<string, { x: number; y: number }> = {
     "Workspace process": { x: 17, y: 52 },
     Gateway: { x: 48, y: 52 },
     OPA: { x: 48, y: 16 },
     "Auth Broker": { x: 48, y: 86 },
+    "Host credential companion": { x: 17, y: 16 },
+    "Datadog token endpoint": { x: 82, y: 84 },
     "DNS / resolver": { x: 82, y: 16 },
     Upstream: { x: 82, y: 52 },
     "Review store": { x: 82, y: 84 },
@@ -190,10 +248,12 @@ const serialized = JSON.stringify(selected);
   const normalizeActor = (actor: string) => actorAliases[actor] || actor;
 
   class TobariSequence extends HTMLElement {
-    scenarios: SequenceScenario[] = [];
+    scenarios: DisplayScenario[] = [];
     scenarioIndex = 0;
     stepIndex = 0;
     timer?: number;
+    isJapanese = false;
+    actorLabels: Record<string, string> = {};
 
     connectedCallback() {
       this.closest(".sequence-explorer")
@@ -202,10 +262,14 @@ const serialized = JSON.stringify(selected);
       try {
         this.scenarios = JSON.parse(
           this.dataset.scenarios || "[]",
-        ) as SequenceScenario[];
+        ) as DisplayScenario[];
+        this.actorLabels = JSON.parse(
+          this.dataset.actorLabels || "{}",
+        ) as Record<string, string>;
       } catch {
         return;
       }
+      this.isJapanese = this.dataset.locale === "ja";
       const requested = this.dataset.initial;
       const found = this.scenarios.findIndex(({ id }) => id === requested);
       this.scenarioIndex = found >= 0 ? found : 0;
@@ -276,6 +340,10 @@ const serialized = JSON.stringify(selected);
       return this.scenarios[this.scenarioIndex];
     }
 
+    displayActor(actor: string) {
+      return this.actorLabels[actor] || actor;
+    }
+
     setText(field: string, value: string) {
       const element = this.querySelector(`[data-field="${field}"]`);
       if (element) element.textContent = value;
@@ -288,12 +356,18 @@ const serialized = JSON.stringify(selected);
       this.setText("summary", scenario.summary);
       this.setText(
         "count",
-        `Step ${this.stepIndex + 1} of ${scenario.steps.length}`,
+        this.isJapanese
+          ? `${scenario.steps.length} 段階中 ${this.stepIndex + 1} 段階目`
+          : `Step ${this.stepIndex + 1} of ${scenario.steps.length}`,
       );
       this.setText("title", step.title);
+      const fromLabel = step.fromLabel || this.displayActor(step.from);
+      const toLabel = step.toLabel || this.displayActor(step.to);
       this.setText(
         "explanation",
-        `${step.from} → ${step.to}. ${step.explanation}`,
+        this.isJapanese
+          ? `${fromLabel} → ${toLabel}。${step.explanation}`
+          : `${step.from} → ${step.to}. ${step.explanation}`,
       );
       this.setText("sent", step.sent);
       this.setText("withheld", step.withheld);
@@ -334,7 +408,7 @@ const serialized = JSON.stringify(selected);
           if (isSource || isTarget) lane.classList.add(`tone-${step.tone}`);
           const label = document.createElement("span");
           label.className = "actor-label";
-          label.textContent = actor;
+          label.textContent = this.displayActor(actor);
           lane.append(label);
           const track = document.createElement("span");
           track.className = "actor-track";
@@ -344,7 +418,17 @@ const serialized = JSON.stringify(selected);
             const marker = document.createElement("span");
             marker.className = `message-marker tone-${step.tone}`;
             marker.textContent =
-              isSource && isTarget ? "●" : isSource ? "SEND" : "RECEIVE";
+              isSource && isTarget
+                ? this.isJapanese
+                  ? "内部"
+                  : "●"
+                : isSource
+                  ? this.isJapanese
+                    ? "送信"
+                    : "SEND"
+                  : this.isJapanese
+                    ? "受信"
+                    : "RECEIVE";
             marker.setAttribute("aria-hidden", "true");
             lane.append(marker);
           }
@@ -353,7 +437,9 @@ const serialized = JSON.stringify(selected);
         const map = lanes.closest<HTMLElement>(".lane-map");
         map?.setAttribute(
           "aria-label",
-          `${step.title}: ${step.from} sends to ${step.to}`,
+          this.isJapanese
+            ? `${step.title}：${fromLabel} から ${toLabel} へ送信`
+            : `${step.title}: ${step.from} sends to ${step.to}`,
         );
         if (map)
           map.dataset.mapMode =
@@ -437,6 +523,9 @@ const serialized = JSON.stringify(selected);
 </script>
 
 <style>
+  tobari-sequence {
+    scroll-margin-block-start: 5rem;
+  }
   .sequence-explorer {
     margin: 2rem 0;
     padding: clamp(1rem, 3vw, 1.5rem);
@@ -474,7 +563,9 @@ const serialized = JSON.stringify(selected);
   .sequence-toolbar label {
     display: grid;
     gap: 0.3rem;
-    min-width: min(100%, 19rem);
+    width: min(100%, 19rem);
+    min-width: 0;
+    max-width: 100%;
     color: var(--sl-color-gray-2);
     font-size: var(--sl-text-sm);
     font-weight: 650;
@@ -489,6 +580,8 @@ const serialized = JSON.stringify(selected);
     font: inherit;
   }
   .sequence-toolbar select {
+    width: 100%;
+    min-width: 0;
     padding: 0.5rem 2rem 0.5rem 0.65rem;
   }
   .sequence-toolbar button {

@@ -1,7 +1,12 @@
+import { execFileSync } from "node:child_process";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { extname, join, relative, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
+const repositoryRoot = resolve(root, "../..");
+const productSnapshot = (
+  await readFile(join(root, "source-snapshot.txt"), "utf8")
+).trim();
 const scannedRoots = ["src", "public"];
 const textExtensions = new Set([
   ".astro",
@@ -16,6 +21,7 @@ const textExtensions = new Set([
   ".ts",
 ]);
 const errors = [];
+const evidenceLinks = new Map();
 
 async function filesBelow(directory) {
   const result = [];
@@ -70,6 +76,59 @@ for (const file of files) {
   ) {
     errors.push(`${label} appears to contain a credential`);
   }
+
+  const permalinkPattern =
+    /https:\/\/github\.com\/tasuku43\/tobari\/(blob|tree)\/([0-9a-f]{40})\/([A-Za-z0-9._~%+@/-]+)/g;
+  for (const match of source.matchAll(permalinkPattern)) {
+    const [, kind, commit, encodedPath] = match;
+    let sourcePath;
+    try {
+      sourcePath = decodeURIComponent(encodedPath);
+    } catch {
+      errors.push(`${label} contains a malformed repository permalink path`);
+      continue;
+    }
+    const key = `${kind}:${commit}:${sourcePath}`;
+    const labels = evidenceLinks.get(key) || [];
+    labels.push(label);
+    evidenceLinks.set(key, labels);
+  }
+}
+
+if (!/^[0-9a-f]{40}$/.test(productSnapshot)) {
+  errors.push("source-snapshot.txt must contain one full lowercase commit SHA");
+} else {
+  for (const [key, labels] of evidenceLinks) {
+    const [kind, commit, ...pathParts] = key.split(":");
+    const sourcePath = pathParts.join(":");
+    if (commit !== productSnapshot) {
+      errors.push(
+        `${labels[0]} links to product commit ${commit}, expected ${productSnapshot}`,
+      );
+      continue;
+    }
+    try {
+      const objectType = execFileSync(
+        "git",
+        ["cat-file", "-t", `${commit}:${sourcePath}`],
+        {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        },
+      ).trim();
+      const expectedType = kind === "tree" ? "tree" : "blob";
+      if (objectType !== expectedType) {
+        errors.push(
+          `${labels[0]} uses ${kind} for ${sourcePath}, but Git reports ${objectType}`,
+        );
+      }
+    } catch {
+      errors.push(
+        `${labels[0]} links to missing product evidence ${commit}:${sourcePath}`,
+      );
+    }
+  }
 }
 
 if (errors.length) {
@@ -81,5 +140,5 @@ if (errors.length) {
 }
 
 console.log(
-  `Verified ${files.length} runtime site source files: no CDN, tracking, external fetch, or credential pattern.`,
+  `Verified ${files.length} runtime site source files and ${evidenceLinks.size} commit-fixed evidence targets: no CDN, tracking, external fetch, stale permalink, or credential pattern.`,
 );

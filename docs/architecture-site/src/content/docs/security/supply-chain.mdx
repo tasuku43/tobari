@@ -24,7 +24,7 @@ You should finish able to distinguish an immutable service image identity from t
 
 ## Why source and snapshot both exist
 
-The Go CLI must materialize a runtime directory without downloading executable policy or Python source at startup. Canonical editable Gateway code lives under `gateway/`; Auth Broker under `authbroker/`; runtime source under `runtimes/base/`. Byte/content-checked copies live under `internal/infra/runtimeassets/assets/` for embedding.
+The Go CLI must materialize a runtime directory without downloading executable policy or Python source at startup. Canonical editable Gateway code lives under `gateway/`; Auth Broker under `authbroker/`; runtime source under `runtimes/base/`. Byte/content-checked copies live under `internal/infra/runtimeassets/assets/` for embedding. The Auth Broker snapshot includes the private AWS companion protocol and fixed Datadog refresh logic, but its image contract rejects GitHub CLI, AWS CLI, `pup`, or another provider executable.
 
 The copies are not a second implementation. `check-gateway-source.sh`, `check-authbroker-source.sh`, and `check-runtime-base.sh` reject drift. Synchronization is an explicit maintainer operation.
 
@@ -34,12 +34,30 @@ The copies are not a second implementation. `check-gateway-source.sh`, `check-au
 
 The official default runtime selector is currently `ghcr.io/tasuku43/tobari/runtime:latest`. It is intentionally a moving selector and must not be described as an immutable digest. Context reconciliation resolves and records the image identity it actually uses; runtime API labels and metadata gate compatibility.
 
+Canonical source and a pinned runtime artifact are two separate facts. A source
+change does not alter a running or newly reconciled standard cluster until the
+corresponding multi-architecture Gateway/Auth Broker manifest is published,
+reviewed, and its immutable digest is updated in `versions.env`. The generated
+[Component versions](/reference/component-versions/) table is the authority for
+the artifacts this source snapshot actually selects.
+
+At this snapshot, the selected Gateway/Auth Broker pair includes the earlier
+AWS Identity Center companion and SigV4 path but predates AWS console login and
+the Datadog post-policy request path now present in canonical source and tests.
+Those newer paths are not standard-cluster capabilities until the immutable
+pins advance. This distinction
+is intentional: a successful source test does not silently replace runtime
+bytes.
+
 ## Build and release controls
 
 - OCI images are built in reviewed workflows and published to GHCR.
 - External workflow actions are pinned to full commit SHAs.
 - Release packaging injects CLI version and commit; ordinary builds remain `dev`.
 - Base/derived runtime metadata records architecture, parent, API, lifetime command, tool source, checksum/signature, and licensing expectations.
+- Auth Broker image checks prove the absence of provider CLIs and public TCP
+  listeners; companion tests prove the host side exposes no listener or socket
+  mount and accepts only its compiled AWS operation.
 - Public and release guards check repository boundaries, secrets, licenses, package inputs, and immutable service references. Tobari does not claim a separate code-signing, SBOM-attestation, or externally verifiable provenance system here.
 
 ## Startup failure behavior
@@ -69,22 +87,22 @@ Missing, mutable where immutable is required, incompatible, or unverifiable imag
   <h2>Sources</h2>
   <ul>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/versions.env">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/versions.env">
         Service versions and digests
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets.go">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets.go">
         Embedded asset materialization/hash
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/tools/runtimecheck/main.go">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/tools/runtimecheck/main.go">
         Runtime metadata validator
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/06_release.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/06_release.md">
         Release contract
       </a>
     </li>

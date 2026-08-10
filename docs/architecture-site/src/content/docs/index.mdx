@@ -166,7 +166,7 @@ Read [Guarantees and limitations](./security/guarantees-and-limitations/) before
     <h3>Implemented at this source commit</h3>
     <p>
       {
-        "CWD-first Workspace lifecycle; shared Gateway, OPA, and Auth Broker; default-deny exact policy learning; intercepted HTTP/HTTPS; Context-owned runtime recipes; schema-v1 exact-header brokered credentials; generated Catalog help."
+        "CWD-first Workspace lifecycle; shared Gateway, OPA, and locked Auth Broker; default-deny exact policy learning; intercepted HTTP/HTTPS; Context-owned runtime recipes; schema-1 static brokered providers; reviewed schema-2 AWS SigV4 and Datadog OAuth source paths; generated Catalog help. The current immutable Gateway/Auth Broker pins select the earlier AWS Identity Center path but predate AWS console login and the Datadog request path."
       }
     </p>
   </section>
@@ -192,27 +192,27 @@ Read [Guarantees and limitations](./security/guarantees-and-limitations/) before
   <h2>Evidence for this page</h2>
   <ul>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/00_theses.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/00_theses.md">
         Project theses
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md">
         Product contract
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md">
         Security model
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/compose.yaml">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml">
         Supported network topology
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh">
         End-to-end boundary tests
       </a>
     </li>

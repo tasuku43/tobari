@@ -1,12 +1,44 @@
 ---
 import { diagrams } from "../data/diagrams";
+import { diagramsJa } from "../data/diagrams.ja";
 
 interface Props {
   headingLevel?: 2 | 3;
 }
 
 const { headingLevel = 2 } = Astro.props;
-const diagram = diagrams["policy-loop"];
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const diagram = (isJapanese ? diagramsJa : diagrams)["policy-loop"];
+const ui = isJapanese
+  ? {
+      viewportAria: "横にスクロールできるポリシー学習ループ",
+      stageAria: "時計回りに配置した七つのポリシー学習状態",
+      centerControl: "ホストが制御",
+      noAutoAllow: "自動許可なし",
+      noAutoRetry: "自動再実行なし",
+      controlsAria: "ポリシー学習ループの操作",
+      previous: "前へ",
+      next: "次へ",
+      restart: "最初から",
+      step: (current: number, total: number) =>
+        `ステップ ${current} / ${total}`,
+      transcript: "ループ全体を文章で読む",
+      sentenceEnd: "。",
+    }
+  : {
+      viewportAria: "Scrollable policy loop map",
+      stageAria: "Seven policy-learning states arranged as a clockwise loop",
+      centerControl: "Host-controlled",
+      noAutoAllow: "No automatic allow",
+      noAutoRetry: "No automatic retry",
+      controlsAria: "Policy loop controls",
+      previous: "Previous",
+      next: "Next",
+      restart: "Restart",
+      step: (current: number, total: number) => `Step ${current} of ${total}`,
+      transcript: "Read the complete loop as text",
+      sentenceEnd: ".",
+    };
 const Heading = `h${headingLevel}` as "h2" | "h3";
 const positions: Record<string, { x: number; y: number }> = {
   deny: { x: 13, y: 20 },
@@ -26,22 +58,18 @@ const serialized = JSON.stringify({
 });
 ---
 
-<figure class="policy-loop" data-policy-loop={serialized}>
+<figure
+  class="policy-loop"
+  data-policy-loop={serialized}
+  data-locale={isJapanese ? "ja" : "en"}
+>
   <figcaption>
     <Heading>{diagram.title}</Heading>
     <p>{diagram.description}</p>
   </figcaption>
 
-  <div
-    class="loop-viewport"
-    tabindex="0"
-    aria-label="Scrollable policy loop map"
-  >
-    <div
-      class="loop-stage"
-      role="img"
-      aria-label="Seven policy-learning states arranged as a clockwise loop"
-    >
+  <div class="loop-viewport" tabindex="0" aria-label={ui.viewportAria}>
+    <div class="loop-stage" role="img" aria-label={ui.stageAria}>
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         <defs>
           <marker
@@ -76,9 +104,9 @@ const serialized = JSON.stringify({
       </svg>
 
       <div class="loop-center" aria-hidden="true">
-        <span>Host-controlled</span>
-        <strong>No automatic allow</strong>
-        <small>No automatic retry</small>
+        <span>{ui.centerControl}</span>
+        <strong>{ui.noAutoAllow}</strong>
+        <small>{ui.noAutoRetry}</small>
       </div>
 
       {
@@ -99,28 +127,31 @@ const serialized = JSON.stringify({
     </div>
   </div>
 
-  <div class="loop-controls" aria-label="Policy loop controls">
-    <button type="button" data-loop-control="previous" disabled>Previous</button
+  <div class="loop-controls" aria-label={ui.controlsAria}>
+    <button type="button" data-loop-control="previous" disabled
+      >{ui.previous}</button
     >
     <p aria-live="polite" aria-atomic="true">
-      <strong data-loop-field="count">Step 1 of {diagram.edges.length}</strong>
+      <strong data-loop-field="count">{ui.step(1, diagram.edges.length)}</strong
+      >
       <span data-loop-field="detail">
         {nodeById[diagram.edges[0].from].label} → {
           nodeById[diagram.edges[0].to].label
-        }: {diagram.edges[0].label}.
+        }: {diagram.edges[0].label}{ui.sentenceEnd}
       </span>
     </p>
-    <button type="button" data-loop-control="next">Next</button>
+    <button type="button" data-loop-control="next">{ui.next}</button>
   </div>
 
   <details class="loop-transcript">
-    <summary>Read the complete loop as text</summary>
+    <summary>{ui.transcript}</summary>
     <ol>
       {
         diagram.edges.map((edge) => (
           <li>
             <strong>{nodeById[edge.from].label}</strong> →{" "}
-            <strong>{nodeById[edge.to].label}</strong>: {edge.label}.
+            <strong>{nodeById[edge.to].label}</strong>: {edge.label}
+            {ui.sentenceEnd}
           </li>
         ))
       }
@@ -148,6 +179,7 @@ const serialized = JSON.stringify({
       } catch {
         return;
       }
+      const isJapanese = loop.dataset.locale === "ja";
       let index = 0;
       const previous = loop.querySelector<HTMLButtonElement>(
         '[data-loop-control="previous"]',
@@ -179,13 +211,21 @@ const serialized = JSON.stringify({
             ),
           );
         if (count)
-          count.textContent = `Step ${index + 1} of ${data.edges.length}`;
+          count.textContent = isJapanese
+            ? `ステップ ${index + 1} / ${data.edges.length}`
+            : `Step ${index + 1} of ${data.edges.length}`;
         if (detail)
-          detail.textContent = `${labelFor(edge.from)} → ${labelFor(edge.to)}: ${edge.label}.`;
+          detail.textContent = `${labelFor(edge.from)} → ${labelFor(edge.to)}: ${edge.label}${isJapanese ? "。" : "."}`;
         if (previous) previous.disabled = index === 0;
         if (next)
           next.textContent =
-            index === data.edges.length - 1 ? "Restart" : "Next";
+            index === data.edges.length - 1
+              ? isJapanese
+                ? "最初から"
+                : "Restart"
+              : isJapanese
+                ? "次へ"
+                : "Next";
       };
       previous?.addEventListener("click", () => {
         index = Math.max(0, index - 1);

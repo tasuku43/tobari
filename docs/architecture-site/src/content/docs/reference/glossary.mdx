@@ -235,6 +235,27 @@ Authentication answers “what credential may be presented?” It does not answe
 OPA's decision about the ordinary HTTP effect, enforced by Gateway. Login,
 import, provider installation, and possession of a handle do not grant it.
 
+### credential provider
+
+The external service or authority whose credential is acquired or imported,
+stored, and later applied to one exact reviewed request binding. Provider does
+not name the Workspace client that uses the credential.
+
+### Workspace client Tool
+
+The CLI or other client inside a Workspace that receives provider-declared
+handle projection and emits the matching request. Current examples are `gh`,
+`aws`, `pup`, and `cwk`. A Tool name grants neither provider identity nor
+network authority.
+
+### supported Provider-Tool pairing
+
+One reviewed combination of Provider, Workspace client Tool, acquisition mode,
+handle projection, and exact request binding. Every current built-in pairing
+has one supported Tool, so Tool is displayed and selected automatically after
+Provider selection. AWS `identity-center` and `console` are acquisition methods
+inside one pairing, not Tools.
+
 ### tool-native passthrough
 
 The universal default in which a tool logs in inside its own persistent
@@ -250,16 +271,20 @@ path and does not silently combine with brokered or passthrough behavior.
 
 ### Auth Broker
 
-The shared locked service that stores one encrypted primary secret per
+The shared locked service that stores typed encrypted credential state per
 Context/provider, issues project-bound opaque handles, performs non-secret
-introspection, and resolves a matching secret once only after Gateway reports
-policy allow. It has Unix sockets, no Workspace network, and no TCP listener.
+introspection, and runs only the reviewed credential-plan action after Gateway
+reports policy allow. A static plan resolves one secret; AWS obtains one
+temporary credential export through the private host companion and signs
+locally; Datadog selects or refreshes one token. Broker has Unix sockets, no
+Workspace network, and no TCP listener.
 
-### brokered primary secret
+### brokered credential state
 
-The real credential encrypted in one Context vault. It is never projected into
-a Workspace or OPA. On allow, Broker returns it to Gateway over the runtime
-Unix socket for one exact declared header replacement.
+The typed record encrypted in one Context vault. It can contain a static
+primary secret, opaque AWS host-driver state, or Datadog OAuth-session state.
+It is never projected into a Workspace or OPA. Request-local derived values
+cross only the declared post-policy Broker/Gateway boundary.
 
 ### broker handle
 
@@ -278,9 +303,26 @@ or resolve the primary secret.
 
 ### resolve
 
-The one post-allow Broker operation that returns the matching current primary
-secret to Gateway for the declared destination header. Deny causes zero
-resolve calls.
+The schema-1 static-provider post-allow Broker operation that returns the
+matching current primary secret to Gateway for the declared destination
+header. It is not the generic name for AWS signing or Datadog refresh. Deny
+causes zero resolve calls and zero dynamic-plan actions.
+
+### host credential companion
+
+A resident private Tobari process used only after OPA allow by the reviewed AWS
+plan. Broker connects to it through an authenticated, encrypted, strictly
+sequenced reverse `docker exec -i` session and asks for one compiled fixed AWS
+CLI credential export. It exposes no listener or mounted host socket and is not
+used for interactive login or Datadog refresh.
+
+### Datadog OAuth refresh
+
+The compiled schema-2 post-policy action owned by Auth Broker. When the stored
+access token enters its five-minute refresh window, Broker performs one
+same-record strict exchange at the exact proxy-free, no-redirect Datadog US1
+token endpoint and commits refreshed state before returning a request-local
+bearer value. The trusted-host `pup` driver is acquisition-only.
 
 ### credential revision
 
@@ -289,8 +331,9 @@ Replacement or logout revokes handles for the prior revision.
 
 ### encrypted Context vault
 
-One schema-1 AES-256-GCM file bound by authenticated data to its stable Context
-ID. It contains credential and handle records. Encryption protects the
+One schema-1 AES-256-GCM envelope bound by authenticated data to its stable
+Context ID. Its encrypted schema-2 payload contains typed credential records,
+revisions, durable operation barriers, and raw handles. Encryption protects the
 container/Workspace boundary under the documented root-key preconditions; it
 does not protect against compromise of the host user and key backend.
 
@@ -301,10 +344,11 @@ Linux or a fixed macOS Keychain item. `cluster down --purge` preserves it.
 
 ### provider manifest
 
-A strict schema-v1, non-secret data document declaring acquisition mode,
-Workspace handle projection, exact HTTPS header binding, and redaction. It is
-not executable code, does not declare method/path policy, and does not grant
-communication permission.
+A strict non-secret data document declaring acquisition mode, Workspace handle
+projection, exact HTTPS binding, and redaction. Owner manifests are schema 1
+and `stdin_import` only. Reviewed built-ins may use schema 1 or the closed
+schema-2 AWS/Datadog plan vocabulary. A manifest is not executable code, does
+not declare method/path policy, and does not grant communication permission.
 
 ## State and public contracts
 
@@ -359,11 +403,11 @@ becoming a second editable implementation.
 | Context and cluster                      | Context scopes one setup and its authority; the cluster runs shared enforcement for every loaded Context. |
 | authentication and authorization         | A credential can exist while OPA still denies the HTTP effect.                                            |
 | CA trust and policy allow                | CA trust enables inspection; allow authorizes one normalized effect.                                      |
-| broker handle and primary secret         | The handle is project-bound, revocable, and non-secret; the vault retains the real credential.            |
+| broker handle and credential state       | The handle is project-bound, revocable, and non-secret; the vault retains static or renewable state.      |
 | `exit` and `delete`                      | Exit ends a child session; delete removes the logical Workspace and home.                                 |
 | `cluster down --purge` and `auth logout` | Purge removes shared runtime and CA volumes; logout removes one local credential and handles.             |
 | tag and digest                           | A tag can move; a digest identifies immutable OCI content.                                                |
-| manifest schema and report schema        | Stored Context manifest is schema 4; public Context report is schema 5.                                   |
+| manifest schema and report schema        | Stored Context manifest is schema 4; public Context report is schema 6.                                   |
 
 ## Failure and limits
 
@@ -445,7 +489,8 @@ and “Workspace” as synonyms.
 
 It has a credential capability candidate, not complete authority. Broker must
 match Context, project, provider, revision, and HTTP binding; OPA must
-separately allow the ordinary HTTP effect before one secret resolution.
+separately allow the ordinary HTTP effect before the declared resolve, refresh,
+or signing action.
 
 </details>
 

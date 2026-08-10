@@ -3,6 +3,40 @@ import EditLink from "@astrojs/starlight/components/EditLink.astro";
 import LastUpdated from "@astrojs/starlight/components/LastUpdated.astro";
 import Pagination from "@astrojs/starlight/components/Pagination.astro";
 
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const labels = isJapanese
+  ? {
+      aria: "ドキュメントの生成元",
+      heading: "ドキュメントの生成元",
+      builtFrom: "ドキュメントのビルド元",
+      productSnapshot: "製品ソースのスナップショット",
+      pageStatus: "ページの状態",
+      current: "製品スナップショット時点で最新",
+      snapshotTime: "ソーススナップショットの時刻",
+      pageSource: "ページのソース",
+      viewMdx: "このMDXファイルを見る",
+      explanation:
+        "製品に関する説明は製品スナップショットに、ページのソースはドキュメントのビルドに固定されています。根拠となる契約、実装、テストは各ページの証拠リンクから確認できます。",
+      projectLinks: "プロジェクトリンク",
+      contributing: "コントリビューション",
+      securityPolicy: "セキュリティポリシー",
+    }
+  : {
+      aria: "Documentation provenance",
+      heading: "Documentation provenance",
+      builtFrom: "Documentation built from",
+      productSnapshot: "Product source snapshot",
+      pageStatus: "Page status",
+      current: "Current at the product snapshot",
+      snapshotTime: "Source snapshot time",
+      pageSource: "Page source",
+      viewMdx: "View this MDX file",
+      explanation:
+        "Product claims are tied to the product snapshot; page source is tied to the documentation build. Follow each page’s evidence links for the governing contract, implementation, and tests.",
+      projectLinks: "Project links",
+      contributing: "Contributing",
+      securityPolicy: "Security policy",
+    };
 const productCommit = __TOBARI_DOCS_COMMIT__;
 const buildCommit = __TOBARI_DOCS_BUILD_COMMIT__;
 const shortProductCommit = productCommit.slice(0, 12);
@@ -14,7 +48,7 @@ const sourcePath = Astro.url.pathname
 const contentPath = sourcePath ? `${sourcePath}.mdx` : "index.mdx";
 const sourceUrl = `${repository}/blob/${buildCommit}/docs/architecture-site/src/content/docs/${contentPath}`;
 const generatedAt = new Date(__TOBARI_DOCS_GENERATED_AT__).toLocaleString(
-  "en",
+  isJapanese ? "ja-JP" : "en",
   {
     dateStyle: "medium",
     timeStyle: "short",
@@ -24,43 +58,42 @@ const generatedAt = new Date(__TOBARI_DOCS_GENERATED_AT__).toLocaleString(
 ---
 
 <footer class="page-footer sl-flex">
-  <aside class="provenance" aria-label="Documentation provenance">
-    <h2>Documentation provenance</h2>
+  <aside class="provenance" aria-label={labels.aria}>
+    <h2>{labels.heading}</h2>
     <dl>
       <div>
-        <dt>Documentation built from</dt><dd>
+        <dt>{labels.builtFrom}</dt><dd>
           <a href={`${repository}/commit/${buildCommit}`}
             ><code>{shortBuildCommit}</code></a
           >
         </dd>
       </div>
       <div>
-        <dt>Product source snapshot</dt><dd>
+        <dt>{labels.productSnapshot}</dt><dd>
           <a href={`${repository}/commit/${productCommit}`}
             ><code>{shortProductCommit}</code></a
           >
         </dd>
       </div>
-      <div><dt>Page status</dt><dd>Current at the product snapshot</dd></div>
-      <div><dt>Source snapshot time</dt><dd>{generatedAt} UTC</dd></div>
+      <div><dt>{labels.pageStatus}</dt><dd>{labels.current}</dd></div>
+      <div><dt>{labels.snapshotTime}</dt><dd>{generatedAt} UTC</dd></div>
       <div>
-        <dt>Page source</dt><dd><a href={sourceUrl}>View this MDX file</a></dd>
+        <dt>{labels.pageSource}</dt><dd>
+          <a href={sourceUrl}>{labels.viewMdx}</a>
+        </dd>
       </div>
     </dl>
-    <p>
-      Product claims are tied to the product snapshot; page source is tied to
-      the documentation build. Follow each page’s evidence links for the
-      governing contract, implementation, and tests.
-    </p>
+    <p>{labels.explanation}</p>
   </aside>
   <div class="meta sl-flex"><EditLink /><LastUpdated /></div>
   <Pagination />
-  <nav class="project-links" aria-label="Project links">
+  <nav class="project-links" aria-label={labels.projectLinks}>
     <a href={repository}>GitHub</a>
     <a href={`${repository}/blob/${buildCommit}/CONTRIBUTING.md`}
-      >Contributing</a
+      >{labels.contributing}</a
     >
-    <a href={`${repository}/blob/${buildCommit}/SECURITY.md`}>Security policy</a
+    <a href={`${repository}/blob/${buildCommit}/SECURITY.md`}
+      >{labels.securityPolicy}</a
     >
   </nav>
 </footer>

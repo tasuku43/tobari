@@ -61,17 +61,29 @@ After reading, you should be able to answer the acceptance questions about proxy
 
 **Limitation.** Current exact learned rules distinguish Context, project, host, port, method, and raw path. They do not distinguish body, query, safe headers, reason, provider, or credential profile. Different bodies can use the same exact effect rule.
 
-## Claim 4: broker-managed primary secrets are not projected to Workspace
+## Claim 4: broker-managed credential state is not projected to Workspace
 
-**Claim.** A Workspace receives an opaque project-bound handle rather than the broker-managed primary credential.
+**Claim.** A Workspace receives an opaque project-bound handle rather than a
+static primary secret, renewable AWS state, Datadog OAuth state, or derived
+request credential.
 
 **Preconditions.** The provider uses the Auth Broker path, the root key is available, and the Context vault and provider manifest validate.
 
-**Enforcement point.** Auth Broker encrypts the credential in a Context vault. Handle records bind Context, project, provider, credential revision, exact target, and header transformation. Gateway removes the handle, introspects without the secret, asks OPA, and resolves only after allow.
+**Enforcement point.** Auth Broker encrypts typed state in a Context vault.
+Handle records bind Context, project, provider, credential revision, exact
+target, and HTTP binding. Gateway removes the handle, introspects without a
+secret, asks OPA, and only after allow runs the declared static resolve,
+Datadog token selection/refresh, or AWS companion/export/sign action.
 
-**Failure behavior.** Wrong, copied, old, malformed, or ambiguous handles fail closed and never become passthrough. OPA deny causes no resolve.
+**Failure behavior.** Wrong, copied, old, malformed, or ambiguous handles fail
+closed and never become passthrough. OPA deny causes no resolve, refresh,
+companion call, signing, or upstream access. Known pre-execution availability
+failure is 503. Explicit or post-dispatch AWS/Datadog outcome uncertainty is
+non-retryable 409 with no application upstream attempt.
 
-**Evidence.** `broker.py`, `vault.py`, `broker_credentials.py`, Gateway/Broker tests, and broker integration cases.
+**Evidence.** `broker.py`, `vault.py`, `broker_credentials.py`,
+`companion_protocol.py`, `datadog_oauth.py`, Gateway/Broker tests, and broker
+integration cases.
 
 **Limitation.** A malicious process inside the same Workspace may use a handle already projected to that Workspace and an already allowed effect. Tool-native credentials remain readable where the tool stores them. Logout does not guarantee provider-side revocation.
 
@@ -104,27 +116,27 @@ After reading, you should be able to answer the acceptance questions about proxy
   <h2>Evidence index</h2>
   <ul>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md">
         Governing security model
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/addon/tobari_gateway.py">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py">
         Gateway enforcement
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/principal_registry.go">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry.go">
         Principal registry
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/authbroker/vault.py">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/vault.py">
         Encrypted vault implementation
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh">
         Integrated boundary evidence
       </a>
     </li>

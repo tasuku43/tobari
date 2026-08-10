@@ -9,7 +9,11 @@ import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
 Which technology enforces each Tobari boundary, and why is it placed there?
 
-**One-sentence answer:** Go owns the host CLI and validated orchestration, Docker realizes process/network/mount boundaries, mitmproxy and a Python addon enforce HTTP/TLS flow, OPA/Rego decide generic effects, and a separate Python Auth Broker owns encrypted credential resolution over Unix sockets.
+**One-sentence answer:** Go owns the host CLI, fixed provider acquisition, and
+validated orchestration; Docker realizes process/network/mount boundaries;
+mitmproxy and a Python addon enforce HTTP/TLS flow; OPA/Rego decide generic
+effects; and a separate Python Auth Broker owns encrypted credential state and
+post-policy resolve, refresh, or signing actions over narrow sockets.
 
 ### By the end, you can explain
 
@@ -48,15 +52,42 @@ OPA is the shared policy decision service. Rego expresses default deny, initiali
 
 OPA receives no request body or credential value and has no egress interface. Keeping decision logic separate makes the decision input/result contract testable without granting OPA network forwarding authority.
 
-### Python Auth Broker and Unix domain sockets
+### Python Auth Broker, host drivers, companion, and Unix sockets
 
-The Auth Broker is a separate non-root Python daemon because credential-bearing acquisition, encryption, handle issuance, introspection, and resolution form a distinct trusted boundary. It has no TCP listener.
+The Auth Broker is a separate non-root Python daemon because credential
+encryption, handle issuance, introspection, and post-policy actions form a
+distinct trusted boundary. It has no TCP listener and contains no GitHub CLI,
+AWS CLI, or `pup` executable.
 
-Separate owner-only control and runtime Unix sockets divide host lifecycle operations from Gateway's narrow request-time access. Workspace and OPA mount neither socket. The runtime protocol can introspect a binding before policy and resolve a secret after allow; it is not a generic network API.
+Separate owner-only control and runtime Unix sockets divide host lifecycle
+operations from Gateway's narrow request-time access. Workspace and OPA mount
+neither socket. The runtime protocol can introspect a binding before policy and
+run only the provider's declared post-policy operation after allow; it is not a
+generic network API.
+
+Interactive GitHub, AWS, and Datadog acquisition runs through fixed Go
+infrastructure drivers on the trusted host. Each resolves an identity-checked
+executable from conventional installation roots, uses fixed argv and a
+sanitized private environment, bounds visible output, and verifies temporary
+state cleanup before committing typed state through Broker control.
+
+AWS alone uses the resident same-binary host credential companion after policy
+allow. Broker's private `/run/tobari-auth/companion/bridge.sock` is connected
+through one authenticated, encrypted, direction-bound reverse
+`docker exec -i` session. The companion exposes no listener or mounted host
+socket and implements only the compiled AWS CLI credential-export operation.
+Datadog refresh does not use the companion: Broker makes one strict proxy-free,
+no-redirect HTTPS exchange with the exact US1 token endpoint after allow.
 
 ### Encrypted Context vault and root key
 
-Each Context vault uses AES-256-GCM authenticated encryption with a random nonce and Context/schema-associated data. The installation root key is external to the vault: macOS Keychain or an owner-only Linux XDG file. Encryption limits accidental storage exposure but does not protect against a compromised host user, root-key backend, Broker, or Gateway.
+Each Context vault uses a schema-1 AES-256-GCM envelope with a random nonce and
+Context/schema-associated data. Its encrypted schema-2 payload stores typed
+static secrets, opaque AWS state, Datadog OAuth state, revisions, durable task
+barriers, and raw handles. The installation root key is external to the vault:
+macOS Keychain or an owner-only Linux XDG file. Encryption limits storage
+exposure across the container/Workspace boundary but does not protect against
+a compromised host user, root-key backend, Broker, or Gateway.
 
 ### OCI images and GHCR
 
@@ -86,9 +117,15 @@ For one allowed HTTPS call:
 3. **mitmproxy** terminates TLS A and exposes request headers to the addon.
 4. **Python Gateway addon** derives principal and posts schema 5 input.
 5. **OPA/Rego** returns allow or deny.
-6. For a broker handle, **Python Auth Broker over Unix socket** resolves once after allow.
-7. **mitmproxy** establishes verified TLS B and streams the request.
-8. **Docker logs** retain bounded secret-free audit evidence for host-side Go review.
+6. For a broker handle, **Python Auth Broker over Unix socket** performs
+   non-secret introspection before policy and the declared static, AWS, or
+   Datadog action only after allow.
+7. For AWS, the **private host companion** performs one fixed credential
+   export and Broker signs locally. For Datadog refresh, **Broker HTTPS** reaches
+   only the exact token endpoint. Ordinary/static requests need neither path.
+8. **mitmproxy** establishes verified TLS B and streams the ordinary request or
+   sends the one bounded signed AWS request.
+9. **Docker logs** retain bounded secret-free audit evidence for host-side Go review.
 
 No one technology implements the complete promise.
 
@@ -104,20 +141,24 @@ No one technology implements the complete promise.
 
 ## Guarantees and limitations
 
-**Guaranteed by contracts and tests:** fixed component roles, immutable normal service identities, byte-checked canonical source snapshots, separate credential sockets, no OPA egress, exact Compose topology, and preflight of runtime compatibility.
+**Guaranteed by contracts and tests:** fixed component roles, immutable normal
+service identities, byte-checked canonical source snapshots, separate
+credential sockets, no provider CLI in Broker, no companion listener/socket
+mount, no OPA egress, exact Compose topology, and preflight of runtime
+compatibility.
 
 **Not guaranteed:** that an image digest alone makes code safe; isolation after Docker/kernel/host compromise; provenance of a user-selected custom image; availability of GHCR or external registries; security review of arbitrary tools installed by a custom runtime recipe.
 
 ## Source evidence
 
-- [Architecture runtime assets and component boundaries](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
-- [Supply-chain security contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
-- [Embedded component versions](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/versions.env)
-- [Shared Compose runtime](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/compose.yaml)
-- [Canonical Gateway source](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway)
-- [Canonical Auth Broker source](https://github.com/tasuku43/tobari/tree/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/authbroker)
-- [Gateway snapshot drift check](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/check-gateway-source.sh)
-- [Auth Broker snapshot drift check](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/check-authbroker-source.sh)
+- [Architecture runtime assets and component boundaries](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Supply-chain security contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Embedded component versions](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/versions.env)
+- [Shared Compose runtime](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml)
+- [Canonical Gateway source](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway)
+- [Canonical Auth Broker source](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker)
+- [Gateway snapshot drift check](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/check-gateway-source.sh)
+- [Auth Broker snapshot drift check](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/check-authbroker-source.sh)
 
 ## Summary
 

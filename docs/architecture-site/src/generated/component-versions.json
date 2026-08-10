@@ -1,5 +1,5 @@
 {
-  "generated_from": "committed repository authorities and executable CLI help at 2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3",
+  "generated_from": "committed repository authorities and executable CLI help at 1a73f30d49a29e40d1306cf6590aeec6949c7faa",
   "components": [
     {
       "component": "Go",
@@ -24,13 +24,13 @@
     {
       "component": "Gateway",
       "version": "digest identity",
-      "identity": "ghcr.io/tasuku43/tobari/gateway@sha256:11aa900dd6aa5b17ca8ee7e9e910366c69f29afb73939a286d4aee01902be748",
+      "identity": "ghcr.io/tasuku43/tobari/gateway@sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878",
       "authority": "internal/infra/runtimeassets/assets/versions.env"
     },
     {
       "component": "Auth Broker",
       "version": "digest identity",
-      "identity": "ghcr.io/tasuku43/tobari/auth-broker@sha256:e574c838a118336856bc6922eee05f03f701b8c9dca72cf0887da395cf712ab0",
+      "identity": "ghcr.io/tasuku43/tobari/auth-broker@sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1",
       "authority": "internal/infra/runtimeassets/assets/versions.env"
     },
     {
@@ -55,12 +55,12 @@
     },
     {
       "contract": "Context manifest",
-      "version": 4,
+      "version": 5,
       "authority": "internal/domain/tobari/context.go"
     },
     {
       "contract": "Public Context report",
-      "version": 5,
+      "version": 6,
       "authority": "internal/cli/runtime_catalog.go"
     },
     {
@@ -69,8 +69,13 @@
       "authority": "internal/domain/tobari/project.go"
     },
     {
-      "contract": "Provider manifest",
+      "contract": "Owner provider manifest",
       "version": 1,
+      "authority": "internal/domain/authbroker/provider.go"
+    },
+    {
+      "contract": "Normalized provider projection / reviewed built-in manifest",
+      "version": 2,
       "authority": "internal/domain/authbroker/provider.go"
     },
     {
@@ -79,9 +84,34 @@
       "authority": "internal/infra/dockerruntime/principal_registry.go"
     },
     {
+      "contract": "Gateway image API",
+      "version": 3,
+      "authority": "gateway/Dockerfile"
+    },
+    {
       "contract": "Gateway OPA input",
       "version": 5,
       "authority": "gateway/addon/tobari_gateway.py"
+    },
+    {
+      "contract": "Auth Broker image API",
+      "version": 2,
+      "authority": "authbroker/Dockerfile"
+    },
+    {
+      "contract": "Auth Broker control/runtime protocol and vault envelope",
+      "version": 1,
+      "authority": "authbroker/__init__.py"
+    },
+    {
+      "contract": "Encrypted Context vault payload",
+      "version": 2,
+      "authority": "authbroker/vault.py"
+    },
+    {
+      "contract": "Private credential companion protocol",
+      "version": 1,
+      "authority": "authbroker/companion_protocol.py"
     }
   ],
   "runtime": {

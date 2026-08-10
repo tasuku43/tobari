@@ -1,33 +1,153 @@
 ---
 import versionData from "../generated/component-versions.json";
+
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const ui = isJapanese
+  ? {
+      componentIdentities: "コンポーネントの識別情報",
+      componentDescription:
+        "この表は、リポジトリで管理する正本から生成しています。実行時の識別情報には digest を使います。分かりやすいバージョンは、リポジトリに宣言がある場合だけ表示します。",
+      component: "コンポーネント",
+      declaredVersion: "宣言されたバージョン",
+      runtimeIdentity: "実行時の識別情報",
+      authority: "正本",
+      schemaIdentities: "スキーマと API のバージョン",
+      contract: "契約",
+      version: "バージョン",
+      defaultRuntime: "既定 runtime の契約",
+      defaultSelector: "既定の selector",
+      selectorKind: "Selector の種類",
+      movingSelector: "移動可能な tag — immutable digest ではない",
+      immutableDigest: "Immutable digest（不変 digest）",
+      runtimeApi: "Runtime API",
+      lifecycleCommand: "ライフサイクルコマンド",
+      baseMetadataVersion: "ベースメタデータのバージョン",
+      architectures: "対応アーキテクチャ",
+    }
+  : {
+      componentIdentities: "Component identities",
+      componentDescription:
+        "This table is generated from committed repository authorities. A digest is the runtime identity; a friendly version is shown only when the repository declares one.",
+      component: "Component",
+      declaredVersion: "Declared version",
+      runtimeIdentity: "Runtime identity",
+      authority: "Authority",
+      schemaIdentities: "Schema and API versions",
+      contract: "Contract",
+      version: "Version",
+      defaultRuntime: "Default runtime contract",
+      defaultSelector: "Default selector",
+      selectorKind: "Selector kind",
+      movingSelector: "Moving tag — not an immutable digest",
+      immutableDigest: "Immutable digest",
+      runtimeApi: "Runtime API",
+      lifecycleCommand: "Lifecycle command",
+      baseMetadataVersion: "Base metadata version",
+      architectures: "Architectures",
+    };
+
+// The generator remains the authority for values. These exact-key maps only
+// localize its human-readable prose when the Japanese route renders it.
+const componentNamesJa: Record<string, string> = {
+  Go: "Go",
+  OPA: "OPA",
+  mitmproxy: "mitmproxy",
+  Gateway: "Gateway",
+  "Auth Broker": "Auth Broker",
+  "Base runtime build image": "ベース runtime のビルドイメージ",
+  "Tobari CLI": "Tobari CLI",
+};
+const generatedPhrasesJa: Record<string, string> = {
+  "digest identity": "digest による識別",
+  "dev unless release-injected": "リリース時に注入されない限り dev",
+  "documentation commit supplies source identity":
+    "ドキュメントの commit が source identity を示す",
+  "Version is declared; runtime identity is the immutable digest.":
+    "バージョンは宣言値です。実行時の識別情報には immutable digest を使います。",
+  "Version is declared; build base identity is the immutable digest.":
+    "バージョンは宣言値です。ビルド元の識別情報には immutable digest を使います。",
+  "The repository does not invent a release version for ordinary builds.":
+    "通常のビルドに対して、リポジトリがリリースバージョンを推測することはありません。",
+};
+const schemaNamesJa: Record<string, string> = {
+  "Agent help": "エージェントヘルプ",
+  "Context manifest": "Context マニフェスト",
+  "Public Context report": "公開 Context レポート",
+  "Root index and Workspace instance": "root index と Workspace インスタンス",
+  "Owner provider manifest": "所有者の provider マニフェスト",
+  "Normalized provider projection / reviewed built-in manifest":
+    "正規化 provider 投影／レビュー済み組み込みマニフェスト",
+  "Project principal registry": "project principal レジストリ",
+  "Gateway image API": "Gateway image API",
+  "Gateway OPA input": "Gateway の OPA 入力",
+  "Auth Broker image API": "Auth Broker image API",
+  "Auth Broker control/runtime protocol and vault envelope":
+    "Auth Broker の control/runtime プロトコルと vault エンベロープ",
+  "Encrypted Context vault payload": "暗号化 Context vault ペイロード",
+  "Private credential companion protocol":
+    "非公開の認証情報コンパニオンプロトコル",
+};
+const requiredTranslation = (
+  value: string,
+  translations: Record<string, string>,
+  field: string,
+): string => {
+  if (!isJapanese) return value;
+  const translated = translations[value];
+  if (!translated) {
+    throw new Error(`Missing Japanese component-version ${field}: ${value}`);
+  }
+  return translated;
+};
+const localizeGenerated = (
+  value: string,
+  field: "version" | "identity" | "note",
+): string => {
+  if (!isJapanese) return value;
+  const translated = generatedPhrasesJa[value];
+  if (translated) return translated;
+  const machineValue =
+    (field === "version" && /^(?:\d|bookworm-)/.test(value)) ||
+    (field === "identity" &&
+      (value.startsWith("go ") || value.includes("@sha256:")));
+  if (machineValue) return value;
+  throw new Error(`Missing Japanese component-version ${field}: ${value}`);
+};
 ---
 
 <section class="version-reference" aria-labelledby="component-identities">
-  <h2 id="component-identities">Component identities</h2>
-  <p>
-    This table is generated from committed repository authorities. A digest is
-    the runtime identity; a friendly version is shown only when the repository
-    declares one.
-  </p>
+  <h2 id="component-identities">{ui.componentIdentities}</h2>
+  <p>{ui.componentDescription}</p>
   <div class="responsive-table">
     <table>
       <thead
         ><tr
-          ><th>Component</th><th>Declared version</th><th>Runtime identity</th
-          ><th>Authority</th></tr
+          ><th>{ui.component}</th><th>{ui.declaredVersion}</th><th
+            >{ui.runtimeIdentity}</th
+          ><th>{ui.authority}</th></tr
         ></thead
       >
       <tbody>
         {
           versionData.components.map((component) => (
             <tr>
-              <th scope="row">{component.component}</th>
-              <td data-label="Declared version">{component.version}</td>
-              <td data-label="Runtime identity">
-                <code>{component.identity}</code>
-                {component.note && <small>{component.note}</small>}
+              <th scope="row">
+                {requiredTranslation(
+                  component.component,
+                  componentNamesJa,
+                  "component",
+                )}
+              </th>
+              <td data-label={ui.declaredVersion}>
+                {localizeGenerated(component.version, "version")}
               </td>
-              <td data-label="Authority">
+              <td data-label={ui.runtimeIdentity}>
+                <code>{localizeGenerated(component.identity, "identity")}</code>
+                {component.note && (
+                  <small>{localizeGenerated(component.note, "note")}</small>
+                )}
+              </td>
+              <td data-label={ui.authority}>
                 <code>{component.authority}</code>
               </td>
             </tr>
@@ -37,21 +157,31 @@ import versionData from "../generated/component-versions.json";
     </table>
   </div>
 
-  <h2 id="schema-identities">Schema and API versions</h2>
+  <h2 id="schema-identities">{ui.schemaIdentities}</h2>
   <div class="responsive-table narrow">
     <table>
-      <thead><tr><th>Contract</th><th>Version</th><th>Authority</th></tr></thead
+      <thead
+        ><tr
+          ><th>{ui.contract}</th><th>{ui.version}</th><th>{ui.authority}</th
+          ></tr
+        ></thead
       >
       <tbody>
         {
           versionData.schemas.map((schema) => (
             <tr>
               <>
-                <th scope="row">{schema.contract}</th>
-                <td data-label="Version">
+                <th scope="row">
+                  {requiredTranslation(
+                    schema.contract,
+                    schemaNamesJa,
+                    "schema contract",
+                  )}
+                </th>
+                <td data-label={ui.version}>
                   <code>{schema.version}</code>
                 </td>
-                <td data-label="Authority">
+                <td data-label={ui.authority}>
                   <code>{schema.authority}</code>
                 </td>
               </>
@@ -63,39 +193,39 @@ import versionData from "../generated/component-versions.json";
   </div>
 
   <aside class="runtime-contract">
-    <h2>Default runtime contract</h2>
+    <h2>{ui.defaultRuntime}</h2>
     <dl>
       <div>
-        <dt>Default selector</dt><dd>
+        <dt>{ui.defaultSelector}</dt><dd>
           <code>{versionData.runtime.default_selector}</code>
         </dd>
       </div>
       <div>
-        <dt>Selector kind</dt><dd>
+        <dt>{ui.selectorKind}</dt><dd>
           {
             versionData.runtime.moving_selector
-              ? "Moving tag — not an immutable digest"
-              : "Immutable digest"
+              ? ui.movingSelector
+              : ui.immutableDigest
           }
         </dd>
       </div>
       <div>
-        <dt>Runtime API</dt><dd>
+        <dt>{ui.runtimeApi}</dt><dd>
           <code>{versionData.runtime.runtime_api}</code>
         </dd>
       </div>
       <div>
-        <dt>Lifecycle command</dt><dd>
+        <dt>{ui.lifecycleCommand}</dt><dd>
           <code>{versionData.runtime.lifetime_command}</code>
         </dd>
       </div>
       <div>
-        <dt>Base metadata version</dt><dd>
+        <dt>{ui.baseMetadataVersion}</dt><dd>
           <code>{versionData.runtime.metadata_version}</code>
         </dd>
       </div>
       <div>
-        <dt>Architectures</dt><dd>
+        <dt>{ui.architectures}</dt><dd>
           {versionData.runtime.architectures.join(", ")}
         </dd>
       </div>

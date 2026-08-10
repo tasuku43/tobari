@@ -1,6 +1,6 @@
 ---
 title: Provider manifest
-description: The strict schema-v1 provider data contract for acquisition, Workspace handles, exact HTTPS header binding, and redaction.
+description: Owner manifest schema 1, reviewed built-in schema 2 plans, normalized projection, exact bindings, and limits on provider authority.
 ---
 
 import providerManifest from "../../../generated/provider-manifest-example.json";
@@ -16,16 +16,28 @@ projection, and one or more exact HTTPS header transformations. It is not an
 executable adapter, and installing it does not grant network permission.
 
 Read [Credentials](/how-it-works/credentials/) first. After this page, you
-should be able to review a synthetic v1 manifest field by field and explain why
-OPA authorization remains separate.
+should be able to review a synthetic owner manifest field by field, distinguish
+it from compiled built-in plans, and explain why OPA authorization remains
+separate.
 
 ## Important terminology
 
-The public contract is identified as `tobari.auth-provider.v1` and every
-document has `schema_version: 1`. This repository currently enforces the shape
-with a strict Go parser, domain validation, collection normalization, and
-fixtures. **It does not publish a formal JSON Schema document for the
+Owner-controlled documents use `tobari.auth-provider.v1` with
+`schema_version: 1`. Reviewed built-ins may use the same static contract or the
+closed `tobari.auth-provider.v2` contract. The normalized collection consumed
+by Gateway is always projection schema 2. This repository enforces both source
+shapes with a strict Go parser, domain validation, collection normalization,
+and fixtures. **It does not publish a formal JSON Schema document for the
 manifest.** Do not describe the fixture ledger as a JSON Schema validator.
+
+Provider is not the Workspace client Tool. Provider identifies the external
+credential authority; Tool identifies the client that receives a declared
+projection and emits the matching request. A built-in manifest plus compiled
+driver currently describes one complete supported Provider-Tool pairing. The
+current pairings are GitHub/`gh`, AWS/`aws`, Datadog/`pup`, and Chatwork/`cwk`.
+Because each Provider has one supported client today, Tool is displayed and
+selected automatically after Provider selection. A manifest display name,
+environment variable, or nearby binding cannot create another supported Tool.
 
 Owner-controlled manifests are regular, non-symlink, owner-only files below:
 
@@ -33,9 +45,11 @@ Owner-controlled manifests are regular, non-symlink, owner-only files below:
 ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/auth/providers/*.json
 ```
 
-They cannot replace a built-in provider ID and may use only
-`stdin_import`. The one reviewed built-in helper is the GitHub login helper;
-user manifests cannot add another executable helper.
+They cannot replace a built-in provider ID and may use only `stdin_import`.
+Reviewed host login drivers currently exist for GitHub, AWS, and Datadog. Their
+fixed executables and behavior are compiled infrastructure, not manifest
+extensions. User manifests cannot add another executable helper or select
+schema 2.
 
 ## The complete v1 responsibilities
 
@@ -71,6 +85,25 @@ For a matching request, Gateway recognizes and removes the handle, performs
 non-secret broker introspection, and asks OPA about the ordinary HTTP effect.
 Only after allow does Gateway resolve the secret once and write it to the
 declared destination header. A deny performs no secret resolution.
+
+## Reviewed built-in schema-2 plans
+
+Schema 2 is not a general extension mechanism. It adds typed fields consumed
+only by reviewed built-ins:
+
+| Built-in  | Credential kind         | Workspace placeholder                                               | Exact post-policy behavior                                                                                                                                                                  |
+| --------- | ----------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aws`     | `aws_sso_session`       | The same project-bound handle in the three AWS credential variables | After OPA allow, Gateway retains one request within 8 MiB; Broker asks the private host companion for the fixed AWS CLI credential export and computes standard header-based SigV4 locally. |
+| `datadog` | `datadog_oauth_session` | Project-bound bearer handle                                         | After OPA allow, Broker selects a token outside the five-minute refresh window or performs one same-record refresh at the fixed proxy-free, no-redirect US1 token endpoint.                 |
+
+GitHub and Chatwork retain schema-1 static header behavior. The GitHub login
+driver runs on the trusted host and commits a static credential; it does not
+run inside the Broker image.
+
+An owner file cannot declare `aws_sigv4`, an OAuth session, a refresh endpoint,
+a host driver, a companion operation, or any other schema-2 behavior. Adding a
+built-in would require a reviewed product, architecture, security, and test
+change; editing JSON is insufficient.
 
 ## Validation and collection activation
 
@@ -148,6 +181,18 @@ does not contact the provider.
   >
     `projection.go`
   </a>
+- Reviewed built-in manifests:
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/tree/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/builtins`}
+  >
+    built-in provider sources
+  </a>
+  and
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/loader_test.go`}
+  >
+    owner-v1/built-in-v2 loader tests
+  </a>
 - Owner-controlled loader:
   <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/loader.go`}
@@ -175,9 +220,10 @@ does not contact the provider.
 
 ## Summary
 
-A provider manifest is strict, declarative, non-secret data. It maps one
-project-bound handle position to one exact HTTPS destination header. It neither
-executes acquisition code nor grants the HTTP effect.
+An owner provider manifest is strict, declarative, non-secret schema-1 data. It
+maps a project-bound handle position to an exact HTTPS destination header.
+Reviewed schema-2 plans are compiled built-ins, not owner extensions. Neither
+form executes manifest-supplied code or grants the HTTP effect.
 
 ## Check your understanding
 
@@ -188,7 +234,7 @@ request authorized.
   <summary>Can a user provider declare `curl` as its login command?</summary>
 
 No. User providers use protected non-terminal `stdin_import`. Executable
-helpers are reviewed built-ins, not manifest-supplied code.
+drivers are reviewed trusted-host infrastructure, not manifest-supplied code.
 
 </details>
 

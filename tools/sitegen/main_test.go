@@ -266,24 +266,42 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 	)
 	providerSource := committedForTest(t, root, "internal/domain/authbroker/provider.go")
 	wantProviderSchema := captureIntForTest(
-		t, providerSource, `ProviderSchemaVersion\s*=\s*([0-9]+)`,
+		t, providerSource, `(?m)^\s*ProviderSchemaVersion\s*=\s*([0-9]+)`,
+	)
+	wantOwnerProviderSchema := captureIntForTest(
+		t, providerSource, `(?m)^\s*LegacyProviderSchemaVersion\s*=\s*([0-9]+)`,
 	)
 	catalogSource := committedForTest(t, root, "internal/cli/runtime_catalog.go")
 	wantContextReportSchema := captureIntForTest(
 		t, catalogSource,
 		`JSONEnvelope:\s*"context",\s*JSONSchemaVersion:\s*([0-9]+)`,
 	)
-	if wantContextSchema < 1 || wantContextReportSchema < 1 || wantProviderSchema < 1 {
+	if wantContextSchema < 1 || wantContextReportSchema < 1 || wantProviderSchema < 1 || wantOwnerProviderSchema < 1 {
 		t.Fatalf(
-			"HEAD public schema authorities must be positive: Context manifest=%d report=%d provider=%d",
-			wantContextSchema, wantContextReportSchema, wantProviderSchema,
+			"HEAD public schema authorities must be positive: Context manifest=%d report=%d owner provider=%d projection=%d",
+			wantContextSchema, wantContextReportSchema, wantOwnerProviderSchema, wantProviderSchema,
 		)
 	}
 	for contract, want := range map[string]int{
-		"Context manifest":      wantContextSchema,
-		"Public Context report": wantContextReportSchema,
-		"Provider manifest":     wantProviderSchema,
+		"Context manifest":        wantContextSchema,
+		"Public Context report":   wantContextReportSchema,
+		"Owner provider manifest": wantOwnerProviderSchema,
+		"Normalized provider projection / reviewed built-in manifest": wantProviderSchema,
 	} {
+		if got := schemaForTest(t, document, contract).Version; got != want {
+			t.Errorf("%s schema = %d, want HEAD authority %d", contract, got, want)
+		}
+	}
+
+	for contract, authority := range map[string][2]string{
+		"Gateway image API":     {"gateway/Dockerfile", `io\.tobari\.gateway-api="([0-9]+)"`},
+		"Gateway OPA input":     {"gateway/addon/tobari_gateway.py", `policy_input\s*=\s*\{\s*"schema_version":\s*([0-9]+),`},
+		"Auth Broker image API": {"authbroker/Dockerfile", `io\.tobari\.auth-broker-api="([0-9]+)"`},
+		"Auth Broker control/runtime protocol and vault envelope": {"authbroker/__init__.py", `(?m)^SCHEMA_VERSION\s*=\s*([0-9]+)$`},
+		"Encrypted Context vault payload":                         {"authbroker/vault.py", `(?m)^PAYLOAD_SCHEMA_VERSION\s*=\s*([0-9]+)$`},
+		"Private credential companion protocol":                   {"authbroker/companion_protocol.py", `(?m)^COMPANION_PROTOCOL_VERSION\s*=\s*([0-9]+)$`},
+	} {
+		want := captureIntForTest(t, committedForTest(t, root, authority[0]), authority[1])
 		if got := schemaForTest(t, document, contract).Version; got != want {
 			t.Errorf("%s schema = %d, want HEAD authority %d", contract, got, want)
 		}

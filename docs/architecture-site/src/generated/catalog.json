@@ -1,5 +1,5 @@
 {
-  "generated_from": "committed tobari agent help schema 8 at commit 2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3",
+  "generated_from": "committed tobari agent help schema 8 at commit 1a73f30d49a29e40d1306cf6590aeec6949c7faa",
   "root": {
     "schema_version": 8,
     "view": "index",
@@ -64,7 +64,7 @@
         "namespace": "cluster",
         "summary": "Read policy-denial evidence",
         "capability_id": "policy.learning",
-        "outcome": "Identify recent denied HTTP effects and the pending permission review command",
+        "outcome": "Identify recent denied HTTP effects, including exact GraphQL operation/root coordinates when classified, and the pending permission review command",
         "effect": "read",
         "role": "utility"
       },
@@ -91,7 +91,7 @@
         "namespace": "policy",
         "summary": "Discover exact rules from denials",
         "capability_id": "policy.learning",
-        "outcome": "Return unique pending exact host, port, method, and path proposals with opaque approval IDs",
+        "outcome": "Return unique pending exact host, port, method, path, and optional GraphQL operation/root proposals with opaque approval IDs",
         "effect": "read",
         "role": "discover"
       },
@@ -100,16 +100,25 @@
         "namespace": "policy",
         "summary": "Review pending network permissions",
         "capability_id": "policy.learning",
-        "outcome": "Review the bounded pending exact network-permission queue; an interactive terminal can explicitly allow or deny one exact permission",
+        "outcome": "Review the bounded pending exact network-permission queue, including optional GraphQL operation/root coordinates; an interactive terminal can stage one Context's exact decisions and apply the reviewed set once",
         "effect": "read",
         "role": "discover"
+      },
+      {
+        "path": "policy apply-reviewed",
+        "namespace": "policy",
+        "summary": "Apply the exact decisions staged by Permission Inbox",
+        "capability_id": "policy.learning",
+        "outcome": "Revalidate and activate one bounded typed set of exact Allow and Deny decisions for one Context staged by interactive policy review",
+        "effect": "write",
+        "role": "act"
       },
       {
         "path": "policy tail",
         "namespace": "policy",
         "summary": "Review pending exact policy rules",
         "capability_id": "policy.learning",
-        "outcome": "Review the bounded pending policy queue with exact approval commands",
+        "outcome": "Review the bounded pending policy queue, including optional GraphQL operation/root coordinates, with exact approval commands",
         "effect": "read",
         "role": "discover"
       },
@@ -118,7 +127,7 @@
         "namespace": "policy",
         "summary": "Inspect current learned policy decisions",
         "capability_id": "policy.learning",
-        "outcome": "Inspect the complete current project-bound learned Allow and exact Deny decisions; on a TTY explicitly reset one decision",
+        "outcome": "Inspect complete current project-bound learned Allow and exact Deny decisions, including optional GraphQL operation/root coordinates; on a TTY explicitly reset one decision",
         "effect": "read",
         "role": "discover"
       },
@@ -127,7 +136,7 @@
         "namespace": "policy",
         "summary": "Allow one exact denied effect",
         "capability_id": "policy.learning",
-        "outcome": "Test, record, and activate one exact retained host, port, method, and path permission",
+        "outcome": "Test, record, and activate one exact retained host, port, method, path, and optional GraphQL operation/root permission",
         "effect": "write",
         "role": "act"
       },
@@ -136,7 +145,7 @@
         "namespace": "policy",
         "summary": "Deny one exact denied effect",
         "capability_id": "policy.learning",
-        "outcome": "Test, record, and activate one exact project-bound denial for a retained host, port, method, and path",
+        "outcome": "Test, record, and activate one exact project-bound denial for a retained host, port, method, path, and optional GraphQL operation/root coordinate",
         "effect": "write",
         "role": "act"
       },
@@ -186,11 +195,20 @@
         "role": "utility"
       },
       {
-        "path": "context shell configure",
-        "namespace": "context",
-        "summary": "Configure one Context shell environment variable",
+        "path": "config shell",
+        "namespace": "config",
+        "summary": "Configure Context shell presentation directly or with one staged terminal Apply",
         "capability_id": "context.composition",
-        "outcome": "Choose Tobari default behavior, exported host inheritance, or one Context-owned literal for an allowlisted shell variable",
+        "outcome": "Configure one allowlisted shell variable through complete flags, or stage several rows from the complete terminal inventory and apply them atomically",
+        "effect": "write",
+        "role": "act"
+      },
+      {
+        "path": "config git",
+        "namespace": "config",
+        "summary": "Configure one Context Git identity directly or from one staged terminal screen",
+        "capability_id": "context.composition",
+        "outcome": "Choose no Context fallback, inherited host user.name and user.email, or one fixed Context-owned Git identity through complete flags or one staged terminal screen",
         "effect": "write",
         "role": "act"
       },
@@ -269,7 +287,7 @@
       {
         "path": "auth login",
         "namespace": "auth",
-        "summary": "Authenticate one Context with a built-in provider helper",
+        "summary": "Authenticate one Context through a reviewed host CLI driver",
         "capability_id": "authentication.broker",
         "outcome": "Acquire one supported provider credential on the trusted host for an explicit or current Context without exposing it to a Workspace",
         "effect": "write",
@@ -1605,6 +1623,11 @@
                   "description": "Observed ready, locked, or unavailable Auth Broker state."
                 },
                 {
+                  "name": "credential_companion_state",
+                  "type": "string",
+                  "description": "Observed ready, prepared, absent, or unavailable trusted-host credential companion state."
+                },
+                {
                   "name": "root_key_backend",
                   "type": "string",
                   "description": "Selected host root-key backend or unavailable state."
@@ -1768,6 +1791,17 @@
                   {
                     "command": "doctor",
                     "reason": "Inspect the Auth Broker image API, digest, entrypoint, user, and architecture contract."
+                  }
+                ]
+              },
+              {
+                "code": "credential_companion_unavailable",
+                "kind": "unavailable",
+                "retryable": true,
+                "next_actions": [
+                  {
+                    "command": "cluster up",
+                    "reason": "Reconcile the shared cluster and its Auth Broker companion session."
                   }
                 ]
               },
@@ -2099,6 +2133,11 @@
                   "description": "Observed ready, locked, or unavailable Auth Broker state."
                 },
                 {
+                  "name": "credential_companion_state",
+                  "type": "string",
+                  "description": "Observed ready, prepared, absent, or unavailable trusted-host credential companion state."
+                },
+                {
                   "name": "root_key_backend",
                   "type": "string",
                   "description": "Selected host root-key backend or unavailable state."
@@ -2117,7 +2156,7 @@
               "delivery": "complete",
               "collection_coverage": "exhaustive",
               "json_envelope": "cluster",
-              "json_schema_version": 3
+              "json_schema_version": 4
             },
             "prerequisites": [],
             "errors": [
@@ -2238,7 +2277,7 @@
           "role": "utility",
           "contract": {
             "capability_id": "policy.learning",
-            "outcome": "Identify recent denied HTTP effects and the pending permission review command",
+            "outcome": "Identify recent denied HTTP effects, including exact GraphQL operation/root coordinates when classified, and the pending permission review command",
             "inputs": [
               {
                 "name": "--tail",
@@ -2286,7 +2325,7 @@
                 {
                   "name": "items",
                   "type": "array",
-                  "description": "Validated denials ordered oldest to newest with host-issued project principal, scheme-independent request authority (host and port), method, path, reason, status, and exact-rule learnability."
+                  "description": "Validated denials ordered oldest to newest with host-issued project principal, scheme-independent request authority (host and port), method, path, protocol, optional exact GraphQL operation/root coordinate, reason, status, and exact-rule learnability."
                 },
                 {
                   "name": "review_command",
@@ -2297,7 +2336,7 @@
               "delivery": "complete",
               "collection_coverage": "bounded_window",
               "json_envelope": "denials",
-              "json_schema_version": 3
+              "json_schema_version": 4
             },
             "prerequisites": [
               "The cluster has been created."
@@ -2685,6 +2724,11 @@
                   "name": "auth_broker_state",
                   "type": "string",
                   "description": "Observed ready, locked, or unavailable Auth Broker state."
+                },
+                {
+                  "name": "credential_companion_state",
+                  "type": "string",
+                  "description": "Observed ready, prepared, absent, or unavailable trusted-host credential companion state."
                 },
                 {
                   "name": "root_key_backend",
@@ -3101,7 +3145,7 @@
           "role": "discover",
           "contract": {
             "capability_id": "policy.learning",
-            "outcome": "Return unique pending exact host, port, method, and path proposals with opaque approval IDs",
+            "outcome": "Return unique pending exact host, port, method, path, and optional GraphQL operation/root proposals with opaque approval IDs",
             "inputs": [
               {
                 "name": "--tail",
@@ -3193,6 +3237,21 @@
                   "description": "Exact denied HTTP path without query data."
                 },
                 {
+                  "name": "protocol",
+                  "type": "string",
+                  "description": "Effective policy protocol: http or graphql."
+                },
+                {
+                  "name": "graphql_operation_type",
+                  "type": "string",
+                  "description": "Exact GraphQL query or mutation type; empty for HTTP."
+                },
+                {
+                  "name": "graphql_root_field",
+                  "type": "string",
+                  "description": "Exact canonical GraphQL root field; empty for HTTP."
+                },
+                {
                   "name": "reason",
                   "type": "string",
                   "description": "Bounded secret-free denial reason."
@@ -3221,7 +3280,7 @@
               "delivery": "complete",
               "collection_coverage": "bounded_window",
               "json_envelope": "policy_candidates",
-              "json_schema_version": 4
+              "json_schema_version": 5
             },
             "prerequisites": [
               "The cluster has retained Gateway denial evidence."
@@ -3411,7 +3470,7 @@
           "role": "discover",
           "contract": {
             "capability_id": "policy.learning",
-            "outcome": "Review the bounded pending exact network-permission queue; an interactive terminal can explicitly allow or deny one exact permission",
+            "outcome": "Review the bounded pending exact network-permission queue, including optional GraphQL operation/root coordinates; an interactive terminal can stage one Context's exact decisions and apply the reviewed set once",
             "inputs": [
               {
                 "name": "--tail",
@@ -3503,6 +3562,21 @@
                   "description": "Exact denied HTTP path without query data."
                 },
                 {
+                  "name": "protocol",
+                  "type": "string",
+                  "description": "Effective policy protocol: http or graphql."
+                },
+                {
+                  "name": "graphql_operation_type",
+                  "type": "string",
+                  "description": "Exact GraphQL query or mutation type; empty for HTTP."
+                },
+                {
+                  "name": "graphql_root_field",
+                  "type": "string",
+                  "description": "Exact canonical GraphQL root field; empty for HTTP."
+                },
+                {
                   "name": "reason",
                   "type": "string",
                   "description": "Bounded secret-free denial reason."
@@ -3531,7 +3605,7 @@
               "delivery": "complete",
               "collection_coverage": "bounded_window",
               "json_envelope": "policy_review",
-              "json_schema_version": 4
+              "json_schema_version": 5
             },
             "prerequisites": [
               "The cluster has retained Gateway denial evidence."
@@ -3704,11 +3778,7 @@
               }
             ],
             "interactive": {
-              "action_command": "policy allow",
-              "action_commands": [
-                "policy allow",
-                "policy deny"
-              ],
+              "action_command": "policy apply-reviewed",
               "selection_reference_kind": "policy-candidate",
               "selection_output_field": "id",
               "confirmation": "explicit_yes",
@@ -3724,6 +3794,351 @@
           "consumes_refs": []
         },
         {
+          "path": "policy apply-reviewed",
+          "summary": "Apply the exact decisions staged by Permission Inbox",
+          "usage": "tobari policy apply-reviewed",
+          "effect": "write",
+          "role": "act",
+          "contract": {
+            "capability_id": "policy.learning",
+            "outcome": "Revalidate and activate one bounded typed set of exact Allow and Deny decisions for one Context staged by interactive policy review",
+            "inputs": [],
+            "output": {
+              "formats": [
+                "text"
+              ],
+              "default_format": "text",
+              "fields": [
+                {
+                  "name": "task",
+                  "type": "string",
+                  "description": "Confirmed reviewed-set task identity."
+                },
+                {
+                  "name": "policy",
+                  "type": "string",
+                  "description": "Host policy source associated with the confirmed aggregate."
+                },
+                {
+                  "name": "allow_count",
+                  "type": "integer",
+                  "description": "Number of exact Allows applied."
+                },
+                {
+                  "name": "deny_count",
+                  "type": "integer",
+                  "description": "Number of exact Denies applied."
+                },
+                {
+                  "name": "applied",
+                  "type": "boolean",
+                  "description": "Always true after exact revision confirmation."
+                }
+              ],
+              "delivery": "complete",
+              "collection_coverage": "not_applicable"
+            },
+            "prerequisites": [
+              "An interactive policy review session has a bounded non-empty staged decision set."
+            ],
+            "fixed_target": {
+              "kind": "policy-decision-set",
+              "id": "policy-decision-set-default",
+              "description": "The one CLI-owned installation policy decision set.",
+              "scope": "tool_local"
+            },
+            "errors": [
+              {
+                "code": "invalid_arguments",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help policy apply-reviewed",
+                    "reason": "Correct the command arguments."
+                  }
+                ]
+              },
+              {
+                "code": "operation_canceled",
+                "kind": "canceled",
+                "retryable": true,
+                "next_actions": [
+                  {
+                    "command": "policy apply-reviewed",
+                    "reason": "Retry when the caller is ready."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_policy_review_session",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Stage decisions through an interactive Permission Inbox."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_policy_review_set",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Review a bounded non-empty set of exact candidates."
+                  }
+                ]
+              },
+              {
+                "code": "empty_policy_review_set",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Stage at least one exact decision."
+                  }
+                ]
+              },
+              {
+                "code": "policy_review_changed",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Review the current pending queue again."
+                  }
+                ]
+              },
+              {
+                "code": "policy_review_scope_mixed",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Apply or discard the current Context decisions before reviewing another Context."
+                  }
+                ]
+              },
+              {
+                "code": "policy_data_changed",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Review again after the concurrent policy change."
+                  }
+                ]
+              },
+              {
+                "code": "policy_preflight_failed",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "doctor",
+                    "reason": "Correct the complete candidate policy."
+                  }
+                ]
+              },
+              {
+                "code": "policy_learning_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "cluster status",
+                    "reason": "Reconcile OPA and current policy state."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_candidate_contract",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "cluster denials",
+                    "reason": "Inspect retained denial compatibility."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_policy_review_result",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "cluster status",
+                    "reason": "Reconcile the confirmed reviewed set."
+                  }
+                ]
+              },
+              {
+                "code": "denials_failed",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "cluster denials",
+                    "reason": "Inspect retained denial evidence."
+                  }
+                ]
+              },
+              {
+                "code": "missing_runtime",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "doctor",
+                    "reason": "Configure the Tobari runtime."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_mutation_contract",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Repair the mutation declaration and reconcile state."
+                  }
+                ]
+              },
+              {
+                "code": "missing_mutation_action",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Configure the mutation action and reconcile state."
+                  }
+                ]
+              },
+              {
+                "code": "missing_mutation_policy",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Configure the project mutation policy."
+                  }
+                ]
+              },
+              {
+                "code": "mutation_rejected",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Review exact Tobari ownership."
+                  }
+                ]
+              },
+              {
+                "code": "unclassified_mutation_outcome",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Reconcile state before another mutation."
+                  }
+                ]
+              },
+              {
+                "code": "mutation_output_write_failed",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "policy review",
+                    "reason": "Reconcile the confirmed mutation without repeating it."
+                  }
+                ]
+              },
+              {
+                "code": "cluster_not_configured",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "cluster up",
+                    "reason": "Create the shared cluster explicitly."
+                  }
+                ]
+              },
+              {
+                "code": "cluster_status_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "cluster status",
+                    "reason": "Inspect the shared cluster before using policy data."
+                  }
+                ]
+              },
+              {
+                "code": "cluster_not_ready",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "cluster up",
+                    "reason": "Reconcile the shared cluster explicitly."
+                  }
+                ]
+              },
+              {
+                "code": "context_read_failed",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Inspect the selected Context before using policy data."
+                  }
+                ]
+              },
+              {
+                "code": "context_mismatch",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "cluster up",
+                    "reason": "Reconcile the shared cluster's all-Context projection."
+                  }
+                ]
+              }
+            ],
+            "mutation": {
+              "target_kind": "policy-decision-set",
+              "target_inputs": [],
+              "impact": {
+                "cardinality": "many",
+                "notification": "no",
+                "access_change": "yes",
+                "destructive": "no"
+              }
+            }
+          },
+          "produces_refs": [],
+          "consumes_refs": []
+        },
+        {
           "path": "policy tail",
           "summary": "Review pending exact policy rules",
           "usage": "tobari policy tail [--tail \u003clines\u003e]",
@@ -3732,7 +4147,7 @@
           "role": "discover",
           "contract": {
             "capability_id": "policy.learning",
-            "outcome": "Review the bounded pending policy queue with exact approval commands",
+            "outcome": "Review the bounded pending policy queue, including optional GraphQL operation/root coordinates, with exact approval commands",
             "inputs": [
               {
                 "name": "--tail",
@@ -3808,6 +4223,21 @@
                   "name": "path",
                   "type": "string",
                   "description": "Exact denied HTTP path without query data."
+                },
+                {
+                  "name": "protocol",
+                  "type": "string",
+                  "description": "Effective policy protocol: http or graphql."
+                },
+                {
+                  "name": "graphql_operation_type",
+                  "type": "string",
+                  "description": "Exact GraphQL query or mutation type; empty for HTTP."
+                },
+                {
+                  "name": "graphql_root_field",
+                  "type": "string",
+                  "description": "Exact canonical GraphQL root field; empty for HTTP."
                 },
                 {
                   "name": "reason",
@@ -4026,7 +4456,7 @@
           "role": "discover",
           "contract": {
             "capability_id": "policy.learning",
-            "outcome": "Inspect the complete current project-bound learned Allow and exact Deny decisions; on a TTY explicitly reset one decision",
+            "outcome": "Inspect complete current project-bound learned Allow and exact Deny decisions, including optional GraphQL operation/root coordinates; on a TTY explicitly reset one decision",
             "inputs": [
               {
                 "name": "--format",
@@ -4106,6 +4536,21 @@
                   "description": "Exact path or safe directory prefix."
                 },
                 {
+                  "name": "protocol",
+                  "type": "string",
+                  "description": "Effective policy protocol: http or graphql."
+                },
+                {
+                  "name": "graphql_operation_type",
+                  "type": "string",
+                  "description": "Exact GraphQL query or mutation type; empty for HTTP."
+                },
+                {
+                  "name": "graphql_root_field",
+                  "type": "string",
+                  "description": "Exact canonical GraphQL root field; empty for HTTP."
+                },
+                {
                   "name": "examples",
                   "type": "array",
                   "description": "Positive request paths retained by an Allow rule; empty for Deny."
@@ -4124,7 +4569,7 @@
               "delivery": "complete",
               "collection_coverage": "exhaustive",
               "json_envelope": "policy_rules",
-              "json_schema_version": 2
+              "json_schema_version": 3
             },
             "prerequisites": [
               "Every configured Context has a validated policy source and the shared aggregate is current."
@@ -4299,7 +4744,7 @@
           "role": "act",
           "contract": {
             "capability_id": "policy.learning",
-            "outcome": "Test, record, and activate one exact retained host, port, method, and path permission",
+            "outcome": "Test, record, and activate one exact retained host, port, method, path, and optional GraphQL operation/root permission",
             "inputs": [
               {
                 "name": "--id",
@@ -4362,6 +4807,21 @@
                   "name": "path",
                   "type": "string",
                   "description": "Stored exact path or directory prefix."
+                },
+                {
+                  "name": "protocol",
+                  "type": "string",
+                  "description": "Effective stored policy protocol: http or graphql."
+                },
+                {
+                  "name": "graphql_operation_type",
+                  "type": "string",
+                  "description": "Stored GraphQL query or mutation type; empty for HTTP."
+                },
+                {
+                  "name": "graphql_root_field",
+                  "type": "string",
+                  "description": "Stored canonical GraphQL root field; empty for HTTP."
                 },
                 {
                   "name": "source_rule_count",
@@ -4710,7 +5170,7 @@
           "role": "act",
           "contract": {
             "capability_id": "policy.learning",
-            "outcome": "Test, record, and activate one exact project-bound denial for a retained host, port, method, and path",
+            "outcome": "Test, record, and activate one exact project-bound denial for a retained host, port, method, path, and optional GraphQL operation/root coordinate",
             "inputs": [
               {
                 "name": "--id",
@@ -4768,6 +5228,21 @@
                   "name": "path",
                   "type": "string",
                   "description": "Stored exact path."
+                },
+                {
+                  "name": "protocol",
+                  "type": "string",
+                  "description": "Effective stored policy protocol: http or graphql."
+                },
+                {
+                  "name": "graphql_operation_type",
+                  "type": "string",
+                  "description": "Stored GraphQL query or mutation type; empty for HTTP."
+                },
+                {
+                  "name": "graphql_root_field",
+                  "type": "string",
+                  "description": "Stored canonical GraphQL root field; empty for HTTP."
                 },
                 {
                   "name": "source_rule_count",
@@ -5790,6 +6265,21 @@
                   "description": "Stored exact path or directory prefix."
                 },
                 {
+                  "name": "protocol",
+                  "type": "string",
+                  "description": "Effective stored policy protocol: http or graphql."
+                },
+                {
+                  "name": "graphql_operation_type",
+                  "type": "string",
+                  "description": "Stored GraphQL query or mutation type; empty for HTTP."
+                },
+                {
+                  "name": "graphql_root_field",
+                  "type": "string",
+                  "description": "Stored canonical GraphQL root field; empty for HTTP."
+                },
+                {
                   "name": "source_rule_count",
                   "type": "integer",
                   "description": "Number of source rules represented by the result."
@@ -6549,6 +7039,16 @@
               "default_format": "text",
               "fields": [
                 {
+                  "name": "task",
+                  "type": "string",
+                  "description": "Declared Context task identity for this report."
+                },
+                {
+                  "name": "id",
+                  "type": "string",
+                  "description": "Stable host-issued Context identity."
+                },
+                {
                   "name": "name",
                   "type": "string",
                   "description": "Named Context identifier."
@@ -6579,6 +7079,11 @@
                   "description": "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal."
                 },
                 {
+                  "name": "git_identity",
+                  "type": "object",
+                  "description": "Atomic Git identity policy with default, inherited, or literal source and exact name/email only for literal."
+                },
+                {
                   "name": "stores",
                   "type": "object",
                   "description": "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."
@@ -6592,12 +7097,17 @@
                   "name": "cluster",
                   "type": "string",
                   "description": "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."
+                },
+                {
+                  "name": "authentication",
+                  "type": "object",
+                  "description": "Safe Auth Broker and provider status without credential values."
                 }
               ],
               "delivery": "complete",
               "collection_coverage": "not_applicable",
               "json_envelope": "context",
-              "json_schema_version": 5
+              "json_schema_version": 6
             },
             "prerequisites": [],
             "errors": [
@@ -6695,316 +7205,6 @@
           "consumes_refs": []
         },
         {
-          "path": "context shell configure",
-          "summary": "Configure one Context shell environment variable",
-          "usage": "tobari context shell configure --variable COLORTERM|NO_COLOR|PS1|TERM --source default|inherit|literal [--value \u003cvalue\u003e] [--context \u003cname\u003e] [--format text|json]",
-          "args": "--variable COLORTERM|NO_COLOR|PS1|TERM --source default|inherit|literal [--value \u003cvalue\u003e] [--context \u003cname\u003e] [--format text|json]",
-          "effect": "write",
-          "role": "act",
-          "contract": {
-            "capability_id": "context.composition",
-            "outcome": "Choose Tobari default behavior, exported host inheritance, or one Context-owned literal for an allowlisted shell variable",
-            "inputs": [
-              {
-                "name": "--variable",
-                "source": "flag",
-                "required": true,
-                "value_kind": "text",
-                "cardinality": "single",
-                "description": "Allowlisted shell environment variable configured for future interactive sessions.",
-                "allowed_values": [
-                  "COLORTERM",
-                  "NO_COLOR",
-                  "PS1",
-                  "TERM"
-                ]
-              },
-              {
-                "name": "--source",
-                "source": "flag",
-                "required": true,
-                "value_kind": "text",
-                "cardinality": "single",
-                "description": "default removes the override; inherit reads an exported host value at entry; literal uses --value.",
-                "allowed_values": [
-                  "default",
-                  "inherit",
-                  "literal"
-                ]
-              },
-              {
-                "name": "--value",
-                "source": "flag",
-                "required": false,
-                "value_kind": "text",
-                "cardinality": "single",
-                "description": "Exact Context-owned value; required only for literal and may be explicitly empty.",
-                "allowed_values": [],
-                "requires": [
-                  "--source"
-                ]
-              },
-              {
-                "name": "--context",
-                "source": "flag",
-                "required": false,
-                "value_kind": "text",
-                "cardinality": "single",
-                "description": "Context display name for this invocation; omission uses the current Context without changing it.",
-                "allowed_values": []
-              },
-              {
-                "name": "--format",
-                "source": "flag",
-                "required": false,
-                "value_kind": "text",
-                "cardinality": "single",
-                "description": "Select human text or schema-versioned JSON.",
-                "allowed_values": [
-                  "text",
-                  "json"
-                ],
-                "default_value": "text"
-              }
-            ],
-            "output": {
-              "formats": [
-                "text",
-                "json"
-              ],
-              "default_format": "text",
-              "fields": [
-                {
-                  "name": "name",
-                  "type": "string",
-                  "description": "Named Context identifier."
-                },
-                {
-                  "name": "active",
-                  "type": "boolean",
-                  "description": "Whether this Context is the current/default selection for omitted Context input."
-                },
-                {
-                  "name": "agent_profile",
-                  "type": "string",
-                  "description": "Read-only shared agent profile reference."
-                },
-                {
-                  "name": "image",
-                  "type": "string",
-                  "description": "Default compatible Tobari image selector stored in the Context."
-                },
-                {
-                  "name": "policy_mode",
-                  "type": "string",
-                  "description": "Guided or advanced policy-development mode."
-                },
-                {
-                  "name": "shell_environment",
-                  "type": "array",
-                  "description": "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal."
-                },
-                {
-                  "name": "stores",
-                  "type": "object",
-                  "description": "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."
-                },
-                {
-                  "name": "runtime",
-                  "type": "object",
-                  "description": "Selected runtime source, recipe status, source digest, and image digest."
-                },
-                {
-                  "name": "cluster",
-                  "type": "string",
-                  "description": "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."
-                }
-              ],
-              "delivery": "complete",
-              "collection_coverage": "not_applicable",
-              "json_envelope": "context",
-              "json_schema_version": 5
-            },
-            "prerequisites": [
-              "The selected Context exists on the trusted host; inherited values must be exported by the process that starts Tobari."
-            ],
-            "fixed_target": {
-              "kind": "context-shell-environment",
-              "id": "context-shell-environment",
-              "description": "This installation's Context-owned allowlisted shell environment configuration.",
-              "scope": "tool_local"
-            },
-            "errors": [
-              {
-                "code": "invalid_arguments",
-                "kind": "invalid_input",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "help context shell configure",
-                    "reason": "Correct the command arguments."
-                  }
-                ]
-              },
-              {
-                "code": "operation_canceled",
-                "kind": "canceled",
-                "retryable": true,
-                "next_actions": [
-                  {
-                    "command": "context shell configure",
-                    "reason": "Retry when the caller is ready."
-                  }
-                ]
-              },
-              {
-                "code": "invalid_shell_environment",
-                "kind": "invalid_input",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "help context shell configure",
-                    "reason": "Choose an allowlisted variable and a valid source/value combination."
-                  }
-                ]
-              },
-              {
-                "code": "invalid_context_name",
-                "kind": "invalid_input",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "context list",
-                    "reason": "Choose a valid Context name."
-                  }
-                ]
-              },
-              {
-                "code": "context_not_found",
-                "kind": "not_found",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "context list",
-                    "reason": "Choose an existing Context."
-                  }
-                ]
-              },
-              {
-                "code": "context_shell_configure_failed",
-                "kind": "rejected",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "context show",
-                    "reason": "Inspect the Context shell environment before retrying."
-                  }
-                ]
-              },
-              {
-                "code": "invalid_context_report",
-                "kind": "contract",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "context show",
-                    "reason": "Reconcile the confirmed Context shell setting."
-                  }
-                ]
-              },
-              {
-                "code": "missing_runtime",
-                "kind": "internal",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "doctor",
-                    "reason": "Configure the Tobari runtime."
-                  }
-                ]
-              },
-              {
-                "code": "invalid_mutation_contract",
-                "kind": "contract",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "context show",
-                    "reason": "Repair the mutation declaration and reconcile state."
-                  }
-                ]
-              },
-              {
-                "code": "missing_mutation_action",
-                "kind": "contract",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "context show",
-                    "reason": "Configure the mutation action and reconcile state."
-                  }
-                ]
-              },
-              {
-                "code": "missing_mutation_policy",
-                "kind": "rejected",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "context show",
-                    "reason": "Configure the project mutation policy."
-                  }
-                ]
-              },
-              {
-                "code": "mutation_rejected",
-                "kind": "rejected",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "context show",
-                    "reason": "Review exact Tobari ownership."
-                  }
-                ]
-              },
-              {
-                "code": "unclassified_mutation_outcome",
-                "kind": "contract",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "context show",
-                    "reason": "Reconcile state before another mutation."
-                  }
-                ]
-              },
-              {
-                "code": "mutation_output_write_failed",
-                "kind": "internal",
-                "retryable": false,
-                "next_actions": [
-                  {
-                    "command": "context show",
-                    "reason": "Reconcile the confirmed mutation without repeating it."
-                  }
-                ]
-              }
-            ],
-            "mutation": {
-              "target_kind": "context-shell-environment",
-              "target_inputs": [],
-              "impact": {
-                "cardinality": "one",
-                "notification": "no",
-                "access_change": "no",
-                "destructive": "no"
-              }
-            }
-          },
-          "produces_refs": [],
-          "consumes_refs": []
-        },
-        {
           "path": "context create",
           "summary": "Create a named execution Context",
           "usage": "tobari context create --name \u003cname\u003e [--image \u003cimage\u003e] [--mode guided|advanced] [--format text|json]",
@@ -7069,6 +7269,16 @@
               "default_format": "text",
               "fields": [
                 {
+                  "name": "task",
+                  "type": "string",
+                  "description": "Declared Context task identity for this report."
+                },
+                {
+                  "name": "id",
+                  "type": "string",
+                  "description": "Stable host-issued Context identity."
+                },
+                {
                   "name": "name",
                   "type": "string",
                   "description": "Named Context identifier."
@@ -7099,6 +7309,11 @@
                   "description": "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal."
                 },
                 {
+                  "name": "git_identity",
+                  "type": "object",
+                  "description": "Atomic Git identity policy with default, inherited, or literal source and exact name/email only for literal."
+                },
+                {
                   "name": "stores",
                   "type": "object",
                   "description": "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."
@@ -7112,12 +7327,17 @@
                   "name": "cluster",
                   "type": "string",
                   "description": "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."
+                },
+                {
+                  "name": "authentication",
+                  "type": "object",
+                  "description": "Safe Auth Broker and provider status without credential values."
                 }
               ],
               "delivery": "complete",
               "collection_coverage": "not_applicable",
               "json_envelope": "context",
-              "json_schema_version": 5
+              "json_schema_version": 6
             },
             "prerequisites": [
               "The host Context directory is accessible."
@@ -7329,6 +7549,16 @@
               "default_format": "text",
               "fields": [
                 {
+                  "name": "task",
+                  "type": "string",
+                  "description": "Declared Context task identity for this report."
+                },
+                {
+                  "name": "id",
+                  "type": "string",
+                  "description": "Stable host-issued Context identity."
+                },
+                {
                   "name": "name",
                   "type": "string",
                   "description": "Named Context identifier."
@@ -7359,6 +7589,11 @@
                   "description": "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal."
                 },
                 {
+                  "name": "git_identity",
+                  "type": "object",
+                  "description": "Atomic Git identity policy with default, inherited, or literal source and exact name/email only for literal."
+                },
+                {
                   "name": "stores",
                   "type": "object",
                   "description": "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."
@@ -7372,12 +7607,17 @@
                   "name": "cluster",
                   "type": "string",
                   "description": "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."
+                },
+                {
+                  "name": "authentication",
+                  "type": "object",
+                  "description": "Safe Auth Broker and provider status without credential values."
                 }
               ],
               "delivery": "complete",
               "collection_coverage": "not_applicable",
               "json_envelope": "context",
-              "json_schema_version": 5
+              "json_schema_version": 6
             },
             "prerequisites": [
               "The named Context already exists."
@@ -7540,6 +7780,955 @@
                 "cardinality": "one",
                 "notification": "no",
                 "access_change": "yes",
+                "destructive": "no"
+              }
+            }
+          },
+          "produces_refs": [],
+          "consumes_refs": []
+        }
+      ],
+      "workflows": []
+    },
+    {
+      "schema_version": 8,
+      "view": "scope",
+      "program": "tobari",
+      "scope": {
+        "selector": "config",
+        "kind": "namespace"
+      },
+      "invocation_grammar": {
+        "value_flag_forms": [
+          "--flag value",
+          "--flag=value"
+        ],
+        "dash_prefixed_flag_value_form": "--flag=-value",
+        "boolean_flag_forms": [
+          "--flag",
+          "--flag=true",
+          "--flag=false"
+        ],
+        "positional_only_marker": "--",
+        "dash_prefixed_positional_usage": "-- -value"
+      },
+      "global_inputs": [
+        {
+          "name": "--error-format",
+          "source": "flag",
+          "required": false,
+          "value_kind": "text",
+          "cardinality": "single",
+          "description": "Select text or stable JSON stderr; place this global option before the command.",
+          "allowed_values": [
+            "text",
+            "json"
+          ],
+          "default_value": "text"
+        }
+      ],
+      "io_contract": {
+        "success_stream": "stdout",
+        "error_stream": "stderr",
+        "success_status_requires_complete_write": true,
+        "partial_output_is_success": false,
+        "external_text_trust": "untrusted_data",
+        "external_text_projection": "visible_escape",
+        "opaque_reference_policy": "validated_exact_bytes"
+      },
+      "error_contract": {
+        "formats": [
+          "text",
+          "json"
+        ],
+        "default_format": "text",
+        "json_schema_version": 1,
+        "fields": [
+          {
+            "name": "kind",
+            "description": "Cross-command recovery class."
+          },
+          {
+            "name": "code",
+            "description": "Stable command-specific failure code."
+          },
+          {
+            "name": "message",
+            "description": "Safe human explanation that excludes upstream causes."
+          },
+          {
+            "name": "retryable",
+            "description": "Whether repeating the same logical command without changing intent is permitted."
+          },
+          {
+            "name": "retry_after",
+            "description": "Authoritative rate-window duration when known, otherwise null; timing never grants logical replay permission."
+          },
+          {
+            "name": "next_actions",
+            "description": "Structured commands and reasons for recovery."
+          }
+        ],
+        "exit_codes": [
+          {
+            "kind": "invalid_input",
+            "code": 2
+          },
+          {
+            "kind": "authentication",
+            "code": 4
+          },
+          {
+            "kind": "permission",
+            "code": 5
+          },
+          {
+            "kind": "not_found",
+            "code": 6
+          },
+          {
+            "kind": "ambiguous",
+            "code": 7
+          },
+          {
+            "kind": "rate_limited",
+            "code": 8
+          },
+          {
+            "kind": "unavailable",
+            "code": 9
+          },
+          {
+            "kind": "rejected",
+            "code": 10
+          },
+          {
+            "kind": "canceled",
+            "code": 11
+          },
+          {
+            "kind": "unsupported",
+            "code": 12
+          },
+          {
+            "kind": "contract",
+            "code": 13
+          },
+          {
+            "kind": "internal",
+            "code": 3
+          }
+        ],
+        "global_errors": [
+          {
+            "code": "invalid_root_options",
+            "kind": "invalid_input",
+            "retryable": false,
+            "next_actions": [
+              {
+                "command": "help",
+                "reason": "Correct the global options."
+              }
+            ]
+          },
+          {
+            "code": "missing_command",
+            "kind": "invalid_input",
+            "retryable": false,
+            "next_actions": [
+              {
+                "command": "help",
+                "reason": "Discover available command outcomes."
+              }
+            ]
+          },
+          {
+            "code": "unknown_command",
+            "kind": "invalid_input",
+            "retryable": false,
+            "next_actions": [
+              {
+                "command": "help",
+                "reason": "Discover an exact command path or namespace."
+              }
+            ]
+          },
+          {
+            "code": "retired_command",
+            "kind": "invalid_input",
+            "retryable": false,
+            "next_actions": [
+              {
+                "command": "tobari",
+                "reason": "Run the root command from the project directory."
+              }
+            ]
+          },
+          {
+            "code": "missing_context",
+            "kind": "contract",
+            "retryable": false,
+            "next_actions": [
+              {
+                "command": "help",
+                "reason": "Retry through a context-aware CLI entry point."
+              }
+            ]
+          },
+          {
+            "code": "invalid_catalog",
+            "kind": "contract",
+            "retryable": false,
+            "next_actions": [
+              {
+                "command": "help",
+                "reason": "Repair the catalog before dispatch."
+              }
+            ]
+          },
+          {
+            "code": "operation_canceled",
+            "kind": "canceled",
+            "retryable": true,
+            "next_actions": [
+              {
+                "command": "help",
+                "reason": "Retry when the caller is ready."
+              }
+            ]
+          }
+        ],
+        "command_errors_field": "commands[].contract.errors"
+      },
+      "commands": [
+        {
+          "path": "config shell",
+          "summary": "Configure Context shell presentation directly or with one staged terminal Apply",
+          "usage": "tobari config shell [--variable COLORTERM|NO_COLOR|PS1|TERM] [--source default|inherit|literal] [--value \u003cvalue\u003e] [--context \u003cname\u003e] [--format text|json]",
+          "args": "[--variable COLORTERM|NO_COLOR|PS1|TERM] [--source default|inherit|literal] [--value \u003cvalue\u003e] [--context \u003cname\u003e] [--format text|json]",
+          "effect": "write",
+          "role": "act",
+          "contract": {
+            "capability_id": "context.composition",
+            "outcome": "Configure one allowlisted shell variable through complete flags, or stage several rows from the complete terminal inventory and apply them atomically",
+            "inputs": [
+              {
+                "name": "--variable",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "Allowlisted shell environment variable configured for future interactive sessions.",
+                "allowed_values": [
+                  "COLORTERM",
+                  "NO_COLOR",
+                  "PS1",
+                  "TERM"
+                ],
+                "requires": [
+                  "--source"
+                ]
+              },
+              {
+                "name": "--source",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "default removes the override; inherit reads an exported host value at entry; literal uses --value. Omit all setting flags to use the staged terminal editor.",
+                "allowed_values": [
+                  "default",
+                  "inherit",
+                  "literal"
+                ],
+                "requires": [
+                  "--variable"
+                ]
+              },
+              {
+                "name": "--value",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "Exact Context-owned value of at most 4096 UTF-8 bytes; required only for literal and may be explicitly empty.",
+                "allowed_values": [],
+                "requires": [
+                  "--variable",
+                  "--source"
+                ]
+              },
+              {
+                "name": "--context",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "Context display name for this invocation; omission uses the current Context without changing it.",
+                "allowed_values": []
+              },
+              {
+                "name": "--format",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "Select human text or schema-versioned JSON.",
+                "allowed_values": [
+                  "text",
+                  "json"
+                ],
+                "default_value": "text"
+              }
+            ],
+            "output": {
+              "formats": [
+                "text",
+                "json"
+              ],
+              "default_format": "text",
+              "fields": [
+                {
+                  "name": "task",
+                  "type": "string",
+                  "description": "Declared Context task identity for this report."
+                },
+                {
+                  "name": "id",
+                  "type": "string",
+                  "description": "Stable host-issued Context identity."
+                },
+                {
+                  "name": "name",
+                  "type": "string",
+                  "description": "Named Context identifier."
+                },
+                {
+                  "name": "active",
+                  "type": "boolean",
+                  "description": "Whether this Context is the current/default selection for omitted Context input."
+                },
+                {
+                  "name": "agent_profile",
+                  "type": "string",
+                  "description": "Read-only shared agent profile reference."
+                },
+                {
+                  "name": "image",
+                  "type": "string",
+                  "description": "Default compatible Tobari image selector stored in the Context."
+                },
+                {
+                  "name": "policy_mode",
+                  "type": "string",
+                  "description": "Guided or advanced policy-development mode."
+                },
+                {
+                  "name": "shell_environment",
+                  "type": "array",
+                  "description": "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal."
+                },
+                {
+                  "name": "git_identity",
+                  "type": "object",
+                  "description": "Atomic Git identity policy with default, inherited, or literal source and exact name/email only for literal."
+                },
+                {
+                  "name": "stores",
+                  "type": "object",
+                  "description": "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."
+                },
+                {
+                  "name": "runtime",
+                  "type": "object",
+                  "description": "Selected runtime source, recipe status, source digest, and image digest."
+                },
+                {
+                  "name": "cluster",
+                  "type": "string",
+                  "description": "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."
+                },
+                {
+                  "name": "authentication",
+                  "type": "object",
+                  "description": "Safe Auth Broker and provider status without credential values."
+                }
+              ],
+              "delivery": "complete",
+              "collection_coverage": "not_applicable",
+              "json_envelope": "context",
+              "json_schema_version": 6
+            },
+            "prerequisites": [
+              "The selected Context exists on the trusted host; inherited values must be exported by the process that starts Tobari.",
+              "When setting flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text."
+            ],
+            "fixed_target": {
+              "kind": "context-shell-environment",
+              "id": "context-shell-environment",
+              "description": "This installation's Context-owned allowlisted shell environment configuration.",
+              "scope": "tool_local"
+            },
+            "errors": [
+              {
+                "code": "invalid_arguments",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help config shell",
+                    "reason": "Correct the command arguments."
+                  }
+                ]
+              },
+              {
+                "code": "operation_canceled",
+                "kind": "canceled",
+                "retryable": true,
+                "next_actions": [
+                  {
+                    "command": "config shell",
+                    "reason": "Retry when the caller is ready."
+                  }
+                ]
+              },
+              {
+                "code": "configuration_wizard_unavailable",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help config shell",
+                    "reason": "Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr."
+                  }
+                ]
+              },
+              {
+                "code": "configuration_wizard_failed",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help config shell",
+                    "reason": "Retry with complete setting flags or repair the interactive terminal streams."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_shell_environment",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help config shell",
+                    "reason": "Choose an allowlisted variable and a valid source/value combination."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_context_name",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context list",
+                    "reason": "Choose a valid Context name."
+                  }
+                ]
+              },
+              {
+                "code": "context_not_found",
+                "kind": "not_found",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context list",
+                    "reason": "Choose an existing Context."
+                  }
+                ]
+              },
+              {
+                "code": "context_read_failed",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "doctor",
+                    "reason": "Inspect the host Context stores before retrying the wizard."
+                  }
+                ]
+              },
+              {
+                "code": "config_shell_failed",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Inspect the Context shell environment before retrying."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_context_report",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Reconcile the confirmed Context shell setting."
+                  }
+                ]
+              },
+              {
+                "code": "missing_runtime",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "doctor",
+                    "reason": "Configure the Tobari runtime."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_mutation_contract",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Repair the mutation declaration and reconcile state."
+                  }
+                ]
+              },
+              {
+                "code": "missing_mutation_action",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Configure the mutation action and reconcile state."
+                  }
+                ]
+              },
+              {
+                "code": "missing_mutation_policy",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Configure the project mutation policy."
+                  }
+                ]
+              },
+              {
+                "code": "mutation_rejected",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Review exact Tobari ownership."
+                  }
+                ]
+              },
+              {
+                "code": "unclassified_mutation_outcome",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Reconcile state before another mutation."
+                  }
+                ]
+              },
+              {
+                "code": "mutation_output_write_failed",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Reconcile the confirmed mutation without repeating it."
+                  }
+                ]
+              }
+            ],
+            "mutation": {
+              "target_kind": "context-shell-environment",
+              "target_inputs": [],
+              "impact": {
+                "cardinality": "one",
+                "notification": "no",
+                "access_change": "no",
+                "destructive": "no"
+              }
+            }
+          },
+          "produces_refs": [],
+          "consumes_refs": []
+        },
+        {
+          "path": "config git",
+          "summary": "Configure one Context Git identity directly or from one staged terminal screen",
+          "usage": "tobari config git [--source default|inherit|literal] [--name \u003cname\u003e] [--email \u003cemail\u003e] [--context \u003cname\u003e] [--format text|json]",
+          "args": "[--source default|inherit|literal] [--name \u003cname\u003e] [--email \u003cemail\u003e] [--context \u003cname\u003e] [--format text|json]",
+          "effect": "write",
+          "role": "act",
+          "contract": {
+            "capability_id": "context.composition",
+            "outcome": "Choose no Context fallback, inherited host user.name and user.email, or one fixed Context-owned Git identity through complete flags or one staged terminal screen",
+            "inputs": [
+              {
+                "name": "--source",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "default removes the Context fallback; inherit projects host user.name and user.email at Workspace entry; literal uses --name and --email. Omit all setting flags to use the staged terminal editor.",
+                "allowed_values": [
+                  "default",
+                  "inherit",
+                  "literal"
+                ]
+              },
+              {
+                "name": "--name",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "Exact non-empty Context-owned Git user.name of at most 4096 safe UTF-8 bytes; required with --email only for literal.",
+                "allowed_values": [],
+                "requires": [
+                  "--source",
+                  "--email"
+                ]
+              },
+              {
+                "name": "--email",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "Exact non-empty Context-owned Git user.email of at most 4096 safe UTF-8 bytes; required with --name only for literal.",
+                "allowed_values": [],
+                "requires": [
+                  "--source",
+                  "--name"
+                ]
+              },
+              {
+                "name": "--context",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "Context display name for this invocation; omission uses the current Context without changing it.",
+                "allowed_values": []
+              },
+              {
+                "name": "--format",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "Select human text or schema-versioned JSON.",
+                "allowed_values": [
+                  "text",
+                  "json"
+                ],
+                "default_value": "text"
+              }
+            ],
+            "output": {
+              "formats": [
+                "text",
+                "json"
+              ],
+              "default_format": "text",
+              "fields": [
+                {
+                  "name": "task",
+                  "type": "string",
+                  "description": "Declared Context task identity for this report."
+                },
+                {
+                  "name": "id",
+                  "type": "string",
+                  "description": "Stable host-issued Context identity."
+                },
+                {
+                  "name": "name",
+                  "type": "string",
+                  "description": "Named Context identifier."
+                },
+                {
+                  "name": "active",
+                  "type": "boolean",
+                  "description": "Whether this Context is the current/default selection for omitted Context input."
+                },
+                {
+                  "name": "agent_profile",
+                  "type": "string",
+                  "description": "Read-only shared agent profile reference."
+                },
+                {
+                  "name": "image",
+                  "type": "string",
+                  "description": "Default compatible Tobari image selector stored in the Context."
+                },
+                {
+                  "name": "policy_mode",
+                  "type": "string",
+                  "description": "Guided or advanced policy-development mode."
+                },
+                {
+                  "name": "shell_environment",
+                  "type": "array",
+                  "description": "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal."
+                },
+                {
+                  "name": "git_identity",
+                  "type": "object",
+                  "description": "Atomic Git identity policy with default, inherited, or literal source and exact name/email only for literal."
+                },
+                {
+                  "name": "stores",
+                  "type": "object",
+                  "description": "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."
+                },
+                {
+                  "name": "runtime",
+                  "type": "object",
+                  "description": "Selected runtime source, recipe status, source digest, and image digest."
+                },
+                {
+                  "name": "cluster",
+                  "type": "string",
+                  "description": "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."
+                },
+                {
+                  "name": "authentication",
+                  "type": "object",
+                  "description": "Safe Auth Broker and provider status without credential values."
+                }
+              ],
+              "delivery": "complete",
+              "collection_coverage": "not_applicable",
+              "json_envelope": "context",
+              "json_schema_version": 6
+            },
+            "prerequisites": [
+              "The selected Context exists on the trusted host; inherited identity is resolved from only host global Git configuration at Workspace entry.",
+              "When setting flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text."
+            ],
+            "fixed_target": {
+              "kind": "context-git-identity",
+              "id": "context-git-identity",
+              "description": "This installation's Context-owned narrow Git identity configuration.",
+              "scope": "tool_local"
+            },
+            "errors": [
+              {
+                "code": "invalid_arguments",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help config git",
+                    "reason": "Correct the command arguments."
+                  }
+                ]
+              },
+              {
+                "code": "operation_canceled",
+                "kind": "canceled",
+                "retryable": true,
+                "next_actions": [
+                  {
+                    "command": "config git",
+                    "reason": "Retry when the caller is ready."
+                  }
+                ]
+              },
+              {
+                "code": "configuration_wizard_unavailable",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help config git",
+                    "reason": "Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr."
+                  }
+                ]
+              },
+              {
+                "code": "configuration_wizard_failed",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help config git",
+                    "reason": "Retry with complete setting flags or repair the interactive terminal streams."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_git_identity",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help config git",
+                    "reason": "Choose default, inherit, or a literal source with both name and email."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_context_name",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context list",
+                    "reason": "Choose a valid Context name."
+                  }
+                ]
+              },
+              {
+                "code": "context_not_found",
+                "kind": "not_found",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context list",
+                    "reason": "Choose an existing Context."
+                  }
+                ]
+              },
+              {
+                "code": "context_read_failed",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "doctor",
+                    "reason": "Inspect the host Context stores before retrying the wizard."
+                  }
+                ]
+              },
+              {
+                "code": "config_git_failed",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Inspect the Context Git identity before retrying."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_context_report",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Reconcile the confirmed Context Git identity setting."
+                  }
+                ]
+              },
+              {
+                "code": "missing_runtime",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "doctor",
+                    "reason": "Configure the Tobari runtime."
+                  }
+                ]
+              },
+              {
+                "code": "invalid_mutation_contract",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Repair the mutation declaration and reconcile state."
+                  }
+                ]
+              },
+              {
+                "code": "missing_mutation_action",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Configure the mutation action and reconcile state."
+                  }
+                ]
+              },
+              {
+                "code": "missing_mutation_policy",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Configure the project mutation policy."
+                  }
+                ]
+              },
+              {
+                "code": "mutation_rejected",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Review exact Tobari ownership."
+                  }
+                ]
+              },
+              {
+                "code": "unclassified_mutation_outcome",
+                "kind": "contract",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Reconcile state before another mutation."
+                  }
+                ]
+              },
+              {
+                "code": "mutation_output_write_failed",
+                "kind": "internal",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Reconcile the confirmed mutation without repeating it."
+                  }
+                ]
+              }
+            ],
+            "mutation": {
+              "target_kind": "context-git-identity",
+              "target_inputs": [],
+              "impact": {
+                "cardinality": "one",
+                "notification": "no",
+                "access_change": "no",
                 "destructive": "no"
               }
             }
@@ -7794,6 +8983,16 @@
               "default_format": "text",
               "fields": [
                 {
+                  "name": "task",
+                  "type": "string",
+                  "description": "Declared Context task identity for this report."
+                },
+                {
+                  "name": "id",
+                  "type": "string",
+                  "description": "Stable host-issued Context identity."
+                },
+                {
                   "name": "name",
                   "type": "string",
                   "description": "Named Context identifier."
@@ -7824,6 +9023,11 @@
                   "description": "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal."
                 },
                 {
+                  "name": "git_identity",
+                  "type": "object",
+                  "description": "Atomic Git identity policy with default, inherited, or literal source and exact name/email only for literal."
+                },
+                {
                   "name": "stores",
                   "type": "object",
                   "description": "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."
@@ -7837,12 +9041,17 @@
                   "name": "cluster",
                   "type": "string",
                   "description": "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."
+                },
+                {
+                  "name": "authentication",
+                  "type": "object",
+                  "description": "Safe Auth Broker and provider status without credential values."
                 }
               ],
               "delivery": "complete",
               "collection_coverage": "not_applicable",
               "json_envelope": "context",
-              "json_schema_version": 5
+              "json_schema_version": 6
             },
             "prerequisites": [
               "A current/default Context is available on the trusted host."
@@ -8034,6 +9243,16 @@
               "default_format": "text",
               "fields": [
                 {
+                  "name": "task",
+                  "type": "string",
+                  "description": "Declared Context task identity for this report."
+                },
+                {
+                  "name": "id",
+                  "type": "string",
+                  "description": "Stable host-issued Context identity."
+                },
+                {
                   "name": "name",
                   "type": "string",
                   "description": "Named Context identifier."
@@ -8064,6 +9283,11 @@
                   "description": "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal."
                 },
                 {
+                  "name": "git_identity",
+                  "type": "object",
+                  "description": "Atomic Git identity policy with default, inherited, or literal source and exact name/email only for literal."
+                },
+                {
                   "name": "stores",
                   "type": "object",
                   "description": "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included."
@@ -8077,12 +9301,17 @@
                   "name": "cluster",
                   "type": "string",
                   "description": "For context use, default_updated; for context create, requires_reconcile when explicit cluster up must load the new Context; otherwise not_applicable."
+                },
+                {
+                  "name": "authentication",
+                  "type": "object",
+                  "description": "Safe Auth Broker and provider status without credential values."
                 }
               ],
               "delivery": "complete",
               "collection_coverage": "not_applicable",
               "json_envelope": "context",
-              "json_schema_version": 5
+              "json_schema_version": 6
             },
             "prerequisites": [
               "The current Context has a runtime/Dockerfile recipe.",
@@ -8725,6 +9954,17 @@
                   {
                     "command": "runtime build",
                     "reason": "Build or make the selected compatible runtime image available to Docker."
+                  }
+                ]
+              },
+              {
+                "code": "git_identity_resolution_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "context show",
+                    "reason": "Inspect the selected Context Git identity without changing Workspace state."
                   }
                 ]
               },
@@ -10351,9 +11591,9 @@
       "commands": [
         {
           "path": "auth login",
-          "summary": "Authenticate one Context with a built-in provider helper",
-          "usage": "tobari auth login \u003cprovider\u003e [--context \u003cname\u003e] [--format text|json]",
-          "args": "\u003cprovider\u003e [--context \u003cname\u003e] [--format text|json]",
+          "summary": "Authenticate one Context through a reviewed host CLI driver",
+          "usage": "tobari auth login [--provider \u003cprovider\u003e] [--method identity-center|console] [--context \u003cname\u003e] [--format text|json]",
+          "args": "[--provider \u003cprovider\u003e] [--method identity-center|console] [--context \u003cname\u003e] [--format text|json]",
           "effect": "write",
           "role": "act",
           "contract": {
@@ -10361,13 +11601,28 @@
             "outcome": "Acquire one supported provider credential on the trusted host for an explicit or current Context without exposing it to a Workspace",
             "inputs": [
               {
-                "name": "provider",
-                "source": "argument",
-                "required": true,
+                "name": "--provider",
+                "source": "flag",
+                "required": false,
                 "value_kind": "text",
                 "cardinality": "single",
-                "description": "Built-in provider helper to use; this slice supports github.",
+                "description": "Credential provider to authenticate. Omission opens an interactive provider selector. Each current reviewed built-in has one supported Workspace client tool, displayed and selected automatically: github uses GitHub CLI (gh); aws uses AWS CLI (aws); datadog uses pup. AWS --method selects acquisition inside the aws pairing, not another tool.",
                 "allowed_values": []
+              },
+              {
+                "name": "--method",
+                "source": "flag",
+                "required": false,
+                "value_kind": "text",
+                "cardinality": "single",
+                "description": "AWS login method. Omission selects identity-center for backward compatibility; console selects AWS CLI console-based local-development login. The flag requires an explicit provider and is invalid for other providers.",
+                "allowed_values": [
+                  "identity-center",
+                  "console"
+                ],
+                "requires": [
+                  "--provider"
+                ]
               },
               {
                 "name": "--context",
@@ -10453,7 +11708,11 @@
             "prerequisites": [
               "The selected Context exists.",
               "The shared Auth Broker is already running, ready, and unlocked.",
-              "The caller has interactive terminal streams on stdin and stderr and can complete the provider helper's trusted-host interaction."
+              "When provider is omitted, stdin and stderr are interactive terminals and the caller explicitly selects one installed reviewed login provider.",
+              "The reviewed GitHub CLI, AWS CLI, or pup executable is available through the trusted-host PATH from a conventional installation root (/bin, /usr/bin, /usr/local, /opt/homebrew, /opt/local, /nix/store, or /snap); project, temporary, and home-local executable paths are rejected.",
+              "The caller has interactive terminal streams on stdin and stderr and can complete the selected github, aws, or datadog provider flow on the trusted host.",
+              "For aws identity-center, the caller knows the access-portal start URL, SSO region, 12-digit account ID, and role name; request region remains ordinary Context or command configuration.",
+              "For aws console, AWS CLI 2.32 or newer is installed, the caller chooses one commercial AWS region, and the caller can paste the browser authorization code into the trusted-host terminal."
             ],
             "fixed_target": {
               "kind": "auth-credentials",
@@ -10733,7 +11992,18 @@
                 "next_actions": [
                   {
                     "command": "help auth login",
-                    "reason": "Run trusted-host GitHub login from an interactive terminal."
+                    "reason": "Run trusted-host provider login from an interactive terminal."
+                  }
+                ]
+              },
+              {
+                "code": "github_cli_unavailable",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Install the reviewed GitHub CLI on the trusted host and retry."
                   }
                 ]
               },
@@ -10756,6 +12026,171 @@
                   {
                     "command": "auth login",
                     "reason": "Retry the trusted-host GitHub login after inspecting the failure."
+                  }
+                ]
+              },
+              {
+                "code": "datadog_cli_unavailable",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Install the reviewed pup CLI on the trusted host and retry."
+                  }
+                ]
+              },
+              {
+                "code": "datadog_login_cancelled",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the trusted-host Datadog login when ready."
+                  }
+                ]
+              },
+              {
+                "code": "datadog_login_timeout",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Start a new Datadog OAuth login and complete it within the bounded window."
+                  }
+                ]
+              },
+              {
+                "code": "datadog_login_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the isolated trusted-host pup login after inspecting the failure."
+                  }
+                ]
+              },
+              {
+                "code": "aws_cli_unavailable",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Install the reviewed AWS CLI on the trusted host and retry."
+                  }
+                ]
+              },
+              {
+                "code": "auth_login_method_not_applicable",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help auth login",
+                    "reason": "Remove --method for non-AWS providers."
+                  }
+                ]
+              },
+              {
+                "code": "aws_console_login_unsupported",
+                "kind": "unsupported",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Install AWS CLI 2.32 or newer on the trusted host, then retry console login."
+                  }
+                ]
+              },
+              {
+                "code": "aws_console_config_invalid",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help auth login",
+                    "reason": "Provide a valid commercial AWS region for console login."
+                  }
+                ]
+              },
+              {
+                "code": "aws_console_login_cancelled",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the trusted-host AWS console login when ready."
+                  }
+                ]
+              },
+              {
+                "code": "aws_console_login_timeout",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Start a new AWS console login and complete it within the bounded window."
+                  }
+                ]
+              },
+              {
+                "code": "aws_console_login_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the trusted-host AWS console login after inspecting the failure."
+                  }
+                ]
+              },
+              {
+                "code": "aws_sso_login_cancelled",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the trusted-host AWS IAM Identity Center login when ready."
+                  }
+                ]
+              },
+              {
+                "code": "aws_sso_config_invalid",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help auth login",
+                    "reason": "Provide valid AWS IAM Identity Center login fields."
+                  }
+                ]
+              },
+              {
+                "code": "aws_sso_login_timeout",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Start a new AWS IAM Identity Center device login and complete it within the bounded window."
+                  }
+                ]
+              },
+              {
+                "code": "aws_sso_login_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the trusted-host AWS IAM Identity Center login after inspecting the failure."
                   }
                 ]
               },
@@ -12107,7 +13542,7 @@
       "workflows": []
     }
   ],
-  "command_count": 32,
+  "command_count": 34,
   "faults": [
     {
       "code": "already_inside",
@@ -12434,6 +13869,18 @@
       ]
     },
     {
+      "code": "auth_login_method_not_applicable",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "help auth login",
+          "reason": "Remove --method for non-AWS providers."
+        }
+      ]
+    },
+    {
       "code": "auth_login_tty_required",
       "kind": "invalid_input",
       "retryable": false,
@@ -12441,7 +13888,7 @@
       "next_actions": [
         {
           "command": "help auth login",
-          "reason": "Run trusted-host GitHub login from an interactive terminal."
+          "reason": "Run trusted-host provider login from an interactive terminal."
         }
       ]
     },
@@ -12662,6 +14109,126 @@
       ]
     },
     {
+      "code": "aws_cli_unavailable",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Install the reviewed AWS CLI on the trusted host and retry."
+        }
+      ]
+    },
+    {
+      "code": "aws_console_config_invalid",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "help auth login",
+          "reason": "Provide a valid commercial AWS region for console login."
+        }
+      ]
+    },
+    {
+      "code": "aws_console_login_cancelled",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the trusted-host AWS console login when ready."
+        }
+      ]
+    },
+    {
+      "code": "aws_console_login_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the trusted-host AWS console login after inspecting the failure."
+        }
+      ]
+    },
+    {
+      "code": "aws_console_login_timeout",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Start a new AWS console login and complete it within the bounded window."
+        }
+      ]
+    },
+    {
+      "code": "aws_console_login_unsupported",
+      "kind": "unsupported",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Install AWS CLI 2.32 or newer on the trusted host, then retry console login."
+        }
+      ]
+    },
+    {
+      "code": "aws_sso_config_invalid",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "help auth login",
+          "reason": "Provide valid AWS IAM Identity Center login fields."
+        }
+      ]
+    },
+    {
+      "code": "aws_sso_login_cancelled",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the trusted-host AWS IAM Identity Center login when ready."
+        }
+      ]
+    },
+    {
+      "code": "aws_sso_login_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the trusted-host AWS IAM Identity Center login after inspecting the failure."
+        }
+      ]
+    },
+    {
+      "code": "aws_sso_login_timeout",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Start a new AWS IAM Identity Center device login and complete it within the bounded window."
+        }
+      ]
+    },
+    {
       "code": "cluster_not_configured",
       "kind": "unavailable",
       "retryable": false,
@@ -12678,6 +14245,18 @@
       "kind": "unavailable",
       "retryable": false,
       "command": "policy allow",
+      "next_actions": [
+        {
+          "command": "cluster up",
+          "reason": "Create the shared cluster explicitly."
+        }
+      ]
+    },
+    {
+      "code": "cluster_not_configured",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "policy apply-reviewed",
       "next_actions": [
         {
           "command": "cluster up",
@@ -12822,6 +14401,18 @@
       "kind": "unavailable",
       "retryable": false,
       "command": "policy allow",
+      "next_actions": [
+        {
+          "command": "cluster up",
+          "reason": "Reconcile the shared cluster explicitly."
+        }
+      ]
+    },
+    {
+      "code": "cluster_not_ready",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "policy apply-reviewed",
       "next_actions": [
         {
           "command": "cluster up",
@@ -13037,6 +14628,18 @@
       "code": "cluster_status_failed",
       "kind": "unavailable",
       "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "cluster status",
+          "reason": "Inspect the shared cluster before using policy data."
+        }
+      ]
+    },
+    {
+      "code": "cluster_status_failed",
+      "kind": "unavailable",
+      "retryable": false,
       "command": "policy candidates",
       "next_actions": [
         {
@@ -13154,6 +14757,78 @@
       ]
     },
     {
+      "code": "config_git_failed",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "config git",
+      "next_actions": [
+        {
+          "command": "context show",
+          "reason": "Inspect the Context Git identity before retrying."
+        }
+      ]
+    },
+    {
+      "code": "config_shell_failed",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "config shell",
+      "next_actions": [
+        {
+          "command": "context show",
+          "reason": "Inspect the Context shell environment before retrying."
+        }
+      ]
+    },
+    {
+      "code": "configuration_wizard_failed",
+      "kind": "internal",
+      "retryable": false,
+      "command": "config git",
+      "next_actions": [
+        {
+          "command": "help config git",
+          "reason": "Retry with complete setting flags or repair the interactive terminal streams."
+        }
+      ]
+    },
+    {
+      "code": "configuration_wizard_failed",
+      "kind": "internal",
+      "retryable": false,
+      "command": "config shell",
+      "next_actions": [
+        {
+          "command": "help config shell",
+          "reason": "Retry with complete setting flags or repair the interactive terminal streams."
+        }
+      ]
+    },
+    {
+      "code": "configuration_wizard_unavailable",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "config git",
+      "next_actions": [
+        {
+          "command": "help config git",
+          "reason": "Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr."
+        }
+      ]
+    },
+    {
+      "code": "configuration_wizard_unavailable",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "config shell",
+      "next_actions": [
+        {
+          "command": "help config shell",
+          "reason": "Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr."
+        }
+      ]
+    },
+    {
       "code": "context_create_failed",
       "kind": "rejected",
       "retryable": false,
@@ -13194,6 +14869,18 @@
       "kind": "rejected",
       "retryable": false,
       "command": "policy allow",
+      "next_actions": [
+        {
+          "command": "cluster up",
+          "reason": "Reconcile the shared cluster's all-Context projection."
+        }
+      ]
+    },
+    {
+      "code": "context_mismatch",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "policy apply-reviewed",
       "next_actions": [
         {
           "command": "cluster up",
@@ -13349,7 +15036,19 @@
       "code": "context_not_found",
       "kind": "not_found",
       "retryable": false,
-      "command": "context shell configure",
+      "command": "config git",
+      "next_actions": [
+        {
+          "command": "context list",
+          "reason": "Choose an existing Context."
+        }
+      ]
+    },
+    {
+      "code": "context_not_found",
+      "kind": "not_found",
+      "retryable": false,
+      "command": "config shell",
       "next_actions": [
         {
           "command": "context list",
@@ -13397,6 +15096,30 @@
       "code": "context_read_failed",
       "kind": "internal",
       "retryable": false,
+      "command": "config git",
+      "next_actions": [
+        {
+          "command": "doctor",
+          "reason": "Inspect the host Context stores before retrying the wizard."
+        }
+      ]
+    },
+    {
+      "code": "context_read_failed",
+      "kind": "internal",
+      "retryable": false,
+      "command": "config shell",
+      "next_actions": [
+        {
+          "command": "doctor",
+          "reason": "Inspect the host Context stores before retrying the wizard."
+        }
+      ]
+    },
+    {
+      "code": "context_read_failed",
+      "kind": "internal",
+      "retryable": false,
       "command": "context list",
       "next_actions": [
         {
@@ -13422,6 +15145,18 @@
       "kind": "internal",
       "retryable": false,
       "command": "policy allow",
+      "next_actions": [
+        {
+          "command": "context show",
+          "reason": "Inspect the selected Context before using policy data."
+        }
+      ]
+    },
+    {
+      "code": "context_read_failed",
+      "kind": "internal",
+      "retryable": false,
+      "command": "policy apply-reviewed",
       "next_actions": [
         {
           "command": "context show",
@@ -13526,18 +15261,6 @@
       ]
     },
     {
-      "code": "context_shell_configure_failed",
-      "kind": "rejected",
-      "retryable": false,
-      "command": "context shell configure",
-      "next_actions": [
-        {
-          "command": "context show",
-          "reason": "Inspect the Context shell environment before retrying."
-        }
-      ]
-    },
-    {
       "code": "context_use_failed",
       "kind": "rejected",
       "retryable": false,
@@ -13546,6 +15269,66 @@
         {
           "command": "context show",
           "reason": "Inspect the current/default Context marker."
+        }
+      ]
+    },
+    {
+      "code": "credential_companion_unavailable",
+      "kind": "unavailable",
+      "retryable": true,
+      "command": "cluster up",
+      "next_actions": [
+        {
+          "command": "cluster up",
+          "reason": "Reconcile the shared cluster and its Auth Broker companion session."
+        }
+      ]
+    },
+    {
+      "code": "datadog_cli_unavailable",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Install the reviewed pup CLI on the trusted host and retry."
+        }
+      ]
+    },
+    {
+      "code": "datadog_login_cancelled",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the trusted-host Datadog login when ready."
+        }
+      ]
+    },
+    {
+      "code": "datadog_login_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the isolated trusted-host pup login after inspecting the failure."
+        }
+      ]
+    },
+    {
+      "code": "datadog_login_timeout",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Start a new Datadog OAuth login and complete it within the bounded window."
         }
       ]
     },
@@ -13566,6 +15349,18 @@
       "kind": "internal",
       "retryable": false,
       "command": "policy allow",
+      "next_actions": [
+        {
+          "command": "cluster denials",
+          "reason": "Inspect retained denial evidence."
+        }
+      ]
+    },
+    {
+      "code": "denials_failed",
+      "kind": "internal",
+      "retryable": false,
+      "command": "policy apply-reviewed",
       "next_actions": [
         {
           "command": "cluster denials",
@@ -13646,6 +15441,18 @@
       ]
     },
     {
+      "code": "empty_policy_review_set",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
+          "reason": "Stage at least one exact decision."
+        }
+      ]
+    },
+    {
       "code": "enter_failed",
       "kind": "internal",
       "retryable": false,
@@ -13678,6 +15485,30 @@
         {
           "command": "doctor",
           "reason": "Inspect Docker registry access before retrying the verified Gateway image."
+        }
+      ]
+    },
+    {
+      "code": "git_identity_resolution_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "tobari",
+      "next_actions": [
+        {
+          "command": "context show",
+          "reason": "Inspect the selected Context Git identity without changing Workspace state."
+        }
+      ]
+    },
+    {
+      "code": "github_cli_unavailable",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Install the reviewed GitHub CLI on the trusted host and retry."
         }
       ]
     },
@@ -13877,6 +15708,30 @@
       "code": "invalid_arguments",
       "kind": "invalid_input",
       "retryable": false,
+      "command": "config git",
+      "next_actions": [
+        {
+          "command": "help config git",
+          "reason": "Correct the command arguments."
+        }
+      ]
+    },
+    {
+      "code": "invalid_arguments",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "config shell",
+      "next_actions": [
+        {
+          "command": "help config shell",
+          "reason": "Correct the command arguments."
+        }
+      ]
+    },
+    {
+      "code": "invalid_arguments",
+      "kind": "invalid_input",
+      "retryable": false,
       "command": "context create",
       "next_actions": [
         {
@@ -13893,18 +15748,6 @@
       "next_actions": [
         {
           "command": "help context list",
-          "reason": "Correct the command arguments."
-        }
-      ]
-    },
-    {
-      "code": "invalid_arguments",
-      "kind": "invalid_input",
-      "retryable": false,
-      "command": "context shell configure",
-      "next_actions": [
-        {
-          "command": "help context shell configure",
           "reason": "Correct the command arguments."
         }
       ]
@@ -13989,6 +15832,18 @@
       "next_actions": [
         {
           "command": "help policy allow",
+          "reason": "Correct the command arguments."
+        }
+      ]
+    },
+    {
+      "code": "invalid_arguments",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "help policy apply-reviewed",
           "reason": "Correct the command arguments."
         }
       ]
@@ -14273,6 +16128,18 @@
       "code": "invalid_candidate_contract",
       "kind": "contract",
       "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "cluster denials",
+          "reason": "Inspect retained denial compatibility."
+        }
+      ]
+    },
+    {
+      "code": "invalid_candidate_contract",
+      "kind": "contract",
+      "retryable": false,
       "command": "policy candidates",
       "next_actions": [
         {
@@ -14465,7 +16332,19 @@
       "code": "invalid_context_name",
       "kind": "invalid_input",
       "retryable": false,
-      "command": "context shell configure",
+      "command": "config git",
+      "next_actions": [
+        {
+          "command": "context list",
+          "reason": "Choose a valid Context name."
+        }
+      ]
+    },
+    {
+      "code": "invalid_context_name",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "config shell",
       "next_actions": [
         {
           "command": "context list",
@@ -14501,11 +16380,11 @@
       "code": "invalid_context_report",
       "kind": "contract",
       "retryable": false,
-      "command": "context create",
+      "command": "config git",
       "next_actions": [
         {
-          "command": "context list",
-          "reason": "Reconcile the confirmed Context creation."
+          "command": "context show",
+          "reason": "Reconcile the confirmed Context Git identity setting."
         }
       ]
     },
@@ -14513,11 +16392,23 @@
       "code": "invalid_context_report",
       "kind": "contract",
       "retryable": false,
-      "command": "context shell configure",
+      "command": "config shell",
       "next_actions": [
         {
           "command": "context show",
           "reason": "Reconcile the confirmed Context shell setting."
+        }
+      ]
+    },
+    {
+      "code": "invalid_context_report",
+      "kind": "contract",
+      "retryable": false,
+      "command": "context create",
+      "next_actions": [
+        {
+          "command": "context list",
+          "reason": "Reconcile the confirmed Context creation."
         }
       ]
     },
@@ -14614,6 +16505,18 @@
         {
           "command": "doctor",
           "reason": "Repair the diagnostic adapter contract."
+        }
+      ]
+    },
+    {
+      "code": "invalid_git_identity",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "config git",
+      "next_actions": [
+        {
+          "command": "help config git",
+          "reason": "Choose default, inherit, or a literal source with both name and email."
         }
       ]
     },
@@ -14717,10 +16620,10 @@
       "code": "invalid_mutation_contract",
       "kind": "contract",
       "retryable": false,
-      "command": "context create",
+      "command": "config git",
       "next_actions": [
         {
-          "command": "context list",
+          "command": "context show",
           "reason": "Repair the mutation declaration and reconcile state."
         }
       ]
@@ -14729,10 +16632,22 @@
       "code": "invalid_mutation_contract",
       "kind": "contract",
       "retryable": false,
-      "command": "context shell configure",
+      "command": "config shell",
       "next_actions": [
         {
           "command": "context show",
+          "reason": "Repair the mutation declaration and reconcile state."
+        }
+      ]
+    },
+    {
+      "code": "invalid_mutation_contract",
+      "kind": "contract",
+      "retryable": false,
+      "command": "context create",
+      "next_actions": [
+        {
+          "command": "context list",
           "reason": "Repair the mutation declaration and reconcile state."
         }
       ]
@@ -14769,6 +16684,18 @@
       "next_actions": [
         {
           "command": "policy candidates",
+          "reason": "Repair the mutation declaration and reconcile state."
+        }
+      ]
+    },
+    {
+      "code": "invalid_mutation_contract",
+      "kind": "contract",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
           "reason": "Repair the mutation declaration and reconcile state."
         }
       ]
@@ -14926,6 +16853,42 @@
         {
           "command": "cluster status",
           "reason": "Reconcile the confirmed policy mutation."
+        }
+      ]
+    },
+    {
+      "code": "invalid_policy_review_result",
+      "kind": "contract",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "cluster status",
+          "reason": "Reconcile the confirmed reviewed set."
+        }
+      ]
+    },
+    {
+      "code": "invalid_policy_review_session",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
+          "reason": "Stage decisions through an interactive Permission Inbox."
+        }
+      ]
+    },
+    {
+      "code": "invalid_policy_review_set",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
+          "reason": "Review a bounded non-empty set of exact candidates."
         }
       ]
     },
@@ -15137,10 +17100,10 @@
       "code": "invalid_shell_environment",
       "kind": "invalid_input",
       "retryable": false,
-      "command": "context shell configure",
+      "command": "config shell",
       "next_actions": [
         {
-          "command": "help context shell configure",
+          "command": "help config shell",
           "reason": "Choose an allowlisted variable and a valid source/value combination."
         }
       ]
@@ -15389,10 +17352,10 @@
       "code": "missing_mutation_action",
       "kind": "contract",
       "retryable": false,
-      "command": "context create",
+      "command": "config git",
       "next_actions": [
         {
-          "command": "context list",
+          "command": "context show",
           "reason": "Configure the mutation action and reconcile state."
         }
       ]
@@ -15401,10 +17364,22 @@
       "code": "missing_mutation_action",
       "kind": "contract",
       "retryable": false,
-      "command": "context shell configure",
+      "command": "config shell",
       "next_actions": [
         {
           "command": "context show",
+          "reason": "Configure the mutation action and reconcile state."
+        }
+      ]
+    },
+    {
+      "code": "missing_mutation_action",
+      "kind": "contract",
+      "retryable": false,
+      "command": "context create",
+      "next_actions": [
+        {
+          "command": "context list",
           "reason": "Configure the mutation action and reconcile state."
         }
       ]
@@ -15441,6 +17416,18 @@
       "next_actions": [
         {
           "command": "policy candidates",
+          "reason": "Configure the mutation action and reconcile state."
+        }
+      ]
+    },
+    {
+      "code": "missing_mutation_action",
+      "kind": "contract",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
           "reason": "Configure the mutation action and reconcile state."
         }
       ]
@@ -15581,10 +17568,10 @@
       "code": "missing_mutation_policy",
       "kind": "rejected",
       "retryable": false,
-      "command": "context create",
+      "command": "config git",
       "next_actions": [
         {
-          "command": "context list",
+          "command": "context show",
           "reason": "Configure the project mutation policy."
         }
       ]
@@ -15593,10 +17580,22 @@
       "code": "missing_mutation_policy",
       "kind": "rejected",
       "retryable": false,
-      "command": "context shell configure",
+      "command": "config shell",
       "next_actions": [
         {
           "command": "context show",
+          "reason": "Configure the project mutation policy."
+        }
+      ]
+    },
+    {
+      "code": "missing_mutation_policy",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "context create",
+      "next_actions": [
+        {
+          "command": "context list",
           "reason": "Configure the project mutation policy."
         }
       ]
@@ -15633,6 +17632,18 @@
       "next_actions": [
         {
           "command": "policy candidates",
+          "reason": "Configure the project mutation policy."
+        }
+      ]
+    },
+    {
+      "code": "missing_mutation_policy",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
           "reason": "Configure the project mutation policy."
         }
       ]
@@ -15821,6 +17832,30 @@
       "code": "missing_runtime",
       "kind": "internal",
       "retryable": false,
+      "command": "config git",
+      "next_actions": [
+        {
+          "command": "doctor",
+          "reason": "Configure the Tobari runtime."
+        }
+      ]
+    },
+    {
+      "code": "missing_runtime",
+      "kind": "internal",
+      "retryable": false,
+      "command": "config shell",
+      "next_actions": [
+        {
+          "command": "doctor",
+          "reason": "Configure the Tobari runtime."
+        }
+      ]
+    },
+    {
+      "code": "missing_runtime",
+      "kind": "internal",
+      "retryable": false,
       "command": "context create",
       "next_actions": [
         {
@@ -15834,18 +17869,6 @@
       "kind": "internal",
       "retryable": false,
       "command": "context list",
-      "next_actions": [
-        {
-          "command": "doctor",
-          "reason": "Configure the Tobari runtime."
-        }
-      ]
-    },
-    {
-      "code": "missing_runtime",
-      "kind": "internal",
-      "retryable": false,
-      "command": "context shell configure",
       "next_actions": [
         {
           "command": "doctor",
@@ -15918,6 +17941,18 @@
       "kind": "internal",
       "retryable": false,
       "command": "policy allow",
+      "next_actions": [
+        {
+          "command": "doctor",
+          "reason": "Configure the Tobari runtime."
+        }
+      ]
+    },
+    {
+      "code": "missing_runtime",
+      "kind": "internal",
+      "retryable": false,
+      "command": "policy apply-reviewed",
       "next_actions": [
         {
           "command": "doctor",
@@ -16145,10 +18180,10 @@
       "code": "mutation_output_write_failed",
       "kind": "internal",
       "retryable": false,
-      "command": "context create",
+      "command": "config git",
       "next_actions": [
         {
-          "command": "context list",
+          "command": "context show",
           "reason": "Reconcile the confirmed mutation without repeating it."
         }
       ]
@@ -16157,10 +18192,22 @@
       "code": "mutation_output_write_failed",
       "kind": "internal",
       "retryable": false,
-      "command": "context shell configure",
+      "command": "config shell",
       "next_actions": [
         {
           "command": "context show",
+          "reason": "Reconcile the confirmed mutation without repeating it."
+        }
+      ]
+    },
+    {
+      "code": "mutation_output_write_failed",
+      "kind": "internal",
+      "retryable": false,
+      "command": "context create",
+      "next_actions": [
+        {
+          "command": "context list",
           "reason": "Reconcile the confirmed mutation without repeating it."
         }
       ]
@@ -16197,6 +18244,18 @@
       "next_actions": [
         {
           "command": "policy candidates",
+          "reason": "Reconcile the confirmed mutation without repeating it."
+        }
+      ]
+    },
+    {
+      "code": "mutation_output_write_failed",
+      "kind": "internal",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
           "reason": "Reconcile the confirmed mutation without repeating it."
         }
       ]
@@ -16325,10 +18384,10 @@
       "code": "mutation_rejected",
       "kind": "rejected",
       "retryable": false,
-      "command": "context create",
+      "command": "config git",
       "next_actions": [
         {
-          "command": "context list",
+          "command": "context show",
           "reason": "Review exact Tobari ownership."
         }
       ]
@@ -16337,10 +18396,22 @@
       "code": "mutation_rejected",
       "kind": "rejected",
       "retryable": false,
-      "command": "context shell configure",
+      "command": "config shell",
       "next_actions": [
         {
           "command": "context show",
+          "reason": "Review exact Tobari ownership."
+        }
+      ]
+    },
+    {
+      "code": "mutation_rejected",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "context create",
+      "next_actions": [
+        {
+          "command": "context list",
           "reason": "Review exact Tobari ownership."
         }
       ]
@@ -16377,6 +18448,18 @@
       "next_actions": [
         {
           "command": "policy candidates",
+          "reason": "Review exact Tobari ownership."
+        }
+      ]
+    },
+    {
+      "code": "mutation_rejected",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
           "reason": "Review exact Tobari ownership."
         }
       ]
@@ -16577,6 +18660,30 @@
       "code": "operation_canceled",
       "kind": "canceled",
       "retryable": true,
+      "command": "config git",
+      "next_actions": [
+        {
+          "command": "config git",
+          "reason": "Retry when the caller is ready."
+        }
+      ]
+    },
+    {
+      "code": "operation_canceled",
+      "kind": "canceled",
+      "retryable": true,
+      "command": "config shell",
+      "next_actions": [
+        {
+          "command": "config shell",
+          "reason": "Retry when the caller is ready."
+        }
+      ]
+    },
+    {
+      "code": "operation_canceled",
+      "kind": "canceled",
+      "retryable": true,
       "command": "context create",
       "next_actions": [
         {
@@ -16593,18 +18700,6 @@
       "next_actions": [
         {
           "command": "context list",
-          "reason": "Retry when the caller is ready."
-        }
-      ]
-    },
-    {
-      "code": "operation_canceled",
-      "kind": "canceled",
-      "retryable": true,
-      "command": "context shell configure",
-      "next_actions": [
-        {
-          "command": "context shell configure",
           "reason": "Retry when the caller is ready."
         }
       ]
@@ -16689,6 +18784,18 @@
       "next_actions": [
         {
           "command": "policy allow",
+          "reason": "Retry when the caller is ready."
+        }
+      ]
+    },
+    {
+      "code": "operation_canceled",
+      "kind": "canceled",
+      "retryable": true,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy apply-reviewed",
           "reason": "Retry when the caller is ready."
         }
       ]
@@ -17273,6 +19380,18 @@
       "code": "policy_data_changed",
       "kind": "rejected",
       "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
+          "reason": "Review again after the concurrent policy change."
+        }
+      ]
+    },
+    {
+      "code": "policy_data_changed",
+      "kind": "rejected",
+      "retryable": false,
       "command": "policy compact",
       "next_actions": [
         {
@@ -17429,6 +19548,18 @@
       "code": "policy_learning_failed",
       "kind": "unavailable",
       "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "cluster status",
+          "reason": "Reconcile OPA and current policy state."
+        }
+      ]
+    },
+    {
+      "code": "policy_learning_failed",
+      "kind": "unavailable",
+      "retryable": false,
       "command": "policy compact",
       "next_actions": [
         {
@@ -17477,6 +19608,18 @@
       "code": "policy_preflight_failed",
       "kind": "rejected",
       "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "doctor",
+          "reason": "Correct the complete candidate policy."
+        }
+      ]
+    },
+    {
+      "code": "policy_preflight_failed",
+      "kind": "rejected",
+      "retryable": false,
       "command": "policy compact",
       "next_actions": [
         {
@@ -17506,6 +19649,30 @@
         {
           "command": "doctor",
           "reason": "Correct the complete candidate policy."
+        }
+      ]
+    },
+    {
+      "code": "policy_review_changed",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
+          "reason": "Review the current pending queue again."
+        }
+      ]
+    },
+    {
+      "code": "policy_review_scope_mixed",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
+          "reason": "Apply or discard the current Context decisions before reviewing another Context."
         }
       ]
     },
@@ -18389,10 +20556,10 @@
       "code": "unclassified_mutation_outcome",
       "kind": "contract",
       "retryable": false,
-      "command": "context create",
+      "command": "config git",
       "next_actions": [
         {
-          "command": "context list",
+          "command": "context show",
           "reason": "Reconcile state before another mutation."
         }
       ]
@@ -18401,10 +20568,22 @@
       "code": "unclassified_mutation_outcome",
       "kind": "contract",
       "retryable": false,
-      "command": "context shell configure",
+      "command": "config shell",
       "next_actions": [
         {
           "command": "context show",
+          "reason": "Reconcile state before another mutation."
+        }
+      ]
+    },
+    {
+      "code": "unclassified_mutation_outcome",
+      "kind": "contract",
+      "retryable": false,
+      "command": "context create",
+      "next_actions": [
+        {
+          "command": "context list",
           "reason": "Reconcile state before another mutation."
         }
       ]
@@ -18441,6 +20620,18 @@
       "next_actions": [
         {
           "command": "policy candidates",
+          "reason": "Reconcile state before another mutation."
+        }
+      ]
+    },
+    {
+      "code": "unclassified_mutation_outcome",
+      "kind": "contract",
+      "retryable": false,
+      "command": "policy apply-reviewed",
+      "next_actions": [
+        {
+          "command": "policy review",
           "reason": "Reconcile state before another mutation."
         }
       ]

@@ -1,0 +1,350 @@
+---
+import { textFor, type SiteLocale } from "../data/credentialArchitecture";
+import { providerToolPairs } from "../data/providerToolSupport";
+
+interface Props {
+  headingLevel?: 2 | 3;
+  title?: string;
+}
+
+const isJapanese = /(?:^|\/)ja(?:\/|$)/.test(Astro.url.pathname);
+const locale: SiteLocale = isJapanese ? "ja" : "en";
+const {
+  headingLevel = 3,
+  title = isJapanese
+    ? "現在サポートする Provider と Tool"
+    : "Current supported Provider-Tool pairings",
+} = Astro.props;
+const Heading = `h${headingLevel}` as "h2" | "h3";
+const ui = isJapanese
+  ? {
+      eyebrow: "選択モデル",
+      intro:
+        "概念上は Provider を選び、その Provider で使う Workspace client tool を選びます。現在は各組に対応 Tool が一つだけなので、Tool は表示されたうえで自動選択されます。",
+      stepProvider: "Provider",
+      stepProviderDetail: "認証情報を発行・管理する外部サービスを選ぶ",
+      stepTool: "Tool",
+      stepToolDetail: "Workspace で使う client tool。現在は一つなので自動選択",
+      stepMethod: "取得方法",
+      stepMethodDetail: "必要な場合だけ login/import method を選ぶ",
+      provider: "Provider",
+      tool: "Tool · 自動選択",
+      pairing: "現在は 1 対 1",
+      login: "対話ログイン",
+      import: "標準入力からインポート",
+      note: "CLI が求めるのは Provider です。Tool と Provider は別の概念ですが、現在は曖昧さがないため --tool や二度目の選択操作はありません。AWS の identity-center / console は Tool ではなく取得方法です。",
+      authority:
+        "この対応関係は認証情報の使い方を選ぶだけです。Provider、Tool、login method のどれも OPA の通信許可を追加しません。",
+      mapLabel:
+        "現在サポートする Provider から、自動選択される一つの Workspace client tool への対応表",
+    }
+  : {
+      eyebrow: "Selection model",
+      intro:
+        "Conceptually, choose a Provider and then the Workspace client tool that uses it. Every current pairing has one supported tool, so Tobari shows that tool and selects it automatically.",
+      stepProvider: "Provider",
+      stepProviderDetail:
+        "Choose the external service or authority that owns the credential",
+      stepTool: "Tool",
+      stepToolDetail:
+        "Choose the Workspace client; today the sole tool is automatic",
+      stepMethod: "Acquisition",
+      stepMethodDetail: "Choose a login or import method only when needed",
+      provider: "Provider",
+      tool: "Tool · automatically selected",
+      pairing: "Currently one-to-one",
+      login: "Interactive login",
+      import: "stdin import",
+      note: "The CLI asks for the Provider. Tool and Provider remain separate concepts, but there is no --tool or second prompt while every current pairing is unambiguous. AWS identity-center / console are acquisition methods, not tools.",
+      authority:
+        "This pairing selects how credential material is used. Provider, Tool, and login method add no OPA network permission.",
+      mapLabel:
+        "Current supported Providers mapped to their one automatically selected Workspace client tool",
+    };
+---
+
+<figure class="provider-tool-map" aria-label={ui.mapLabel}>
+  <figcaption>
+    <span class="eyebrow">{ui.eyebrow}</span>
+    <Heading>{title}</Heading>
+    <p>{ui.intro}</p>
+  </figcaption>
+
+  <ol class="selection-steps">
+    <li>
+      <span class="step-number">1</span>
+      <div>
+        <strong>{ui.stepProvider}</strong>
+        <p>{ui.stepProviderDetail}</p>
+      </div>
+    </li>
+    <li class="step-automatic">
+      <span class="step-number">2</span>
+      <div>
+        <strong>{ui.stepTool}</strong>
+        <p>{ui.stepToolDetail}</p>
+      </div>
+    </li>
+    <li>
+      <span class="step-number">3</span>
+      <div>
+        <strong>{ui.stepMethod}</strong>
+        <p>{ui.stepMethodDetail}</p>
+      </div>
+    </li>
+  </ol>
+
+  <div class="pairing-list">
+    {
+      providerToolPairs.map((pair) => (
+        <article class="pairing-row" data-provider={pair.providerId}>
+          <div class="pair-card provider-card">
+            <span>{ui.provider}</span>
+            <h4>{textFor(pair.providerName, locale)}</h4>
+            <code>{pair.providerId}</code>
+          </div>
+
+          <div class="pair-connector" aria-hidden="true">
+            <span>{ui.pairing}</span>
+            <b>→</b>
+          </div>
+
+          <div class="pair-card tool-card">
+            <span>{ui.tool}</span>
+            <h4>{textFor(pair.toolName, locale)}</h4>
+            <code>{pair.toolCommand}</code>
+          </div>
+
+          <div class="pair-acquisition">
+            <span class:list={["mode", `mode-${pair.mode}`]}>
+              {pair.mode === "login" ? ui.login : ui.import}
+            </span>
+            <p>{textFor(pair.acquisition, locale)}</p>
+          </div>
+        </article>
+      ))
+    }
+  </div>
+
+  <div class="map-notes">
+    <p>{ui.note}</p>
+    <p class="authority-note">{ui.authority}</p>
+  </div>
+</figure>
+
+<style>
+  .provider-tool-map {
+    margin-block: 2rem;
+    scroll-margin-block-start: 5rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-gray-7);
+  }
+
+  figcaption {
+    padding: 1.25rem 1.35rem;
+    border-block-end: 1px solid var(--sl-color-gray-5);
+  }
+
+  figcaption h2,
+  figcaption h3,
+  figcaption p {
+    margin-block: 0;
+  }
+
+  figcaption p {
+    max-width: 68ch;
+    margin-block-start: 0.55rem;
+    color: var(--sl-color-gray-2);
+  }
+
+  .eyebrow {
+    display: block;
+    margin-block-end: 0.35rem;
+    color: var(--tobari-control);
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xs);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .selection-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-block-end: 1px solid var(--sl-color-gray-5);
+  }
+
+  .selection-steps li {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.7rem;
+    padding: 1rem 1.1rem;
+  }
+
+  .selection-steps li + li {
+    border-inline-start: 1px solid var(--sl-color-gray-5);
+  }
+
+  .selection-steps p,
+  .pair-acquisition p,
+  .map-notes p {
+    margin: 0;
+  }
+
+  .selection-steps p {
+    margin-block-start: 0.2rem;
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
+    line-height: 1.45;
+  }
+
+  .step-number {
+    display: grid;
+    width: 1.8rem;
+    height: 1.8rem;
+    place-items: center;
+    border: 1px solid var(--tobari-control);
+    border-radius: 50%;
+    color: var(--tobari-control);
+    font-family: var(--sl-font-mono);
+    font-weight: 800;
+  }
+
+  .step-automatic {
+    background: color-mix(in srgb, var(--tobari-control) 7%, transparent);
+    box-shadow: inset 0 -0.2rem var(--tobari-control);
+  }
+
+  .pairing-list {
+    display: grid;
+    gap: 0.75rem;
+    padding: 1.2rem 1.35rem;
+  }
+
+  .pairing-row {
+    display: grid;
+    grid-template-columns:
+      minmax(8.5rem, 0.8fr) minmax(6rem, 0.45fr)
+      minmax(9rem, 0.9fr);
+    gap: 0.75rem;
+    align-items: stretch;
+  }
+
+  .pair-card,
+  .pair-acquisition {
+    min-width: 0;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-bg);
+  }
+
+  .pair-card > span,
+  .mode {
+    color: var(--sl-color-gray-2);
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xs);
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+
+  .pair-card h4 {
+    margin: 0.2rem 0 0.45rem;
+    font-size: var(--sl-text-lg);
+  }
+
+  .provider-card {
+    border-inline-start: 0.28rem solid var(--tobari-network);
+  }
+
+  .tool-card {
+    border-inline-start: 0.28rem solid var(--tobari-control);
+  }
+
+  .pair-connector {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.35rem;
+    align-items: center;
+    color: var(--tobari-control);
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xs);
+    font-weight: 800;
+    text-align: center;
+  }
+
+  .pair-connector b {
+    font-size: 1.35rem;
+  }
+
+  .pair-acquisition {
+    display: flex;
+    grid-column: 1 / -1;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.35rem;
+  }
+
+  .pair-acquisition p {
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
+    line-height: 1.45;
+  }
+
+  .mode-login {
+    color: var(--tobari-trusted);
+  }
+
+  .mode-import {
+    color: var(--tobari-diagnostic);
+  }
+
+  .map-notes {
+    display: grid;
+    gap: 0.65rem;
+    padding: 1rem 1.35rem 1.2rem;
+    border-block-start: 1px solid var(--sl-color-gray-5);
+  }
+
+  .map-notes p {
+    line-height: 1.55;
+  }
+
+  .authority-note {
+    padding-inline-start: 0.8rem;
+    border-inline-start: 0.25rem solid var(--tobari-warning);
+    color: var(--sl-color-gray-2);
+  }
+
+  @media (max-width: 40rem) {
+    .selection-steps {
+      grid-template-columns: 1fr;
+    }
+
+    .selection-steps li + li {
+      border-block-start: 1px solid var(--sl-color-gray-5);
+      border-inline-start: 0;
+    }
+
+    .pairing-row {
+      grid-template-columns: 1fr;
+    }
+
+    .pair-connector {
+      grid-template-columns: auto;
+      justify-items: center;
+      padding-block: 0.15rem;
+    }
+
+    .pair-connector b {
+      transform: rotate(90deg);
+    }
+
+    .pair-acquisition {
+      grid-column: auto;
+    }
+  }
+</style>

@@ -1,5 +1,6 @@
 ---
 import { diagrams } from "../data/diagrams";
+import { diagramsJa } from "../data/diagrams.ja";
 
 interface Props {
   headingLevel?: 2 | 3;
@@ -9,18 +10,23 @@ interface Props {
   networkDetail?: boolean;
 }
 
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
 const {
   headingLevel = 2,
-  title = "Gateway coordinates four conversations",
-  description = "The positions stay fixed. Select one conversation to inspect what crosses that boundary and what does not.",
+  title = isJapanese
+    ? "Gateway が四つの対話を調整する"
+    : "Gateway coordinates four conversations",
+  description = isJapanese
+    ? "コンポーネントの位置は変わりません。対話を一つ選ぶと、その境界を越えて送る情報と、送らない情報を確認できます。"
+    : "The positions stay fixed. Select one conversation to inspect what crosses that boundary and what does not.",
   compact = false,
   networkDetail = false,
 } = Astro.props;
 const Heading = `h${headingLevel}` as "h2" | "h3";
-const source = diagrams["minimal-system"];
+const source = (isJapanese ? diagramsJa : diagrams)["minimal-system"];
 const node = (id: string) => source.nodes.find((item) => item.id === id)!;
 
-const conversations = [
+const conversationsEn = [
   {
     id: "proxy",
     number: "01",
@@ -56,9 +62,9 @@ const conversations = [
     fromId: "gateway",
     toId: "broker",
     sent: "Bound handle and principal for introspection; exact binding after allow",
-    withheld: "Primary credential from Workspace and OPA",
+    withheld: "Secret or renewable provider state from Workspace and OPA",
     result:
-      "Non-secret metadata, then one post-policy resolution when applicable",
+      "Non-secret metadata, then the declared post-policy resolve, refresh, or sign action",
     failure: "The request fails closed without fallback",
   },
   {
@@ -75,34 +81,128 @@ const conversations = [
     failure: "An upstream error does not change policy",
   },
 ] as const;
+const conversationsJa = [
+  {
+    id: "proxy",
+    number: "01",
+    label: "プロキシ",
+    from: "Workspace",
+    to: "Gateway",
+    fromId: "workspace",
+    toId: "gateway",
+    sent: "HTTP メソッド、URL、ヘッダー、ストリーミングされる本文",
+    withheld: "呼び出し元が申告した project identity は信頼しない",
+    result: "Gateway がプロジェクト専用ネットワーク上でリクエストを受け取る",
+    failure: "ポリシー判断や接続先の処理より前に停止する",
+  },
+  {
+    id: "policy",
+    number: "02",
+    label: "ポリシー",
+    from: "Gateway",
+    to: "OPA",
+    fromId: "gateway",
+    toId: "opa",
+    sent: "信頼済み principal と正規化された HTTP 判断要素",
+    withheld: "リクエスト本文、ブローカーのハンドル、認証情報の値",
+    result: "構造化された許可または拒否の判断一つ",
+    failure: "Gateway は接続先へ接続しない",
+  },
+  {
+    id: "credential",
+    number: "03",
+    label: "認証情報",
+    from: "Gateway",
+    to: "Auth Broker",
+    fromId: "gateway",
+    toId: "broker",
+    sent: "秘密を含まない検査に使う、結び付いたハンドルと principal。許可後は完全一致する結び付き",
+    withheld:
+      "Workspace と OPA へは秘密情報や更新可能なプロバイダー状態を送らない",
+    result:
+      "秘密を含まないメタデータを返した後、宣言済みの解決、更新、または署名処理をポリシー許可後に実行する",
+    failure: "別方式へフォールバックせず、許可しないまま失敗する",
+  },
+  {
+    id: "egress",
+    number: "04",
+    label: "外向き通信",
+    from: "Gateway",
+    to: "Upstream",
+    fromId: "gateway",
+    toId: "upstream",
+    sent: "独立した接続で送る許可済みリクエスト",
+    withheld: "ポリシー内部情報、principal registry、ブローカーのハンドル",
+    result: "Upstream が受け取る接続は Gateway からのものだけ",
+    failure: "接続先のエラーはポリシーを変更しない",
+  },
+] as const;
+const conversations = isJapanese ? conversationsJa : conversationsEn;
+const ui = isJapanese
+  ? {
+      eyebrow: "コンポーネント図",
+      scrollableMap: "横方向にスクロールできるコンポーネント図",
+      mapDescription:
+        "Workspace と Upstream は、ホスト所有の共有 cluster の両側にあります。cluster の中央に Gateway、その上に OPA、下に Auth Broker があります。",
+      cluster: "Tobari 共有 cluster · ホスト所有",
+      projectNetwork: "プロジェクト専用の内部ネットワーク",
+      egress: "Gateway 所有の外向き通信",
+      networkEnforcement: "ネットワーク + 強制点",
+      secretBoundary: "秘密情報の境界",
+      external: "外部",
+      untrusted: "信頼しない領域",
+      control: "制御",
+      conversations: "直接対話するコンポーネント",
+      conversation: "対話",
+      sent: "送る情報",
+      notSent: "送らない情報",
+      result: "結果",
+      failure: "失敗時",
+      transcript: "すべての対話をテキストで読む",
+    }
+  : {
+      eyebrow: "Component map",
+      scrollableMap: "Scrollable component map",
+      mapDescription:
+        "Workspace and Upstream sit on opposite sides of a host-owned shared cluster. Gateway is centered in that cluster, with OPA above it and Auth Broker below it.",
+      cluster: "Tobari shared cluster · host-owned",
+      projectNetwork: "Dedicated internal project network",
+      egress: "Gateway-owned egress",
+      networkEnforcement: "Network + enforcement",
+      secretBoundary: "Secret boundary",
+      external: "External",
+      untrusted: "Untrusted",
+      control: "Control",
+      conversations: "Direct conversations",
+      conversation: "Conversation",
+      sent: "Sent",
+      notSent: "Not sent",
+      result: "Result",
+      failure: "Failure",
+      transcript: "Read every conversation as text",
+    };
 ---
 
 <tobari-system-map class:list={["system-map", { compact }]}>
   <figure data-active-conversation="policy">
     <figcaption>
-      <span class="eyebrow">Component map</span>
+      <span class="eyebrow">{ui.eyebrow}</span>
       <Heading>{title}</Heading>
       <p>{description}</p>
     </figcaption>
 
-    <div class="map-scroll" tabindex="0" aria-label="Scrollable component map">
-      <div
-        class="map-stage"
-        role="img"
-        aria-label="Workspace and Upstream sit on opposite sides of a host-owned shared cluster. Gateway is centered in that cluster, with OPA above it and Auth Broker below it."
-      >
+    <div class="map-scroll" tabindex="0" aria-label={ui.scrollableMap}>
+      <div class="map-stage" role="img" aria-label={ui.mapDescription}>
         <div class="cluster-boundary" aria-hidden="true">
-          <span>Tobari shared cluster · host-owned</span>
+          <span>{ui.cluster}</span>
         </div>
         {
           networkDetail && (
             <>
               <span class="network-label project-network">
-                Dedicated internal project network
+                {ui.projectNetwork}
               </span>
-              <span class="network-label egress-network">
-                Gateway-owned egress
-              </span>
+              <span class="network-label egress-network">{ui.egress}</span>
             </>
           )
         }
@@ -167,12 +267,16 @@ const conversations = [
               >
                 <span class="node-kind">
                   {id === "gateway"
-                    ? "Network + enforcement"
+                    ? ui.networkEnforcement
                     : id === "broker"
-                      ? "Secret boundary"
+                      ? ui.secretBoundary
                       : id === "upstream"
-                        ? "External"
-                        : item.kind}
+                        ? ui.external
+                        : id === "workspace"
+                          ? ui.untrusted
+                          : id === "opa"
+                            ? ui.control
+                            : item.kind}
                 </span>
                 <h3>{item.label}</h3>
                 <p>{item.detail}</p>
@@ -183,7 +287,7 @@ const conversations = [
       </div>
     </div>
 
-    <ol class="conversation-tabs" aria-label="Direct conversations">
+    <ol class="conversation-tabs" aria-label={ui.conversations}>
       {
         conversations.map((conversation) => (
           <li>
@@ -213,24 +317,26 @@ const conversations = [
             hidden={conversation.id !== "policy"}
           >
             <header>
-              <span>Conversation {conversation.number}</span>
+              <span>
+                {ui.conversation} {conversation.number}
+              </span>
               <strong>{conversation.label}</strong>
             </header>
             <dl>
               <div>
-                <dt>Sent</dt>
+                <dt>{ui.sent}</dt>
                 <dd>{conversation.sent}</dd>
               </div>
               <div>
-                <dt>Not sent</dt>
+                <dt>{ui.notSent}</dt>
                 <dd>{conversation.withheld}</dd>
               </div>
               <div>
-                <dt>Result</dt>
+                <dt>{ui.result}</dt>
                 <dd>{conversation.result}</dd>
               </div>
               <div>
-                <dt>Failure</dt>
+                <dt>{ui.failure}</dt>
                 <dd>{conversation.failure}</dd>
               </div>
             </dl>
@@ -240,7 +346,7 @@ const conversations = [
     </div>
 
     <details class="map-transcript">
-      <summary>Read every conversation as text</summary>
+      <summary>{ui.transcript}</summary>
       <ol>
         {
           conversations.map((conversation) => (
@@ -250,19 +356,19 @@ const conversations = [
               </strong>
               <dl>
                 <div>
-                  <dt>Sent</dt>
+                  <dt>{ui.sent}</dt>
                   <dd>{conversation.sent}</dd>
                 </div>
                 <div>
-                  <dt>Not sent</dt>
+                  <dt>{ui.notSent}</dt>
                   <dd>{conversation.withheld}</dd>
                 </div>
                 <div>
-                  <dt>Result</dt>
+                  <dt>{ui.result}</dt>
                   <dd>{conversation.result}</dd>
                 </div>
                 <div>
-                  <dt>Failure</dt>
+                  <dt>{ui.failure}</dt>
                   <dd>{conversation.failure}</dd>
                 </div>
               </dl>

@@ -46,7 +46,12 @@ OPA returns a structured allow or deny. An unavailable or malformed decision is 
 
 ### 4. Auth Broker: credential custody, not permission
 
-Auth Broker is relevant only to the brokered authentication route. It keeps the primary credential in an encrypted Context vault and gives a Workspace an opaque, project-bound handle. Gateway may inspect non-secret binding metadata before policy. It may resolve the primary credential exactly once only after OPA allows the ordinary HTTP effect.
+Auth Broker is relevant only to the brokered authentication route. It keeps
+typed static or renewable credential state in an encrypted Context vault and
+gives a Workspace an opaque, project-bound handle. Gateway may inspect
+non-secret binding metadata before policy. Only after OPA allows the ordinary
+HTTP effect may Broker resolve one static secret, select or refresh a Datadog
+token, or use the private host companion and sign one bounded AWS request.
 
 Login can create credential state. It does not add a policy rule.
 
@@ -69,19 +74,23 @@ The first request is not an application for automatic permission. It is an attem
 
 ## Failure behavior
 
-| Failure                    | Observable result                   | What does **not** happen                        |
-| -------------------------- | ----------------------------------- | ----------------------------------------------- |
-| No matching rule           | `403 policy_denied`                 | No upstream connection and no automatic allow   |
-| OPA unavailable or invalid | `503 policy_unavailable`            | No fallback decision                            |
-| Gateway unavailable        | Proxy connection fails              | No direct Internet fallback                     |
-| Invalid broker handle      | `403 credential_handle_invalid`     | No passthrough fallback and no upstream request |
-| Auth Broker unavailable    | `503 credential_broker_unavailable` | No secret resolution                            |
+| Failure                     | Observable result                        | What does **not** happen                            |
+| --------------------------- | ---------------------------------------- | --------------------------------------------------- |
+| No matching rule            | `403 policy_denied`                      | No upstream connection and no automatic allow       |
+| OPA unavailable or invalid  | `503 policy_unavailable`                 | No fallback decision                                |
+| Gateway unavailable         | Proxy connection fails                   | No direct Internet fallback                         |
+| Invalid broker handle       | `403 credential_handle_invalid`          | No passthrough fallback and no upstream request     |
+| Auth Broker unavailable     | `503 credential_broker_unavailable`      | No resolve, refresh, signing, or upstream action    |
+| AWS/Datadog outcome unknown | `409 credential_refresh_outcome_unknown` | No automatic replay or application upstream attempt |
 
 ## Guarantees and limitations
 
 ### What this model guarantees
 
-Within the supported Docker topology, a Workspace has no direct external route. Gateway must receive an allow decision before it forwards the request. Brokered primary credentials stay outside the Workspace and OPA.
+Within the supported Docker topology, a Workspace has no direct external
+route. Gateway must receive an allow decision before it forwards the request.
+Brokered static secrets, renewable state, and derived request credentials stay
+outside the Workspace and OPA.
 
 ### What this model does not guarantee
 
@@ -89,16 +98,18 @@ It does not protect files inside the selected project root from the Workspace. I
 
 ## Source evidence
 
-- [Product vocabulary and outcome](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
-- [Architecture topology and HTTPS flow](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
-- [Security model and enforcement table](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
-- [Docker Compose topology](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/compose.yaml)
-- [Gateway request enforcement](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/addon/tobari_gateway.py)
-- [Gateway contract tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+- [Product vocabulary and outcome](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Architecture topology and HTTPS flow](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Security model and enforcement table](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Docker Compose topology](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml)
+- [Gateway request enforcement](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py)
+- [Gateway contract tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
 
 ## Summary
 
-Remember one path: **Workspace → Gateway → upstream**, with **OPA deciding** and **Auth Broker supplying a bound credential only when needed and only after allow**. Gateway is the component that closes or opens the path.
+Remember one path: **Workspace → Gateway → upstream**, with **OPA deciding** and
+**Auth Broker performing one declared credential action only when needed and
+only after allow**. Gateway is the component that closes or opens the path.
 
 ## Check your understanding
 

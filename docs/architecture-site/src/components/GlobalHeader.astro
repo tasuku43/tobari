@@ -4,26 +4,42 @@ import LanguageSelect from "@astrojs/starlight/components/LanguageSelect.astro";
 import Search from "@astrojs/starlight/components/Search.astro";
 import SiteTitle from "@astrojs/starlight/components/SiteTitle.astro";
 import SocialIcons from "@astrojs/starlight/components/SocialIcons.astro";
+import {
+  navigationLabel,
+  navigationPath,
+  primarySections,
+} from "../navigation.mjs";
 import ThemeSelect from "./ThemeSelect.astro";
 
 const shouldRenderSearch =
   config.pagefind ||
   config.components.Search !== "@astrojs/starlight/components/Search.astro";
-const sections = [
-  ["Start", "/start/overview/"],
-  ["How it works", "/how-it-works/mental-model/"],
-  ["Security", "/security/overview/"],
-  ["Guides", "/guides/contexts/"],
-  ["Reference", "/reference/cli/"],
-] as const;
+const locale = Astro.locals.starlightRoute.locale === "ja" ? "ja" : "en";
+const labels =
+  locale === "ja"
+    ? {
+        primary: "主要ナビゲーション",
+        primaryMenu: "主要ナビゲーションメニュー",
+        menu: "メニュー",
+      }
+    : {
+        primary: "Primary",
+        primaryMenu: "Primary navigation menu",
+        menu: "Menu",
+      };
 const withBase = (href: string) =>
   `${import.meta.env.BASE_URL}${href.replace(/^\//, "")}`;
+const hrefFor = (href: string) => withBase(navigationPath(href, locale));
 ---
 
 <div class="tobari-header">
   <div class="title-wrapper sl-flex"><SiteTitle /></div>
-  <nav aria-label="Primary" class="primary-nav print:hidden">
-    {sections.map(([label, href]) => <a href={withBase(href)}>{label}</a>)}
+  <nav aria-label={labels.primary} class="primary-nav print:hidden">
+    {
+      primarySections.map((section) => (
+        <a href={hrefFor(section.link)}>{navigationLabel(section, locale)}</a>
+      ))
+    }
   </nav>
   <div class="search sl-flex print:hidden">
     {shouldRenderSearch && <Search />}
@@ -35,16 +51,23 @@ const withBase = (href: string) =>
   </div>
   <details class="mobile-primary print:hidden">
     <summary>
-      <span class="menu-word">Menu</span>
+      <span class="menu-word">{labels.menu}</span>
       <span aria-hidden="true" class="menu-mark menu-open">☰</span>
       <span aria-hidden="true" class="menu-mark menu-close">×</span>
     </summary>
     <div class="mobile-primary-panel">
-      <nav aria-label="Primary navigation menu">
-        {sections.map(([label, href]) => <a href={withBase(href)}>{label}</a>)}
+      <nav aria-label={labels.primaryMenu}>
+        {
+          primarySections.map((section) => (
+            <a href={hrefFor(section.link)}>
+              {navigationLabel(section, locale)}
+            </a>
+          ))
+        }
       </nav>
       <div class="mobile-primary-meta">
         <ThemeSelect />
+        <LanguageSelect />
         <a href="https://github.com/tasuku43/tobari">GitHub</a>
       </div>
     </div>
@@ -163,9 +186,13 @@ const withBase = (href: string) =>
     .mobile-primary-meta {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-start;
+      flex-wrap: wrap;
       gap: 1rem;
       padding-top: 1rem;
+    }
+    .mobile-primary-meta > :last-child {
+      margin-inline-start: auto;
     }
     :global(:root[data-has-sidebar]) .mobile-primary {
       display: none;

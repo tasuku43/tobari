@@ -573,7 +573,63 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
-	providerSchema, err := requiredInt(providerSource, `ProviderSchemaVersion\s*=\s*([0-9]+)`, "provider manifest schema")
+	providerSchema, err := requiredInt(providerSource, `(?m)^\s*ProviderSchemaVersion\s*=\s*([0-9]+)`, "normalized provider projection schema")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	ownerProviderSchema, err := requiredInt(providerSource, `(?m)^\s*LegacyProviderSchemaVersion\s*=\s*([0-9]+)`, "owner provider manifest schema")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	gatewaySource, err := committedFile(root, sourceRef, "gateway/addon/tobari_gateway.py")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	gatewayOPAInputSchema, err := requiredInt(
+		gatewaySource,
+		`policy_input\s*=\s*\{\s*"schema_version":\s*([0-9]+),`,
+		"Gateway OPA input schema",
+	)
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	gatewayDockerfile, err := committedFile(root, sourceRef, "gateway/Dockerfile")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	gatewayImageAPI, err := requiredInt(gatewayDockerfile, `io\.tobari\.gateway-api="([0-9]+)"`, "Gateway image API")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	authBrokerDockerfile, err := committedFile(root, sourceRef, "authbroker/Dockerfile")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	authBrokerImageAPI, err := requiredInt(authBrokerDockerfile, `io\.tobari\.auth-broker-api="([0-9]+)"`, "Auth Broker image API")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	authBrokerPackage, err := committedFile(root, sourceRef, "authbroker/__init__.py")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	authBrokerProtocolSchema, err := requiredInt(authBrokerPackage, `(?m)^SCHEMA_VERSION\s*=\s*([0-9]+)$`, "Auth Broker protocol schema")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	authBrokerVault, err := committedFile(root, sourceRef, "authbroker/vault.py")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	vaultPayloadSchema, err := requiredInt(authBrokerVault, `(?m)^PAYLOAD_SCHEMA_VERSION\s*=\s*([0-9]+)$`, "Auth Broker vault payload schema")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	companionSource, err := committedFile(root, sourceRef, "authbroker/companion_protocol.py")
+	if err != nil {
+		return componentVersionDocument{}, err
+	}
+	companionProtocolSchema, err := requiredInt(companionSource, `(?m)^COMPANION_PROTOCOL_VERSION\s*=\s*([0-9]+)$`, "credential companion protocol schema")
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
@@ -625,9 +681,15 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 			{Contract: "Context manifest", Version: contextSchema, Authority: "internal/domain/tobari/context.go"},
 			{Contract: "Public Context report", Version: contextReportSchema, Authority: "internal/cli/runtime_catalog.go"},
 			{Contract: "Root index and Workspace instance", Version: projectSchema, Authority: "internal/domain/tobari/project.go"},
-			{Contract: "Provider manifest", Version: providerSchema, Authority: "internal/domain/authbroker/provider.go"},
+			{Contract: "Owner provider manifest", Version: ownerProviderSchema, Authority: "internal/domain/authbroker/provider.go"},
+			{Contract: "Normalized provider projection / reviewed built-in manifest", Version: providerSchema, Authority: "internal/domain/authbroker/provider.go"},
 			{Contract: "Project principal registry", Version: principalSchema, Authority: "internal/infra/dockerruntime/principal_registry.go"},
-			{Contract: "Gateway OPA input", Version: 5, Authority: "gateway/addon/tobari_gateway.py"},
+			{Contract: "Gateway image API", Version: gatewayImageAPI, Authority: "gateway/Dockerfile"},
+			{Contract: "Gateway OPA input", Version: gatewayOPAInputSchema, Authority: "gateway/addon/tobari_gateway.py"},
+			{Contract: "Auth Broker image API", Version: authBrokerImageAPI, Authority: "authbroker/Dockerfile"},
+			{Contract: "Auth Broker control/runtime protocol and vault envelope", Version: authBrokerProtocolSchema, Authority: "authbroker/__init__.py"},
+			{Contract: "Encrypted Context vault payload", Version: vaultPayloadSchema, Authority: "authbroker/vault.py"},
+			{Contract: "Private credential companion protocol", Version: companionProtocolSchema, Authority: "authbroker/companion_protocol.py"},
 		},
 		Runtime: runtimeVersionContract{
 			DefaultSelector: defaultSelector,

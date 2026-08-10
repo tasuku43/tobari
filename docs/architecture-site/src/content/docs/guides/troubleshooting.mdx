@@ -94,6 +94,32 @@ tobari
 
 If it still fails, inspect `tobari auth status`, the exact Context selection, installed provider binding, and cluster readiness. Do not paste a handle from another Workspace; project and Context checks are intentional.
 
+## A brokered request returns HTTP 409
+
+`credential_refresh_outcome_unknown` means an AWS companion operation or
+Datadog refresh may have been dispatched, but Broker could not classify its
+outcome. Gateway did not send the application request upstream. Do not let the
+tool replay automatically.
+
+After the original request settles:
+
+```sh
+tobari auth status
+```
+
+- If `broker_state=ready` and the affected provider is `configured`, the
+  credential record is usable and the user may deliberately retry the original
+  task.
+- If the provider is `not_configured`, the durable encrypted task barrier
+  remains. Run the reviewed login again or log out that provider, then leave and
+  re-enter the Workspace before retrying.
+- If Broker is `locked` or `unavailable`, reconcile `cluster up` first and
+  inspect status again.
+
+Do not treat this 409 like `credential_broker_unavailable` 503. The latter is a
+known pre-execution availability class; the former deliberately denies replay
+permission because external credential work may have started.
+
 ## Runtime image is missing or incompatible
 
 ```sh
@@ -161,11 +187,11 @@ Catalog faults declare bounded recovery, and read-only diagnostics avoid surpris
 
 ## Source evidence
 
-- [Catalog-declared faults and recovery](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/runtime_catalog.go)
-- [Authentication fault contracts](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/cli/auth_catalog.go)
-- [Read-only doctor implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/runtime.go)
-- [Workspace recovery tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/project_runtime_test.go)
-- [Integration recovery canaries](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+- [Catalog-declared faults and recovery](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
+- [Authentication fault contracts](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/auth_catalog.go)
+- [Read-only doctor implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/runtime.go)
+- [Workspace recovery tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime_test.go)
+- [Integration recovery canaries](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
 
 ## Summary
 

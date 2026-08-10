@@ -31,30 +31,65 @@ for (const occurrence of catalogData.faults as Occurrence[]) {
     });
 }
 const faults = [...groups.values()];
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const ui = isJapanese
+  ? {
+      heading: "Catalog が宣言する CLI fault",
+      count: (value: number) =>
+        `${value} 件の stable fault code を、CLI reference と同じ scoped agent-help contract から生成しています。`,
+      scope: "範囲:",
+      scopeLead:
+        "これは公開 Catalog の契約であり、すべての internal guard diagnostic を列挙するものではありません。特に",
+      scopeJoin: "や",
+      scopeTail:
+        "のような fail-closed implementation diagnostic は boundary を保護しますが、Catalog command fault ではありません。",
+      filter: "code、kind、command で絞り込む",
+      placeholder: "例: policy、unavailable、auth login",
+      logicalRetry: "論理的な再試行が許可されています",
+      doNotRepeat: "同じ条件のまま繰り返さないでください",
+      affected: "影響する command と宣言された recovery",
+      global: "全体への invocation",
+      noRecovery: "command recovery は宣言されていません。",
+    }
+  : {
+      heading: "Catalog-declared CLI faults",
+      count: (value: number) =>
+        `${value} stable fault codes are generated from the same scoped agent-help contracts as the CLI reference.`,
+      scope: "Scope:",
+      scopeLead:
+        "this is the public Catalog contract, not every internal guard diagnostic. In particular, fail-closed implementation diagnostics such as",
+      scopeJoin: "and",
+      scopeTail: "protect the boundary but are not Catalog command faults.",
+      filter: "Filter by code, kind, or command",
+      placeholder: "For example: policy, unavailable, auth login",
+      logicalRetry: "Logical retry permitted",
+      doNotRepeat: "Do not repeat unchanged",
+      affected: "Affected commands and declared recovery",
+      global: "Global invocation",
+      noRecovery: "No command recovery is declared.",
+    };
 ---
 
 <section class="fault-reference" aria-labelledby="catalog-faults">
   <div class="fault-summary">
-    <h2 id="catalog-faults">Catalog-declared CLI faults</h2>
+    <h2 id="catalog-faults">{ui.heading}</h2>
+    <p>{ui.count(faults.length)}</p>
     <p>
-      {faults.length} stable fault codes are generated from the same scoped agent-help
-      contracts as the CLI reference.
-    </p>
-    <p>
-      <strong>Scope:</strong> this is the public Catalog contract, not every internal
-      guard diagnostic. In particular, fail-closed implementation diagnostics such
-      as <code>invalid_fault_contract</code> and <code
-        >undeclared_fault_contract</code
-      >
-      protect the boundary but are not Catalog command faults.
+      <strong>{ui.scope}</strong>{" "}
+      {ui.scopeLead}{" "}
+      <code>invalid_fault_contract</code>{" "}
+      {ui.scopeJoin}{" "}
+      <code>undeclared_fault_contract</code>{" "}
+      {ui.scopeTail}
     </p>
   </div>
   <label class="fault-filter">
-    <span>Filter by code, kind, or command</span>
+    <span>{ui.filter}</span>
     <input
       type="search"
       data-fault-filter
-      placeholder="For example: policy, unavailable, auth login"
+      data-locale={isJapanese ? "ja" : "en"}
+      placeholder={ui.placeholder}
     />
   </label>
   <p class="filter-status" data-filter-status aria-live="polite"></p>
@@ -73,22 +108,19 @@ const faults = [...groups.values()];
             <span
               class:list={["retry", fault.retryable ? "permitted" : "blocked"]}
             >
-              {fault.retryable
-                ? "Logical retry permitted"
-                : "Do not repeat unchanged"}
+              {fault.retryable ? ui.logicalRetry : ui.doNotRepeat}
             </span>
           </header>
           <details>
             <summary>
-              Affected commands and declared recovery (
-              {fault.occurrences.length})
+              {ui.affected} ({fault.occurrences.length})
             </summary>
             <ul>
               {fault.occurrences.map((occurrence) => (
                 <li>
                   <strong>
                     {occurrence.command === "(global)" ? (
-                      "Global invocation"
+                      ui.global
                     ) : (
                       <code>tobari {occurrence.command}</code>
                     )}
@@ -102,7 +134,7 @@ const faults = [...groups.values()];
                       ))}
                     </ul>
                   ) : (
-                    <p>No command recovery is declared.</p>
+                    <p>{ui.noRecovery}</p>
                   )}
                 </li>
               ))}
@@ -127,7 +159,11 @@ const faults = [...groups.values()];
       if (matches) visible += 1;
     }
     if (status)
-      status.textContent = query ? `${visible} matching fault codes.` : "";
+      status.textContent = query
+        ? input.dataset.locale === "ja"
+          ? `${visible} 件の fault code が一致しました。`
+          : `${visible} matching fault codes.`
+        : "";
   });
 </script>
 

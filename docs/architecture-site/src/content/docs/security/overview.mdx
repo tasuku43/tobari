@@ -69,8 +69,9 @@ That distinction explains why a forged project header is useless but a compromis
   <section>
     <h3>Brokered credentials</h3>
     <div class="prose-block">
-      Auth Broker keeps the primary secret in an encrypted Context vault. A
-      Workspace receives only a bound handle; authorization remains separate.
+      Auth Broker keeps static or renewable credential state in an encrypted
+      Context vault. A Workspace receives only a bound handle; static resolve,
+      AWS signing, or Datadog token refresh remains post-policy.
     </div>
   </section>
 </div>
@@ -82,6 +83,11 @@ That distinction explains why a forged project header is useless but a compromis
 - OPA unavailable or malformed: Gateway returns `policy_unavailable`; no upstream connection.
 - Auth Broker locked or unavailable: a brokered request fails; there is no secret resolution fallback.
 - Invalid or stale handle: `credential_handle_invalid`; no passthrough downgrade.
+- Known pre-execution companion or refresh failure:
+  `credential_broker_unavailable`; no upstream attempt.
+- Explicit or post-dispatch AWS/Datadog outcome uncertainty:
+  non-retryable `credential_refresh_outcome_unknown`; reconcile on the trusted
+  host instead of replaying.
 - Invalid policy activation: Tobari preserves or restores the prior source and known projection where possible; if OPA cannot be made healthy, communication remains failed closed rather than assuming the previous service is active.
 
 These are closed failures for the affected path. They do not promise that every process action is rolled back: local file writes inside the selected project may already have happened.
@@ -108,24 +114,24 @@ These are closed failures for the affected path. They do not promise that every 
   <h2>Sources</h2>
   <ul>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md">
         Security model
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/THREAT_MODEL.md">
-        Legacy threat summary at this commit
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/THREAT_MODEL.md">
+        Repository threat model
       </a>{" "}
-      — it predates the complete Broker/vault and overlapping-root model, so the
-      governing security model above takes precedence.
+      — the concise attacker/control inventory paired with the governing
+      security model above.
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/runtimeassets/assets/compose.yaml">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml">
         Compose topology
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh">
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh">
         Integration evidence
       </a>
     </li>

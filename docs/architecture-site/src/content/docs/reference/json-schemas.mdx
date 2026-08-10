@@ -39,7 +39,7 @@ owning domain or infrastructure reader defines validation and compatibility.
 | Doctor report                                                      | `report`                             |              1 |
 | Context list                                                       | `contexts`                           |              3 |
 | Context report (`context show`, create/use/config/runtime results) | `context`                            |          **6** |
-| Cluster status                                                     | `cluster`                            |              3 |
+| Cluster status                                                     | `cluster`                            |              4 |
 | Cluster denials                                                    | `denials`                            |              3 |
 | Policy candidates and review                                       | `policy_candidates`, `policy_review` |              4 |
 | Policy rules                                                       | `policy_rules`                       |              2 |
@@ -61,8 +61,8 @@ Host configuration
   Context manifest schema 4
 
 CLI presentation
-  {"schema_version": 5, "context": ...}
-  public Context report schema 5
+  {"schema_version": 6, "context": ...}
+  public Context report schema 6
 ```
 
 The report adds task-owned runtime, cluster, complete shell-setting, and
@@ -71,18 +71,20 @@ stored in `context.json`.
 
 ## Persisted host contracts
 
-| State                                                | Current contract          |
-| ---------------------------------------------------- | ------------------------- |
-| Context manifest                                     | Schema 4                  |
-| Root index and Workspace instance                    | Schema 2                  |
-| Shared cluster state                                 | Schema 3                  |
-| Project principal registry                           | Schema 2                  |
-| Guided policy data                                   | `tobari.schema_version` 2 |
-| Aggregate policy projection marker                   | Schema 1                  |
-| Provider manifest and normalized provider projection | Schema 1                  |
-| Encrypted Context vault                              | Schema 1                  |
-| Workspace authentication file registry               | Schema 1                  |
-| Base runtime metadata                                | Schema 1                  |
+| State                                  | Current contract          |
+| -------------------------------------- | ------------------------- |
+| Context manifest                       | Schema 4                  |
+| Root index and Workspace instance      | Schema 2                  |
+| Shared cluster state                   | Schema 3                  |
+| Project principal registry             | Schema 2                  |
+| Guided policy data                     | `tobari.schema_version` 2 |
+| Aggregate policy projection marker     | Schema 1                  |
+| Owner provider manifest                | Schema 1                  |
+| Reviewed built-in provider manifest    | Schema 1 or 2             |
+| Normalized provider projection         | Schema 2                  |
+| Encrypted Context vault                | Envelope 1; payload 2     |
+| Workspace authentication file registry | Schema 1                  |
+| Base runtime metadata                  | Schema 1                  |
 
 Readers reject malformed, oversized, unsafe, or unsupported state according to
 the owning contract. Strictness is surface-specific: do not assume that every
@@ -97,16 +99,17 @@ not automatically accepted.
 
 ## Gateway, OPA, audit, and broker contracts
 
-| Boundary                                     |                                               Current contract | Important content rule                                                                                   |
-| -------------------------------------------- | -------------------------------------------------------------: | -------------------------------------------------------------------------------------------------------- |
-| Gateway credential configuration             |                                                       Schema 2 | Context-aware managed projection; contains paths/metadata, not policy authority.                         |
-| Gateway → OPA decision input                 |                                                       Schema 5 | Host-derived principal plus normalized HTTP attributes. No body and no client secret headers.            |
-| Guided/Advanced source policy input          | Source schema 4; legacy source schema 3 accepted for migration | Aggregate generation rewrites the supported source to runtime input schema 5 before complete validation. |
-| Gateway audit line                           |                                                       Schema 2 | Secret-free normalized decision evidence.                                                                |
-| Gateway learnable-denial navigation response |                                                       Schema 1 | Fixed host review guidance; no candidate ID, query, body, or secret.                                     |
-| Broker control protocol                      |                                                       Schema 1 | Bounded newline-delimited JSON over the host control Unix socket.                                        |
-| Broker runtime protocol                      |                                                       Schema 1 | Introspection is non-secret; post-allow resolution returns the secret once over Gateway's Unix socket.   |
-| Workspace broker handle                      |                                               Handle version 1 | Opaque `tobari-h1_…` value; never decode it into authority.                                              |
+| Boundary                                     |                                               Current contract | Important content rule                                                                                                              |
+| -------------------------------------------- | -------------------------------------------------------------: | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Gateway credential configuration             |                                                       Schema 2 | Context-aware managed projection; contains paths/metadata, not policy authority.                                                    |
+| Gateway → OPA decision input                 |                                                       Schema 5 | Host-derived principal plus normalized HTTP attributes. No body and no client secret headers.                                       |
+| Guided/Advanced source policy input          | Source schema 4; legacy source schema 3 accepted for migration | Aggregate generation rewrites the supported source to runtime input schema 5 before complete validation.                            |
+| Gateway audit line                           |                                                       Schema 2 | Secret-free normalized decision evidence.                                                                                           |
+| Gateway learnable-denial navigation response |                                                       Schema 1 | Fixed host review guidance; no candidate ID, query, body, or secret.                                                                |
+| Broker control protocol                      |                                                       Schema 1 | Bounded newline-delimited JSON over the host control Unix socket.                                                                   |
+| Broker runtime protocol                      |                                                       Schema 1 | Introspection is non-secret; a post-allow static resolve, Datadog token action, or AWS signing response uses Gateway's Unix socket. |
+| Private host companion frames                |                                                       Schema 1 | Authenticated, direction-bound, strictly sequenced frames carry only the compiled post-policy AWS operation.                        |
+| Workspace broker handle                      |                                               Handle version 1 | Opaque `tobari-h1_…` value; never decode it into authority.                                                                         |
 
 OPA output is a decision consumed by Gateway. OPA does not open an upstream
 connection. A wrong or unavailable policy response fails closed before
@@ -166,7 +169,7 @@ external contracts are supported public boundaries.
   <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}
   >
-    report schema 5
+    report schema 6
   </a>
 - Gateway input and audit:
   <a
@@ -208,7 +211,7 @@ external contracts are supported public boundaries.
 ## Summary
 
 Schema versions are local to a boundary. Stored Context schema 4 and public
-Context report schema 5 are both correct because they govern different
+Context report schema 6 are both correct because they govern different
 documents. Exact readers and tests, not a shared number, define compatibility.
 
 ## Check your understanding

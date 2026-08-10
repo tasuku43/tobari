@@ -69,11 +69,15 @@ Reference pages answer precise operational questions after the model is understo
 
 - [CLI](../../reference/cli/) is generated from `cli.Catalog`.
 - [Configuration and state](../../reference/configuration-and-state/) lists exact stores and lifetimes.
-- [Provider manifest](../../reference/provider-manifest/) explains current strict schema 1.
+- [Provider manifest](../../reference/provider-manifest/) separates
+  owner-controlled strict schema 1 from the reviewed built-in schema-2 plans.
 - [Faults and recovery](../../reference/faults-and-recovery/) maps codes to safe actions.
 - [Component versions](../../reference/component-versions/) is generated from repository authorities.
 
-Do not use a path or schema detail as a substitute for understanding ownership. For example, knowing where `vault.enc` lives does not explain why OPA deny prevents resolution.
+Do not use a path or schema detail as a substitute for understanding ownership.
+For example, knowing where `vault.enc` lives does not explain why OPA deny
+prevents static resolution, AWS companion/signing work, and Datadog token
+selection or refresh.
 
 ## If a link describes something unexpected
 
@@ -86,10 +90,10 @@ Stop and return to the immediately preceding conceptual page. In particular:
 
 ## Source evidence
 
-- [Project theses governing the learning model](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/00_theses.md)
-- [Product contract](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
-- [Architecture](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
-- [Security model](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
+- [Project theses governing the learning model](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/00_theses.md)
+- [Product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Architecture](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Security model](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
 
 ## Summary
 

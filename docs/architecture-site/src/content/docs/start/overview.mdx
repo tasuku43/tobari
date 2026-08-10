@@ -30,7 +30,7 @@ Read the diagram in this order:
 1. A process in the **Workspace** makes a proxy-aware HTTP or HTTPS request.
 2. **Gateway** receives the request. It derives the project principal from host-owned network state.
 3. **OPA** decides the normalized HTTP effect: Context, project, scheme, destination, port, method, and path. The request body is not a policy identity field.
-4. **Auth Broker** participates only for a recognized broker handle. It can reveal non-secret binding metadata before policy, but resolves the real credential only after allow.
+4. **Auth Broker** participates only for a recognized broker handle. It can reveal non-secret binding metadata before policy. Static resolution, Datadog token selection or refresh, and AWS export and signing happen only after allow.
 5. **Gateway**, not the Workspace, opens the separate connection to the **Upstream** after allow.
 
 OPA makes the decision. Gateway enforces it by either refusing the request or creating the upstream connection.
@@ -75,23 +75,44 @@ A client that ignores proxy configuration has no supported direct egress route; 
 
 ## Current implementation status
 
-**Implemented now:** reusable Context-bound Workspaces, dedicated internal project networks, Gateway/OPA mediation, exact denial review, guided and advanced policy modes, Context runtime recipes, tool-native authentication, the retained managed adapter, and the schema-1 Auth Broker path for strict provider manifests. The reviewed built-in broker login provider is GitHub.
+**Implemented now:** reusable Context-bound Workspaces, dedicated internal
+project networks, Gateway/OPA mediation, exact denial review, guided and
+advanced policy modes, Context runtime recipes, tool-native authentication,
+the retained managed adapter, strict schema-1 static Broker providers, and
+reviewed built-in GitHub, AWS, and Datadog acquisition. The built-in schema-2
+plans provide bounded AWS SigV4 through a private host companion and fixed
+Datadog US1 OAuth refresh inside Broker.
 
-This documentation does not present unimplemented credential signing, refresh, arbitrary OAuth helpers, provider-operation policy, Git credential helpers, or additional built-in providers as current behavior.
+The source tree and tests contain both schema-2 plans. The immutable Gateway
+and Auth Broker digests currently selected by `versions.env` include the
+earlier AWS Identity Center path but predate AWS console login and the Datadog
+request path. Those newer paths are therefore implemented in source but are
+not active in the standard cluster until the pins are reviewed and advanced.
+[Component versions](/reference/component-versions/) reports the
+selected artifacts; [Supply chain](/security/supply-chain/) explains why source
+and runtime identity are separate claims.
+
+This documentation does not present arbitrary manifest-selected signing or
+refresh, arbitrary OAuth helpers, provider-operation policy, Git credential
+helpers, multiple accounts per provider/Context, or additional built-in plans
+as current behavior.
 
 ## Source evidence
 
 These links are fixed to the implementation commit reviewed for this page:
 
-- [Product contract: vocabulary and public outcomes](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
-- [Architecture: topology and request path](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
-- [Security model: trust assumptions and limits](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
-- [Workspace runtime implementation](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/internal/infra/dockerruntime/project_runtime.go)
-- [Gateway enforcement tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
+- [Product contract: vocabulary and public outcomes](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Architecture: topology and request path](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Security model: trust assumptions and limits](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Workspace runtime implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime.go)
+- [Gateway enforcement tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
 
 ## Summary
 
-Tobari grants useful project access first and controls ordinary outbound web effects separately. A Workspace cannot authorize itself: the host establishes its identity, OPA decides, Gateway enforces, and Auth Broker resolves a brokered secret only on the allowed path.
+Tobari grants useful project access first and controls ordinary outbound web
+effects separately. A Workspace cannot authorize itself: the host establishes
+its identity, OPA decides, Gateway enforces, and Auth Broker performs only the
+declared post-policy credential action on the allowed path.
 
 ## Check your understanding
 

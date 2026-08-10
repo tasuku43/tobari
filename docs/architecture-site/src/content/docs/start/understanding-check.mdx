@@ -126,18 +126,25 @@ The Workspace sees a value beginning `tobari-h1_`. Is that the upstream token?
 <details>
 <summary>Answer</summary>
 
-No. It is an opaque random handle bound to Context, project, provider, credential revision, and exact HTTP/header contract. The primary secret remains encrypted in the Context vault and is resolved only on the allowed Gateway path. See [Credentials](../../how-it-works/credentials/).
+No. It is an opaque random handle bound to Context, project, provider,
+credential revision, and exact HTTP contract. Static or renewable credential
+state remains encrypted in the Context vault. A declared resolve, refresh, or
+signing action can run only on the allowed Gateway path. See
+[Credentials](../../how-it-works/credentials/).
 
 </details>
 
 ## 12. Denied brokered request
 
-A broker handle is valid, but OPA denies the HTTP effect. Does Auth Broker return the primary secret to Gateway?
+A broker handle is valid, but OPA denies the HTTP effect. Which secret-bearing Broker actions run?
 
 <details>
 <summary>Answer</summary>
 
-No. Gateway may perform non-secret introspection before policy, but it performs no secret resolution on deny. There is no upstream connection. See [Credential security](../../security/credential-security/).
+None. Gateway may perform non-secret introspection before policy, but static
+resolution, Datadog token selection/refresh, AWS companion credential export,
+and signing are all skipped on deny. There is no upstream connection. See
+[Credential security](../../security/credential-security/).
 
 </details>
 
@@ -236,20 +243,28 @@ A process copies a valid handle from Workspace A into Workspace B and sends it t
 <details>
 <summary>Answer</summary>
 
-Gateway derives B's principal from the receiving network interface. Broker introspection and resolution require the handle's Context, project, provider, credential revision, exact target, and source/destination header binding to match. A's project binding does not match B, so the request fails before fallback or upstream. Even a valid matching handle would still need an OPA allow for B's ordinary HTTP method/path effect.
+Gateway derives B's principal from the receiving network interface. Broker
+introspection requires the handle's Context, project, provider, credential
+revision, exact target, and static or built-in plan binding to match. A's
+project binding does not match B, so the request fails before OPA, any
+post-policy credential action, fallback, or upstream. Even a valid matching
+handle would still need an OPA allow for B's ordinary HTTP method/path effect.
 
 </details>
 
 ## Source evidence
 
-- [Product contract at the reviewed commit](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/01_product_contract.md)
-- [Architecture at the reviewed commit](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/02_architecture.md)
-- [Security model and evidence obligations](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/docs/03_security_model.md)
-- [Gateway enforcement tests](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/gateway/test_tobari_gateway.py)
-- [Integration canaries](https://github.com/tasuku43/tobari/blob/2cb9f3b0845af1f8d4b0ffcb8064dfcfc87ad1e3/scripts/test-integration.sh)
+- [Product contract at the reviewed commit](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Architecture at the reviewed commit](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Security model and evidence obligations](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Gateway enforcement tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [Integration canaries](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
 
 ## Summary
 
-You understand the current model when you can connect each answer to an owner: the host selects identity, Workspace holds project authority, OPA decides, Gateway enforces, Auth Broker resolves only after allow, and lifecycle commands remove only the state they own.
+You understand the current model when you can connect each answer to an owner:
+the host selects identity, Workspace holds project authority, OPA decides,
+Gateway enforces, Auth Broker performs only its declared credential action
+after allow, and lifecycle commands remove only the state they own.
 
 If an answer depended on guessing, return to the linked page. For exact arguments, schemas, paths, faults, and versions, continue to [Reference](../../reference/cli/).

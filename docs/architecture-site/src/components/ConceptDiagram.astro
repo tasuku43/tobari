@@ -1,5 +1,6 @@
 ---
 import { diagrams, type DiagramKind } from "../data/diagrams";
+import { diagramsJa } from "../data/diagrams.ja";
 
 interface Props {
   name: keyof typeof diagrams;
@@ -7,21 +8,57 @@ interface Props {
 }
 
 const { name, headingLevel = 2 } = Astro.props;
-const diagram = diagrams[name];
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const localizedDiagrams = isJapanese ? diagramsJa : diagrams;
+const diagram = localizedDiagrams[name];
 if (!diagram) throw new Error(`Unknown Tobari diagram: ${String(name)}`);
 const Heading = `h${headingLevel}` as "h2" | "h3";
-const kindLabels: Record<DiagramKind, string> = {
-  trusted: "Trusted",
-  untrusted: "Untrusted",
-  control: "Control",
-  network: "Network",
-  persistent: "Persistent",
-  secret: "Secret",
-  handle: "Non-secret handle",
-  allowed: "Allowed",
-  denied: "Denied",
-  diagnostic: "Diagnostic",
-};
+const kindLabels: Record<DiagramKind, string> = isJapanese
+  ? {
+      trusted: "信頼する領域",
+      untrusted: "信頼しない領域",
+      control: "制御",
+      network: "通信",
+      persistent: "永続状態",
+      secret: "秘密情報",
+      handle: "秘密ではないハンドル",
+      allowed: "許可",
+      denied: "拒否",
+      diagnostic: "診断情報",
+    }
+  : {
+      trusted: "Trusted",
+      untrusted: "Untrusted",
+      control: "Control",
+      network: "Network",
+      persistent: "Persistent",
+      secret: "Secret",
+      handle: "Non-secret handle",
+      allowed: "Allowed",
+      denied: "Denied",
+      diagnostic: "Diagnostic",
+    };
+const ui = isJapanese
+  ? {
+      conceptual: "概念図：",
+      conceptualNote:
+        "実行時の構成と障害時の動作は、リンク先の詳細ページで確認してください。",
+      connections: "接続関係",
+      transcript: "この図をテキストで読む",
+      meaning: "分類",
+      separator: "：",
+      sentenceEnd: "。",
+    }
+  : {
+      conceptual: "Conceptual view:",
+      conceptualNote:
+        "follow the linked detail page for runtime topology and failure semantics.",
+      connections: "Connections",
+      transcript: "Read this diagram as text",
+      meaning: "Meaning",
+      separator: ": ",
+      sentenceEnd: ".",
+    };
 ---
 
 <figure class="concept-diagram" data-diagram={name}>
@@ -31,8 +68,7 @@ const kindLabels: Record<DiagramKind, string> = {
     {
       diagram.conceptual && (
         <p class="concept-note">
-          <strong>Conceptual view:</strong> follow the linked detail page for
-          runtime topology and failure semantics.
+          <strong>{ui.conceptual}</strong> {ui.conceptualNote}
         </p>
       )
     }
@@ -59,7 +95,7 @@ const kindLabels: Record<DiagramKind, string> = {
         ))
       }
     </div>
-    <ol class="diagram-edges" aria-label="Connections">
+    <ol class="diagram-edges" aria-label={ui.connections}>
       {
         diagram.edges.map((edge) => (
           <li
@@ -83,7 +119,7 @@ const kindLabels: Record<DiagramKind, string> = {
     </ol>
   </div>
   <details class="diagram-transcript">
-    <summary>Read this diagram as text</summary>
+    <summary>{ui.transcript}</summary>
     <ol>
       {
         diagram.edges.map((edge) => (
@@ -96,9 +132,14 @@ const kindLabels: Record<DiagramKind, string> = {
             <strong>
               {diagram.nodes.find(({ id }) => id === edge.to)?.label || edge.to}
             </strong>
-            : {edge.label}.{" "}
+            {ui.separator}
+            {edge.label}
+            {ui.sentenceEnd}{" "}
             <span class="transcript-kind">
-              Meaning: {kindLabels[edge.kind]}.
+              {ui.meaning}
+              {ui.separator}
+              {kindLabels[edge.kind]}
+              {ui.sentenceEnd}
             </span>
           </li>
         ))
