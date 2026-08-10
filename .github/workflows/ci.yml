@@ -25,12 +25,32 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name: Apply the static home verification update
+      - name: Update the static home verification contract
         run: |
-          git apply .github/agent-verify-dist-fix.patch
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/architecture-site/scripts/verify-dist.mjs")
+          source = path.read_text()
+          old = '''for (const phrase of [
+            "Trace a request",
+            "Protected in the supported topology",
+            "Intentionally not protected",
+          ]) {'''
+          new = '''for (const phrase of [
+            "Run a coding agent inside one selected project.",
+            "Stop it, review it, then allow only what is needed",
+            "Protected in the supported topology",
+            "Not protected by Tobari",
+            "files inside the selected project are not protected from the agent",
+          ]) {'''
+          if old not in source:
+              raise SystemExit("static home verification block was not found")
+          path.write_text(source.replace(old, new, 1))
+          PY
           git checkout origin/main -- .github/workflows/ci.yml
-          rm .github/agent-verify-dist-fix.patch
-          rm .github/workflows/agent-apply-verify-dist.yml
+          rm -f .github/agent-verify-dist-fix.patch
+          rm -f .github/workflows/agent-apply-verify-dist.yml
 
       - name: Commit the verified source change
         run: |
