@@ -1,0 +1,45 @@
+name: Agent format documentation source
+
+on:
+  push:
+    branches:
+      - agent/improve-docs-learning-flow
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: docs/architecture-site/package-lock.json
+
+      - name: Select the repository-pinned npm version
+        run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
+
+      - name: Install locked site dependencies
+        working-directory: docs/architecture-site
+        run: npm ci
+
+      - name: Format documentation source
+        working-directory: docs/architecture-site
+        run: npm run format:write
+
+      - name: Commit formatting
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/architecture-site
+          if git diff --cached --quiet; then
+            echo "No formatting changes"
+          else
+            git commit -m "style(site): format shared documentation components"
+            git push
+          fi
