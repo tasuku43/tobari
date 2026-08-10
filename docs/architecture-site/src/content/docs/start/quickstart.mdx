@@ -5,15 +5,9 @@ description: Create a synthetic Workspace, observe a denial, review one exact ef
 
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
-## The question this page answers
+This walkthrough starts the shared cluster on the trusted host, enters a synthetic project Workspace, observes one denied request, reviews and allows its exact effect on the host, then re-enters and retries deliberately. It also shows which commands belong on the host, which run inside the Workspace, and what remains after `exit`.
 
-**What is the shortest complete Tobari workflow?**
-
-Start the shared cluster on the trusted host, enter a synthetic project Workspace, observe one denied request, review and allow its exact effect on the host, then re-enter and retry deliberately.
-
-After this page, you should be able to distinguish host-owned control commands from commands run inside the Workspace and explain what remains after `exit`.
-
-Prerequisites: complete [Install](../install/) and use an interactive terminal. The commands below match the current CLI Catalog.
+Complete [Install](../install/) first and use an interactive terminal. The commands below match the current CLI Catalog.
 
 ## 1. Choose a safe synthetic project
 

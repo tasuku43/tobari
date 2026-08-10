@@ -5,19 +5,9 @@ description: Tobari が行うこと、境界の位置、一つの外向きリク
 
 import SystemMap from "../../../../components/SystemMap.astro";
 
-## このページで答える問い
-
-**プロジェクトで coding agent を動かしたい開発者に、Tobari は何を提供しますか？**
-
 Tobari は agent を project-bound Workspace で動かし、未宣言の HTTP/HTTPS effect を最初は拒否します。信頼するホストから人が exact effect を review/authorize した後、意図的に retry できます。
 
-このページを読み終えると、次を説明できるようになります。
-
-- Tobari が Docker container を起動するだけの command ではない理由
-- 最小 request model の五つの要素
-- outbound effect の制御と computer 上のすべての asset の保護との違い
-
-Tobari の前提知識は不要です。すぐに command を試す場合も、この overview を読んでから[インストール](../install/)へ進んでください。
+Tobari は単に Docker container を起動する command ではありません。directory に結び付いた作業環境と、外向きの request を強制的に通す経路を組み合わせています。この概要では、その境界を構成する五つの要素と、保護範囲の限界を説明します。Tobari の前提知識は必要ありません。読み終えたら[インストール](../install/)へ進めます。
 
 ## 実装技術より先に、一つの境界から始める
 

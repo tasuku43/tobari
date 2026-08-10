@@ -5,20 +5,16 @@ description: Separate the logical project environment from its host-owned config
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-## The question this page answers
+A Workspace is one logical, directory-bound Tobari. Its durable identity
+combines the canonical project root with a stable Context ID; the runtime
+container that happens to execute its processes is replaceable.
 
-What persists when Tobari changes a container, a Context, or the shared cluster?
-
-**One-sentence answer:** A Workspace is one logical directory-bound Tobari identified by a canonical root and stable Context ID; its runtime container is replaceable, its Context supplies host-owned configuration, and the installation shares one cluster of enforcement services.
-
-### By the end, you can explain
-
-- Tobari, Workspace, Context, cluster, and runtime image without treating them as synonyms;
-- how the current directory selects an existing Workspace;
-- why changing the current Context does not migrate a Workspace; and
-- why one project root can have more than one Workspace.
-
-**Prerequisite:** [System overview](/how-it-works/system-overview/).
+The Context supplies host-owned runtime, policy, agent, and credential
+configuration. One installation shares a cluster of enforcement services, but
+it does not share Workspace identity, home, or project network. This separation
+also means that switching the current Context does not migrate an existing
+Workspace, and the same project root can have a distinct Workspace under
+another Context. The surrounding network roles are introduced in the [system overview](/how-it-works/system-overview/).
 
 <ConceptDiagram name="workspace-context-cluster" />
 

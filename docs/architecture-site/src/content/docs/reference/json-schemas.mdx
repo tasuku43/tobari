@@ -3,18 +3,15 @@ title: JSON schemas and versioned contracts
 description: Public JSON envelopes, persisted documents, internal protocols, strict parsers, and compatibility boundaries.
 ---
 
-## What question does this page answer?
+This reference lists Tobari's versioned JSON surfaces and their compatibility
+boundaries. A public CLI report, persisted manifest, Gateway policy input,
+audit line, and Broker socket frame are separate contracts even when they
+describe related objects.
 
-**What does a Tobari schema version apply to?**
-
-The short answer is: every version belongs to one specific surface. A public
-CLI report, a persisted manifest, Gateway policy input, an audit line, and a
-Broker socket frame are different contracts even when they describe related
-objects.
-
-After this page, you should be able to reject statements such as “the Context
-schema is 5” unless the speaker says whether they mean stored configuration or
-public output.
+Each version belongs to one specific surface. A statement such as “the Context
+schema is 5” is incomplete until it identifies stored configuration, public
+output, or another named contract. The owning parser, Catalog entry, or
+protocol implementation is the source of truth for each surface below.
 
 ## “Schema” does not always mean JSON Schema
 

@@ -5,20 +5,15 @@ description: How runtime source, embedded snapshots, immutable image identities,
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-## The question this page answers
+Tobari starts Gateway, OPA, and Auth Broker from reviewed immutable image
+digests. Canonical source is checked against the embedded runtime snapshots used
+by the CLI, while runtime metadata, licenses, and repository gates reject drift
+before publication or release.
 
-**How does Tobari know which Gateway, OPA, Auth Broker, and runtime assets it is starting?**
-
-<aside class="one-sentence">
-  <strong>One-sentence answer:</strong> Canonical source is checked against
-  embedded runtime snapshots, service images are selected by reviewed immutable
-  digests, runtime metadata and licenses are validated, and repository gates
-  reject drift before publication or release.
-</aside>
-
-You should finish able to distinguish an immutable service image identity from the moving default runtime selector.
-
-**Prerequisite:** [Implementation stack](../../how-it-works/implementation-stack/).
+The default Workspace runtime selector is a different contract: it is currently
+a moving tag, not an immutable service identity. Read
+[Implementation stack](../../how-it-works/implementation-stack/) first for the
+role of each image and embedded asset.
 
 <ConceptDiagram name="image-supply" />
 

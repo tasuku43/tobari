@@ -5,20 +5,18 @@ description: Tobari の四つの Go レイヤー、Catalog が管理する公開
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-## このページで答える問い
+Tobari の Go code は、一方向の dependency rule に従います。domain は純粋な語彙と
+不変条件を定義し、application は最小の port を通して利用者タスクを解釈し、
+infrastructure は制御された external effect を実装します。CLI は全体を組み立てる
+唯一の composition root です。
 
-repository は product policy、use-case interpretation、external effect、CLI presentation が分離できない一つの実装になるのを、どう防いでいますか？
+CLI Catalog は help string の一覧ではなく、すべての public command contract の正本です。
+Gateway、Auth Broker、runtime asset には、これと対応する source boundary があります。
+編集する canonical source は所有 directory に置き、embedded copy は byte 単位で検査する
+snapshot とします。これらの rule により、product policy、use-case interpretation、
+external I/O、presentation が分離できない一つの実装になるのを防ぎます。
 
-**一文での答え:** pure domain invariant を中心に置き、application use case が minimal port を所有し、infrastructure が controlled effect を実装します。CLI は唯一の composition root であり、その Catalog がすべての public command contract を定義します。
-
-### 読み終わると説明できること
-
-- 四つの Go layer で許される dependency direction
-- application package が task-specific port を所有する理由
-- CLI Catalog が help text の list 以上のものである理由
-- Gateway/Auth Broker の canonical source と embedded snapshot を分ける理由
-
-**前提:** [Implementation stack](../implementation-stack/)。このページは contributor と reviewer 向けで、通常の Tobari 利用には必須ではありません。
+この contributor 向けページは[実装技術](../implementation-stack/)を前提とし、通常の Tobari 利用には必須ではありません。
 
 <ConceptDiagram name="code-layers" />
 

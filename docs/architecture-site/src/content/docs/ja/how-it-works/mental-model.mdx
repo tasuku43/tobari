@@ -5,20 +5,18 @@ description: 実装の詳細を学ぶ前に、一つの外向きリクエスト�
 
 import SystemMap from "../../../../components/SystemMap.astro";
 
-## このページで答える問い
+Tobari の外向き通信には、Workspace、Gateway、OPA、Auth Broker、Upstream
+という五つの主体が関わります。プロジェクトに結び付いた Workspace が
+HTTP または HTTPS の Upstream へ到達する経路は Gateway だけです。Gateway
+は通常のリクエストを許可するか OPA に問い合わせ、Broker が管理する認証情報が
+関わる場合にだけ Auth Broker と対話します。
 
-Tobari を理解するための、最小かつ正確な model は何ですか？
+この役割分担が、Tobari を単なる Docker wrapper ではないものにしています。
+Gateway は通信判断を実施し、OPA はポリシーを判断し、Auth Broker は Broker
+管理の実物の認証情報を Workspace の外に保ちます。認証情報を使えることは、
+通信が許可されることを意味しません。
 
-**一文での答え:** project に結び付いた Workspace は、Gateway を通してだけ HTTP または HTTPS の upstream へ到達できます。Gateway は通常の request を許可するか OPA に問い合わせ、broker-managed credential が関わる場合にだけ Auth Broker を使います。
-
-### 読み終わると説明できること
-
-- Tobari が単なる Docker wrapper ではない理由
-- Workspace、Gateway、OPA、Auth Broker、upstream それぞれの役割
-- authentication が network authorization を意味しない理由
-- request が拒否されたときに次に確認する場所
-
-**前提:** Tobari が利用者へ提供する結果をまだ見ていない場合は、[概要から始めてください](../../start/overview/)。ここでは Docker、proxy、policy の知識は必要ありません。
+Tobari が利用者へ提供する結果をまだ知らない場合は、先に[概要](../../start/overview/)を読んでください。以下の図を読むために Docker、proxy、policy の知識は必要ありません。
 
 <SystemMap />
 

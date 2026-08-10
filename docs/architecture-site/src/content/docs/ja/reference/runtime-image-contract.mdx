@@ -3,13 +3,14 @@ title: runtime image契約
 description: Tobari Workspace image に必要な互換性 label、user、entrypoint、寿命を決める command、ビルドと選択の規則を説明します。
 ---
 
-## このページで答える問い
+このリファレンスでは、Tobari Workspace が受け入れる OCI image contract を
+定義します。runtime を作成または reconcile する前に、Tobari は runtime API
+`1`、fixed lifetime capability、`tobari` user、reviewed entrypoint という四つの
+exact property を inspect します。
 
-**OCI image が Tobari Workspace と互換になる条件は何ですか？**
-
-短く言うと、Tobari は Workspace runtime を作成または reconcile する前に、四つの exact property を inspect します。compatible image は runtime API `1`、fixed lifetime capability、`tobari` user、reviewed entrypoint を保ちます。mount、resource、network、Workspace lifetime は引き続き host が所有します。
-
-task flow は [Runtime customization](../../guides/runtime-customization/) を参照してください。このページでは image boundary を正確に定義します。
+image が提供するのは tool と root filesystem です。mount、resource、network、
+Workspace lifetime は引き続き host が所有します。image の作成と選択の流れは
+[Runtime customization](../../guides/runtime-customization/) を参照してください。
 
 ## image に必要な属性
 

@@ -7,20 +7,15 @@ import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 import SystemMap from "../../../../components/SystemMap.astro";
 
-## このページで答える問い
+Tobari は、ネットワーク構成そのものを強制境界の一部に使います。サポートされる
+構成では、各 Workspace が参加するのは専用の Docker internal network だけです。
+プロジェクト側のネットワークと外向き通信側の両方に interface を持つ component
+は Gateway だけなので、proxy 設定を外しても public Internet への別経路は生まれません。
 
-Workspace が proxy setting を無視しても Tobari を迂回できないのはなぜですか？
-
-**一文での答え:** supported topology では、各 Workspace は dedicated Docker-internal network だけに参加し、project-network interface と egress interface の両方を持つ component は Gateway だけです。
-
-### 読み終わると説明できること
-
-- project、control、egress network の役割
-- Gateway、OPA、Auth Broker で network attachment が異なる理由
-- allowed request が upstream へ到達する仕組み
-- Gateway/OPA failure が path を閉じる理由
-
-**前提:** [五つの要素による mental model](../mental-model/)。
+プロジェクト通信、ポリシー制御、外向き通信は三つの network scope に分かれます。
+必要な scope を横断するのは Gateway であり、OPA と Auth Broker の接続範囲はさらに
+狭くなっています。許可されたリクエストは Gateway から外へ進み、Gateway または
+OPA の障害時には経路が閉じます。以下の主体は[メンタルモデル](../mental-model/)で紹介しています。
 
 <SystemMap
   title="通信と制御の対応図"

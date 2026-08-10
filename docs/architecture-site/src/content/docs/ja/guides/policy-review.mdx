@@ -6,15 +6,9 @@ description: 保持された拒否の根拠を確認し、完全一致の判断�
 import PolicyLoopMap from "../../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
-## このガイドで答える問い
+ポリシーレビューは、保持された拒否の根拠を、ホストが所有する明示的な判断へ変える操作です。Workspace から出て、信頼するホスト上の bounded secret-free Permission Inbox を確認します。exact detail screen から choice を stage し、一つの Context の reviewed set を一度だけ Apply します。approval は policy を変更しますが、拒否された通信を retry しません。
 
-**拒否されたリクエストを、人はどのように意図的なポリシー判断へ変えるべきですか？**
-
-Workspace から出て、信頼するホスト上の bounded secret-free Permission Inbox を確認します。exact detail screen から choice を明示的に stage し、一つの Context の reviewed set を一度だけ Apply します。
-
-読み終えると learnable denial の見分け方、TTY/machine flow の安全な使い方、prior decision の修正方法、approval が traffic を retry しない理由を説明できます。
-
-前提: [最初の拒否](../../start/first-denial/)で request-side handoff を確認してください。
+[最初の拒否](../../start/first-denial/)では、request からこのホスト側 review flow までの引き継ぎを説明しています。
 
 <PolicyLoopMap headingLevel={2} />
 

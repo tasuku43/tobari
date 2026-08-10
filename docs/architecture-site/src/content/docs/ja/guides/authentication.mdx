@@ -7,15 +7,9 @@ import CredentialArchitectureMap from "../../../../components/CredentialArchitec
 import ProviderToolMap from "../../../../components/ProviderToolMap.astro";
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
-## このガイドで答える問い
+Tobari では、認証とネットワーク通信の許可を別々に扱います。tool ごとに明示的な authentication path を一つ選び、通常の HTTP effect は別に authorize します。login または import が成功しても、network allow rule は追加されません。
 
-**ツールの認証情報はどこに置くべきですか。登録すると通信も許可されますか？**
-
-tool ごとに explicit authentication path 一つを選び、ordinary HTTP effect は別に authorize します。successful login/import が network allow rule を追加することはありません。
-
-読み終えると三つの path を比較し、reviewed built-in broker flow を実行し、handle binding と rotation/logout 後の安全な recovery を説明できます。
-
-前提: [Request journey](../../how-it-works/request-journey/)と [Context](../contexts/)を理解してください。
+このガイドでは、三つの方式、reviewed built-in broker flow、handle binding、rotation/logout 後の復旧を説明します。先に [Request journey](../../how-it-works/request-journey/)と [Context](../contexts/)を確認してください。
 
 ## 三つの認証方式を比較する
 

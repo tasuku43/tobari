@@ -3,21 +3,15 @@ title: Threat model
 description: Assets, adversaries, assumptions, attack paths, mitigations, residual risks, and closed failures for current Tobari.
 ---
 
-## The question this page answers
+This threat model treats every Workspace process as untrusted. Tobari is
+designed to limit attempts to reach unselected host or Docker resources,
+self-assign another project identity, bypass HTTP policy, or obtain
+broker-managed credential state and derived request credentials.
 
-**Against which attacker actions is Tobari designed, under which assumptions, and which risks remain?**
-
-<aside class="one-sentence">
-  <strong>One-sentence answer:</strong> Tobari limits an untrusted Workspace
-  process that attempts to access unselected host/Docker resources, self-assign
-  another project identity, bypass HTTP policy, or obtain broker-managed
-  credential state and derived request credentials, while explicitly trusting
-  the host enforcement base and the user’s root/rule choices.
-</aside>
-
-You should finish able to distinguish a mitigated attack from an out-of-scope trusted-base compromise.
-
-**Prerequisite:** [Trust boundaries](../trust-boundaries/).
+The host enforcement base and the user's choices of project root and policy
+remain trusted. Compromise of that base is outside these mitigations. Read
+[Trust boundaries](../trust-boundaries/) first for the exact placement of
+trusted components, untrusted data, and credential state.
 
 ## Assets
 

@@ -3,20 +3,16 @@ title: Audit and privacy
 description: What Tobari records for policy learning and diagnosis, what it excludes, and why secret-free does not mean content-free.
 ---
 
-## The question this page answers
+Tobari retains bounded, secret-free decision metadata so an HTTP effect can be
+explained and reviewed. Request bodies, broker handles, resolved secrets, and
+configured credential headers are excluded. Ordinary URL paths, query values,
+and unclassified headers are not automatically non-sensitive, so “secret-free”
+does not mean that no request content can appear.
 
-**What does Tobari retain about a request, and which sensitive material stays out of policy-learning evidence?**
-
-<aside class="one-sentence">
-  <strong>One-sentence answer:</strong> Tobari retains bounded, secret-free
-  decision metadata needed to explain and review an HTTP effect; it excludes
-  bodies, broker handles, resolved secrets, and configured credential headers,
-  but does not claim every ordinary URL/query/header string is non-sensitive.
-</aside>
-
-You should finish able to explain what a policy candidate can reveal without implying that the whole request is logged.
-
-**Prerequisite:** [Request journey](../../how-it-works/request-journey/) and [Credential security](../credential-security/).
+This page describes the policy and diagnostic record, not a general-purpose
+data-loss-prevention system. Read [Request journey](../../how-it-works/request-journey/)
+and [Credential security](../credential-security/) first for the request and
+credential boundaries that produce this record.
 
 ## What enters the decision view
 

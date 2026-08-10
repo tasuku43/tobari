@@ -3,15 +3,9 @@ title: 高度なポリシー
 description: 通常の完全一致ポリシーでは必要な境界を表現できない場合に限り、信頼するホスト側で Rego を保守します。
 ---
 
-## このガイドで答える問い
+通常は Guided policy learning を使います。exact allow/deny workflow で表現できない host-authored policy shape が必要な場合だけ Advanced Context を選びます。Rego source と test を一緒に保ち、explicit complete-cluster validation を経て変更を有効化します。
 
-**maintainer は、いつガイド付きポリシー学習を離れ、Rego を直接管理すべきですか？**
-
-exact allow/deny workflow で表現できない host-authored policy shape が必要な場合だけ Advanced Context を使います。source と test を一緒に保ち、explicit complete-cluster validation を経て有効化します。
-
-このガイドを読み終えると、Advanced mode を使うべきか判断し、host-owned file の安全な場所を確認し、namespace、validation、rollback boundary を説明できます。
-
-前提: [Policy review](../policy-review/)と OPA/Rego を理解してください。通常の first-denial path ではありません。
+これは通常の first-denial path ではありません。先に [Policy review](../policy-review/)と OPA/Rego を理解してください。
 
 ## ガイド付きポリシーと高度なポリシーでは、管理方式が異なる
 

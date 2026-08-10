@@ -3,15 +3,9 @@ title: Runtime customization
 description: Build and select a compatible Context-owned runtime without changing Workspace identity or persistent home.
 ---
 
-## The question this guide answers
+Add project tools by initializing the current Context's owner-only Dockerfile recipe, editing it on the trusted host, and running an explicit `runtime build`. The next Workspace entry reconciles the work container while preserving the logical Workspace identity and persistent home.
 
-**How can a project use additional tools without turning its runtime image into the authority for mounts, networking, or Workspace lifetime?**
-
-Initialize the current Context's owner-only Dockerfile recipe, edit it on the trusted host, run the explicit `runtime build`, and let the next Workspace entry reconcile only the work container while preserving logical identity and home.
-
-After this guide, you should be able to describe the recipe/build/promotion sequence, what a compatible image must preserve, and what happens when a build fails.
-
-Prerequisite: know which Context is current; see [Contexts](../contexts/).
+Before starting, identify the current Context; see [Contexts](../contexts/). A custom runtime image provides the working environment, but it does not gain authority over mounts, networking, or Workspace lifetime.
 
 ## 1. Select and inspect the Context
 

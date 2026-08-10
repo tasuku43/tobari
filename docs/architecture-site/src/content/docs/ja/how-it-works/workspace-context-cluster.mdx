@@ -5,20 +5,15 @@ description: 論理的なプロジェクト環境を、ホストが管理する�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-## このページで答える問い
+Workspace は、directory に結び付いた一つの logical Tobari です。その永続的な
+identity は canonical project root と stable Context ID の組み合わせで決まり、
+process を実行する runtime container は交換できます。
 
-Tobari が container、Context、共有 cluster を変更したとき、何が永続しますか？
-
-**一文での答え:** Workspace は canonical root と stable Context ID で識別される、directory-bound の logical Tobari です。runtime container は交換可能で、Context は host-owned configuration を提供し、一つの installation は enforcement service の cluster を共有します。
-
-### 読み終わると説明できること
-
-- Tobari、Workspace、Context、cluster、runtime image を同義語として扱わず説明する
-- current directory から既存 Workspace を選択する仕組み
-- current Context の変更が Workspace を移行しない理由
-- 一つの project root に複数の Workspace を作れる理由
-
-**前提:** [システム概要](../system-overview/)。
+Context は、runtime、policy、agent、credential に関する host-owned configuration
+を提供します。一つの installation は enforcement service の cluster を共有しますが、
+Workspace identity、home、project network は共有しません。この分離により、current
+Context を切り替えても既存 Workspace は移行せず、同じ project root に別 Context
+の Workspace を持つこともできます。周囲の network role は[システム全体像](../system-overview/)で説明しています。
 
 <ConceptDiagram name="workspace-context-cluster" />
 

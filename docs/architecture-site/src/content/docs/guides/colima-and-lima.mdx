@@ -3,15 +3,9 @@ title: Colima and Lima
 description: Make project and Tobari state paths visible to a VM-hosted Docker daemon without widening Workspace mounts.
 ---
 
-## The question this guide answers
+When Docker runs inside a Colima or Lima VM, a path that exists on the host can still be invisible to the Docker daemon. The daemon must be able to resolve every bind source, including the selected project root and Tobari's XDG configuration and state paths.
 
-**Why can a valid host path fail when Docker runs inside a Colima or Lima VM?**
-
-The Docker daemon, not only the CLI process, must be able to resolve every bind source. Share the selected project root and Tobari's XDG configuration/state paths with the VM, then rerun read-only diagnosis and explicit cluster reconciliation.
-
-After this guide, you should be able to identify the paths that matter, distinguish a VM sharing failure from an HTTP policy denial, and fix sharing without mounting the entire host home into a Workspace.
-
-Prerequisite: install Tobari and select the Docker context you intend to use. Tobari uses the standard Docker CLI adapter; it does not depend on Docker Desktop APIs.
+Install Tobari and select the Docker context you intend to use before following this guide. Tobari uses the standard Docker CLI adapter; it does not depend on Docker Desktop APIs. The steps below fix VM sharing without mounting the entire host home into a Workspace.
 
 ## Why path visibility matters
 

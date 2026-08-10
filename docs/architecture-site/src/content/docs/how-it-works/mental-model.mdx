@@ -5,20 +5,18 @@ description: Start with the five participants in one outbound request before lea
 
 import SystemMap from "../../../components/SystemMap.astro";
 
-## The question this page answers
+Tobari's outbound path has five participants: Workspace, Gateway, OPA, Auth
+Broker, and Upstream. A project-bound Workspace can reach an HTTP or HTTPS
+upstream only through Gateway. Gateway asks OPA whether the ordinary request is
+allowed and talks to Auth Broker only when a broker-managed credential is part
+of the request.
 
-What is the smallest accurate model of Tobari?
+That separation is what makes Tobari more than a Docker wrapper. Gateway
+enforces the network decision, OPA decides policy, and Auth Broker keeps
+broker-managed primary credentials outside the Workspace. Authentication does
+not grant network authorization.
 
-**One-sentence answer:** A project-bound Workspace can reach an HTTP or HTTPS upstream only through Gateway; Gateway asks OPA whether the ordinary request is allowed and uses Auth Broker only when a broker-managed credential is involved.
-
-### By the end, you can explain
-
-- why Tobari is more than a Docker wrapper;
-- the different jobs of Workspace, Gateway, OPA, Auth Broker, and upstream;
-- why authentication does not imply network authorization; and
-- where to look next when a request is denied.
-
-**Prerequisite:** [Start with the overview](/start/overview/) if you have not yet seen Tobari's user outcome. No Docker, proxy, or policy knowledge is required here.
+If Tobari's user-facing outcome is new to you, begin with the [overview](/start/overview/). No Docker, proxy, or policy knowledge is needed for the map below.
 
 <SystemMap />
 

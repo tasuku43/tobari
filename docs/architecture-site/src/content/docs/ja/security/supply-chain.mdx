@@ -5,20 +5,14 @@ description: ランタイムの正本、埋め込み snapshot、不変な image 
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-## このページで答える問い
+Tobari は Gateway、OPA、Auth Broker を、レビュー済みの immutable image
+digest から起動します。CLI が使う embedded runtime snapshot と canonical
+source の一致を検査し、runtime metadata、license、repository gate により
+publication または release 前の drift を拒否します。
 
-**Tobari は、起動する Gateway、OPA、Auth Broker、runtime asset の identity をどのように確認しますか？**
-
-<aside class="one-sentence">
-  <strong>一文での答え:</strong> canonical source と embedded runtime snapshot
-  の一致を確認し、service image をレビュー済み immutable digest で選び、runtime
-  metadata と license を検証し、publication/release 前の repository gate で
-  drift を拒否します。
-</aside>
-
-読み終えると、immutable service image identity と moving default runtime selector を区別できます。
-
-**前提:** [Implementation stack](../../how-it-works/implementation-stack/)。
+default Workspace runtime selector は別の契約で、現在は immutable service
+identity ではなく moving tag です。各 image と embedded asset の役割は、先に
+[Implementation stack](../../how-it-works/implementation-stack/) で確認できます。
 
 <ConceptDiagram name="image-supply" />
 

@@ -5,20 +5,16 @@ description: Owner manifest schema 1, reviewed built-in schema 2 plans, normaliz
 
 import providerManifest from "../../../generated/provider-manifest-example.json";
 
-## What question does this page answer?
-
-**What may an Auth Broker provider manifest declare, and what authority does it
-not receive?**
-
-The short answer is: a provider manifest is bounded, non-secret data parsed by
-a strict Go parser. It describes credential acquisition mode, handle
+A provider manifest is bounded, non-secret configuration parsed by Tobari's
+strict Go parser. It declares a credential acquisition mode, Workspace handle
 projection, and one or more exact HTTPS header transformations. It is not an
-executable adapter, and installing it does not grant network permission.
+executable adapter, and installing one does not grant network permission.
 
-Read [Credentials](/how-it-works/credentials/) first. After this page, you
-should be able to review a synthetic owner manifest field by field, distinguish
-it from compiled built-in plans, and explain why OPA authorization remains
-separate.
+This reference covers owner manifest schema 1, reviewed built-in schema 2
+plans, and the normalized projection consumed by Gateway. The parser, domain
+validation, collection normalization, and canonical synthetic fixture are the
+source of truth. Read [Credentials](/how-it-works/credentials/) first for the
+request sequence in which this contract is used.
 
 ## Important terminology
 

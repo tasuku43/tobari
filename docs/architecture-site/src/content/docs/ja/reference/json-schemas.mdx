@@ -3,13 +3,15 @@ title: JSON Schema
 description: 公開 JSON envelope、永続 document、内部 protocol、strict parser、互換性の境界を説明します。
 ---
 
-## このページで答える問い
+このリファレンスでは、Tobari の versioned JSON surface と compatibility
+boundary を一覧にします。public CLI report、persisted manifest、Gateway
+policy input、audit line、Broker socket frame は、関連する object を記述していても
+別の contract です。
 
-**Tobari の schema version は、どの契約に適用されますか？**
-
-短く言うと、各 version は一つの specific surface に属します。public CLI report、persisted manifest、Gateway policy input、audit line、Broker socket frame は、related object を記述していても別の contract です。
-
-読み終えると「Context schema は 5」のような発言に対し、stored configuration と public output のどちらか確認できるようになります。
+各 version は一つの specific surface に属します。「Context schema は 5」のような
+記述は、stored configuration、public output、または別の named contract のどれを
+指すか示すまで不完全です。以下の各 surface では、owning parser、Catalog entry、
+protocol implementation が正本です。
 
 ## 「Schema」が必ずしも JSON Schema を意味しない
 

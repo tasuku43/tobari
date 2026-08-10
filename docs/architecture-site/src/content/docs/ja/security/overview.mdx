@@ -5,20 +5,16 @@ description: Tobari のセキュリティを、明示した前提、実施点、
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-## このページで答える問い
+Tobari は、Workspace が暗黙に持つ host、network、policy、broker-managed
+credential の authority を狭めます。この主張は、Tobari が対応する Docker
+topology と trusted host service が成立する場合に限られます。選択した project
+内の code を無害にするものではありません。
 
-**「container」「proxy」「暗号化」という言葉だけに頼らず、Tobari を信頼するとはどういうことですか？**
-
-<aside class="one-sentence">
-  <strong>一文での答え:</strong> Tobari は、supported Docker topology と trusted
-  host service が成立する条件下で、Workspace が暗黙に持つ
-  host、network、policy、broker-managed credential の authority
-  を狭めます。選択した project 内の code を無害にするものではありません。
-</aside>
-
-読み終えると、enforcement boundary、その trusted base、そして各 claim に必ず伴う第一の制限を説明できます。
-
-**前提:** [Mental model](../../how-it-works/mental-model/)と [System overview](../../how-it-works/system-overview/)。
+そのため、Tobari のセキュリティは「container」「proxy」「暗号化」といった
+言葉だけではなく、範囲を限定した主張として説明します。各主張には前提、実施点、
+fail-closed の動作、根拠、制限があります。component または request path が
+初めてなら、先に [Mental model](../../how-it-works/mental-model/) と
+[System overview](../../how-it-works/system-overview/) を読んでください。
 
 <ConceptDiagram name="trust-boundaries" />
 

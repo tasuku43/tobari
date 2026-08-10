@@ -5,20 +5,18 @@ description: Understand entry, exit, deletion, runtime reconciliation, and clust
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-## The question this page answers
+A Workspace outlives the shell attached to it. `exit` ends only that exec
+session; the logical Workspace, home, runtime records, and Context binding
+remain available for the next entry. `delete` removes one logical Workspace
+and its owned state. Cluster teardown is separate and is allowed only after all
+Workspaces have been deleted.
 
-What remains after `exit`, `delete`, runtime loss, or `cluster down`?
-
-**One-sentence answer:** `exit` ends only the attached exec session, `delete` removes one logical Workspace and its owned home/runtime records, and cluster teardown is a separate operation that is allowed only after all Workspaces are deleted.
-
-### By the end, you can explain
-
-- the difference between attached, detached, and absent;
-- what `delete --force` overrides;
-- how container, network, or runtime-image drift is repaired; and
-- why `cluster down --purge` is not Workspace deletion or credential logout.
-
-**Prerequisite:** [Workspace, Context, cluster, and runtime](/how-it-works/workspace-context-cluster/).
+Container or network loss does not automatically mean that the logical
+Workspace is gone: entry reconciles replaceable runtime state against durable
+records. `delete --force` has a narrower recovery purpose, and `cluster down
+--purge` is neither Workspace deletion nor credential logout. See [Workspace,
+Context, cluster, and runtime](/how-it-works/workspace-context-cluster/) for the
+identities used in this lifecycle.
 
 <ConceptDiagram name="workspace-lifecycle" />
 

@@ -5,13 +5,16 @@ description: owner manifest schema 1、レビュー済み組み込み schema 2 p
 
 import providerManifest from "../../../../generated/provider-manifest-example.json";
 
-## このページで答える問い
+provider manifest は、Tobari の strict Go parser が読む、範囲を限定した
+non-secret configuration です。credential acquisition mode、Workspace handle
+projection、exact HTTPS header transformation を一つ以上宣言します。executable
+adapter ではなく、install しても network permission は与えません。
 
-**Auth Broker の provider manifest は何を宣言でき、どの権限は得られませんか？**
-
-短く言うと provider manifest は strict Go parser が読む bounded non-secret data です。credential acquisition mode、handle projection、exact HTTPS header transformation を一つ以上記述します。executable adapter ではなく、install しても network permission は与えません。
-
-先に [Credential](../../how-it-works/credentials/)を読んでください。読み終えると synthetic owner manifest を field ごとに review し、compiled built-in plan と区別し、OPA authorization が別である理由を説明できます。
+このリファレンスでは owner manifest schema 1、reviewed built-in schema 2
+plan、Gateway が consume する normalized projection を扱います。parser、domain
+validation、collection normalization、canonical synthetic fixture が正本です。
+この contract が使われる request sequence は、先に
+[Credential](../../how-it-works/credentials/) で確認できます。
 
 ## 重要な用語
 

@@ -81,6 +81,12 @@
     max-width: 46rem;
   }
 
+  .sl-markdown-content > p:first-of-type {
+    color: var(--sl-color-gray-2);
+    font-size: clamp(1.04rem, 1rem + 0.2vw, 1.16rem);
+    line-height: 1.72;
+  }
+
   .sl-markdown-content a {
     text-underline-offset: 0.18em;
   }

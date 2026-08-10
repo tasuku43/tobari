@@ -5,20 +5,17 @@ description: Read Tobari security as bounded claims with explicit assumptions, e
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-## The question this page answers
+Tobari reduces a Workspace's ambient authority over the host, network, policy,
+and broker-managed credentials. That claim applies only when Tobari's supported
+Docker topology and trusted host services hold. It does not make code inside
+the selected project harmless.
 
-**What does it mean to rely on Tobari without turning “container,” “proxy,” or “encrypted” into a blanket security claim?**
-
-<aside class="one-sentence">
-  <strong>One-sentence answer:</strong> Tobari reduces a Workspace’s ambient
-  host, network, policy, and broker-managed credential authority when the
-  supported Docker topology and trusted host services hold; it does not make
-  code inside the selected project harmless.
-</aside>
-
-After this page, you should be able to name the enforcement boundary, its trusted base, and the first limitation that must accompany any claim.
-
-**Prerequisite:** [Mental model](../../how-it-works/mental-model/) and [System overview](../../how-it-works/system-overview/).
+Security in Tobari is therefore described as bounded claims, not as a property
+implied by the words “container,” “proxy,” or “encrypted.” Each claim names its
+assumptions, enforcement point, closed failure, evidence, and limitation. Read
+the [Mental model](../../how-it-works/mental-model/) and
+[System overview](../../how-it-works/system-overview/) first if the components
+or request path are unfamiliar.
 
 <ConceptDiagram name="trust-boundaries" />
 

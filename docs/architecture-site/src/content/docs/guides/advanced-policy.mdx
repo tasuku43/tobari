@@ -3,15 +3,9 @@ title: Advanced policy
 description: Maintain trusted-host Rego only when routine exact policy learning cannot express the required boundary.
 ---
 
-## The question this guide answers
+Most users should stay with Guided policy learning. Use an Advanced Context only when a host-authored policy shape cannot be expressed by the exact allow/deny workflow. Keep its Rego source and tests together, then activate changes through explicit complete-cluster validation.
 
-**When should a maintainer leave Guided policy learning and own Rego directly?**
-
-Use an Advanced Context only for a host-authored policy shape that the exact allow/deny workflow cannot express, then keep source and tests together and activate it through explicit complete-cluster validation.
-
-After this guide, you should be able to decide whether Advanced mode is justified, locate its host-owned files safely, and explain its namespace, validation, and rollback boundaries.
-
-Prerequisites: be comfortable with [Policy review](../policy-review/) and OPA/Rego. This is not the normal first-denial path.
+This is not the normal first-denial path. Before continuing, be comfortable with [Policy review](../policy-review/) and OPA/Rego.
 
 ## Guided and Advanced are different ownership models
 

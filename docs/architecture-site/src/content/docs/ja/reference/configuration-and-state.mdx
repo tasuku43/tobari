@@ -3,13 +3,15 @@ title: 設定と状態
 description: ホスト上の正規パス、状態の管理主体、schema の境界、永続性、削除、復旧動作を説明します。
 ---
 
-## このページで答える問い
+このリファレンスでは、Tobari の host-owned configuration、durable runtime
+state、shared read-only projection、Docker resource、選択した project 内の file
+を、それぞれの owner と lifetime に対応付けます。runtime container は
+Workspace の source of truth ではありません。
 
-**Tobari は権限と状態をどこに保存し、各部分をどの操作が削除しますか？**
-
-短く言うと、host-owned configuration、durable runtime state、shared read-only profile、Docker resource、selected project root 内の file は、それぞれ owner/lifetime が異なります。container は Workspace の source of truth ではありません。
-
-先に [Workspace、Context、cluster](../../how-it-works/workspace-context-cluster/)を理解してください。読み終えると、`exit`、`delete`、`cluster down`、`cluster down --purge`、credential replacement、runtime rebuild 後に残るものを予測できます。
+operation table から、`exit`、`delete`、`cluster down`、`cluster down --purge`、
+credential replacement、runtime rebuild の後に残るものを確認できます。これらの
+path の ownership model は、先に [Workspace、Context、cluster](../../how-it-works/workspace-context-cluster/)
+で説明します。
 
 ## ホスト上の三つの root
 

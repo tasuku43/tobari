@@ -6,23 +6,17 @@ description: Follow an outbound request from a Workspace process to a decision, 
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 import SystemMap from "../../../components/SystemMap.astro";
 
-## The question this page answers
+An outbound request starts on the Workspace's dedicated network and reaches
+Gateway before it can reach any upstream. Gateway first establishes the
+host-issued project principal, then prepares any credential metadata without
+exposing the credential value. It sends one normalized decision input to OPA.
 
-In what exact order does Tobari process one outbound HTTP or HTTPS request?
+A deny or invalid decision stops locally. Only an allow lets Gateway perform
+the declared credential action, resolve and pin the destination, open a
+separate upstream connection, and stream ordinary body bytes. This ordering
+keeps policy denial, policy failure, and upstream failure distinct.
 
-**One-sentence answer:** Gateway establishes the host-issued principal,
-prepares credentials without exposing their values, sends one normalized
-decision to OPA, and only after allow performs the declared credential action,
-resolves the destination, and opens the upstream connection.
-
-### By the end, you can explain
-
-- what Gateway knows before it asks OPA;
-- which request data OPA receives and does not receive;
-- why body bytes cannot reach upstream before authorization; and
-- the difference between policy denial, policy failure, and upstream failure.
-
-**Prerequisite:** [System overview](/how-it-works/system-overview/). Broker details are introduced later; here they appear only as one optional preparation step.
+The [system overview](/how-it-works/system-overview/) shows the fixed network map. Broker details come later; in this request trace, the Broker is only an optional preparation step.
 
 <SystemMap
   title="Keep the component map fixed"

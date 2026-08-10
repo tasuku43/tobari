@@ -6,20 +6,16 @@ description: Follow a denied exact effect through host-side review, complete val
 import PolicyLoopMap from "../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
-## The question this page answers
+A learnable policy denial stops the request and leaves secret-free evidence; it
+does not ask the Workspace to approve itself. On the trusted host, Tobari
+validates that retained evidence and derives an opaque exact candidate for
+review. The user explicitly chooses allow or deny.
 
-How does a denied request become an explicit rule without teaching the Workspace to approve itself?
-
-**One-sentence answer:** Gateway retains secret-free denial evidence, the trusted host derives an opaque exact candidate, an explicit host action validates and atomically activates allow or deny, and the original request is retried only deliberately.
-
-### By the end, you can explain
-
-- the difference between denial evidence, a candidate, and active policy;
-- what fields scope an exact learned decision;
-- baseline deny, learned exact deny, reset, and compaction; and
-- how failed or stale activation preserves the previous policy.
-
-**Prerequisite:** [Project identity](/how-it-works/project-identity/) and [Request journey](/how-it-works/request-journey/).
+Applying that choice validates the complete policy and atomically activates a
+new revision. Failed or stale activation preserves the previous policy, and
+the original request runs again only when the user or tool deliberately
+retries it. Baseline deny, a learned exact deny, reset, and compaction remain
+different states and operations. The loop relies on the established [project identity](/how-it-works/project-identity/) and the ordering in [one request through Tobari](/how-it-works/request-journey/).
 
 <PolicyLoopMap />
 

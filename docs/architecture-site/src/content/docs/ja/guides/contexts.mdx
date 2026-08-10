@@ -5,15 +5,9 @@ description: 既存 Workspace の権限を変えずに、ホストが管理す�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-## このガイドで答える問い
+Context は、runtime、ポリシー、agent profile、認証情報の設定を分離する単位です。信頼するホストで作成し、`--context` を省略した command が使う default を一つ選びます。default を変更しても、既存 Workspace は作成時の stable Context ID に恒久的に結び付いたままです。
 
-**runtime、ポリシー、agent profile、認証情報の設定を別々に保つには、どうしますか？**
-
-信頼するホストで named Context を作り、`--context` を省略したときの default を一つ選びます。既存 Workspace は、作成時の stable Context ID に恒久的に結び付いたままです。
-
-このガイドを読み終えると、Context、Workspace、shared cluster の違い、二つ目の Context の作り方、Context switch 後に同じ project root で何が起きるかを説明できます。
-
-前提: [Workspace、Context、cluster](../../how-it-works/workspace-context-cluster/)で概念モデルを確認してください。
+Context、Workspace、shared cluster の関係は、[Workspace、Context、cluster](../../how-it-works/workspace-context-cluster/)を参照してください。
 
 <ConceptDiagram name="workspace-context-cluster" headingLevel={2} />
 

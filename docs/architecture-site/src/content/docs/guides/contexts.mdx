@@ -5,15 +5,9 @@ description: Create, inspect, select, and use host-owned Contexts without changi
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-## The question this guide answers
+Contexts keep runtime, policy, agent-profile, and credential configuration separate. Create them on the trusted host and select one as the default for commands that omit `--context`. An existing Workspace always remains bound to the stable Context ID under which it was created, even after the default changes.
 
-**How do you keep different runtime, policy, agent-profile, and credential configurations separate?**
-
-Create named Contexts on the trusted host, select one as the default for omitted `--context` inputs, and remember that every existing Workspace stays permanently bound to the stable Context ID under which it was created.
-
-After this guide, you should be able to explain the difference between a Context, a Workspace, and the shared cluster; create a second Context; and predict what happens at the same project root after a Context switch.
-
-Prerequisite: [Workspace, Context, cluster](../../how-it-works/workspace-context-cluster/) provides the conceptual model.
+For the relationship between a Context, a Workspace, and the shared cluster, see [Workspace, Context, cluster](../../how-it-works/workspace-context-cluster/).
 
 <ConceptDiagram name="workspace-context-cluster" headingLevel={2} />
 

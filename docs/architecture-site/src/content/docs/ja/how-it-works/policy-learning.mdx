@@ -6,20 +6,16 @@ description: 拒否された完全一致の effect を、ホスト側でのレ�
 import PolicyLoopMap from "../../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
-## このページで答える問い
+learnable な policy denial はリクエストを止め、秘密情報を含まない evidence を残します。
+Workspace 自身へ承認を求めることはありません。trusted host 上の Tobari が retained
+evidence を検証し、review 用の opaque な exact candidate を導出します。利用者は allow
+または deny を明示的に選びます。
 
-拒否された request は、Workspace 自身に承認させず、どのように明示的な rule になりますか？
-
-**一文での答え:** Gateway が secret-free denial evidence を保持し、信頼するホストが opaque な exact candidate を導出します。明示的な host action が allow または deny を検証して atomically に有効化し、元の request は意図的にだけ再試行されます。
-
-### 読み終わると説明できること
-
-- denial evidence、candidate、active policy の違い
-- exact learned decision を scope する field
-- baseline deny、learned exact deny、reset、compaction
-- activation が failed または stale の場合に prior policy が維持される仕組み
-
-**前提:** [Project identity](../project-identity/)と [Request journey](../request-journey/)。
+選択を apply すると、complete policy を検証して新しい revision を atomically に有効化します。
+activation が failed または stale の場合は prior policy を維持し、元のリクエストは利用者や
+tool が意図的に実行したときだけ再試行されます。baseline deny、learned exact deny、reset、
+compaction はそれぞれ異なる state と operation です。この loop は確立済みの
+[プロジェクト識別](../project-identity/)と[リクエストの流れ](../request-journey/)を利用します。
 
 <PolicyLoopMap />
 

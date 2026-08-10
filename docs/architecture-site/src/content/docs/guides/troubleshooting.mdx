@@ -3,15 +3,9 @@ title: Troubleshooting
 description: Start from an observable symptom, identify the owning boundary, and choose a safe read-before-write recovery.
 ---
 
-## The question this guide answers
+Start troubleshooting with read-only diagnostics. Identify which boundary owns the failure, then use the recovery command declared for that fault. Do not replay uncertain mutations or remove security state merely to clear an error.
 
-**What should you inspect first when Tobari does not enter, connect, authorize, authenticate, or clean up as expected?**
-
-Begin with read-only diagnostics, identify which owner failed, and use only the recovery command declared for that fault. Do not replay uncertain mutations or remove security state merely to clear an error.
-
-After this guide, you should be able to triage common symptoms without confusing policy, authentication, runtime, or VM failures.
-
-Prerequisite: know the [five-part mental model](../../how-it-works/mental-model/). For exact codes, retryability, and Catalog-declared recovery, use [Faults and recovery](../../reference/faults-and-recovery/).
+The sections below are organized by observable symptom so policy, authentication, runtime, and VM failures stay distinct. Review the [five-part mental model](../../how-it-works/mental-model/) first. For exact codes, retryability, and Catalog-declared recovery, use [Faults and recovery](../../reference/faults-and-recovery/).
 
 ## Begin with observations
 

@@ -5,27 +5,16 @@ description: The generated public command contract, including inputs, outputs, e
 
 import CliReference from "../../../components/CliReference.astro";
 
-## What question does this page answer?
+This reference lists every public Tobari command and its exact inputs, outputs,
+effects, reference flow, mutation contract, faults, and recovery actions. The
+source of truth is the Go `cli.Catalog`; the content below is generated through
+Tobari's machine-readable help rather than maintained as a second command list.
 
-**Which Tobari commands exist, and what is the exact contract of each command?**
-
-The short answer is: the public command specification lives in the Go
-`cli.Catalog`. The reference below is generated from that Catalog through
-Tobari's machine-readable help. It is not a separately maintained command
-list.
-
-After reading this page, you should be able to:
-
-- choose a command by its user outcome instead of by an internal provider
-  operation;
-- tell a read, create, or write effect apart before invoking it;
-- identify required inputs, defaults, conflicts, prerequisites, and output
-  coverage;
-- follow opaque references from discovery to one exact action; and
-- handle a declared fault without constructing unchecked command text.
-
-If these terms are new, read [the mental model](/how-it-works/mental-model/)
-before using the complete contract.
+Use the summary view to choose a command by user outcome. Open the complete
+contract when you need required inputs, defaults, conflicts, prerequisites,
+output coverage, or the opaque reference consumed by an action. If these terms
+are new, read [the mental model](/how-it-works/mental-model/) before using the
+machine contract.
 
 ## How to read the contract
 

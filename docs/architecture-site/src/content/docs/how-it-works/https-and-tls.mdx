@@ -5,20 +5,16 @@ description: See exactly where Workspace-side HTTPS terminates and where separat
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-## The question this page answers
+An HTTPS request through Tobari uses two TLS connections. The Workspace sends
+`CONNECT` to the explicit HTTP proxy and establishes TLS connection A with
+Gateway under the Tobari CA. Gateway terminates that connection so it can
+authorize the decrypted HTTP attributes.
 
-Does Tobari send an HTTPS request as plaintext to its final destination?
-
-**One-sentence answer:** No—Gateway terminates a Workspace-to-Gateway TLS connection under the Tobari CA so it can authorize HTTP attributes, then creates a separate verified Gateway-to-upstream TLS connection after allow.
-
-### By the end, you can explain
-
-- what `CONNECT` does in Tobari's explicit proxy flow;
-- where TLS connection A ends and connection B begins;
-- why accepting the Tobari CA is different from receiving policy permission; and
-- why certificate-pinned clients fail instead of bypassing Gateway.
-
-**Prerequisite:** [One request through Tobari](/how-it-works/request-journey/).
+After policy allows the request, Gateway creates a separate, verified TLS
+connection B to the upstream. The final destination therefore still receives
+HTTPS rather than plaintext HTTP. Trusting the Tobari CA does not grant policy
+permission, and a certificate-pinned client that rejects interception fails
+instead of bypassing Gateway. The preceding [request journey](/how-it-works/request-journey/) places this TLS split in the full processing order.
 
 <ConceptDiagram name="tls-split" />
 

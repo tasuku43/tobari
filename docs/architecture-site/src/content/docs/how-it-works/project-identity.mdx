@@ -5,20 +5,17 @@ description: Understand how a Gateway interface and host-owned registry establis
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-## The question this page answers
+Before Gateway prepares credentials or asks OPA, it identifies the request's
+Context and project. It selects that principal from the local interface on
+which the request arrived and an owner-controlled registry populated by the
+trusted host.
 
-Why can a Workspace not claim another project's learned rules by changing a header?
-
-**One-sentence answer:** Gateway derives Context and project identity from the local interface on which the request arrived and an owner-controlled principal registry, never from a caller-supplied ID.
-
-### By the end, you can explain
-
-- what the principal registry binds;
-- why one Gateway can distinguish many project networks;
-- when principal establishment happens relative to OPA and credentials; and
-- why the same HTTP effect in another Workspace needs separate learned authority.
-
-**Prerequisite:** [HTTPS and two TLS connections](/how-it-works/https-and-tls/) and the dedicated network concept from [System overview](/how-it-works/system-overview/).
+Caller-supplied project or Context IDs are never authorization inputs. Changing
+a header therefore cannot claim another Workspace's learned rules, and the same
+host, method, and path from a different Workspace still needs authority scoped
+to its own principal. This mechanism builds on the dedicated networks in the
+[system overview](/how-it-works/system-overview/) and applies equally to the
+intercepted flows described in [HTTPS and two TLS connections](/how-it-works/https-and-tls/).
 
 <ConceptDiagram name="project-principal" />
 

@@ -5,24 +5,19 @@ description: Learn why Go, Docker, mitmproxy, OPA, Rego, Python, Unix sockets, a
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-## The question this page answers
+Each implementation technology sits at a specific Tobari boundary. Go owns the
+host CLI, fixed provider acquisition, and validated orchestration. Docker
+realizes process, network, and mount boundaries. mitmproxy and a Python addon
+enforce the HTTP/TLS flow, while OPA and Rego decide generic effects.
 
-Which technology enforces each Tobari boundary, and why is it placed there?
+A separate Python Auth Broker owns encrypted credential state and post-policy
+resolve, refresh, or signing actions over narrow sockets. Keeping these jobs in
+separate processes prevents forwarding, policy, and credential custody from
+collapsing into one authority. Canonical source, embedded snapshots, immutable
+OCI images, and digest pinning then carry those boundaries into the runtime
+supply path.
 
-**One-sentence answer:** Go owns the host CLI, fixed provider acquisition, and
-validated orchestration; Docker realizes process/network/mount boundaries;
-mitmproxy and a Python addon enforce HTTP/TLS flow; OPA/Rego decide generic
-effects; and a separate Python Auth Broker owns encrypted credential state and
-post-policy resolve, refresh, or signing actions over narrow sockets.
-
-### By the end, you can explain
-
-- each component's job rather than only naming its technology;
-- why policy, forwarding, and credential custody are separate processes;
-- how canonical source becomes an immutable runtime image; and
-- what image pinning and embedded-source checks do and do not prove.
-
-**Prerequisite:** The product flow through [State and recovery](/how-it-works/state-and-recovery/). This page is optional for normal use.
+This implementation-oriented page follows the product flow through [State and recovery](/how-it-works/state-and-recovery/) and is optional for ordinary use.
 
 ## Technology follows the trust boundary
 

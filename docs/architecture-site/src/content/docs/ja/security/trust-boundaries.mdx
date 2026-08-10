@@ -6,20 +6,14 @@ description: プロジェクトのファイル、identity、ポリシー、認�
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 import CredentialArchitectureMap from "../../../../components/CredentialArchitectureMap.astro";
 
-## このページで答える問い
+host-owned lifecycle state、registry、policy、root key、Gateway、OPA、Auth
+Broker が Tobari の trusted enforcement side を構成します。Workspace process
+と upstream service は信頼せず、そこから送られた値は、自己申告した project
+または Context の label を authority に変えられません。
 
-**誰をどの情報について信頼し、どの境界が自己申告の権限を拒否しますか？**
-
-<aside class="one-sentence">
-  <strong>一文での答え:</strong> host-owned lifecycle、registry、policy、root
-  key、Gateway、OPA、Auth Broker が boundary を enforce します。Workspace
-  process と upstream が供給するのは untrusted data であり、自分自身の label を
-  authority に変えることはできません。
-</aside>
-
-読み終えると、project authority、policy authority、primary credential、payload data を一つのものとして扱わず、それぞれの位置を説明できます。
-
-**前提:** [Guarantees and limitations](../guarantees-and-limitations/)。
+project authority、policy authority、primary credential、request payload は、
+それぞれ別の boundary を横断します。各 boundary が実施する主張は、先に
+[Guarantees and limitations](../guarantees-and-limitations/) で確認してください。
 
 <ConceptDiagram name="trust-boundaries" />
 

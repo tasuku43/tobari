@@ -6,15 +6,9 @@ description: How a learnable 403 becomes secret-free evidence, an explicit host 
 import PolicyLoopMap from "../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
-## The question this page answers
+A learnable denial stops at Gateway before any upstream connection. Gateway retains bounded, secret-free evidence and directs the user to a host-side review queue. Only an explicit decision and complete policy validation can turn the retained effect into an exact allow or exact deny; the original request is never retried automatically.
 
-**What exactly happens after an undeclared request is denied?**
-
-Gateway stops before upstream connection, retains bounded secret-free evidence, and directs the user to a host-side queue where one opaque reference can become an exact allow or exact deny only after explicit confirmation and complete policy validation.
-
-After this page, you should be able to explain why a denial is evidence rather than permission, why review happens on the host, and why retry remains a separate step.
-
-Prerequisite: complete the [Quickstart](../quickstart/) or understand its host/Workspace command split.
+This page follows the denial through host review and deliberate retry. Complete the [Quickstart](../quickstart/) first, or be familiar with its separation between host and Workspace commands.
 
 <PolicyLoopMap headingLevel={2} />
 

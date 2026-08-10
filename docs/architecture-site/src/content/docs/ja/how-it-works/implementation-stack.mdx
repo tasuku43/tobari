@@ -5,20 +5,18 @@ description: Go、Docker、mitmproxy、OPA、Rego、Python、Unix socket、不�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-## このページで答える問い
+実装技術は、それぞれ特定の Tobari boundary に配置されています。Go は host CLI、
+fixed provider acquisition、validated orchestration を所有します。Docker は process、
+network、mount の境界を実現します。mitmproxy と Python addon は HTTP/TLS flow を
+強制し、OPA と Rego は generic effect を判断します。
 
-Tobari の各境界を強制する技術は何で、なぜそこに置かれていますか？
+別 process の Python Auth Broker は、encrypted credential state と、narrow socket
+越しの post-policy resolve、refresh、signing action を所有します。役割を別 process
+に分けることで、forwarding、policy、credential custody が一つの authority に集まりません。
+canonical source、embedded snapshot、immutable OCI image、digest pinning は、この境界を
+runtime の supply path まで運びます。
 
-**一文での答え:** Go は host CLI、fixed provider acquisition、validated orchestration を所有します。Docker は process/network/mount boundary を実現し、mitmproxy と Python addon は HTTP/TLS flow を強制し、OPA/Rego は generic effect を判断します。別 process の Python Auth Broker は、encrypted credential state と、narrow socket 越しの post-policy resolve、refresh、signing action を所有します。
-
-### 読み終わると説明できること
-
-- 技術名を挙げるだけでなく、各 component が担う仕事
-- policy、forwarding、credential custody が別 process である理由
-- canonical source から immutable runtime image が作られる経路
-- image pinning と embedded-source check が証明すること、証明しないこと
-
-**前提:** [State と復旧](../state-and-recovery/)までの product flow。このページは通常の利用には必須ではありません。
+この実装者向けページは[状態と復旧](../state-and-recovery/)までの product flow を前提とし、通常の利用には必須ではありません。
 
 ## 技術は信頼境界に従う
 

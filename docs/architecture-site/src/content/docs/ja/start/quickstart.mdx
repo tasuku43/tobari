@@ -5,15 +5,9 @@ description: 合成 Workspace を作り、拒否を確認し、完全一致の e
 
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
-## このページで答える問い
+この手順では、信頼するホストで共有 cluster を起動し、合成 project の Workspace へ入ります。一つの request が拒否されることを確認し、その exact effect をホストでレビューして許可した後、再度 entry して意図的に再試行します。host-owned control command と Workspace 内の command の違い、`exit` 後に残る状態も確認します。
 
-**Tobari を一通り体験する最短の手順は何ですか？**
-
-信頼するホストで共有 cluster を起動し、合成 project の Workspace へ入り、一つの request が拒否されるのを確認します。その exact effect をホストでレビューして許可し、再度 entry して意図的に再試行します。
-
-このページを読み終えると、host-owned control command と Workspace 内で実行する command を区別し、`exit` 後に何が残るかを説明できるようになります。
-
-前提: [インストール](../install/)を完了し、interactive terminal を使ってください。以下の command は現在の CLI Catalog と一致します。
+先に[インストール](../install/)を完了し、interactive terminal を使ってください。以下の command は現在の CLI Catalog と一致します。
 
 ## 1. 安全な合成プロジェクトを選ぶ
 

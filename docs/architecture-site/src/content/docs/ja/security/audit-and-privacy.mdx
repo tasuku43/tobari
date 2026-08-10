@@ -3,21 +3,16 @@ title: 監査とプライバシー
 description: ポリシー学習と診断のために記録する情報、除外する情報、秘密情報を含まなくても内容が空ではない理由を説明します。
 ---
 
-## このページで答える問い
+Tobari は、HTTP effect の説明とレビューに必要な、範囲を限定した
+secret-free decision metadata を保持します。request body、broker handle、
+resolved secret、設定済みの credential header は除外します。一方で、通常の
+URL path、query value、分類されていない header が自動的に non-sensitive に
+なるわけではありません。
 
-**Tobari はリクエストについて何を保持し、ポリシー学習の根拠からどの機微情報を除外しますか？**
-
-<aside class="one-sentence">
-  <strong>一文での答え:</strong> Tobari は HTTP effect
-  の説明とレビューに必要な、bounded secret-free decision metadata
-  を保持します。body、broker handle、resolved secret、configured credential
-  header は除外しますが、通常の URL/query/header string がすべて non-sensitive
-  だとは主張しません。
-</aside>
-
-読み終えると、request 全体を log していると誤解せず、policy candidate から何が分かるかを説明できます。
-
-**前提:** [Request journey](../../how-it-works/request-journey/)と [Credential security](../credential-security/)。
+ここで説明するのは policy と診断の記録であり、汎用的な data-loss
+prevention ではありません。この記録が作られる request と credential の境界は、
+先に [Request journey](../../how-it-works/request-journey/) と
+[Credential security](../credential-security/) で確認できます。
 
 ## 許可判断の入力に含まれるもの
 

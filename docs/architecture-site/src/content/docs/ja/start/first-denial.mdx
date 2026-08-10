@@ -6,15 +6,9 @@ description: 学習可能な 403 が、秘密情報を含まない根拠、ホ�
 import PolicyLoopMap from "../../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
-## このページで答える問い
+学習可能な拒否は、upstream connection が作られる前に Gateway で止まります。Gateway は、量を制限した秘密情報を含まない根拠を保持し、ホスト側の review queue を案内します。保持された effect が exact allow または exact deny になるのは、明示的な判断と policy 全体の検証が完了した後だけです。元の request が自動的に再試行されることはありません。
 
-**未宣言のリクエストが拒否された後、正確には何が起きますか？**
-
-Gateway は upstream connection より前で停止し、bounded secret-free evidence を保持します。そして host-side queue を案内します。そこで opaque reference 一つが、明示的な確認と complete policy validation を経た後にだけ、exact allow または exact deny になります。
-
-このページを読み終えると、拒否が permission ではなく evidence である理由、review が host で行われる理由、retry が別の step であり続ける理由を説明できるようになります。
-
-前提: [クイックスタート](../quickstart/)を完了するか、host と Workspace の command の分離を理解してください。
+ここでは、拒否からホスト上のレビュー、意図的な再試行までを順に追います。先に[クイックスタート](../quickstart/)を完了するか、host と Workspace の command が分離されていることを確認してください。
 
 <PolicyLoopMap headingLevel={2} />
 

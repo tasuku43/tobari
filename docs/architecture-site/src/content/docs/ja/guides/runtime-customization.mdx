@@ -3,15 +3,9 @@ title: runtimeのカスタマイズ
 description: Workspace の identity と永続 home を変えずに、Context が管理する互換ランタイムをビルドして選択します。
 ---
 
-## このガイドで答える問い
+プロジェクトへツールを追加するには、current Context の owner-only Dockerfile recipe を初期化し、信頼するホストで編集してから、明示的に `runtime build` を実行します。次の Workspace entry では work container だけを調整し、logical Workspace identity と persistent home を保持します。
 
-**runtime image に mount、ネットワーク、Workspace の寿命を決める権限を与えず、プロジェクトへツールを追加するにはどうしますか？**
-
-current Context の owner-only Dockerfile recipe を初期化し、信頼するホストで編集し、明示的な `runtime build` を実行します。次の Workspace entry で work container だけを reconcile し、logical identity と home を保持します。
-
-このガイドを読み終えると recipe/build/promotion の順序、compatible image が保持すべきもの、build failure 時の動作を説明できます。
-
-前提: current Context を把握してください。[Context](../contexts/)を参照してください。
+作業前に current Context を確認してください。詳しくは [Context](../contexts/)を参照してください。custom runtime image は作業環境を提供しますが、mount、network、Workspace lifetime を決める権限は持ちません。
 
 ## 1. Context を選択して確認する
 

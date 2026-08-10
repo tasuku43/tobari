@@ -5,20 +5,19 @@ description: Understand Tobari's four Go layers, Catalog-owned public contract, 
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-## The question this page answers
+Tobari's Go code follows one inward dependency direction: domain defines pure
+vocabulary and invariants, application interprets user tasks through minimal
+ports, infrastructure implements controlled external effects, and CLI wires
+the system together as the sole composition root.
 
-How does the repository keep product policy, use-case interpretation, external effects, and CLI presentation from becoming one inseparable implementation?
+The CLI Catalog is the source of every public command contract, not merely a
+list of help strings. Gateway, Auth Broker, and runtime assets use a related
+source boundary: canonical source is edited in its owning directory and the
+embedded copy is a byte-checked snapshot. These rules keep product policy,
+use-case interpretation, external I/O, and presentation from becoming one
+inseparable implementation.
 
-**One-sentence answer:** Pure domain invariants sit at the center, application use cases own minimal ports, infrastructure implements controlled effects, and CLI is the sole composition root whose Catalog defines every public command contract.
-
-### By the end, you can explain
-
-- the allowed dependency direction among four Go layers;
-- why application packages own task-specific ports;
-- why the CLI Catalog is more than a help-text list; and
-- why Gateway/Auth Broker canonical source is distinct from its embedded snapshot.
-
-**Prerequisite:** [Implementation stack](/how-it-works/implementation-stack/). This page is for contributors and reviewers, not required for ordinary Tobari use.
+This contributor-oriented page builds on the [implementation stack](/how-it-works/implementation-stack/) and is not required for ordinary Tobari use.
 
 <ConceptDiagram name="code-layers" />
 

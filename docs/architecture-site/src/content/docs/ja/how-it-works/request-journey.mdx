@@ -6,20 +6,17 @@ description: Workspace process から許可判断、Upstream 接続、秘密情�
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 import SystemMap from "../../../../components/SystemMap.astro";
 
-## このページで答える問い
+外向きリクエストは Workspace の専用 network から始まり、Upstream へ到達する前に
+Gateway へ届きます。Gateway はまず host-issued project principal を確立し、credential
+の値を公開せずに必要な metadata を準備します。その後、正規化した一つの decision
+input を OPA へ送ります。
 
-Tobari は一つの outbound HTTP/HTTPS request を、どの正確な順序で処理しますか？
+deny または不正な decision は local で処理を止めます。Gateway が宣言済みの credential
+action を実行し、宛先を resolve して pin し、別の upstream connection を開き、通常の
+body byte を stream できるのは allow 後だけです。この順序により、policy denial、policy
+failure、upstream failure を区別できます。
 
-**一文での答え:** Gateway は host-issued principal を確立し、値を公開せず credential を準備して、normalized decision 一つを OPA へ送ります。allow 後にだけ、declared credential action、destination resolution、upstream connection を行います。
-
-### 読み終わると説明できること
-
-- OPA へ問い合わせる前に Gateway が知るもの
-- OPA が受け取る request data と受け取らないもの
-- authorization 前に body byte が upstream へ届かない理由
-- policy denial、policy failure、upstream failure の違い
-
-**前提:** [システム概要](../system-overview/)。Broker detail は後のページで説明します。ここでは optional preparation step 一つとしてだけ登場します。
+[システム全体像](../system-overview/)には固定された network map があります。Broker の詳細は後で扱い、ここでは optional な準備 step としてだけ登場します。
 
 <SystemMap
   title="コンポーネントの配置は固定"

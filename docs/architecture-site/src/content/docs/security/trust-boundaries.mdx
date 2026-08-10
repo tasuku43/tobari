@@ -6,20 +6,15 @@ description: Where project files, identities, policy, credentials, control socke
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 import CredentialArchitectureMap from "../../../components/CredentialArchitectureMap.astro";
 
-## The question this page answers
+Host-owned lifecycle state, registries, policy, root keys, Gateway, OPA, and
+Auth Broker form the trusted enforcement side of Tobari. Workspace processes
+and upstream services remain untrusted, and values they supply cannot turn a
+self-declared project or Context label into authority.
 
-**Who is trusted with which information, and which boundary rejects self-asserted authority?**
-
-<aside class="one-sentence">
-  <strong>One-sentence answer:</strong> Host-owned lifecycle, registries,
-  policy, root keys, Gateway, OPA, and Auth Broker enforce the boundary;
-  Workspace processes and upstreams supply untrusted data and cannot turn their
-  own labels into authority.
-</aside>
-
-You should finish able to locate project authority, policy authority, primary credentials, and payload data without treating them as one thing.
-
-**Prerequisite:** [Guarantees and limitations](../guarantees-and-limitations/).
+Project authority, policy authority, primary credentials, and request payloads
+cross different boundaries. Read [Guarantees and
+limitations](../guarantees-and-limitations/) first for the claims those
+boundaries enforce.
 
 <ConceptDiagram name="trust-boundaries" />
 

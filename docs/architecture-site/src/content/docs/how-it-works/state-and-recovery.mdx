@@ -5,20 +5,15 @@ description: Map each durable artifact to its owner, lifetime, removal command, 
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-## The question this page answers
+Tobari keeps project, Workspace, Context, cluster, credential, and installation
+state in separate ownership scopes. Lifecycle actions remove only the scope
+they declare: `exit`, `delete`, cluster teardown, credential logout or
+replacement, and runtime rebuild therefore preserve different artifacts.
 
-Which state survives each operation, and which state is safe to reconstruct?
-
-**One-sentence answer:** Tobari separates project, Workspace, Context, cluster, credential, and installation state so that each lifecycle action removes only its declared owner scope and uncertain state fails closed instead of being guessed.
-
-### By the end, you can explain
-
-- what every major state store means, not just where it lives;
-- what `exit`, `delete`, cluster teardown, logout, replacement, and rebuild preserve;
-- how container/network loss differs from durable-state loss; and
-- why some recovery paths refuse automatic repair.
-
-**Prerequisite:** [Workspace lifecycle](/how-it-works/workspace-lifecycle/) and [Credentials](/how-it-works/credentials/).
+Some runtime state is safe to reconstruct from durable records; other missing
+or inconsistent state makes recovery stop rather than guess. This distinction
+is why container or network loss is not equivalent to losing Workspace or
+credential state. The tables below apply the [Workspace lifecycle](/how-it-works/workspace-lifecycle/) and [credential](/how-it-works/credentials/) boundaries to each store.
 
 <ConceptDiagram name="state-retention" />
 

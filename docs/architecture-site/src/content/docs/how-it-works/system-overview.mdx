@@ -7,20 +7,16 @@ import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 import SystemMap from "../../../components/SystemMap.astro";
 
-## The question this page answers
+Tobari uses network topology as part of its enforcement boundary. In the
+supported topology, each Workspace joins only its own Docker-internal project
+network. Gateway is the only component with both a project-network interface
+and an egress interface, so removing proxy settings does not create another
+route to the public Internet.
 
-Why can a Workspace not bypass Tobari by ignoring its proxy settings?
-
-**One-sentence answer:** In the supported topology, each Workspace joins only a dedicated Docker-internal network, while Gateway is the only component with both a project-network interface and an egress interface.
-
-### By the end, you can explain
-
-- the roles of the project, control, and egress networks;
-- why Gateway, OPA, and Auth Broker have different network attachments;
-- how an allowed request reaches upstream; and
-- why Gateway or OPA failure closes the path.
-
-**Prerequisite:** [The five-part mental model](/how-it-works/mental-model/).
+Three network scopes keep work traffic, policy control, and external egress
+separate. Gateway crosses the necessary scopes; OPA and Auth Broker have
+narrower attachments. An allowed request can leave through Gateway, while a
+Gateway or OPA failure closes the path. The [five-part mental model](/how-it-works/mental-model/) introduces the participants shown below.
 
 <SystemMap
   title="The supported network and control map"

@@ -7,15 +7,9 @@ import CredentialArchitectureMap from "../../../components/CredentialArchitectur
 import ProviderToolMap from "../../../components/ProviderToolMap.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
-## The question this guide answers
+Authentication and network authorization are separate in Tobari. Choose one explicit authentication path for the tool, then authorize its ordinary HTTP effects separately. A successful login or import never adds a network allow rule.
 
-**Where should a tool's credential live, and does registering it authorize traffic?**
-
-Choose one explicit authentication path for the tool, then authorize its ordinary HTTP effects separately. A successful login or import never adds a network allow rule.
-
-After this guide, you should be able to compare all three paths, run a reviewed built-in broker flow, explain handle binding, and recover safely after rotation or logout.
-
-Prerequisites: understand [Request journey](../../how-it-works/request-journey/) and [Contexts](../contexts/).
+This guide compares the three supported paths, shows the reviewed built-in broker flow, and covers handle binding, rotation, and logout. Read [Request journey](../../how-it-works/request-journey/) and [Contexts](../contexts/) first.
 
 ## Compare the three paths
 

@@ -3,15 +3,9 @@ title: ColimaとLima
 description: Workspace の mount 範囲を広げず、プロジェクトと Tobari の状態パスを VM 上の Docker daemon から見えるようにします。
 ---
 
-## このガイドで答える問い
+Docker が Colima または Lima VM 内で動いている場合、ホスト上に存在する path でも Docker daemon から見えないことがあります。daemon は、selected project root と Tobari の XDG configuration/state path を含む、すべての bind source を resolve できる必要があります。
 
-**ホストでは有効なパスが、Colima または Lima VM 内の Docker で失敗するのはなぜですか？**
-
-CLI process だけでなく Docker daemon からも、すべての bind source を resolve できる必要があります。selected project root と Tobari XDG configuration/state path を VM と共有し、read-only diagnosis と explicit cluster reconciliation を再実行します。
-
-読み終えると、必要な path、VM sharing failure と HTTP policy denial の違い、host home 全体を Workspace へ mount せず sharing を修正する方法を説明できます。
-
-前提: Tobari を install し、使用する Docker context を選択してください。Tobari は standard Docker CLI adapter を使い、Docker Desktop API には依存しません。
+先に Tobari を install し、使用する Docker context を選択してください。Tobari は standard Docker CLI adapter を使い、Docker Desktop API には依存しません。以下の手順では、host home 全体を Workspace へ mount せずに VM sharing を修正します。
 
 ## パスが見える必要がある理由
 

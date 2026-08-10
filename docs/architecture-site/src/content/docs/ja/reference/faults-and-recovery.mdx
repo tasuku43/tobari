@@ -5,21 +5,15 @@ description: 生成された CLI fault 契約、stable kind/code、再試行の�
 
 import FaultReference from "../../../../components/FaultReference.astro";
 
-## このページで答える問い
+このリファレンスでは、Tobari の stable fault kind、exact code、process exit
+code、retry metadata、Catalog-owned recovery action を定義します。生成される表の
+正本は exact-command agent help であり、public CLI contract と同期します。
 
-**Tobari が障害を報告したとき、どの field が安定した契約で、次に何をしても安全ですか？**
-
-短く言うと stable `kind` と exact `code` で failure を分類し、Catalog-owned next action に従います。upstream message または rate-limit timer から、mutation を安全に繰り返せると推論しないでください。
-
-このページは [Troubleshooting](../../guides/troubleshooting/)の contract-oriented companion です。Troubleshooting は visible symptom から始め、このページは machine fault から始めます。
-
-読み終えると次ができます。
-
-- fault kind を process exit code へ対応させる
-- retryability と mutation replay safety を区別する
-- policy denial と unavailable policy engine を区別する
-- fail-closed credential-handle behavior を認識する
-- untrusted text を追加せず exact recovery command を使う
+failure は `kind` と `code` で分類し、宣言された next action を使ってください。
+upstream message または rate-limit timer から、mutation を安全に繰り返せると
+推論してはいけません。visible symptom から調べる場合は
+[Troubleshooting](../../guides/troubleshooting/) を使います。このページは machine
+fault から始めます。
 
 ## 公開 fault envelope
 

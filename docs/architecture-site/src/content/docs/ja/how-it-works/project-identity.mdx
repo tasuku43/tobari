@@ -5,20 +5,14 @@ description: Gateway の interface とホストが管理する registry から C
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-## このページで答える問い
+Gateway は credential を準備したり OPA へ問い合わせたりする前に、リクエストの
+Context と project を特定します。trusted host が作成した owner-controlled registry と、
+リクエストを受けた local interface の組み合わせから principal を選びます。
 
-Workspace は、header を変えて別 project の learned rule を自称できないのはなぜですか？
-
-**一文での答え:** Gateway は request を受けた local interface と owner-controlled principal registry から Context と project identity を導出し、caller-supplied ID は決して使いません。
-
-### 読み終わると説明できること
-
-- principal registry が何を bind するか
-- 一つの Gateway が多数の project network を見分ける仕組み
-- principal establishment が OPA や credential に対していつ行われるか
-- 別 Workspace の同じ HTTP effect に別の learned authority が必要な理由
-
-**前提:** [HTTPS と二つの TLS 接続](../https-and-tls/)、および[システム概要](../system-overview/)の dedicated network concept。
+caller-supplied の project ID や Context ID は authorization input になりません。そのため
+header を変えても別 Workspace の learned rule は利用できず、同じ host、method、path への
+通信でも、その Workspace の principal に scope された authority が必要です。この仕組みは
+[システム全体像](../system-overview/)の専用 network を利用し、[HTTPS と TLS](../https-and-tls/)の intercepted flow にも同じように適用されます。
 
 <ConceptDiagram name="project-principal" />
 

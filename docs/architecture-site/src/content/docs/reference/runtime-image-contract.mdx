@@ -3,17 +3,15 @@ title: Runtime image contract
 description: The exact compatibility labels, user, entrypoint, lifetime command, build and selection rules for Tobari Workspace images.
 ---
 
-## What question does this page answer?
+This reference defines the OCI image contract accepted by a Tobari Workspace.
+Before creating or reconciling a runtime, Tobari inspects four exact properties:
+runtime API `1`, the fixed lifetime capability, the `tobari` user, and the
+reviewed entrypoint.
 
-**What makes an OCI image compatible with a Tobari Workspace?**
-
-The short answer is: Tobari inspects four exact properties before creating or
-reconciling a Workspace runtime. A compatible image keeps runtime API `1`, the
-fixed lifetime capability, the `tobari` user, and the reviewed entrypoint. The
-host still owns mounts, resources, network, and Workspace lifetime.
-
-Read [Runtime customization](/guides/runtime-customization/) for the task flow.
-This page defines the image boundary precisely.
+The image supplies tools and a root filesystem; the host still owns mounts,
+resources, network, and Workspace lifetime. For the workflow that creates and
+selects an image, use [Runtime
+customization](/guides/runtime-customization/).
 
 ## Required image properties
 

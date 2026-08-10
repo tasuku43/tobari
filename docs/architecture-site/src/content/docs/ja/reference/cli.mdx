@@ -5,21 +5,15 @@ description: 入力、出力、effect、reference、変更操作、fault、復�
 
 import CliReference from "../../../../components/CliReference.astro";
 
-## このページで答える問い
+このリファレンスには、すべての公開 Tobari command と、その正確な input、
+output、effect、reference flow、mutation contract、fault、recovery action を掲載します。
+正本は Go の `cli.Catalog` です。以下の内容は Tobari の machine-readable help
+を通じて生成され、別の command list として保守されていません。
 
-**どの Tobari コマンドが存在し、それぞれの正確な契約は何ですか？**
-
-短く言うと、public command specification は Go の `cli.Catalog` にあります。以下の reference は Tobari の machine-readable help を通じて Catalog から生成され、別に保守する command list ではありません。
-
-読み終えると次ができるようになります。
-
-- internal provider operation ではなく user outcome から command を選ぶ
-- invoke 前に read、create、write effect を区別する
-- required input、default、conflict、prerequisite、output coverage を確認する
-- discovery で得た opaque reference を exact action 一つへ渡す
-- unchecked command text を作らず declared fault を扱う
-
-用語が初めてなら、complete contract の前に [mental model](../../how-it-works/mental-model/) を読んでください。
+summary view では user outcome から command を選べます。required input、default、
+conflict、prerequisite、output coverage、action が consume する opaque reference
+を確認するときは complete contract を開いてください。これらの用語が初めてなら、
+machine contract の前に [mental model](../../how-it-works/mental-model/) を読んでください。
 
 ## 契約の読み方
 

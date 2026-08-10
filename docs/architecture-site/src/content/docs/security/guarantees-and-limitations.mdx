@@ -3,21 +3,15 @@ title: Guarantees and limitations
 description: The major Tobari security claims, each paired with preconditions, enforcement, failure behavior, evidence, and a nearby limitation.
 ---
 
-## The question this page answers
+Tobari narrows a supported Workspace to one selected project, one host-issued
+principal, Gateway-mediated HTTP/HTTPS, explicit policy, and constrained broker
+handles. It does not police files inside the selected root, payloads sent to an
+allowed destination, processes inside the same Workspace, other protocols,
+overlapping roots, or a compromised trusted base.
 
-**Which outcomes can you rely on, and where does each outcome stop?**
-
-<aside class="one-sentence">
-  <strong>One-sentence answer:</strong> Tobari narrows a supported Workspace to
-  one selected project, one host-issued principal, Gateway-mediated HTTP/HTTPS,
-  explicit policy, and constrained broker handles—but does not police selected
-  files, allowed payloads, same-Workspace processes, other protocols,
-  overlapping roots, or a compromised trusted base.
-</aside>
-
-After reading, you should be able to answer the acceptance questions about proxy bypass, OPA outage, allowed data, selected files, and trusted-component compromise.
-
-**Prerequisite:** [Security overview](../overview/).
+Each claim below states its preconditions, enforcement point, failure behavior,
+evidence, and nearest limitation. Read the [Security overview](../overview/)
+first for the trusted components and the boundary shared by these claims.
 
 ## Claim 1: supported Workspaces have no direct public egress
 

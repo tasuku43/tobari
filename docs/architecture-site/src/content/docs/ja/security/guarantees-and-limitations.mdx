@@ -3,22 +3,15 @@ title: 保証と制限
 description: Tobari の主要なセキュリティ上の主張を、前提、実施点、障害時の動作、根拠、制限と組み合わせて説明します。
 ---
 
-## このページで答える問い
+Tobari は、対応する Workspace の権限を、選択した一つの project、一つの
+host-issued principal、Gateway を経由する HTTP/HTTPS、明示した policy、制約
+された broker handle に限定します。選択した root 内の file、許可済みの宛先へ
+送る payload、同じ Workspace の process、他の protocol、overlapping root、
+侵害された trusted base は制御しません。
 
-**どの結果を信頼でき、それぞれの保証範囲はどこまでですか？**
-
-<aside class="one-sentence">
-  <strong>一文での答え:</strong> Tobari は supported Workspace
-  を、選択した一つの project、一つの host-issued principal、Gateway-mediated
-  HTTP/HTTPS、explicit policy、constrained broker handle
-  へ狭めます。しかし、選択した file、allowed payload、同じ Workspace の
-  process、他の protocol、overlapping root、compromised trusted base
-  は制御しません。
-</aside>
-
-読み終えると、proxy bypass、OPA outage、allowed data、selected file、trusted component compromise に関する受け入れ確認へ答えられます。
-
-**前提:** [Security overview](../overview/)。
+以下の各主張は、前提、実施点、障害時の動作、根拠、最も近い制限をセットで示します。
+共通する trusted component と boundary は、先に
+[Security overview](../overview/) で確認してください。
 
 ## 主張 1：対応する Workspace には外部への直接経路がない
 

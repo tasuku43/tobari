@@ -5,20 +5,16 @@ description: Workspace 側の HTTPS が終端する正確な位置と、別に�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-## このページで答える問い
+Tobari を通る HTTPS リクエストは、二つの TLS connection を使います。Workspace は
+explicit HTTP proxy へ `CONNECT` を送り、Tobari CA の下で Gateway との TLS
+connection A を確立します。Gateway はこの connection を終端し、復号した HTTP
+attribute を authorization に使います。
 
-Tobari は HTTPS request を final destination へ plaintext で送りますか？
-
-**一文での答え:** いいえ。Gateway は HTTP attribute を authorization できるよう、Tobari CA の下で Workspace-to-Gateway TLS connection を終端します。allow 後に、検証済みの Gateway-to-upstream TLS connection を別に作ります。
-
-### 読み終わると説明できること
-
-- Tobari の explicit proxy flow で `CONNECT` が行うこと
-- TLS connection A の終端点と connection B の開始点
-- Tobari CA の受け入れと policy permission の取得が別である理由
-- certificate-pinned client が Gateway を迂回せず失敗する理由
-
-**前提:** [Tobari を通る一つの request](../request-journey/)。
+policy がリクエストを許可すると、Gateway は Upstream へ別の検証済み TLS connection B
+を作ります。したがって final destination へ plaintext HTTP を送るわけではありません。
+Tobari CA を信頼することは policy permission の取得とは別であり、interception を拒否する
+certificate-pinned client は Gateway を迂回せず接続に失敗します。前の
+[リクエストの流れ](../request-journey/)では、この TLS 分割を処理全体の中に位置付けています。
 
 <ConceptDiagram name="tls-split" />
 

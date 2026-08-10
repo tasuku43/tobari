@@ -3,15 +3,9 @@ title: トラブルシューティング
 description: 観測できる症状から担当する境界を特定し、変更より先に読み取りを行う安全な復旧手順を選びます。
 ---
 
-## このガイドで答える問い
+トラブルシューティングは、read-only diagnostic から始めます。失敗を所有する境界を特定し、その fault に宣言された recovery command を使ってください。単に error を消すために、結果が不確実な mutation を replay したり security state を削除したりしてはいけません。
 
-**Tobari への entry、接続、通信許可、認証、後片付けが想定どおり動かないとき、最初に何を調べるべきですか？**
-
-read-only diagnostic から始め、失敗を所有する主体を特定し、その fault に宣言された recovery command だけを使います。単に error を消すために、結果が不確実な mutation を replay したり security state を削除したりしないでください。
-
-このガイドを読み終えると、policy、authentication、runtime、VM の failure を混同せず、よくある症状を切り分けられるようになります。
-
-前提: [五つの要素からなる mental model](../../how-it-works/mental-model/)を理解してください。正確な code、retryability、Catalog-declared recovery は [Fault と復旧](../../reference/faults-and-recovery/)を参照してください。
+以下の項目は観測できる症状ごとに分かれているため、policy、authentication、runtime、VM の failure を区別できます。先に[五つの要素からなる mental model](../../how-it-works/mental-model/)を確認してください。正確な code、retryability、Catalog-declared recovery は [Fault と復旧](../../reference/faults-and-recovery/)を参照してください。
 
 ## 観測から始める
 

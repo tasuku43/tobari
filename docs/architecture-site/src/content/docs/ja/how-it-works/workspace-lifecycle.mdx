@@ -5,20 +5,16 @@ description: session と論理状態を混同せず、entry、exit、削除、ru
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-## このページで答える問い
+Workspace の寿命は、接続中の shell より長く続きます。`exit` が終了するのは exec
+session だけであり、logical Workspace、home、runtime record、Context binding は
+次回の entry のために残ります。`delete` は一つの logical Workspace と、その所有する
+state を削除します。cluster の停止は別の操作で、すべての Workspace を削除した後にだけ実行できます。
 
-`exit`、`delete`、runtime loss、`cluster down` の後、何が残りますか？
-
-**一文での答え:** `exit` が終了するのは attached exec session だけです。`delete` は一つの logical Workspace と、その owned home/runtime record を削除します。cluster teardown は別の操作であり、すべての Workspace を削除した後にだけ実行できます。
-
-### 読み終わると説明できること
-
-- attached、detached、absent の違い
-- `delete --force` が上書きするもの
-- container、network、runtime-image drift の修復方法
-- `cluster down --purge` が Workspace deletion でも credential logout でもない理由
-
-**前提:** [Workspace、Context、cluster、runtime](../workspace-context-cluster/)。
+container や network を失っても、logical Workspace まで自動的に失われるわけでは
+ありません。entry は交換可能な runtime state を durable record と照合して修復します。
+`delete --force` の目的はより限定されており、`cluster down --purge` は Workspace の削除でも
+credential の logout でもありません。この lifecycle で使う identity は
+[Workspace、Context、cluster](../workspace-context-cluster/)で説明しています。
 
 <ConceptDiagram name="workspace-lifecycle" />
 

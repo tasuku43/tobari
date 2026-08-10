@@ -6,13 +6,13 @@ description: リポジトリが管理する正本から生成した、tool、ima
 import ComponentVersions from "../../../../components/ComponentVersions.astro";
 import componentVersions from "../../../../generated/component-versions.json";
 
-## このページで答える問い
+このリファレンスには、documentation snapshot が宣言する tool、image、runtime
+API、CLI、schema、source の正確な identity を掲載します。表は repository-owned
+version source から生成され、このページの prose へ値を重複して書きません。
 
-**このソース commit は、どのコンポーネント identity を正確に宣言していますか？**
-
-短く言うと、このページの表は repository-owned version source から生成されます。Go、image、runtime、CLI、schema value を prose に重複して書きません。
-
-読み終えると software version、OCI selector、immutable digest、runtime API version、JSON schema version、source commit を区別できます。
+software version、OCI selector、immutable digest、runtime API version、JSON
+schema version、source commit は、それぞれ異なる contract の identity です。
+以下の説明で、各行がどの種類の identity を持つかを確認できます。
 
 ## 生成されたバージョンと identity の表
 

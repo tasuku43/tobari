@@ -3,20 +3,15 @@ title: Configuration and state
 description: Canonical host paths, state ownership, schema boundaries, persistence, deletion, and recovery behavior.
 ---
 
-## What question does this page answer?
-
-**Where does Tobari keep authority and state, and which operation removes each
-piece?**
-
-The short answer is: host-owned configuration, durable runtime state, shared
-read-only profiles, Docker resources, and files in the selected project root
-have different owners and lifetimes. A container is not the source of truth for
+This reference maps Tobari's host-owned configuration, durable runtime state,
+shared read-only projections, Docker resources, and selected project files to
+their owners and lifetimes. A runtime container is not the source of truth for
 a Workspace.
 
-You should first understand [Workspace, Context, and
-cluster](/how-it-works/workspace-context-cluster/). After this page, you should
-be able to predict what survives `exit`, `delete`, `cluster down`,
-`cluster down --purge`, credential replacement, and runtime rebuild.
+Use the operation table to determine what survives `exit`, `delete`, `cluster
+down`, `cluster down --purge`, credential replacement, and runtime rebuild. For
+the ownership model behind these paths, read [Workspace, Context, and
+cluster](/how-it-works/workspace-context-cluster/) first.
 
 ## The three host roots
 

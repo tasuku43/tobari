@@ -5,20 +5,15 @@ description: 永続 artifact ごとに、管理主体、寿命、削除コマン
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-## このページで答える問い
+Tobari は project、Workspace、Context、cluster、credential、installation の state を
+別々の ownership scope に分けます。lifecycle action が削除するのは、宣言した scope
+だけです。そのため `exit`、`delete`、cluster teardown、credential の logout や
+replacement、runtime rebuild では、それぞれ残る artifact が異なります。
 
-各 operation の後にどの state が残り、どの state は安全に再構築できますか？
-
-**一文での答え:** Tobari は project、Workspace、Context、cluster、credential、installation state を分けます。各 lifecycle action は宣言した owner scope だけを削除し、uncertain state は推測せず fail closed します。
-
-### 読み終わると説明できること
-
-- major state store の場所だけでなく意味
-- `exit`、`delete`、cluster teardown、logout、replacement、rebuild が保持するもの
-- container/network loss と durable-state loss の違い
-- automatic repair を拒否する recovery path がある理由
-
-**前提:** [Workspace lifecycle](../workspace-lifecycle/)と [Credential](../credentials/)。
+durable record から安全に再構築できる runtime state がある一方で、欠損や不整合を
+推測せず処理を止める state もあります。container や network の消失が、Workspace
+や credential state の消失と同じではないのはこのためです。以下の表では、
+[Workspace lifecycle](../workspace-lifecycle/)と[認証情報](../credentials/)の境界を各 store に適用します。
 
 <ConceptDiagram name="state-retention" />
 

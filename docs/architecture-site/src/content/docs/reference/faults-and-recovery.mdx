@@ -5,26 +5,16 @@ description: Generated CLI fault contracts, stable kinds and codes, retry semant
 
 import FaultReference from "../../../components/FaultReference.astro";
 
-## What question does this page answer?
+This reference defines Tobari's stable fault kinds, exact codes, process exit
+codes, retry metadata, and Catalog-owned recovery actions. The generated table
+comes from exact-command agent help, so it stays aligned with the public CLI
+contract.
 
-**When Tobari reports a failure, which fields are stable and what is safe to do
-next?**
-
-The short answer is: classify the failure by its stable `kind` and exact
-`code`, then follow the Catalog-owned next action. Never infer that a mutation
-is safe to repeat from an upstream message or a rate-limit timer.
-
-This page is the contract-oriented companion to
-[Troubleshooting](/guides/troubleshooting/). Troubleshooting begins with a
-visible symptom. This page begins with a machine fault.
-
-After reading it, you should be able to:
-
-- map a fault kind to its process exit code;
-- distinguish retryability from mutation replay safety;
-- tell a policy denial from an unavailable policy engine;
-- recognize fail-closed credential-handle behavior; and
-- use an exact recovery command without appending untrusted text.
+Classify a failure by `kind` and `code`, then use its declared next action.
+Never infer that a mutation is safe to repeat from an upstream message or a
+rate-limit timer. For diagnosis that begins with a visible symptom, use
+[Troubleshooting](/guides/troubleshooting/); this page begins with the machine
+fault.
 
 ## Public fault envelope
 

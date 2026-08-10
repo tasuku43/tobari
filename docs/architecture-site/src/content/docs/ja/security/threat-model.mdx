@@ -3,21 +3,15 @@ title: 脅威モデル
 description: 現在の Tobari における資産、攻撃者、前提、攻撃経路、緩和策、残るリスク、fail-closed の動作を説明します。
 ---
 
-## このページで答える問い
+この脅威モデルでは、すべての Workspace process を信頼しません。Tobari は、
+選択していない host/Docker resource への access、別 project identity の
+self-assignment、HTTP policy の bypass、broker-managed credential state と
+derived request credential の取得を試みる process を制限するよう設計されています。
 
-**Tobari は、どの前提のもとで、どの攻撃に対抗するよう設計され、どのリスクが残りますか？**
-
-<aside class="one-sentence">
-  <strong>一文での答え:</strong> Tobari は、unselected host/Docker resource への
-  access、別 project identity の self-assignment、HTTP policy の
-  bypass、broker-managed credential state と derived request credential
-  の取得を試みる untrusted Workspace process を制限します。一方で、host
-  enforcement base と user による root/rule の選択は明示的に trust します。
-</aside>
-
-読み終えると、mitigated attack と out-of-scope trusted-base compromise を区別できます。
-
-**前提:** [Trust boundaries](../trust-boundaries/)。
+host enforcement base と、user が選んだ project root および policy は信頼します。
+その基盤自体の侵害は、ここで述べる緩和策の範囲外です。trusted component、
+untrusted data、credential state の正確な位置は、先に
+[Trust boundaries](../trust-boundaries/) で確認してください。
 
 ## 保護する資産
 
