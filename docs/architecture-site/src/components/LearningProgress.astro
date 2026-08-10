@@ -13,13 +13,13 @@ const context = getLearningPathContext(
 const isJapanese = context?.locale === "ja";
 const labels = isJapanese
   ? {
-      path: "学習経路",
-      current: "現在のページ",
+      path: "学習ガイド",
+      current: "このページ",
       previous: "前のページ",
       next: "次のページ",
-      overview: "学習経路の全体を見る",
+      overview: "全体の流れを確認する",
       aria: (step: number, title: string) =>
-        `学習経路 ${step} / 10、現在は「${title}」`,
+        `学習ガイド ${step} / 10。このページは「${title}」`,
     }
   : {
       path: "Learning path",
