@@ -1,55 +1,55 @@
 ---
 title: 理解度チェック
-description: Tobari のライフサイクル、リクエスト、ポリシー、認証情報、信頼境界を確認する 20 のシナリオです。
+description: Tobari のライフサイクル、通信経路、ポリシー、認証情報、信頼境界を 20 のシナリオで確認します。
 ---
 
 ## このページの使い方
 
-各シナリオで、回答を開く前に自分の言葉で答えてください。正しい回答では「許可」「拒否」だけでなく、担当コンポーネントと重要な境界も挙げます。
+各シナリオについて、回答を開く前に自分の言葉で説明してください。「許可される」「拒否される」だけでなく、どのコンポーネントが判断または強制し、どの境界が関係するかまで答えます。
 
-先に[学習経路](../learning-path/)をたどってください。分からない回答が多い場合は、文章を暗記せずリンク先へ戻ってください。
+先に[学習ガイド](../learning-path/)をたどってください。分からない回答が多い場合は、文章を暗記するのではなく、各回答のリンク先へ戻ってください。
 
-## 1. Docker wrapper だけではない理由
+## 1. Docker ラッパーだけではない理由
 
 開発者が「Tobari は便利な `docker run` コマンドにすぎない」と言いました。何が抜けていますか？
 
 <details>
 <summary>回答</summary>
 
-ランタイムコンテナは、失われても復元できる実装要素の一つにすぎません。Tobari はほかにも、Context に結び付いた論理 Workspace、ホストが発行するプロジェクトプリンシパル、専用の内部ネットワーク、Gateway による経路の強制、OPA ポリシー、拒否内容のレビューと一括有効化、永続ホームと状態、必要に応じた認証情報の仲介を管理します。[システム全体像](../../how-it-works/system-overview/)を参照してください。
+ランタイムコンテナは、失われても復元できる実装要素の一つにすぎません。Tobari はほかにも、Context に結び付いた論理 Workspace、ホストが発行するプロジェクトプリンシパル、専用の内部ネットワーク、Gateway による通信経路の強制、OPA ポリシー、拒否内容のレビューと一括有効化、永続ホームと状態、必要に応じた認証情報の仲介を管理します。[システム全体像](../../how-it-works/system-overview/)を参照してください。
 
 </details>
 
 ## 2. プロキシを無視する
 
-プロセスが `HTTP_PROXY` を消し、公開 IP へ直接接続します。対応する構成ではどうなりますか？
+プロセスが `HTTP_PROXY` を消し、公開 IP へ直接接続します。サポート対象の構成ではどうなりますか？
 
 <details>
 <summary>回答</summary>
 
-失敗します。Workspace は Docker が提供する外部経路を持たず、専用の内部プロジェクトネットワークだけに参加します。プロジェクトネットワークと外向き通信の両方に参加するのは Gateway だけです。変数を消しても経路は作られません。[信頼境界](../../security/trust-boundaries/)を参照してください。
+失敗します。Workspace は Docker が提供する外部経路を持たず、専用の内部プロジェクトネットワークだけに参加します。プロジェクトネットワークと外部向けネットワークの両方に参加するのは Gateway だけです。環境変数を消しても経路は追加されません。[信頼境界](../../security/trust-boundaries/)を参照してください。
 
 </details>
 
-## 3. 判断と実施
+## 3. 判断と強制
 
-OPA が `allow` を返しました。Upstream 接続を実際に開くコンポーネントはどれですか？
+OPA が `allow` を返しました。外部の接続先への接続を実際に開くコンポーネントはどれですか？
 
 <details>
 <summary>回答</summary>
 
-Gateway です。OPA が正規化された許可対象を判断し、Gateway が判断を実施して、別の Upstream への接続を作ります。[Request journey](../../how-it-works/request-journey/)を参照してください。
+Gateway です。OPA が正規化された HTTP 通信を判断し、Gateway が結果を通信経路へ強制して、外部の接続先へ別の接続を作ります。[リクエストの流れ](../../how-it-works/request-journey/)を参照してください。
 
 </details>
 
 ## 4. OPA が停止する
 
-リクエストの評価中に OPA が利用不可になりました。可用性を優先してリクエストを許可しますか？
+リクエストの評価中に OPA が利用できなくなりました。可用性を優先してリクエストを許可しますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。Gateway はサービス障害を返し、外部の接続先へは接続しません。ポリシー判断がない、形式が正しくない、または利用できない場合は、安全側に倒して拒否します。[リクエストの流れ](../../how-it-works/request-journey/)を参照してください。
+いいえ。Gateway はサービス障害を返し、外部の接続先へは接続しません。ポリシー判断を得られない、形式が不正、または利用できない場合は、通信を拒否します。[リクエストの流れ](../../how-it-works/request-journey/)を参照してください。
 
 </details>
 
@@ -64,14 +64,14 @@ HTTPS クライアントが Tobari 経由で `api.example.com` へ接続しま�
 
 </details>
 
-## 6. 同じ許可対象、異なる本文
+## 6. 同じ通信条件、異なる本文
 
-二つのリクエストで Context、プロジェクト、スキーム、ホスト、ポート、メソッド、パスが同じですが、JSON 本文が異なります。別々の学習済み規則が必要ですか？
+二つのリクエストで Context、プロジェクト、スキーム、ホスト、ポート、メソッド、パスが同じですが、JSON 本文が異なります。別々の学習済みルールが必要ですか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。リクエスト本文はポリシー識別情報 dimension ではなく、候補を分割しません。Tobari は payload の意味から権限を推論しません。[Policy learning](../../how-it-works/policy-learning/)を参照してください。
+いいえ。リクエスト本文は、学習済みルールを識別する判断項目ではありません。本文が違っても候補を分割せず、Tobari が本文の意味から権限を推測することもありません。[ポリシー学習](../../how-it-works/policy-learning/)を参照してください。
 
 </details>
 
@@ -93,18 +93,18 @@ Workspace A は Context `default` で作られています。利用者が `tobar
 <details>
 <summary>回答</summary>
 
-いいえ。`context use` は省略時のデフォルトだけを変えます。既存 Workspace は安定した Context ID に恒久的に結び付きます。同じルートで `review` の別 Workspace を選択または作成できます。[Context](../../guides/contexts/)を参照してください。
+いいえ。`context use` は Context を省略したコマンドで使う既定値だけを変えます。既存 Workspace は安定した Context ID に結び付いたままです。同じルートで `review` の別 Workspace を選択または作成できます。[Context](../../guides/contexts/)を参照してください。
 
 </details>
 
 ## 9. 同じ URL、別の Workspace
 
-Workspace B が、Workspace A に許可されたものと同じホスト、メソッド、パスを使います。A の規則は B も自動的に許可しますか？
+Workspace B が、Workspace A に許可されたものと同じホスト、メソッド、パスを使います。A のルールは B も自動的に許可しますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。学習済み規則は安定した Context と、ホストが発行したプロジェクトプリンシパルにも結び付きます。B が文字どおり同じ Context／プロジェクト権限でない限り、一致する規則が別に必要です。[プロジェクト識別](../../how-it-works/project-identity/)を参照してください。
+いいえ。学習済みルールは安定した Context と、ホストが発行したプロジェクトプリンシパルにも結び付きます。B が同じ Context とプロジェクトの権限を持たない限り、別の一致するルールが必要です。[プロジェクトの識別](../../how-it-works/project-identity/)を参照してください。
 
 </details>
 
@@ -115,73 +115,73 @@ Workspace B が、Workspace A に許可されたものと同じホスト、メ�
 <details>
 <summary>回答</summary>
 
-いいえ。ログインは Context 認証情報を保存し、次の一致する入室でプロジェクトに結び付いたハンドルをプロジェクトします。OPA は通常の HTTP 操作を引き続き評価し、完全一致の許可が必要です。認証は通信許可を広げません。[Authentication](../../guides/authentication/)を参照してください。
+いいえ。ログインは Context の認証状態を保存します。次に Workspace へ入るとき、現在のプロジェクトに結び付いたハンドルが反映されます。それでも OPA は通常の HTTP 通信を判断し、完全一致の許可を要求します。認証に成功しても、通信許可は広がりません。[認証](../../guides/authentication/)を参照してください。
 
 </details>
 
 ## 11. Workspace が受け取るもの
 
-Workspace に `tobari-h1_` で始まる値があります。Upstream に渡すトークンですか？
+Workspace に `tobari-h1_` で始まる値があります。外部の接続先へ渡すトークンですか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。Context、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の HTTP／ヘッダー契約に結び付く、不透明でランダムなハンドルです。実物の秘密情報は暗号化された Context 保管庫に残り、許可された Gateway 経路でのみ解決されます。[認証情報](../../how-it-works/credentials/)を参照してください。
+いいえ。Context、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の HTTP とヘッダーの契約に結び付いた、不透明でランダムなハンドルです。認証情報の本体は暗号化された Context 保管庫に残り、許可された Gateway の経路でだけ解決されます。[認証情報](../../how-it-works/credentials/)を参照してください。
 
 </details>
 
 ## 12. 拒否された Auth Broker 経由のリクエスト
 
-Broker ハンドルは有効ですが、OPA が HTTP 操作を拒否しました。Auth Broker は実物の秘密情報を Gateway へ返しますか？
+Broker ハンドルは有効ですが、OPA が HTTP 通信を拒否しました。Auth Broker は認証情報の本体を Gateway へ返しますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。Gateway はポリシー判断前に秘密情報を含まない結び付け確認を行う場合がありますが、拒否された場合は秘密情報を解決しません。Upstream への接続もありません。[認証情報のセキュリティ](../../security/credential-security/)を参照してください。
+いいえ。Gateway はポリシー判断前に、秘密情報を含まない結び付けを確認する場合がありますが、拒否された場合は認証情報を解決しません。外部の接続先への接続も作りません。[認証情報の安全性](../../security/credential-security/)を参照してください。
 
 </details>
 
 ## 13. 不正なハンドルのフォールバック
 
-リクエストの宣言済みヘッダーに不正な形式の Tobari ハンドルが入っています。Gateway は通常のそのまま転送認証情報として扱えますか？
+宣言済みのリクエストヘッダーに、不正な形式の Tobari ハンドルが入っています。Gateway は、通常のそのまま転送する認証方式として扱えますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。Tobari 形式の印を認識した値が、不正、古い、コピー済み、曖昧、誤った位置、結び付き不一致のいずれかなら、安全側に倒して拒否します。Tobari 形式の印がまったくない場合だけ、そのまま転送する方式や managed 方式を検討します。[認証情報の安全性](../../security/credential-security/)を参照してください。
+いいえ。Tobari 形式の値が不正、古い、コピー済み、曖昧、誤った位置、結び付き不一致のいずれかなら、Gateway は拒否します。Tobari 形式の値がない場合だけ、そのまま転送する方式や保持型の管理方式を検討します。[認証情報の安全性](../../security/credential-security/)を参照してください。
 
 </details>
 
-## 14. クラスターの purge
+## 14. クラスターの完全削除
 
-すべての Workspace を削除し、`tobari cluster down --purge` を実行しました。暗号化された Context 保管庫とインストールルート鍵も削除されますか？
+すべての Workspace を削除し、`tobari cluster down --purge` を実行しました。暗号化された Context 保管庫とインストール用ルート鍵も削除されますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。`--purge` は共有 Gateway CA ボリュームを追加で削除します。Context 保管庫とインストールルート鍵は残ります。`auth logout` を実行するわけではなく、プロバイダーへの接続も行いません。[状態と復旧](../../how-it-works/state-and-recovery/)を参照してください。
+いいえ。`--purge` は、通常のクラスター停止に加えて、共有 Gateway CA と現在有効なポリシーバンドルのボリュームを削除します。Context 保管庫とインストール用ルート鍵は残ります。`auth logout` を実行するわけではなく、プロバイダーへの接続も行いません。[状態と復旧](../../how-it-works/state-and-recovery/)を参照してください。
 
 </details>
 
 ## 15. プロジェクトファイルの保護
 
-エージェントが選択したプロジェクトルート内のファイルを削除しました。Tobari の境界が破られたことになりますか？
+エージェントが作業対象のディレクトリ内にあるファイルを削除しました。Tobari の境界が破られたことになりますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。選択したルートは意図的に読み書き可能な状態でマウントされます。Tobari が前提条件の下で保護するのは選択外のファイルです。選択したプロジェクトを、権限を持つ Workspace 内のプロセスから守るものではありません。[保証と制限](../../security/guarantees-and-limitations/)を参照してください。
+いいえ。作業対象のディレクトリは、意図的に読み書き可能な状態でマウントされます。Tobari が前提条件の下で保護するのは、その外側にあるホストファイルです。作業対象を、同じ Workspace 内のプロセスから保護するものではありません。[保証と制限](../../security/guarantees-and-limitations/)を参照してください。
 
 </details>
 
-## 16. 許可済みの宛先へ送るデータ
+## 16. 許可済みの接続先へ送るデータ
 
-完全一致の宛先/メソッド/パスが許可されています。本文にソースコードや Workspace から読める秘密情報がないことを、Tobari は保証できますか？
+完全一致の接続先、メソッド、パスが許可されています。本文にソースコードや Workspace から読める秘密情報が含まれていないことを、Tobari は保証できますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。本文は許可後にストリーミングし、通信の許可判断には使いません。許可された接続先は、Workspace が読み取れ、送信するよう選んだデータを受け取れます。[保証と制限](../../security/guarantees-and-limitations/)を参照してください。
+いいえ。本文は許可後にストリーミングし、通信の許可判断には使いません。許可された接続先は、Workspace が読み取り、送信したデータを受け取れます。[保証と制限](../../security/guarantees-and-limitations/)を参照してください。
 
 </details>
 
@@ -209,34 +209,34 @@ Gateway または Docker デーモンが侵害されました。文書化され�
 
 ## 19. CLI の正本
 
-手書きのガイドと `tobari help` で argument の説明が違います。どちらが正本ですか？
+手書きのガイドと `tobari help` で引数の説明が違います。どちらが正しいですか？
 
 <details>
 <summary>回答</summary>
 
-公開コマンド/invocation のソース of truth は `cli.Catalog` です。routing、typed argv、help、role、許可対象、復旧、generated site 参照はそこから導出されます。hand-written guide を修正する必要があります。[CLI reference](../../reference/cli/)を参照してください。
+公開コマンドと呼び出し方法の正本は `cli.Catalog` です。コマンドの振り分け、型付きの引数、ヘルプ、役割、達成結果、復旧方法、生成されるサイトのリファレンスは、すべて Catalog から導出されます。この場合は、手書きのガイドを修正する必要があります。[CLI リファレンス](../../reference/cli/)を参照してください。
 
 </details>
 
-## 20. セキュリティ上の主張の根拠
+## 20. セキュリティ保証の根拠
 
-「Workspace は OPA へ直接到達できず、OPA の拒否は Upstream I/O を防ぐ」と主張する場合、どの根拠が必要ですか？
+「Workspace は OPA へ直接到達できず、OPA の拒否時には外部への通信が発生しない」と説明する場合、どの根拠が必要ですか？
 
 <details>
 <summary>回答</summary>
 
-少なくとも、判断の根拠となるアーキテクチャとセキュリティの契約、OPA が制御経路だけに参加することを示す Compose とネットワークの実装・テスト、拒否時に外部の接続先へ接続しないことを示す Gateway テスト、直接の外向き通信と制御ネットワークの分離を確認する統合テストが必要です。[検証の根拠](../../security/verification-evidence/)の対応表が、保証、強制箇所、テスト、ソースを結び付けます。
+少なくとも、判断の基準となるアーキテクチャとセキュリティの契約、OPA が制御ネットワークだけに参加することを示す Compose とネットワークの実装・テスト、拒否時に外部の接続先へ接続しないことを示す Gateway テスト、外部への直接通信と制御ネットワークの分離を確認する統合テストが必要です。[検証の根拠](../../security/verification-evidence/)の対応表が、保証、強制箇所、テスト、ソースを結び付けます。
 
 </details>
 
 ## 追加シナリオ：コピーされた Broker ハンドル
 
-プロセスが Workspace A の有効なハンドルを Workspace B へコピーし、同じホスト/ヘッダーへ送ります。重要な確認項目は何ですか？
+プロセスが Workspace A の有効なハンドルを Workspace B へコピーし、同じホストとヘッダーへ送ります。重要な確認項目は何ですか？
 
 <details>
 <summary>回答</summary>
 
-Gateway は、リクエストを受け取ったネットワークインターフェースから B のプリンシパルを導出します。Broker による照会と解決では、ハンドルに含まれる Context、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の接続先、入力元／出力先ヘッダーの結び付きがすべて一致しなければなりません。A のプロジェクトへの結び付きは B と一致しないため、別方式への切り替えや外部接続より前に失敗します。有効で結び付きも一致するハンドルでも、B の通常の HTTP メソッドとパスに対する OPA の許可が必要です。
+Gateway は、リクエストを受け取ったネットワークインターフェースから B のプリンシパルを導出します。Auth Broker の照会と解決では、ハンドルに含まれる Context、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の接続先、入力元と出力先のヘッダー結び付けが、すべて一致しなければなりません。A のプロジェクトへの結び付きは B と一致しないため、別方式への切り替えや外部接続より前に失敗します。有効で結び付きも一致するハンドルでも、B の通常の HTTP メソッドとパスに対する OPA の許可が必要です。
 
 </details>
 
@@ -245,11 +245,11 @@ Gateway は、リクエストを受け取ったネットワークインターフ
 - [レビュー済みコミットの製品契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
 - [レビュー済みコミットのアーキテクチャ](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
 - [セキュリティモデルと根拠の要件](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
-- [Gateway の実施テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [Gateway の通信強制テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
 - [境界を一連の動作で確認するテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
 
 ## まとめ
 
-各回答を管理主体に結び付けられれば、現在のモデルを理解しています。ホストが識別情報を選び、Workspace がプロジェクト権限を持ち、OPA が判断し、Gateway が実施し、Auth Broker が許可後にだけ解決します。ライフサイクルコマンドは自分が所有する状態だけを削除します。
+各回答を、状態や権限を管理するコンポーネントへ結び付けられれば、現在のモデルを理解できています。ホストが識別情報を選び、Workspace が作業対象の権限を持ち、OPA がポリシーを判断し、Gateway が通信経路を強制し、Auth Broker が許可後にだけ認証処理を実行します。ライフサイクルコマンドは、それぞれが所有する状態だけを変更または削除します。
 
-推測に頼った回答があれば、link 先へ戻ってください。完全一致の argument、スキーマ、パス、障害、バージョンは [Reference](../../reference/cli/) へ進んでください。
+推測に頼った回答があれば、各回答のリンク先へ戻ってください。正確な引数、スキーマ、保存先、障害、バージョンは[リファレンス](../../reference/cli/)で確認できます。
