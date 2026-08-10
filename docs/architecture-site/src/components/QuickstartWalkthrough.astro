@@ -10,36 +10,36 @@ const evidenceHref = (path: string) =>
 const ui = isJapanese
   ? {
       intro:
-        "練習用プロジェクトで、未許可の通信が一度止まり、ホストで確認して許可した後、新しいリクエストが外部へ進むところまで試します。",
+        "練習用ディレクトリで、未許可の通信が拒否され、ホスト側のレビューを経て、新しいリクエストが外部へ届くまでを確認します。",
       prerequisite:
-        "先にインストールを完了し、対話型ターミナルを使ってください。選んだプロジェクト内のファイルは保護対象ではないため、実際の作業ディレクトリではなく練習用ディレクトリを使います。",
+        "事前にインストールを完了し、対話型ターミナルを用意してください。作業ディレクトリ内のファイルはエージェントから保護されないため、実際のリポジトリではなく空の練習用ディレクトリを使います。",
       install: "インストール手順を確認する",
       labels: {
         location: "実行場所",
-        action: "すること",
+        action: "操作",
         command: "コマンド",
-        expected: "表示される結果",
-        blocked: "次へ進めない場合",
+        expected: "期待する結果",
+        blocked: "進めないとき",
       },
       steps: [
         {
-          title: "練習用プロジェクトを作り、共有クラスターを起動する",
+          title: "空の練習用ディレクトリで共有クラスターを起動する",
           location: "信頼するホスト",
           action:
-            "専用の空ディレクトリへ移動し、Gateway、OPA、Auth Broker を含む共有クラスターを起動します。",
+            "空のディレクトリへ移動し、Gateway、OPA、Auth Broker からなる共有クラスターを起動します。",
           command: `mkdir -p quickstart-example
 cd quickstart-example
 tobari cluster up`,
           expected:
-            "共有クラスターが起動し、準備が整います。この時点ではプロジェクトの Workspace はまだ作られません。",
+            "共有クラスターが起動します。この時点では、プロジェクト用の Workspace はまだ作られません。",
           blocked:
-            "`tobari doctor` と `tobari cluster status` を実行し、表示されたホスト側の前提条件を直してから `tobari cluster up` を再実行します。",
+            "`tobari doctor` と `tobari cluster status` を実行し、表示されたホスト側の前提条件を修正してから `tobari cluster up` を再実行します。",
         },
         {
-          title: "Workspace に入り、拒否される通信を一度送る",
-          location: "ホスト → Workspace 内 → ホスト",
+          title: "Workspace から未許可のリクエストを送る",
+          location: "ホスト → Workspace → ホスト",
           action:
-            "ホストで `tobari` を実行して Workspace に入り、その中から練習用の PUT リクエストを送ります。拒否を確認したら `exit` でホストへ戻ります。",
+            "ホストで `tobari` を実行して Workspace に入り、練習用の PUT リクエストを送ります。拒否を確認したら、`exit` でホストへ戻ります。",
           command: `tobari
 
 # Workspace 内
@@ -47,26 +47,26 @@ curl -sS -w '\\nhttp=%{http_code}\\n' \\
   -X PUT https://example.com/quickstart
 exit`,
           expected:
-            "HTTP 403 と `policy_denied` が表示され、ホストで実行するレビューコマンドが案内されます。Tobari は接続先へ接続せず、自動で承認や再試行もしません。`exit` 後も Workspace とその状態は残ります。",
+            "HTTP 403 と `policy_denied` が表示され、ホスト側のレビューコマンドが案内されます。Gateway は接続先へ接続せず、リクエストを自動で許可・再送しません。`exit` 後も Workspace とその状態は残ります。",
           blocked:
-            "`tobari` への入室には対話型ターミナルが必要です。イメージに関するエラーが出た場合は `tobari context show` を確認し、対応するランタイムを用意します。",
+            "`tobari` で Workspace に入るには、対話型ターミナルが必要です。イメージに関するエラーが出た場合は `tobari context show` を確認し、対応するランタイムを準備します。",
         },
         {
-          title: "ホストで拒否内容を確認し、完全一致で許可する",
+          title: "ホスト側で拒否内容をレビューし、完全一致で許可する",
           location: "信頼するホスト",
           action:
-            "レビュー画面で Context、プロジェクト、ホスト、ポート、メソッド、パスを確認し、今回の通信だけを許可します。",
+            "レビュー画面で Context、プロジェクト、ホスト、ポート、メソッド、パスを確認し、この通信条件だけを許可します。",
           command: `tobari policy review --tail 100`,
           expected:
-            "選んだ通信の完全一致規則が、ポリシー全体の検証後に有効になります。許可操作は、拒否された HTTP リクエストそのものを再送しません。",
+            "選択した通信条件の完全一致ルールが、ポリシー全体の検証後に有効になります。許可操作は、拒否された HTTP リクエストそのものを再送しません。",
           blocked:
-            "候補が表示されない場合は、手順2の拒否が発生したことを確認してからレビューをやり直します。同じ通信を無条件に繰り返し送らないでください。",
+            "候補が表示されない場合は、手順2で拒否が発生したことを確認してからレビューをやり直します。同じリクエストを無条件に繰り返し送らないでください。",
         },
         {
-          title: "Workspace へ入り直し、新しいリクエストを送る",
-          location: "ホスト → Workspace 内 → ホスト",
+          title: "Workspace から同じ条件のリクエストを送り直す",
+          location: "ホスト → Workspace → ホスト",
           action:
-            "同じプロジェクトから Workspace へ入り直し、同じメソッドとパスの新しいリクエストを明示的に送ります。",
+            "同じプロジェクトから Workspace へ入り直し、同じメソッドとパスの新しいリクエストを送ります。",
           command: `tobari
 
 # Workspace 内
@@ -74,12 +74,12 @@ curl -sS -w '\\nhttp=%{http_code}\\n' \\
   -X PUT https://example.com/quickstart
 exit`,
           expected:
-            "今回は外部の接続先から HTTP 応答が返ります。`example.com` が返す特定のステータスコードは保証しません。確認できるのは、許可した完全一致の通信が外部への経路へ進んだことです。",
+            "今回は外部の接続先から HTTP 応答が返ります。`example.com` が返すステータスコード自体は保証しません。ここで確認するのは、許可した通信条件が外部への経路へ進んだことです。",
           blocked:
-            "再び 403 になった場合は、Context、プロジェクト、ホスト、ポート、メソッド、パスが許可した通信と一致しているかを確認し、`tobari policy review --tail 100` を実行します。",
+            "再び 403 になった場合は、Context、プロジェクト、ホスト、ポート、メソッド、パスが許可した条件と一致しているか確認し、`tobari policy review --tail 100` を実行します。",
         },
         {
-          title: "状態を確認し、練習用リソースを削除する",
+          title: "状態を確認して、練習用リソースを削除する",
           location: "信頼するホスト",
           action:
             "Workspace の状態を確認し、練習用 Workspace を削除してから、空になった共有クラスターを停止します。",
@@ -88,29 +88,29 @@ tobari list
 tobari delete
 tobari cluster down --purge`,
           expected:
-            "`delete` は Workspace の永続ホームと所有するランタイム資源を削除しますが、練習用プロジェクトのファイルは削除しません。`cluster down --purge` は共有 CA と使用中のポリシーバンドル用ボリュームも削除します。",
+            "`delete` は Workspace の永続ホームと、Workspace が所有するランタイムリソースを削除します。練習用ディレクトリのファイルは削除しません。`cluster down --purge` は、共有 CA と有効なポリシーバンドルのボリュームも削除します。",
           blocked:
-            "`cluster_not_empty` の場合は `tobari list` で残っている Workspace を確認し、それぞれを削除してから再実行します。接続中セッションを意図的に終了する場合だけ `tobari delete --force` を使います。",
+            "`cluster_not_empty` の場合は `tobari list` で残っている Workspace を確認し、それぞれを削除してから再実行します。接続中のセッションを意図的に終了する場合だけ `tobari delete --force` を使います。",
         },
       ],
-      completionTitle: "ここまでで確認できたこと",
+      completionTitle: "確認できたこと",
       completion:
-        "Tobari が未許可の通信を止め、人がホストで内容を確認し、必要な完全一致の通信だけを許可した後に、新しいリクエストを送れることを体験しました。",
-      nextTitle: "次は、必要なところだけ詳しく読む",
+        "未許可の通信は接続先へ届く前に拒否されます。信頼するホストで通信条件をレビューし、完全一致で許可した後は、新しいリクエストとして同じ条件の通信を実行できます。",
+      nextTitle: "必要に応じて詳細を確認する",
       nextLinks: [
-        ["拒否されたときの確認方法", "/start/first-denial/"],
-        ["通信処理の完全な順序", "/how-it-works/request-journey/"],
-        ["保証と守らない範囲", "/security/guarantees-and-limitations/"],
+        ["拒否された通信のレビュー", "/start/first-denial/"],
+        ["リクエストを処理する順序", "/how-it-works/request-journey/"],
+        ["保証が成立する前提と制限", "/security/guarantees-and-limitations/"],
         ["終了・削除・復旧後に残る状態", "/how-it-works/state-and-recovery/"],
       ],
-      scriptSummary: "対話画面を使わず、JSON の参照値で許可する場合",
+      scriptSummary: "JSON の参照値を使って許可・拒否する",
       scriptIntro:
-        "レビューをリダイレクトまたはスクリプトから使う場合、JSON に出力された不透明な ID を変更せず、そのまま許可操作へ渡します。表示順やリクエスト文から ID を作り直してはいけません。",
+        "対話画面を使わない場合は、JSON に出力された不透明な ID を変更せず、そのまま許可・拒否コマンドへ渡します。表示順やリクエスト文字列から ID を再構成しないでください。",
       scriptCommand: `tobari policy review --tail 100 --format json
 tobari policy allow --id <exact-pcy-id-from-policy-review>`,
       scriptDeny:
-        "遮断を続ける場合は、レビュー画面の拒否操作か `tobari policy deny --id <exact-pcy-id-from-policy-review>` を使います。",
-      evidenceSummary: "この手順の根拠を見る",
+        "拒否を確定する場合は、レビュー画面の拒否操作か `tobari policy deny --id <exact-pcy-id-from-policy-review>` を使います。",
+      evidenceSummary: "手順の根拠を確認する",
       evidence: [
         ["Catalog にあるコマンド仕様", "internal/cli/runtime_catalog.go"],
         ["Catalog の契約テスト", "internal/cli/tobari_test.go"],
