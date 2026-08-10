@@ -1,6 +1,6 @@
 ---
 title: Security overview
-description: Read Tobari security as bounded claims with explicit assumptions, enforcement points, failure behavior, evidence, and limits.
+description: Read Tobari security as bounded claims with explicit assumptions, enforcement points, failure behavior, and limits.
 ---
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
@@ -12,23 +12,22 @@ the selected project harmless.
 
 Security in Tobari is therefore described as bounded claims, not as a property
 implied by the words “container,” “proxy,” or “encrypted.” Each claim names its
-assumptions, enforcement point, closed failure, evidence, and limitation. Read
+assumptions, enforcement point, closed failure, and limitation. Read
 the [Mental model](../../how-it-works/mental-model/) and
 [System overview](../../how-it-works/system-overview/) first if the components
 or request path are unfamiliar.
 
 <ConceptDiagram name="trust-boundaries" />
 
-## Read every claim in six parts
+## Read every claim in five parts
 
 The pages in this section use one discipline:
 
 1. **Claim** — the narrow outcome Tobari asserts.
 2. **Preconditions** — what must already be true.
-3. **Enforcement point** — the code or topology that makes the claim true.
+3. **Enforcement point** — the component or topology that makes the claim true.
 4. **Failure behavior** — what happens when that point is missing or unhealthy.
-5. **Evidence** — governing documents, implementation, and tests.
-6. **Limitations** — nearby outcomes that the claim deliberately does not cover.
+5. **Limitations** — nearby outcomes that the claim deliberately does not cover.
 
 “A Workspace cannot reach the public Internet directly” is useful only with its precondition: the Workspace was created by Tobari’s supported Docker configuration. Its enforcement is the dedicated `internal` network and Gateway’s unique dual attachment. Its failure behavior is loss of communication, not an alternate route. Its limitation is equally important: an allowed destination can receive data readable by the Workspace.
 
@@ -92,9 +91,9 @@ These are closed failures for the affected path. They do not promise that every 
 <aside class="guarantee">
   <h2>What this overview guarantees</h2>
   <div class="prose-block">
-    The remaining security pages state narrower claims and link each one to an
-    enforcement point and evidence. Denial is not described as protection beyond
-    its actual HTTP effect.
+    The remaining security pages state narrower claims with explicit
+    preconditions, enforcement points, failure behavior, and limitations. Denial
+    is not described as protection beyond its actual HTTP effect.
   </div>
 </aside>
 
@@ -107,33 +106,7 @@ These are closed failures for the affected path. They do not promise that every 
   </div>
 </aside>
 
-<aside class="evidence">
-  <h2>Sources</h2>
-  <ul>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md">
-        Security model
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/THREAT_MODEL.md">
-        Repository threat model
-      </a>{" "}
-      — the concise attacker/control inventory paired with the governing
-      security model above.
-    </li>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml">
-        Compose topology
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh">
-        Integration evidence
-      </a>
-    </li>
-  </ul>
-</aside>
+For developers who want to trace public behavior into the repository, see [Implementation and tests](../verification-evidence/).
 
 ## You should now be able to explain…
 
