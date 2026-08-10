@@ -12,7 +12,7 @@ const locale: SiteLocale = isJapanese ? "ja" : "en";
 const {
   headingLevel = 3,
   title = isJapanese
-    ? "現在サポートする Provider と Tool"
+    ? "現在サポートするプロバイダーとツール"
     : "Current supported Provider-Tool pairings",
 } = Astro.props;
 const Heading = `h${headingLevel}` as "h2" | "h3";
@@ -20,23 +20,24 @@ const ui = isJapanese
   ? {
       eyebrow: "選択モデル",
       intro:
-        "概念上は Provider を選び、その Provider で使う Workspace client tool を選びます。現在は各組に対応 Tool が一つだけなので、Tool は表示されたうえで自動選択されます。",
-      stepProvider: "Provider",
+        "概念上はプロバイダーを選び、次にそのプロバイダーで使う Workspace 内のクライアントツールを選びます。現在は各組に対応するツールが一つだけなので、候補を表示したうえで自動的に選択します。",
+      stepProvider: "プロバイダー",
       stepProviderDetail: "認証情報を発行・管理する外部サービスを選ぶ",
-      stepTool: "Tool",
-      stepToolDetail: "Workspace で使う client tool。現在は一つなので自動選択",
+      stepTool: "ツール",
+      stepToolDetail:
+        "Workspace で使うクライアントツール。現在は一つなので自動選択",
       stepMethod: "取得方法",
-      stepMethodDetail: "必要な場合だけ login/import method を選ぶ",
-      provider: "Provider",
-      tool: "Tool · 自動選択",
+      stepMethodDetail: "必要な場合だけログイン／インポート方式を選ぶ",
+      provider: "プロバイダー",
+      tool: "ツール · 自動選択",
       pairing: "現在は 1 対 1",
       login: "対話ログイン",
       import: "標準入力からインポート",
-      note: "CLI が求めるのは Provider です。Tool と Provider は別の概念ですが、現在は曖昧さがないため --tool や二度目の選択操作はありません。AWS の identity-center / console は Tool ではなく取得方法です。",
+      note: "CLI が求めるのはプロバイダーです。ツールとプロバイダーは別の概念ですが、現在は組み合わせに曖昧さがないため、--tool や二度目の選択操作はありません。AWS の identity-center / console はツールではなく取得方法です。",
       authority:
-        "この対応関係は認証情報の使い方を選ぶだけです。Provider、Tool、login method のどれも OPA の通信許可を追加しません。",
+        "この対応関係は認証情報の使い方を選ぶだけです。プロバイダー、ツール、ログイン方式のどれも OPA の通信許可を追加しません。",
       mapLabel:
-        "現在サポートする Provider から、自動選択される一つの Workspace client tool への対応表",
+        "現在サポートするプロバイダーと、自動選択される Workspace 内のクライアントツールとの対応表",
     }
   : {
       eyebrow: "Selection model",

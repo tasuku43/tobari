@@ -394,7 +394,7 @@ test("Provider-first support map keeps Provider, Tool, and acquisition distinct"
     }
 
     await expect(map).toContainText(
-      locale ? "Tool ではなく取得方法" : "acquisition methods, not tools",
+      locale ? "ツールではなく取得方法" : "acquisition methods, not tools",
     );
     await expect(map).toContainText(
       locale ? "OPA の通信許可を追加しません" : "add no OPA network permission",

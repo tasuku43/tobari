@@ -34,22 +34,22 @@ const faults = [...groups.values()];
 const isJapanese = Astro.locals.starlightRoute.locale === "ja";
 const ui = isJapanese
   ? {
-      heading: "Catalog が宣言する CLI fault",
+      heading: "Catalog で定義された CLI の障害",
       count: (value: number) =>
-        `${value} 件の stable fault code を、CLI reference と同じ scoped agent-help contract から生成しています。`,
-      scope: "範囲:",
+        `${value} 件の安定した障害コードを、CLI リファレンスと同じコマンド別のエージェント向けヘルプから生成しています。`,
+      scope: "掲載範囲:",
       scopeLead:
-        "これは公開 Catalog の契約であり、すべての internal guard diagnostic を列挙するものではありません。特に",
+        "公開 Catalog が定める障害だけを掲載しています。内部の安全検査で使う診断コードをすべて列挙するものではありません。たとえば",
       scopeJoin: "や",
       scopeTail:
-        "のような fail-closed implementation diagnostic は boundary を保護しますが、Catalog command fault ではありません。",
-      filter: "code、kind、command で絞り込む",
+        "のような実装内部の診断は、安全側に倒して境界を守りますが、Catalog に登録されたコマンド障害ではありません。",
+      filter: "コード・種類・コマンドで絞り込む",
       placeholder: "例: policy、unavailable、auth login",
-      logicalRetry: "論理的な再試行が許可されています",
+      logicalRetry: "条件を確認したうえで再試行できます",
       doNotRepeat: "同じ条件のまま繰り返さないでください",
-      affected: "影響する command と宣言された recovery",
-      global: "全体への invocation",
-      noRecovery: "command recovery は宣言されていません。",
+      affected: "影響するコマンドと復旧手順",
+      global: "全コマンド",
+      noRecovery: "復旧コマンドは定義されていません。",
     }
   : {
       heading: "Catalog-declared CLI faults",

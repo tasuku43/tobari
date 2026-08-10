@@ -37,18 +37,18 @@ export interface CredentialScenario {
 export const credentialNodes: CredentialNode[] = [
   {
     id: "host-cli",
-    label: { en: "Trusted-host CLI", ja: "信頼ホストの CLI" },
-    role: { en: "Acquisition control", ja: "取得の制御" },
+    label: { en: "Trusted-host CLI", ja: "信頼できるホスト上の CLI" },
+    role: { en: "Acquisition control", ja: "認証情報の取得" },
     detail: {
       en: "Runs fixed gh, aws, or pup login drivers; import reads protected stdin.",
-      ja: "固定された gh、aws、pup のログインドライバーを実行します。インポートは保護された標準入力だけを読みます。",
+      ja: "あらかじめ決められた gh、aws、pup のログイン処理を実行します。インポートで読み取るのは、保護された標準入力だけです。",
     },
     kind: "trusted",
   },
   {
     id: "workspace",
     label: { en: "Workspace", ja: "Workspace" },
-    role: { en: "Untrusted process boundary", ja: "信頼しないプロセス境界" },
+    role: { en: "Untrusted process boundary", ja: "信頼しないプロセスの境界" },
     detail: {
       en: "Receives only a Context/project-bound opaque handle for brokered providers.",
       ja: "ブローカー方式では、Context とプロジェクトに結び付いた不透明なハンドルだけを受け取ります。",
@@ -61,7 +61,7 @@ export const credentialNodes: CredentialNode[] = [
       en: "Host credential companion",
       ja: "ホスト認証情報コンパニオン",
     },
-    role: { en: "AWS post-policy operation", ja: "AWS のポリシー許可後処理" },
+    role: { en: "AWS post-policy operation", ja: "ポリシー許可後の AWS 処理" },
     detail: {
       en: "A private resident Tobari process. It performs only the compiled AWS credential export.",
       ja: "常駐する非公開の Tobari プロセスです。組み込み済みの AWS 認証情報エクスポートだけを実行します。",
@@ -74,17 +74,17 @@ export const credentialNodes: CredentialNode[] = [
     role: { en: "Authorization decision", ja: "通信許可の判断" },
     detail: {
       en: "Decides one normalized HTTP effect without body, handle, or credential values.",
-      ja: "本文、ハンドル、認証情報の値を含まない、正規化済みの HTTP effect を判断します。",
+      ja: "本文やハンドル、認証情報の値を除いた、正規化済みの HTTP 通信を許可するか判断します。",
     },
     kind: "control",
   },
   {
     id: "gateway",
     label: { en: "Gateway", ja: "Gateway" },
-    role: { en: "Network enforcement", ja: "ネットワークの強制点" },
+    role: { en: "Network enforcement", ja: "通信経路の制御" },
     detail: {
       en: "Derives the principal, removes handles, asks OPA, and controls every upstream attempt.",
-      ja: "principal を導出し、ハンドルを除去して OPA に問い合わせ、接続先へのすべての試行を制御します。",
+      ja: "プロジェクトプリンシパルを特定し、ハンドルを取り除いて OPA に問い合わせ、接続先への通信を制御します。",
     },
     kind: "control",
   },
@@ -102,7 +102,7 @@ export const credentialNodes: CredentialNode[] = [
     id: "vault",
     label: {
       en: "Encrypted Context vault",
-      ja: "暗号化された Context vault",
+      ja: "暗号化された Context 保管庫",
     },
     role: { en: "Persistent secret state", ja: "永続する秘密情報の状態" },
     detail: {
@@ -120,7 +120,7 @@ export const credentialNodes: CredentialNode[] = [
     role: { en: "External acquisition", ja: "外部での認証取得" },
     detail: {
       en: "GitHub device login, AWS login, or Datadog OAuth reached by fixed trusted-host drivers.",
-      ja: "信頼するホスト側の固定ドライバーが、GitHub device login、AWS login、または Datadog OAuth へ接続します。",
+      ja: "信頼できるホスト上の決められた処理から、GitHub のデバイスログイン、AWS のログイン、または Datadog OAuth へ接続します。",
     },
     kind: "external",
   },
@@ -143,7 +143,7 @@ export const credentialNodes: CredentialNode[] = [
     role: { en: "Fixed refresh destination", ja: "固定された更新先" },
     detail: {
       en: "Exact US1 HTTPS endpoint; no ambient proxy, redirect, or alternate host.",
-      ja: "US1 の完全一致する HTTPS エンドポイントです。環境由来のプロキシ、リダイレクト、別ホストは使いません。",
+      ja: "US1 に固定された HTTPS エンドポイントです。環境変数のプロキシ、リダイレクト、別のホストは使いません。",
     },
     kind: "external",
   },
@@ -188,7 +188,7 @@ export const credentialRoutes: CredentialRoute[] = [
     id: "policy",
     from: "gateway",
     to: "opa",
-    label: { en: "body-free effect", ja: "本文を含まない effect" },
+    label: { en: "body-free effect", ja: "本文を除いた許可判断の情報" },
     kind: "metadata",
     path: "M 500 300 L 500 185",
     bidirectional: true,
@@ -259,11 +259,11 @@ export const credentialScenarios: CredentialScenario[] = [
     routes: ["acquire-provider", "commit-control", "vault-state"],
     sent: {
       en: "Fixed provider argv, bounded projected output, then typed credential state over Broker control.",
-      ja: "固定されたプロバイダー argv、上限付きの表示出力、その後 Auth Broker の制御経路へ渡す型付き認証情報状態。",
+      ja: "固定したプロバイダーの引数列、長さを制限した表示用出力、Auth Broker の制御経路へ渡す型付きの認証情報状態。",
     },
     withheld: {
       en: "No host home, provider CLI, primary credential, or login callback service enters Workspace or the Broker image.",
-      ja: "ホストの home、プロバイダー CLI、実物の認証情報、ログイン callback service は、Workspace や Auth Broker image に入りません。",
+      ja: "ホストのホームディレクトリ、プロバイダー CLI、実物の認証情報、ログイン用コールバックサービスが、Workspace や Auth Broker イメージへ入ることはありません。",
     },
     result: {
       en: "Encrypted Context-owned credential state; still no network allow rule.",
@@ -279,7 +279,7 @@ export const credentialScenarios: CredentialScenario[] = [
     label: { en: "Static header provider", ja: "静的ヘッダープロバイダー" },
     summary: {
       en: "Gateway strips and introspects the handle, OPA decides the ordinary effect, then Broker resolves one static secret after allow.",
-      ja: "Gateway がハンドルを除去して秘密を含まない検査を行い、OPA が通常の effect を判断します。許可された場合にだけ、Auth Broker が静的な秘密情報を 1 回解決します。",
+      ja: "Gateway がハンドルを取り除いて秘密を使わずに結び付きを確認し、OPA が通常の HTTP 通信を許可するか判断します。Auth Broker が静的な秘密情報を取り出すのは、許可された後の 1 回だけです。",
     },
     routes: [
       "workspace-proxy",
@@ -323,19 +323,19 @@ export const credentialScenarios: CredentialScenario[] = [
     ],
     sent: {
       en: "Opaque AWS state to the authenticated companion operation; temporary role credentials return only to Broker; signed headers return to Gateway.",
-      ja: "不透明な AWS 状態を認証済みコンパニオン処理へ送ります。一時的な role 認証情報は Auth Broker だけへ戻り、署名済みヘッダーだけが Gateway へ戻ります。",
+      ja: "不透明な AWS 状態を認証済みのコンパニオン処理へ送ります。一時的なロール認証情報は Auth Broker だけに戻り、Gateway へ戻るのは署名済みヘッダーだけです。",
     },
     withheld: {
       en: "No Workspace-selected executable, argv, profile, host socket, temporary credential, body, or body hash enters policy.",
-      ja: "Workspace が選んだ実行ファイル、argv、profile、ホスト socket、一時認証情報、本文、body hash はポリシーへ入りません。",
+      ja: "Workspace が選んだ実行ファイル、argv、プロファイル、ホストソケット、一時認証情報、本文、本文のハッシュはポリシーへ入りません。",
     },
     result: {
       en: "One bounded, standard header-based SigV4 request to the reviewed authority.",
-      ja: "レビュー済みの authority へ、上限内の標準的なヘッダー方式の SigV4 リクエストを 1 回送ります。",
+      ja: "レビュー済みの接続先へ、サイズを制限した標準的なヘッダー方式の SigV4 リクエストを 1 回送ります。",
     },
     failure: {
       en: "Known pre-execution failure is 503; explicit or post-dispatch uncertainty is non-retryable 409; no upstream attempt occurs.",
-      ja: "実行前と確定できる失敗は 503、dispatch 後など結果不明の失敗は再試行不可の 409 となり、接続先へは送信しません。",
+      ja: "外部処理を始める前の失敗と確認できる場合は 503、処理開始後など結果を確定できない場合は再試行不可の 409 となります。どちらもアプリケーションの接続先へは送信しません。",
     },
   },
   {
@@ -355,7 +355,7 @@ export const credentialScenarios: CredentialScenario[] = [
     ],
     sent: {
       en: "One strict OAuth refresh form when needed; one request-local bearer token returns to Gateway.",
-      ja: "必要な場合だけ厳密な OAuth 更新フォームを 1 回送り、そのリクエストだけで使う bearer token 1 つを Gateway へ返します。",
+      ja: "必要な場合だけ厳密な OAuth 更新フォームを 1 回送り、そのリクエストだけで使う Bearer トークンを Gateway へ返します。",
     },
     withheld: {
       en: "No pup process in Broker, ambient proxy, redirect, alternate token host, OAuth state in Workspace, or token in OPA.",
@@ -363,11 +363,11 @@ export const credentialScenarios: CredentialScenario[] = [
     },
     result: {
       en: "Refreshed state commits before Gateway replaces the exact bearer header and makes one upstream attempt.",
-      ja: "更新後の状態を確定してから、Gateway が完全一致する bearer header を置き換え、接続先へ 1 回接続します。",
+      ja: "更新後の状態を確定してから、Gateway が対象の Bearer 認証ヘッダーだけを置き換え、接続先へ 1 回接続します。",
     },
     failure: {
       en: "Known pre-send failure is 503; post-send ambiguity is non-retryable 409 with a durable barrier; no upstream attempt occurs.",
-      ja: "送信前と確定できる失敗は 503、送信後の結果不明は永続 barrier 付きの再試行不可 409 となり、接続先へは送信しません。",
+      ja: "送信前の失敗と確認できる場合は 503、送信後に結果を確定できない場合は永続バリアを残して再試行不可の 409 となります。アプリケーションの接続先へは送信しません。",
     },
   },
 ];

@@ -30,11 +30,12 @@ const text: Record<string, LocalizedDiagramText> = {
       },
       opa: {
         label: "OPA",
-        detail: "正規化された通常の HTTP effect を判断します。",
+        detail: "正規化された HTTP 通信を許可するか判断します。",
       },
       broker: {
         label: "Auth Broker",
-        detail: "許可後に、ブローカー管理の認証情報を保持・処理します。",
+        detail:
+          "認証情報を保管し、解決・更新・署名は通信が許可された後だけ行います。",
       },
       upstream: {
         label: "Upstream（接続先）",
@@ -57,7 +58,7 @@ const text: Record<string, LocalizedDiagramText> = {
       process: {
         label: "Workspace のプロセス",
         detail:
-          "一つの内部プロジェクトネットワーク上にある runtime container 内で動きます。",
+          "プロジェクト専用の内部ネットワークにつながるランタイムコンテナ内で動きます。",
       },
       projectnet: {
         label: "プロジェクト専用の内部ネットワーク",
@@ -71,7 +72,7 @@ const text: Record<string, LocalizedDiagramText> = {
       controlnet: {
         label: "制御ネットワーク",
         detail:
-          "Gateway ↔ OPA と Gateway ↔ Auth Broker の socket／制御経路です。",
+          "Gateway と OPA、Gateway と Auth Broker の間だけで使う制御経路です。",
       },
       opa: {
         label: "OPA",
@@ -94,35 +95,37 @@ const text: Record<string, LocalizedDiagramText> = {
     },
     edges: {
       "process->projectnet": "HTTP プロキシ通信",
-      "projectnet->gateway": "インターフェースから principal を識別",
+      "projectnet->gateway": "受信インターフェースからプリンシパルを識別",
       "process->upstream": "直接経路なし",
       "gateway->opa": "判断",
-      "gateway->broker": "Unix socket",
+      "gateway->broker": "Unix ソケット",
       "gateway->egress": "許可済み接続",
       "egress->upstream": "DNS/TCP/TLS",
     },
   },
   "workspace-context-cluster": {
-    title: "Workspace、Context、cluster、runtime の関係",
+    title: "Workspace、Context、クラスター、ランタイムの関係",
     description:
-      "project root と安定した Context ID が論理 Workspace を識別します。runtime container はそれを実現し、cluster は共有 infrastructure として動きます。",
+      "プロジェクトルートと安定した Context ID の組み合わせが、論理 Workspace を識別します。ランタイムコンテナはその実行環境であり、クラスターは複数の Workspace から共有される基盤です。",
     nodes: {
       root: {
-        label: "Project root",
+        label: "プロジェクトルート",
         detail: "現在のディレクトリから選ばれた /work/example。",
       },
       contexta: {
         label: "Context: default",
-        detail: "ホスト所有の runtime、ポリシー、agent profile、認証情報設定。",
+        detail:
+          "ホストが管理するランタイム、ポリシー、エージェントプロファイル、認証情報の設定。",
       },
       workspacea: {
         label: "Workspace A",
-        detail: "論理 identity = 正規化された root + Context A。",
+        detail:
+          "正規化されたプロジェクトルートと Context A が、論理的な識別情報になります。",
       },
       runtimea: {
-        label: "runtime container A",
+        label: "ランタイムコンテナ A",
         detail:
-          "reconcile される実装。論理 identity でも、寿命を決める唯一の所有者でもありません。",
+          "必要に応じて作り直される実行環境です。Workspace の識別情報でも、寿命を決める主体でもありません。",
       },
       contextb: {
         label: "Context: review",
@@ -130,18 +133,20 @@ const text: Record<string, LocalizedDiagramText> = {
       },
       workspaceb: {
         label: "Workspace B",
-        detail: "同じ root でも Context B なら別 Workspace です。",
+        detail:
+          "同じプロジェクトルートでも、Context B を使えば別の Workspace になります。",
       },
       cluster: {
-        label: "共有 cluster",
-        detail: "Gateway、OPA、Auth Broker、CA、runtime のネットワーク状態。",
+        label: "共有クラスター",
+        detail:
+          "Gateway、OPA、Auth Broker、CA、ランタイム用ネットワークを共有します。",
       },
     },
     edges: {
-      "root->workspacea": "ディレクトリとの結び付き",
-      "contexta->workspacea": "stable Context ID",
-      "workspacea->runtimea": "整合させる",
-      "root->workspaceb": "同じ root",
+      "root->workspacea": "ディレクトリに結び付ける",
+      "contexta->workspacea": "安定した Context ID",
+      "workspacea->runtimea": "実行環境を整合させる",
+      "root->workspaceb": "同じプロジェクトルート",
       "contextb->workspaceb": "異なる Context ID",
       "workspacea->cluster": "共有サービスを利用",
       "workspaceb->cluster": "共有サービスを利用",
@@ -150,25 +155,26 @@ const text: Record<string, LocalizedDiagramText> = {
   "workspace-lifecycle": {
     title: "論理 Workspace のライフサイクル",
     description:
-      "exit は利用者の session を切り離します。delete は論理 Workspace と、それが所有する runtime state を削除します。container やネットワークが失われても、次の entry で整合させます。",
+      "exit で終了するのは利用者のセッションだけです。delete は論理 Workspace と、その Workspace が所有するランタイム状態を削除します。コンテナやネットワークが失われても、次に入るときに作り直せます。",
     nodes: {
       absent: {
         label: "存在しない (Absent)",
-        detail: "root index も Workspace instance もありません。",
+        detail:
+          "ルートインデックスも Workspace のインスタンス状態もありません。",
       },
       attached: {
         label: "接続中 (Attached)",
-        detail: "entry session が Workspace を使用しています。",
+        detail: "Workspace に入ったセッションが動いています。",
       },
       detached: {
         label: "離脱済み・存在 (Detached)",
         detail:
-          "identity、home、runtime state、Context との結び付き、ポリシーが残ります。",
+          "識別情報、ホーム、ランタイム状態、Context との結び付き、ポリシーが残ります。",
       },
       drift: {
-        label: "Runtime のずれまたは消失",
+        label: "ランタイムのずれまたは消失",
         detail:
-          "論理 identity を変えずに container やネットワークを再作成できます。",
+          "論理 Workspace の識別情報を変えずに、コンテナやネットワークを再作成できます。",
       },
     },
     edges: {
@@ -177,8 +183,8 @@ const text: Record<string, LocalizedDiagramText> = {
       "detached->attached": "再び enter",
       "detached->absent": "delete",
       "attached->absent": "delete --force",
-      "detached->drift": "container／ネットワークの消失または recipe の変更",
-      "drift->attached": "次の entry で整合させる",
+      "detached->drift": "コンテナ／ネットワークの消失またはレシピの変更",
+      "drift->attached": "次に入るときに整合させる",
     },
   },
   "tls-split": {
@@ -193,7 +199,7 @@ const text: Record<string, LocalizedDiagramText> = {
       },
       tlsa: {
         label: "TLS 接続 A",
-        detail: "Client ↔ Gateway。CONNECT の後に始まります。",
+        detail: "クライアントと Gateway の間で、CONNECT の後に始まります。",
       },
       gateway: {
         label: "Gateway",
@@ -205,54 +211,56 @@ const text: Record<string, LocalizedDiagramText> = {
       },
       upstream: {
         label: "HTTPS の接続先",
-        detail:
-          "最終 hop の平文ではなく、Gateway からの TLS 接続を受け取ります。",
+        detail: "平文の HTTP ではなく、Gateway からの TLS 接続を受け取ります。",
       },
     },
     edges: {
       "workspace->tlsa": "CONNECT、その後に暗号化された HTTP",
-      "tlsa->gateway": "Tobari が発行した leaf certificate",
+      "tlsa->gateway": "Tobari が発行したサーバー証明書",
       "gateway->tlsb": "許可後だけ",
       "tlsb->upstream": "検証済みの接続先 TLS",
     },
   },
   "project-principal": {
-    title: "project principal の確立",
+    title: "プロジェクトプリンシパルの確立",
     description:
-      "ホストの registry は Gateway のネットワークインターフェースを Context／project identity に結び付けます。リクエストヘッダーでこの結び付きを置き換えることはできません。",
+      "ホストが管理する登録情報は、Gateway のネットワークインターフェースを Context ID とプロジェクト ID に結び付けます。リクエストヘッダーを書き換えても、この結び付きは変わりません。",
     nodes: {
       host: {
         label: "信頼するホストのライフサイクル",
         detail: "プロジェクト専用ネットワークと Gateway の接続を作ります。",
       },
       registry: {
-        label: "Principal registry",
+        label: "プリンシパル登録情報",
         detail:
-          "ホスト所有のインターフェース／ネットワーク → Context ID + project ID のレコード。",
+          "ホストが管理する、インターフェース／ネットワークと Context ID／プロジェクト ID の対応記録。",
       },
       network: {
         label: "Workspace 専用ネットワーク",
-        detail: "対応する構成では project principal 一つに対応します。",
+        detail:
+          "サポート対象の構成では、一つのプロジェクトプリンシパルに対応します。",
       },
       workspace: {
         label: "Workspace のリクエスト",
-        detail: "identity に見える任意の信頼しないヘッダーを含められます。",
+        detail:
+          "識別情報のように見えるヘッダーを自由に送れますが、その値は信頼されません。",
       },
       gateway: {
         label: "Gateway の受信インターフェース",
-        detail: "受信インターフェースが選ぶ principal を検索します。",
+        detail: "受信インターフェースに対応するプリンシパルを検索します。",
       },
       opa: {
-        label: "OPA input",
-        detail: "registry から導出した Context／project field を使います。",
+        label: "OPA への入力",
+        detail:
+          "登録情報から導出した Context ID とプロジェクト ID を使います。",
       },
     },
     edges: {
       "host->registry": "不可分な登録",
-      "registry->gateway": "principal の検索",
-      "workspace->gateway": "リクエストの byte",
+      "registry->gateway": "プリンシパルを検索",
+      "workspace->gateway": "リクエストデータ",
       "workspace->opa": "自己申告した ID は無視",
-      "gateway->opa": "信頼済み principal + 正規化済み effect",
+      "gateway->opa": "信頼済みプリンシパル + 正規化済みの通信情報",
     },
   },
   "policy-loop": {
@@ -266,18 +274,17 @@ const text: Record<string, LocalizedDiagramText> = {
       },
       evidence: {
         label: "保持した証拠",
-        detail:
-          "本文や秘密情報を含まない拒否レコード。candidate ID は含みません。",
+        detail: "本文や秘密情報を含まない拒否記録です。候補 ID は含みません。",
       },
       review: {
         label: "ホストでの確認",
         detail:
-          "ホスト CLI が証拠を検証して不透明な reference を導出し、利用者が変更せずに選びます。",
+          "ホスト側の CLI が証拠を検証して不透明な参照を生成し、利用者はその値を変更せずに選びます。",
       },
       decision: {
         label: "明示的な許可または拒否",
         detail:
-          "完全一致する Context、project、destination、port、method、path の effect。",
+          "Context、プロジェクト、宛先、ポート、HTTP メソッド、パスが完全に一致する通信だけが対象です。",
       },
       validation: {
         label: "ポリシー全体の検証",
@@ -286,19 +293,19 @@ const text: Record<string, LocalizedDiagramText> = {
       activation: {
         label: "不可分な有効化",
         detail:
-          "実行中の OPA が、検証済みの完全な bundle revision 一つを読みます。部分的なルールセットや自動生成 wildcard はありません。",
+          "実行中の OPA は、検証済みの完全なポリシーバンドルを一つのリビジョンとして読み込みます。ルールの一部だけを反映したり、ワイルドカードを自動生成したりはしません。",
       },
       retry: {
         label: "明示的な再実行",
-        detail: "Gateway は以前のリクエストを自動で replay しません。",
+        detail: "Gateway は以前のリクエストを自動では再送しません。",
       },
     },
     edges: {
       "deny->evidence": "診断情報を保持",
-      "evidence->review": "レコードを検証し candidate reference を導出",
-      "review->decision": "不透明な reference で操作",
+      "evidence->review": "記録を検証し、候補を指す参照を生成",
+      "review->decision": "不透明な参照を指定して操作",
       "decision->validation": "完全一致ルールを構築",
-      "validation->activation": "全 source が有効",
+      "validation->activation": "すべてのポリシーソースが有効",
       "activation->retry": "操作者が時機を決める",
       "retry->deny": "新しいリクエストを再評価",
     },
@@ -306,19 +313,21 @@ const text: Record<string, LocalizedDiagramText> = {
   "credential-boundary": {
     title: "ブローカー管理の認証情報が移動できる範囲",
     description:
-      "ホストが認証情報を取得し、Auth Broker が Context vault 内で暗号化します。Workspace が受け取るのは、秘密ではない不透明なハンドルです。Gateway は許可済みで結び付きが一致するリクエストのためだけに、宣言済みの認証情報処理を行います。",
+      "ホストが認証情報を取得し、Auth Broker が Context の保管庫内で暗号化します。Workspace が受け取るのは、秘密ではない不透明なハンドルです。Gateway は許可済みで結び付きが一致するリクエストのためだけに、宣言済みの認証情報処理を行います。",
     nodes: {
       host: {
         label: "信頼するホストでの取得",
-        detail: "組み込み GitHub helper または上限付きの標準入力 import。",
+        detail:
+          "組み込みの GitHub ヘルパー、または長さを制限した標準入力から取得します。",
       },
       vault: {
-        label: "暗号化された Context vault",
-        detail: "installation root key の下で実物の認証情報を暗号化します。",
+        label: "暗号化された Context 保管庫",
+        detail:
+          "インストール単位のルートキーを使って、実物の認証情報を暗号化します。",
       },
       handle: {
         label: "プロジェクトに結び付いたハンドル",
-        detail: "Workspace へ投影される不透明なレコード selector。",
+        detail: "Workspace へ渡す、認証情報レコードを指す不透明な値です。",
       },
       workspace: {
         label: "Workspace",
@@ -328,7 +337,7 @@ const text: Record<string, LocalizedDiagramText> = {
       gateway: {
         label: "Gateway のポリシー許可後の経路",
         detail:
-          "宣言済みの処理を一度行い、宣言された destination header だけを置き換えます。",
+          "宣言済みの認証情報処理を一度だけ行い、指定された宛先ヘッダーだけを置き換えます。",
       },
       upstream: {
         label: "一致する HTTPS 宛先",
@@ -336,10 +345,10 @@ const text: Record<string, LocalizedDiagramText> = {
       },
     },
     edges: {
-      "host->vault": "保護されたホスト／Broker 入力上の秘密情報",
+      "host->vault": "保護されたホスト／Auth Broker の入力",
       "vault->handle": "秘密ではない、結び付いたレコード",
-      "handle->workspace": "環境変数または完全な file projection",
-      "workspace->gateway": "宣言された source header 内のハンドル",
+      "handle->workspace": "環境変数またはファイル全体への投影",
+      "workspace->gateway": "宣言された送信元ヘッダー内のハンドル",
       "vault->gateway": "許可後だけ認証情報を処理",
       "gateway->upstream": "TLS 上の宣言済み変換済みヘッダー",
       "vault->workspace": "実物の秘密情報は投影しない",
@@ -348,12 +357,12 @@ const text: Record<string, LocalizedDiagramText> = {
   "trust-boundaries": {
     title: "信頼する領域と信頼しない領域",
     description:
-      "Tobari はプロジェクト、ネットワーク、ポリシー、認証情報の境界で権限を狭めます。ホスト、Docker、kernel、Gateway、OPA、Auth Broker は、信頼する強制基盤であると仮定します。",
+      "Tobari は、プロジェクト、ネットワーク、ポリシー、認証情報の境界で権限を絞ります。ホスト、Docker、カーネル、Gateway、OPA、Auth Broker は、境界を実施する信頼済みの基盤として扱います。",
     nodes: {
       host: {
         label: "信頼するホストの制御",
         detail:
-          "CLI のライフサイクル、ポリシー確認、root key、プロバイダー認証の取得。",
+          "CLI のライフサイクル操作、ポリシーの確認、ルートキー、プロバイダー認証情報の取得。",
       },
       services: {
         label: "信頼する強制サービス",
@@ -362,30 +371,31 @@ const text: Record<string, LocalizedDiagramText> = {
       workspace: {
         label: "信頼しない Workspace プロセス",
         detail:
-          "選択した project root を読み書きでき、一つの Workspace 境界を共有します。",
+          "選択したプロジェクトルートを読み書きでき、同じ Workspace の境界を共有します。",
       },
       other: {
         label: "別の Workspace／ホストファイル",
-        detail: "対応する構成では mount もネットワーク到達もできません。",
+        detail:
+          "サポート対象の構成では、マウントもネットワーク経由の到達もできません。",
       },
       upstream: {
         label: "許可済みの接続先",
         detail:
-          "許可された effect で送られた、Workspace から読めるデータを受け取れます。",
+          "許可された通信を通じて、Workspace から読み取れるデータを受け取れます。",
       },
     },
     edges: {
       "host->services": "設定と承認",
-      "services->workspace": "runtime、プロキシ、CA、不透明なハンドル",
+      "services->workspace": "ランタイム、プロキシ、CA、不透明なハンドル",
       "workspace->other": "選択境界が通常のアクセスを遮断",
-      "workspace->upstream": "許可された Gateway effect を経由する場合だけ",
+      "workspace->upstream": "Gateway で許可された通信を経由する場合だけ",
       "services->upstream": "信頼する外向き接続",
     },
   },
   "state-retention": {
-    title: "状態の寿命は一つの container ではなく所有関係に従う",
+    title: "状態の寿命は、一つのコンテナではなく所有関係で決まる",
     description:
-      "Workspace、Context、cluster、認証情報、installation state は、所有者と削除操作が異なります。",
+      "Workspace、Context、クラスター、認証情報、インストール全体の状態は、それぞれ所有者と削除する操作が異なります。",
     nodes: {
       project: {
         label: "プロジェクトのファイル",
@@ -394,103 +404,105 @@ const text: Record<string, LocalizedDiagramText> = {
       },
       workspace: {
         label: "Workspace 所有の状態",
-        detail: "index、instance、home、container、ネットワーク、principal。",
+        detail:
+          "インデックス、インスタンス状態、ホーム、コンテナ、ネットワーク、プリンシパル。",
       },
       context: {
         label: "Context 所有の状態",
         detail:
-          "manifest、runtime recipe、ポリシー source、プロバイダー設定、暗号化 vault。",
+          "マニフェスト、ランタイムレシピ、ポリシーソース、プロバイダー設定、暗号化された保管庫。",
       },
       cluster: {
-        label: "cluster の runtime state",
+        label: "クラスターのランタイム状態",
         detail:
-          "共有サービス、ネットワーク、principal registry、集約 projection。",
+          "共有サービス、ネットワーク、プリンシパル登録情報、集約済みの投影。",
       },
       install: {
-        label: "installation state",
-        detail: "root key と Gateway CA volume。",
+        label: "インストール全体の状態",
+        detail: "ルートキーと Gateway CA ボリューム。",
       },
     },
     edges: {
       "workspace->workspace": "exit は保持、delete は削除",
-      "cluster->cluster": "down は runtime を削除、purge は CA も削除",
-      "context->context": "cluster down/purge でも保持",
+      "cluster->cluster": "down はランタイムを削除、purge は CA も削除",
+      "context->context": "cluster down／purge の後も保持",
       "install->install":
-        "root key は down/purge 後も残り、CA は非 purge 時だけ残る",
+        "ルートキーは down／purge 後も残り、CA は purge しない場合だけ残る",
       "project->project": "すべてのライフサイクル操作で保持",
     },
   },
   "code-layers": {
     title: "Go の四層における依存方向",
     description:
-      "Domain は純粋な invariant、Application は task の解釈と最小限の port、Infrastructure は effect の実装、CLI は公開契約と依存関係の組み立てを所有します。",
+      "Domain は純粋な不変条件、Application はタスクの解釈と最小限のポート、Infrastructure は外部作用の実装、CLI は公開契約と依存関係の組み立てを受け持ちます。",
     nodes: {
       cli: {
-        label: "CLI composition root",
-        detail: "Catalog、型付き argv、help、表示、配線。",
+        label: "CLI（構成の起点）",
+        detail: "Catalog、型付き argv、ヘルプ、表示、依存関係の配線。",
       },
       app: {
         label: "Application",
-        detail: "use case と task 固有の port。",
+        detail: "ユースケースと、タスク固有の最小限のポート。",
       },
       domain: {
         label: "Domain",
-        detail: "純粋な語彙と invariant。I/O なし。",
+        detail: "純粋な語彙と不変条件。I/O は行いません。",
       },
       infra: {
         label: "Infrastructure",
         detail:
-          "Docker、ファイル、プロセス、Gateway／Broker asset、外部 adapter。",
+          "Docker、ファイル、プロセス、Gateway／Auth Broker の資材、外部アダプター。",
       },
     },
     edges: {
-      "cli->app": "use case を呼び出す",
-      "cli->infra": "具体的な adapter を組み立てる",
-      "app->domain": "domain type を解釈する",
-      "infra->domain": "domain／application 契約を満たす",
+      "cli->app": "ユースケースを呼び出す",
+      "cli->infra": "具体的なアダプターを組み立てる",
+      "app->domain": "ドメインの型を解釈する",
+      "infra->domain": "Domain／Application の契約を満たす",
       "domain->infra": "外向きの依存は禁止",
     },
   },
   "image-supply": {
-    title: "Runtime コンポーネントの供給経路",
+    title: "ランタイムコンポーネントの供給経路",
     description:
-      "canonical source と embedded snapshot の一致を検査します。レビュー済み workflow が digest で参照できる OCI image を build し、runtime asset が service identity を digest で固定します。",
+      "正本のソースと組み込みスナップショットが一致することを検査します。レビュー済みのワークフローで OCI イメージをビルドし、ランタイム資材はサービスの実体を不変のダイジェストで固定します。",
     nodes: {
       "gateway-src": {
-        label: "gateway/ の canonical source",
-        detail: "Python の mitmproxy addon とテスト。",
+        label: "gateway/ の正本ソース",
+        detail: "Python で書かれた mitmproxy アドオンとテスト。",
       },
       "broker-src": {
-        label: "authbroker/ の canonical source",
-        detail: "Python の Broker、vault、認証取得、テスト。",
+        label: "authbroker/ の正本ソース",
+        detail: "Python で書かれた Auth Broker、保管庫、認証取得処理、テスト。",
       },
       "policy-src": {
-        label: "policy/ の canonical source",
-        detail: "Rego source とテスト。",
+        label: "policy/ の正本ソース",
+        detail: "Rego のソースとテスト。",
       },
       snapshots: {
-        label: "組み込み runtime snapshot",
-        detail: "Go CLI が展開する、byte／内容を検査済みのコピー。",
+        label: "組み込みランタイムスナップショット",
+        detail: "Go CLI が展開する、バイト単位で内容を検査済みのコピー。",
       },
       images: {
-        label: "GHCR OCI image",
-        detail: "Gateway／Auth Broker の identity を immutable digest で固定。",
+        label: "GHCR の OCI イメージ",
+        detail: "Gateway／Auth Broker の実体を不変のダイジェストで固定。",
       },
       versions: {
         label: "versions.env + Compose",
-        detail: "runtime で使うレビュー済みバージョン、digest、構成。",
+        detail:
+          "ランタイムで使うレビュー済みのバージョン、ダイジェスト、構成。",
       },
       cluster: {
-        label: "検証済みの cluster 起動",
-        detail: "サービスの有効化前に image を選択・検証します。",
+        label: "検証済みのクラスター起動",
+        detail: "サービスを有効にする前にイメージを選び、検証します。",
       },
     },
     edges: {
-      "gateway-src->snapshots": "source／snapshot のずれを検査",
-      "broker-src->snapshots": "source／snapshot のずれを検査",
-      "policy-src->snapshots": "組み込みポリシー source",
-      "snapshots->images": "レビュー済み build workflow",
-      "images->versions": "immutable digest による識別",
+      "gateway-src->snapshots": "ソース／スナップショットのずれを検査",
+      "broker-src->snapshots": "ソース／スナップショットのずれを検査",
+      "policy-src->snapshots": "組み込みポリシーソース",
+      "snapshots->images": "レビュー済みのビルドワークフロー",
+      "images->versions": "不変のダイジェストで識別",
       "versions->cluster": "Compose との整合",
     },
   },

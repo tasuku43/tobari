@@ -14,11 +14,11 @@ const labels = isJapanese
       current: "製品スナップショット時点で最新",
       snapshotTime: "ソーススナップショットの時刻",
       pageSource: "ページのソース",
-      viewMdx: "このMDXファイルを見る",
+      viewMdx: "この MDX ファイルを見る",
       explanation:
         "製品に関する説明は製品スナップショットに、ページのソースはドキュメントのビルドに固定されています。根拠となる契約、実装、テストは各ページの証拠リンクから確認できます。",
       projectLinks: "プロジェクトリンク",
-      contributing: "コントリビューション",
+      contributing: "参加方法",
       securityPolicy: "セキュリティポリシー",
     }
   : {
@@ -45,7 +45,9 @@ const repository = __TOBARI_DOCS_REPOSITORY__;
 const sourcePath = Astro.url.pathname
   .replace(import.meta.env.BASE_URL, "/")
   .replace(/^\/+|\/+$/g, "");
-const contentPath = sourcePath ? `${sourcePath}.mdx` : "index.mdx";
+const contentPath = sourcePath
+  ? `${sourcePath}${sourcePath === "ja" ? "/index" : ""}.mdx`
+  : "index.mdx";
 const sourceUrl = `${repository}/blob/${buildCommit}/docs/architecture-site/src/content/docs/${contentPath}`;
 const generatedAt = new Date(__TOBARI_DOCS_GENERATED_AT__).toLocaleString(
   isJapanese ? "ja-JP" : "en",

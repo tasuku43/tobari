@@ -6,7 +6,7 @@ const ui = isJapanese
   ? {
       componentIdentities: "コンポーネントの識別情報",
       componentDescription:
-        "この表は、リポジトリで管理する正本から生成しています。実行時の識別情報には digest を使います。分かりやすいバージョンは、リポジトリに宣言がある場合だけ表示します。",
+        "この表は、リポジトリで管理する正本から生成しています。実行時の識別情報にはダイジェストを使います。分かりやすいバージョンは、リポジトリに宣言がある場合だけ表示します。",
       component: "コンポーネント",
       declaredVersion: "宣言されたバージョン",
       runtimeIdentity: "実行時の識別情報",
@@ -14,12 +14,12 @@ const ui = isJapanese
       schemaIdentities: "スキーマと API のバージョン",
       contract: "契約",
       version: "バージョン",
-      defaultRuntime: "既定 runtime の契約",
-      defaultSelector: "既定の selector",
-      selectorKind: "Selector の種類",
-      movingSelector: "移動可能な tag — immutable digest ではない",
-      immutableDigest: "Immutable digest（不変 digest）",
-      runtimeApi: "Runtime API",
+      defaultRuntime: "既定ランタイムの契約",
+      defaultSelector: "既定の選択子",
+      selectorKind: "選択子の種類",
+      movingSelector: "更新されるタグ（不変なダイジェストではない）",
+      immutableDigest: "不変なダイジェスト",
+      runtimeApi: "ランタイム API",
       lifecycleCommand: "ライフサイクルコマンド",
       baseMetadataVersion: "ベースメタデータのバージョン",
       architectures: "対応アーキテクチャ",
@@ -54,18 +54,18 @@ const componentNamesJa: Record<string, string> = {
   mitmproxy: "mitmproxy",
   Gateway: "Gateway",
   "Auth Broker": "Auth Broker",
-  "Base runtime build image": "ベース runtime のビルドイメージ",
+  "Base runtime build image": "ベースランタイムのビルドイメージ",
   "Tobari CLI": "Tobari CLI",
 };
 const generatedPhrasesJa: Record<string, string> = {
-  "digest identity": "digest による識別",
+  "digest identity": "ダイジェストによる識別",
   "dev unless release-injected": "リリース時に注入されない限り dev",
   "documentation commit supplies source identity":
-    "ドキュメントの commit が source identity を示す",
+    "ドキュメントのコミットがソースの識別情報を示す",
   "Version is declared; runtime identity is the immutable digest.":
-    "バージョンは宣言値です。実行時の識別情報には immutable digest を使います。",
+    "バージョンは宣言値です。実行時の識別情報には不変なダイジェストを使います。",
   "Version is declared; build base identity is the immutable digest.":
-    "バージョンは宣言値です。ビルド元の識別情報には immutable digest を使います。",
+    "バージョンは宣言値です。ビルド元の識別情報には不変なダイジェストを使います。",
   "The repository does not invent a release version for ordinary builds.":
     "通常のビルドに対して、リポジトリがリリースバージョンを推測することはありません。",
 };
@@ -73,17 +73,17 @@ const schemaNamesJa: Record<string, string> = {
   "Agent help": "エージェントヘルプ",
   "Context manifest": "Context マニフェスト",
   "Public Context report": "公開 Context レポート",
-  "Root index and Workspace instance": "root index と Workspace インスタンス",
-  "Owner provider manifest": "所有者の provider マニフェスト",
+  "Root index and Workspace instance": "ルート索引と Workspace インスタンス",
+  "Owner provider manifest": "所有者のプロバイダーマニフェスト",
   "Normalized provider projection / reviewed built-in manifest":
-    "正規化 provider 投影／レビュー済み組み込みマニフェスト",
-  "Project principal registry": "project principal レジストリ",
+    "正規化したプロバイダー投影／レビュー済み組み込みマニフェスト",
+  "Project principal registry": "プロジェクトプリンシパル登録簿",
   "Gateway image API": "Gateway image API",
   "Gateway OPA input": "Gateway の OPA 入力",
   "Auth Broker image API": "Auth Broker image API",
   "Auth Broker control/runtime protocol and vault envelope":
-    "Auth Broker の control/runtime プロトコルと vault エンベロープ",
-  "Encrypted Context vault payload": "暗号化 Context vault ペイロード",
+    "Auth Broker の制御／ランタイムプロトコルと保管庫エンベロープ",
+  "Encrypted Context vault payload": "暗号化した Context 保管庫の内容",
   "Private credential companion protocol":
     "非公開の認証情報コンパニオンプロトコル",
 };

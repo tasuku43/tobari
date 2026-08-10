@@ -14,10 +14,10 @@ const isJapanese = Astro.locals.starlightRoute.locale === "ja";
 const {
   headingLevel = 2,
   title = isJapanese
-    ? "Gateway が四つの対話を調整する"
+    ? "Gateway が四つの通信経路を仲介する"
     : "Gateway coordinates four conversations",
   description = isJapanese
-    ? "コンポーネントの位置は変わりません。対話を一つ選ぶと、その境界を越えて送る情報と、送らない情報を確認できます。"
+    ? "コンポーネントの位置は変わりません。通信経路を一つ選ぶと、その境界を越えて送る情報と、送らない情報を確認できます。"
     : "The positions stay fixed. Select one conversation to inspect what crosses that boundary and what does not.",
   compact = false,
   networkDetail = false,
@@ -91,7 +91,7 @@ const conversationsJa = [
     fromId: "workspace",
     toId: "gateway",
     sent: "HTTP メソッド、URL、ヘッダー、ストリーミングされる本文",
-    withheld: "呼び出し元が申告した project identity は信頼しない",
+    withheld: "呼び出し元が申告したプロジェクト識別情報は信頼しない",
     result: "Gateway がプロジェクト専用ネットワーク上でリクエストを受け取る",
     failure: "ポリシー判断や接続先の処理より前に停止する",
   },
@@ -103,7 +103,7 @@ const conversationsJa = [
     to: "OPA",
     fromId: "gateway",
     toId: "opa",
-    sent: "信頼済み principal と正規化された HTTP 判断要素",
+    sent: "信頼済みのプロジェクトプリンシパルと、正規化した HTTP 通信の情報",
     withheld: "リクエスト本文、ブローカーのハンドル、認証情報の値",
     result: "構造化された許可または拒否の判断一つ",
     failure: "Gateway は接続先へ接続しない",
@@ -116,7 +116,7 @@ const conversationsJa = [
     to: "Auth Broker",
     fromId: "gateway",
     toId: "broker",
-    sent: "秘密を含まない検査に使う、結び付いたハンドルと principal。許可後は完全一致する結び付き",
+    sent: "秘密を使わない検査に必要な、結び付いたハンドルとプリンシパル。許可後は対象と完全に一致する結び付き",
     withheld:
       "Workspace と OPA へは秘密情報や更新可能なプロバイダー状態を送らない",
     result:
@@ -132,7 +132,7 @@ const conversationsJa = [
     fromId: "gateway",
     toId: "upstream",
     sent: "独立した接続で送る許可済みリクエスト",
-    withheld: "ポリシー内部情報、principal registry、ブローカーのハンドル",
+    withheld: "ポリシーの内部情報、プリンシパル登録情報、ブローカーのハンドル",
     result: "Upstream が受け取る接続は Gateway からのものだけ",
     failure: "接続先のエラーはポリシーを変更しない",
   },
@@ -143,11 +143,11 @@ const ui = isJapanese
       eyebrow: "コンポーネント図",
       scrollableMap: "横方向にスクロールできるコンポーネント図",
       mapDescription:
-        "Workspace と Upstream は、ホスト所有の共有 cluster の両側にあります。cluster の中央に Gateway、その上に OPA、下に Auth Broker があります。",
-      cluster: "Tobari 共有 cluster · ホスト所有",
+        "Workspace と接続先は、ホストが管理する共有クラスターの両側にあります。クラスターの中央に Gateway、その上に OPA、下に Auth Broker があります。",
+      cluster: "Tobari 共有クラスター · ホストが管理",
       projectNetwork: "プロジェクト専用の内部ネットワーク",
       egress: "Gateway 所有の外向き通信",
-      networkEnforcement: "ネットワーク + 強制点",
+      networkEnforcement: "ネットワーク + 通信制御",
       secretBoundary: "秘密情報の境界",
       external: "外部",
       untrusted: "信頼しない領域",
