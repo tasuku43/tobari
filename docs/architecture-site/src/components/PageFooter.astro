@@ -8,19 +8,19 @@ import LearningProgress from "./LearningProgress.astro";
 const isJapanese = Astro.locals.starlightRoute.locale === "ja";
 const labels = isJapanese
   ? {
-      heading: "ドキュメントの生成元",
-      summary: "このページのソース時点と根拠を確認する",
-      builtFrom: "ドキュメントのビルド元",
-      productSnapshot: "製品ソースのスナップショット",
-      pageStatus: "ページの状態",
-      current: "製品スナップショット時点で最新",
-      snapshotTime: "ソーススナップショットの時刻",
+      heading: "このページのソースと根拠",
+      summary: "参照した製品コミットとページの生成元を確認する",
+      builtFrom: "ドキュメントのコミット",
+      productSnapshot: "参照した製品コミット",
+      pageStatus: "説明の基準",
+      current: "上記の製品コミット時点",
+      snapshotTime: "製品ソースの取得時刻",
       pageSource: "ページのソース",
-      viewMdx: "この MDX ファイルを見る",
+      viewMdx: "ページの MDX を開く",
       explanation:
-        "製品に関する説明は製品スナップショットに、ページのソースはドキュメントのビルドに固定されています。根拠となる契約、実装、テストは各ページの証拠リンクから確認できます。",
-      projectLinks: "プロジェクトリンク",
-      contributing: "参加方法",
+        "製品の動作に関する説明は、参照した製品コミットに固定しています。ページ自体のソースはドキュメントのコミットに固定し、契約・実装・テストへのリンクは各ページに記載しています。",
+      projectLinks: "リポジトリ",
+      contributing: "コントリビューション",
       securityPolicy: "セキュリティポリシー",
     }
   : {
