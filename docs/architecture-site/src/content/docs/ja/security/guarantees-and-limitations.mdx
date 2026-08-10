@@ -1,0 +1,185 @@
+---
+title: 保証と制限
+description: Tobari の主要なセキュリティ上の主張を、前提、実施点、障害時の動作、根拠、制限と組み合わせて説明します。
+---
+
+## このページで答える問い
+
+**どの結果を信頼でき、それぞれの保証範囲はどこまでですか？**
+
+<aside class="one-sentence">
+  <strong>一文での答え:</strong> Tobari は supported Workspace
+  を、選択した一つの project、一つの host-issued principal、Gateway-mediated
+  HTTP/HTTPS、explicit policy、constrained broker handle
+  へ狭めます。しかし、選択した file、allowed payload、同じ Workspace の
+  process、他の protocol、overlapping root、compromised trusted base
+  は制御しません。
+</aside>
+
+読み終えると、proxy bypass、OPA outage、allowed data、selected file、trusted component compromise に関する受け入れ確認へ答えられます。
+
+**前提:** [Security overview](../overview/)。
+
+## 主張 1：対応する Workspace には外部への直接経路がない
+
+**Claim.** supported topology の Workspace は public Internet へ直接到達できません。
+
+**Preconditions.** Tobari が Docker configuration により Workspace を作成して reconcile し、Docker と host network が設定どおりに動作していること。
+
+**Enforcement point.** Workspace は dedicated Docker <code>internal</code> network だけに参加します。Gateway は、その network と egress network の両方に接続する唯一の component です。
+
+**Failure behavior.** proxy variable を無視しても別の route は現れません。Gateway が unavailable なら proxy traffic は失敗します。
+
+**Evidence.** <code>compose.yaml</code>、<code>project_runtime.go</code>、direct egress と Gateway outage の integration case。
+
+**Limitation.** Tobari が mediate するのは ordinary HTTP/HTTPS です。general protocol firewall ではなく、allowed HTTP destination は Workspace-readable data を受け取れます。
+
+## 主張 2：Workspace は別プロジェクトの権限を自分に付与できない
+
+**Claim.** request byte は、より privileged な Context または project principal を選択できません。
+
+**Preconditions.** host lifecycle が unique Workspace network binding を作成し、principal registry が intact であること。
+
+**Enforcement point.** Gateway は、自身の receiving-interface address を host-owned principal registry で検索し、その Context/project identity を OPA input へ入れます。self-declared header は authority として無視されます。
+
+**Failure behavior.** unknown、malformed、duplicated、stale な binding は、OPA と upstream より前に <code>project_principal_unavailable</code> を返します。
+
+**Evidence.** <code>principal_registry.go</code>、local-address derivation、forged session header、unknown principal の Gateway test。
+
+**Limitation.** 二つの Context が、同じまたは重なった host root を意図的に mount できます。network、home、policy principal は異なりますが、overlap 内の file change は共有される host effect です。
+
+## 主張 3：許可判断の失敗は外向き通信にならない
+
+**Claim.** Gateway は、一つの valid OPA allow result を得た後だけ upstream へ接続します。
+
+**Preconditions.** traffic が Gateway に到達し、request を current decision schema へ normalize できること。
+
+**Enforcement point.** Gateway は、body-free で normalized された dimension を fixed OPA endpoint へ一度送ります。lazy upstream connection は allow 後に行われます。
+
+**Failure behavior.** deny は <code>policy_denied</code> を返します。timeout、connection failure、non-200、oversize、malformed、incomplete decision は <code>policy_unavailable</code> を返します。どちらも upstream を開きません。
+
+**Evidence.** <code>tobari_gateway.py</code> とその test、Rego test、outage integration。
+
+**Limitation.** 現在の learned exact rule は Context、project、host、port、method、raw path を区別します。body、query、safe header、reason、provider、credential profile は区別しません。異なる body は同じ exact effect rule を利用できます。
+
+## 主張 4：Auth Broker が管理する認証情報は Workspace に渡されない
+
+**Claim.** Workspace が受け取るのは、static primary secret、renewable AWS state、Datadog OAuth state、derived request credential ではなく、opaque project-bound handle です。
+
+**Preconditions.** provider が Auth Broker path を使い、root key が利用でき、Context vault と provider manifest が validation を通ること。
+
+**Enforcement point.** Auth Broker は typed state を Context vault で encrypt します。handle record は Context、project、provider、credential revision、exact target、HTTP binding に bind されます。Gateway は handle を取り除き、secret なしで introspect し、OPA に問い、allow 後だけ declared static resolve、Datadog token selection/refresh、または AWS companion/export/sign action を実行します。
+
+**Failure behavior.** wrong、copied、old、malformed、ambiguous handle は fail closed し、passthrough にはなりません。OPA deny では resolve、refresh、companion call、signing、upstream access は一切発生しません。既知の pre-execution availability failure は 503 です。明示的または post-dispatch の AWS/Datadog outcome uncertainty は non-retryable 409 となり、application upstream attempt はありません。
+
+**Evidence.** <code>broker.py</code>、<code>vault.py</code>、<code>broker_credentials.py</code>、<code>companion_protocol.py</code>、<code>datadog_oauth.py</code>、Gateway/Broker test、broker integration case。
+
+**Limitation.** 同じ Workspace 内の malicious process は、その Workspace にすでに project された handle と、すでに allowed な effect を利用できます。tool-native credential は tool が保存した場所で readable のままです。logout は provider-side revocation を保証しません。
+
+## 主張 5：安全でないポリシー変更は部分的に有効化されない
+
+**Claim.** allow/deny mutation は、完全に validation された aggregate だけを activate します。
+
+**Preconditions.** host user が current opaque candidate reference に action し、policy source と revision が race していないこと。
+
+**Enforcement point.** Tobari は各 candidate を rediscover し、private source と complete aggregate を validate し、revision を確認し、一つの Context の owner-only source を atomically に書き、revisioned complete bundle を publish して、running OPA が exact revision を報告するまで待ちます。authority reduction では、最初に deny-all transition revision を install します。失敗時の rollback は既知の state を復元します。
+
+**Failure behavior.** validation、stale-reference、race、write、aggregate、OPA activation failure では、以前の valid policy が保持または復元されます。以前の HTTP request を replay することはありません。
+
+**Evidence.** policy domain/application/infrastructure test と end-to-end review/allow/deny/reset case。
+
+**Limitation.** trusted operator は、危険な exact effect を意図的に approve できます。Tobari は payload safety を推論しません。compaction が複数の exact path を widen できるのは、それ自身の canary を通した明示的操作の場合だけです。自動ではありません。
+
+## 明示的に保証対象外のもの
+
+- 選択した project root 内の file の integrity または confidentiality。
+- 一つの Workspace 内の process 間 isolation。
+- 重なって mount された project root の isolation。
+- allowed request を通じた data transfer の防止。
+- HTTP/HTTPS 以外の network mediation。
+- host、kernel、Docker、Gateway、OPA、Auth Broker、root-key provider、reviewed image の compromise 後の protection。
+- local logout 後の remote credential revocation。
+- certificate-pinned client との compatibility。interception を bypass するのではなく、失敗することが期待されます。
+
+<aside class="evidence">
+  <h2>根拠の一覧</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md">
+        規定するセキュリティモデル
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py">
+        Gateway の実施処理
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry.go">
+        principal registry
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/vault.py">
+        暗号化 vault の実装
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh">
+        境界の統合テスト
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## ここまでで説明できること
+
+各保証に前提と制限の両方が必要な理由を説明できるはずです。
+
+<div class="question-list">
+  <details>
+    <summary>
+      process が <code>HTTPS_PROXY</code> を無視すると、Tobari は直接の TLS
+      を黙って許可しますか？
+    </summary>
+    <div class="prose-block">
+      いいえ。supported topology では、Workspace は internal project network
+      だけを持ちます。proxy を無視すると利用可能な path がなくなるだけで、egress
+      が作られるわけではありません。
+    </div>
+  </details>
+  <details>
+    <summary>
+      以前に許可されていた経路のリクエスト中に OPA
+      が停止しました。それでも許可されますか？
+    </summary>
+    <div class="prose-block">
+      いいえ。Gateway はこの request に対して valid decision を必要とします。OPA
+      failure は <code>policy_unavailable</code> となり、upstream connection
+      は作られません。
+    </div>
+  </details>
+  <details>
+    <summary>
+      agent が、すでに許可された endpoint へ選択済みのソースツリーを upload
+      するのを Tobari は止められますか？
+    </summary>
+    <div class="prose-block">
+      いいえ。選択した root は意図的に readable であり、policy は request-body
+      の意味を検査せず HTTP effect を authorize します。
+    </div>
+  </details>
+  <details>
+    <summary>Docker または Gateway が侵害された場合はどうなりますか？</summary>
+    <div class="prose-block">
+      trusted enforcement base が壊れるため、これらの guarantee
+      の対象外です。trusted base が不明確なら{" "}
+      <a href="../overview/">セキュリティ概要</a>に戻ってください。
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>次へ:</strong> secret と authority の配置を{" "}
+  <a href="../trust-boundaries/">Trust boundaries →</a> で確認します。
+</div>

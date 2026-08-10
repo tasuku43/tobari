@@ -1,0 +1,135 @@
+---
+title: HTTPSとTLS
+description: Workspace 側の HTTPS が終端する正確な位置と、別に検証された Upstream 側 TLS が始まる位置を示します。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+
+## このページで答える問い
+
+Tobari は HTTPS request を final destination へ plaintext で送りますか？
+
+**一文での答え:** いいえ。Gateway は HTTP attribute を authorization できるよう、Tobari CA の下で Workspace-to-Gateway TLS connection を終端します。allow 後に、検証済みの Gateway-to-upstream TLS connection を別に作ります。
+
+### 読み終わると説明できること
+
+- Tobari の explicit proxy flow で `CONNECT` が行うこと
+- TLS connection A の終端点と connection B の開始点
+- Tobari CA の受け入れと policy permission の取得が別である理由
+- certificate-pinned client が Gateway を迂回せず失敗する理由
+
+**前提:** [Tobari を通る一つの request](../request-journey/)。
+
+<ConceptDiagram name="tls-split" />
+
+## HTTPS 通信を順番に追う
+
+### 1. client が HTTP proxy へ接続する
+
+Workspace client は Gateway を HTTP/HTTPS proxy として使うよう設定されています。HTTPS URL では project-network connection を Gateway へ開き、次を送ります。
+
+```http
+CONNECT api.example.com:443 HTTP/1.1
+```
+
+これは、その authority に対する tunnel-like HTTPS flow の確立を proxy に求めます。network permission を与えるものではありません。
+
+### 2. Gateway が TLS 接続 A を確立する
+
+Gateway は `CONNECT` に応答し、Tobari installation CA で署名した leaf certificate を提示します。Workspace runtime は、system CA set と public Tobari CA から ephemeral client trust bundle を作ります。
+
+そのため client は Gateway と **TLS connection A** を確立できます。Gateway はこの TLS session を終端し、generic decision contract に必要な、復号済みの HTTP method、authority、path、query、header を見られます。
+
+### 3. Gateway が復号済み HTTP リクエストの許可を確認する
+
+Gateway は Context/project identity を導出し、credential material を削除または redact し、body-free に正規化した input を一度だけ OPA へ送ります。request body は policy identity dimension ではありません。CA trust によってこの decision を省略することはできません。
+
+deny または decision failure なら、その request に connection B は作られません。
+
+### 4. Gateway が TLS 接続 B を確立する
+
+allow と必要な credential action の後、Gateway は upstream address を resolve して pin します。続けて requested upstream へ **TLS connection B** を作り、mitmproxy の通常の verification behavior で upstream certificate を検証します。
+
+final service が受け取るのは、Gateway からの encrypted TLS です。policy が HTTP attribute を必要とするため、信頼する Gateway process 内には plaintext が存在しますが、final network hop を plaintext で送るわけではありません。
+
+### 5. Gateway が許可済みメッセージをストリーミングする
+
+Gateway は header を forward し、許可済み body を connection B 経由で stream します。response は B で戻り、Gateway から見えた後、Workspace client へ A で再暗号化されます。
+
+## 証明書の具体例
+
+Workspace 内で `curl https://api.example.com/v1/data` を実行するとします。
+
+- `curl` は Tobari CA を含む combined runtime bundle を信頼します。
+- `api.example.com` 用として見える certificate は TLS A に属し、その CA の下で生成されています。
+- Gateway は `GET /v1/data` を見て OPA へ問い合わせます。
+- allow なら、Gateway は TLS B で本物の `api.example.com` certificate を独立して検証します。
+
+同じ client が upstream certificate または public key を pin している場合、A で提示された certificate は pin と一致しません。接続は失敗します。Tobari は pinning を無効化せず、direct route を作らず、transparent pass-through へ暗黙に切り替えません。
+
+## CA を信頼しても通信が許可されるわけではない
+
+これらは別々の問いです。
+
+| 問い                                                        | 仕組み                                 | 意味                                                   |
+| ----------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------ |
+| client は Gateway と intercepted HTTPS session を作れるか？ | runtime が Tobari CA を信頼            | Gateway が復号済み request を受け取れる                |
+| この ordinary HTTP effect は upstream へ進めるか？          | Gateway が enforce する OPA decision   | Context/project/host/port/method/path が許可されている |
+| broker-managed credential を resolve できるか？             | full handle binding と prior OPA allow | 一つの request で宣言済み header replacement を行える  |
+
+動作する CA が解決するのは最初の行だけです。
+
+## 失敗時の動作
+
+- **Tobari CA がない、または client が信頼しない:** application request を authorize する前に TLS A が失敗します。
+- **証明書 pinning:** Gateway が生成した leaf が pin と一致しないため、TLS A が失敗します。
+- **OPA deny または outage:** Gateway は authorized upstream path を作らず、deny は local で完了します。
+- **DNS または address validation failure:** unsafe substitute に対して TLS B を試しません。
+- **Upstream 証明書の障害:** TLS B が失敗します。policy rule を deny に変えたり、insecure retry したりしません。
+- **Client が proxy を無視する:** dedicated internal network に external route がないため、TLS bypass はありません。
+
+## 保証と制限
+
+**対応 flow で保証すること:** 二つの独立した TLS connection、policy が利用できる generic HTTP attribute、upstream TLS verification の維持、policy deny による upstream path の遮断、pinning を迂回しないこと。
+
+**保証しないこと:** すべての TLS stack、custom certificate store、pinned client との互換性、Workspace process と final service 間の direct end-to-end TLS、信頼する Gateway から plaintext を隠すこと、HTTP/3/QUIC interception。
+
+repository test は intercepted HTTPS behavior、scheme normalization、CA use、direct bypass failure を検証します。二つの handshake を packet capture し byte 単位で assert する test ではないため、two-connection claim は architecture decision と固定 mitmproxy configuration にも基づきます。
+
+## 根拠となるソース
+
+- [Architecture HTTPS flow](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [HTTPS interception decision](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0005-use-an-explicit-intercepting-proxy.md)
+- [Gateway mitmproxy entrypoint](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/entrypoint.sh)
+- [Workspace CA bundle entrypoint](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/tobari/entrypoint.sh)
+- [HTTPS scheme and Gateway tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [Intercepted HTTPS and no-proxy integration](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+
+## まとめ
+
+`CONNECT` により client と Gateway の間に TLS A ができます。Gateway は復号済み HTTP attribute を authorize し、allow 後にだけ、upstream への検証済み TLS B を別に作ります。CA trust、policy authority、credential authority は別々です。
+
+## 理解を確認する
+
+二つの TLS connection を描き、その間に policy decision を置けるはずです。
+
+<details>
+  <summary>HTTPS の暗号化が最初に終わる場所はどこですか？</summary>
+  Workspace からの TLS connection A が、Tobari CA の下で終端する Gateway です。
+</details>
+
+<details>
+  <summary>最後の Upstream への区間は平文ですか？</summary>
+  いいえ。Gateway は allow 後に upstream への検証済み TLS connection B
+  を別に作ります。
+</details>
+
+<details>
+  <summary>
+    通信が許可されていても、証明書を固定した client が失敗するのはなぜですか？
+  </summary>
+  ordinary request が完了する前に、Gateway の CA-issued certificate
+  を拒否するためです。Tobari は pin を迂回しません。
+</details>
+
+順序が不明確なら[リクエストの流れ](../request-journey/)を復習してください。次は[プロジェクト識別](../project-identity/)で、信頼できる Context/project identity の出所を見ます。

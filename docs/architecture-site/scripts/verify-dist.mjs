@@ -10,66 +10,19 @@ import {
 } from "node:path";
 import { parse } from "parse5";
 import { productSnapshot, projectBase } from "../site.config.mjs";
+import { collectLocaleRoutes, localeRouteProblems } from "./locale-routes.mjs";
 
 const root = resolve(process.argv[2] || "dist");
 const requestedBase = process.argv[3] || projectBase;
 const base = `/${requestedBase.split("/").filter(Boolean).join("/")}${requestedBase === "/" ? "" : "/"}`;
 const errors = [];
-
-const requiredRoutes = [
-  "",
-  ...[
-    "overview",
-    "install",
-    "quickstart",
-    "first-denial",
-    "learning-path",
-    "understanding-check",
-  ].map((name) => `start/${name}`),
-  ...[
-    "mental-model",
-    "system-overview",
-    "workspace-context-cluster",
-    "workspace-lifecycle",
-    "request-journey",
-    "https-and-tls",
-    "project-identity",
-    "policy-learning",
-    "credentials",
-    "state-and-recovery",
-    "implementation-stack",
-    "code-architecture",
-  ].map((name) => `how-it-works/${name}`),
-  ...[
-    "overview",
-    "guarantees-and-limitations",
-    "trust-boundaries",
-    "threat-model",
-    "credential-security",
-    "audit-and-privacy",
-    "supply-chain",
-    "verification-evidence",
-  ].map((name) => `security/${name}`),
-  ...[
-    "contexts",
-    "runtime-customization",
-    "authentication",
-    "policy-review",
-    "advanced-policy",
-    "colima-and-lima",
-    "troubleshooting",
-  ].map((name) => `guides/${name}`),
-  ...[
-    "cli",
-    "configuration-and-state",
-    "provider-manifest",
-    "json-schemas",
-    "faults-and-recovery",
-    "runtime-image-contract",
-    "component-versions",
-    "glossary",
-  ].map((name) => `reference/${name}`),
-];
+const contentRoot = resolve(import.meta.dirname, "../src/content/docs");
+const localeRoutes = await collectLocaleRoutes(contentRoot);
+errors.push(...localeRouteProblems(localeRoutes).map(({ message }) => message));
+const requiredRoutes = [...localeRoutes.canonical.keys()].flatMap((route) => [
+  { route, lang: "en" },
+  { route: route ? `ja/${route}` : "ja", lang: "ja" },
+]);
 
 async function filesBelow(directory) {
   const result = [];
@@ -125,7 +78,7 @@ function localTarget(currentFile, value) {
   return { path: normalize(target), fragment };
 }
 
-for (const route of requiredRoutes) {
+for (const { route } of requiredRoutes) {
   try {
     await stat(outputPathFor(route));
   } catch {
@@ -182,6 +135,53 @@ for (const file of htmlFiles) {
   }
 }
 
+function localePath(route, locale) {
+  const localePrefix = locale === "ja" ? "ja/" : "";
+  return `${base}${localePrefix}${route ? `${route}/` : ""}`;
+}
+
+function alternateLinks(document) {
+  const links = new Map();
+  walk(document, (node) => {
+    if (node.tagName !== "link" || attr(node, "rel") !== "alternate") return;
+    const language = attr(node, "hreflang");
+    const href = attr(node, "href");
+    if (language && href) links.set(language, href);
+  });
+  return links;
+}
+
+for (const route of localeRoutes.canonical.keys()) {
+  const pair = [
+    outputPathFor(route),
+    outputPathFor(route ? `ja/${route}` : "ja"),
+  ];
+  const expected = new Map([
+    ["en", localePath(route, "en")],
+    ["ja", localePath(route, "ja")],
+    ["x-default", localePath(route, "en")],
+  ]);
+  for (const file of pair) {
+    const document = htmlByPath.get(file)?.document;
+    if (!document) continue;
+    const alternates = alternateLinks(document);
+    for (const [language, pathname] of expected) {
+      const href = alternates.get(language);
+      let actualPath;
+      try {
+        actualPath = href ? new URL(href).pathname : undefined;
+      } catch {
+        actualPath = undefined;
+      }
+      if (actualPath !== pathname) {
+        errors.push(
+          `${relative(root, file)} has invalid ${language} alternate: ${href || "missing"}`,
+        );
+      }
+    }
+  }
+}
+
 const resourceAttrs = new Map([
   ["script", ["src"]],
   ["img", ["src", "srcset"]],
@@ -196,8 +196,10 @@ for (const [file, { source, document }] of htmlByPath) {
   const tags = new Map();
   const ids = new Set();
   const links = [];
+  let htmlRoot;
   walk(document, (node) => {
     if (node.tagName) tags.set(node.tagName, (tags.get(node.tagName) || 0) + 1);
+    if (node.tagName === "html") htmlRoot = node;
     const id = attr(node, "id");
     if (id) ids.add(id);
     if (node.tagName === "a") {
@@ -229,8 +231,16 @@ for (const [file, { source, document }] of htmlByPath) {
       }
     }
   });
-  if ((tags.get("html") || 0) !== 1 || !source.includes('lang="en"'))
-    errors.push(`${label} must have one English html root`);
+  const expectedLanguage =
+    label === join("ja", "index.html") || label.startsWith(`ja${sep}`)
+      ? "ja"
+      : "en";
+  if (
+    (tags.get("html") || 0) !== 1 ||
+    attr(htmlRoot, "lang") !== expectedLanguage
+  ) {
+    errors.push(`${label} must have one ${expectedLanguage} html root`);
+  }
   if ((tags.get("main") || 0) !== 1)
     errors.push(`${label} must have one main landmark`);
   if ((tags.get("h1") || 0) !== 1)

@@ -1,0 +1,123 @@
+---
+title: コンポーネントバージョン
+description: リポジトリが管理する正本から生成した、tool、image、runtime API、CLI、schema の identity を示します。
+---
+
+import ComponentVersions from "../../../../components/ComponentVersions.astro";
+import componentVersions from "../../../../generated/component-versions.json";
+
+## このページで答える問い
+
+**このソース commit は、どのコンポーネント identity を正確に宣言していますか？**
+
+短く言うと、このページの表は repository-owned version source から生成されます。Go、image、runtime、CLI、schema value を prose に重複して書きません。
+
+読み終えると software version、OCI selector、immutable digest、runtime API version、JSON schema version、source commit を区別できます。
+
+## 生成されたバージョンと identity の表
+
+<ComponentVersions />
+
+## 各 identity の読み方
+
+| Identity type        | 答える問い                                                  | 答えない問い                                               |
+| -------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
+| Tool version         | どの Go、OPA、mitmproxy などの build input が選ばれているか | local Docker が現在保持する image byte                     |
+| OCI tag              | どの registry channel または human selector を要求するか    | immutability。tag は移動可能                               |
+| OCI digest           | どの content-addressed manifest を選ぶか                    | local runtime が Tobari compatibility interface を満たすか |
+| Runtime API          | work image が supported Workspace interface を宣言するか    | image 内のすべての package が trustworthy/current か       |
+| Schema version       | どの exact JSON surface shape を使うか                      | 同じ番号を持つ別 surface との compatibility                |
+| CLI version/commit   | executable にどの release/source identity を埋め込んだか    | current branch name、または build されていない release     |
+| Documentation commit | この page を支える repository snapshot                      | 後の `main` の状態                                         |
+
+## リポジトリ内の正本
+
+generator は少なくとも次を読みます。
+
+- selected Go language/toolchain contract の `go.mod`
+- embedded shared component version と pinned image identity の `internal/infra/runtimeassets/assets/versions.env`
+- `runtimes/base/` 以下の canonical runtime metadata
+- owning Go package の exported runtime API/schema constant
+- public JSON output schema version の CLI Catalog
+- public CLI version information の source-build/release-injection contract
+
+generated output は drift check の対象です。governing version を変えて reference を再生成しなければ site check が失敗します。product-version input は committed source snapshot から読み、unfinished uncommitted experiment が published version evidence に混ざるのを防ぎます。
+
+## tag と digest は同じではない
+
+default runtime selector は次です。
+
+<pre>
+  <code>{componentVersions.runtime.default_selector}</code>
+</pre>
+
+これは moving development tag です。default source selector には有用ですが、immutable evidence ではありません。Tobari が Context-owned runtime を build するとき、resulting local image digest を inspect して別に保存します。
+
+OPA、mitmproxy/Gateway、Auth Broker、base image の shared infrastructure setting は `versions.env` の field を使います。digest がある場合、その digest が immutable image identity です。隣の human tag/version は descriptive なままです。
+
+Gateway と Auth Broker には canonical source tree と byte-checked embedded snapshot もあります。source/snapshot equality は base image digest と独立しており、reviewed build には両方の正しさが必要です。
+
+## CLI の version 表示
+
+source build は `dev` を表示します。build flag が commit を与えた場合、その commit も含むことがあります。release automation は validated release SemVer と source commit を inject します。この reference は source/build metadata が実際に宣言する値を報告し、Git branch、tag-like directory、documentation version から release number を作りません。
+
+実行中 executable を調べるには次を使います。
+
+```console
+tobari version
+```
+
+source link を local behavior の evidence にする前に、その result とこの page 下部の documentation provenance を比較してください。
+
+## 障害と制限
+
+- governing value が missing/malformed なら generation を失敗させ、未検証の `unknown` は表示しません。
+- digest は selected content identity を検証しますが、license compliance、runtime health、policy correctness、vulnerability の不存在は証明しません。
+- declared version だけでは local Docker cache に image があることを証明しません。startup preflight が required image を resolve/inspect します。
+- runtime selector は build 間で移動できます。reproducible evidence には resolved digest を保持する必要があります。
+- schema version は surface ごとに scope されます。product release number として比較しないでください。
+
+## 根拠
+
+- Go module：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/go.mod`}><code>go.mod</code></a>
+- 埋め込みコンポーネントの identity：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/runtimeassets/assets/versions.env`}><code>versions.env</code></a>
+- base runtime metadata：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/runtimes/base/runtime.json`}><code>runtime.json</code></a>
+- 生成処理：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_BUILD_COMMIT__}/tools/sitegen/main.go`}><code>tools/sitegen/main.go</code></a>
+- runtime API 定数：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/tobari.go`}><code>internal/domain/tobari/tobari.go</code></a>
+- CLI version の正本：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/version.go`}><code>internal/cli/version.go</code></a>
+- 正本と snapshot の構成ずれを調べるテスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/runtimeassets/assets_test.go`}>runtime asset テスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/gateway_image_test.go`}>Gateway image テスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/authbroker_image_test.go`}>Auth Broker image テスト</a>
+
+## まとめ
+
+version は compatibility または named release を記述します。tag は channel を選択します。digest は immutable OCI content を識別します。generated table はこれらの意味を分離し、すべての値をこの documentation commit へ結び付けます。
+
+## 理解を確認する
+
+`runtime:latest` を「immutable identity」column に表示するのが誤りである理由を説明できるはずです。
+
+<details>
+  <summary>
+    OPA のソフトウェア version は Gateway image を識別しますか？
+  </summary>
+  いいえ。別 component、別 identity です。generated table は owning source
+  からそれぞれを報告します。
+</details>
+
+<details>
+  <summary>
+    ソースからビルドした <code>tobari version</code> は通常何を報告しますか？
+  </summary>
+  `dev` です。build が与えた場合にだけ optional source commit
+  も表示します。release build は validated release identity を inject します。
+</details>
+
+<details>
+  <summary>
+    固定された image digest は、その image が Workspace runtime と互換
+    だと証明しますか？
+  </summary>
+  いいえ。Tobari は runtime API label、lifetime capability、user、entrypoint
+  を別途 inspect します。
+</details>
+
+次へ：[用語集](../glossary/)。

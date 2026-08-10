@@ -11,6 +11,10 @@ const representativePages = [
   "how-it-works/credentials/",
   "security/guarantees-and-limitations/",
   "reference/cli/",
+  "ja/",
+  "ja/how-it-works/credentials/",
+  "ja/security/guarantees-and-limitations/",
+  "ja/reference/cli/",
 ];
 
 async function expectNoRuntimeErrors(page: Page, route: string) {
@@ -39,7 +43,12 @@ for (const route of representativePages) {
     await expectNoRuntimeErrors(page, route);
     await expect(page.locator("main")).toHaveCount(1);
     await expect(page.locator("h1")).toHaveCount(1);
-    await expect(page.locator('nav[aria-label="Primary"]')).toHaveCount(1);
+    const primaryLabel = route.startsWith("ja/")
+      ? "主要ナビゲーション"
+      : "Primary";
+    await expect(page.locator(`nav[aria-label="${primaryLabel}"]`)).toHaveCount(
+      1,
+    );
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations).toEqual([]);
   });
@@ -81,6 +90,62 @@ test("theme supports System, Light, and Dark and persists the explicit choice", 
     "data-theme-selection",
     "system",
   );
+  await page.goto("ja/");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme-selection",
+    "system",
+  );
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator("[data-tobari-theme-select]").first()).toHaveValue(
+    "system",
+  );
+});
+
+test("language switch preserves the current topic and Pages base", async ({
+  page,
+}) => {
+  const topic = "how-it-works/system-overview/";
+  const englishPath = `${projectBase}${topic}`;
+  const japanesePath = `${projectBase}ja/${topic}`;
+
+  await page.goto(topic);
+  const englishSelect = page.locator("starlight-lang-select select").first();
+  await expect(englishSelect.locator("option")).toHaveText([
+    "English",
+    "日本語",
+  ]);
+  expect(
+    await englishSelect
+      .locator("option")
+      .evaluateAll((options) =>
+        options.map((option) => option.getAttribute("value")),
+      ),
+  ).toEqual([englishPath, japanesePath]);
+  await englishSelect.selectOption(japanesePath);
+  await page.waitForURL(`**${japanesePath}`);
+
+  await expect(page.locator("html")).toHaveAttribute("lang", "ja");
+  await expect(
+    page.locator('nav[aria-label="主要ナビゲーション"] > a'),
+  ).toHaveText([
+    "はじめに",
+    "仕組み",
+    "セキュリティ",
+    "ガイド",
+    "リファレンス",
+  ]);
+  await expect(page.locator("[data-tobari-theme-select]").first()).toHaveText(
+    /システム\s*ライト\s*ダーク/,
+  );
+  await expect(
+    page.getByRole("heading", { name: "ドキュメントの生成元" }),
+  ).toBeVisible();
+
+  const japaneseSelect = page.locator("starlight-lang-select select").first();
+  await expect(japaneseSelect).toHaveValue(japanesePath);
+  await japaneseSelect.selectOption(englishPath);
+  await page.waitForURL(`**${englishPath}`);
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
 });
 
 test("sequence never autoplays and is keyboard operable", async ({ page }) => {
@@ -159,6 +224,48 @@ test("system map keeps positions fixed while selecting a conversation", async ({
   expect(positionsAfter).toEqual(positionsBefore);
 });
 
+test("credential map keeps component positions fixed while switching exact plans", async ({
+  page,
+}) => {
+  await page.goto("how-it-works/credentials/");
+  const map = page.locator("tobari-credential-map").first();
+  const componentPositions = () =>
+    map.evaluate((element) => {
+      const stage = element
+        .querySelector(".credential-map-stage")
+        ?.getBoundingClientRect();
+      if (!stage) return null;
+      return ["gateway", "broker", "companion", "datadog-token"].map((id) => {
+        const box = element
+          .querySelector(`[data-node="${id}"]`)
+          ?.getBoundingClientRect();
+        return box ? { x: box.x - stage.x, y: box.y - stage.y } : null;
+      });
+    });
+  const positionsBefore = await componentPositions();
+  await map.locator('[data-scenario="aws"]').click();
+  await expect(map.locator('[data-scenario="aws"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(map.locator('[data-node="companion"]')).toHaveClass(
+    /node-active/,
+  );
+  await expect(map.locator('[data-node="datadog-token"]')).not.toHaveClass(
+    /node-active/,
+  );
+  await map.locator('[data-scenario="datadog"]').focus();
+  await page.keyboard.press("Enter");
+  await expect(map.locator('[data-scenario="datadog"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(map.locator('[data-node="datadog-token"]')).toHaveClass(
+    /node-active/,
+  );
+  expect(await componentPositions()).toEqual(positionsBefore);
+});
+
 test("policy loop exposes the cycle without automatic playback", async ({
   page,
 }) => {
@@ -191,6 +298,12 @@ test("reduced motion keeps sequence information and controls", async ({
       () => matchMedia("(prefers-reduced-motion: reduce)").matches,
     ),
   ).toBe(true);
+  await page.goto("ja/how-it-works/request-journey/");
+  const japaneseExplorer = page.locator("tobari-sequence").first();
+  await expect(
+    japaneseExplorer.locator('[data-field="explanation"]'),
+  ).not.toBeEmpty();
+  await expect(japaneseExplorer.locator('[data-control="next"]')).toBeEnabled();
 });
 
 test("static sequence remains readable with JavaScript disabled", async ({
@@ -211,7 +324,105 @@ test("static sequence remains readable with JavaScript disabled", async ({
   await expect(
     page.getByText("Information not sent", { exact: true }).first(),
   ).toBeVisible();
+
+  const japaneseResponse = await page.goto(
+    `${testOrigin}${projectBase}ja/how-it-works/request-journey/`,
+  );
+  expect(japaneseResponse?.ok()).toBeTruthy();
+  await expect(
+    page.getByRole("heading", { name: "静的なシーケンス説明" }).first(),
+  ).toBeVisible();
+  const japaneseTranscript = page
+    .locator(".static-sequence-disclosure")
+    .first();
+  await expect(
+    japaneseTranscript.getByText("送る情報", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(
+    japaneseTranscript.getByText("送らない情報", { exact: true }).first(),
+  ).toBeVisible();
   await context.close();
+});
+
+test("credential architecture transcript remains readable with JavaScript disabled", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  const response = await page.goto(
+    `${testOrigin}${projectBase}how-it-works/credentials/`,
+  );
+  expect(response?.ok()).toBeTruthy();
+  const transcript = page.locator(".credential-map-transcript").first();
+  await expect(transcript).toHaveAttribute("open", "");
+  await expect(
+    transcript.getByRole("heading", { name: "AWS SigV4" }),
+  ).toBeVisible();
+  await expect(
+    transcript.getByRole("heading", { name: "Datadog OAuth" }),
+  ).toBeVisible();
+  await context.close();
+});
+
+test("Provider-first support map keeps Provider, Tool, and acquisition distinct", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+
+  for (const locale of ["", "ja/"]) {
+    const response = await page.goto(
+      `${testOrigin}${projectBase}${locale}guides/authentication/`,
+    );
+    expect(response?.ok()).toBeTruthy();
+
+    const map = page.locator(".provider-tool-map");
+    await expect(map).toBeVisible();
+    await expect(map.locator(".pairing-row")).toHaveCount(4);
+
+    const expected = [
+      ["github", "GitHub CLI", "gh"],
+      ["aws", "AWS CLI", "aws"],
+      ["datadog", "pup", "pup"],
+      ["chatwork", "cwk", "cwk"],
+    ];
+    for (const [provider, toolName, command] of expected) {
+      const row = map.locator(`[data-provider="${provider}"]`);
+      await expect(row).toHaveCount(1);
+      await expect(row).toContainText(toolName);
+      await expect(row.locator(".tool-card code")).toHaveText(command);
+    }
+
+    await expect(map).toContainText(
+      locale ? "Tool ではなく取得方法" : "acquisition methods, not tools",
+    );
+    await expect(map).toContainText(
+      locale ? "OPA の通信許可を追加しません" : "add no OPA network permission",
+    );
+  }
+
+  await context.close();
+});
+
+test("Japanese sequence controls and static transcript are localized", async ({
+  page,
+}) => {
+  await page.goto("ja/how-it-works/request-journey/");
+  const explorer = page.locator("tobari-sequence").first();
+  await expect(explorer.locator('[data-field="count"]')).toHaveText(
+    "7 段階中 1 段階目",
+  );
+  await expect(explorer.locator('[data-control="next"]')).toHaveText("次へ");
+  await explorer.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(explorer.locator('[data-field="count"]')).toHaveText(
+    "7 段階中 2 段階目",
+  );
+  const disclosure = page.locator(".static-sequence-disclosure").first();
+  await disclosure.locator(":scope > summary").click();
+  await expect(
+    disclosure.getByRole("heading", { name: "静的なシーケンス説明" }),
+  ).toBeVisible();
 });
 
 test("JavaScript presentation collapses the secondary static transcript", async ({
@@ -248,6 +459,9 @@ test("home exposes global navigation on a narrow viewport", async ({
     "Guides",
     "Reference",
   ]);
+  await expect(
+    menu.locator("starlight-lang-select select").first(),
+  ).toBeVisible();
 });
 
 test("four-layer diagram uses an aligned two-by-two grid", async ({ page }) => {
@@ -278,6 +492,9 @@ test("360px mobile layout has no page-level horizontal overflow", async ({
     "how-it-works/credentials/",
     "how-it-works/state-and-recovery/",
     "reference/cli/",
+    "ja/",
+    "ja/how-it-works/credentials/",
+    "ja/reference/cli/",
   ]) {
     await page.goto(route);
     const overflow = await page.evaluate(

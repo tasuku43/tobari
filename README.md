@@ -26,6 +26,8 @@ effect at the point where an HTTP request crosses an isolation boundary.
 Read the public documentation at
 [tasuku43.github.io/tobari](https://tasuku43.github.io/tobari/) for the guided
 explanation, diagrams, security boundaries, guides, and generated reference.
+The complete [Japanese edition](https://tasuku43.github.io/tobari/ja/) follows
+the same topics and can be selected from any page.
 Its [site source and maintainer guide](docs/architecture-site/README.md) live in
 this repository. The numbered documents under [`docs/`](docs/README.md) govern
 product and security claims, and the CLI Catalog remains the executable source

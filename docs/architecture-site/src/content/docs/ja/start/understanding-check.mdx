@@ -1,0 +1,255 @@
+---
+title: 理解度チェック
+description: Tobari のライフサイクル、リクエスト、ポリシー、認証情報、信頼境界を確認する 20 のシナリオです。
+---
+
+## このページの使い方
+
+各シナリオで、details を開く前に自分の言葉で答えてください。正しい回答では「許可」「拒否」だけでなく、担当コンポーネントと重要な境界も挙げます。
+
+前提: [学習経路](../learning-path/)をたどってください。分からない回答が多い場合は、文章を暗記せず link 先へ戻ってください。
+
+## 1. Docker wrapper だけではない理由
+
+開発者が「Tobari は便利な `docker run` コマンドにすぎない」と言いました。何が抜けていますか？
+
+<details>
+<summary>回答</summary>
+
+runtime container は recoverable implementation detail の一つにすぎません。Tobari は logical Context-bound Workspace、host-issued project principal、dedicated internal network、Gateway enforcement、OPA policy、denial review/atomic activation、persistent home/state、optional credential brokering も管理します。[システム概要](../../how-it-works/system-overview/)を参照してください。
+
+</details>
+
+## 2. proxy を無視する
+
+program が `HTTP_PROXY` を消し、public IP へ直接接続します。対応する構成ではどうなりますか？
+
+<details>
+<summary>回答</summary>
+
+失敗します。Workspace は Docker-provided external route のない dedicated internal project network だけに参加します。project network と egress の両方に参加するのは Gateway だけです。variable を消しても route は作られません。[Trust boundary](../../security/trust-boundaries/)を参照してください。
+
+</details>
+
+## 3. 判断と実施
+
+OPA が `allow` を返しました。Upstream 接続を実際に開くコンポーネントはどれですか？
+
+<details>
+<summary>回答</summary>
+
+Gateway です。OPA が normalized effect を判断し、Gateway が decision を enforce して、別の upstream connection を作ります。[Request journey](../../how-it-works/request-journey/)を参照してください。
+
+</details>
+
+## 4. OPA が停止する
+
+リクエストの評価中に OPA が unavailable になりました。可用性を優先してリクエストを許可しますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。Gateway は service failure を返し、upstream へ接続しません。policy decision が missing、invalid、unavailable の場合は fail closed します。[Request journey](../../how-it-works/request-journey/)を参照してください。
+
+</details>
+
+## 5. HTTPS の検査
+
+HTTPS client が Tobari 経由で `api.example.com` へ接続します。暗号化はどこで終わり、どこから再び始まりますか？
+
+<details>
+<summary>回答</summary>
+
+`CONNECT` 後、TLS connection A が Workspace client と Gateway の間に作られ、Tobari CA を使って Gateway で終端します。allow 後、Gateway は separately verified TLS connection B を upstream へ作ります。final hop は plaintext HTTP ではありません。[HTTPS と TLS](../../how-it-works/https-and-tls/)を参照してください。
+
+</details>
+
+## 6. 同じ effect、異なる body
+
+二つのリクエストで Context、project、scheme、host、port、method、path が同じですが、JSON body が異なります。別々の学習済み規則が必要ですか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。request body は policy identity dimension ではなく、candidate を分割しません。Tobari は payload の意味から permission を推論しません。[Policy learning](../../how-it-works/policy-learning/)を参照してください。
+
+</details>
+
+## 7. 退出と削除
+
+agent が `exit` し、その後、利用者が `tobari delete` を実行しました。違いは何ですか？
+
+<details>
+<summary>回答</summary>
+
+`exit` は attached shell だけを終了し、logical Workspace、home、Context binding、runtime resource、policy を保持します。`delete` は最も近い detached Workspace と owned home/container/network/principal/state を削除しますが、project file と Context-owned state は保持します。[Workspace lifecycle](../../how-it-works/workspace-lifecycle/)を参照してください。
+
+</details>
+
+## 8. Context の切り替え
+
+Workspace A は Context `default` で作られています。利用者が `tobari context use --name review` を実行すると、A は `review` Context に変わりますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。`context use` は省略時の default だけを変えます。既存 Workspace は stable Context ID に恒久的に結び付きます。同じ root で `review` の別 Workspace を選択または作成できます。[Context](../../guides/contexts/)を参照してください。
+
+</details>
+
+## 9. 同じ URL、別の Workspace
+
+Workspace B が、Workspace A に許可されたものと同じ host、method、path を使います。A の規則は B も自動的に許可しますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。learned rule は stable Context と host-issued project principal にも結び付きます。B が文字どおり同じ Context/project authority でない限り、matching rule が別に必要です。[Project identity](../../how-it-works/project-identity/)を参照してください。
+
+</details>
+
+## 10. login と通信許可
+
+`tobari auth login --provider github` に成功しました。Workspace はすぐにすべての GitHub API 経路を呼べますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。login は Context credential を保存し、次の matching entry で project-bound handle を project します。OPA は ordinary HTTP effect を引き続き評価し、exact allow が必要です。authentication は authorization を広げません。[Authentication](../../guides/authentication/)を参照してください。
+
+</details>
+
+## 11. Workspace が受け取るもの
+
+Workspace に `tobari-h1_` で始まる値があります。Upstream に渡す token ですか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。Context、project、provider、credential revision、exact HTTP/header contract に結び付く opaque random handle です。primary secret は encrypted Context vault に残り、allowed Gateway path でのみ resolve されます。[Credential](../../how-it-works/credentials/)を参照してください。
+
+</details>
+
+## 12. 拒否された Auth Broker 経由のリクエスト
+
+broker handle は有効ですが、OPA が HTTP effect を拒否しました。Auth Broker は実物の秘密情報を Gateway へ返しますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。Gateway は policy 前に non-secret introspection を行う場合がありますが、deny では secret resolution を行いません。upstream connection もありません。[Credential security](../../security/credential-security/)を参照してください。
+
+</details>
+
+## 13. 不正な handle の fallback
+
+リクエストの宣言済み header に不正な形式の Tobari handle が入っています。Gateway は通常の passthrough 認証情報として扱えますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。recognized marker が malformed、stale、copied、ambiguous、misplaced、binding-mismatched の場合は fail closed します。Tobari marker が完全にない場合にだけ passthrough/managed fallback を検討します。[Credential security](../../security/credential-security/)を参照してください。
+
+</details>
+
+## 14. cluster の purge
+
+すべての Workspace を削除し、`tobari cluster down --purge` を実行しました。暗号化された Context vault と installation root key も削除されますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。`--purge` は shared Gateway CA volume を追加で削除します。Context vault と installation root key は残ります。`auth logout` ではなく、provider へ接続もしません。[State と recovery](../../how-it-works/state-and-recovery/)を参照してください。
+
+</details>
+
+## 15. プロジェクトファイルの保護
+
+agent が選択したプロジェクト root 内のファイルを削除しました。Tobari の境界が破られたことになりますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。selected root は意図的に read-write で mount されます。Tobari が前提条件の下で保護するのは選択外の file であり、selected project を authorized Workspace process から守るものではありません。[保証と制限](../../security/guarantees-and-limitations/)を参照してください。
+
+</details>
+
+## 16. 許可済みの宛先へ送るデータ
+
+完全一致の destination/method/path が許可されています。body にソースコードや Workspace から読める秘密情報がないことを、Tobari は保証できますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。allow 後に body を stream し、authorization identity field には使いません。allowed upstream は Workspace が読めて送信を選んだ data を受け取れます。[保証と制限](../../security/guarantees-and-limitations/)を参照してください。
+
+</details>
+
+## 17. 信頼する基盤の侵害
+
+Gateway または Docker daemon が侵害されました。文書化された Workspace の保証は維持されますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。host、kernel、Docker、Gateway、OPA、Auth Broker、root-key backend、reviewed runtime configuration は trusted enforcement foundation です。侵害後まで保護するとは主張しません。[Threat model](../../security/threat-model/)を参照してください。
+
+</details>
+
+## 18. runtime image の command
+
+カスタム runtime image が `CMD ["my-agent"]` を宣言し、その process が終了しました。`CMD` は論理 Workspace の寿命を決めますか？
+
+<details>
+<summary>回答</summary>
+
+いいえ。Tobari は fixed lifetime command を明示的に実行し、child exec session で work を開きます。logical Workspace と persistent home は一つの container より長く残ります。[Runtime customization](../../guides/runtime-customization/)を参照してください。
+
+</details>
+
+## 19. CLI の正本
+
+手書きのガイドと `tobari help` で argument の説明が違います。どちらが正本ですか？
+
+<details>
+<summary>回答</summary>
+
+public command/invocation の source of truth は `cli.Catalog` です。routing、typed argv、help、role、effect、recovery、generated site reference はそこから導出されます。hand-written guide を修正する必要があります。[CLI reference](../../reference/cli/)を参照してください。
+
+</details>
+
+## 20. セキュリティ上の主張の根拠
+
+「Workspace は OPA へ直接到達できず、OPA の拒否は Upstream I/O を防ぐ」と主張する場合、どの根拠が必要ですか？
+
+<details>
+<summary>回答</summary>
+
+少なくとも governing architecture/security contract、OPA が control だけに参加することを示す Compose/network topology implementation と test、deny では upstream connection を作らない Gateway test、direct egress/control-network isolation の integration canary が必要です。[Verification evidence](../../security/verification-evidence/) table が claim と enforcement、test、source を結びます。
+
+</details>
+
+## 追加シナリオ：コピーされた broker handle
+
+process が Workspace A の有効な handle を Workspace B へコピーし、同じ host/header へ送ります。重要な確認項目は何ですか？
+
+<details>
+<summary>回答</summary>
+
+Gateway は receiving network interface から B の principal を導出します。Broker introspection/resolution では handle の Context、project、provider、credential revision、exact target、source/destination header binding が一致する必要があります。A の project binding は B に一致せず、fallback/upstream より前に失敗します。valid matching handle でも、B の ordinary HTTP method/path effect に対する OPA allow が必要です。
+
+</details>
+
+## 根拠となるソース
+
+- [レビュー済み commit の製品契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [レビュー済み commit のアーキテクチャ](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [セキュリティモデルと根拠の要件](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Gateway の実施テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [統合 canary](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+
+## まとめ
+
+各回答を owner に結び付けられれば、current model を理解しています。host が identity を選び、Workspace が project authority を持ち、OPA が判断し、Gateway が enforce し、Auth Broker が allow 後にだけ resolve します。lifecycle command は自分が所有する state だけを削除します。
+
+推測に頼った回答があれば、link 先へ戻ってください。exact argument、schema、path、fault、version は [Reference](../../reference/cli/) へ進んでください。

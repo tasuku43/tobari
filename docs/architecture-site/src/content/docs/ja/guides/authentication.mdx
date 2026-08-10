@@ -1,0 +1,197 @@
+---
+title: 認証
+description: 認証情報と通信許可を混同せず、ツール自身、Auth Broker、既存の managed adapter という三つの方式から選びます。
+---
+
+import CredentialArchitectureMap from "../../../../components/CredentialArchitectureMap.astro";
+import ProviderToolMap from "../../../../components/ProviderToolMap.astro";
+import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
+
+## このガイドで答える問い
+
+**ツールの認証情報はどこに置くべきですか。登録すると通信も許可されますか？**
+
+tool ごとに explicit authentication path 一つを選び、ordinary HTTP effect は別に authorize します。successful login/import が network allow rule を追加することはありません。
+
+読み終えると三つの path を比較し、reviewed built-in broker flow を実行し、handle binding と rotation/logout 後の安全な recovery を説明できます。
+
+前提: [Request journey](../../how-it-works/request-journey/)と [Context](../contexts/)を理解してください。
+
+## 三つの認証方式を比較する
+
+| Path                     | primary credential の場所                               | Workspace が読めるもの                                       | Gateway behavior                                                        | 主な制限                                                      |
+| ------------------------ | ------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Tool-native passthrough  | Workspace persistent home/process 内の tool-owned state | real tool credential                                         | OPA/audit から auth/cookie field を削除し、allow 後に forward           | 同じ Workspace の process が credential を利用可能            |
+| Auth Broker              | installation root key の下の encrypted Context vault    | random project-bound handle。static/renewable state ではない | secret なしで introspect、OPA に質問し、allow 後に resolve/refresh/sign | static exact binding と reviewed GitHub/AWS/Datadog plan だけ |
+| Retained managed adapter | owner-only Context host store                           | managed primary secret は読めない                            | Context/project/host profile を検証し、allow 後に inject                | static reviewed adapter。general provider program ではない    |
+
+どの path でも OPA rule requirement は変わりません。「request が authenticated」と「この Context/project/method/path が connect 可能」は別の claim です。
+
+<aside class="warning">
+  <strong>成果物の状態:</strong> ソースとテストは Datadog
+  acquisition/post-policy refresh path を実装していますが、current immutable
+  Gateway/Auth Broker pin は AWS console login とその Datadog request path
+  より前です。standard cluster が現在選択するのは earlier AWS Identity Center
+  artifact です。Datadog 手順を実行する前に{" "}
+  <a href="../../reference/component-versions/">コンポーネントバージョン</a>で
+  selected identity を確認してください。
+</aside>
+
+## ツール自身による認証
+
+Workspace へ入り、tool の通常の supported login を使います。state は Workspace persistent home 以下に保存され、`exit`、container loss、runtime rebuild 後も残り、`tobari delete` で削除されます。
+
+Tobari は host home、Keychain、SSH agent、credential environment、general CLI configuration を Workspace へ copy しません。tool-native state は同じ Workspace boundary の別 process から読めます。
+
+## まず Provider、その後に Tool
+
+credential Provider と、それを使う Workspace client Tool は別の抽象です。Tobari がサポートするのは、acquisition、handle projection、exact request binding、client をまとめた完全な対応ペアです。現在の reviewed built-in は、どの Provider にも対応 Tool が一つだけです。そのため CLI は Provider を尋ね、Tool を表示したうえで自動選択します。二つを同じ概念として扱わず、不要な `--tool` 入力も追加しません。
+
+<ProviderToolMap />
+
+## レビュー済みの組み込み認証
+
+reviewed helper は GitHub、二つの AWS login method、Datadog US1 pup OAuth です。GitHub では信頼するホストで実行します。
+
+```sh
+tobari cluster up
+tobari auth status --context default
+tobari auth login --context default # choose an installed reviewed provider
+tobari auth login --provider github --context default
+tobari auth status --context default
+```
+
+login には interactive trusted-host terminal が必要です。optional `--provider` を省略すると installed reviewed login provider だけを表示します。各 menu row は自動選択される Workspace client Tool も表示します。explicit `--provider` は menu を省略します。AWS-only `--method` flag には `--provider aws` が必要です。Tobari は identity-checked GitHub CLI を fixed argv、sanitized private configuration、bounded projected output、checked cleanup で実行します。Gateway/Auth Broker は `gh` を実行しません。acquired static value は Broker control 経由で commit され、CLI output へ出ず stable Context vault で暗号化されます。
+
+その Context に permanent binding された Workspace から出て、再 entry します。
+
+```sh
+tobari --context default
+```
+
+Workspace は distinct `tobari-h1_...` handle を受け取ります。built-in GitHub manifest では supported GitHub CLI API use のために project されますが、upstream token ではありません。broker Git credential helper による private Git transport は現在未対応です。
+
+AWS では、explicit trusted-host method を一つ選びます。
+
+```sh
+tobari auth login --provider aws --method identity-center --context default
+# or, with AWS CLI 2.32 or newer:
+tobari auth login --provider aws --method console --context default
+```
+
+Identity Center は reviewed commercial start URL、SSO region、12-digit account ID、role を収集し、fixed device login を実行します。Console login は commercial region 一つを求め、validated cross-device URL だけを開き、AWS CLI が terminal stdin から authorization code を読みます。どちらも isolated temporary home を使い、distinct bounded opaque AWS state だけを暗号化します。re-entry 後、Workspace の三つの AWS credential variable は同じ project handle を含み、access key material は含みません。request region は ordinary Context/command configuration のままです。
+
+Datadog では `tobari auth login --provider datadog --context default` を実行します。Tobari は private file-backed home で fixed host `pup --no-agent auth login --site datadoghq.com` を呼びます。browser consent と loopback callback は pup が所有します。re-entry 後、Workspace は `DD_ACCESS_TOKEN=<project handle>` と fixed `DD_SITE=datadoghq.com` を受け取ります。valid access token は OPA allow 後にだけ選択され、expiry が近ければ Broker が bounded fixed-US1 refresh 一つを行い、replacement encrypted state を persist します。Broker に pup は install されません。
+
+<CredentialArchitectureMap headingLevel={2} initial="acquisition" />
+
+## Auth Broker を使う一つのリクエスト
+
+1. Gateway が ingress interface から Context/project principal を導出します。
+2. provider-declared handle を exact source header で strict に recognize/remove します。
+3. Broker introspection が secret を返さず Context、project、provider、credential revision、target、header binding を検証します。
+4. Gateway が ordinary body-free HTTP effect を OPA へ尋ねます。
+5. deny では停止します。static resolution、Datadog token selection/refresh、AWS companion call/signing、upstream connection はありません。
+6. static allow では、Gateway が same revision を一度 resolve し、declared header を置換します。
+7. AWS allow では、Gateway が authorized complete request を 8 MiB 内で capture します。Broker は authenticated private host companion で fixed AWS CLI credential export 一つを実行し、revision を recheck/persist して standard header-based SigV4 を local sign します。
+8. Datadog allow では、十分長く valid な token を選ぶか、exact proxy-free/no-redirect US1 token endpoint で same-record strict refresh 一つを実行し、bearer value を返す前に state を commit します。
+9. Gateway が exact HTTPS upstream connection 一つを作ります。replay はしません。
+
+<SequenceExplorer
+  title="Auth Broker を使う認証情報の経路"
+  scenarios={[
+    "broker-allowed",
+    "aws-brokered-allowed",
+    "datadog-refresh-allowed",
+    "credential-outcome-unknown",
+    "invalid-handle",
+  ]}
+  initial="broker-allowed"
+/>
+
+Workspace A の valid handle を B へ copy すると、host-derived project principal が一致せず失敗します。replacement/logout 後の stale revision も失敗します。malformed、misplaced、ambiguous、binding-mismatched な Tobari-looking handle は拒否され、Gateway は passthrough へ fallback しません。
+
+## インストール済み schema 1 provider へのインポート
+
+owner-controlled provider manifest は `stdin_import` を宣言できます。protected non-terminal stdin から credential 一つを渡します。
+
+```sh
+trusted-secret-source | tobari auth import example --context default
+```
+
+`example` は installed provider ID である必要があり、command は manifest を作りません。terminal stdin は byte を読む前に拒否します。credential input は bounded で、argv、environment、output からは受け取りません。user manifest は executable helper、request signing、refresh、arbitrary route、method/path policy を追加できません。
+
+## ローテーションとログアウト
+
+Context/provider credential replacement は prior issued handle をすべて revoke します。running process は old environment value を持ち続けますが invalid です。new project-specific projection を受け取るには退出・再 entry します。
+
+local broker state を削除するには次を実行します。
+
+```sh
+tobari auth logout github --context default
+tobari auth status --context default
+```
+
+logout は local provider record を削除し handle を revoke します。GitHub へ接続せず、remote token revocation は保証しません。already-running process environment も書き換えられず、next entry で projection を削除します。`cluster down --purge` は logout の代用ではなく vault/root key を保持します。
+
+## 失敗時の動作
+
+- `auth_login_tty_required`: trusted-host interactive terminal で login します。
+- `invalid_credential_input`: trusted non-terminal value 一つを pipe/redirect します。
+- `auth_broker_locked` / `auth_broker_unavailable`: host で `tobari cluster up` を実行し、`tobari auth status` を確認します。
+- `root_key_missing_with_vault`: original root key を復元します。existing encrypted state に別 key を生成・代入しません。
+- `auth_vault_invalid`: vault content を print/rewrite せず integrity を診断します。
+- `invalid_provider_manifest` / `ambiguous_provider_http_binding`: complete strict manifest collection を修正します。partial provider projection は有効化しません。
+- `credential_handle_invalid` (`403`): matching Workspace を出て再 entry します。copied/stale handle を forward しません。
+- `credential_broker_unavailable` (`503`): known pre-execution availability class です。Broker/companion state を reconcile し、readiness 後にだけ retry します。application upstream attempt は行われていません。
+- `credential_refresh_outcome_unknown` (`409`): automatic replay しません。original request が settle 後、`auth status` を確認します。ready/configured なら Gateway が application upstream attempt をしていないため explicit retry できます。`not_configured` には durable barrier が残るので、affected AWS/Datadog provider を re-login/logout し、退出・再 entry してから retry します。
+- `auth_mutation_outcome_unknown` または mutation 後の output failure: 別 login/import/logout 前に `auth status` を確認します。blind replay は confirmed state を二重に rotate/remove する可能性があります。
+
+## 保証と制限
+
+Broker は static/renewable credential state を Workspace file/environment と OPA の外に保ち、handle を exact authority に bind し、secret-bearing action は allow 後にだけ実行します。同じ Workspace 内の hostile process を分離せず、already allowed capability の利用を止めず、remote logout を行わず、Context ごとの複数 account をサポートせず、reviewed AWS/Datadog plan 外の refresh/signing/OAuth を実装しません。
+
+## 根拠となるソース
+
+- [Authentication governing contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/07_authentication.md)
+- [Auth Catalog specifications](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/auth_catalog.go)
+- [Schema-1/2 provider domain](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/authbroker/provider.go)
+- [Auth Broker implementation and vault tests](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker)
+- [Gateway credential-order tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [Trusted-host credential drivers](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/credentialhost)
+- [Private companion protocol](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/companion_protocol.py)
+- [Datadog fixed refresh](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/datadog_oauth.py)
+
+## まとめ
+
+authentication は identity material を提供しますが、各 HTTP effect は OPA authorization で制御されます。brokered Workspace が持つのは opaque narrow-bound handle です。allowed Gateway path だけが declared static resolve、AWS signing、Datadog token action を開始できます。
+
+## 理解を確認する
+
+<details>
+  <summary>
+    GitHub API の経路が一つも許可されていない状態で login に成功しました。最初の
+    API 呼び出しはどうなりますか？
+  </summary>
+  credential があり handle が project されても、OPA が ordinary HTTP effect を
+  deny します。Gateway は secret resolution/upstream connection を行いません。
+</details>
+
+<details>
+  <summary>
+    Workspace A と B が同じ Context/host の場合、B は A からコピーした handle
+    を使えますか？
+  </summary>
+  いいえ。handle は A の project ID にも bind されます。Gateway は network
+  interface から B の別 principal を導出し、broker validation が失敗します。
+</details>
+
+<details>
+  <summary>
+    <code>auth logout</code> は provider 側で token を revoke しますか？
+  </summary>
+  いいえ。local broker state を削除し Tobari handle を revoke します。remote
+  revocation は command contract 外です。
+</details>
+
+**次へ:** [拒否されたポリシー effect をレビューする](../policy-review/)。

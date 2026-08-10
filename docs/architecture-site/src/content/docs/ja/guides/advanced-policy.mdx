@@ -1,0 +1,134 @@
+---
+title: 高度なポリシー
+description: 通常の完全一致ポリシーでは必要な境界を表現できない場合に限り、信頼するホスト側で Rego を保守します。
+---
+
+## このガイドで答える問い
+
+**maintainer は、いつガイド付きポリシー学習を離れ、Rego を直接管理すべきですか？**
+
+exact allow/deny workflow で表現できない host-authored policy shape が必要な場合だけ Advanced Context を使います。source と test を一緒に保ち、explicit complete-cluster validation を経て有効化します。
+
+このガイドを読み終えると、Advanced mode を使うべきか判断し、host-owned file の安全な場所を確認し、namespace、validation、rollback boundary を説明できます。
+
+前提: [Policy review](../policy-review/)と OPA/Rego を理解してください。通常の first-denial path ではありません。
+
+## ガイド付きポリシーと高度なポリシーでは、管理方式が異なる
+
+| Guided Context                                  | Advanced Context                                        |
+| ----------------------------------------------- | ------------------------------------------------------- |
+| `policy/data.json` だけを所有                   | `data.json`、`tobari.rego`、`tobari_test.rego` を所有   |
+| current Tobari-owned shared evaluator を使用    | maintainer が Context-local policy logic と test を所有 |
+| 通常は exact allow/deny/reset/compaction を使う | routine model で不足する場合、host から直接編集可能     |
+| Tobari release が evaluator logic を更新        | maintainer が compatibility と behavior をレビュー      |
+
+どちらの mode でも Workspace は active policy を編集できません。Context policy directory は owner-only host state であり、Workspace へ mount されません。
+
+## 高度なポリシーを使う Context を意図的に作る
+
+```sh
+tobari context create --name policy-lab --mode advanced
+tobari context show --name=policy-lab --format=json
+tobari context use --name policy-lab
+```
+
+`context show` が報告した exact store path を使います。親の Tobari configuration directory を Workspace へ mount せず、policy directory に credential を copy しないでください。
+
+作成しても running cluster は変わりません。新しい Context を使う前に明示的に reconcile します。
+
+```sh
+tobari cluster up
+```
+
+## ソースとテストを一緒に編集する
+
+信頼するホストで、報告された `policy/tobari.rego` と `policy/tobari_test.rego` を編集します。stable public decision contract を保ち、intended match と negative canary の test を追加します。
+
+Advanced source は stable Context ID から導出される isolated package へ project されます。次の namespace を奪おうとすると validation が拒否します。
+
+- cluster-owned `tobari.http/decision` router
+- reserved `tobari.system` package
+- 別 Context の namespace
+- aggregate Context data namespace
+
+これは一つの trusted OPA process 内での routing/namespace enforcement です。Rego module 間の process-level confidentiality ではありません。
+
+## 明示的に検証して有効化する
+
+activation 前に read-only diagnosis を使います。
+
+```sh
+tobari doctor
+tobari cluster logs --component opa --tail 100
+```
+
+`doctor` は観測だけを行い、source edit を publish しません。all-Context projection を再生成、test、有効化するには explicit cluster reconciliation を実行します。
+
+```sh
+tobari cluster up
+```
+
+projection は fixed router、Context-ID data namespace、shared Guided evaluator、rewritten Advanced package を所有します。すべての source と complete aggregate が pass する必要があります。valid candidate だけが publish され、failure では prior known-good aggregate が authority のままです。
+
+通常の exact allow/deny/reset operation も同じ all-Context safety boundary を使い、`data.json` の learned collection だけを変えます。host-authored boundary policy または arbitrary Rego は書き換えません。
+
+## 高度なポリシーが適切な例
+
+信頼する maintainer が、exact path rule では表現できない non-secret request metadata から有限の rule を作る必要があるとします。
+
+1. exact review では不足する理由を記録する
+2. Advanced Context 一つに最小の Rego condition を書く
+3. positive fixture と negative-inference canary を追加する
+4. aggregate 内のすべての Context を検証する
+5. denied/allowed synthetic request で resulting behavior を確認する
+
+Advanced mode を provider SDK、request body の読み取り、shell 実行、credential loading、Gateway/Auth Broker boundary の迂回に使わないでください。Rego が受け取るのは normalized decision data であり、arbitrary effect execution authority ではありません。
+
+## 失敗時の動作
+
+- invalid Rego、test failure、forbidden package、schema mismatch は activation を防ぎます。
+- partial source edit が partially active aggregate になることはありません。
+- OPA watch/health failure は request を fail closed させ、availability のため allow にはしません。
+- `cluster up` が Context source failure を報告したら、その exact Context を直してから再試行します。
+- exact policy mutation と host edit が競合した場合、content/revision check が stale state を拒否し、推測で merge しません。
+- valid Rego test suite は宣言した case だけを証明し、未知の将来 URL がすべて安全だとは証明しません。
+
+## 保証と制限
+
+Tobari は router と Context namespace を予約し、projection 全体を test し、atomically に publish し、failure では known-good policy を保持します。Advanced rule の意味と完全性は maintainer の責任です。Tobari は provider semantics を解釈せず、安全な wildcard を推論しません。
+
+## 根拠となるソース
+
+- [Advanced policy product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Aggregate policy architecture](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Aggregate generator and package rewriting](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/aggregate.go)
+- [Guided/Advanced isolation tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/aggregate_test.go)
+- [Atomic policy mutation tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata_test.go)
+
+## まとめ
+
+Advanced mode では policy-logic ownership が Workspace ではなく信頼する maintainer へ移ります。Context namespace enforcement、whole-projection test、atomic activation は引き続き必須です。
+
+## 理解を確認する
+
+<details>
+  <summary>通常の拒否は、最初に Rego を編集して解決すべきですか？</summary>
+  いいえ。`policy review` と exact allow/deny を使います。Advanced edit は
+  routine exact model で表せない behavior のためのものです。
+</details>
+
+<details>
+  <summary>
+    <code>doctor</code> は編集した Rego ファイルを有効化しますか？
+  </summary>
+  いいえ。観測だけを行います。explicit cluster reconciliation または supported
+  exact policy mutation が validated activation を所有します。
+</details>
+
+<details>
+  <summary>高度な Rego は Auth Broker へ認証情報を要求できますか？</summary>
+  いいえ。OPA は normalized non-secret HTTP metadata を判断します。post-allow
+  broker resolution boundary は Gateway が所有します。
+</details>
+
+**次へ:** [トラブルシューティング](../troubleshooting/)で観測できる障害を調べるか、通常の作業は[ポリシーレビュー](../policy-review/)へ戻ってください。

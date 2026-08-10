@@ -1,0 +1,185 @@
+---
+title: ポリシー学習
+description: 拒否された完全一致の effect を、ホスト側でのレビュー、全体検証、アトミックな有効化、意図的な再試行まで追います。
+---
+
+import PolicyLoopMap from "../../../../components/PolicyLoopMap.astro";
+import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
+
+## このページで答える問い
+
+拒否された request は、Workspace 自身に承認させず、どのように明示的な rule になりますか？
+
+**一文での答え:** Gateway が secret-free denial evidence を保持し、信頼するホストが opaque な exact candidate を導出します。明示的な host action が allow または deny を検証して atomically に有効化し、元の request は意図的にだけ再試行されます。
+
+### 読み終わると説明できること
+
+- denial evidence、candidate、active policy の違い
+- exact learned decision を scope する field
+- baseline deny、learned exact deny、reset、compaction
+- activation が failed または stale の場合に prior policy が維持される仕組み
+
+**前提:** [Project identity](../project-identity/)と [Request journey](../request-journey/)。
+
+<PolicyLoopMap />
+
+図では discovery の詳細を一つ省略しています。Gateway の denial response と audit に opaque candidate ID は含まれません。host CLI が後から retained validated evidence を使って ID を導出します。
+
+<SequenceExplorer
+  scenarios={["learnable-denial", "policy-review"]}
+  initial="learnable-denial"
+  title="拒否の根拠と、信頼するホストでの有効化"
+/>
+
+## 1. 拒否は許可の申請ではない
+
+OPA は、initialized static authority にも learned allow rule にも一致しない effect を default deny します。すべての最初の request が拒否されるという意味ではありません。initialized policy には限定された static rule が含まれます。current authority 外の request は、その schema、principal、scheme-specific fixed port、credential binding が valid で、terminal deny に一致しない場合にだけ learnable と分類されます。
+
+Gateway は `403 policy_denied` を返します。learnable response が示すのは信頼するホスト上の review location と exact visible effect だけです。自動 retry がないことも明示します。
+
+## 2. payload と秘密情報を除いて根拠を保持する
+
+Gateway は bounded schema 2 denial audit を rotated Docker log へ書きます。candidate discovery は bounded tail を読み、strict validated deny record だけを受け入れます。
+
+evidence には Context/project identity、host、port、method、path、reason、timestamp、non-secret diagnostic が含まれます。query、header、body、handle、credential revision、primary credential は含まれません。handle-bearing URL path は全体が `/[redacted-auth-handle]` に置き換えられます。
+
+evidence retention は bounded であり、無限に続く durable permission inbox ではありません。action 前に observation が選択した log window 外へ出ると、その observation は mutation を authorize できません。
+
+## 3. CLI が完全一致の opaque candidate を導出する
+
+pending observation は次の完全一致で grouping されます。
+
+- stable Context ID
+- stable project ID
+- host
+- port
+- method
+- normalized raw path
+
+body content、body presence、query、header、reason、status、request ID、timestamp、provider、profile display evidence は identity を分割しません。
+
+candidate ID は `pcy_…` という形で、これらの dimension から導出されます。これは opaque です。action は list position を authority として使ったり、ID を decode・reconstruct したりせず、値を変更せず受け入れます。
+
+rule record 自体は scheme field を保存しません。現在は、重ならない固定 scheme/port contract によって HTTP と HTTPS authority が分離されています。この contract が変わった場合に、任意の cross-scheme safety を推論してはいけません。
+
+## 4. レビューと操作を分離する
+
+`policy candidates` は machine discovery surface です。`policy review` は人向けの Permission Inbox です。redirected/machine-readable review は read-only です。TTY でも list は non-mutating のままで、user は detail を開き、一つの Context に対する **Allow exact** または **Deny exact** を stage します。
+
+stage した choice はすべて unchanged opaque ID を保持します。**Apply** を押すと complete staged set を再検証し、一度だけ有効化します。それより前に cancel すると書き込みなしですべて破棄します。Context を切り替える前に Apply または discard するため、durable source promotion は一つの atomic file replacement のままです。display order、indentation、label text、reconstructed host/path は target になりません。machine caller は一つの unchanged ID を `policy allow --id …` または `policy deny --id …` へ渡します。
+
+action 時に、Tobari は current retained evidence と current rule を読み直します。stale、expired、already-covered、mismatched な ID なら policy mutation を行いません。
+
+## 5. ポリシー全体を検証して有効化する
+
+valid exact action または reviewed set に対して、Tobari は次を行います。
+
+1. aggregate policy mutation を lock する
+2. current aggregate revision と complete learned allow/deny snapshot を検証する
+3. target Context の private candidate を build/test する
+4. owner-only fsync-and-rename semantics で Context source を書く
+5. **すべての** Context から content-addressed aggregate を生成する
+6. complete candidate を OPA で test する
+7. content-addressed aggregate projection を atomically に publish する
+8. revisioned complete bundle を owner-labeled Docker-managed policy volume へ publish する
+9. running OPA がその exact revision を報告するまで待つ
+10. new state を persist する
+
+失敗時には source と prior known-good projection/state を restore します。並行変更がある場合、黙って overwrite せず `policy_data_changed` になります。authority-reducing change は最初に deny-all transition revision を有効化し、candidate change の途中に古い広い authority を配信しないようにします。通常の activation では OPA container を動かしたままにします。
+
+## 6. 意図的に再試行する
+
+activation は古い request を再実行しません。user または agent が新しい request を意図的に送信し、principal establishment と policy をもう一度通ります。
+
+これは non-idempotent method と body で重要です。Tobari は blind replay が安全か判断できません。
+
+## 許可、拒否、reset、compaction
+
+| Decision                 | 意味                                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Initialized/static allow | observation 前から installation policy にある authority。learned project rule ではありません                  |
+| Baseline deny            | terminal な host/method/path boundary。pending review には入りません                                          |
+| Learned exact allow      | 一つの Context/project/host/port/method/path capability                                                       |
+| Learned exact deny       | 明示的に review された terminal rejection。その effect では allow より優先されます                            |
+| `policy reset`           | learned allow または exact deny 一つを削除し、initialized/default evaluation へ戻します。allow ではありません |
+| Explicit compaction      | 互換性のある sibling exact rule を少なくとも三つ、reviewed safe prefix rule に置き換えます                    |
+
+compaction は自動ではありません。同じ Context/project/host/port/method だけを grouping し、shallow または unsafe prefix を拒否し、positive example と source ID を保持して、outside-prefix canary を検査します。Tobari は一つの denial から wildcard を作りません。
+
+## 具体例
+
+次の exact allow が三つあるとします。
+
+- `PUT /review/items/1`
+- `PUT /review/items/2`
+- `PUT /review/items/3`
+
+他のすべての boundary が一致すれば、Tobari は `/review/items/` に対する `pcx_…` compaction proposal を discovery する場合があります。host action がその opaque proposal を選ぶまで何も変わりません。`/review/admin` は prefix 外の negative boundary のままで、別 project または method も deny のままです。
+
+## 失敗時の動作
+
+- non-learnable denial は review command を提示しません。
+- malformed または secret-bearing log data は evidence として拒否されます。
+- stale candidate/reference から rule は作られません。
+- Context source または aggregate が一つでも invalid なら activation を中止します。
+- concurrent source change は上書きせず中止します。
+- OPA recreation failure では、controlled rollback が可能な範囲で prior known-good authority を restore します。
+- reset 後、同じ request は再び reviewable/denied になる場合があります。「allow all」にはなりません。
+
+## 保証と制限
+
+**保証すること:** observation だけで authority は変わりません。mutation は opaque reference 一つを使います。exact rule は Context/project-bound です。whole-policy validation が activation より先に行われます。automatic wildcard と request replay はありません。body が grant を暗黙に狭めることもありません。
+
+**保証しないこと:** 無限の denial retention、body-level control、provider-operation semantics、自動 policy minimization、安全な人間の approval decision、OPA recreation 中の完全な無停止。
+
+## 根拠となるソース
+
+- [Policy product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Policy activation architecture](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Guided Rego evaluator](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/opa/policy/tobari.rego)
+- [Rego policy tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
+- [Candidate and compaction domain invariants](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari/policy.go)
+- [Policy source mutation and rollback](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata.go)
+- [All-Context aggregate generation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/aggregate.go)
+- [End-to-end allow, deny, reset, body grouping, and compaction tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+
+## まとめ
+
+denial が作るのは bounded evidence であり、permission ではありません。host は project-bound opaque candidate を導出し、exact outcome を明示的に選び、影響するすべての policy source を一つの aggregate として検証し、atomically に有効化します。retry は選択した場合にだけ行います。
+
+## 理解を確認する
+
+observation、discovery、mutation、activation、retry を分離できるはずです。
+
+<details>
+  <summary>
+    body が異なる二つのリクエストは、二つの candidate になりますか？
+  </summary>
+  いいえ。body presence と content は candidate identity ではありません。一つの
+  exact rule が、exact Context/project/host/port/method/path 上のどの body
+  も対象にします。
+</details>
+
+<details>
+  <summary>
+    <code>policy review</code> の一覧内の位置には、どの権限 がありますか？
+  </summary>
+  ありません。act は explicit detail selection 後に、validated opaque reference
+  一つを変更せず consume します。
+</details>
+
+<details>
+  <summary>baseline deny と、学習した完全一致の拒否の違いは何ですか？</summary>
+  baseline deny は initialized terminal policy で、candidate
+  になりません。learned exact deny は一つの exact project-bound effect への
+  explicit host review を記録し、後で reset できます。
+</details>
+
+<details>
+  <summary>
+    有効化に成功すると、拒否されたリクエストは再試行されますか？
+  </summary>
+  いいえ。caller が新しい request を意図的に送り、それがもう一度評価されます。
+</details>
+
+規則の範囲が不明確なら[プロジェクト識別](../project-identity/)へ戻ってください。次は[認証情報](../credentials/)で、通信許可と秘密情報の管理を分離します。

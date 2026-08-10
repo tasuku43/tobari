@@ -1,0 +1,127 @@
+---
+title: 概要
+description: Tobari が行うこと、境界の位置、一つの外向きリクエストを理解するための最小モデルです。
+---
+
+import SystemMap from "../../../../components/SystemMap.astro";
+
+## このページで答える問い
+
+**プロジェクトで coding agent を動かしたい開発者に、Tobari は何を提供しますか？**
+
+Tobari は agent を project-bound Workspace で動かし、未宣言の HTTP/HTTPS effect を最初は拒否します。信頼するホストから人が exact effect を review/authorize した後、意図的に retry できます。
+
+このページを読み終えると、次を説明できるようになります。
+
+- Tobari が Docker container を起動するだけの command ではない理由
+- 最小 request model の五つの要素
+- outbound effect の制御と computer 上のすべての asset の保護との違い
+
+Tobari の前提知識は不要です。すぐに command を試す場合も、この overview を読んでから[インストール](../install/)へ進んでください。
+
+## 実装技術より先に、一つの境界から始める
+
+agent は selected project を読み書きできます。これは利用者が意図的に与えた有用な authority です。Tobari は、その選択の外側を狭めます。他の host file は mount せず、Docker control は公開せず、Workspace ごとに internal network を分け、通常の outbound HTTP/HTTPS は shared enforcement path を必ず通します。
+
+<SystemMap headingLevel={2} compact />
+
+図は次の順番で読んでください。
+
+1. **Workspace** 内の process が proxy-aware HTTP/HTTPS request を送ります。
+2. **Gateway** が request を受け、host-owned network state から project principal を導出します。
+3. **OPA** が normalized HTTP effect、つまり Context、project、scheme、destination、port、method、path を判断します。request body は policy identity field ではありません。
+4. **Auth Broker** は recognized broker handle がある場合だけ参加します。policy 前には non-secret binding metadata だけを示せます。static resolution、Datadog token selection/refresh、AWS export/signing は allow 後にだけ行います。
+5. allow 後、**Workspace** ではなく **Gateway** が **Upstream** への別 connection を開きます。
+
+decision を行うのは OPA です。Gateway は request を拒否するか upstream connection を作ることで、その decision を enforce します。
+
+## 最初の具体例
+
+`/work/example` の agent が次を試すとします。
+
+```sh
+curl -X PUT https://example.com/quickstart
+```
+
+その exact effect を覆う rule がなければ、Gateway は learnable `403` を返します。bounded secret-free evidence を保持し、信頼するホストで review する場所を agent へ示します。自動承認はありません。人が Workspace から出て `tobari policy review` を実行し、exact effect の allow/deny を選び、confirmed decision 後にだけ retry します。
+
+rule は「agent が example.com を使ってよい」という意味ではありません。reviewed effect が表す stable Context、project principal、HTTPS destination/port、HTTP method、path に結び付いたままです。
+
+<span id="boundary-protects"></span>
+
+## 境界が保護するもの
+
+supported Docker topology では、次を untrusted Workspace process の外に置くよう設計されています。
+
+- selected project root 外の host file
+- Docker socket と Docker control plane
+- 別 Workspace とその persistent home
+- Gateway を迂回する direct public-Internet route
+- broker-managed primary credential
+- host-owned policy review/activation path
+
+Gateway、OPA、principal registry、broker binding が valid decision を確立できなければ、関連 request は fail closed します。OPA outage が allow に変わることはありません。
+
+<span id="boundary-does-not-protect"></span>
+
+## 境界が保護しないもの
+
+Tobari は次を意図的に保証しません。
+
+- selected project root 内の file を、その Workspace の process から守ること
+- user が許可した destination へ process が送る data
+- 同じ Workspace 内の process 同士の分離
+- overlapping project root が互いの host-file change を観測しないこと
+- host、kernel、Docker、Gateway、OPA、Auth Broker が侵害された後の system
+- raw TCP、UDP、HTTP/3、Git over SSH など non-HTTP protocol
+
+proxy configuration を無視する client には supported direct egress route がなく、失敗します。Tobari CA を拒否する certificate-pinned HTTPS client も、Gateway を迂回せず失敗します。
+
+## 現在の実装状態
+
+**現在実装済み:** reusable Context-bound Workspace、dedicated internal project network、Gateway/OPA mediation、exact denial review、Guided/Advanced policy mode、Context runtime recipe、tool-native authentication、retained managed adapter、strict schema-1 static Broker provider、reviewed built-in GitHub/AWS/Datadog acquisition。built-in schema-2 plan は、private host companion による bounded AWS SigV4 と、Broker 内での固定 Datadog US1 OAuth refresh を提供します。
+
+source tree と test は両方の schema-2 plan を含みます。`versions.env` で現在選択される immutable Gateway/Auth Broker digest が含むのは earlier AWS Identity Center path で、AWS console login と Datadog request path より前の artifact です。後二つは source に実装されていますが、pin を review して更新するまで standard cluster では active ではありません。[Component version](../../reference/component-versions/)は selected artifact を報告し、[Supply chain](../../security/supply-chain/)は source と runtime identity が別の claim である理由を説明します。
+
+この documentation は、arbitrary manifest-selected signing/refresh、arbitrary OAuth helper、provider-operation policy、Git credential helper、provider/Context ごとの複数 account、追加 built-in plan を current behavior として示しません。
+
+## 根拠となるソース
+
+次の link は、この page でレビューした implementation commit に固定されています。
+
+- [Product contract: vocabulary and public outcomes](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Architecture: topology and request path](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Security model: trust assumptions and limits](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Workspace runtime implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime.go)
+- [Gateway enforcement tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+
+## まとめ
+
+Tobari は、まず有用な project access を与え、通常の outbound web effect を別に制御します。Workspace は自分自身を authorize できません。host が identity を確立し、OPA が判断し、Gateway が enforce し、Auth Broker は allowed path で宣言済み post-policy credential action だけを行います。
+
+## 理解を確認する
+
+<details>
+<summary>process が <code>HTTPS_PROXY</code> を無視すると、Internet へ直接到達しますか？</summary>
+
+いいえ。supported topology では Workspace は dedicated internal Docker network だけに参加します。project network と egress の両方へ接続するのは Gateway だけなので、proxy を無視した connection は失敗します。
+
+</details>
+
+<details>
+<summary>OPA の許可応答自体がリクエストを Upstream へ送信しますか？</summary>
+
+いいえ。OPA は decision を返します。Gateway がその decision を enforce し、allow 後にだけ upstream connection を作ります。
+
+</details>
+
+<details>
+<summary>Tobari は選択したプロジェクトを agent から保護しますか？</summary>
+
+いいえ。selected root は意図的に read-write で mount されます。Tobari はその選択外の authority を狭めますが、project を read-only にはしません。
+
+</details>
+
+意外な回答があったら、[境界が保護するもの](#boundary-protects)と[境界が保護しないもの](#boundary-does-not-protect)を読み直してください。
+
+**次へ:** [リポジトリから Tobari をインストールする](../install/)。

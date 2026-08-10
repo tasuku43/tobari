@@ -1,0 +1,148 @@
+---
+title: 最初の拒否
+description: 学習可能な 403 が、秘密情報を含まない根拠、ホスト上での明示的な判断、意図的な再試行につながるまでを説明します。
+---
+
+import PolicyLoopMap from "../../../../components/PolicyLoopMap.astro";
+import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
+
+## このページで答える問い
+
+**未宣言のリクエストが拒否された後、正確には何が起きますか？**
+
+Gateway は upstream connection より前で停止し、bounded secret-free evidence を保持します。そして host-side queue を案内します。そこで opaque reference 一つが、明示的な確認と complete policy validation を経た後にだけ、exact allow または exact deny になります。
+
+このページを読み終えると、拒否が permission ではなく evidence である理由、review が host で行われる理由、retry が別の step であり続ける理由を説明できるようになります。
+
+前提: [クイックスタート](../quickstart/)を完了するか、host と Workspace の command の分離を理解してください。
+
+<PolicyLoopMap headingLevel={2} />
+
+## 拒否を時間順に追う
+
+1. Gateway は request を受けた network interface と host-owned principal registry から Context/project principal を導出します。
+2. body-free に正規化した policy input を構築し、OPA へ一度問い合わせます。
+3. OPA は allow rule で覆われない effect を deny します。
+4. Gateway は brokered secret を resolve せず、宛先の DNS lookup も upstream connection の作成も行いません。
+5. Gateway は bounded `403` response を返します。response が示すのは固定された host review command であり、action reference ではありません。
+6. secret-free denial evidence が、保持期間を制限した review window に入ります。同じ exact effect を繰り返し観測しても、新しい authority を生み出さず、一つにまとめられます。
+
+<SequenceExplorer
+  title="拒否された effect から意図的な再試行まで"
+  scenarios={["learnable-denial", "policy-review"]}
+  initial="learnable-denial"
+/>
+
+## レビューは発見、許可と拒否は操作
+
+信頼するホストで実行します。
+
+```sh
+tobari policy review
+```
+
+TTY flow では pending effect を確認し、一つの Context に対する exact choice を stage し、set をレビューした後に一度だけ **Apply** を押します。Apply 前に cancel すると何も変わりません。redirect された review は読み取り専用です。
+
+```sh
+tobari policy review --format json
+```
+
+machine caller は opaque な `pcy_...` reference を変更せず、action 一つへ渡します。
+
+```sh
+tobari policy allow --id <pcy-id>
+# or
+tobari policy deny --id <pcy-id>
+```
+
+表示順、host label、手作りした identifier は authority ではありません。action は保持された reference を resolve し、それが現在の denial を表すことを確認し、owner-only policy data を変更して、complete aggregate をテストし、complete revisioned bundle 一つを有効化します。validation または activation が失敗した場合、直前の known-good policy が active のまま残ります。
+
+## 「exact」が意味する範囲
+
+learned rule は次に結び付きます。
+
+- stable Context ID
+- host-issued project ID
+- scheme
+- destination host と port
+- HTTP method
+- path
+
+request body は意図的に含めません。body content だけが異なる二つの request は、同じ policy effect です。Tobari は prompt、JSON payload、upload、form body を調べて intent を推測しません。
+
+exact learned deny は baseline default deny と異なります。baseline deny は allow が一致しなかったことを意味します。explicit exact deny は信頼するホストの decision を記録し、pending learnable candidate として繰り返し現れません。どちらも request を止めます。
+
+## 判断を修正する
+
+現在の learned rule を確認します。
+
+```sh
+tobari policy rules
+```
+
+現在の decision 一つを削除するには、その opaque rule ID を変更せずコピーします。
+
+```sh
+tobari policy reset --id <policy-rule-id>
+```
+
+reset は effect を許可せず、再実行もしません。その effect を default deny に戻します。その後、同じ denial が観測されれば再び review できます。
+
+関連する exact rule が十分に集まると、Tobari は bounded かつ test-backed な path-prefix compaction も discovery します。
+
+```sh
+tobari policy compactions
+tobari policy compact --id <policy-compaction-id>
+```
+
+compaction は自動ではありません。positive example を保ち、prefix 外側の隣接 path を canary として確認しますが、有限の test で将来のすべての path が安全だと証明することはできません。
+
+## 失敗時の動作
+
+- OPA が unavailable、または OPA response が invalid の場合は service failure となり、upstream connection は作られません。
+- immutable scheme、cluster、principal、credential binding の failure は diagnostic であり、learnable candidate ではありません。
+- expired または stale な candidate reference は拒否されます。queue を再 discovery してください。
+- policy が並行して変更されると、stale action または compaction は推測せず失敗します。
+- complete policy が invalid なら、直前の active policy は変わりません。
+- mutation が confirmed でも output が uncertain の場合、replay 前に read-only state で reconcile する必要があります。mutation command を盲目的に繰り返さないでください。
+
+## 保証と制限
+
+Tobari は、観測された traffic が自動的に permission にならず、通常の learned decision が exact かつ project-bound のままであることを保証します。destination の信頼性は判断せず、body 内の sensitive information は検査せず、すでに許可された effect が Workspace から読める data を送ることも防ぎません。
+
+## 根拠となるソース
+
+- [Policy-learning product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Policy mutation and activation implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata.go)
+- [Policy Catalog specifications](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
+- [CLI review and opaque-reference tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/tobari_test.go)
+- [Gateway deny and OPA-failure tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+
+## まとめ
+
+拒否とは、停止された effect と bounded evidence です。信頼するホストで opaque reference に対する action を実行したときだけ policy が変わります。validation は all-or-nothing で、retry は常に意図的な新しい request です。
+
+## 理解を確認する
+
+<details>
+<summary>二つの POST リクエストで project、host、port、method、path は同じですが、JSON body が異なります。ポリシー candidate は二つになりますか？</summary>
+
+いいえ。body は policy identity dimension ではないため、同じ ordinary HTTP effect を表します。
+
+</details>
+
+<details>
+<summary><code>policy reset</code> は完全一致の拒否を許可に変えますか？</summary>
+
+いいえ。learned decision を取り除き、その effect を baseline default deny に戻します。
+
+</details>
+
+<details>
+<summary>許可操作の途中でポリシー検証が失敗すると、どうなりますか？</summary>
+
+candidate は部分的に有効化されません。直前の known-good aggregate が active のまま残り、後で valid action が完了するまで request は拒否されます。
+
+</details>
+
+**次へ:** [推奨の学習経路をたどる](../learning-path/)。

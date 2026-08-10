@@ -1,0 +1,146 @@
+---
+title: システム全体像
+description: プロジェクト専用ネットワーク、共有 enforcement service、外向き通信経路の配置を示します。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
+import SystemMap from "../../../../components/SystemMap.astro";
+
+## このページで答える問い
+
+Workspace が proxy setting を無視しても Tobari を迂回できないのはなぜですか？
+
+**一文での答え:** supported topology では、各 Workspace は dedicated Docker-internal network だけに参加し、project-network interface と egress interface の両方を持つ component は Gateway だけです。
+
+### 読み終わると説明できること
+
+- project、control、egress network の役割
+- Gateway、OPA、Auth Broker で network attachment が異なる理由
+- allowed request が upstream へ到達する仕組み
+- Gateway/OPA failure が path を閉じる理由
+
+**前提:** [五つの要素による mental model](../mental-model/)。
+
+<SystemMap
+  title="通信と制御の対応図"
+  description="Workspace と Upstream は共有 cluster の外にあります。プロジェクト側と外向き通信側の両方を横断するのは Gateway だけです。OPA、Auth Broker との会話はホストが管理する cluster 内で分離されています。"
+  networkDetail
+/>
+
+## 三つのネットワーク範囲
+
+### Workspace ごとの専用ネットワーク
+
+Tobari は logical Workspace ごとに Docker の `internal` property を持つ network 一つを作ります。work container が参加するのはその network だけです。Gateway は alias `gateway` で接続されます。
+
+container は `http://gateway:8080` を指す大文字・小文字の HTTP/HTTPS proxy variable、空の `NO_PROXY` value、Tobari CA bundle を受け取ります。これらの setting は supported client を intended path へ導きますが、より強い control は network topology です。client が variable を削除しても Docker-provided external route はありません。
+
+### 内部制御ネットワーク一つ
+
+OPA は shared `control` network に参加し、project network や egress には参加しません。そのため Workspace process は OPA policy endpoint を直接呼べません。
+
+Gateway も control に参加し、固定 OPA endpoint 一つを呼びます。Auth Broker は control と egress に参加しますが TCP listener を公開しません。host command と Gateway は controlled mount と fixed operation を通じ、それぞれ別の Unix socket へ到達します。どちらの socket も Workspace/OPA から利用できません。
+
+Broker-private companion socket は Auth Broker container namespace 内だけに存在し、authenticated reverse `docker exec -i` session 一つで resident trusted-host companion へ bridge されます。Workspace へ mount されず、host に publish されません。
+
+### 外向き通信ネットワーク一つ
+
+Gateway は `egress` に参加し、allowed destination を resolve/connect します。Auth Broker が egress を使うのは、exact US1 token endpoint 一つに対する compiled post-policy Datadog refresh plan だけです。interactive GitHub/AWS/Datadog acquisition は Broker egress ではなく、信頼するホストの fixed driver から直接行います。work container はこの network に参加しません。
+
+## 許可されるリクエストの順序
+
+<SequenceExplorer
+  scenarios={["allowed-passthrough", "opa-unavailable"]}
+  initial="allowed-passthrough"
+  title="ネットワーク経路と fail-closed の動作"
+/>
+
+重要な順序は次のとおりです。
+
+1. Workspace の dedicated network から traffic が入る
+2. Gateway が host-issued principal を確立する
+3. Gateway が body-free normalized input で OPA へ一度問い合わせる
+4. allow 後にだけ Gateway が upstream address を resolve/pin する
+5. Gateway が upstream connection 一つを開き、request を stream する
+6. Gateway が bounded secret-free audit metadata を記録する
+
+application-layer automatic retry はありません。redirect は独立した request で、再び authorization を受けます。
+
+## 同じシステム内の信頼境界
+
+<ConceptDiagram name="trust-boundaries" />
+
+Workspace と upstream は untrusted です。host、Docker execution substrate、Gateway、OPA、Auth Broker、owner-controlled state は trusted enforcement infrastructure です。ここで「trusted」は Tobari の claim がそれらに依存するという意味で、bug がないという意味ではありません。
+
+## 回避を試みる具体例
+
+### process が proxy 設定を解除する
+
+direct TCP connection を試せますが、internal project network に external route がないため失敗します。Tobari は network control を迂回するよう transparent redirect しません。
+
+### process が `opa:8181` を呼ぶ
+
+OPA は Workspace network に接続されていないため、container から name/service へ到達できません。
+
+### process が別の Workspace を狙う
+
+各 Workspace の internal network は別です。peer route はありません。Gateway は両方に参加しますが、Workspace 間の general router として動きません。
+
+host file root は別の boundary です。二つの Workspace が同じまたは重なる project root を意図的に mount する場合があります。network、home、principal、learned rule は分離されますが、overlapping host file への書き込みは両方から見えます。
+
+## 失敗時の動作
+
+- **Gateway が利用不能:** 設定済みの proxy が接続を受けられません。外部への直接経路は変わらずありません。
+- **OPA が unavailable、slow、non-200、oversized、malformed、incomplete:** Gateway は `503 policy_unavailable` を返し、resolve/upstream connection を行いません。
+- **aggregate policy に unknown Context:** fixed OPA router は deny し、current/default Context へ fallback しません。
+- **unsafe dotted-host DNS result:** Gateway は non-global address を拒否し、別 authority を暗黙に選びません。これは upstream/proxy failure であり stable public JSON fault code ではありません。
+- **Workspace container/network が missing:** 次の entry で logical state から runtime resource を reconcile します。Docker resource loss で logical Workspace は消えません。
+
+## 保証と制限
+
+**supported topology で保証すること:** direct Workspace egress がないこと。Workspace から OPA、Broker socket、Docker socket、別 project network への route がないこと。policy failure 後に upstream を試さないこと。shared service CPU、memory、PID、Docker log が bounded であること。
+
+**保証しないこと:** Workspace 間での fair bandwidth/shared-service capacity、host/Docker/kernel/Gateway/OPA/Broker compromise 後の保護、selected project root 下の disk quota、non-HTTP protocol の general network policy、overlapping selected root 間の filesystem isolation。
+
+## 根拠となるソース
+
+- [System topology](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [HTTP authorization and network enforcement claims](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Compose network declarations and service mounts](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml)
+- [Workspace network and container creation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime.go)
+- [Cluster reconciliation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/runtime.go)
+- [End-to-end topology, bypass, and outage tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+
+## まとめ
+
+proxy variable は client を導き、Docker network attachment が supported route を enforce します。Gateway が project network を policy/egress へ bridge します。OPA は egress なしで判断し、Auth Broker は Workspace networking へ公開されません。
+
+## 理解を確認する
+
+便利な proxy setting と、実際の no-direct-egress boundary の違いを説明できるはずです。
+
+<details>
+  <summary>
+    process が <code>--noproxy '*'</code> を使うとどうなりますか？
+  </summary>
+  direct connection に external route がなく、失敗します。Gateway を迂回する別
+  path は得られません。
+</details>
+
+<details>
+  <summary>OPA が「packet を通す」コンポーネントでないのはなぜですか？</summary>
+  OPA は control network からだけ到達でき、decision を返します。project/egress
+  interface を所有し、その decision を enforce するのは Gateway です。
+</details>
+
+<details>
+  <summary>
+    ネットワークを分けると、重なった root 同士でファイル変更
+    が見えなくなりますか？
+  </summary>
+  いいえ。network isolation と host-file mount overlap は別です。同じ selected
+  host file への書き込みは共有されます。
+</details>
+
+五つの役割が不明なら[メンタルモデル](../mental-model/)へ戻ってください。次は[Workspace、Context、cluster](../workspace-context-cluster/)で永続する製品概念を区別します。

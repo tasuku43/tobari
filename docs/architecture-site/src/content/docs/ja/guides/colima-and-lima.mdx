@@ -1,0 +1,121 @@
+---
+title: ColimaとLima
+description: Workspace の mount 範囲を広げず、プロジェクトと Tobari の状態パスを VM 上の Docker daemon から見えるようにします。
+---
+
+## このガイドで答える問い
+
+**ホストでは有効なパスが、Colima または Lima VM 内の Docker で失敗するのはなぜですか？**
+
+CLI process だけでなく Docker daemon からも、すべての bind source を resolve できる必要があります。selected project root と Tobari XDG configuration/state path を VM と共有し、read-only diagnosis と explicit cluster reconciliation を再実行します。
+
+読み終えると、必要な path、VM sharing failure と HTTP policy denial の違い、host home 全体を Workspace へ mount せず sharing を修正する方法を説明できます。
+
+前提: Tobari を install し、使用する Docker context を選択してください。Tobari は standard Docker CLI adapter を使い、Docker Desktop API には依存しません。
+
+## パスが見える必要がある理由
+
+CLI は信頼する host で動きますが、selected Docker daemon は VM 内にある場合があります。CLI から存在する path が VM 内にはない、または異なる場所に mount されることがあります。
+
+daemon から次が見える必要があります。
+
+- read-write Workspace bind の selected canonical project root
+- service が利用する host-owned policy と generated projection の `${XDG_CONFIG_HOME:-$HOME/.config}/tobari`
+- runtime materialization、principal registry、Workspace state、broker state の `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`
+- Docker 自身がアクセスする必要がある explicit custom image/build source
+
+別 shell account から推測せず、Tobari を呼ぶ host process の environment を確認します。
+
+```sh
+printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/tobari"
+printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/tobari"
+pwd -P
+```
+
+## VM の境界を設定する
+
+使用中の version に対応する Colima/Lima documentation に従い、exact parent path を VM へ公開します。Tobari は platform-specific mount configuration を別の command で隠しません。
+
+次を含む、最も狭く安定した shared parent を選びます。
+
+1. intended project
+2. resolved Tobari config directory
+3. resolved Tobari state directory
+
+daemon には source-path visibility が必要ですが、Workspace が受け取るのは selected project mount と自分の home だけです。Docker VM と path を共有しても、その path 全体を Workspace へ mount することにはなりません。
+
+## Workspace に入る前に検証する
+
+intended project directory から実行します。
+
+```sh
+tobari doctor
+tobari cluster status
+```
+
+`doctor` は Workspace を作らず host-path validity と Docker bind diagnostic を報告できます。VM sharing を直したら明示的に reconcile します。
+
+```sh
+tobari cluster up
+tobari
+```
+
+root entry を繰り返して repair mechanism にしないでください。root `tobari` command は shared cluster が ready であることを要求し、暗黙に起動しません。
+
+## よくある症状を区別する
+
+| 症状                                                       | 考えられる boundary                               | 確認するもの                                                                  |
+| ---------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------- |
+| bind source がない、または共有されていないと Docker が報告 | VM filesystem sharing                             | project と resolved XDG parent                                                |
+| Workspace は起動するが HTTP request が `403`               | Gateway/OPA policy または credential binding      | VM mount ではなく `tobari policy review`                                      |
+| Workspace が Gateway TLS を trust できない                 | client CA/proxy behavior                          | tool が injected CA variable を使うか。certificate pinning は意図的に拒否可能 |
+| cluster component から policy/projection が見えない        | XDG config/state bind visibility または ownership | `doctor`、`cluster status`、component log                                     |
+| registry image が unavailable                              | Docker VM registry/network path                   | Docker context と registry access。policy rule は変更しない                   |
+
+## 障害と安全な復旧
+
+- affected Workspace が detached の間に VM sharing を直します。
+- `tobari doctor` を再実行します。warning は mutation を行いません。
+- path が見えるようになった後、`tobari cluster up` で service を reconcile します。
+- partially created logical Workspace が残る場合は `tobari status` を確認します。runtime `missing`/`degraded` は次の valid entry で reconcile できます。`incomplete` は cleanup-only なので `tobari delete` で削除します。
+- bind error を解決するために vault、root key、CA state を削除しないでください。
+- host networking、privileged mode、Docker socket mount、広い host-home Workspace mount を追加しないでください。
+
+## 保証と制限
+
+Tobari は作成する runtime topology を検証し、required bind source が unavailable なら setup を失敗させます。すべての VM product/version を設定したり、daemon 内から unshared host path を見えるようにしたりはできません。Colima/Lima と host filesystem は trusted foundation のままです。
+
+## 根拠となるソース
+
+- [Supported requirements and VM guidance](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/README.md)
+- [Mount and topology security contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Project path derivation implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_paths.go)
+- [Docker bind diagnostics](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/runtime.go)
+- [Bind and mount contract tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/runtime_test.go)
+
+## まとめ
+
+VM-hosted daemon には exact host bind source が見える必要があります。その daemon boundary を直した後も、Tobari が runtime へ公開するのは selected project と Workspace home だけです。
+
+## 理解を確認する
+
+<details>
+  <summary>
+    shell からプロジェクトが見えるのに Docker が invalid bind
+    を報告します。どちらから見えることが重要ですか？
+  </summary>
+  両方で resolve できる必要がありますが、失敗しているのは VM 内の selected
+  Docker daemon の view です。shared path を設定し、`doctor` を再実行します。
+</details>
+
+<details>
+  <summary>
+    XDG state の親 directory を VM と共有すると、Workspace は root key
+    を読めますか？
+  </summary>
+  いいえ。service mount は狭く指定され、Workspace に parent directory や
+  root-key file は渡りません。VM から見える host path を広げても、Tobari の
+  container mount contract は変わりません。
+</details>
+
+**次へ:** [トラブルシューティング](../troubleshooting/)。

@@ -1,0 +1,152 @@
+---
+title: JSON Schema
+description: 公開 JSON envelope、永続 document、内部 protocol、strict parser、互換性の境界を説明します。
+---
+
+## このページで答える問い
+
+**Tobari の schema version は、どの契約に適用されますか？**
+
+短く言うと、各 version は一つの specific surface に属します。public CLI report、persisted manifest、Gateway policy input、audit line、Broker socket frame は、related object を記述していても別の contract です。
+
+読み終えると「Context schema は 5」のような発言に対し、stored configuration と public output のどちらか確認できるようになります。
+
+## 「Schema」が必ずしも JSON Schema を意味しない
+
+Tobari は多くの JSON contract に explicit `schema_version` field と strict reader を使います。repository はすべての surface の formal JSON Schema document を公開しているわけではありません。provider manifest v1 は Go parser/validator で enforce され、canonical synthetic fixture が harness ledger に記録されています。fixture digest は fixture identity の証明で、general-purpose JSON Schema ではありません。
+
+public CLI output では Catalog が JSON envelope/schema version を宣言します。contract test は renderer を実行し、produced `schema_version` を Catalog と比較します。persisted/internal document は owning domain/infrastructure reader が validation/compatibility を定義します。
+
+## 公開 CLI JSON
+
+| Surface                                                           | Envelope                             | Current schema |
+| ----------------------------------------------------------------- | ------------------------------------ | -------------: |
+| Structured error                                                  | `error`                              |              1 |
+| Agent help                                                        | `commands`                           |              8 |
+| Doctor report                                                     | `report`                             |              1 |
+| Context list                                                      | `contexts`                           |              3 |
+| Context report (`context show`、create/use/config/runtime result) | `context`                            |          **6** |
+| Cluster status                                                    | `cluster`                            |              4 |
+| Cluster denial                                                    | `denials`                            |              3 |
+| Policy candidate/review                                           | `policy_candidates`、`policy_review` |              4 |
+| Policy rule                                                       | `policy_rules`                       |              2 |
+| Policy compaction                                                 | `policy_compactions`                 |              3 |
+| Authentication command                                            | `auth`                               |              1 |
+| Workspace list/status                                             | `tobari` または `status`             |              2 |
+
+exact field、optionality、collection coverage、output format は [CLI reference](../cli/)で生成されます。object が同じ name を共有していても、別 envelope の field を推測しないでください。
+
+### Context のバージョン境界
+
+重要な区別です。
+
+```text
+Host configuration
+  contexts/<name>/context.json
+  Context manifest schema 4
+
+CLI presentation
+  {"schema_version": 6, "context": ...}
+  public Context report schema 6
+```
+
+report は task-owned runtime、cluster、complete shell-setting、secret-free authentication interpretation を加えます。`context.json` に保存する byte ではありません。
+
+## ホストに永続化する契約
+
+| State                                  | Current contract          |
+| -------------------------------------- | ------------------------- |
+| Context manifest                       | Schema 4                  |
+| Root index / Workspace instance        | Schema 2                  |
+| Shared cluster state                   | Schema 3                  |
+| Project principal registry             | Schema 2                  |
+| Guided policy data                     | `tobari.schema_version` 2 |
+| Aggregate policy projection marker     | Schema 1                  |
+| Owner provider manifest                | Schema 1                  |
+| Reviewed built-in provider manifest    | Schema 1 または 2         |
+| Normalized provider projection         | Schema 2                  |
+| Encrypted Context vault                | Envelope 1、payload 2     |
+| Workspace authentication file registry | Schema 1                  |
+| Base runtime metadata                  | Schema 1                  |
+
+reader は owning contract に従って malformed、oversized、unsafe、unsupported state を拒否します。strictness は surface-specific です。すべての JSON reader が unknown field を同じように扱うとは想定しないでください。provider document、principal state、broker frame、critical runtime state は explicit fail-closed validation を使います。
+
+legacy compatibility も surface-specific です。Context store は earlier manifest version から deliberate upgrade しますが、legacy singleton state は older Tobari で cleanup が必要になる場合があります。future version は自動的には受け入れません。
+
+## Gateway、OPA、監査、Auth Broker の契約
+
+| Boundary                                     |                                            Current contract | 重要な content rule                                                                                                            |
+| -------------------------------------------- | ----------------------------------------------------------: | ------------------------------------------------------------------------------------------------------------------------------ |
+| Gateway credential configuration             |                                                    Schema 2 | Context-aware managed projection。path/metadata は含むが policy authority は含まない                                           |
+| Gateway → OPA decision input                 |                                                    Schema 5 | host-derived principal と normalized HTTP attribute。body/client secret header なし                                            |
+| Guided/Advanced source policy input          | source schema 4。migration 用 legacy source schema 3 も受付 | complete validation 前に aggregate generation が runtime input schema 5 へ rewrite                                             |
+| Gateway audit line                           |                                                    Schema 2 | secret-free normalized decision evidence                                                                                       |
+| Gateway learnable-denial navigation response |                                                    Schema 1 | fixed host review guidance。candidate ID、query、body、secret なし                                                             |
+| Broker control protocol                      |                                                    Schema 1 | host control Unix socket 上の bounded newline-delimited JSON                                                                   |
+| Broker runtime protocol                      |                                                    Schema 1 | introspection は non-secret。post-allow static resolve/Datadog token action/AWS signing response は Gateway Unix socket を使用 |
+| Private host companion frame                 |                                                    Schema 1 | authenticated、direction-bound、strictly sequenced frame が compiled post-policy AWS operation だけを運ぶ                      |
+| Workspace broker handle                      |                                            Handle version 1 | opaque `tobari-h1_…`。authority へ decode しない                                                                               |
+
+OPA output は Gateway が consume する decision です。OPA は upstream connection を開きません。wrong/unavailable policy response は upstream より前に fail closed します。
+
+両 Broker protocol は bounded newline-delimited JSON frame を使います。unlock/credential-import operation は control frame 後に declared length-bounded raw payload を運びます。その secret-bearing byte は JSON metadata ではありません。
+
+## consumer の互換性規則
+
+- exact envelope と `schema_version` で behavior を選ぶ
+- unknown version を unsupported と扱い、newest known shape へ silent coerce しない
+- contract 上重要な absent と explicit empty/zero/false を保持する
+- opaque reference/handle を exact byte として扱い、decode/normalize/truncate/reconstruct しない
+- label、array order、proximity、human indentation から identity/relationship を推論しない
+- supported public CLI result の代わりに internal state file を読まない
+
+## 障害と制限
+
+schema mismatch は contract/compatibility failure であり、推測の permission ではありません。candidate validation failure では known-good policy/runtime selection を保持します。invalid broker frame と invalid Tobari-looking handle は fail closed します。public error は URL、response body、credential を含む可能性がある arbitrary wrapped upstream prose を除外します。
+
+このページは current contract を記録しますが、すべての internal format を public extension point とする約束ではありません。supported public boundary は Catalog と explicitly documented external contract だけです。
+
+## 根拠
+
+- 公開出力の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>Catalog の出力 schema</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/output_schema_contract_test.go`}>renderer 整合テスト</a>
+- Context の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>manifest schema 4</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}>report schema 6</a>
+- Gateway の入力と監査：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}>Gateway addon の正本</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}>Gateway 契約テスト</a>
+- ポリシーの正本と変換：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/aggregate.go`}>集約 projection</a>
+- Auth Broker protocol：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/protocol.py`}>protocol parser</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_broker.py`}>否定系テスト</a>
+- fixture 台帳：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/.harness/schemas.json`}><code>.harness/schemas.json</code></a>
+
+## まとめ
+
+schema version は boundary ごとに local です。stored Context schema 4 と public Context report schema 6 は別 document を govern するため、どちらも正しい値です。compatibility を定義するのは shared number ではなく exact reader/test です。
+
+## 理解を確認する
+
+surface のない schema number が不完全な理由を説明できるはずです。
+
+<details>
+  <summary>
+    <code>synthetic-provider-v1.json</code> は正式な JSON Schema ですか？
+  </summary>
+  いいえ。strict Go parser、validator、normalization、test とともに使う
+  canonical synthetic fixture です。
+</details>
+
+<details>
+  <summary>
+    source input schema 4 用の高度なポリシーを runtime OPA input schema 5
+    へそのまま送れますか？
+  </summary>
+  いいえ。aggregate generation が supported source contract
+  を検証し、Context-isolated runtime schema 5 projection へ rewrite し、complete
+  candidate を activation 前に test します。
+</details>
+
+<details>
+  <summary>
+    client は opaque reference を decode して ID を復元できますか？
+  </summary>
+  いいえ。reference kind を consume する command へ exact validated value
+  を保持して返す必要があります。
+</details>
+
+次へ：[障害と復旧](../faults-and-recovery/)。

@@ -1,0 +1,166 @@
+---
+title: 障害と復旧
+description: 生成された CLI fault 契約、stable kind/code、再試行の意味、安全な変更操作の復旧、Gateway の障害動作を説明します。
+---
+
+import FaultReference from "../../../../components/FaultReference.astro";
+
+## このページで答える問い
+
+**Tobari が障害を報告したとき、どの field が安定した契約で、次に何をしても安全ですか？**
+
+短く言うと stable `kind` と exact `code` で failure を分類し、Catalog-owned next action に従います。upstream message または rate-limit timer から、mutation を安全に繰り返せると推論しないでください。
+
+このページは [Troubleshooting](../../guides/troubleshooting/)の contract-oriented companion です。Troubleshooting は visible symptom から始め、このページは machine fault から始めます。
+
+読み終えると次ができます。
+
+- fault kind を process exit code へ対応させる
+- retryability と mutation replay safety を区別する
+- policy denial と unavailable policy engine を区別する
+- fail-closed credential-handle behavior を認識する
+- untrusted text を追加せず exact recovery command を使う
+
+## 公開 fault envelope
+
+`--error-format json` の CLI failure は schema 1 です。
+
+```json
+{
+  "schema_version": 1,
+  "error": {
+    "kind": "canceled",
+    "code": "operation_canceled",
+    "message": "The operation was canceled.",
+    "retryable": true,
+    "retry_after": null,
+    "next_actions": [
+      { "command": "doctor", "reason": "Retry when the caller is ready." }
+    ]
+  }
+}
+```
+
+`message` は safe human text で、upstream response body ではありません。wrapped cause は implementation 内で classification に使えますが、request URL、credential、unstable provider prose を含む可能性があるため public projection から除外します。
+
+## stable kind と終了コード
+
+| Kind             | Exit | Recovery class                                                                |
+| ---------------- | ---: | ----------------------------------------------------------------------------- |
+| `invalid_input`  |    2 | effect 前に invocation を修正                                                 |
+| `internal`       |    3 | Tobari implementation/local adapter failure を調査                            |
+| `authentication` |    4 | identity/credential state を確立・修復。network authorization は grant しない |
+| `permission`     |    5 | caller に requested operation の permission がない                            |
+| `not_found`      |    6 | required local target を discover/create                                      |
+| `ambiguous`      |    7 | explicit selection 一つを行い display order で選ばない                        |
+| `rate_limited`   |    8 | authoritative rate-window evidence を尊重し、logical retry safety を再評価    |
+| `unavailable`    |    9 | required component/external prerequisite を復元                               |
+| `rejected`       |   10 | request は理解されたが current contract/state に違反                          |
+| `canceled`       |   11 | caller が停止。mutation は replay 前に reconcile                              |
+| `unsupported`    |   12 | documented supported path を使う                                              |
+| `contract`       |   13 | producer/consumer contract が不一致。fail closed して contract を修復         |
+
+success は exit 0 です。kind は code より broad で、複数の task-specific code が recovery class 一つを共有できます。
+
+## 生成されたコマンド fault リファレンス
+
+下の table は exact-command agent help から生成されます。二つ目の fault list を MDX に copy せず Catalog の code、kind、retryability、recovery action を保持します。
+
+<FaultReference />
+
+## 再試行するか決める順序
+
+1. operation が read-only か mutation か判断する
+2. `retryable` と `retry_after` を読む
+3. mutation なら structured outcome/current state を調べる
+4. declared next action だけに従う
+5. precondition 復元後に deliberate retry する
+
+`retry_after` は observed rate window を表し、create/write が完了していない証明ではありません。一方 non-retryable fault でも、`status`、`context show`、`doctor` のような read-only reconciliation action を示せます。
+
+confirmed side effect 後、mutation result は completion boundary を越えます。後の cancellation が success を replay permission に変えることはありません。unclassified mutation outcome は `unclassified_mutation_outcome` になり、read-only reconciliation を指示します。
+
+## リクエスト経路の障害は fail closed
+
+すべての network failure が CLI fault envelope になるわけではありません。Workspace は Gateway から HTTP response/failed connection を観測します。
+
+| Observation                                             | 意味                                                                                                      | upstream contacted?                                                |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| learnable HTTP `403` denial                             | normalized Context/project/host/port/method/path に allow rule がない。host で review 後 deliberate retry | No                                                                 |
+| non-learnable HTTP `403` denial                         | learnable boundary 外または invalid identity。candidate にならない                                        | No                                                                 |
+| policy service unavailable/invalid decision (`503`)     | Gateway が valid OPA decision 一つを取得できない                                                          | No                                                                 |
+| `credential_handle_invalid`                             | Tobari-looking handle が malformed/stale/copied/misplaced/ambiguous/binding-mismatched                    | No。passthrough fallback なし                                      |
+| `credential_broker_unavailable` (`503`)                 | Broker locked/unavailable、または companion/refresh/signing failure が known pre-execution                | authorized credential-bearing upstream connection なし             |
+| `credential_refresh_outcome_unknown` (`409`)            | AWS companion operation/Datadog refresh が dispatch 済みかもしれず replay safety が unknown               | application upstream attempt なし。automatic replay 禁止           |
+| allow 後の upstream DNS/TLS/connection/response failure | authorization は成功し、separate upstream operation が失敗                                                | connection を試した可能性あり。Gateway は request を replay しない |
+
+policy denial は retained secret-free evidence からだけ candidate になれます。Gateway response は host-side navigation guidance で、candidate reference/permission ではありません。
+
+`credential_refresh_outcome_unknown` では original request の settle を待ち、信頼するホストで `auth status` を確認します。`broker_state=ready` かつ affected provider が `configured` なら、Gateway は upstream application attempt をしていないため explicit user retry が許可されます。`not_configured` なら encrypted record に durable task barrier が残ります。その AWS/Datadog provider を re-login/logout し、Workspace を出て再 entry します。`locked`/`unavailable` は先に reconcile します。409 は caller automatic retry の対象外です。
+
+## fault 契約自体の障害
+
+public boundary には二つの last-resort contract code があります。
+
+- `invalid_fault_contract`: kind、code、message、timing、next action が malformed な structured fault を置換
+- `undeclared_fault_contract`: command Catalog declaration と code/kind/retryability が一致しない fault を置換
+
+unstable internal error が public API になるのを防ぎます。provider-specific failure ではなく implementation diagnostic です。
+
+## 保証と制限
+
+Tobari が stable classification を保証するのは supported public boundary だけです。bounded diagnostic として表示する Docker、OPA、provider、OS text は stable fault code ではなく、parse してはいけません。recovery command は precondition を復元できますが、remote revocation、external-service availability、arbitrary HTTP body の safe replay は保証できません。
+
+## 根拠
+
+- fault の語彙と検証：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/fault/fault.go`}><code>internal/domain/fault/fault.go</code></a>
+- JSON 表示、終了コード対応、契約の実施：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/errors.go`}><code>internal/cli/errors.go</code></a>
+- Catalog 宣言：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog.go`}>基本コマンド</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>runtime コマンド</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/auth_catalog.go`}>認証コマンド</a>
+- Gateway の fail-closed 実装とテスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}>Gateway addon</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}>Gateway テスト</a>
+- 認証情報操作の結果不明と永続 barrier：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_companion_protocol.py`}>AWS companion protocol テスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_datadog_broker.py`}>Datadog refresh テスト</a>
+- CLI fault テスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/cli_test.go`}>構造化エラーのテスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/fault/fault_test.go`}>秘密情報を含まない公開 copy のテスト</a>
+
+## まとめ
+
+fault kind は recovery class を選び、code は exact condition を識別します。retryability/rate timing は mutation reconciliation の代わりになりません。Gateway denial、OPA failure、invalid broker handle はすべて unauthorized upstream traffic より前に fail します。
+
+## 理解を確認する
+
+「もう一度試す」が universal recovery instruction ではない理由を説明できるはずです。
+
+<details>
+  <summary>
+    OPA へのリクエストが timeout しました。ポリシーの復旧中に Gateway は
+    Upstream へ送りますか？
+  </summary>
+  いいえ。Gateway は valid decision 一つを要求し、policy unavailability は
+  upstream connection 前に fail closed します。
+</details>
+
+<details>
+  <summary>
+    変更操作が cancellation を報告しました。終了コード 11 だけで再実行
+    を正当化できますか？
+  </summary>
+  いいえ。mutation outcome/current state を先に調べます。external effect 後に
+  cancellation が起きる場合があります。
+</details>
+
+<details>
+  <summary>
+    provider のエラー文字列を Catalog の復旧コマンドに追加できますか？
+  </summary>
+  いいえ。recovery command は exact checked path です。upstream prose は
+  untrusted data であり argv ではありません。
+</details>
+
+<details>
+  <summary>
+    AWS companion が処理開始後に切断されました。自動で再試行 して安全ですか？
+  </summary>
+  いいえ。Gateway は non-retryable HTTP 409 `credential_refresh_outcome_unknown`
+  を返し、application upstream attempt は行いません。deliberate retry 前に
+  trusted-host state reconciliation が必要です。
+</details>
+
+次へ：[runtime image契約](../runtime-image-contract/)。

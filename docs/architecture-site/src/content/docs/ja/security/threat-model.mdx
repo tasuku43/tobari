@@ -1,0 +1,175 @@
+---
+title: 脅威モデル
+description: 現在の Tobari における資産、攻撃者、前提、攻撃経路、緩和策、残るリスク、fail-closed の動作を説明します。
+---
+
+## このページで答える問い
+
+**Tobari は、どの前提のもとで、どの攻撃に対抗するよう設計され、どのリスクが残りますか？**
+
+<aside class="one-sentence">
+  <strong>一文での答え:</strong> Tobari は、unselected host/Docker resource への
+  access、別 project identity の self-assignment、HTTP policy の
+  bypass、broker-managed credential state と derived request credential
+  の取得を試みる untrusted Workspace process を制限します。一方で、host
+  enforcement base と user による root/rule の選択は明示的に trust します。
+</aside>
+
+読み終えると、mitigated attack と out-of-scope trusted-base compromise を区別できます。
+
+**前提:** [Trust boundaries](../trust-boundaries/)。
+
+## 保護する資産
+
+- selected root 外の host file。
+- Docker control と別の Workspace runtime resource。
+- stable Context/project authority と policy source。
+- installation root key、encrypted Context vault、broker-managed credential。
+- active aggregate policy と principal/provider projection の integrity。
+- secret-free diagnostic と structured CLI output。
+
+selected root は作業 resource であり、自身の Workspace から保護される asset ではありません。effect が明示的に allowed になった後の payload confidentiality も、Tobari が保証できる asset ではありません。
+
+## 攻撃者ができること
+
+Workspace 内の code は、次のことができると仮定します。
+
+- selected project と Workspace home を読み書きする。
+- process を起動し、その Workspace 内の別 process と連携する。
+- proxy environment variable を無視し、direct connection を試みる。
+- header、URL、Context/project に見える ID、credential に見える値、prompt-like text を偽造する。
+- projected broker handle をコピーし、別の Workspace から replay する。
+- policy denial を trigger し、user review と race し、同じ HTTP dimension へ異なる body を送る。
+- invalid certificate を提示し、upstream-controlled response を consume する。
+
+この model は、adversary が host user、Docker Engine、kernel、Gateway、OPA、Auth Broker、root-key provider、reviewed image を control するとは仮定しません。そのいずれかを control できる状態は trusted-base compromise です。
+
+## 攻撃経路と緩和策
+
+### proxy を迂回する
+
+Workspace の network は Docker-internal だけです。supported external route はありません。Gateway だけがその network と egress の両方に参加します。結果: direct traffic は失敗し、Gateway outage でも fail open しません。
+
+### 別のプロジェクトを名乗る
+
+Gateway は request-supplied project authority を無視します。host-created local interface を principal registry で resolve します。結果: forged header では principal を切り替えられず、missing/ambiguous state は OPA より前に deny されます。
+
+### 秘密情報をポリシーまたは log へ混入させる
+
+既知の configured credential header と broker handle は OPA と audit より前に remove または redact され、body は policy input にも audit content にもなりません。結果: それらの credential/body class は通常の decision と retained-evidence path に入りません。制限: implementation は任意の値をすべて credential として認識できるわけではありません。ordinary query と safe header に sensitive text があると、decision metadata に入る可能性があります。
+
+### 拒否を許可に変える
+
+Gateway が返すのは denial と review location だけです。host discovery は opaque reference を生成します。mutation は current state を rediscover し、exact rule と whole aggregate を validate し、revision を確認して atomically に activate します。結果: Workspace は自身を approve できず、stale reference は失敗し、request が自動的に replay されることはありません。
+
+### broker handle をコピーまたは偽造する
+
+marker が存在すると、その request は broker processing に固定されます。introspection は OPA より前に Context、project、provider、credential revision、exact HTTPS target、header binding を確認します。結果: copied/stale/invalid handle は passthrough fallback も secret resolution も行わず拒否されます。
+
+### Workspace から Auth Broker の vault または root key を読む
+
+Workspace は broker control mount も vault/root-key path も持ちません。Broker は shared locked service として動きます。Linux key file と vault path は unsafe type/permission を拒否し、macOS は Keychain を使います。unlock material は argv/env ではなく fixed stdin を通ります。結果: trusted base が compromised にならない限り、broker-managed secret は host/Broker-owned のままです。
+
+### provider 設定をホスト上のコード実行に変える
+
+owner manifest は strict schema 1 であり、protected stdin import だけを要求できます。executable、shell command、helper、refresh URL、signing plan、schema 2 は選べません。reviewed GitHub、AWS、Datadog login は、identity-checked fixed trusted-host driver を sanitized environment と検査済みの private-home cleanup で使います。結果: provider JSON は data であり、executable adapter ではありません。
+
+### AWS companion へ到達または再送する
+
+companion には listener も mounted host socket もありません。Broker は fixed <code>docker exec -i</code> を通じて、root-key-derived、authenticated、encrypted、direction-bound の reverse session を一つ確立します。frame には strict sequence、size、deadline があります。存在するのは compiled AWS credential-export operation だけで、OPA deny の companion call はゼロです。結果: Workspace data は host argv を選択できず、過去の session を replay できません。
+
+### Datadog refresh を別の宛先へ向ける、または事前に実行する
+
+Datadog refresh は、exact US1 HTTPS token endpoint に固定された compiled Broker operation で、ambient proxy と redirect は無効です。ordinary effect が allowed になった後だけ始まり、record/revision ごとに single-flight です。結果: Workspace input は token host を選べず、OPA denial では refresh call がゼロです。
+
+## 残るリスク
+
+- agent は selected file を破壊または leak できます。
+- allowed exact endpoint は malicious content を受け取れます。
+- body-independent policy のため、allowed path は異なる body にも適用されます。
+- safe query/header metadata には、implementation が credential と分類しない sensitive user data が含まれる可能性があります。secret を置かないでください。
+- 同じ Workspace の process は projected ability を再利用できます。
+- overlapping root は、それ以外が分離された Workspace 間でも host file effect を共有します。
+- local logout は provider-side revocation を約束できず、すでに動いている process environment を書き換えられません。
+- certificate-pinned client は失敗します。unsupported protocol はこの HTTP/HTTPS boundary で mediate されません。
+- 明示的または post-dispatch に outcome unknown となった AWS/Datadog credential operation は、trusted-host reconciliation が必要です。automatic replay は意図的に利用できません。
+
+## 障害時の意味
+
+authorization、principal、broker、vault、projection、activation fault は、対象の external effect に対して closed です。closed は「どこでも何も起きなかった」という意味ではありません。outbound request より前の local computation と selected-root write は発生し得ます。recovery では、盲目的に retry せず mutation outcome contract を守る必要があります。
+
+<aside class="evidence">
+  <h2>ソース</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/THREAT_MODEL.md">
+        リポジトリの脅威モデル
+      </a>{" "}
+      — governing security model と対になる簡潔な attacker/control inventory。
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md">
+        現在の規定セキュリティモデル
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/broker_credentials.py">
+        broker handle を扱う Gateway の経路
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_broker.py">
+        Auth Broker の障害と binding のテスト
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_companion_protocol.py">
+        private companion protocol のテスト
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_datadog_broker.py">
+        Datadog のポリシー後処理と永続 barrier のテスト
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## ここまでで説明できること
+
+Tobari が proxy の迂回、principal の偽装、ポリシーの自己承認、handle の再利用にどう応答するか説明できるはずです。
+
+<div class="question-list">
+  <details>
+    <summary>
+      Workspace B が Workspace A の有効な handle をコピーし、同じ host
+      へ送るとどうなりますか？何が重要ですか？
+    </summary>
+    <div class="prose-block">
+      Broker introspection は trusted Context/project
+      principal、provider、credential revision、target、header binding
+      を比較します。project mismatch により、OPA または resolution
+      より前に拒否されます。binding が valid でも、ordinary HTTP effect には OPA
+      allow が必要です。
+    </div>
+  </details>
+  <details>
+    <summary>異なる body が別の学習済み規則にならないのはなぜですか？</summary>
+    <div class="prose-block">
+      body は authorization 後だけ stream され、rule identity
+      には含まれません。Context、project、host、port、method、raw path が exact
+      learned dimension です。
+    </div>
+  </details>
+  <details>
+    <summary>これらの答えが不明確なら、どこへ戻るべきですか？</summary>
+    <div class="prose-block">
+      <a href="../trust-boundaries/">信頼境界</a>に戻ってください。
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>次へ:</strong> より狭い秘密情報の経路を{" "}
+  <a href="../credential-security/">認証情報の安全性 →</a>で確認します。
+</div>

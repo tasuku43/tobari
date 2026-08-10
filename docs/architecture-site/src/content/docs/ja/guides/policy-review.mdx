@@ -1,0 +1,154 @@
+---
+title: ポリシーレビュー
+description: 保持された拒否の根拠を確認し、完全一致の判断を準備して、一つの Context のポリシー全体を一度に有効化します。
+---
+
+import PolicyLoopMap from "../../../../components/PolicyLoopMap.astro";
+import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
+
+## このガイドで答える問い
+
+**拒否されたリクエストを、人はどのように意図的なポリシー判断へ変えるべきですか？**
+
+Workspace から出て、信頼するホスト上の bounded secret-free Permission Inbox を確認します。exact detail screen から choice を明示的に stage し、一つの Context の reviewed set を一度だけ Apply します。
+
+読み終えると learnable denial の見分け方、TTY/machine flow の安全な使い方、prior decision の修正方法、approval が traffic を retry しない理由を説明できます。
+
+前提: [最初の拒否](../../start/first-denial/)で request-side handoff を確認してください。
+
+<PolicyLoopMap headingLevel={2} />
+
+## 1. 再試行を止め、Workspace から出る
+
+learnable Gateway `403` は、host で `tobari policy review` を実行する固定 guidance を含みます。candidate ID はなく、agent 自身を承認する手段を与えません。
+
+review 前に Workspace を出ます。repeated retry は authority を増やさず、同じ effect の bounded evidence を更新するだけです。
+
+## 2. 人向けのレビューフローを開く
+
+```sh
+tobari policy review --tail 100
+```
+
+installation-wide TTY queue は bounded Gateway-log window の pending effect を表示します。一つを選び、次を確認します。
+
+- Context と stable Context identity
+- project/root と host-issued project principal
+- scheme、host、port
+- method と normalized path
+- denial reason、timestamp、retained observation count
+- proposed exact allow/deny outcome
+
+detail view からだけ **Allow exact** または **Deny exact** を選びます。choice は explicit ですが stage 状態では authority を与えません。同じ Context の candidate を確認し、**Apply** で complete set を再検証して一度だけ有効化します。Apply 前の cancel は staged choice をすべて破棄します。Context switch 前に Apply または discard するため、source update は一つの atomic file replacement になります。
+
+<SequenceExplorer
+  title="ホスト側でのポリシーレビューと有効化"
+  scenarios={["learnable-denial", "policy-review"]}
+  initial="policy-review"
+/>
+
+## 3. 必要な場合だけ機械向けの経路を使う
+
+redirected review は read-only です。
+
+```sh
+tobari policy review --tail 100 --format json
+```
+
+出力された opaque `pcy_...` ID を変更せず、一つの action へコピーします。
+
+```sh
+tobari policy allow --id <pcy-id>
+# or
+tobari policy deny --id <pcy-id>
+```
+
+decode、normalize、reconstruct、unchecked display text の追加をしないでください。action は current retained evidence で ID を resolve します。stale/expired reference は類似 request を推測せず失敗します。
+
+`tobari policy candidates --format json` は専用 structured discovery view、`tobari policy tail` は compatibility view です。どちらも action を行いません。
+
+## 4. 有効化の仕組みを理解する
+
+一度の reviewed Apply は次を行います。
+
+1. fresh queue snapshot で retained reference をすべて resolve する
+2. policy generation を lock する
+3. 所有する Context 一つの learned data だけを変更する
+4. private Context source を検証する
+5. complete all-Context aggregate を生成・test する
+6. revisioned complete bundle 一つを publish する
+7. running OPA が exact revision を報告するまで待つ
+8. request を replay せず confirmed decision を報告する
+
+validation/activation step が一つでも失敗すれば、Tobari は previous known-good aggregate を保持または restore します。new rule を部分的に有効化しません。
+
+## 5. 意図的に再試行する
+
+confirmed allow 後、matching Workspace へ再 entry して新しい request を送ります。古い denied request はすでになく、Gateway は body を queue/replay しません。
+
+exact rule は Context ID、project ID、scheme、host、port、method、path に結び付きます。body、timestamp、display order、request ID、credential label は authority を広げたり分割したりしません。
+
+## 現在のポリシーの修正または compaction
+
+```sh
+tobari policy rules
+tobari policy reset --id <policy-rule-id>
+```
+
+reset は CLI-owned learned decision 一つだけを削除し、その effect を default deny へ戻します。allow、request retry、baseline-policy edit ではありません。
+
+互換性のある exact allow rule が三つ以上あると、optional bounded compaction を discovery できる場合があります。
+
+```sh
+tobari policy compactions
+tobari policy compact --id <policy-compaction-id>
+```
+
+compaction は explicit で test-backed です。host/method wildcard を作らず、自動実行されません。
+
+## 失敗時の動作
+
+- empty queue: 指定 window に valid pending learnable denial がありません。historical denial がなかった証明ではありません。
+- baseline deny または current exact deny: audit evidence には残りますが pending candidate ではありません。
+- scheme、principal、cluster、credential-binding failure: ineffective exact rule では learnable になりません。
+- `policy_candidate_not_found` または stale compaction: current state を再 discovery し、古い reference を再利用しません。
+- `policy_test_failed` または preflight failure: owner-only policy と OPA diagnostic を確認します。prior policy が authority のままです。
+- uncertain mutation output: 別 mutation 前に `tobari policy rules` と `tobari cluster status` で reconcile します。
+
+## 保証と制限
+
+通常の learning は wildcard rule を暗黙に作らず、observation だけで authorize しません。exact decision は project/Context scoped で body-free です。destination/effect が適切かを決めるのは user であり、Tobari は semantic intent を推測せず、allowed effect が readable sensitive data を運ぶのを防げません。
+
+## 根拠となるソース
+
+- [Policy-learning product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Policy Catalog and mutation contracts](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
+- [Policy candidate/domain semantics](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari)
+- [Atomic policy implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata.go)
+- [Interactive review and reference tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/tobari_test.go)
+
+## まとめ
+
+review は trusted-host discovery と explicit staged exact decision です。reference は opaque のまま、一つの Context set が全体として有効化され、retry は confirmation 後に user または agent が始める新しい request です。
+
+## 理解を確認する
+
+<details>
+  <summary>レビュー一覧の項目番号が操作対象にならないのはなぜですか？</summary>
+  list order は presentation であり authority ではありません。action は effect
+  に結び付いた opaque reference を consume し、実行時に再検証します。
+</details>
+
+<details>
+  <summary>学習した完全一致の拒否は、未処理項目として戻り続けますか？</summary>
+  いいえ。current resolved policy と audit evidence のままです。将来同じ denial
+  を reviewable に戻す意図がある場合、default deny へ reset します。
+</details>
+
+<details>
+  <summary>許可操作は元の request body をどう扱いますか？</summary>
+  何もしません。body は policy や replay のために保持されません。approval は
+  policy を変え、caller が新しい request を送ります。
+</details>
+
+**次へ:** 完全一致のレビューで必要なホスト側の規則を表せない場合に限り、[高度なポリシー](../advanced-policy/)を使います。

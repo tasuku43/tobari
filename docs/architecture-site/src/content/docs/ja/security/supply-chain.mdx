@@ -1,0 +1,135 @@
+---
+title: サプライチェーン
+description: ランタイムの正本、埋め込み snapshot、不変な image identity、license、workflow、検証 gate の関係を説明します。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+
+## このページで答える問い
+
+**Tobari は、起動する Gateway、OPA、Auth Broker、runtime asset の identity をどのように確認しますか？**
+
+<aside class="one-sentence">
+  <strong>一文での答え:</strong> canonical source と embedded runtime snapshot
+  の一致を確認し、service image をレビュー済み immutable digest で選び、runtime
+  metadata と license を検証し、publication/release 前の repository gate で
+  drift を拒否します。
+</aside>
+
+読み終えると、immutable service image identity と moving default runtime selector を区別できます。
+
+**前提:** [Implementation stack](../../how-it-works/implementation-stack/)。
+
+<ConceptDiagram name="image-supply" />
+
+## 正本と snapshot の両方がある理由
+
+Go CLI は startup 時に executable policy または Python source を download せず、runtime directory を materialize する必要があります。editable canonical Gateway code は `gateway/`、Auth Broker は `authbroker/`、runtime source は `runtimes/base/` にあります。embedding 用の byte/content-checked copy は `internal/infra/runtimeassets/assets/` にあります。Auth Broker snapshot は private AWS companion protocol と固定された Datadog refresh logic を含みますが、image contract は GitHub CLI、AWS CLI、`pup`、その他の provider executable を拒否します。
+
+copy は二つ目の実装ではありません。`check-gateway-source.sh`、`check-authbroker-source.sh`、`check-runtime-base.sh` が drift を拒否します。synchronization は明示的な maintainer operation です。
+
+## 不変な identity と移動する identity
+
+`versions.env` は OPA、mitmproxy build base、Gateway、Auth Broker、Debian build base を `@sha256:` digest で pin します。Gateway と Auth Broker は架空の public SemVer を持ちません。その digest が exact runtime identity です。friendly OPA/mitmproxy version string は、それらの digest と組み合わせた repository declaration です。
+
+official default runtime selector は現在 `ghcr.io/tasuku43/tobari/runtime:latest` です。意図的な moving selector であり、immutable digest と説明してはいけません。Context reconciliation は実際に使う image identity を resolve/record し、runtime API label と metadata が compatibility を gate します。
+
+canonical source と pinned runtime artifact は別々の事実です。source が変わっても、対応する multi-architecture Gateway/Auth Broker manifest を publish/review し、`versions.env` の immutable digest を更新するまで、running cluster や新しく reconcile する standard cluster の byte は変わりません。この source snapshot が実際に選ぶ artifact の正本は、generated [Component version](../../reference/component-versions/) table です。
+
+現在選択されている Gateway/Auth Broker pair には、以前の AWS Identity Center companion/SigV4 path が含まれますが、canonical source/test にある AWS console login と Datadog post-policy request path より古いものです。immutable pin が更新されるまで、それらの新しい path は standard-cluster capability ではありません。source test の成功だけで runtime byte が暗黙に置き換わることはありません。
+
+## ビルドとリリースの制御
+
+- OCI image は reviewed workflow で build し GHCR へ publish する
+- external workflow action は full commit SHA で pin する
+- release packaging は CLI version と commit を inject し、ordinary build は `dev` のまま
+- base/derived runtime metadata は architecture、parent、API、lifetime command、tool source、checksum/signature、license expectation を記録する
+- Auth Broker image check は provider CLI と public TCP listener が存在しないことを確認する。companion test は host side に listener/socket mount がなく、compiled AWS operation だけを受け入れることを確認する
+- public/release guard は repository boundary、secret、license、package input、immutable service reference を確認する。ここで separate code-signing、SBOM-attestation、externally verifiable provenance system までは主張しない
+
+## 起動に失敗したときの動作
+
+required identity が missing、immutable が必要な場所で mutable、incompatible、unverifiable なら reconciliation を止めます。embedded asset の missing または source drift は repository gate を失敗させます。invalid policy/provider projection と locked/unsafe broker state は、dependent service が ready になるのを防ぎます。failure 時に別の unreviewed image へ切り替えたり、script を動的 download したりしません。
+
+<aside class="guarantee">
+  <h2>保証すること</h2>
+  <div class="prose-block">
+    reviewed service identity は digest-pinned で、source/snapshot equality
+    は機械的に確認されます。static documentation site 自体も lockfile
+    を使い、runtime CDN はありません。
+  </div>
+</aside>
+
+<aside class="limitation">
+  <h2>保証しないこと</h2>
+  <div class="prose-block">
+    digest は byte identity を示しますが、その byte に vulnerability
+    がない証明ではありません。default runtime tag は moving です。trusted
+    registry、CI、host、reviewed dependency process は supply-chain assumption
+    の一部です。
+  </div>
+</aside>
+
+<aside class="evidence">
+  <h2>ソース</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/versions.env">
+        サービスの version と digest
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets.go">
+        埋め込み asset の展開と hash
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/tools/runtimecheck/main.go">
+        runtime metadata の検証処理
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/06_release.md">
+        リリース契約
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## ここまでで説明できること
+
+「固定された image」と「レビュー済みのソース snapshot」が関連しながら異なる制御である理由を説明できるはずです。
+
+<div class="question-list">
+  <details>
+    <summary>
+      <code>runtime:latest</code> は不変ですか？
+    </summary>
+    <div class="prose-block">
+      いいえ。current moving official selector です。service component digest と
+      resolved runtime identity は別々に説明する必要があります。
+    </div>
+  </details>
+  <details>
+    <summary>
+      正本があるのに Python/Rego のソースを埋め込むのはなぜですか？
+    </summary>
+    <div class="prose-block">
+      CLI が deterministic offline materialization
+      を必要とするためです。equality check により embedded copy
+      が独立した実装になるのを防ぎます。
+    </div>
+  </details>
+  <details>
+    <summary>digest は image が安全だと証明しますか？</summary>
+    <div class="prose-block">
+      いいえ。exact identity を与えます。review、test、vulnerability
+      check、provenance、trusted infrastructure は別の control です。
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>次へ:</strong> <a href="../verification-evidence/">検証証拠 →</a>{" "}
+  で主張と テストの対応を確認します。
+</div>

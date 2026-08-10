@@ -1,0 +1,172 @@
+---
+title: 状態と復旧
+description: 永続 artifact ごとに、管理主体、寿命、削除コマンド、fail-closed の復旧動作を対応付けます。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+
+## このページで答える問い
+
+各 operation の後にどの state が残り、どの state は安全に再構築できますか？
+
+**一文での答え:** Tobari は project、Workspace、Context、cluster、credential、installation state を分けます。各 lifecycle action は宣言した owner scope だけを削除し、uncertain state は推測せず fail closed します。
+
+### 読み終わると説明できること
+
+- major state store の場所だけでなく意味
+- `exit`、`delete`、cluster teardown、logout、replacement、rebuild が保持するもの
+- container/network loss と durable-state loss の違い
+- automatic repair を拒否する recovery path がある理由
+
+**前提:** [Workspace lifecycle](../workspace-lifecycle/)と [Credential](../credentials/)。
+
+<ConceptDiagram name="state-retention" />
+
+## 管理主体と目的ごとの状態
+
+下の path は、特に記載がない限り effective XDG configuration/state root からの相対 path です。
+
+| State                                        | Owner と意味                                                                                                                                                   | Lifetime                                                                                    |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Project root                                 | user-selected host file。read-write mount                                                                                                                      | Tobari lifecycle command は削除しない                                                       |
+| `roots/<hash>.json`                          | exact `(canonical root, Context ID)` 一つの root index                                                                                                         | logical Workspace と一緒に作成・削除                                                        |
+| `instances/<id>/state.json`                  | schema 2 stable identity、permanent Context binding、desired/reconciled runtime、diagnostic Docker ID                                                          | logical Workspace と一緒に作成・削除。Docker inspection より authoritative                  |
+| `instances/<id>/home`                        | per-Workspace writable home と tool-native login state                                                                                                         | exit/runtime recreation 後も残り、Workspace delete で削除                                   |
+| Context manifest                             | host-owned stable ID、agent profile、selected image/runtime recipe、policy mode、narrow shell setting                                                          | すべての Workspace/cluster runtime operation 後も残る                                       |
+| Context `runtime/Dockerfile` と build record | explicit custom runtime recipe と last successful selected image                                                                                               | entry、delete、cluster teardown 後も残る                                                    |
+| Context policy source                        | 一つの Context が所有する Guided data または Advanced Rego                                                                                                     | cluster runtime より長く残り、validated activation または explicit advanced edit だけで変更 |
+| Aggregate policy projection                  | OPA へ read-only mount する content-addressed all-Context router/data/module snapshot                                                                          | source から導出する transient cluster authority。rebuild して atomically publish            |
+| Active policy bundle                         | owner-labeled Docker-managed volume 内の revisioned complete OPA bundle                                                                                        | OPA が hot-load。`cluster down --purge` だけで削除し、policy source から再構築              |
+| Provider manifest                            | owner-controlled strict schema 1 static declaration と reviewed built-in schema 1/2 plan                                                                       | installation/Context configuration。cluster teardown 後も残る                               |
+| Provider projection                          | Gateway 用 normalized non-secret schema 2 all-provider data                                                                                                    | complete valid manifest から再生成。partial collection は有効化しない                       |
+| Principal registry                           | host-issued Workspace-network interface → Context/project binding                                                                                              | existing Workspace network と reconcile。Gateway へ read-only mount                         |
+| Encrypted Context vault                      | static secret、opaque AWS state、Datadog OAuth state、revision、durable barrier、raw handle を含む envelope schema 1/payload schema 2 authenticated ciphertext | Workspace delete と両方の cluster-down 後も残る。credential entry は auth mutation で変更   |
+| Installation root key                        | Context vault を unlock。macOS Keychain または owner-only Linux file                                                                                           | cluster down/purge 後も残る。vault の横で missing なら fail closed                          |
+| Gateway CA state                             | Workspace-side HTTPS interception 用 installation CA                                                                                                           | ordinary cluster down 後も残り、shared CA volume は `--purge` で削除                        |
+
+cluster state は shared resource name、loaded Context count、content-addressed aggregate revision、projection path も記録します。current Context を enforcement authority に変えず、primary credential も含みません。
+
+## 操作ごとに保持するもの
+
+| Operation/event         | Workspace identity/home                                        | Context/policy | Vault/root key                                            | Shared service/CA                              | Project file |
+| ----------------------- | -------------------------------------------------------------- | -------------- | --------------------------------------------------------- | ---------------------------------------------- | ------------ |
+| `exit`                  | 保持                                                           | 保持           | 保持                                                      | running、CA 保持                               | 保持         |
+| `delete`                | exact Workspace の home/runtime record を含め削除              | 保持           | Context credential 保持、project handle registry 削除     | 変更なし                                       | 保持         |
+| `cluster down`          | すべての Workspace 削除まで command を拒否                     | 保持           | 保持                                                      | service/transient network 削除、CA 保持        | 保持         |
+| `cluster down --purge`  | 同じ prerequisite                                              | 保持           | 保持                                                      | service、shared CA、active policy bundle 削除  | 保持         |
+| `auth logout PROVIDER`  | identity/home 保持。running environment は re-entry まで不変   | 保持           | provider credential 削除、handle 全 revoke、root key 保持 | cluster 保持                                   | 保持         |
+| Credential replacement  | identity/home 保持。new projection には re-entry が必要        | 保持           | new revision 保存、old handle revoke                      | cluster 保持                                   | 保持         |
+| Context runtime rebuild | identity/home 保持。bound container は next entry で reconcile | policy 保持    | 保持                                                      | 変更なし                                       | 保持         |
+| Container/network loss  | logical state/home 保持。next entry で resource reconcile      | 保持           | 保持                                                      | 必要に応じ Gateway attachment/principal を修復 | 保持         |
+
+## 正本に従って復旧する
+
+### Docker runtime が見つからない
+
+durable Workspace record が valid で container/network が missing なら、runtime resource は derived state です。next entry で再作成し、Gateway を再接続し、principal registry を更新し、existing root/home を mount できます。
+
+### 永続状態が不完全
+
+root index があり instance record がない場合、Tobari は `incomplete` を報告します。lost stable identity、Context binding、home relationship を発明しません。explicit recreation の前に exact `delete` で cleanup します。
+
+### ポリシーの有効化に失敗
+
+policy mutation は lock、private Context preflight、complete all-Context aggregate test、content-addressed publication、OPA health wait を使います。invalid input/activation failure では partial candidate を mount せず、source を restore して previous known-good aggregate/state を保持します。
+
+### root key または vault の整合性検証に失敗
+
+Broker は locked で起動します。encrypted vault があるのに installation key が missing なら、old ciphertext を復号できず ambiguous state になる replacement を作りません。corrupt authentication、unsafe ownership/mode/symlink、authentication failure は報告され、fail closed します。trusted host key の backup/recovery は operator の責任です。
+
+### 認証情報の refresh 結果が不明
+
+AWS companion execution または Datadog refresh 前に、Broker は same-revision task digest を encrypted record へ書きます。known pre-execution failure は barrier を残さず 503 を返せます。explicit/post-dispatch unknown outcome は non-retryable 409 を返し、Broker restart 後も barrier を保持します。Gateway は application request を upstream へ送っていません。
+
+元の request が settle した後 `auth status` を確認します。ready/configured なら deliberate retry できます。not configured なら re-login/logout と Workspace re-entry が必要です。disconnected socket から replay safety を推論しません。
+
+### provider projection が不正
+
+unknown field、malformed strict data、target/header collision、built-in override attempt、ambiguous HTTP binding があれば complete provider collection を拒否します。valid に見える subset だけを有効化しません。
+
+## 具体的な復旧シナリオ
+
+host restart 後、Workspace container と dedicated network はありませんが、root index、instance state、home は残っています。
+
+1. `tobari` が durable root/Context record を resolve する
+2. bound Context runtime image を検証する
+3. internal network/container を再作成する
+4. Gateway を接続し、新しい local interface principal を記録する
+5. current broker handle projection を reconcile する
+6. same project ID/home の logical Workspace へ entry する
+
+これは reconciliation であり new Workspace ではありません。
+
+## 失敗時の動作
+
+- ownership、mode、symlink、schema、identity mismatch は unsafe reuse 前に失敗します。
+- missing image/incompatible runtime API は project runtime mutation 前に失敗します。
+- existing vault と missing root key の組み合わせで別 key を暗黙に作りません。
+- failed aggregate/provider generation では prior known-good authority を保持します。
+- attached deletion は、その guard だけを `--force` で明示的に上書きしない限り失敗します。
+- logical Workspace が一つでも残ると cluster teardown は失敗します。
+- local logout は provider-side revocation を意味しません。
+
+## 保証と制限
+
+**保証すること:** lifecycle command は narrow owner scope を持ち、project file を削除しません。valid logical state から derived Docker state を reconcile できます。vault/root key は cluster purge 後も残ります。partial policy/provider projection は有効化しません。
+
+**保証しないこと:** lost project file、deleted Workspace home、lost installation root key、corrupted host storage、compromised trusted host からの recovery、remote credential revocation、project move の自動推論。
+
+## 根拠となるソース
+
+- [State paths and side-effect contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Lifecycle, aggregate, and recovery architecture](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Authentication state paths](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/07_authentication.md)
+- [Workspace and cluster state implementation](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime)
+- [Auth Broker vault implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/vault.py)
+- [Root-key infrastructure](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/rootkey)
+- [Lifecycle and recovery integration](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+
+## まとめ
+
+durable identity と user data は container の有無から推論しません。各 state store には owner と removal operation が一つあります。reconstructible Docker/projection state は reconcile し、ambiguous identity、policy、key、vault state は fail closed します。
+
+## 理解を確認する
+
+「container がない」と「Workspace がない」を同一視せず、state retention を予測できるはずです。
+
+<details>
+  <summary>
+    <code>delete</code> は、<code>exit</code> が保持する何を削除しますか？
+  </summary>
+  exact Workspace の root index、instance
+  state、home、container、network、principal/project-auth registry entry
+  です。どちらも project file と Context state は削除しません。
+</details>
+
+<details>
+  <summary>
+    <code>cluster down --purge</code> は何を追加で削除しますか？
+  </summary>
+  shared Gateway CA volume です。encrypted Context vault と installation root
+  key は保持します。
+</details>
+
+<details>
+  <summary>
+    vault があるのに key がない場合、Tobari は新しい root key を作れますか？
+  </summary>
+  いいえ。replacement key は existing vault を復号・安全に解釈できないため fail
+  closed します。
+</details>
+
+<details>
+  <summary>
+    失われた container は修復できるのに、instance state のない root index
+    を推測しないのはなぜですか？
+  </summary>
+  container は valid logical state から導出できます。missing instance state では
+  authoritative identity/binding information が失われ、reconstruction は
+  authority を発明するからです。
+</details>
+
+状態遷移は[Workspaceのライフサイクル](../workspace-lifecycle/)へ戻ってください。次は[実装技術](../implementation-stack/)で、各技術をその境界に置く理由を確認します。

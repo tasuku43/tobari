@@ -1,0 +1,161 @@
+---
+title: 実装技術
+description: Go、Docker、mitmproxy、OPA、Rego、Python、Unix socket、不変な OCI image が各境界に置かれる理由を説明します。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+
+## このページで答える問い
+
+Tobari の各境界を強制する技術は何で、なぜそこに置かれていますか？
+
+**一文での答え:** Go は host CLI、fixed provider acquisition、validated orchestration を所有します。Docker は process/network/mount boundary を実現し、mitmproxy と Python addon は HTTP/TLS flow を強制し、OPA/Rego は generic effect を判断します。別 process の Python Auth Broker は、encrypted credential state と、narrow socket 越しの post-policy resolve、refresh、signing action を所有します。
+
+### 読み終わると説明できること
+
+- 技術名を挙げるだけでなく、各 component が担う仕事
+- policy、forwarding、credential custody が別 process である理由
+- canonical source から immutable runtime image が作られる経路
+- image pinning と embedded-source check が証明すること、証明しないこと
+
+**前提:** [State と復旧](../state-and-recovery/)までの product flow。このページは通常の利用には必須ではありません。
+
+## 技術は信頼境界に従う
+
+### Go CLI
+
+public `tobari` executable は Go で書かれています。canonical path selection、domain validation、effect と mutation contract、application use case、host state、Docker orchestration、deterministic rendering、public command Catalog を所有します。
+
+Go は infrastructure より上で任意の provider API request を作りません。一つの cancellation context を bounded adapter に渡し、credential-bearing type は infrastructure 内に留めます。
+
+### Docker Engine と Docker Compose
+
+Docker Engine は runtime container、read-only/read-write mount、user、capability drop、read-only root filesystem、resource limit、internal network、label、volume、process execution を提供します。
+
+Docker Compose が所有するのは、共有 Gateway、OPA、Auth Broker service と、共有 network/CA volume だけです。Workspace ごとの container と network は runtime adapter が調整します。exact root/Context identity と lifecycle は application concern だからです。
+
+Docker は trusted infrastructure です。「container で動く」という事実だけでは security argument になりません。重要なのは、正確な mount、network attachment、socket absence、label、user、failure test です。
+
+### mitmproxy Gateway と Python addon
+
+mitmproxy は explicit HTTP proxying、CONNECT/TLS interception、streaming hook、upstream TLS を提供します。Tobari の Python addon は、product 固有の principal lookup、credential preparation、body を含まない OPA input、fail-closed result validation、post-allow credential action、DNS address classification/pinning、audit を追加します。
+
+ここで Python を使うのは、mitmproxy の reviewed extension boundary が Python addon だからです。Gateway は enforcement を所有します。policy rule の解釈や vault storage は組み込みません。
+
+### OPA と Rego
+
+OPA は共有する policy decision service です。Rego は default deny、initialized authority、Context routing、exact learned allow/deny rule、credential metadata constraint、安全な prefix compaction semantics を表します。
+
+OPA は request body も credential value も受け取らず、egress interface を持ちません。decision logic を分けることで、OPA に network forwarding authority を与えずに decision input/result contract をテストできます。
+
+### Python Auth Broker、ホスト側 driver、companion、Unix socket
+
+Auth Broker は独立した non-root Python daemon です。credential encryption、handle issuance、introspection、post-policy action が、他とは別の trusted boundary を形成するためです。TCP listener を持たず、GitHub CLI、AWS CLI、`pup` executable も含みません。
+
+owner-only の control socket と runtime socket を分け、host lifecycle operation と Gateway の narrow request-time access を隔離しています。Workspace と OPA はどちらの socket も mount しません。runtime protocol は、policy より前に binding を introspect し、allow の後には provider が宣言した post-policy operation だけを実行できます。generic network API ではありません。
+
+interactive な GitHub、AWS、Datadog acquisition は、信頼するホスト上の fixed Go infrastructure driver を通して実行されます。各 driver は conventional installation root から identity-checked executable を resolve し、fixed argv と sanitized private environment を使い、visible output を制限し、temporary state の cleanup を検証してから、Broker control を通して typed state を commit します。
+
+policy allow の後に resident same-binary host credential companion を使うのは AWS だけです。Broker の private `/run/tobari-auth/companion/bridge.sock` は、authenticated、encrypted、direction-bound な一つの reverse `docker exec -i` session を通して接続されます。companion は listener も mounted host socket も公開せず、compiled AWS CLI credential-export operation だけを実装します。Datadog refresh は companion を使いません。Broker は allow の後、exact US1 token endpoint との strict かつ proxy-free、no-redirect な HTTPS exchange を一度だけ実行します。
+
+### 暗号化された Context vault と root key
+
+各 Context vault は、random nonce と Context/schema-associated data を用いた schema-1 AES-256-GCM envelope を使います。その encrypted schema-2 payload は、typed static secret、opaque AWS state、Datadog OAuth state、revision、durable task barrier、raw handle を保存します。installation root key は vault の外にあります。macOS では Keychain、Linux では owner-only の XDG file です。encryption は container/Workspace boundary をまたぐ storage exposure を抑えますが、侵害された host user、root-key backend、Broker、Gateway からは保護しません。
+
+### OCI image と GHCR
+
+Gateway、Auth Broker、OPA、mitmproxy base、runtime base は OCI image boundary です。runtime service identity は、embedded version metadata に記録された immutable digest を使います。moving `main`/`latest` tag は development/publication 上の便宜であり、runtime authority ではありません。
+
+現在の正確な version と digest は、このページへ複写せず、`go.mod`、`versions.env`、runtime metadata から [Component version](../../reference/component-versions/)へ生成されます。
+
+## 編集可能な正本から runtime image まで
+
+<ConceptDiagram name="image-supply" />
+
+Gateway と Auth Broker には、それぞれ一つの editable canonical public source tree があります。
+
+- `gateway/`
+- `authbroker/`
+
+CLI は `internal/infra/runtimeassets/assets/` 以下の runtime snapshot を埋め込みます。byte-for-byte drift check は、canonical source と一致しない snapshot の変更を拒否します。embedded asset には Compose、OPA policy、runtime entrypoint、image identity、license material も含まれます。
+
+CI は canonical source から multi-architecture OCI image を build します。通常の runtime は reviewed immutable digest を使います。Pull Request の image validation に package-write permission は与えられません。publication は別の controlled workflow です。
+
+## 一つの具体的なリクエストと技術の対応
+
+許可された一つの HTTPS call では、次のように対応します。
+
+1. **Go** は、Workspace の Docker network、proxy environment、CA、principal registry をすでに調整しています。
+2. **Docker** は direct egress を防ぎ、proxy connection を Gateway へ route します。
+3. **mitmproxy** は TLS A を終端し、request header を addon に見せます。
+4. **Python Gateway addon** は principal を導出し、schema 5 input を post します。
+5. **OPA/Rego** は allow または deny を返します。
+6. broker handle の場合、**Unix socket 越しの Python Auth Broker** が policy より前に non-secret introspection を行い、declared static、AWS、Datadog action は allow の後でだけ実行します。
+7. AWS では **private host companion** が一つの fixed credential export を行い、Broker が local で署名します。Datadog refresh では、**Broker HTTPS** が exact token endpoint だけに到達します。ordinary/static request はどちらの path も必要としません。
+8. **mitmproxy** は検証済み TLS B を確立し、ordinary request を stream するか、一つの bounded signed AWS request を送ります。
+9. **Docker log** は、host-side Go review のために bounded secret-free audit evidence を保持します。
+
+完全な保証を一つの技術だけで実装しているわけではありません。
+
+## 失敗時の動作
+
+- runtime または service image が missing/incompatible の場合、安全でない作成より前に validation が失敗します。
+- digest/label/API/user/entrypoint mismatch は fail closed します。
+- canonical source と embedded snapshot の drift は repository check に失敗します。
+- invalid Rego または all-Context aggregate は activation より前に失敗します。
+- OPA または Broker outage に対して Gateway は closed response を返します。
+- Docker/host outage は enforcement substrate を失わせます。Tobari はその侵害下での保護を主張しません。
+- 既存 vault がある状態で root key が missing の場合、key を置き換えず unlock を拒否します。
+
+## 保証と制限
+
+**contract と test で保証すること:** 固定された component role、通常利用する immutable service identity、byte-checked canonical source snapshot、分離された credential socket、Broker に provider CLI がないこと、companion に listener/socket mount がないこと、OPA に egress がないこと、正確な Compose topology、runtime compatibility の preflight。
+
+**保証しないこと:** image digest だけで code が安全になること、Docker/kernel/host compromise 後の isolation、user-selected custom image の provenance、GHCR または external registry の availability、custom runtime recipe で install した任意 tool の security review。
+
+## 根拠となるソース
+
+- [Architecture runtime assets and component boundaries](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Supply-chain security contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Embedded component versions](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/versions.env)
+- [Shared Compose runtime](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml)
+- [Canonical Gateway source](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway)
+- [Canonical Auth Broker source](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker)
+- [Gateway snapshot drift check](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/check-gateway-source.sh)
+- [Auth Broker snapshot drift check](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/check-authbroker-source.sh)
+
+## まとめ
+
+Tobari の動作は複数技術の組み合わせです。Go が検証と orchestration を行い、Docker が boundary を実現し、Gateway が HTTP/TLS flow を強制し、OPA/Rego が判断し、Broker が credential custody を所有します。immutable OCI identity と source/snapshot check によって、配布される runtime を review 可能にします。
+
+## 理解を確認する
+
+product claim を具体的な technology boundary に結び付けて説明できるはずです。
+
+<details>
+  <summary>OPA が Gateway から分離されているのはなぜですか？</summary>
+  OPA は forwarding/egress authority を持たず、deterministic decision logic
+  を所有します。Gateway は request/TLS/network enforcement を所有し、decision
+  result を検証します。
+</details>
+
+<details>
+  <summary>
+    Auth Broker が Workspace 向け HTTP API ではなく Unix socket を使うのは
+    なぜですか？
+  </summary>
+  reachability を、固定された host control operation と Gateway の runtime mount
+  に限定するためです。Workspace と OPA は Broker への socket も TCP route
+  も受け取りません。
+</details>
+
+<details>
+  <summary>
+    不変な image digest は、実装が安全であることを証明しますか？
+  </summary>
+  いいえ。reviewed byte を固定し、moving-tag substitution を防ぐものです。
+  safety は引き続き code、configuration、test、trust assumption、runtime
+  substrate に依存します。
+</details>
+
+製品の境界が不明確な場合は、[システム全体像](../system-overview/)へ戻ってください。次に[コード構造](../code-architecture/)で、Go リポジトリがこれらの責務を分離する方法を確認します。

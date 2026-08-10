@@ -1,0 +1,16 @@
+{
+  "heading.anchorLabel": "「{{title}}」セクションへのリンク",
+  "pagefind.clear_search": "検索をクリア",
+  "pagefind.load_more": "さらに読み込む",
+  "pagefind.search_label": "サイト内を検索",
+  "pagefind.filters_label": "フィルター",
+  "pagefind.zero_results": "[SEARCH_TERM] に一致する結果はありません",
+  "pagefind.many_results": "[SEARCH_TERM] の検索結果: [COUNT]件",
+  "pagefind.one_result": "[SEARCH_TERM] の検索結果: [COUNT]件",
+  "pagefind.alt_search": "[SEARCH_TERM] に一致する結果はありません。[DIFFERENT_TERM] の結果を表示しています",
+  "pagefind.search_suggestion": "[SEARCH_TERM] に一致する結果はありません。次の検索を試してください:",
+  "pagefind.searching": "[SEARCH_TERM] を検索しています…",
+  "expressiveCode.copyButtonCopied": "コピーしました",
+  "expressiveCode.copyButtonTooltip": "クリップボードにコピー",
+  "expressiveCode.terminalWindowFallbackTitle": "ターミナルウィンドウ"
+}

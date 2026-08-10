@@ -1,0 +1,134 @@
+---
+title: メンタルモデル
+description: 実装の詳細を学ぶ前に、一つの外向きリクエストに関わる五つの主体から全体像を捉えます。
+---
+
+import SystemMap from "../../../../components/SystemMap.astro";
+
+## このページで答える問い
+
+Tobari を理解するための、最小かつ正確な model は何ですか？
+
+**一文での答え:** project に結び付いた Workspace は、Gateway を通してだけ HTTP または HTTPS の upstream へ到達できます。Gateway は通常の request を許可するか OPA に問い合わせ、broker-managed credential が関わる場合にだけ Auth Broker を使います。
+
+### 読み終わると説明できること
+
+- Tobari が単なる Docker wrapper ではない理由
+- Workspace、Gateway、OPA、Auth Broker、upstream それぞれの役割
+- authentication が network authorization を意味しない理由
+- request が拒否されたときに次に確認する場所
+
+**前提:** Tobari が利用者へ提供する結果をまだ見ていない場合は、[概要から始めてください](../../start/overview/)。ここでは Docker、proxy、policy の知識は必要ありません。
+
+<SystemMap />
+
+これは概念図です。Docker network、TLS termination、persistent state、host-side policy review は意図的に省略しています。これらの詳細は、五つの役割が mental model として定着した後に説明します。
+
+<span id="conversation-map"></span>
+
+## コンポーネント間の会話として図を読む
+
+### 1. Workspace：プロジェクトの作業を実行する場所
+
+[Workspace](../../reference/glossary/#workspace) は、directory に結び付いた一つの長寿命 Tobari を利用者向けに表す名前です。選択した project root に対して tool を実行し、専用の persistent home を持ちます。runtime container は交換できますが、logical Workspace は container ではありません。
+
+Workspace 内のすべての process を untrusted として扱ってください。process は選択した project root を読み取り、変更できます。public Internet への一般的な route、Docker control、別の Workspace、broker-managed primary credential は受け取りません。
+
+### 2. Gateway：通信を通すか止めるかを実施する場所
+
+Gateway は Workspace の proxy traffic を受け取ります。信頼する Context と project identity を確立し、HTTP request を正規化し、OPA に一度問い合わせ、その答えを強制します。deny の場合、Gateway は upstream connection を開かず local response を返します。allow の場合、別の upstream connection を作り request を stream します。
+
+OPA は packet を forward しません。Gateway が行います。
+
+### 3. OPA：許可を判断する場所
+
+[OPA](../../reference/glossary/#opa) は通常の HTTP effect を評価します。decision には、信頼する Context/project principal、scheme、host、port、method、path が含まれます。input には query value と redacted non-secret header も含まれますが、request body や credential value は含まれません。
+
+OPA は structured allow または deny を返します。unavailable または malformed な decision が permission として扱われることはありません。
+
+### 4. Auth Broker：通信許可ではなく認証情報を管理する場所
+
+Auth Broker が関係するのは brokered authentication route だけです。typed static credential state または renewable credential state を encrypted Context vault に保持し、Workspace には opaque で project-bound な handle を渡します。Gateway は policy より前に non-secret binding metadata を introspect できます。OPA が通常の HTTP effect を allow した後に限り、Broker は一つの static secret を resolve するか、Datadog token を選択または refresh するか、private host companion を使って一つの bounded AWS request に署名できます。
+
+login は credential state を作成できます。policy rule は追加しません。
+
+### 5. Upstream：リクエストの宛先
+
+upstream service が Gateway から request を受け取るのは、effect が allow された後だけです。HTTPS の場合、最後の hop は別に検証された TLS connection です。許可された upstream は、Workspace が読めて、その許可 route で送ることを選んだ data を受け取れます。Tobari は request body の意味を検査しません。
+
+## 一つの具体的なリクエスト
+
+Workspace 内の tool が `PUT https://example.com/api/items/42` を送信するとします。
+
+1. tool は設定済み HTTP proxy を通して request を送ります。
+2. Gateway は caller header ではなく、受信した network interface から project identity を導出します。
+3. Gateway は body を含まない policy input を作り、OPA を呼び出します。
+4. current rule が一致しなければ OPA は deny します。Gateway は `403 policy_denied` を返し、upstream には何も到達させません。
+5. 信頼するホスト利用者は、保持された exact effect をレビューできます。
+6. その exact Context/project/host/port/method/path が allow され、意図的に再試行された場合、Gateway は upstream connection を作ります。
+
+最初の request は、自動的な permission を申請するものではありません。現在の authority と一致するか、失敗する attempted effect です。
+
+## 失敗時の動作
+
+| 失敗                        | 観測される結果                           | **起きないこと**                                        |
+| --------------------------- | ---------------------------------------- | ------------------------------------------------------- |
+| 一致する rule がない        | `403 policy_denied`                      | upstream connection も automatic allow もない           |
+| OPA が unavailable/invalid  | `503 policy_unavailable`                 | fallback decision はない                                |
+| Gateway が unavailable      | proxy connection が失敗                  | direct Internet への fallback はない                    |
+| broker handle が invalid    | `403 credential_handle_invalid`          | passthrough fallback も upstream request もない         |
+| Auth Broker が unavailable  | `503 credential_broker_unavailable`      | resolve、refresh、signing、upstream action はない       |
+| AWS/Datadog outcome unknown | `409 credential_refresh_outcome_unknown` | automatic replay も application upstream attempt もない |
+
+## 保証と制限
+
+### このモデルが保証すること
+
+supported Docker topology 内では、Workspace に直接の外部 route はありません。Gateway は request を forward する前に allow decision を受け取る必要があります。brokered static secret、renewable state、derived request credential は Workspace と OPA の外に留まります。
+
+### このモデルが保証しないこと
+
+選択した project root 内の file を Workspace から保護するものではありません。許可された宛先が Workspace から読める data を受け取ることも止めません。host、Docker Engine または VM、kernel、Gateway、OPA、Auth Broker、およびそれらの trusted state が侵害されていないことを前提とします。一般的な SSH、raw TCP、UDP、QUIC、DNS、malware、同じ Workspace 内の process isolation は提供しません。
+
+## 根拠となるソース
+
+- [Product vocabulary and outcome](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Architecture topology and HTTPS flow](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Security model and enforcement table](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Docker Compose topology](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml)
+- [Gateway request enforcement](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py)
+- [Gateway contract tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+
+## まとめ
+
+一つの path を覚えてください。**Workspace → Gateway → upstream** で、**OPA が decision を行い**、**Auth Broker は必要な場合に限り、allow の後で一つの declared credential action を実行します**。path を閉じるか開くかを実行する component は Gateway です。
+
+## 理解を確認する
+
+authentication、policy decision、network forwarding が三つの別の仕事である理由を説明できるはずです。
+
+<details>
+  <summary>
+    OPA が許可を返した場合、実際に Upstream へ接続するコンポーネント
+    はどれですか？
+  </summary>
+  Gateway です。OPA は decision を返しますが、request を forward しません。
+</details>
+
+<details>
+  <summary>
+    Auth Broker の login に成功すると、その provider への通信は許可 されますか？
+  </summary>
+  いいえ。login が作るのは Context-owned credential state です。通常の HTTP
+  effect には、引き続き OPA の allow decision が必要です。
+</details>
+
+<details>
+  <summary>
+    Workspace process は、選択したプロジェクト root に対して何ができますか？
+  </summary>
+  そこにある file を読み取り、変更し、削除できます。選択した root は委譲された
+  writable authority であり、保護される content ではありません。
+</details>
+
+役割がまだ混ざって見える場合は、[上の図](#conversation-map)をもう一度確認してください。次に[システム全体像](../system-overview/)で実際のネットワークと障害経路を加えます。

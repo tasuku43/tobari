@@ -1,9 +1,10 @@
 # Tobari public documentation
 
-This directory contains the Astro and Starlight source for Tobari's public,
-English-language documentation site. The output is static HTML, CSS, and small
-client-side scripts. It must work both at `/` for local review and at the GitHub
-Pages project base `/tobari/`.
+This directory contains the Astro and Starlight source for Tobari's public
+documentation site. English is the canonical root locale and every public route
+has a reviewed Japanese counterpart below `/ja/`. The output is static HTML,
+CSS, and small client-side scripts. It must work both at `/` for local review
+and at the GitHub Pages project base `/tobari/`.
 
 The site explains the current public contract; it is not a second product
 specification. Read the repository `AGENTS.md` and the applicable numbered
@@ -121,18 +122,21 @@ It runs, in order:
 
 1. `npm run generate:check` — generated Catalog, faults, versions, and schemas;
 2. `npm run check:source` — runtime-CDN, tracking, external-fetch, and
-   credential-pattern guard;
-3. `npm run format` — Prettier over site source;
-4. `npm run typecheck` — Astro and TypeScript diagnostics;
-5. `npm run build` plus `npm run check:dist:root` — root-base static build;
-6. `npm run build:pages` — production build under `/tobari/`;
-7. `npm run check:dist` — required pages, document structure, internal links,
+   credential-pattern guard plus commit-fixed evidence existence/type checks;
+3. `npm run test:locale-routes` plus `npm run check:locales` — route-check
+   self-test and exact English/Japanese source parity;
+4. `npm run format` — Prettier over site source;
+5. `npm run typecheck` — Astro and TypeScript diagnostics;
+6. `npm run build` plus `npm run check:dist:root` — root-base static build;
+7. `npm run build:pages` — production build under `/tobari/`;
+8. `npm run check:dist` — required pages, document structure, internal links,
    fragments, assets, base-path ownership, local-path leaks, print/reduced-motion
-   CSS, and absence of external runtime resources or tracking code; and
-8. `npm run test:browser` — Playwright and axe checks for representative pages,
+   CSS, locale metadata/alternate links, and absence of external runtime
+   resources or tracking code; and
+9. `npm run test:browser` — Playwright and axe checks for representative pages,
    console/runtime errors, System/Light/Dark persistence, reduced motion,
-   keyboard sequence controls, the no-JavaScript transcript, 360 px layout, and
-   `/tobari/` asset/link behavior.
+   localized keyboard sequence controls, no-JavaScript transcripts, 360 px
+   layout, same-topic language switching, and `/tobari/` asset/link behavior.
 
 Run an individual stage while iterating, but run the complete gate before
 handoff. The browser command serves the already-built Pages artifact through
@@ -146,6 +150,28 @@ continue to consume the same data. Keep introductions plain, introduce one new
 boundary at a time, and place exact paths, schemas, fault codes, and versions in
 Reference rather than the first-use learning path.
 
+English files below `src/content/docs/` remain the product-claim authority.
+Their same-topic Japanese files live below `src/content/docs/ja/`. Add, move, or
+remove a route in both locales in one change; do not leave an English fallback
+page under `/ja/`. Shared components select localized presentation from the
+Starlight route locale, while CLI paths, flags, fault codes, JSON keys, schema
+values, source paths, and generated product facts stay language-neutral. Run
+these focused checks while editing locale content:
+
+```sh
+npm run test:locale-routes
+npm run check:locales
+npm run typecheck
+```
+
+The route checks reject a missing counterpart, an orphan Japanese page, or a
+duplicate source route. Paired-content checks also reject an insubstantial
+Japanese page, heading-shape drift, changed commit-fixed evidence targets, or
+non-whitespace changes to fenced machine examples. The root and Pages artifact
+checks additionally verify the document language and same-topic `en`, `ja`, and
+`x-default` alternate links. Browser tests cover language switching, localized
+custom controls, accessibility, no-JavaScript transcripts, and narrow layouts.
+
 Every material product or security claim should link to commit-fixed evidence:
 
 - the governing contract;
@@ -154,11 +180,12 @@ Every material product or security claim should link to commit-fixed evidence:
 - tests that exercise the stated success and failure behavior.
 
 Do not use a moving `main` URL as the only evidence and do not manually freeze
-large sets of line numbers. Every page separately renders its product snapshot
-and documentation build commit. Use synthetic examples only; never add
-credentials, private URLs, personal data, or copied private history. Runtime
-pages must not load fonts, scripts, styles, or images from a CDN, analytics
-service, or tracker.
+large sets of line numbers. `npm run check:source` requires each commit-fixed
+evidence path to exist at the product snapshot and to use the correct blob or
+tree link kind. Every page separately renders its product snapshot and
+documentation build commit. Use synthetic examples only; never add credentials,
+private URLs, personal data, or copied private history. Runtime pages must not
+load fonts, scripts, styles, or images from a CDN, analytics service, or tracker.
 
 Most importantly, do not document active work packets, dirty-worktree ideas,
 accepted mechanisms that are not implemented, or planned provider/runtime

@@ -131,11 +131,22 @@ Playwright Chromium build before testing representative pages with JavaScript
 enabled, disabled, reduced motion, all three theme choices, keyboard controls,
 and a 360 px viewport.
 
+The site keeps canonical English routes at the root and reviewed Japanese
+counterparts below `/ja/`. One source-derived parity check rejects a missing
+Japanese counterpart, a Japanese-only orphan, or two files that map to the
+same route. Paired content must remain substantive and preserve its heading
+shape, commit-fixed evidence targets, and non-whitespace fenced machine
+examples. Root and Pages-base artifact checks require both language routes, the
+correct `html` language, and same-topic `en`, `ja`, and `x-default` alternate
+links. Browser coverage exercises the same-topic language switch and localized
+navigation without adding a runtime translation service.
+
 Public reference generation and claim links use the immutable product commit
 recorded in `docs/architecture-site/source-snapshot.txt`; page-source
 provenance separately identifies the documentation build commit. The static
-gate rejects a missing or malformed snapshot, stale generated data, and product
-evidence that drifts to another commit.
+gate rejects a missing or malformed snapshot, stale generated data, product
+evidence that drifts to another commit, and a commit-fixed evidence path whose
+blob/tree kind or existence does not match that snapshot.
 
 The repository-shape pass skips local `node_modules/` installation trees in
 the same way it skips generated `dist/` and `bin/` directories. Git still
@@ -657,6 +668,7 @@ Every strong statement should identify its enforcement path.
 | Post-policy AWS signing | Strict placeholder/scope/authority recognition, body-free OPA input, zero companion/refresh/sign on deny, bounded body capture after allow, exact authority/method/path/query/header snapshot comparison before refresh, mutation canaries with zero sign calls, one fixed host credential export, bounded per-record single-flight, pre-call encrypted task barrier, restart-safe outcome-unknown rejection, non-retryable HTTP 409 mapping, stale-result rejection, published SigV4 vectors, exactly one same-revision sign/forward, and fail-closed presign/SigV4a/stream/custom-endpoint canaries |
 | Post-policy Datadog OAuth | Exact schema-2 US1 bearer binding, zero token selection/refresh on deny, same-revision resolve after allow, five-minute refresh window, strict fixed-endpoint/no-proxy/no-redirect exchange, bounded response, per-record single-flight, pre-call encrypted task barrier, restart-safe outcome-unknown rejection, non-retryable HTTP 409 mapping, stale-result rejection, and exactly one token replacement/forward |
 | Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, identity-checked private nonblocking terminal input with Darwin/Linux real-PTY cancellation/deadline, readiness-flush/EAGAIN, inherited-flag isolation, noncanonical VMIN/VTIME rejection, complete-profile coverage, and zero driver/Broker calls, conventional non-project host installation-root selection, canonical GitHub/AWS/pup executable identity, fixed argv and environment, control-safe provider-output projection, strict default-US1 pup state capture, exact fixed-URL and region-bound AWS console URL recognition with duplicate/cross-region rejection and manual fallback, checked private-home cleanup including setup and successful acquisition, TTY enforcement, complete fault inventory, all non-retryable mutation-unknown reconciliation paths, cancellation/failure preservation, required synthetic integration proof, and manual live exact-handle validation |
+| Provider and client-tool distinction | Catalog/help and selector tests name the provider first, expose the sole current supported Workspace client tool as automatically selected, and keep AWS acquisition method separate; bilingual static-site tests retain the complete GitHub/`gh`, AWS/`aws`, Datadog/`pup`, and Chatwork/`cwk` map without implying a `--tool`, general plugin authority, or network permission |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/host/port/method/path candidate aggregation with latest/count and legacy-count compatibility, Context-scoped reference validation, single-reference allow/deny/reset round trips, bounded typed TTY staging with one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, GraphQL compaction rejection, raw-body privacy canaries, and zero-upstream integration |
@@ -677,6 +689,7 @@ Every strong statement should identify its enforcement path.
 | Local Go consistency | Gate preflight comparison of required/reported/compiler versions and GOROOT/GOTOOLDIR, with a mixed-installation shell fixture |
 | External text structure | Visible-projection unit/E2E tests plus scoped I/O trust metadata; printable meaning remains explicitly out of scope |
 | Documentation locale | Versioned project policy, explicit schema-1 migration diagnostic, locale preservation test, and narrow English/Japanese trusted-Markdown fixtures; broader linguistic conformance remains manual |
+| Public-site locale parity | Source-derived English/Japanese route equality, substantive-content/heading/evidence/machine-example parity, built `html` language and alternate-link checks under root and Pages bases, plus same-topic browser navigation |
 | Public capability coverage | Exact bidirectional match between capability ledger and catalog `CapabilityID` values |
 | External schema compatibility | Vendored fixture, generator, and drift test |
 | Secret or private-data exclusion | Repository policy, scanner, and synthetic fixtures |

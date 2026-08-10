@@ -1,0 +1,154 @@
+---
+title: 信頼境界
+description: プロジェクトのファイル、identity、ポリシー、認証情報、制御 socket、外部データが信頼領域の境界を横断する場所を説明します。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+import CredentialArchitectureMap from "../../../../components/CredentialArchitectureMap.astro";
+
+## このページで答える問い
+
+**誰をどの情報について信頼し、どの境界が自己申告の権限を拒否しますか？**
+
+<aside class="one-sentence">
+  <strong>一文での答え:</strong> host-owned lifecycle、registry、policy、root
+  key、Gateway、OPA、Auth Broker が boundary を enforce します。Workspace
+  process と upstream が供給するのは untrusted data であり、自分自身の label を
+  authority に変えることはできません。
+</aside>
+
+読み終えると、project authority、policy authority、primary credential、payload data を一つのものとして扱わず、それぞれの位置を説明できます。
+
+**前提:** [Guarantees and limitations](../guarantees-and-limitations/)。
+
+<ConceptDiagram name="trust-boundaries" />
+
+<ul class="meaning-key" aria-label="図の意味">
+  <li class="trusted">信頼する実施領域</li>
+  <li class="untrusted">信頼しないデータと process</li>
+  <li class="secret">実物の秘密情報</li>
+  <li class="handle">秘密情報ではない handle</li>
+  <li class="allowed">許可された経路</li>
+  <li class="denied">遮断された経路</li>
+</ul>
+
+## 境界 1：選択したファイル
+
+trusted host は canonical project root を選択します。Tobari は作業できるよう、その root を runtime に mount します。したがって Workspace は、その root を読み書きする authority を持つものとして扱う必要があります。他の host path は通常の mount set から除外され、Docker control は mount されません。各 Workspace は instance state directory から別々の persistent home bind を受け取ります。
+
+root selection boundary は、選択した tree を対象にした file-integrity sandbox ではありません。異なる Workspace または Context が <code>/work/team</code> と <code>/work/team/service</code> を意図的に使うと、network、home、identity、policy binding が異なっていても、重なる host file は共有されたままです。
+
+## 境界 2：プロジェクトの権限
+
+host は dedicated project network を作成し、stable Context ID、project ID、canonical root、network、Gateway local address を含む principal binding 一つを書き込みます。Gateway は自身の receiving-side fact である <code>flow.client_conn.sockname[0]</code> から binding を選びます。
+
+Workspace は <code>X-Project-ID: something-else</code> と書けますが、その文字列は untrusted request data のままです。Gateway interface または host registry lookup を変更できません。unknown または ambiguous な binding は OPA より前に失敗します。
+
+## 境界 3：ポリシーの権限
+
+OPA は ordinary HTTP effect の normalized、body-free view を受け取り、判断します。Gateway は connection を所有し、結果を enforce します。denied Workspace response は host-side review の場所を示すだけで、policy を mutate する authority を持ちません。
+
+trusted host CLI だけが、変更していない opaque review reference を受け取り、allow または deny を選択し、complete projection を validate して activate できます。display label、row order、reconstructed identifier は action authority ではありません。
+
+## 境界 4：認証情報を使う権限
+
+Tool-native credential は意図的に Workspace storage または environment へ渡るため、そこで readable です。managed path と brokered path は異なります。brokered path では、固定された GitHub、AWS、Datadog acquisition driver が trusted host で動きます。root-key backend が Context vault を unlock し、Auth Broker が typed static または renewable credential state を保持します。Workspace が受け取るのは、一つの project に bind された non-secret opaque record selector です。
+
+Gateway は handle、resolved credential、renewable state、ordinary request body を OPA へ送りません。static allow では一度 resolve し、declared upstream header だけを置き換えます。AWS allow では、private host companion が compiled credential export だけを実行し、Broker が local で sign します。Datadog allow では、Broker が exact US1 endpoint に限って token を選択または refresh します。deny では、これらの secret-bearing action は一つも動きません。
+
+<CredentialArchitectureMap headingLevel={3} initial="aws" />
+
+## 境界 5：外部データ
+
+request URL、header、body、upstream certificate、response、provider account label、diagnostic、policy candidate は、いずれも attacker-controlled text を含む可能性があります。visible projection は terminal/structured-output hazard を escape します。printable な prompt-like content を trusted にするとは主張しません。
+
+body streaming と decision identity は別です。body は authorization 後に Gateway を横断して allowed upstream へ届きますが、policy candidate と secret-free audit record には含まれません。
+
+## 失敗と復旧
+
+boundary metadata は effectful use より前に validation されます。unsafe な registry、policy、provider、root-key、vault、handle state は fail closed します。recovery は Workspace が送る値を信頼する方法ではなく、通常は <code>doctor</code>、<code>cluster status</code>、<code>auth status</code>、policy rediscovery、re-entry といった explicit host command で行います。
+
+<aside class="guarantee">
+  <h2>保証すること</h2>
+  <div class="prose-block">
+    supported topology 内では、authority は Workspace の claim
+    ではなく、host-owned state と固定された component placement
+    から導出されます。
+  </div>
+</aside>
+
+<aside class="limitation">
+  <h2>保証しないこと</h2>
+  <div class="prose-block">
+    trusted host operator は unsafe root または rule を選べます。trusted
+    component の compromise はその boundary を破ります。一つの Workspace
+    は、自身の process 同士や selected file 同士を隔離しません。
+  </div>
+</aside>
+
+<aside class="evidence">
+  <h2>ソース</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md">
+        セキュリティモデル
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0011-bind-project-authority-to-host-network.md">
+        ネットワークに結び付くプロジェクト権限の ADR
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry.go">
+        registry の実装
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py">
+        Gateway principal と情報除外のテスト
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## ここまでで説明できること
+
+どの identifier が権限の根拠で、どれが単なる信頼しない文字列または record selector なのかを説明できるはずです。
+
+<div class="question-list">
+  <details>
+    <summary>
+      偽装した Context header が別のポリシーを借りられないのはなぜですか？
+    </summary>
+    <div class="prose-block">
+      Gateway は host-created receiving-interface binding から Context/project
+      を選びます。header は、その interface または registry entry
+      を変更できません。
+    </div>
+  </details>
+  <details>
+    <summary>broker handle は秘密情報または独立した権限ですか？</summary>
+    <div class="prose-block">
+      いいえ。non-secret opaque record selector であり、primary credential でも
+      sufficient authority
+      でもありません。Context、project、provider、revision、target、header
+      binding、OPA のすべてが一致する必要があります。
+    </div>
+  </details>
+  <details>
+    <summary>
+      ファイル範囲の重なりが意外だった場合、どこへ戻るべきですか？
+    </summary>
+    <div class="prose-block">
+      <a href="../guarantees-and-limitations/">保証と制限</a>{" "}
+      を読み直してください。selected root と overlapping root は、filesystem
+      integrity isolation の対象外であることが明示されています。
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>次へ:</strong> 攻撃者の目的と制御策を{" "}
+  <a href="../threat-model/">脅威モデル →</a>で追います。
+</div>

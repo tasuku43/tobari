@@ -4,6 +4,7 @@ import { defineConfig } from "astro/config";
 import { unified } from "@astrojs/markdown-remark";
 import starlight from "@astrojs/starlight";
 import { localBase, productSnapshot } from "./site.config.mjs";
+import { navigationGroups } from "./src/navigation.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const requestedBase = process.env.SITE_BASE || localBase;
@@ -167,6 +168,11 @@ export default defineConfig({
         { tag: "meta", attrs: { name: "twitter:image", content: socialImage } },
       ],
       customCss: ["./src/styles/custom.css"],
+      locales: {
+        root: { label: "English", lang: "en" },
+        ja: { label: "日本語", lang: "ja" },
+      },
+      defaultLocale: "root",
       components: {
         Header: "./src/components/GlobalHeader.astro",
         Footer: "./src/components/PageFooter.astro",
@@ -177,141 +183,14 @@ export default defineConfig({
       social: [
         {
           icon: "github",
-          label: "Tobari on GitHub",
+          label: "GitHub",
           href: "https://github.com/tasuku43/tobari",
         },
       ],
       editLink: {
         baseUrl: `https://github.com/tasuku43/tobari/edit/${buildCommit}/docs/architecture-site/`,
       },
-      sidebar: [
-        {
-          label: "Start",
-          items: [
-            { label: "Overview", link: "/start/overview/" },
-            { label: "Install", link: "/start/install/" },
-            { label: "Quickstart", link: "/start/quickstart/" },
-            { label: "First denial", link: "/start/first-denial/" },
-            { label: "Learning path", link: "/start/learning-path/" },
-            {
-              label: "Understanding check",
-              link: "/start/understanding-check/",
-            },
-          ],
-        },
-        {
-          label: "How it works",
-          items: [
-            { label: "Mental model", link: "/how-it-works/mental-model/" },
-            {
-              label: "System overview",
-              link: "/how-it-works/system-overview/",
-            },
-            {
-              label: "Workspace, Context, cluster",
-              link: "/how-it-works/workspace-context-cluster/",
-            },
-            {
-              label: "Workspace lifecycle",
-              link: "/how-it-works/workspace-lifecycle/",
-            },
-            {
-              label: "Request journey",
-              link: "/how-it-works/request-journey/",
-            },
-            { label: "HTTPS and TLS", link: "/how-it-works/https-and-tls/" },
-            {
-              label: "Project identity",
-              link: "/how-it-works/project-identity/",
-            },
-            {
-              label: "Policy learning",
-              link: "/how-it-works/policy-learning/",
-            },
-            { label: "Credentials", link: "/how-it-works/credentials/" },
-            {
-              label: "State and recovery",
-              link: "/how-it-works/state-and-recovery/",
-            },
-            {
-              label: "Implementation stack",
-              link: "/how-it-works/implementation-stack/",
-            },
-            {
-              label: "Code architecture",
-              link: "/how-it-works/code-architecture/",
-            },
-          ],
-        },
-        {
-          label: "Security",
-          items: [
-            { label: "Overview", link: "/security/overview/" },
-            {
-              label: "Guarantees and limitations",
-              link: "/security/guarantees-and-limitations/",
-            },
-            { label: "Trust boundaries", link: "/security/trust-boundaries/" },
-            { label: "Threat model", link: "/security/threat-model/" },
-            {
-              label: "Credential security",
-              link: "/security/credential-security/",
-            },
-            {
-              label: "Audit and privacy",
-              link: "/security/audit-and-privacy/",
-            },
-            { label: "Supply chain", link: "/security/supply-chain/" },
-            {
-              label: "Verification evidence",
-              link: "/security/verification-evidence/",
-            },
-          ],
-        },
-        {
-          label: "Guides",
-          items: [
-            { label: "Contexts", link: "/guides/contexts/" },
-            {
-              label: "Runtime customization",
-              link: "/guides/runtime-customization/",
-            },
-            { label: "Authentication", link: "/guides/authentication/" },
-            { label: "Policy review", link: "/guides/policy-review/" },
-            { label: "Advanced policy", link: "/guides/advanced-policy/" },
-            { label: "Colima and Lima", link: "/guides/colima-and-lima/" },
-            { label: "Troubleshooting", link: "/guides/troubleshooting/" },
-          ],
-        },
-        {
-          label: "Reference",
-          items: [
-            { label: "CLI", link: "/reference/cli/" },
-            {
-              label: "Configuration and state",
-              link: "/reference/configuration-and-state/",
-            },
-            {
-              label: "Provider manifest",
-              link: "/reference/provider-manifest/",
-            },
-            { label: "JSON schemas", link: "/reference/json-schemas/" },
-            {
-              label: "Faults and recovery",
-              link: "/reference/faults-and-recovery/",
-            },
-            {
-              label: "Runtime image contract",
-              link: "/reference/runtime-image-contract/",
-            },
-            {
-              label: "Component versions",
-              link: "/reference/component-versions/",
-            },
-            { label: "Glossary", link: "/reference/glossary/" },
-          ],
-        },
-      ],
+      sidebar: navigationGroups,
     }),
   ],
 });

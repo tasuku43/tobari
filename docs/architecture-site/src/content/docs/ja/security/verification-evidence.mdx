@@ -1,0 +1,123 @@
+---
+title: 検証証拠
+description: セキュリティ上の主張から、実施点、テスト、規定文書、関連ソースまでを対応付けます。
+---
+
+## このページで答える問い
+
+**このサイトの説明をそのまま信じるのではなく、重要なセキュリティ上の主張をどこで検証できますか？**
+
+<aside class="one-sentence">
+  <strong>一文での答え:</strong> 下の各 claim は governing contract、enforcement
+  source、direct test、または明示された configuration と implementation
+  の組み合わせによる evidence へつながっています。
+</aside>
+
+読み終えると、topology、principal、policy、TLS、credential、lifecycle、supply-chain の claim ごとに、確認すべき evidence を選べます。
+
+**前提:** [Supply chain](../supply-chain/)と、関連する How it works page。
+
+## 根拠の対応表
+
+| Claim                                                                                                          | Enforcement                                                                                            | Tests                                                                                 | Governing document                          | Relevant source                                                          |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------ |
+| Workspace には supported direct egress がない                                                                  | dedicated Docker <code>internal</code> project network。Gateway だけが egress に参加                   | <code>scripts/test-integration.sh</code> の direct-egress と proxy-bypass case        | <code>docs/03_security_model.md</code>      | <code>compose.yaml</code>、<code>project_runtime.go</code>               |
+| Workspace は Docker control、OPA/別 Workspace への route を受け取らない                                        | mount/network topology と per-project network                                                          | integration direct-OPA、Docker socket、cross-Workspace case                           | Security model                              | <code>compose.yaml</code>                                                |
+| Project identity は request の self-assertion ではない                                                         | host principal registry に対する Gateway receiving-interface lookup                                    | <code>principal_registry_test.go</code>、forged-header/unknown-principal Gateway test | ADR 0011、architecture                      | <code>principal_registry.go</code>、<code>tobari_gateway.py</code>       |
+| OPA failure は closed                                                                                          | fixed body-free query 一つ。Gateway は valid structured allow を要求                                   | Gateway timeout/non-200/malformed test、OPA outage integration                        | External API contracts                      | <code>tobari_gateway.py</code>                                           |
+| Deny は upstream connection を作らない                                                                         | policy allow 後の lazy upstream connect                                                                | Gateway denied-body/non-forward test、integration denial target                       | Security model                              | <code>tobari_gateway.py</code>                                           |
+| HTTPS は intercept され、再確立される                                                                          | mitmproxy CONNECT/Tobari CA termination と verified upstream TLS                                       | Gateway CONNECT scheme test、CA/intercept integration                                 | ADR 0005、architecture                      | <code>gateway/entrypoint.sh</code>、runtime entrypoint                   |
+| Request body は rule identity ではない                                                                         | OPA input builder と policy candidate grouping が body を除外                                          | Gateway body-independent input、integration body-grouping/streaming canary            | External API contracts                      | Gateway addon、policy domain                                             |
+| Denial は self-approve できない                                                                                | host-only opaque reference action と complete policy activation                                        | service/policydata/aggregate test、review/allow/deny integration                      | Product/security contracts                  | policy app/infra implementation                                          |
+| Learned rule は Context/project exact                                                                          | Rego/data rule field と aggregate projection                                                           | Rego test、Context/project separation integration                                     | Architecture/security model                 | <code>tobari.rego</code>、<code>policydata.go</code>                     |
+| Broker credential state は Workspace 外に保たれる                                                              | encrypted Context vault と handle-only projection                                                      | Broker vault test、project auth test、static/AWS/Datadog absence canary               | Authentication/security contract            | <code>vault.py</code>、<code>project_auth.go</code>                      |
+| Provider login は trusted host に留まる                                                                        | sanitized environment と private cleanup を備えた fixed identity-checked gh/aws/pup driver             | <code>credentialhost</code> driver/state test、host-login integration fixture         | Authentication contract、ADR 0020/0021/0023 | <code>internal/infra/credentialhost</code>                               |
+| OPA deny では secret-bearing broker action が一つも動かない                                                    | policy 前に introspect。static resolve、AWS companion/signing、Datadog token action は allow 後だけ    | Gateway ordered-call test が deny 時の resolve/companion/refresh/sign のゼロを証明    | Authentication contract                     | <code>broker_credentials.py</code>、<code>broker.py</code>               |
+| AWS host operation は narrow かつ Broker-private                                                               | authenticated reverse exec、listener/socket mount なし、fixed verified container と compiled operation | companion protocol replay/frame/deadline test、dockerruntime companion test           | Authentication/security contract、ADR 0020  | <code>companion_protocol.py</code>、<code>credential_companion.go</code> |
+| Datadog refresh は redirect できず、allow 前に動かない                                                         | exact US1 HTTPS token endpoint、ambient proxy/redirect なし、same-revision single-flight               | Datadog OAuth parser/exchange test と Gateway deny-order test                         | Authentication contract、ADR 0021           | <code>datadog_oauth.py</code>、<code>broker.py</code>                    |
+| Credential outcome uncertainty は replay されない                                                              | durable encrypted task barrier と non-retryable HTTP 409 mapping                                       | AWS companion disconnect、Datadog post-send ambiguity、Gateway 409 test               | External API/authentication contracts       | <code>broker.py</code>、<code>broker_credentials.py</code>               |
+| Invalid Tobari handle は fallback しない                                                                       | marker-recognition path は fail-closed broker processing に固定                                        | malformed/stale/copied/binding mismatch Gateway/Broker test                           | Authentication/security contract            | <code>broker_credentials.py</code>、<code>broker.py</code>               |
+| unsafe な root key/vault state は fail closed                                                                  | owner-only/symlink check、authenticated encryption、missing-key guard                                  | <code>test_broker.py</code>、rootkey/dockerruntime test                               | Authentication/security contract            | <code>rootkey</code>、<code>vault.py</code>                              |
+| <code>exit</code>、<code>delete</code>、<code>down</code>、<code>purge</code> は異なる ownership effect を持つ | app lifecycle と project/cluster state store                                                           | service/project runtime/state test と integration lifecycle                           | Product/architecture                        | <code>service.go</code>、project runtime/state                           |
+| Runtime CMD は Workspace lifetime を所有しない                                                                 | Tobari が fixed <code>sleep infinity</code> と API label を設定                                        | runtime test と runtimecheck                                                          | Architecture/runtime contract               | <code>project_runtime.go</code>、runtime metadata                        |
+| Embedded source は黙って drift できない                                                                        | canonical/snapshot byte/content check                                                                  | <code>task check</code> 内の source-check script                                      | Harness/release                             | runtime asset と sync/check script                                       |
+| Service image は exact identity を持つ                                                                         | <code>versions.env</code> digest pin と image verification                                             | runtime asset/Gateway/Broker image test                                               | Security/release                            | <code>versions.env</code>                                                |
+
+下のすべての link は、この site が記録する source commit に固定されています。
+
+## 根拠への直接リンク
+
+### 規定文書
+
+- [Architecture](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Security model](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Harness](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/04_harness.md)
+- [Authentication](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/07_authentication.md)
+- [External API contracts](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/08_external_api_contracts.md)
+
+### 実施箇所とテスト
+
+- [Gateway implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py) と [tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [OPA policy](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/opa/policy/tobari.rego) と [tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
+- [Auth Broker](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/broker.py)、[vault](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/vault.py)、[tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_broker.py)
+- [Trusted-host drivers](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/credentialhost) と [host-login tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/auth_host_login_test.go)
+- [Private companion protocol](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/companion_protocol.py) と [tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_companion_protocol.py)
+- [Datadog refresh implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/datadog_oauth.py) と [tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_datadog_oauth.py)
+- [Project principal registry](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry.go) と [tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry_test.go)
+- [End-to-end integration suite](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+
+## 根拠が不足している箇所の読み方
+
+unit test は parser または state invariant を証明できますが、real Docker topology までは証明できません。integration test は観測された topology を証明できますが、すべての invalid document が拒否されることまでは証明できません。current suite は二つの handshake を packet capture していませんが、architecture と configuration を組み合わせれば two-TLS design を説明できます。そのため、この map は一つの test が claim 全体を証明すると装うのではなく、異なる種類の evidence を明示しています。
+
+<aside class="limitation">
+  <h2>根拠の制限</h2>
+  <div class="prose-block">
+    cluster purge をまたぐ vault/root-key の survival など、一部の preservation
+    behavior は deletion ownership と implementation
+    から確認できますが、保持されるすべての file に dedicated single assertion
+    があるわけではありません。この table は evidence
+    を過大に述べず、implementation evidence と direct test coverage
+    を区別します。
+  </div>
+</aside>
+
+## ここまでで説明できること
+
+主張が変更されたときに、どのテストまたはソースを確認すべきか説明できるはずです。
+
+<div class="question-list">
+  <details>
+    <summary>
+      偽装した project header が無視されることは、どの根拠が証明しますか？
+    </summary>
+    <div class="prose-block">
+      Gateway principal test、<code>principal_registry.go</code>、ADR 0011
+      です。authority を供給するのは header ではなく、receiving local interface
+      です。
+    </div>
+  </details>
+  <details>
+    <summary>
+      OPA の停止時に Upstream へ接続しないことは、どの根拠が証明しますか？
+    </summary>
+    <div class="prose-block">
+      Gateway policy-failure test と OPA-outage integration case
+      を、lazy-connection implementation と合わせて確認します。
+    </div>
+  </details>
+  <details>
+    <summary>CLI fault の正確な復旧方法はどこで検証しますか？</summary>
+    <div class="prose-block">
+      generated <a href="../../reference/faults-and-recovery/">障害と復旧</a>{" "}
+      page は Catalog agent help から導出されます。
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>続ける:</strong> 症状から調べる{" "}
+  <a href="../../guides/troubleshooting/">トラブルシューティングガイド</a>{" "}
+  を使うか、生成された <a href="../../reference/cli/">CLI リファレンス →</a>{" "}
+  を確認してください。
+</div>

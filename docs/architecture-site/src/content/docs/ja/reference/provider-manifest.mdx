@@ -1,0 +1,147 @@
+---
+title: プロバイダーマニフェスト
+description: owner manifest schema 1、レビュー済み組み込み schema 2 plan、正規化された projection、完全一致 binding、provider 権限の制限を説明します。
+---
+
+import providerManifest from "../../../../generated/provider-manifest-example.json";
+
+## このページで答える問い
+
+**Auth Broker の provider manifest は何を宣言でき、どの権限は得られませんか？**
+
+短く言うと provider manifest は strict Go parser が読む bounded non-secret data です。credential acquisition mode、handle projection、exact HTTPS header transformation を一つ以上記述します。executable adapter ではなく、install しても network permission は与えません。
+
+先に [Credential](../../how-it-works/credentials/)を読んでください。読み終えると synthetic owner manifest を field ごとに review し、compiled built-in plan と区別し、OPA authorization が別である理由を説明できます。
+
+## 重要な用語
+
+owner-controlled document は `tobari.auth-provider.v1` と `schema_version: 1` を使います。reviewed built-in は同じ static contract または closed `tobari.auth-provider.v2` contract を使えます。Gateway が consume する normalized collection は常に projection schema 2 です。repository は strict Go parser、domain validation、collection normalization、fixture で両 source shape を enforce します。**manifest の formal JSON Schema document は publish していません。** fixture ledger を JSON Schema validator と説明しないでください。
+
+Provider は Workspace client Tool ではありません。Provider は外部の credential authority を示し、Tool は declared projection を受け取り matching request を送る client を示します。built-in manifest と compiled driver は現在、一つの完全な Provider-Tool 対応ペアを表します。現在の対応は GitHub/`gh`、AWS/`aws`、Datadog/`pup`、Chatwork/`cwk` です。各 Provider の対応 client は現在一つなので、Provider 選択後の Tool は表示され、自動選択されます。manifest の display name、environment variable、隣接する binding から別の対応 Tool を作ることはできません。
+
+owner-controlled manifest は次の owner-only regular non-symlink file です。
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/tobari/auth/providers/*.json
+```
+
+built-in provider ID を置き換えられず、`stdin_import` だけを使えます。reviewed host login driver は GitHub、AWS、Datadog 用です。fixed executable/behavior は compiled infrastructure であり manifest extension ではありません。user manifest は別 executable helper を追加できず schema 2 を選べません。
+
+## v1 が担うすべての責務
+
+| Section                  | 宣言できるもの                                                                           | 宣言できないもの                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Identity                 | stable lowercase `id` と secret-free `display_name`                                      | account identity、credential value、built-in overwrite authority      |
+| `acquisition`            | `stdin_import`、または reviewed built-in の fixed helper ID                              | shell command、executable path、arbitrary URL、refresh/signing code   |
+| `credential`             | `primary_secret` 一つだけ                                                                | 複数 secret kind または embedded secret                               |
+| `workspace_projections`  | bounded `env` / whole `complete_file` template。`${HANDLE}` を含む projection が一つ以上 | host path、file patch、process-control variable、unknown substitution |
+| `header_bindings.target` | exact lowercase DNS host、exact `https`、port `1..65535`                                 | wildcard、IP literal、route template、HTTP method/path policy         |
+| `source`                 | exact lowercase request header と recognized `raw`/`bearer`/`token` handle syntax        | URL/body/cookie/unrelated header の search-and-replace                |
+| `destination`            | exact header、`raw`/`bearer`/`token`/`preserve_scheme`、`primary_secret` 使用            | arbitrary transformation/provider SDK operation                       |
+| `secret_headers`         | source/destination header を含む complete lowercase redaction set                        | credential header を policy input/audit に残す partial set            |
+
+allowed template placeholder は `${HANDLE}`、`${PROVIDER_ID}`、`${DISPLAY_NAME}` です。`complete_file` path は Workspace home 下の clean relative path です。Tobari は projected file 全体を所有し、existing file を patch しません。
+
+## 正規の合成例
+
+real account/credential を含まない repository canonical schema-v1 fixture です。
+
+<pre tabindex="0">
+  <code>{JSON.stringify(providerManifest, null, 2)}</code>
+</pre>
+
+Workspace が見るのは `EXAMPLE_TOKEN` と opaque project-bound handle を含む generated complete file です。imported primary secret は見ません。
+
+matching request では、Gateway が handle を recognize/remove し、non-secret broker introspection 後、ordinary HTTP effect を OPA へ尋ねます。allow 後にだけ secret を一度 resolve し、declared destination header へ書きます。deny では secret resolution はありません。
+
+## レビュー済みの組み込み schema 2 plan
+
+schema 2 は general extension mechanism ではありません。reviewed built-in だけが consume する typed field を追加します。
+
+| Built-in  | Credential kind         | Workspace placeholder                                      | exact post-policy behavior                                                                                                                                                         |
+| --------- | ----------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aws`     | `aws_sso_session`       | 三つの AWS credential variable に同じ project-bound handle | OPA allow 後、Gateway が 8 MiB 内の request 一つを保持。Broker が private host companion に fixed AWS CLI credential export を要求し、standard header-based SigV4 を local compute |
+| `datadog` | `datadog_oauth_session` | project-bound bearer handle                                | OPA allow 後、Broker が five-minute refresh window 外の token を選ぶか、fixed proxy-free/no-redirect US1 token endpoint で same-record refresh 一つを実行                          |
+
+GitHub/Chatwork は schema-1 static header behavior を維持します。GitHub login driver は信頼するホストで実行し static credential を commit します。Broker image 内では動きません。
+
+owner file は `aws_sigv4`、OAuth session、refresh endpoint、host driver、companion operation、その他 schema-2 behavior を宣言できません。built-in の追加には reviewed product/architecture/security/test change が必要で、JSON edit だけでは不十分です。
+
+## 検証と collection の有効化
+
+manifest が empty、invalid UTF-8、64 KiB 超、duplicate/unknown key、trailing JSON、unsupported version、bounded field rule 違反なら拒否します。
+
+provider collection 全体を deterministic に normalize します。次が collision すると activation は失敗します。
+
+- provider ID / case-insensitive display name
+- Workspace environment variable / complete-file path
+- exact target/source-header recognition range
+- more-specific syntax と重なる `raw` syntax
+- その他 ambiguous binding/redaction contract
+
+remaining document の partial activation はありません。collection failure により ambiguous credential recognition が Gateway へ届くのを防ぎます。
+
+## インストールが変えるもの、変えないもの
+
+manifest を追加すると provider definition が validation 対象になり、explicit import 後に handle projection に利用できます。次は行いません。
+
+- allow rule の追加
+- allowed method/path の宣言
+- denied traffic の retry
+- handle 単体を sufficient authority にする
+- primary secret を OPA/Workspace へ公開
+- logout 時の remote token revocation 保証
+
+policy は exact Context ID、project ID、host、port、method、path に bind します。broker はさらに Context、project、provider、credential revision、normalized HTTP binding を確認します。malformed、stale、misplaced、ambiguous Tobari-looking handle は fail closed します。別 project/Context へ copy しても失敗します。passthrough fallback はありません。同じ Workspace の process はその Workspace の valid handle を使えます。Tobari は同じ Workspace 内の peer process を分離しません。
+
+## 障害と復旧
+
+provider loading failure では invalid owner-controlled document を修正・削除し、CLI fault が示す exact diagnostic/cluster command を実行します。file permission を緩めたり executable wrapper に変えたりしないでください。
+
+credential replacement は old revision handle を revoke します。affected Workspace を出て再 entry し、new process environment/complete-file projection を reconcile します。`auth logout` は local credential/handle を削除しますが provider へ接続しません。
+
+## 根拠
+
+- 規定する認証契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/07_authentication.md`}><code>docs/07_authentication.md</code></a>
+- 純粋な manifest model と検証：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider.go`}><code>provider.go</code></a>
+- strict JSON parser：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/parser.go`}><code>parser.go</code></a>
+- collection の衝突検査：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/projection.go`}><code>projection.go</code></a>
+- レビュー済み組み込み provider：<a href={`${__TOBARI_DOCS_REPOSITORY__}/tree/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/builtins`}>組み込み provider のソース</a>と <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/loader_test.go`}>owner v1/組み込み v2 loader テスト</a>
+- owner が管理する loader：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/loader.go`}><code>loader.go</code></a>
+- 正規 fixture とテスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/testdata/synthetic-provider-v1.json`}>synthetic provider v1</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider_test.go`}>Domain の否定系テスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/authproviders/loader_test.go`}>loader テスト</a>
+
+## まとめ
+
+owner provider manifest は strict declarative non-secret schema-1 data です。project-bound handle position を exact HTTPS destination header へ対応させます。reviewed schema-2 plan は compiled built-in で、owner extension ではありません。どちらも manifest-supplied code を実行せず、HTTP effect を grant しません。
+
+## 理解を確認する
+
+valid provider manifest だけでは request が authorized にならない理由を説明できるはずです。
+
+<details>
+  <summary>
+    利用者の provider は <code>curl</code> を login
+    コマンドとして宣言できますか？
+  </summary>
+  いいえ。user provider は protected non-terminal `stdin_import`
+  を使います。executable driver は reviewed trusted-host infrastructure
+  で、manifest-supplied code ではありません。
+</details>
+
+<details>
+  <summary>
+    manifest は認証情報を <code>GET /v1/items</code> に限定できますか？
+  </summary>
+  いいえ。method/path は OPA policy に属します。manifest は exact HTTPS
+  target/header semantics だけを宣言します。
+</details>
+
+<details>
+  <summary>
+    二つの provider が同じ header value を認識 できる場合、どうなりますか？
+  </summary>
+  collection 全体が ambiguous として activation 前に失敗します。order
+  で選びません。
+</details>
+
+次へ：[JSON Schema](../json-schemas/)。

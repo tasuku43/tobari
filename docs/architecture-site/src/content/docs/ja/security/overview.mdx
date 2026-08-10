@@ -1,0 +1,178 @@
+---
+title: 概要
+description: Tobari のセキュリティを、明示した前提、実施点、障害時の動作、根拠、制限を伴う範囲付きの主張として読み解きます。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+
+## このページで答える問い
+
+**「container」「proxy」「暗号化」という言葉だけに頼らず、Tobari を信頼するとはどういうことですか？**
+
+<aside class="one-sentence">
+  <strong>一文での答え:</strong> Tobari は、supported Docker topology と trusted
+  host service が成立する条件下で、Workspace が暗黙に持つ
+  host、network、policy、broker-managed credential の authority
+  を狭めます。選択した project 内の code を無害にするものではありません。
+</aside>
+
+読み終えると、enforcement boundary、その trusted base、そして各 claim に必ず伴う第一の制限を説明できます。
+
+**前提:** [Mental model](../../how-it-works/mental-model/)と [System overview](../../how-it-works/system-overview/)。
+
+<ConceptDiagram name="trust-boundaries" />
+
+## すべての主張を六つの要素で読む
+
+この section の各ページは、次の原則で書かれています。
+
+1. **Claim** — Tobari が主張する狭い outcome。
+2. **Preconditions** — あらかじめ成立していなければならない条件。
+3. **Enforcement point** — claim を成立させる code または topology。
+4. **Failure behavior** — enforcement point が存在しない、または healthy でない場合の動作。
+5. **Evidence** — governing document、implementation、test。
+6. **Limitations** — claim が意図的に対象外とする近接した outcome。
+
+「Workspace は public Internet へ直接到達できない」という説明は、Workspace が Tobari の supported Docker configuration で作られたという precondition と組み合わせて初めて意味を持ちます。enforcement は dedicated <code>internal</code> network と Gateway だけが持つ dual attachment です。失敗した場合は別経路へ切り替わるのではなく、通信できなくなります。同じくらい重要な制限は、allowed destination には Workspace が読める data を送信できることです。
+
+## 信頼する計算基盤
+
+Tobari は host user、host filesystem control、Docker Engine、kernel、Gateway、OPA、Auth Broker、root-key backend、reviewed runtime asset を trusted enforcement infrastructure として扱います。Workspace process と external HTTP service は untrusted です。Policy candidate、request attribute、provider manifest、external response text は、trusted code が parse する場合でも untrusted data のままです。
+
+この区別により、偽造した project header が役に立たない一方で、compromised Gateway が対象外になる理由が分かります。Gateway は host が作成した receiving interface から project authority を導出します。Gateway 自体が malicious なら、その enforcement point は失われています。
+
+## 四つの境界と役割
+
+<div class="comparison-grid">
+  <section>
+    <h3>プロジェクトの filesystem</h3>
+    <div class="prose-block">
+      選択した root は作業用に mount されます。選択していない host path と別の
+      Workspace home は通常の mount set の外にあります。選択した file は agent
+      から保護されません。
+    </div>
+  </section>
+  <section>
+    <h3>ネットワーク</h3>
+    <div class="prose-block">
+      Workspace には supported direct egress route がありません。Gateway だけが
+      dedicated internal network から egress へ渡ります。
+    </div>
+  </section>
+  <section>
+    <h3>通信許可</h3>
+    <div class="prose-block">
+      OPA は normalized HTTP effect を判断し、Gateway が結果を enforce
+      します。policy が missing、malformed、unavailable の場合は fail closed
+      します。
+    </div>
+  </section>
+  <section>
+    <h3>Auth Broker が管理する認証情報</h3>
+    <div class="prose-block">
+      Auth Broker は static または renewable credential state を encrypted
+      Context vault に保持します。Workspace が受け取るのは bound handle
+      だけで、static resolve、AWS signing、Datadog token refresh は post-policy
+      のままです。
+    </div>
+  </section>
+</div>
+
+## 失敗時の見え方
+
+- Gateway がない: proxy connection は失敗します。
+- valid principal がない: Gateway は OPA より前に <code>project_principal_unavailable</code> を返します。
+- OPA が unavailable または malformed: Gateway は <code>policy_unavailable</code> を返し、upstream connection を作りません。
+- Auth Broker が locked または unavailable: brokered request は失敗し、secret resolution へ fallback しません。
+- handle が invalid または stale: <code>credential_handle_invalid</code> となり、passthrough へ downgrade しません。
+- companion または refresh が既知の pre-execution failure: <code>credential_broker_unavailable</code> となり、upstream attempt はありません。
+- AWS/Datadog operation が明示的または post-dispatch に outcome uncertain: non-retryable な <code>credential_refresh_outcome_unknown</code> となります。replay せず、trusted host で reconcile します。
+- invalid policy activation: Tobari は可能な限り以前の source と既知の projection を保持または復元します。OPA を healthy にできなければ、以前の service が active だと仮定せず、通信は fail closed のままです。
+
+これらは対象となる path の closed failure です。すべての process action が rollback されるという意味ではありません。選択した project 内の local file write はすでに発生している可能性があります。
+
+<aside class="guarantee">
+  <h2>この overview が保証すること</h2>
+  <div class="prose-block">
+    以降の security page では、より狭い claim を提示し、それぞれを enforcement
+    point と evidence へ結び付けます。denial を、実際の HTTP effect を超える
+    protection として説明しません。
+  </div>
+</aside>
+
+<aside class="limitation">
+  <h2>この overview が保証しないこと</h2>
+  <div class="prose-block">
+    container boundary は、その Workspace 自身から選択した project root
+    を保護しません。policy は、trusted user が明示的に許可した effect への data
+    exfiltration を防ぎません。trusted base が compromised になれば、どの claim
+    も成立しません。
+  </div>
+</aside>
+
+<aside class="evidence">
+  <h2>ソース</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md">
+        セキュリティモデル
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/THREAT_MODEL.md">
+        リポジトリの脅威モデル
+      </a>{" "}
+      — 上の governing security model と対になる、簡潔な attacker/control
+      inventory。
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml">
+        Compose の構成
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh">
+        統合テストの根拠
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## ここまでで説明できること
+
+Tobari のセキュリティが、一つの「secure sandbox」という label ではなく、条件付きの境界の集合である理由を説明できるはずです。
+
+<div class="question-list">
+  <details>
+    <summary>「Docker で動く」だけでは、なぜ不十分ですか？</summary>
+    <div class="prose-block">
+      claim は exact mount、internal network、service attachment、trusted
+      principal derivation、fail-closed behavior に依存するからです。generic
+      container という事実だけでは、これらの詳細を何も証明できません。
+    </div>
+  </details>
+  <details>
+    <summary>
+      「外部への直接通信は遮断される」の直後に述べるべき最初の制限は何ですか？
+    </summary>
+    <div class="prose-block">
+      explicitly allowed destination は、Workspace が読み、allowed HTTP request
+      に載せられるすべての data を受け取れます。
+    </div>
+  </details>
+  <details>
+    <summary>
+      信頼する領域と信頼しない領域が不明確なら、どこへ戻るべきですか？
+    </summary>
+    <div class="prose-block">
+      <a href="../../how-it-works/system-overview/">システム全体像</a>{" "}
+      に戻り、その後で詳細な <a href="../trust-boundaries/">信頼境界</a>{" "}
+      を読んでください。
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>次へ:</strong>{" "}
+  <a href="../guarantees-and-limitations/">保証と制限 →</a>
+</div>

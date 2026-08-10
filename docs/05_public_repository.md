@@ -183,6 +183,13 @@ checks. Pages upload and deployment are separate jobs: only a successful push
 to `main` uploads generated `dist/`, and only the deploy job receives
 `pages: write` and `id-token: write`. No workflow secret is required.
 
+English remains the canonical root locale for public product claims. The site
+also publishes one reviewed Japanese counterpart for every route below
+`/ja/`; it performs no runtime translation. Publication fails when either
+locale is missing a same-topic route, when Japanese has an orphan route, or
+when the built language metadata and alternate links do not preserve the topic
+under both `/` and `/tobari/` bases.
+
 Minimum first-public-push checklist:
 
 - [ ] Repository history and all refs were reviewed.

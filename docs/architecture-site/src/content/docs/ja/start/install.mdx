@@ -1,0 +1,128 @@
+---
+title: インストール
+description: Tobari cluster を起動する前の前提条件、ソースからのインストール、状態を変えない確認手順を説明します。
+---
+
+## このページで答える問い
+
+**現在の Tobari 実装を動かす前に、何を用意する必要がありますか？**
+
+対応する macOS または Linux ホストへ、このリポジトリからビルドした `tobari` バイナリをインストールします。Docker Engine 24 以降と Docker Compose v2 を用意し、共有サービスを起動する前にバイナリを確認します。
+
+このページを読み終えると、信頼するホスト上で動く依存関係、インストールだけでは開始されない処理、Workspace を作成せずに前提条件を診断する方法を説明できるようになります。
+
+前提: Docker をセキュリティモデル全体だと誤解しないよう、先に[概要](../overview/)を読んでください。
+
+## 対応する前提条件
+
+次が必要です。
+
+- Docker が対応するアーキテクチャの macOS または Linux
+- Docker Engine 24 以降
+- Docker Compose v2
+- ソースビルドでは `go.mod` が宣言する正確な Go toolchain
+- リポジトリのビルドコマンドを実行する [Task](https://taskfile.dev/)
+- レビュー済みの Gateway、Auth Broker、runtime image がローカルにない場合、それらへの registry access
+
+Docker Desktop 固有の API は必要ありません。Colima、Lima ベースの Docker context、標準的な Linux Docker Engine は、同じ Docker CLI adapter を使います。VM 内の daemon は、project root と Tobari の XDG configuration/state path の両方を bind mount できる必要があります。アプリケーション通信を調査する前に [Colima と Lima](../../guides/colima-and-lima/)を確認してください。
+
+## CLI をビルドして配置する
+
+公開リポジトリを clone し、宣言済みの build task を使います。
+
+```sh
+git clone https://github.com/tasuku43/tobari.git
+cd tobari
+task build
+```
+
+生成物は `bin/tobari` です。このリポジトリの `bin` directory を `PATH` に追加するか、すでに `PATH` に含まれる directory へバイナリをインストールします。
+
+```sh
+install -m 0755 bin/tobari ~/.local/bin/tobari
+```
+
+Go の install path も利用できます。
+
+```sh
+go install ./cmd/tobari
+```
+
+リポジトリが管理する runtime authority の代わりに、未検証の moving image tag を取得しないでください。共有サービスの identity は、CLI に埋め込まれたレビュー済み immutable digest から選ばれます。
+
+## 何も起動せずに確認する
+
+シェルが実行する executable が、意図したものか確認します。
+
+```sh
+command -v tobari
+tobari version
+```
+
+続けて、利用予定の project から読み取り専用の host diagnostic を実行します。
+
+```sh
+tobari doctor
+```
+
+`doctor` は Docker、必要な path、image、policy、provider manifest、root key と broker state、残留物を観測します。cluster の起動、credential の修復、Workspace の作成、policy の有効化は行いません。
+
+現在の directory 以外を調べる場合に限り、`tobari doctor --root PATH` を使ってください。対応 format と fault code を含む正確な CLI contract は、Catalog から生成される [CLI reference](../../reference/cli/)にあります。
+
+## インストールで変わること、変わらないこと
+
+バイナリのビルドまたはコピーだけでは、次の処理は行われません。
+
+- Gateway、OPA、Auth Broker の起動
+- Workspace の作成または project の mount
+- outbound allow rule の作成
+- provider への login
+- Docker を必要とする操作を実行する前の、バイナリへの Docker access の付与
+
+次の明示的な境界は `tobari cluster up` です。このコマンドは共有サービスを調整し、レビュー済み image を取得する場合があります。root の `tobari` entry command が、その cluster を暗黙に起動または修復することはありません。
+
+## よくあるインストール失敗
+
+| 観測したこと                    | 意味                                                                        | 安全な次の手順                                                                             |
+| ------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `tobari: command not found`     | バイナリの directory が `PATH` にありません。                               | 正確な directory を追加するか、`PATH` 上の directory へバイナリを配置します。              |
+| Docker/Compose check が失敗する | 信頼するホストが必要な Docker CLI surface を利用できません。                | Docker installation または選択中の Docker context を直し、`tobari doctor` を再実行します。 |
+| image を利用できない            | Docker がレビュー済み service/runtime identity を調査または取得できません。 | registry と Docker の診断を確認し、digest を任意の tag へ置き換えないでください。          |
+| bind path を利用できない        | VM 上の Docker daemon から host path が見えません。                         | project と Tobari XDG path を共有し、`doctor` を再実行します。                             |
+| vault の横に root key がない    | 既存の encrypted state を開けません。                                       | 元の key を復元します。Tobari は代替 key を暗黙に生成しません。                            |
+
+診断失敗を、広範な Docker mount、host home mount、Workspace 内の Docker socket mount で回避しないでください。これらの回避策は trust boundary を変えてしまいます。
+
+## 保証と制限
+
+リポジトリの build は Go version と埋め込み service identity を固定します。source/snapshot check と image contract check が drift を検出します。それでもインストールの完全性は、信頼する checkout、build host、Docker daemon、image registry path に依存します。これらの信頼基盤が侵害された後まで、Tobari が自分自身を防御するとは主張しません。
+
+## 根拠となるソース
+
+- [レビュー対象 commit の README にある installation と requirements](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/README.md)
+- [Go toolchain declaration](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/go.mod)
+- [Task build definitions](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/Taskfile.yml)
+- [Pinned runtime component versions](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/versions.env)
+- [Read-only doctor implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/runtime.go)
+
+## まとめ
+
+リポジトリからビルドした CLI を一つインストールし、信頼するホスト側の前提条件を確認します。共有サービス、Workspace、policy、authentication は、それぞれ別の明示的な操作です。
+
+## 理解を確認する
+
+<details>
+<summary><code>task build</code> は Gateway を起動したり Workspace を作成したりしますか？</summary>
+
+いいえ。CLI をビルドするだけです。共有サービスは `tobari cluster up` でのみ起動し、Workspace の選択または作成は root の `tobari` command で行います。
+
+</details>
+
+<details>
+<summary>VM の bind error を、ホストの home 全体の mount で「直す」べきでないのはなぜですか？</summary>
+
+選択した project root が、意図した書き込み可能な project mount だからです。host home を広く mount すると境界外の file を公開し、文書化された security precondition を無効にします。
+
+</details>
+
+**次へ:** [end-to-end のクイックスタートを実行する](../quickstart/)。

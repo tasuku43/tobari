@@ -1,0 +1,134 @@
+---
+title: プロジェクト識別
+description: Gateway の interface とホストが管理する registry から Context とプロジェクトの principal を確立する仕組みを説明します。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+
+## このページで答える問い
+
+Workspace は、header を変えて別 project の learned rule を自称できないのはなぜですか？
+
+**一文での答え:** Gateway は request を受けた local interface と owner-controlled principal registry から Context と project identity を導出し、caller-supplied ID は決して使いません。
+
+### 読み終わると説明できること
+
+- principal registry が何を bind するか
+- 一つの Gateway が多数の project network を見分ける仕組み
+- principal establishment が OPA や credential に対していつ行われるか
+- 別 Workspace の同じ HTTP effect に別の learned authority が必要な理由
+
+**前提:** [HTTPS と二つの TLS 接続](../https-and-tls/)、および[システム概要](../system-overview/)の dedicated network concept。
+
+<ConceptDiagram name="project-principal" />
+
+## 信頼するホストで principal を作る
+
+logical Workspace ごとに host-side lifecycle code が次を行います。
+
+1. stable UUIDv7 project ID と permanent Context ID を検証する
+2. exact owner-labeled dedicated internal network を作成または検証する
+3. Gateway をその network へ接続する
+4. その exact network 上の Gateway IP address を inspect する
+5. schema 2 binding を owner-only principal registry へ atomically に書く
+
+binding には project ID、Context ID、Context name、canonical root、network name、Gateway interface IP が含まれます。project entry と address entry は一意である必要があり、unsafe loopback、link-local、multicast、unspecified address は拒否されます。
+
+registry は Gateway へ read-only で mount されます。Workspace には書き込み権限も、その binding を作成できる Docker control も渡されません。
+
+## リクエストごとに principal を特定する
+
+Gateway は `flow.client_conn.sockname[0]`、つまり accepted project-network connection における自分自身の local address を観測します。この local address が一つの binding を選びます。
+
+この詳細は重要です。この値は次のいずれでもありません。
+
+- header で主張された client source IP
+- Workspace environment の `TOBARI_ID` または `TOBARI_CONTEXT_ID`
+- `x-tobari-session` または別の request field
+- Context display name
+- credential profile/provider name
+- URL parameter
+
+lookup 後、Gateway は registry-derived `context_id` と `project_id` を schema 5 OPA input へ入れます。固定された OPA router は Context ID で policy を選択し、learned rule は project ID も要求します。
+
+## 偽装を試みる具体例
+
+Workspace B が Workspace A から次の request header を copy したとします。
+
+```http
+X-Tobari-Session: project-a
+X-Tobari-Context: review
+Authorization: Bearer example
+```
+
+connection は変わらず Gateway の Workspace B interface に到着します。Gateway は B の Context/project binding を選択し、必要に応じ control/credential value を strip または redact します。host、port、method、path が同じでも、A のために学習した rule は B に一致しません。
+
+request に A からコピーした broker handle が含まれる場合は、さらに厳格です。non-secret Broker introspection は、derived B principal と handle の Context、project、provider、credential revision、target、source-header binding を照合します。不一致は OPA より前に `403 credential_handle_invalid` になります。
+
+## ネットワーク上の identity を使う理由
+
+Workspace process は、自分の request、environment、filesystem、tool configuration を変更できます。そこに置かれた identity はすべて attacker-controlled data です。dedicated network は、信頼する host lifecycle code が interface binding を確立し、Workspace が request ごとに選べない場所を提供します。
+
+これは、より一般的な contract を Docker で実装したものです。runtime は、connection-to-principal の信頼できる binding を提供します。policy code は、name や parsing convention から identity を再構築しません。
+
+## 失敗時の動作
+
+- registry が missing、unreadable、too large、wrong version、malformed、unsafe、duplicate、ambiguous の場合、Gateway は `403 project_principal_unavailable` を返します。
+- incoming local interface が未登録なら、OPA または upstream I/O より前に同じ 403 を返します。
+- network recreation で Gateway interface address が変わった場合、Workspace を ready にする前に lifecycle が registry を reconcile する必要があります。
+- OPA にとって Context ID が unknown なら aggregate router は deny し、current/default Context へ fallback しません。
+- user が Context display name/default を変えても、name ではなく stable stored ID が enforcement identity のままです。
+
+Gateway binding parser は binding ごとの exact shape と required value を検証します。この site は、Python の general JSON parser について、より強い duplicate-key rejection property までは主張しません。
+
+## 保証と制限
+
+**対応 lifecycle/topology で保証すること:** caller-supplied identity は authority ではありません。project と Context は OPA より前に一緒に確立されます。learned rule と broker handle は project principal を越えられません。stale network binding は fail closed します。
+
+**保証しないこと:** host、Docker、Gateway、registry の侵害後の耐性、重なる selected root の tenant isolation、general cryptographic remote-workload identity、Tobari lifecycle 外で手作業により作られた任意の container からの identity derivation。
+
+## 根拠となるソース
+
+- [Principal and Context security contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Host-network authority decision](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0011-bind-project-authority-to-host-network.md)
+- [Shared Context routing decision](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
+- [Principal registry writer and reconciliation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry.go)
+- [Gateway registry parser and interface lookup](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py)
+- [Registry negative tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry_test.go)
+- [Forged-header and unknown-principal Gateway tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+
+## まとめ
+
+host は、一つの exact Gateway project-network interface を stable Context/project ID へ bind します。Gateway は request ごとにその interface を観測します。header と name は caller を記述できますが、別 principal の authority を与えられません。
+
+## 理解を確認する
+
+shared Gateway/OPA service が shared learned permission を意味しない理由を説明できるはずです。
+
+<details>
+  <summary>
+    process が別の project ID を header に書いた場合、どの ID が principal
+    として OPA へ届きますか？
+  </summary>
+  Gateway の receiving local interface と host principal registry で選ばれた ID
+  です。header は authority ではありません。
+</details>
+
+<details>
+  <summary>
+    Workspace A と B が同じ host、port、method、path を使うとき、A が学習した
+    規則は B の通信を許可しますか？
+  </summary>
+  いいえ。exact learned rule は stable Context ID と project ID
+  にも結び付きます。
+</details>
+
+<details>
+  <summary>
+    再作成されたネットワークに有効な registry binding がない間、どうなりますか？
+  </summary>
+  request は `project_principal_unavailable` で fail closed します。まず
+  lifecycle が interface binding を reconcile する必要があります。
+</details>
+
+ネットワークの配置は[システム全体像](../system-overview/)で確認できます。次はこの principal を[ポリシー学習](../policy-learning/)で使います。

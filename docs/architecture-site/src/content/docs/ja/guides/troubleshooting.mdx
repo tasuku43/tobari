@@ -1,0 +1,213 @@
+---
+title: トラブルシューティング
+description: 観測できる症状から担当する境界を特定し、変更より先に読み取りを行う安全な復旧手順を選びます。
+---
+
+## このガイドで答える問い
+
+**Tobari への entry、接続、通信許可、認証、後片付けが想定どおり動かないとき、最初に何を調べるべきですか？**
+
+read-only diagnostic から始め、失敗を所有する主体を特定し、その fault に宣言された recovery command だけを使います。単に error を消すために、結果が不確実な mutation を replay したり security state を削除したりしないでください。
+
+このガイドを読み終えると、policy、authentication、runtime、VM の failure を混同せず、よくある症状を切り分けられるようになります。
+
+前提: [五つの要素からなる mental model](../../how-it-works/mental-model/)を理解してください。正確な code、retryability、Catalog-declared recovery は [Fault と復旧](../../reference/faults-and-recovery/)を参照してください。
+
+## 観測から始める
+
+信頼するホスト上の、意図した project directory から実行します。
+
+```sh
+tobari doctor
+tobari cluster status
+tobari status
+tobari list
+```
+
+これらの command は観測だけを行います。service の起動、runtime resource の作成/削除、policy の有効化、credential の修復は行いません。`auth status` も read-only ですが、provider state を報告するには設定済み broker path が必要です。
+
+```sh
+tobari auth status
+```
+
+正確な fault code と、宣言された次の action を記録します。すべての failure を単なる「retry」にしないでください。
+
+## Workspace に入れない
+
+次の順で確認します。
+
+1. `tobari cluster status`: 共有 cluster が設定済みで healthy である必要があります。
+2. `tobari doctor`: Docker、image、path、policy、provider、broker、root-key prerequisite を確認します。
+3. `tobari status`: logical state が absent なのか、runtime diagnostic が `missing`、`degraded`、`unreachable`、`incomplete` なのかを区別します。
+4. root command に interactive terminal があり、Workspace 内で実行していないことを確認します。
+
+`missing` container または `degraded` network は、logical state/home を保持したまま、次の valid root entry で調整できます。`incomplete` は index と instance record が不一致であることを意味し、entry は identity を推測して作りません。正確な cleanup path である `tobari delete` を使い、その後で意図的に作成してください。
+
+`workspace_selection_stale` の場合は `tobari` を再実行し、更新された候補から選びます。`image_not_found` または `incompatible_image` の場合は、binding された Context を調べ、次の entry より前に runtime を修復または build します。
+
+## リクエストが HTTP 403 を返す
+
+まず response code を特定します。
+
+- `policy_denied`: Workspace を出て `tobari policy review` を実行します。一つの Context について exact choice を調べて stage し、reviewed set を一度だけ Apply してから、意図的に再試行します。
+- `credential_handle_invalid`: 同じ Context に結び付いた Workspace を出て、もう一度 entry します。stale、copied、malformed、misplaced、mismatched な handle を forward してはいけません。
+- baseline deny または learned exact deny: pending candidate ではなく、terminal policy です。`tobari policy rules` を確認し、その decision を意図的に変更する場合だけ reset します。
+
+credential binding による `403` を broad allow rule の作成で解決しないでください。この failure は、effective OPA rule によって path を開けるより前に発生します。
+
+## Gateway または OPA が unhealthy になる
+
+```sh
+tobari cluster status
+tobari cluster logs --component gateway --tail 100
+tobari cluster logs --component opa --tail 100
+```
+
+報告された image、projection、policy、mount、ownership、health の問題を修正し、explicit reconciliation を実行します。
+
+```sh
+tobari cluster up
+```
+
+OPA unavailable が allow になることはありません。Gateway は valid decision なしで upstream へ接続しません。invalid policy candidate がある場合も、直前の known-good aggregate が active のまま残るべきです。
+
+## Auth Broker が locked または unavailable になる
+
+```sh
+tobari cluster status
+tobari auth status
+tobari doctor
+```
+
+Broker の起動/調整と host root-key backend を使った unlock を行う supported path は `cluster up` です。Broker は restart 後、設計どおり locked state で起動します。
+
+既存 vault があるのに root key が missing の場合は、元の Linux XDG key または macOS Keychain item を復元します。Tobari は encrypted state の上に replacement key を生成することを意図的に拒否します。vault ciphertext を表示、手動編集、Workspace へのコピーのいずれも行わないでください。
+
+## broker handle が invalid になる
+
+credential replacement と logout は old handle を即座に revoke しますが、running process の environment には old value が残ります。いったん出てから再 entry し、current projection を受け取ります。
+
+```sh
+exit
+tobari
+```
+
+それでも失敗する場合は、`tobari auth status`、exact Context selection、installed provider binding、cluster readiness を確認します。別の Workspace の handle を貼り付けないでください。project と Context の check は意図的なものです。
+
+## Auth Broker を使うリクエストが HTTP 409 を返す
+
+`credential_refresh_outcome_unknown` は、AWS companion operation または Datadog refresh が dispatch された可能性はあるものの、Broker がその outcome を分類できなかったことを意味します。Gateway は application request を upstream へ送りませんでした。tool に automatic replay させないでください。
+
+元の request が settle した後、次を実行します。
+
+```sh
+tobari auth status
+```
+
+- `broker_state=ready` で、対象 provider が `configured` の場合、credential record は利用可能です。利用者は元の task を意図的に retry できます。
+- provider が `not_configured` の場合、durable encrypted task barrier は残っています。reviewed login をもう一度実行するか、その provider から logout してから、Workspace を出て再 entry し、その後に retry します。
+- Broker が `locked` または `unavailable` の場合は、まず `cluster up` で reconciliation し、status を再確認します。
+
+この 409 を `credential_broker_unavailable` 503 と同じように扱わないでください。後者は既知の pre-execution availability class です。前者が replay permission を意図的に与えないのは、external credential work が開始済みかもしれないためです。
+
+## Runtime image が見つからない、または互換性がない
+
+```sh
+tobari context show
+```
+
+managed recipe の場合は次を実行します。
+
+```sh
+tobari runtime init
+# Edit the reported Dockerfile only if no recipe existed.
+tobari runtime build
+```
+
+`runtime init` は recipe の上書きを拒否します。build が失敗した場合、promotion がすでに確定していない限り、以前選択されていた image が維持されます。既存の logical Workspace state と home も残ります。host mount、user、entrypoint、lifetime command、network control を変えるのではなく、compatibility を修正してください。
+
+## ポリシーの有効化に失敗する
+
+次を確認します。
+
+```sh
+tobari policy rules
+tobari cluster status
+tobari cluster logs --component opa --tail 100
+```
+
+exact allow/deny/reset/compaction は、activation より前に、変更した Context と complete all-Context aggregate を検証します。失敗した場合は known-good policy を保持すべきです。concurrent change の後は opaque reference をもう一度 discovery してください。display order や stale ID を再利用しないでください。
+
+host-authored Advanced policy の場合は、信頼するホスト上で Rego と test を修正し、`tobari doctor` と explicit `tobari cluster up` をもう一度実行します。
+
+## Workspace を削除できない、または cluster を停止できない
+
+- `project_session_attached`: session を exit してから `tobari delete` を実行します。`tobari delete --force` は、その exact attached session を終了させる意図がある場合だけ使います。
+- `project_not_found`: 意図した project root/ancestor と選択した Context から command を実行します。
+- `cluster_not_empty`: `tobari list` ですべての Workspace を確認し、対応する root/Context へ戻って一つずつ削除してから `cluster down` を実行します。
+- interrupted state: `status` と `doctor` を確認します。label/file を手動で削除せず、宣言された exact cleanup/reconcile command を使います。
+
+`delete` が project file を削除することはありません。`cluster down --purge` は共有 runtime/CA volume を削除しますが、Context vault/root key は保持します。credential logout ではありません。
+
+## Colima または Lima から mount が見えない
+
+host shell からは bind source が見えるのに Docker が missing と報告する場合、選択した VM daemon でその path が共有されていません。exact project と、解決済み Tobari XDG config/state の親 directory を共有してから、次を実行します。
+
+```sh
+tobari doctor
+tobari cluster up
+```
+
+[Colima と Lima](../colima-and-lima/)を参照してください。host-home mount、host network、privileged container、Docker socket で error を迂回しないでください。
+
+## 変更操作の結果が不確実
+
+`auth_mutation_outcome_unknown`、`unclassified_mutation_outcome`、`mutation_output_write_failed` の場合、side effect がすでに完了している可能性があります。output が失われたという理由だけで、login、import、logout、policy mutation、その他の destructive write を繰り返さないでください。
+
+まず、対応する read path で reconciliation します。
+
+- authentication: `tobari auth status`
+- policy: `tobari policy rules` と `tobari cluster status`
+- Context/runtime: `tobari context show`
+- Workspace: `tobari status` と `tobari list`
+
+## 保証と制限
+
+Catalog fault は bounded recovery を宣言し、read-only diagnostic は予期しない repair を避けます。ただし診断は、信頼するホスト/Docker の観測が正確であることに依存します。state の手動削除、任意 image への置き換え、広い mount/network change は、復旧保証と security model を無効にする可能性があります。
+
+## 根拠となるソース
+
+- [Catalog-declared faults and recovery](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
+- [Authentication fault contracts](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/auth_catalog.go)
+- [Read-only doctor implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/runtime.go)
+- [Workspace recovery tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime_test.go)
+- [Integration recovery canaries](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+
+## まとめ
+
+観測した事実から始め、所有する境界を特定し、current state を読んでから、宣言された recovery だけを適用します。availability failure は closed のままであり、不確実な mutation は replay より先に reconciliation が必要です。
+
+## 理解を確認する
+
+<details>
+<summary>Auth Broker の login コマンドの最終出力が失われました。login をもう一度実行すべきですか？</summary>
+
+まだ実行しません。credential はすでに置き換えられている可能性があります。次の mutation より前に `tobari auth status` を実行し、Context を reconciliation してください。
+
+</details>
+
+<details>
+<summary>HTTPS リクエストがポリシーで拒否されました。まず cluster を再起動すべきですか？</summary>
+
+cluster が healthy で、denial が learnable な場合は違います。Workspace を出て、host で exact effect を review し、decision を行ってから、意図的に retry してください。
+
+</details>
+
+<details>
+<summary>Workspace container が消えました。論理 Workspace を削除する必要がありますか？</summary>
+
+いいえ。runtime loss は recoverable です。次の valid root entry が identity と home を保持したまま container を再作成します。`incomplete` state を cleanup する場合か、Workspace を意図的に終了する場合だけ削除してください。
+
+</details>
+
+**次へ:** 正確なコード契約は[障害と復旧](../../reference/faults-and-recovery/)を参照し、管理主体と寿命に戻る場合は[状態と復旧](../../how-it-works/state-and-recovery/)を確認してください。

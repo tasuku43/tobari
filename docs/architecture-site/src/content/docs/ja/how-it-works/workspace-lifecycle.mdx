@@ -1,0 +1,161 @@
+---
+title: Workspaceのライフサイクル
+description: session と論理状態を混同せず、entry、exit、削除、runtime の調整、cluster の停止を理解します。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+
+## このページで答える問い
+
+`exit`、`delete`、runtime loss、`cluster down` の後、何が残りますか？
+
+**一文での答え:** `exit` が終了するのは attached exec session だけです。`delete` は一つの logical Workspace と、その owned home/runtime record を削除します。cluster teardown は別の操作であり、すべての Workspace を削除した後にだけ実行できます。
+
+### 読み終わると説明できること
+
+- attached、detached、absent の違い
+- `delete --force` が上書きするもの
+- container、network、runtime-image drift の修復方法
+- `cluster down --purge` が Workspace deletion でも credential logout でもない理由
+
+**前提:** [Workspace、Context、cluster、runtime](../workspace-context-cluster/)。
+
+<ConceptDiagram name="workspace-lifecycle" />
+
+## 状態変化を順番に追う
+
+### Absent → attached
+
+選択した directory から `tobari` を実行すると、canonical root と Context に対応する既存 Workspace を選ぶか、明示的に作成します。作成時には identity と home を durably に記録し、dedicated network と container を reconcile し、Gateway interface principal を登録し、ready になるまで待ち、interactive `docker exec` shell を開始します。
+
+attached shell は一時的な process state です。Workspace lifetime process ではありません。
+
+### Attached → 切り離されるが存在は続く
+
+shell の `exit`、exact agent command の終了、child の nonzero exit が終了させるのは exec process だけです。Tobari は次を保持します。
+
+- root index と instance record
+- permanent Context binding と project ID
+- per-Workspace home と tool-owned login state
+- runtime container と dedicated network
+- Context/project に scope された learned policy
+- Context-owned broker credential と、この project の current handle projection
+
+永続化された「paused」state はありません。detached は、observed attached exec session がないという意味です。logical Workspace は存在します。
+
+### Detached → 再び接続される
+
+次の `tobari` entry は同じ logical record を resolve し、entry 前に runtime drift を reconcile します。identity と home を変えずに、container または network の再作成、desired Context image の更新、current project-bound broker handle projection の再発行、principal registration の修復を行う場合があります。
+
+### Detached → absent
+
+`delete` は、まず attached exec session がないことを確認します。exact owner、role、project label を検証してから、その Workspace の container と network だけを削除します。その後、root index、instance state、home、project-auth projection/registry entry を削除します。mount した root 内の project file は決して削除しません。
+
+### Attached → `--force` で absent
+
+通常の deletion は attached Workspace を拒否します。`delete --force` が上書きするのは attached-session guard だけです。Docker ownership/identity check を緩めず、target を広げず、project file の削除を許可しません。
+
+## runtime の消失と構成ずれ
+
+existence を決めるのは logical state であり、Docker inspection ではありません。
+
+- **Container の消失:** 次の entry で compatible replacement を作り、既存 root/home を再 mount します。
+- **Network の消失:** 次の entry で internal network を再作成し、Gateway を接続し、新しい interface binding を書き込んでから ready にします。
+- **Context runtime の再ビルド:** 次の entry で desired runtime identity を比較し、必要な場合だけ project container を再作成します。
+- **Resource/security contract changed:** desired-spec hash が変化し、reconciliation が走ります。
+- **Root index はあるが instance state がない:** `incomplete` であり、推測の許可ではありません。entry は失敗し、exact deletion で cleanup します。
+
+durable journal が中断された creation と deletion を扱うため、部分的な file set が暗黙に二つ目の Workspace として扱われることはありません。
+
+## cluster のライフサイクルは別のもの
+
+logical Workspace instance が一つでも残っている間、`cluster down` は拒否されます。先にすべての Workspace を削除してください。
+
+その後の違いは次のとおりです。
+
+| 操作                   | 削除するもの                                                                  | 保持するもの                                                         |
+| ---------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `cluster down`         | 共有 Gateway、OPA、Auth Broker container と一時的な shared network/projection | Context、policy source、encrypted vault、root key、Gateway CA volume |
+| `cluster down --purge` | 同じ shared runtime resource、shared CA volume、active policy-bundle volume   | Context、policy source、encrypted vault、installation root key       |
+
+purge 後に cluster を起動すると、新しい shared CA state が作られます。provider credential の revoke や encrypted vault の削除ではありません。local credential removal と handle revocation には `auth logout <provider>` を使います。
+
+## 具体例
+
+`/work/service` に entry して tool-native login を行い、`exit` したとします。
+
+1. tool の login file は、その Workspace の persistent home に残ります。
+2. project file と logical record は残ります。
+3. 後で entry すると、同じ Workspace と home を再利用します。
+4. 途中で container が手動削除されていても、Tobari が再作成し、その home を再 mount します。
+5. detached のときに代わりに `delete` すると、Workspace home は削除されます。project root は残ります。
+
+## 失敗時の動作
+
+- attached exec があると、通常の `delete` は削除前に失敗します。
+- ownership label が wrong/missing なら resource deletion を行いません。
+- runtime incompatibility は project resource mutation 前に失敗します。
+- container/network loss が logical state を暗黙に削除することはありません。
+- instance record が残る間、`cluster down` は失敗します。
+- 中断した mutation の recovery には exact lifecycle command が必要になる場合があります。完了を推測しません。
+- mutation 成功後の cancellation は mutation-complete boundary を通して報告されるため、安全に再実行できるようには見せません。
+
+## 保証と制限
+
+**保証すること:** session exit は deletion ではありません。deletion は一つの exact Workspace を対象とし、project file は保持されます。runtime resource は logical identity を変えずに再作成できます。purge は logout のふりをしません。
+
+**保証しないこと:** 手動削除した project file または Workspace home の復元、root を移動した後の自動 migration、Workspace deletion 後の tool-native login の保持、local logout 後の remote provider revocation。
+
+## 根拠となるソース
+
+- [Lifecycle and command outcome contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Lifecycle state model and reconciliation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Workspace runtime implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime.go)
+- [Root indexes, instance state, and journals](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime)
+- [Application lifecycle tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/app/tobaricmd/service_test.go)
+- [Container/network loss and teardown integration](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+
+## まとめ
+
+attached session、logical Workspace、Docker runtime、shared cluster、Context credential state は、それぞれ寿命が異なります。退出には `exit`、Workspace の削除には `delete`、削除後の共有サービス停止には `cluster down`、provider credential の削除には `auth logout` を使います。
+
+## 理解を確認する
+
+各 lifecycle operation の後に何が残るか予測できるはずです。
+
+<details>
+  <summary>
+    <code>exit</code> は runtime container を停止したり、ツールの login 状態
+    を消したりしますか？
+  </summary>
+  いいえ。attached exec session だけを終了します。container、logical
+  record、home、tool-owned state は残ります。
+</details>
+
+<details>
+  <summary>
+    <code>delete --force</code> はどのような追加権限を与えますか？
+  </summary>
+  attached-session guard を上書きする permission だけです。exact target と
+  ownership check は引き続き適用され、project file は変更されません。
+</details>
+
+<details>
+  <summary>
+    <code>cluster down --purge</code> は暗号化された vault と root key
+    を削除しますか？
+  </summary>
+  いいえ。shared CA と active policy-bundle volume を追加で削除します。vault と
+  installation root key は残ります。
+</details>
+
+<details>
+  <summary>
+    runtime container が消えても instance record
+    が残っている場合、どうなりますか？
+  </summary>
+  Workspace は logical には存在します。次の entry で replacement container を
+  reconcile します。
+</details>
+
+管理範囲が不明確なら[Workspace、Context、cluster](../workspace-context-cluster/)へ戻ってください。次は一つの通信を[リクエストの流れ](../request-journey/)で追います。

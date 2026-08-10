@@ -1,0 +1,135 @@
+---
+title: 監査とプライバシー
+description: ポリシー学習と診断のために記録する情報、除外する情報、秘密情報を含まなくても内容が空ではない理由を説明します。
+---
+
+## このページで答える問い
+
+**Tobari はリクエストについて何を保持し、ポリシー学習の根拠からどの機微情報を除外しますか？**
+
+<aside class="one-sentence">
+  <strong>一文での答え:</strong> Tobari は HTTP effect
+  の説明とレビューに必要な、bounded secret-free decision metadata
+  を保持します。body、broker handle、resolved secret、configured credential
+  header は除外しますが、通常の URL/query/header string がすべて non-sensitive
+  だとは主張しません。
+</aside>
+
+読み終えると、request 全体を log していると誤解せず、policy candidate から何が分かるかを説明できます。
+
+**前提:** [Request journey](../../how-it-works/request-journey/)と [Credential security](../credential-security/)。
+
+## 許可判断の入力に含まれるもの
+
+Gateway は trusted principal と normalized HTTP information から schema-5 input を作ります。scheme、normalized host、fixed port、method、raw/decoded path、multi-valued query、redacted header、non-secret authorization metadata が含まれ、request body はありません。
+
+configured/recognized secret header と broker handle は削除または redact されます。ただし実装を、secret らしい string をすべて識別する oracle と説明してはいけません。URL path、query、unclassified header に confidential data を置くと、その値が decision metadata または diagnostic に含まれる可能性があります。
+
+## 保持する拒否の根拠に含まれるもの
+
+learnable denial は、Context/project identity、host、port、method、path、decision/reason、request ID、timestamp、duration、secret-free classification metadata を含む bounded schema-2 JSON audit record を使います。policy discovery は bounded Docker log を読み、exact rule dimension で candidate を grouping します。
+
+body は candidate を分割しません。query と safe header は OPA input に現れる場合がありますが、current learned exact-rule identity にはなりません。review reference は SHA-256-derived opaque value です。user は list order や decoded provider notation ではなく、unchanged reference へ action します。
+
+## 公開出力に含めてはいけないもの
+
+- primary credential、root key、decrypted vault content
+- broker handle value
+- request/response body
+- credential-bearing upstream cause
+- private organization/account fixture または accidental build-machine path。trusted canonical project root は意図的な diagnostic data であり、host-side output に現れる場合があります
+- terminal、TSV、JSON、Unicode line structure を壊す raw control character
+
+visible projection は control、format、backslash、Unicode line separator を区別します。printable text が instruction のように見えるという理由だけでは filter しません。external text は untrusted data のままです。
+
+## 保持期間とプライバシーの境界
+
+Gateway log は Docker logging configuration で bounded です。discovery は bounded window であり、complete historical ledger ではありません。candidate evidence が missing/expired なら operator は安全に action できません。compaction は自動ではありません。この site は analytics、tracker、runtime API call、external font、cookie を使いません。必要な browser state は local theme preference だけです。
+
+## 失敗時の動作
+
+audit retention が失敗しても authorization は変わりません。denied request は deny のままです。candidate が stale または retention 外になると、host mutation は拒否し、rediscovery を求めます。diagnostic は replay を authorize しません。
+
+<aside class="guarantee">
+  <h2>保証すること</h2>
+  <div class="prose-block">
+    対応する policy/broker flow では body と recognized credential material を
+    OPA と retained audit から意図的に除外します。public CLI output には
+    hostile-text projection と bounded schema があります。
+  </div>
+</aside>
+
+<aside class="limitation">
+  <h2>保証しないこと</h2>
+  <div class="prose-block">
+    ordinary path、query、unclassified header data 自体が sensitive
+    な場合があります。secret-free は credential/body class
+    を除外するという意味であり、universal data-loss-prevention classifier
+    ではありません。
+  </div>
+</aside>
+
+<aside class="evidence">
+  <h2>ソース</h2>
+  <ul>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md">
+        セキュリティ出力と監査の契約
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py">
+        ポリシー入力と監査の生成処理
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policy.go">
+        上限付きの拒否情報 reader
+      </a>
+    </li>
+    <li>
+      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py">
+        body と認証情報を除外するテスト
+      </a>
+    </li>
+  </ul>
+</aside>
+
+## ここまでで説明できること
+
+「body-free」「secret-free」「sensitive user text を含まない」の違いを説明できるはずです。
+
+<div class="question-list">
+  <details>
+    <summary>拒否の記録に POST body は含まれますか？</summary>
+    <div class="prose-block">
+      いいえ。body byte は policy identity にも retained audit content
+      にもなりません。
+    </div>
+  </details>
+  <details>
+    <summary>
+      Tobari が認証情報を伏せるなら、API key を URL query に置いても安全ですか？
+    </summary>
+    <div class="prose-block">
+      いいえ。recognized credential header/handle は保護されますが、ordinary
+      query metadata は decision/diagnostic path から見える場合があります。
+    </div>
+  </details>
+  <details>
+    <summary>
+      行の順番は <code>policy allow</code> の操作対象を決められますか？
+    </summary>
+    <div class="prose-block">
+      いいえ。action は rediscover/revalidate される opaque reference を consume
+      します。必要なら{" "}
+      <a href="../../how-it-works/policy-learning/">ポリシー学習</a>{" "}
+      を復習してください。
+    </div>
+  </details>
+</div>
+
+<div class="page-next">
+  <strong>次へ:</strong> <a href="../supply-chain/">サプライチェーン →</a>{" "}
+  で固定された asset と snapshot を追います。
+</div>

@@ -1,0 +1,173 @@
+---
+title: コード構造
+description: Tobari の四つの Go レイヤー、Catalog が管理する公開契約、ランタイムの正本と snapshot の境界を説明します。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+
+## このページで答える問い
+
+repository は product policy、use-case interpretation、external effect、CLI presentation が分離できない一つの実装になるのを、どう防いでいますか？
+
+**一文での答え:** pure domain invariant を中心に置き、application use case が minimal port を所有し、infrastructure が controlled effect を実装します。CLI は唯一の composition root であり、その Catalog がすべての public command contract を定義します。
+
+### 読み終わると説明できること
+
+- 四つの Go layer で許される dependency direction
+- application package が task-specific port を所有する理由
+- CLI Catalog が help text の list 以上のものである理由
+- Gateway/Auth Broker の canonical source と embedded snapshot を分ける理由
+
+**前提:** [Implementation stack](../implementation-stack/)。このページは contributor と reviewer 向けで、通常の Tobari 利用には必須ではありません。
+
+<ConceptDiagram name="code-layers" />
+
+## Domain：純粋な語彙と不変条件
+
+`internal/domain/` は Workspace identity、Context、policy candidate/rule、provider manifest、broker binding、operation、effect、mutation impact、reference、fault、result schema などの stable concept を定義します。
+
+Domain は filesystem、process、Docker、network、terminal、credential I/O を行いません。これにより security/product claim は、side effect に添えた comment ではなく、constructor と validator として executable になります。
+
+例:
+
+- canonical root/Context pair ごとに Workspace は一つ
+- exact candidate identity と opaque reference shape
+- provider manifest の strictness と collision rejection
+- declared operation effect と mutation contract
+- structured result の absent value と explicit value の区別
+
+## Application：一つの利用者タスクを解釈する
+
+`internal/app/` は Workspace lifecycle、policy review/action、Context configuration、authentication、doctor などの use case を所有します。各 package が task に必要な最小の port を定義します。
+
+application code は domain vocabulary に依存し、Docker client や filesystem implementation には依存しません。policy action は evidence の読み取りと validated policy activation を port に求めますが、`docker compose` argv は作りません。auth use case は public intent を検証してから、secret input を credential-bearing infrastructure port へ渡します。
+
+consumer の隣に port を置くことで、infrastructure の便利な API が未宣言の product authority になるのを防ぎます。
+
+## Infrastructure：制御された副作用を実装する
+
+`internal/infra/` には Docker CLI execution、XDG state/configuration、runtime asset、root-key backend、provider loading、terminal/process capability、Gateway/Broker control、system diagnostic の concrete adapter があります。
+
+infrastructure は Go structural typing で application port を満たせます。missing reference を再構築すべきか、command が存在すべきかといった user-facing policy は決めません。use case に unrestricted executor を渡さず、bounded adapter を通して effect を実行します。
+
+credential-bearing type、root key、vault operation、provider acquisition、exact HTTP binding は infrastructure-owned のままです。
+
+## CLI：公開契約と composition root
+
+`internal/cli/` は唯一の production composition root です。concrete infrastructure adapter を作り、application service に注入し、typed argv を route し、semantic result を render し、signal handoff を所有します。
+
+`cli.Catalog` はすべての public command の唯一の source of truth です。一つの `CommandSpec` から、Tobari は次を導出します。
+
+- path と namespace routing
+- summary、outcome、role、effect
+- typed argument、cardinality、default、bound、dependency、conflict
+- human help と agent help
+- output format、envelope、schema version、collection delivery/coverage
+- prerequisite と fault
+- exact recovery command
+- reference production/consumption edge
+- mutation intent、target binding、impact、completion contract
+
+handler は競合する registry を持たず、recovery advice に unchecked argv を追加しません。この site の [CLI reference](../../reference/cli/) も、同じ理由で Catalog から生成されます。
+
+## 一つのポリシー操作をレイヤーごとに追う
+
+`policy allow --id pcy_…` を例にします。
+
+1. **CLI Catalog** が reference-bound write、opaque ID input、impact、output、failure、recovery を宣言します。
+2. **CLI parser** が exact public invocation を検証し、typed input を渡します。
+3. **Application use case** が current evidence を再 discovery し、reference が current で candidate 一つを一意に識別することを確認します。
+4. **Domain** が candidate identity、exact learned-rule invariant、mutation result/fault vocabulary を定義します。
+5. **Infrastructure** が source state を lock し、Context と aggregate policy を preflight し、atomically に書き、complete watched bundle を publish し、running OPA の exact revision を確認し、失敗時に rollback します。
+6. **CLI renderer** が新しい semantics を推測せず structured result を表示します。
+
+complete outcome を一つの layer だけが所有するわけではありませんが、responsibility が dependency rule に逆らって外側へ移ることはありません。
+
+## ランタイムの正本と埋め込み snapshot
+
+Gateway と Auth Broker は Go package ではなく Python runtime component ですが、同様の source-of-truth rule に従います。
+
+- editable canonical source と test は `gateway/` と `authbroker/` に置く
+- byte-checked embedded snapshot は `internal/infra/runtimeassets/assets/` に置く
+- Go binary が exact embedded runtime byte を materialize する
+- 二つの独立した editable implementation を許さず、drift を check で拒否する
+
+OPA policy と Compose/runtime asset も embedded implementation contract です。generated aggregate policy は Context source と Tobari-owned evaluator から導出され、二つ目の handwritten router ではありません。
+
+## アーキテクチャ制約をテストする理由
+
+`tools/archlint` は dependency direction と third-party import boundary を確認します。`cmd` と `internal/cli` には third-party import がありません。presentation-only exception を追加するには、exact path 一つについて ADR、license review、allowlist entry、negative sibling test が必要です。
+
+Catalog contract test は command completeness、grammar、role/reference flow、output schema、mutation declaration、recovery、agent-help size を検証します。runtime asset test は exact mount、resource limit、image identity、canonical snapshot を検証します。これらの check は repository architecture を reviewer の記憶ではなく failure condition にします。
+
+## 失敗時の動作
+
+- domain invariant violation は external effect より前に失敗します。
+- unknown operation effect は fail closed します。
+- missing/mismatched opaque action target を application または CLI が再構築することはできません。
+- incomplete Catalog command は catalog/harness test に失敗します。
+- forbidden dependency または third-party CLI import は architecture lint に失敗します。
+- canonical Python source/snapshot drift は repository check に失敗します。
+- post-mutation の unclassified outcome は安全に retry 可能とは報告されず、reconciliation fault になります。
+
+## 保証と制限
+
+**repository gate で保証すること:** enforced dependency direction、public command metadata 用 Catalog 一つ、task-owned port、controlled effect boundary、source/snapshot equality、declared public schema/mutation の test。
+
+**保証しないこと:** すべての implementation bug がないこと、trusted infrastructure compromise 後の runtime safety、declared HTTP contract 外の external provider behavior の semantic correctness、architecture documentation が test と code review を置き換えること。
+
+## 根拠となるソース
+
+- [Canonical architecture contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Project theses and dependency invariants](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/00_theses.md)
+- [Harness and repository gates](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/04_harness.md)
+- [CLI Catalog definitions](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli)
+- [Application use cases](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/app)
+- [Domain invariants](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain)
+- [Infrastructure adapters](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra)
+- [Architecture linter](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/tools/archlint)
+- [Catalog contract tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/catalog_test.go)
+
+## まとめ
+
+Domain は守るべき invariant を示します。Application は minimal port を通じて user task を解釈します。Infrastructure は bounded external work を実行します。CLI は system を compose し、Catalog から public contract を導出します。runtime canonical-source check により、embedded Python asset が二つ目の実装になるのを防ぎます。
+
+## 理解を確認する
+
+変更を、その意味を所有する layer に配置できるはずです。
+
+<details>
+  <summary>
+    Application のコードが Docker infrastructure を import せず、最小限の port
+    を所有するのはなぜですか？
+  </summary>
+  use case が transport detail に依存せず、unrestricted side-effect surface
+  を得ることなく、必要な capability だけを定義するためです。infrastructure
+  がその contract を満たします。
+</details>
+
+<details>
+  <summary>公開 CLI コマンド仕様の正本はどこですか？</summary>
+  `cli.Catalog` です。routing、parsing、help、output、fault、reference、mutation
+  fact はそこから導出されます。
+</details>
+
+<details>
+  <summary>
+    <code>gateway/</code> と埋め込み Gateway snapshot
+    の両方が存在するのはなぜですか？
+  </summary>
+  `gateway/` は editable canonical source です。embedded copy は Go binary が
+  materialize する exact runtime snapshot で、byte-equality check が独立した
+  drift を防ぎます。
+</details>
+
+<details>
+  <summary>
+    Domain のコードは filesystem またはネットワーク I/O を行えますか？
+  </summary>
+  いいえ。Domain は pure のままで、external effect は CLI が compose する
+  infrastructure adapter の後ろに置きます。
+</details>
+
+runtime に使う技術は[実装技術](../implementation-stack/)で確認できます。続けて[セキュリティ概要](../../security/overview/)で、主張、前提、実施点、障害時の動作、制限を評価してください。
