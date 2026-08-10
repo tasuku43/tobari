@@ -30,7 +30,7 @@ test.describe("task-first documentation flow", () => {
 
     await expect(
       page.getByRole("heading", {
-        name: "コーディングエージェントを、選んだプロジェクトの中で動かす。",
+        name: "コーディングエージェントを隔離環境で実行し、外部通信を制御する。",
       }),
     ).toBeVisible();
     await expect(
