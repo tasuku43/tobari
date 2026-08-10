@@ -211,9 +211,13 @@ tobari cluster down --purge`,
         ["What to inspect after a denial", "/start/first-denial/"],
         ["The complete request sequence", "/how-it-works/request-journey/"],
         ["Guarantees and exclusions", "/security/guarantees-and-limitations/"],
-        ["State that survives exit, deletion, and recovery", "/how-it-works/state-and-recovery/"],
+        [
+          "State that survives exit, deletion, and recovery",
+          "/how-it-works/state-and-recovery/",
+        ],
       ],
-      scriptSummary: "Use the JSON reference flow instead of the interactive screen",
+      scriptSummary:
+        "Use the JSON reference flow instead of the interactive screen",
       scriptIntro:
         "For redirected or scripted review, copy the opaque ID from JSON unchanged into the action. Do not derive an ID from row order or reconstruct it from request text.",
       scriptCommand: `tobari policy review --tail 100 --format json

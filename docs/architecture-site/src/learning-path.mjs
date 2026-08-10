@@ -1,11 +1,11 @@
-const page = (
+const page = (step, path, title, japaneseTitle, goal, japaneseGoal) => ({
   step,
   path,
   title,
   japaneseTitle,
   goal,
   japaneseGoal,
-) => ({ step, path, title, japaneseTitle, goal, japaneseGoal });
+});
 
 export const learningPathStepCount = 10;
 

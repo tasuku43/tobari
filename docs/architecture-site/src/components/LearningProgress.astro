@@ -59,7 +59,9 @@ const labels = isJapanese
           <a href={context.overviewHref}>{labels.overview}</a>
         </div>
         <div class="learning-progress-title">
-          <span>{context.current.step} / {context.stepCount}</span>
+          <span>
+            {context.current.step} / {context.stepCount}
+          </span>
           <div>
             <small>{labels.current}</small>
             <h2>{context.current.title}</h2>
@@ -73,30 +75,26 @@ const labels = isJapanese
         <p class="learning-progress-goal">{context.current.goal}</p>
       </header>
       <div class="learning-progress-links">
-        {
-          context.previous ? (
-            <a class="learning-previous" href={context.previous.href}>
-              <span>← {labels.previous}</span>
-              <strong>{context.previous.title}</strong>
-            </a>
-          ) : (
-            <span aria-hidden="true"></span>
-          )
-        }
-        {
-          context.next ? (
-            <a class="learning-next" href={context.next.href}>
-              <span>{labels.next} →</span>
-              <strong>{context.next.title}</strong>
-              <small>{context.next.goal}</small>
-            </a>
-          ) : (
-            <a class="learning-next" href={context.overviewHref}>
-              <span>{labels.path} →</span>
-              <strong>{labels.overview}</strong>
-            </a>
-          )
-        }
+        {context.previous ? (
+          <a class="learning-previous" href={context.previous.href}>
+            <span>← {labels.previous}</span>
+            <strong>{context.previous.title}</strong>
+          </a>
+        ) : (
+          <span aria-hidden="true" />
+        )}
+        {context.next ? (
+          <a class="learning-next" href={context.next.href}>
+            <span>{labels.next} →</span>
+            <strong>{context.next.title}</strong>
+            <small>{context.next.goal}</small>
+          </a>
+        ) : (
+          <a class="learning-next" href={context.overviewHref}>
+            <span>{labels.path} →</span>
+            <strong>{labels.overview}</strong>
+          </a>
+        )}
       </div>
     </nav>
   )

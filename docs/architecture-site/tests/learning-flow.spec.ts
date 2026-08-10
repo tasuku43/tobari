@@ -39,7 +39,9 @@ test.describe("task-first documentation flow", () => {
     await expect(page.locator(".home-tasks > a")).toHaveCount(5);
   });
 
-  test("quickstart stays focused on five observable steps", async ({ page }) => {
+  test("quickstart stays focused on five observable steps", async ({
+    page,
+  }) => {
     await page.goto("start/quickstart/");
 
     await expect(page.locator(".quickstart-step")).toHaveCount(5);
