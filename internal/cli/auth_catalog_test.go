@@ -79,7 +79,7 @@ func TestAuthCatalogDeclaresTerminalAndUnknownMutationOutcomeFaults(t *testing.T
 	t.Fatal("auth login lacks auth_login_tty_required")
 }
 
-func TestAuthLoginCatalogDeclaresGitHubAndAWSSSOContracts(t *testing.T) {
+func TestAuthLoginCatalogSeparatesProviderToolAndAcquisitionMethod(t *testing.T) {
 	t.Parallel()
 	login, found := DefaultCatalog().Lookup("auth login")
 	if !found {
@@ -90,7 +90,12 @@ func TestAuthLoginCatalogDeclaresGitHubAndAWSSSOContracts(t *testing.T) {
 		login.Args != "[--provider <provider>] [--method identity-center|console] [--context <name>] [--format text|json]" ||
 		!strings.Contains(login.Agent.Inputs[0].Description, "github") ||
 		!strings.Contains(login.Agent.Inputs[0].Description, "aws") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "interactive selector") {
+		!strings.Contains(login.Agent.Inputs[0].Description, "interactive provider selector") ||
+		!strings.Contains(login.Agent.Inputs[0].Description, "selected automatically") ||
+		!strings.Contains(login.Agent.Inputs[0].Description, "GitHub CLI (gh)") ||
+		!strings.Contains(login.Agent.Inputs[0].Description, "AWS CLI (aws)") ||
+		!strings.Contains(login.Agent.Inputs[0].Description, "datadog uses pup") ||
+		!strings.Contains(login.Agent.Inputs[0].Description, "not another tool") {
 		t.Fatalf("auth login provider input = %+v", login.Agent.Inputs)
 	}
 	methodFound := false

@@ -35,7 +35,7 @@ func (s *terminalAuthLoginProviderSelector) Select(
 	index, err := s.wizard.choose(ctx, in, out, configurationWizardMenu{
 		title:       "Tobari · Provider login",
 		contextName: contextName,
-		current:     "Choose one installed provider for this Context.",
+		current:     "Choose a provider first. Its sole current Workspace client tool is selected automatically.",
 		prompt:      "Choose a provider",
 		options:     options,
 	})
@@ -49,15 +49,15 @@ func authLoginProviderOption(provider string) configurationWizardOption {
 	switch provider {
 	case authcmd.BuiltinGitHubProviderID:
 		return configurationWizardOption{
-			label: "GitHub", description: "Use the reviewed GitHub CLI device flow.", value: provider,
+			label: "GitHub", description: "Tool: GitHub CLI (gh), selected automatically. Login: reviewed device flow.", value: provider,
 		}
 	case authcmd.BuiltinAWSProviderID:
 		return configurationWizardOption{
-			label: "AWS", description: "Use AWS CLI IAM Identity Center by default.", value: provider,
+			label: "AWS", description: "Tool: AWS CLI (aws), selected automatically. Login: IAM Identity Center by default.", value: provider,
 		}
 	case authcmd.BuiltinDatadogProviderID:
 		return configurationWizardOption{
-			label: "Datadog", description: "Use the reviewed US1 pup OAuth flow.", value: provider,
+			label: "Datadog", description: "Tool: pup, selected automatically. Login: reviewed US1 OAuth flow.", value: provider,
 		}
 	default:
 		return configurationWizardOption{label: safeExternalText(provider), value: provider}

@@ -38,6 +38,19 @@ label when available, an opaque credential revision, root-key storage backend,
 broker state, and explicit Workspace activation guidance. They never contain a
 root key, vault bytes, raw credential, or Workspace handle.
 
+Provider and tool are separate selection axes. A **credential provider** is the
+external service or authority whose credential Tobari stores. A **Workspace
+client tool** is the client that receives the provider-declared handle
+projection and emits the matching request. Tobari supports the reviewed pairing
+of those axes, including acquisition, projection, and exact request binding.
+The current built-in pairings are GitHub/GitHub CLI (`gh`), AWS/AWS CLI (`aws`),
+Datadog/`pup`, and Chatwork/`cwk`. Each currently has one supported tool, so the
+public command asks for the provider and displays that tool as automatically
+selected; it does not require a redundant `--tool`. AWS `identity-center` and
+`console` select acquisition method inside the AWS/`aws` pairing and are not
+tools. This one-to-one implementation is not a claim that provider and tool are
+the same abstraction.
+
 Login requires an interactive terminal and supports three reviewed built-ins.
 The provider is supplied through optional `--provider`. When omitted, Tobari reads the
 selected Context's typed, secret-free installed-provider collection and
@@ -326,6 +339,15 @@ The built-in provider plans are:
   `DD_ACCESS_TOKEN=<handle>`, fixed `DD_SITE=datadoghq.com`, and exact bearer
   replacement at `https://api.datadoghq.com:443` after post-policy access-token
   selection or refresh.
+
+These plans currently encode one complete supported Provider-Tool pairing, not
+a universal identity between a provider and a client tool. Provider is selected
+first; the single supported client tool is then determined without another user
+choice. A second tool for an existing provider would require a typed tool
+identity, deterministic public selection, output and compatibility decisions,
+and negative tests before it could share or extend the provider credential.
+Display names, environment variables, or adjacency in a manifest are not
+authority to infer such a relationship.
 
 The schema-2 Datadog plan invokes only fixed
 `pup --no-agent auth login --site datadoghq.com` on the trusted host with

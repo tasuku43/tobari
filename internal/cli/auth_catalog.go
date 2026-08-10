@@ -17,7 +17,7 @@ func authLoginSpec() CommandSpec {
 	provider := CommandInput{
 		Name: "--provider", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Built-in provider helper to use. Omission opens an interactive selector containing the installed reviewed login providers: github runs the reviewed gh device flow; aws runs one explicitly selected AWS CLI flow; datadog runs the reviewed pup OAuth PKCE flow.",
+		Description:   "Credential provider to authenticate. Omission opens an interactive provider selector. Each current reviewed built-in has one supported Workspace client tool, displayed and selected automatically: github uses GitHub CLI (gh); aws uses AWS CLI (aws); datadog uses pup. AWS --method selects acquisition inside the aws pairing, not another tool.",
 		AllowedValues: []string{},
 	}
 	return CommandSpec{

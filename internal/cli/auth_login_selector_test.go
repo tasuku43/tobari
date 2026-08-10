@@ -23,7 +23,9 @@ func TestAuthLoginProviderSelectorUsesNumberedFallback(t *testing.T) {
 		t.Fatalf("selected provider = %q", provider)
 	}
 	for _, want := range []string{
-		"Tobari · Provider login", "Context: default", "Choose a provider", "AWS", "Datadog", "GitHub",
+		"Tobari · Provider login", "Context: default", "Choose a provider first", "Choose a provider",
+		"GitHub CLI (gh), selected automatically", "AWS CLI (aws), selected automatically",
+		"Tool: pup, selected automatically", "IAM Identity Center", "reviewed device flow", "reviewed US1 OAuth flow",
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("selector output = %q, want %q", output.String(), want)

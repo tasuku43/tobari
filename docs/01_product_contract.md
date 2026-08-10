@@ -105,6 +105,22 @@ non-learnable and cannot become policy candidates.
   network. Caller headers, Context names, and profile names are not principals.
 - **tool-owned authentication state:** files written by a tool or agent below
   one Tobari's persistent home during its own login or configuration flow.
+- **credential provider:** the external service or authority whose credential
+  is acquired or imported, stored, and later applied to one exact reviewed
+  request binding. A provider is not the Workspace client that uses it.
+- **Workspace client tool:** the CLI or other client inside a Workspace that
+  receives provider-declared handle projection and emits the authenticated
+  request shape. `gh`, `aws`, `pup`, and `cwk` are current client-tool examples;
+  their names do not grant provider or network authority.
+- **supported Provider-Tool pairing:** one reviewed combination of credential
+  provider, Workspace client tool, acquisition mode, handle projection, and
+  exact request binding. The current built-in pairings each support one client
+  tool, so `auth login` asks for the provider and displays the sole tool as
+  automatically selected rather than requiring ceremonial second input. AWS
+  `identity-center` and `console` are acquisition methods within the AWS/`aws`
+  pairing, not separate tools. A future second tool for one provider requires
+  an explicit public selection and compatibility decision before it is
+  exposed.
 - **brokered credential:** one typed credential record owned by a stable Context
   and provider. A static provider stores one opaque primary secret acquired
   through protected non-terminal stdin or the reviewed host GitHub driver. The
@@ -199,7 +215,7 @@ The public commands are:
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
-| `auth login [--provider PROVIDER] [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; provider-option omission opens a terminal selector over installed reviewed login providers, AWS method omission preserves the fixed IAM Identity Center device flow, `console` selects fixed cross-device AWS CLI local-development login, and Datadog selects fixed default-organization US1 pup OAuth |
+| `auth login [--provider PROVIDER] [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; provider-option omission opens a terminal selector over installed reviewed login providers, each current built-in displays its sole supported Workspace client tool as automatically selected, AWS method omission preserves the fixed IAM Identity Center device flow, `console` selects fixed cross-device AWS CLI local-development login, and Datadog selects fixed default-organization US1 pup OAuth |
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
 | `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection and broker state for one Context without reading secrets |
 | `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles without contacting the provider |
