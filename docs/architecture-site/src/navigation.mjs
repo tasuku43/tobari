@@ -82,8 +82,8 @@ export const navigationGroups = [
     ),
     item("Supply chain", "サプライチェーン", "/security/supply-chain/"),
     item(
-      "Verification evidence",
-      "検証の根拠",
+      "Implementation and tests",
+      "実装とテスト",
       "/security/verification-evidence/",
     ),
   ]),
