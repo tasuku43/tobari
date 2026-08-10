@@ -8,30 +8,30 @@ const evidenceHref = (path: string) =>
 
 const steps = [
   {
-    title: t("The agent attempts a request", "エージェントが通信を試す"),
+    title: t("The agent attempts a request", "エージェントが外部通信を試みる"),
     detail: t(
       "A tool in the selected project's working environment sends an HTTP or HTTPS request to an external service.",
-      "選んだプロジェクトの作業環境から、外部サービスへ HTTP または HTTPS リクエストを送ります。",
+      "プロジェクト専用の作業環境から、外部サービスへ HTTP/HTTPS リクエストが送られます。",
     ),
   },
   {
     title: t(
       "Tobari stops it and keeps review evidence",
-      "Tobari が止めて、確認材料を残す",
+      "Gateway が未許可の通信を止める",
     ),
     detail: t(
       "Tobari does not connect to an undeclared destination. It retains bounded, secret-free evidence such as destination, method, and path for host-side review.",
-      "未許可の通信には接続せず、秘密情報を含まない範囲で、宛先・メソッド・パスなどを確認できるようにします。",
+      "Tobari は接続先へ到達する前にリクエストを拒否し、宛先・メソッド・パスなど、レビューに必要な情報だけを記録します。",
     ),
   },
   {
     title: t(
       "A person allows only the exact effect",
-      "人が確認し、必要な通信だけを許可する",
+      "ホスト側で確認し、必要な通信だけを許可する",
     ),
     detail: t(
       "On the trusted host, you allow or deny the exact communication. Allowing policy does not replay the request; you deliberately issue a new one.",
-      "信頼するホストで完全一致の通信を許可または拒否します。許可しても自動再送はせず、利用者が新しいリクエストを実行します。",
+      "信頼するホストで通信条件を確認し、許可または拒否します。許可しても元のリクエストは再送されないため、エージェントは新しいリクエストを実行します。",
     ),
   },
 ];
@@ -39,10 +39,10 @@ const steps = [
 const tasks = [
   {
     href: "/start/quickstart/",
-    title: t("I want to try it", "まず動かしてみたい"),
+    title: t("I want to try it", "まず動かす"),
     detail: t(
       "Experience denial, review, allow, and deliberate retry in a synthetic project.",
-      "練習用プロジェクトで、拒否・確認・許可・再実行を一度体験します。",
+      "拒否、レビュー、許可、再実行までを、練習用ディレクトリで確認します。",
     ),
   },
   {
@@ -50,34 +50,34 @@ const tasks = [
     title: t("A request was denied", "通信が拒否された"),
     detail: t(
       "Find why it stopped, where to review it, and what can be allowed.",
-      "なぜ止まったか、どこで確認し、何を許可できるかを調べます。",
+      "拒否理由と通信条件を確認し、何を許可するか判断します。",
     ),
   },
   {
     href: "/guides/authentication/",
     title: t(
       "I need GitHub or another supported login",
-      "GitHub などの認証を使いたい",
+      "GitHub などの認証を設定する",
     ),
     detail: t(
       "Configure supported credentials without placing their primary value in the Workspace.",
-      "対応する認証情報を Workspace に実物の値を渡さず設定する方法を確認します。",
+      "認証情報の本体を Workspace に渡さず、対応するプロバイダーを設定します。",
     ),
   },
   {
     href: "/security/guarantees-and-limitations/",
-    title: t("I need the security boundary", "何が守られるか確認したい"),
+    title: t("I need the security boundary", "セキュリティ境界を確認する"),
     detail: t(
       "Read each guarantee with its prerequisites, exclusions, and trusted components.",
-      "保証の前提、守らない範囲、信頼する部品を一緒に確認します。",
+      "保証が成立する前提と、Tobari が保護しない範囲を確認します。",
     ),
   },
   {
     href: "/reference/cli/",
-    title: t("I need a command", "コマンドを調べたい"),
+    title: t("I need a command", "コマンドを調べる"),
     detail: t(
       "Choose a command by task, then open its generated contract.",
-      "やりたい作業からコマンドを選び、生成された正確な契約を開きます。",
+      "作業ごとに候補を絞り、Catalog から生成された入出力・前提条件・障害を確認します。",
     ),
   },
 ];
@@ -89,9 +89,9 @@ const protectedItems = t(
     "Unauthorized outbound HTTP/HTTPS and primary credentials managed by Broker",
   ],
   [
-    "選んだプロジェクトの外にあるホストのファイルと Docker 制御",
-    "別の Workspace のネットワークと永続ホーム",
-    "許可されていない外向き HTTP/HTTPS 通信と、Broker が管理する実物の認証情報",
+    "作業対象外のホストファイルと Docker の制御機能",
+    "ほかの Workspace のネットワークと永続ホーム",
+    "未許可の HTTP/HTTPS 通信と、Auth Broker が管理する認証情報の本体",
   ],
 );
 const excludedItems = t(
@@ -101,9 +101,9 @@ const excludedItems = t(
     "A compromised host, Docker, kernel, enforcement service, or communication outside ordinary HTTP/HTTPS",
   ],
   [
-    "選んだプロジェクト内のファイル",
-    "明示的に許可した宛先へ送るデータ",
-    "侵害されたホスト、Docker、カーネル、境界を実施するサービス、または通常の HTTP/HTTPS 以外の通信",
+    "作業対象のディレクトリ内にあるファイル",
+    "許可済みの接続先へ送るデータ",
+    "ホスト、Docker、カーネル、強制機構の侵害、および HTTP/HTTPS 以外の通信",
   ],
 );
 const evidence = [
@@ -124,18 +124,13 @@ const evidence = [
   <section class="home-hero">
     <div>
       <p class="home-eyebrow">
-        {
-          t(
-            "A coding-agent execution boundary",
-            "コーディングエージェントの実行境界",
-          )
-        }
+        {t("A coding-agent execution boundary", "隔離環境と外部通信の制御")}
       </p>
       <h2>
         {
           t(
             "Run a coding agent inside one selected project.",
-            "コーディングエージェントを、選んだプロジェクトの中で動かす。",
+            "コーディングエージェントを隔離環境で実行し、外部通信を制御する。",
           )
         }
       </h2>
@@ -143,7 +138,7 @@ const evidence = [
         {
           t(
             "Outbound HTTP and HTTPS communication starts denied. Review what the agent attempted, allow only the exact communication you need, and then issue a new request.",
-            "外部への HTTP/HTTPS 通信は、最初に止めます。内容を確認し、必要な通信だけを完全一致で許可してから、もう一度実行します。",
+            "Tobari は、作業対象のディレクトリをプロジェクト専用のコンテナへマウントし、未許可の HTTP/HTTPS 通信を Gateway で拒否します。拒否された通信をホスト側で確認し、宛先・ポート・メソッド・パスが一致する通信だけを許可できます。",
           )
         }
       </p>
@@ -152,14 +147,14 @@ const evidence = [
           {t("Try it in five minutes", "5分で試す")}
         </a>
         <a href="#basic-operation">
-          {t("See how it works in 60 seconds", "60秒で仕組みを見る")}
+          {t("See how it works in 60 seconds", "基本動作を見る")}
         </a>
       </div>
       <p class="home-caveat">
         {
           t(
             "Important: files inside the selected project are not protected from the agent. The agent can read and write that mounted project.",
-            "重要: 選んだプロジェクト内のファイルは、Tobari の保護対象ではありません。エージェントはその範囲を読み書きできます。",
+            "作業対象のディレクトリは、エージェントが読み書きできます。Tobari が隔離するのは、その外側にあるホスト環境と、未許可の外部通信です。",
           )
         }
       </p>
@@ -167,25 +162,26 @@ const evidence = [
 
     <aside
       class="home-example"
-      aria-label={t("Example first denial", "最初の拒否の例")}
+      aria-label={t("Example first denial", "未許可の通信が拒否される例")}
     >
-      <p>{t("Example first denial", "最初の拒否の例")}</p>
+      <p>{t("Example first denial", "未許可の通信が拒否される例")}</p>
       <ol>
         <li>
           <span>01</span><strong
-            >{t("Agent requests", "エージェントが通信")}</strong
+            >{t("Agent requests", "外部通信を試みる")}</strong
           ><code>PUT example.com/quickstart</code>
         </li>
         <li>
-          <span>02</span><strong>{t("Tobari denies", "Tobari が拒否")}</strong
+          <span>02</span><strong>{t("Tobari denies", "Gateway が拒否")}</strong
           ><code class="denied">403 policy_denied</code>
         </li>
         <li>
-          <span>03</span><strong>{t("Host reviews", "ホストで確認")}</strong
+          <span>03</span><strong>{t("Host reviews", "ホストでレビュー")}</strong
           ><code>tobari policy review</code>
         </li>
         <li>
-          <span>04</span><strong>{t("User retries", "利用者が再実行")}</strong
+          <span>04</span><strong
+            >{t("User retries", "新しいリクエストを送る")}</strong
           ><code class="allowed">new request</code>
         </li>
       </ol>
@@ -194,13 +190,13 @@ const evidence = [
 
   <section class="home-section" id="basic-operation">
     <p class="home-eyebrow">
-      {t("The basic operation in 60 seconds", "60秒で分かる基本動作")}
+      {t("The basic operation in 60 seconds", "基本動作")}
     </p>
     <h2>
       {
         t(
           "Stop it, review it, then allow only what is needed",
-          "止める、確認する、必要なものだけ通す",
+          "未許可の通信を止め、ホスト側の判断で許可する",
         )
       }
     </h2>
@@ -208,7 +204,7 @@ const evidence = [
       {
         t(
           "You do not need to learn every component first. From the user's point of view, the loop has three stages.",
-          "最初は部品名を覚える必要はありません。利用者から見える流れは三段階です。",
+          "最初に押さえる流れは三段階です。各コンポーネントの詳細は、後のページで扱います。",
         )
       }
     </p>
@@ -227,22 +223,22 @@ const evidence = [
     </ol>
     <p class="home-more">
       <a href={withBase("/how-it-works/request-journey/")}
-        >{t("See the complete component flow", "部品を含む完全な流れを見る")} →</a
+        >{
+          t(
+            "See the complete component flow",
+            "コンポーネントを含む処理順序を見る",
+          )
+        } →</a
       >
     </p>
   </section>
 
   <section class="home-section">
     <p class="home-eyebrow">
-      {t("Start from your question", "知りたいことから進む")}
+      {t("Start from your question", "目的別に読む")}
     </p>
     <h2>
-      {
-        t(
-          "Choose the entry closest to what you need now",
-          "今の目的に近い入口を選ぶ",
-        )
-      }
+      {t("Choose the entry closest to what you need now", "必要な情報へ進む")}
     </h2>
     <div class="home-tasks">
       {
@@ -261,24 +257,29 @@ const evidence = [
 
   <section class="home-section">
     <p class="home-eyebrow">
-      {t("Know the scope early", "先に知っておく範囲")}
+      {t("Know the scope early", "セキュリティ境界")}
     </p>
     <h2>
       {
         t(
           "What the boundary protects—and what it does not",
-          "守るものと、守らないもの",
+          "Tobari が保護する範囲と、保護しない範囲",
         )
       }
     </h2>
     <div class="home-boundaries">
       <section>
         <h3>
-          {t("Protected in the supported topology", "対応する構成で守るもの")}
+          {
+            t(
+              "Protected in the supported topology",
+              "サポート対象の構成で制限するもの",
+            )
+          }
         </h3><ul>{protectedItems.map((item) => <li>{item}</li>)}</ul>
       </section>
       <section class="excluded">
-        <h3>{t("Not protected by Tobari", "Tobari が守らないもの")}</h3><ul>
+        <h3>{t("Not protected by Tobari", "保護しないもの")}</h3><ul>
           {excludedItems.map((item) => <li>{item}</li>)}
         </ul>
       </section>
@@ -288,7 +289,7 @@ const evidence = [
         >{
           t(
             "Read guarantees with their prerequisites",
-            "保証と制限を前提条件から読む",
+            "保証の前提と制限を確認する",
           )
         } →</a
       >
@@ -301,17 +302,17 @@ const evidence = [
         >{
           t(
             "View current implementation status and evidence",
-            "現在の実装状態と根拠を見る",
+            "現在の実装と根拠を確認する",
           )
         }</summary
       >
       <div>
         <section>
-          <h3>{t("Implemented now", "現在実装している範囲")}</h3><p>
+          <h3>{t("Implemented now", "実装されている機能")}</h3><p>
             {
               t(
                 "Project-bound Workspace lifecycle, shared Gateway, OPA, and Auth Broker services, default-deny exact policy learning, intercepted HTTP/HTTPS, supported credential paths, and Catalog-generated CLI contracts.",
-                "プロジェクトに結び付く Workspace のライフサイクル、共有する Gateway・OPA・Auth Broker、デフォルト拒否から始まる完全一致のポリシー学習、検査対象となる HTTP/HTTPS、対応する認証経路、Catalog から生成する CLI 契約です。",
+                "プロジェクト単位の Workspace、共有の Gateway・OPA・Auth Broker、既定拒否から始まる完全一致ルール、HTTP/HTTPS の検査、対応する認証経路、Catalog から生成した CLI 契約です。",
               )
             }
           </p>
@@ -321,7 +322,7 @@ const evidence = [
             {
               t(
                 "Tobari is pre-v1. Schema versions and migration rules define current compatibility; not every external interface is frozen.",
-                "Tobari は v1 より前です。現在の互換性はスキーマバージョンと移行規則で定めますが、すべての外部仕様が固定されたという約束ではありません。",
+                "Tobari はまだ v1 未満です。互換性はスキーマバージョンと移行規則で管理しています。すべての外部仕様を固定した段階ではありません。",
               )
             }
           </p>
@@ -336,7 +337,7 @@ const evidence = [
               ))
             }
           </ul><a href={withBase("/reference/component-versions/")}
-            >{t("View component versions", "コンポーネントバージョンを見る")} →</a
+            >{t("View component versions", "コンポーネントのバージョンを見る")} →</a
           >
         </section>
       </div>

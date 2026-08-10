@@ -31,11 +31,11 @@ const group = (
 
 const ui = isJapanese
   ? {
-      eyebrow: "目的からコマンドを探す",
-      title: "今したい作業を選ぶ",
+      eyebrow: "作業からコマンドを探す",
+      title: "目的に合うコマンドを選ぶ",
       intro:
-        "ここでは作業から候補を絞ります。リンク先の入力、前提条件、障害、変更内容は、すべて Catalog から生成した契約です。",
-      commandLabel: "候補のコマンド",
+        "各リンク先の入出力、前提条件、変更内容、障害は、Go の Catalog から生成しています。",
+      commandLabel: "関連するコマンド",
     }
   : {
       eyebrow: "Find commands by task",
@@ -48,37 +48,37 @@ const ui = isJapanese
 const groups = [
   group(
     "Inspect local state",
-    "状態を確認する",
+    "状態と前提条件を確認する",
     "Check prerequisites, cluster health, the nearest Workspace, or the current Context.",
-    "前提条件、共有クラスター、現在地に近い Workspace、現在の Context を確認します。",
+    "Docker の前提条件、共有クラスター、現在地に対応する Workspace、選択中の Context を確認します。",
     ["doctor", "cluster status", "status", "list", "context show"],
   ),
   group(
     "Start or remove a Workspace",
-    "Workspace を作る・削除する",
+    "Workspace を作成・削除する",
     "Start the shared services, enter the current project, or remove resources deliberately.",
-    "共有サービスを起動し、現在のプロジェクトへ入り、不要な資源を意図的に削除します。",
+    "共有サービスを起動し、現在のプロジェクトで Workspace を開くか、不要なリソースを削除します。",
     ["cluster up", "tobari", "delete", "cluster down"],
   ),
   group(
     "Review a denied request",
-    "拒否された通信を確認する",
+    "拒否された通信をレビューする",
     "Inspect pending exact effects and decide whether one should be allowed or denied.",
-    "保留中の完全一致の通信を確認し、一つを許可するか拒否するか決めます。",
+    "保留中の通信条件を確認し、完全一致の許可または拒否を記録します。",
     ["policy review", "policy allow", "policy deny"],
   ),
   group(
     "Inspect or change learned policy",
-    "学習済みポリシーを確認・変更する",
+    "学習済みルールを確認・変更する",
     "Read current decisions, return one effect to default deny, or inspect denial evidence.",
-    "現在の判断を確認し、一つをデフォルト拒否へ戻すか、拒否の根拠を調べます。",
+    "現在の許可・拒否ルールを確認し、必要なものを既定拒否へ戻すか、拒否ログを調べます。",
     ["policy rules", "policy reset", "cluster denials", "cluster logs"],
   ),
   group(
     "Configure a Context and runtime",
-    "Context とランタイムを設定する",
+    "Context とランタイムを構成する",
     "Create or select an execution Context, configure presentation, and build its runtime.",
-    "実行 Context を作成・選択し、表示設定とランタイムを準備します。",
+    "実行に使う Context を作成・選択し、シェル設定、Git 設定、ランタイムを準備します。",
     [
       "context list",
       "context create",
@@ -91,9 +91,9 @@ const groups = [
   ),
   group(
     "Set up authentication",
-    "認証を設定する",
+    "認証情報を設定する",
     "Acquire, import, inspect, or remove a supported provider credential on the trusted host.",
-    "対応する認証情報を、信頼するホストで取得・取り込み・確認・削除します。",
+    "対応するプロバイダーの認証情報を、信頼するホストで取得・インポート・確認・削除します。",
     ["auth login", "auth import", "auth status", "auth logout"],
   ),
 ].filter((item) => item.commands.length > 0);

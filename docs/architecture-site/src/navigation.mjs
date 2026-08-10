@@ -16,7 +16,7 @@ export const navigationGroups = [
     item("Install", "インストール", "/start/install/"),
     item("Quickstart", "クイックスタート", "/start/quickstart/"),
     item("First denial", "最初の拒否", "/start/first-denial/"),
-    item("Learning path", "学習経路", "/start/learning-path/"),
+    item("Learning path", "学習ガイド", "/start/learning-path/"),
     item(
       "Understanding check",
       "理解度チェック",
@@ -24,11 +24,11 @@ export const navigationGroups = [
     ),
   ]),
   group("How it works", "仕組み", [
-    item("Mental model", "メンタルモデル", "/how-it-works/mental-model/"),
+    item("Mental model", "基本モデル", "/how-it-works/mental-model/"),
     item("System overview", "システム全体像", "/how-it-works/system-overview/"),
     item(
       "Workspace, Context, cluster",
-      "Workspace、Context、cluster",
+      "Workspace、Context、クラスター",
       "/how-it-works/workspace-context-cluster/",
     ),
     item(
@@ -44,7 +44,7 @@ export const navigationGroups = [
     item("HTTPS and TLS", "HTTPS と TLS", "/how-it-works/https-and-tls/"),
     item(
       "Project identity",
-      "プロジェクト識別",
+      "プロジェクトの識別",
       "/how-it-works/project-identity/",
     ),
     item("Policy learning", "ポリシー学習", "/how-it-works/policy-learning/"),
@@ -129,7 +129,7 @@ export const navigationGroups = [
     ),
     item(
       "Component versions",
-      "コンポーネントバージョン",
+      "コンポーネントのバージョン",
       "/reference/component-versions/",
     ),
     item("Glossary", "用語集", "/reference/glossary/"),
