@@ -1,0 +1,265 @@
+---
+import { getLearningPathContext } from "../learning-path.mjs";
+
+interface Props {
+  variant?: "badge" | "full";
+}
+
+const { variant = "full" } = Astro.props;
+const context = getLearningPathContext(
+  Astro.url.pathname,
+  import.meta.env.BASE_URL,
+);
+const isJapanese = context?.locale === "ja";
+const labels = isJapanese
+  ? {
+      path: "学習経路",
+      current: "現在のページ",
+      previous: "前のページ",
+      next: "次のページ",
+      overview: "学習経路の全体を見る",
+      aria: (step: number, title: string) =>
+        `学習経路 ${step} / 10、現在は「${title}」`,
+    }
+  : {
+      path: "Learning path",
+      current: "Current page",
+      previous: "Previous page",
+      next: "Next page",
+      overview: "View the complete learning path",
+      aria: (step: number, title: string) =>
+        `Learning path ${step} of 10, current page: ${title}`,
+    };
+---
+
+{
+  context && variant === "badge" && (
+    <a
+      class="learning-badge"
+      href={context.overviewHref}
+      aria-label={labels.aria(context.current.step, context.current.title)}
+    >
+      <span class="learning-badge-step">
+        {context.current.step} / {context.stepCount}
+      </span>
+      <strong>{context.current.title}</strong>
+    </a>
+  )
+}
+
+{
+  context && variant === "full" && (
+    <nav
+      class="learning-progress"
+      aria-label={labels.aria(context.current.step, context.current.title)}
+    >
+      <header>
+        <div class="learning-progress-heading">
+          <p>{labels.path}</p>
+          <a href={context.overviewHref}>{labels.overview}</a>
+        </div>
+        <div class="learning-progress-title">
+          <span>{context.current.step} / {context.stepCount}</span>
+          <div>
+            <small>{labels.current}</small>
+            <h2>{context.current.title}</h2>
+          </div>
+        </div>
+        <progress
+          max={context.stepCount}
+          value={context.current.step}
+          aria-label={`${context.current.step} / ${context.stepCount}`}
+        />
+        <p class="learning-progress-goal">{context.current.goal}</p>
+      </header>
+      <div class="learning-progress-links">
+        {
+          context.previous ? (
+            <a class="learning-previous" href={context.previous.href}>
+              <span>← {labels.previous}</span>
+              <strong>{context.previous.title}</strong>
+            </a>
+          ) : (
+            <span aria-hidden="true"></span>
+          )
+        }
+        {
+          context.next ? (
+            <a class="learning-next" href={context.next.href}>
+              <span>{labels.next} →</span>
+              <strong>{context.next.title}</strong>
+              <small>{context.next.goal}</small>
+            </a>
+          ) : (
+            <a class="learning-next" href={context.overviewHref}>
+              <span>{labels.path} →</span>
+              <strong>{labels.overview}</strong>
+            </a>
+          )
+        }
+      </div>
+    </nav>
+  )
+}
+
+<style>
+  .learning-badge {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+    padding-inline-start: 0.7rem;
+    border-inline-start: 1px solid var(--sl-color-gray-5);
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-xs);
+    line-height: 1.2;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .learning-badge:hover,
+  .learning-badge:focus-visible {
+    color: var(--sl-color-white);
+    text-decoration: underline;
+    text-underline-offset: 0.25em;
+  }
+  .learning-badge-step {
+    color: var(--tobari-control);
+    font-family: var(--sl-font-mono);
+    font-weight: 800;
+  }
+  .learning-badge strong {
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .learning-progress {
+    margin-top: 3rem;
+    border-block: 1px solid var(--sl-color-gray-5);
+    padding-block: 1.25rem;
+  }
+  .learning-progress header {
+    max-width: 46rem;
+  }
+  .learning-progress-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .learning-progress-heading p {
+    margin: 0;
+    color: var(--tobari-control);
+    font-size: var(--sl-text-xs);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .learning-progress-heading a {
+    font-size: var(--sl-text-xs);
+  }
+  .learning-progress-title {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.85rem;
+    align-items: center;
+    margin-top: 0.8rem;
+  }
+  .learning-progress-title > span {
+    color: var(--tobari-control);
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-lg);
+    font-weight: 850;
+  }
+  .learning-progress-title small {
+    color: var(--sl-color-gray-3);
+  }
+  .learning-progress-title h2 {
+    margin: 0.1rem 0 0;
+    font-size: var(--sl-text-xl);
+  }
+  .learning-progress progress {
+    width: 100%;
+    height: 0.45rem;
+    margin-top: 0.8rem;
+    border: 0;
+    border-radius: 999px;
+    background: var(--sl-color-gray-5);
+    accent-color: var(--tobari-control);
+  }
+  .learning-progress progress::-webkit-progress-bar {
+    border-radius: 999px;
+    background: var(--sl-color-gray-5);
+  }
+  .learning-progress progress::-webkit-progress-value {
+    border-radius: 999px;
+    background: var(--tobari-control);
+  }
+  .learning-progress progress::-moz-progress-bar {
+    border-radius: 999px;
+    background: var(--tobari-control);
+  }
+  .learning-progress-goal {
+    margin: 0.65rem 0 0;
+    color: var(--sl-color-gray-2);
+  }
+  .learning-progress-links {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1.25rem;
+  }
+  .learning-progress-links a {
+    display: grid;
+    min-width: 0;
+    gap: 0.25rem;
+    padding: 0.85rem 0;
+    color: inherit;
+    text-decoration: none;
+  }
+  .learning-progress-links a:hover strong,
+  .learning-progress-links a:focus-visible strong {
+    color: var(--tobari-control);
+    text-decoration: underline;
+    text-underline-offset: 0.22em;
+  }
+  .learning-progress-links span,
+  .learning-progress-links small {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+  }
+  .learning-progress-links strong {
+    overflow-wrap: anywhere;
+  }
+  .learning-next {
+    text-align: end;
+  }
+  @media (max-width: 80rem) {
+    .learning-badge strong {
+      display: none;
+    }
+  }
+  @media (max-width: 42rem) {
+    .learning-progress-heading {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .learning-progress-links {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+    .learning-next {
+      border-block-start: 1px solid var(--sl-color-gray-5);
+      text-align: start;
+    }
+  }
+  @media print {
+    .learning-badge,
+    .learning-progress-links {
+      display: none;
+    }
+    .learning-progress {
+      break-inside: avoid;
+    }
+  }
+</style>

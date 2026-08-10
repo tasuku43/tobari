@@ -9,6 +9,7 @@ import {
   navigationPath,
   primarySections,
 } from "../navigation.mjs";
+import LearningProgress from "./LearningProgress.astro";
 import ThemeSelect from "./ThemeSelect.astro";
 
 const shouldRenderSearch =
@@ -33,7 +34,10 @@ const hrefFor = (href: string) => withBase(navigationPath(href, locale));
 ---
 
 <div class="tobari-header">
-  <div class="title-wrapper sl-flex"><SiteTitle /></div>
+  <div class="title-wrapper sl-flex">
+    <SiteTitle />
+    <LearningProgress variant="badge" />
+  </div>
   <nav aria-label={labels.primary} class="primary-nav print:hidden">
     {
       primarySections.map((section) => (
@@ -87,6 +91,8 @@ const hrefFor = (href: string) => withBase(navigationPath(href, locale));
     .title-wrapper {
       grid-area: title;
       min-width: 0;
+      align-items: center;
+      gap: 0.75rem;
       overflow: clip;
       padding: 0.25rem;
       margin: -0.25rem;

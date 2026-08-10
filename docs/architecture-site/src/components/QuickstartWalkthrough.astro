@@ -1,0 +1,495 @@
+---
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const withBase = (path: string) =>
+  `${import.meta.env.BASE_URL}${isJapanese ? "ja/" : ""}${path.replace(/^\//, "")}`;
+const repository = __TOBARI_DOCS_REPOSITORY__;
+const productCommit = __TOBARI_DOCS_COMMIT__;
+const evidenceHref = (path: string) =>
+  `${repository}/blob/${productCommit}/${path}`;
+
+const ui = isJapanese
+  ? {
+      intro:
+        "練習用プロジェクトで、未許可の通信が一度止まり、ホストで確認して許可した後、新しいリクエストが外部へ進むところまで試します。",
+      prerequisite:
+        "先にインストールを完了し、対話型ターミナルを使ってください。選んだプロジェクト内のファイルは保護対象ではないため、実際の作業ディレクトリではなく練習用ディレクトリを使います。",
+      install: "インストール手順を確認する",
+      labels: {
+        location: "実行場所",
+        action: "すること",
+        command: "コマンド",
+        expected: "表示される結果",
+        blocked: "次へ進めない場合",
+      },
+      steps: [
+        {
+          title: "練習用プロジェクトを作り、共有クラスターを起動する",
+          location: "信頼するホスト",
+          action:
+            "専用の空ディレクトリへ移動し、Gateway、OPA、Auth Broker を含む共有クラスターを起動します。",
+          command: `mkdir -p quickstart-example
+cd quickstart-example
+tobari cluster up`,
+          expected:
+            "共有クラスターが起動し、準備が整います。この時点ではプロジェクトの Workspace はまだ作られません。",
+          blocked:
+            "`tobari doctor` と `tobari cluster status` を実行し、表示されたホスト側の前提条件を直してから `tobari cluster up` を再実行します。",
+        },
+        {
+          title: "Workspace に入り、拒否される通信を一度送る",
+          location: "ホスト → Workspace 内 → ホスト",
+          action:
+            "ホストで `tobari` を実行して Workspace に入り、その中から練習用の PUT リクエストを送ります。拒否を確認したら `exit` でホストへ戻ります。",
+          command: `tobari
+
+# Workspace 内
+curl -sS -w '\\nhttp=%{http_code}\\n' \\
+  -X PUT https://example.com/quickstart
+exit`,
+          expected:
+            "HTTP 403 と `policy_denied` が表示され、ホストで実行するレビューコマンドが案内されます。Tobari は接続先へ接続せず、自動で承認や再試行もしません。`exit` 後も Workspace とその状態は残ります。",
+          blocked:
+            "`tobari` への入室には対話型ターミナルが必要です。イメージに関するエラーが出た場合は `tobari context show` を確認し、対応するランタイムを用意します。",
+        },
+        {
+          title: "ホストで拒否内容を確認し、完全一致で許可する",
+          location: "信頼するホスト",
+          action:
+            "レビュー画面で Context、プロジェクト、ホスト、ポート、メソッド、パスを確認し、今回の通信だけを許可します。",
+          command: `tobari policy review --tail 100`,
+          expected:
+            "選んだ通信の完全一致規則が、ポリシー全体の検証後に有効になります。許可操作は、拒否された HTTP リクエストそのものを再送しません。",
+          blocked:
+            "候補が表示されない場合は、手順2の拒否が発生したことを確認してからレビューをやり直します。同じ通信を無条件に繰り返し送らないでください。",
+        },
+        {
+          title: "Workspace へ入り直し、新しいリクエストを送る",
+          location: "ホスト → Workspace 内 → ホスト",
+          action:
+            "同じプロジェクトから Workspace へ入り直し、同じメソッドとパスの新しいリクエストを明示的に送ります。",
+          command: `tobari
+
+# Workspace 内
+curl -sS -w '\\nhttp=%{http_code}\\n' \\
+  -X PUT https://example.com/quickstart
+exit`,
+          expected:
+            "今回は外部の接続先から HTTP 応答が返ります。`example.com` が返す特定のステータスコードは保証しません。確認できるのは、許可した完全一致の通信が外部への経路へ進んだことです。",
+          blocked:
+            "再び 403 になった場合は、Context、プロジェクト、ホスト、ポート、メソッド、パスが許可した通信と一致しているかを確認し、`tobari policy review --tail 100` を実行します。",
+        },
+        {
+          title: "状態を確認し、練習用リソースを削除する",
+          location: "信頼するホスト",
+          action:
+            "Workspace の状態を確認し、練習用 Workspace を削除してから、空になった共有クラスターを停止します。",
+          command: `tobari status
+tobari list
+tobari delete
+tobari cluster down --purge`,
+          expected:
+            "`delete` は Workspace の永続ホームと所有するランタイム資源を削除しますが、練習用プロジェクトのファイルは削除しません。`cluster down --purge` は共有 CA と使用中のポリシーバンドル用ボリュームも削除します。",
+          blocked:
+            "`cluster_not_empty` の場合は `tobari list` で残っている Workspace を確認し、それぞれを削除してから再実行します。接続中セッションを意図的に終了する場合だけ `tobari delete --force` を使います。",
+        },
+      ],
+      completionTitle: "ここまでで確認できたこと",
+      completion:
+        "Tobari が未許可の通信を止め、人がホストで内容を確認し、必要な完全一致の通信だけを許可した後に、新しいリクエストを送れることを体験しました。",
+      nextTitle: "次は、必要なところだけ詳しく読む",
+      nextLinks: [
+        ["拒否されたときの確認方法", "/start/first-denial/"],
+        ["通信処理の完全な順序", "/how-it-works/request-journey/"],
+        ["保証と守らない範囲", "/security/guarantees-and-limitations/"],
+        ["終了・削除・復旧後に残る状態", "/how-it-works/state-and-recovery/"],
+      ],
+      scriptSummary: "対話画面を使わず、JSON の参照値で許可する場合",
+      scriptIntro:
+        "レビューをリダイレクトまたはスクリプトから使う場合、JSON に出力された不透明な ID を変更せず、そのまま許可操作へ渡します。表示順やリクエスト文から ID を作り直してはいけません。",
+      scriptCommand: `tobari policy review --tail 100 --format json
+tobari policy allow --id <exact-pcy-id-from-policy-review>`,
+      scriptDeny:
+        "遮断を続ける場合は、レビュー画面の拒否操作か `tobari policy deny --id <exact-pcy-id-from-policy-review>` を使います。",
+      evidenceSummary: "この手順の根拠を見る",
+      evidence: [
+        ["Catalog にあるコマンド仕様", "internal/cli/runtime_catalog.go"],
+        ["Catalog の契約テスト", "internal/cli/tobari_test.go"],
+        ["公開クイックスタートの契約", "README.md"],
+        ["一連の動作を確認する統合テスト", "scripts/test-integration.sh"],
+      ],
+    }
+  : {
+      intro:
+        "Use a synthetic project to see one undeclared request stop, review and allow it on the host, and then send a new request that can reach the upstream path.",
+      prerequisite:
+        "Complete installation first and use an interactive terminal. Files inside the selected project are not protected, so use the synthetic directory below instead of a real work project.",
+      install: "Review installation",
+      labels: {
+        location: "Run this on",
+        action: "What to do",
+        command: "Command",
+        expected: "Expected result",
+        blocked: "If you cannot continue",
+      },
+      steps: [
+        {
+          title: "Create a synthetic project and start the shared cluster",
+          location: "Trusted host",
+          action:
+            "Move into a dedicated empty directory and start the shared Gateway, OPA, and Auth Broker cluster.",
+          command: `mkdir -p quickstart-example
+cd quickstart-example
+tobari cluster up`,
+          expected:
+            "The shared cluster starts and becomes ready. The project Workspace does not exist yet.",
+          blocked:
+            "Run `tobari doctor` and `tobari cluster status`, correct the reported host prerequisite, and then retry `tobari cluster up`.",
+        },
+        {
+          title: "Enter the Workspace and send one request that will be denied",
+          location: "Host → inside Workspace → host",
+          action:
+            "Run `tobari` on the host, issue the synthetic PUT request inside the Workspace, then use `exit` to return to the host after observing the denial.",
+          command: `tobari
+
+# Inside the Workspace
+curl -sS -w '\\nhttp=%{http_code}\\n' \\
+  -X PUT https://example.com/quickstart
+exit`,
+          expected:
+            "You receive HTTP 403 with `policy_denied` and a host-side review command. Tobari does not connect upstream, approve the request, or retry it. The Workspace and its state remain after `exit`.",
+          blocked:
+            "The root `tobari` entry requires an interactive terminal. For image errors, inspect `tobari context show` and prepare a compatible runtime before entering again.",
+        },
+        {
+          title: "Review the denial on the host and allow the exact effect",
+          location: "Trusted host",
+          action:
+            "Inspect the Context, project, host, port, method, and path in the review screen, then allow only this exact communication.",
+          command: `tobari policy review --tail 100`,
+          expected:
+            "The exact rule becomes active after the complete policy is validated. The allow action does not replay the denied HTTP request.",
+          blocked:
+            "If no candidate appears, confirm that step 2 produced the denial and then review again. Do not loop the same request without checking its state.",
+        },
+        {
+          title: "Re-enter the Workspace and issue a new request",
+          location: "Host → inside Workspace → host",
+          action:
+            "Re-enter from the same project and deliberately send a new request with the same method and path.",
+          command: `tobari
+
+# Inside the Workspace
+curl -sS -w '\\nhttp=%{http_code}\\n' \\
+  -X PUT https://example.com/quickstart
+exit`,
+          expected:
+            "The HTTP response now comes from the upstream. Tobari does not promise a particular status from `example.com`; this step shows that the authorized exact effect can reach the upstream path.",
+          blocked:
+            "If you receive 403 again, check that Context, project, host, port, method, and path match the reviewed effect, then run `tobari policy review --tail 100`.",
+        },
+        {
+          title: "Inspect state and remove the synthetic resources",
+          location: "Trusted host",
+          action:
+            "Inspect the Workspace, delete the synthetic Workspace, and then stop the now-empty shared cluster.",
+          command: `tobari status
+tobari list
+tobari delete
+tobari cluster down --purge`,
+          expected:
+            "`delete` removes the Workspace persistent home and owned runtime resources, but not the synthetic project files. `cluster down --purge` also removes shared CA and active policy-bundle volumes.",
+          blocked:
+            "For `cluster_not_empty`, use `tobari list`, delete every remaining Workspace, and retry. Use `tobari delete --force` only when you intentionally want to terminate an attached session.",
+        },
+      ],
+      completionTitle: "What you have now verified",
+      completion:
+        "You experienced Tobari denying an undeclared request, a person reviewing it on the host, an exact permission becoming active, and a deliberate new request reaching the upstream path.",
+      nextTitle: "Read only the detail you need next",
+      nextLinks: [
+        ["What to inspect after a denial", "/start/first-denial/"],
+        ["The complete request sequence", "/how-it-works/request-journey/"],
+        ["Guarantees and exclusions", "/security/guarantees-and-limitations/"],
+        ["State that survives exit, deletion, and recovery", "/how-it-works/state-and-recovery/"],
+      ],
+      scriptSummary: "Use the JSON reference flow instead of the interactive screen",
+      scriptIntro:
+        "For redirected or scripted review, copy the opaque ID from JSON unchanged into the action. Do not derive an ID from row order or reconstruct it from request text.",
+      scriptCommand: `tobari policy review --tail 100 --format json
+tobari policy allow --id <exact-pcy-id-from-policy-review>`,
+      scriptDeny:
+        "To keep the effect blocked, use the review UI's deny action or `tobari policy deny --id <exact-pcy-id-from-policy-review>`.",
+      evidenceSummary: "View evidence for this walkthrough",
+      evidence: [
+        ["Catalog command specifications", "internal/cli/runtime_catalog.go"],
+        ["Catalog contract tests", "internal/cli/tobari_test.go"],
+        ["Public quickstart contract", "README.md"],
+        ["End-to-end integration checks", "scripts/test-integration.sh"],
+      ],
+    };
+---
+
+<section class="quickstart-walkthrough">
+  <p class="quickstart-intro">{ui.intro}</p>
+  <aside class="quickstart-prerequisite">
+    <p>{ui.prerequisite}</p>
+    <a href={withBase("/start/install/")}>{ui.install} →</a>
+  </aside>
+
+  <ol class="quickstart-steps">
+    {
+      ui.steps.map((step, index) => (
+        <li class="quickstart-step">
+          <header>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <div>
+              <small>{ui.labels.location}</small>
+              <strong>{step.location}</strong>
+              <h2>{step.title}</h2>
+            </div>
+          </header>
+          <div class="quickstart-action">
+            <h3>{ui.labels.action}</h3>
+            <p>{step.action}</p>
+          </div>
+          <section class="quickstart-command">
+            <h3>{ui.labels.command}</h3>
+            <pre tabindex="0">
+              <code>{step.command}</code>
+            </pre>
+          </section>
+          <dl class="quickstart-result">
+            <div>
+              <dt>{ui.labels.expected}</dt>
+              <dd>{step.expected}</dd>
+            </div>
+            <div>
+              <dt>{ui.labels.blocked}</dt>
+              <dd>{step.blocked}</dd>
+            </div>
+          </dl>
+        </li>
+      ))
+    }
+  </ol>
+
+  <section class="quickstart-complete">
+    <h2>{ui.completionTitle}</h2>
+    <p>{ui.completion}</p>
+  </section>
+
+  <section class="quickstart-next">
+    <h2>{ui.nextTitle}</h2>
+    <ul>
+      {
+        ui.nextLinks.map(([label, path]) => (
+          <li>
+            <a href={withBase(path)}>{label} →</a>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <details class="quickstart-detail">
+    <summary>{ui.scriptSummary}</summary>
+    <p>{ui.scriptIntro}</p>
+    <pre tabindex="0">
+      <code>{ui.scriptCommand}</code>
+    </pre>
+    <p>{ui.scriptDeny}</p>
+  </details>
+
+  <details class="quickstart-detail">
+    <summary>{ui.evidenceSummary}</summary>
+    <ul>
+      {
+        ui.evidence.map(([label, path]) => (
+          <li>
+            <a href={evidenceHref(path)}>{label}</a>
+          </li>
+        ))
+      }
+    </ul>
+  </details>
+</section>
+
+<style>
+  .quickstart-walkthrough {
+    max-width: 52rem;
+  }
+  .quickstart-intro {
+    max-width: 48rem;
+    font-size: clamp(1.05rem, 1rem + 0.2vw, 1.18rem);
+    line-height: 1.72;
+  }
+  .quickstart-prerequisite {
+    margin: 1.25rem 0 2.5rem;
+    padding: 0.9rem 1rem;
+    border-inline-start: 0.28rem solid var(--tobari-warning);
+    background: var(--sl-color-gray-6);
+  }
+  .quickstart-prerequisite p {
+    margin: 0;
+  }
+  .quickstart-prerequisite a {
+    display: inline-block;
+    margin-top: 0.55rem;
+    font-weight: 750;
+  }
+  .quickstart-steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .quickstart-step {
+    padding-block: clamp(2.2rem, 6vw, 4rem);
+    border-block-start: 1px solid var(--sl-color-gray-5);
+  }
+  .quickstart-step > header {
+    display: grid;
+    grid-template-columns: 3.2rem minmax(0, 1fr);
+    gap: 0.8rem;
+    align-items: start;
+  }
+  .quickstart-step > header > span {
+    color: var(--tobari-control);
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xl);
+    font-weight: 850;
+  }
+  .quickstart-step header small,
+  .quickstart-step header strong {
+    display: block;
+  }
+  .quickstart-step header small {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    text-transform: uppercase;
+  }
+  .quickstart-step header strong {
+    margin-top: 0.1rem;
+    color: var(--tobari-control);
+    font-size: var(--sl-text-sm);
+  }
+  .quickstart-step h2 {
+    margin: 0.5rem 0 0;
+    font-size: clamp(1.45rem, 3vw, 2rem);
+    text-wrap: balance;
+  }
+  .quickstart-action,
+  .quickstart-command,
+  .quickstart-result {
+    margin-inline-start: 4rem;
+  }
+  .quickstart-action {
+    margin-top: 1.2rem;
+  }
+  .quickstart-action h3,
+  .quickstart-command h3 {
+    margin: 0 0 0.4rem;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+  .quickstart-action p {
+    margin: 0;
+  }
+  .quickstart-command {
+    margin-top: 1rem;
+  }
+  .quickstart-command pre,
+  .quickstart-detail pre {
+    max-width: 100%;
+    margin: 0;
+    overflow-x: auto;
+  }
+  .quickstart-result {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.1rem;
+    margin-top: 1rem;
+  }
+  .quickstart-result div {
+    min-width: 0;
+    padding-block-start: 0.8rem;
+    border-block-start: 1px solid var(--sl-color-gray-5);
+  }
+  .quickstart-result dt {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    font-weight: 750;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .quickstart-result dd {
+    margin: 0.35rem 0 0;
+    font-size: var(--sl-text-sm);
+  }
+  .quickstart-complete {
+    margin-top: 0.5rem;
+    padding: 1.2rem;
+    border-inline-start: 0.3rem solid var(--tobari-allowed);
+    background: var(--sl-color-gray-6);
+  }
+  .quickstart-complete h2,
+  .quickstart-complete p {
+    margin: 0;
+  }
+  .quickstart-complete p {
+    margin-top: 0.55rem;
+  }
+  .quickstart-next {
+    margin-block: 2.5rem;
+  }
+  .quickstart-next h2 {
+    font-size: var(--sl-text-xl);
+  }
+  .quickstart-next ul {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1.5rem;
+    padding: 0;
+    list-style: none;
+  }
+  .quickstart-next a {
+    font-weight: 700;
+  }
+  .quickstart-detail {
+    margin-block: 0.8rem;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .quickstart-detail summary {
+    padding: 0.85rem 1rem;
+    cursor: pointer;
+    font-weight: 750;
+  }
+  .quickstart-detail > :not(summary) {
+    margin-inline: 1rem;
+  }
+  .quickstart-detail > :last-child {
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 40rem) {
+    .quickstart-action,
+    .quickstart-command,
+    .quickstart-result {
+      margin-inline-start: 0;
+    }
+    .quickstart-result,
+    .quickstart-next ul {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media print {
+    .quickstart-step,
+    .quickstart-complete {
+      break-inside: avoid;
+    }
+    .quickstart-detail {
+      display: none;
+    }
+  }
+</style>
