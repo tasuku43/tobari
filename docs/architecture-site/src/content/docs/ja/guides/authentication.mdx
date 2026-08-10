@@ -41,22 +41,12 @@ Tobari は、ホストのホーム、Keychain、SSH エージェント、認証�
 
 ## GitHub、AWS、Datadog の組み込み認証
 
-共有クラスターを起動し、Context の認証状態を確認します。
+共有クラスターを起動し、Context の認証状態を確認します。`--provider` を省略すると、インストール済みでレビュー済みのプロバイダーから選択できます。GitHub を直接指定する場合は、選択画面を省略します。
 
 ```sh
 tobari cluster up
 tobari auth status --context default
-```
-
-インストール済みの組み込みプロバイダーから選ぶ場合は、`--provider` を省略します。
-
-```sh
-tobari auth login --context default
-```
-
-GitHub を直接指定する場合は、次を実行します。
-
-```sh
+tobari auth login --context default # choose an installed reviewed provider
 tobari auth login --provider github --context default
 tobari auth status --context default
 ```
@@ -73,13 +63,13 @@ tobari --context default
 
 Workspace は、プロジェクトごとに異なる `tobari-h1_...` ハンドルを受け取ります。組み込み GitHub マニフェストでは、対応する GitHub CLI API 通信に使いますが、外部サービスへ送るトークンそのものではありません。Auth Broker を使った非公開 Git 通信の認証情報ヘルパーには、現在対応していません。
 
-### AWS
+<h3 id="aws">AWS</h3>
 
 信頼するホストで、ログイン方法を一つ選びます。
 
 ```sh
 tobari auth login --provider aws --method identity-center --context default
-# または、AWS CLI 2.32 以降で
+# or, with AWS CLI 2.32 or newer:
 tobari auth login --provider aws --method console --context default
 ```
 
@@ -87,11 +77,9 @@ Identity Center 方式では、レビュー済みの商用環境用開始 URL、
 
 どちらも隔離した一時ホームを使い、方式を区別でき、サイズに上限がある不透明な AWS 状態だけを暗号化します。Workspace へ入り直すと、三つの AWS 認証情報変数には同じプロジェクトハンドルが入り、アクセス鍵の本体は入りません。リクエスト先のリージョンは、通常の Context またはコマンド設定で指定します。
 
-### Datadog
+<h3 id="datadog">Datadog</h3>
 
-```sh
-tobari auth login --provider datadog --context default
-```
+信頼するホストで <code>tobari auth login --provider datadog --context default</code> を実行します。
 
 Tobari は非公開のファイル保存ホームで、固定されたホスト側の `pup --no-agent auth login --site datadoghq.com` を実行します。ブラウザーでの同意とループバックコールバックは `pup` が処理します。Workspace へ入り直すと、`DD_ACCESS_TOKEN=<project handle>` と固定された `DD_SITE=datadoghq.com` が入ります。
 
