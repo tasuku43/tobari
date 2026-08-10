@@ -4,19 +4,24 @@ on:
   push:
     branches:
       - agent/fix-quickstart-runtime-copy
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/temporary-quickstart-copy-fix.yml
+      - docs/architecture-site/src/components/QuickstartWalkthrough.astro
 
 permissions:
   contents: write
 
 jobs:
   fix:
-    if: ${{ github.event.head_commit.message != 'docs: correct quickstart runtime explanation' }}
+    if: ${{ github.event_name != 'push' || github.event.head_commit.message != 'docs: correct quickstart runtime explanation' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Check out branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
           fetch-depth: 0
           persist-credentials: true
 
@@ -44,9 +49,14 @@ jobs:
         run: npx --yes prettier@3.6.2 --write docs/architecture-site/src/components/QuickstartWalkthrough.astro
 
       - name: Commit and push
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
         run: |
+          if git diff --quiet -- docs/architecture-site/src/components/QuickstartWalkthrough.astro; then
+            exit 0
+          fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add docs/architecture-site/src/components/QuickstartWalkthrough.astro
           git commit -m "docs: correct quickstart runtime explanation"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "HEAD:${HEAD_BRANCH}"
