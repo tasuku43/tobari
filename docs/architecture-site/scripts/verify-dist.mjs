@@ -282,9 +282,11 @@ for (const [file, { source, document }] of htmlByPath) {
 
 const home = htmlByPath.get(outputPathFor(""))?.source || "";
 for (const phrase of [
-  "Trace a request",
+  "Run a coding agent inside one selected project.",
+  "Stop it, review it, then allow only what is needed",
   "Protected in the supported topology",
-  "Intentionally not protected",
+  "Not protected by Tobari",
+  "files inside the selected project are not protected from the agent",
 ]) {
   if (!home.includes(phrase))
     errors.push(`home page is missing required content: ${phrase}`);

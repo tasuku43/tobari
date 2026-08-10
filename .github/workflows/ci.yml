@@ -13,53 +13,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  apply-doc-verification-fix:
-    name: Apply one-time documentation verification fix
-    if: github.actor != 'github-actions[bot]' && github.event.pull_request.head.repo.full_name == github.repository
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Update the static home verification contract
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("docs/architecture-site/scripts/verify-dist.mjs")
-          source = path.read_text()
-          old = '''for (const phrase of [
-            "Trace a request",
-            "Protected in the supported topology",
-            "Intentionally not protected",
-          ]) {'''
-          new = '''for (const phrase of [
-            "Run a coding agent inside one selected project.",
-            "Stop it, review it, then allow only what is needed",
-            "Protected in the supported topology",
-            "Not protected by Tobari",
-            "files inside the selected project are not protected from the agent",
-          ]) {'''
-          if old not in source:
-              raise SystemExit("static home verification block was not found")
-          path.write_text(source.replace(old, new, 1))
-          PY
-          git checkout origin/main -- .github/workflows/ci.yml
-          rm -f .github/agent-verify-dist-fix.patch
-          rm -f .github/workflows/agent-apply-verify-dist.yml
-
-      - name: Commit the verified source change
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --all
-          git commit -m "test(site): verify the new task-first home content"
-          git push
-
   full:
     name: Implementation quality gate
     runs-on: ubuntu-latest
