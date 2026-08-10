@@ -16,15 +16,15 @@ export const learningPathPages = [
     "Overview",
     "概要",
     "Understand what Tobari controls and which parts remain trusted.",
-    "Tobari が制御する範囲と、引き続き信頼する部分を理解します。",
+    "Tobari が制御する範囲と、信頼する構成要素を説明します。",
   ),
   page(
     2,
     "/how-it-works/mental-model/",
     "Mental model",
-    "メンタルモデル",
+    "基本モデル",
     "Learn the five components without implementation detail.",
-    "実装の細部に入る前に、五つの主要な部品を理解します。",
+    "実装の詳細に入る前に、五つの主要コンポーネントを押さえます。",
   ),
   page(
     3,
@@ -32,7 +32,7 @@ export const learningPathPages = [
     "Workspace lifecycle",
     "Workspace のライフサイクル",
     "Distinguish leaving a shell, deleting a Workspace, and stopping the cluster.",
-    "シェルを出ること、Workspace を削除すること、クラスターを止めることの違いを理解します。",
+    "シェルの終了、Workspace の削除、クラスター停止の違いを整理します。",
   ),
   page(
     4,
@@ -40,7 +40,7 @@ export const learningPathPages = [
     "Request journey",
     "リクエストの流れ",
     "Follow one outbound request from the Workspace to the upstream service.",
-    "一つの外向きリクエストが Workspace から接続先へ進む順序を追います。",
+    "Workspace から接続先まで、一つのリクエストを処理順に追います。",
   ),
   page(
     5,
@@ -48,7 +48,7 @@ export const learningPathPages = [
     "HTTPS and TLS",
     "HTTPS と TLS",
     "Understand the two TLS connections and the certificate limits.",
-    "二つの TLS 接続と、証明書に関する制限を理解します。",
+    "二つの TLS 接続と、証明書に関する制限を確認します。",
   ),
   page(
     6,
@@ -56,7 +56,7 @@ export const learningPathPages = [
     "Policy learning",
     "ポリシー学習",
     "Understand how a denial becomes one reviewable exact effect.",
-    "拒否された通信が、確認できる完全一致の候補になる仕組みを理解します。",
+    "拒否された通信が、完全一致のレビュー候補になるまでを追います。",
   ),
   page(
     6,
@@ -64,7 +64,7 @@ export const learningPathPages = [
     "First denial",
     "最初の拒否",
     "Practice reviewing one denied effect on the trusted host.",
-    "拒否された通信を、信頼するホストで確認する流れを学びます。",
+    "拒否された通信を、信頼するホストでレビューする手順を確認します。",
   ),
   page(
     7,
@@ -72,15 +72,15 @@ export const learningPathPages = [
     "Credentials",
     "認証情報",
     "Keep authentication separate from network authorization.",
-    "外部サービスへの認証と、ネットワーク通信の許可を分けて理解します。",
+    "外部サービスの認証と、HTTP 通信の許可を分けて扱います。",
   ),
   page(
     7,
     "/guides/authentication/",
     "Authentication guide",
-    "認証ガイド",
+    "認証",
     "Set up supported provider credentials without exposing them to the Workspace.",
-    "対応する認証情報を Workspace に渡さず設定する方法を確認します。",
+    "認証情報の本体を Workspace に渡さず、対応するプロバイダーを設定します。",
   ),
   page(
     8,
@@ -88,7 +88,7 @@ export const learningPathPages = [
     "Guarantees and limitations",
     "保証と制限",
     "Read each guarantee together with its preconditions and limits.",
-    "各保証を、その前提条件と制限を含めて確認します。",
+    "各保証が成立する前提と、保護しない範囲を確認します。",
   ),
   page(
     8,
@@ -96,7 +96,7 @@ export const learningPathPages = [
     "Trust boundaries",
     "信頼境界",
     "Identify which component owns and enforces each boundary.",
-    "それぞれの境界を、どの部品が管理して実施するか確認します。",
+    "各境界を所有し、強制するコンポーネントを特定します。",
   ),
   page(
     9,
@@ -104,7 +104,7 @@ export const learningPathPages = [
     "State and recovery",
     "状態と復旧",
     "Understand which state survives failure, exit, and cleanup.",
-    "障害、退出、後片付けの後に残る状態を理解します。",
+    "障害、退出、削除の後に残る状態を整理します。",
   ),
   page(
     9,
@@ -112,7 +112,7 @@ export const learningPathPages = [
     "Troubleshooting",
     "トラブルシューティング",
     "Choose a safe recovery action from the state you can observe.",
-    "確認できる状態から、安全な復旧操作を選びます。",
+    "観測できる状態から、破壊的でない復旧操作を選びます。",
   ),
   page(
     10,
@@ -120,7 +120,7 @@ export const learningPathPages = [
     "Understanding check",
     "理解度チェック",
     "Explain the boundary before opening the prepared answers.",
-    "用意された答えを開く前に、自分の言葉で境界を説明します。",
+    "回答を開く前に、Tobari の境界を自分の言葉で説明します。",
   ),
 ];
 
