@@ -8,10 +8,7 @@ const evidenceHref = (path: string) =>
 
 const steps = [
   {
-    title: t(
-      "The agent attempts a request",
-      "エージェントが外部通信を試みる",
-    ),
+    title: t("The agent attempts a request", "エージェントが外部通信を試みる"),
     detail: t(
       "A tool in the selected project's working environment sends an HTTP or HTTPS request to an external service.",
       "プロジェクト専用の作業環境から、外部サービスへ HTTP/HTTPS リクエストが送られます。",
@@ -127,12 +124,7 @@ const evidence = [
   <section class="home-hero">
     <div>
       <p class="home-eyebrow">
-        {
-          t(
-            "A coding-agent execution boundary",
-            "隔離環境と外部通信の制御",
-          )
-        }
+        {t("A coding-agent execution boundary", "隔離環境と外部通信の制御")}
       </p>
       <h2>
         {
@@ -246,12 +238,7 @@ const evidence = [
       {t("Start from your question", "目的別に読む")}
     </p>
     <h2>
-      {
-        t(
-          "Choose the entry closest to what you need now",
-          "必要な情報へ進む",
-        )
-      }
+      {t("Choose the entry closest to what you need now", "必要な情報へ進む")}
     </h2>
     <div class="home-tasks">
       {
@@ -350,12 +337,7 @@ const evidence = [
               ))
             }
           </ul><a href={withBase("/reference/component-versions/")}
-            >{
-              t(
-                "View component versions",
-                "コンポーネントのバージョンを見る",
-              )
-            } →</a
+            >{t("View component versions", "コンポーネントのバージョンを見る")} →</a
           >
         </section>
       </div>

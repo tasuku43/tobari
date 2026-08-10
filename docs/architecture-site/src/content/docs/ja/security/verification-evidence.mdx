@@ -9,29 +9,29 @@ description: Tobari の主要なセキュリティ保証と動作を、強制箇
 
 ## 保証・動作と根拠の対応表
 
-| 保証または動作 | 強制箇所 | 主な検証 | 規定文書 | 関連ソース |
-| --- | --- | --- | --- | --- |
-| Workspace には外部への直接経路がない | 専用の Docker `internal` ネットワーク。Gateway だけが外部向けネットワークにも参加する | 直接通信とプロキシ迂回を拒否する統合テスト | セキュリティモデル | `compose.yaml`、`project_runtime.go` |
-| Workspace は Docker の制御、OPA、別 Workspace への経路を持たない | マウントとネットワークの構成、プロジェクトごとの専用ネットワーク | Docker ソケット、OPA への直接通信、Workspace 間通信の統合テスト | セキュリティモデル | `compose.yaml` |
-| プロジェクトの識別は、リクエストの自己申告ではない | Gateway の受信インターフェースを、ホスト管理のプリンシパル登録簿で検索する | 登録簿の単体テスト、偽造ヘッダーと未知のプリンシパルを拒否する Gateway テスト | ADR 0011、アーキテクチャ | `principal_registry.go`、`tobari_gateway.py` |
-| OPA の判断を得られない場合は通信を拒否する | Gateway が本文を含まない固定問い合わせを一度だけ行い、正しい許可結果を要求する | タイムアウト、HTTP 200 以外、不正応答、OPA 停止のテスト | 外部 API 契約 | `tobari_gateway.py` |
-| OPA が拒否した場合、外部の接続先へ接続しない | Gateway が許可後に初めて DNS 名前解決と接続を始める | 本文付きリクエストの拒否、非転送、拒否先に到達しない統合テスト | セキュリティモデル | `tobari_gateway.py` |
-| HTTPS は Gateway で検査し、接続先へ別の TLS 接続を作る | mitmproxy の `CONNECT`、Tobari CA による Workspace 側の終端、検証済みの接続先側 TLS | `CONNECT` のスキーム、CA 配布、HTTPS 通信検査の統合テスト | ADR 0005、アーキテクチャ | `gateway/entrypoint.sh`、ランタイム起動処理 |
-| リクエスト本文は、学習済みルールの識別に使わない | OPA 入力の生成とポリシー候補の分類で本文を除外する | 本文に依存しない入力、候補分類、許可後のストリーミングを確認するテスト | 外部 API 契約 | Gateway アドオン、ポリシードメイン |
-| 拒否された Workspace は、自分で許可ルールを追加できない | ホスト側だけが不透明な参照値を解決し、検証済みの完全なポリシーを有効化する | サービス、`policydata`、集約処理、レビュー・許可・拒否のテスト | 製品契約、セキュリティモデル | ポリシーのアプリケーション層とインフラストラクチャ層 |
-| 学習済みルールは Context とプロジェクトにも結び付く | Rego とポリシーデータに Context ID とプロジェクト ID を含める | Rego テスト、Context とプロジェクトの分離を確認する統合テスト | アーキテクチャ、セキュリティモデル | `tobari.rego`、`policydata.go` |
-| Auth Broker の認証状態は Workspace の外に残る | 暗号化した Context 保管庫と、ハンドルだけの Workspace への配置 | 保管庫、プロジェクト結び付き、固定・AWS・Datadog の認証情報が Workspace に存在しないことを確認するテスト | 認証契約、セキュリティモデル | `vault.py`、`project_auth.go` |
-| プロバイダーへのログインは信頼するホスト上で完結する | 隔離した非公開ホームと、識別情報を確認済みの固定 `gh`・`aws`・`pup` ドライバー | `credentialhost` のドライバー・状態テスト、ホストログインの統合テスト | 認証契約、ADR 0020・0021・0023 | `internal/infra/credentialhost` |
-| OPA の拒否時には、認証情報を扱う Auth Broker の処理を実行しない | ポリシー前は秘密情報を使わない照会だけ。固定認証情報の解決、AWS コンパニオン、署名、Datadog トークン処理は許可後に限定する | 拒否時の解決、コンパニオン、更新、署名がゼロであることを確認する Gateway テスト | 認証契約 | `broker_credentials.py`、`broker.py` |
-| AWS のホスト側処理は用途が限定され、Auth Broker だけが使える | 認証済みの逆向き実行、公開リスナーなし、Workspace へのソケットマウントなし、固定された操作 | コンパニオンプロトコルの再送・フレーム・期限のテスト、Docker ランタイムのコンパニオンテスト | 認証契約、セキュリティモデル、ADR 0020 | `companion_protocol.py`、`credential_companion.go` |
-| Datadog の更新先は固定され、許可前には動かない | 完全一致の US1 HTTPS トークン接続先、プロキシとリダイレクトなし、同じレコードの更新は一度だけ同時実行する | Datadog OAuth の解析・交換テスト、Gateway の拒否順序テスト | 認証契約、ADR 0021 | `datadog_oauth.py`、`broker.py` |
-| 認証処理の結果を確定できない場合は自動再実行しない | 暗号化して永続化する処理停止情報と、再試行不可の HTTP 409 | AWS コンパニオンの切断、Datadog 送信後の結果不明、Gateway の 409 対応テスト | 外部 API 契約、認証契約 | `broker.py`、`broker_credentials.py` |
-| 不正な Tobari ハンドルを別の認証方式へ切り替えない | Tobari 形式を認識したリクエストは、Auth Broker の検証に固定する | 形式不正、古い、コピー済み、結び付き不一致の Gateway・Auth Broker テスト | 認証契約、セキュリティモデル | `broker_credentials.py`、`broker.py` |
-| 安全でないルート鍵または保管庫の状態では処理を拒否する | 所有者権限とシンボリックリンクの検査、認証付き暗号化、鍵不在時の拒否 | Auth Broker、ルート鍵、Docker ランタイムのテスト | 認証契約、セキュリティモデル | `rootkey`、`vault.py` |
-| `exit`、`delete`、`cluster down`、`--purge` は異なる状態を変更する | Workspace とクラスターの所有関係に基づくライフサイクル処理 | サービス、プロジェクトランタイム、状態、ライフサイクルの統合テスト | 製品契約、アーキテクチャ | `service.go`、プロジェクトランタイムと状態管理 |
-| ランタイムイメージの `CMD` は Workspace の寿命を決めない | Tobari が固定の `sleep infinity` とランタイム API ラベルを設定する | ランタイムテストと `runtimecheck` | アーキテクチャ、ランタイム契約 | `project_runtime.go`、ランタイムのメタデータ |
-| 埋め込みソースは正本と無検知にずれない | 正本とスナップショットのバイト列・内容を検査する | `task check` 内のソース検査 | 検査契約、リリース契約 | ランタイム成果物と同期・検査スクリプト |
-| サービスイメージは完全一致の識別情報で選ぶ | `versions.env` によるダイジェスト固定とイメージ契約の検証 | ランタイム成果物、Gateway、Auth Broker イメージのテスト | セキュリティモデル、リリース契約 | `versions.env` |
+| 保証または動作                                                     | 強制箇所                                                                                                                   | 主な検証                                                                                                 | 規定文書                               | 関連ソース                                           |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------- |
+| Workspace には外部への直接経路がない                               | 専用の Docker `internal` ネットワーク。Gateway だけが外部向けネットワークにも参加する                                      | 直接通信とプロキシ迂回を拒否する統合テスト                                                               | セキュリティモデル                     | `compose.yaml`、`project_runtime.go`                 |
+| Workspace は Docker の制御、OPA、別 Workspace への経路を持たない   | マウントとネットワークの構成、プロジェクトごとの専用ネットワーク                                                           | Docker ソケット、OPA への直接通信、Workspace 間通信の統合テスト                                          | セキュリティモデル                     | `compose.yaml`                                       |
+| プロジェクトの識別は、リクエストの自己申告ではない                 | Gateway の受信インターフェースを、ホスト管理のプリンシパル登録簿で検索する                                                 | 登録簿の単体テスト、偽造ヘッダーと未知のプリンシパルを拒否する Gateway テスト                            | ADR 0011、アーキテクチャ               | `principal_registry.go`、`tobari_gateway.py`         |
+| OPA の判断を得られない場合は通信を拒否する                         | Gateway が本文を含まない固定問い合わせを一度だけ行い、正しい許可結果を要求する                                             | タイムアウト、HTTP 200 以外、不正応答、OPA 停止のテスト                                                  | 外部 API 契約                          | `tobari_gateway.py`                                  |
+| OPA が拒否した場合、外部の接続先へ接続しない                       | Gateway が許可後に初めて DNS 名前解決と接続を始める                                                                        | 本文付きリクエストの拒否、非転送、拒否先に到達しない統合テスト                                           | セキュリティモデル                     | `tobari_gateway.py`                                  |
+| HTTPS は Gateway で検査し、接続先へ別の TLS 接続を作る             | mitmproxy の `CONNECT`、Tobari CA による Workspace 側の終端、検証済みの接続先側 TLS                                        | `CONNECT` のスキーム、CA 配布、HTTPS 通信検査の統合テスト                                                | ADR 0005、アーキテクチャ               | `gateway/entrypoint.sh`、ランタイム起動処理          |
+| リクエスト本文は、学習済みルールの識別に使わない                   | OPA 入力の生成とポリシー候補の分類で本文を除外する                                                                         | 本文に依存しない入力、候補分類、許可後のストリーミングを確認するテスト                                   | 外部 API 契約                          | Gateway アドオン、ポリシードメイン                   |
+| 拒否された Workspace は、自分で許可ルールを追加できない            | ホスト側だけが不透明な参照値を解決し、検証済みの完全なポリシーを有効化する                                                 | サービス、`policydata`、集約処理、レビュー・許可・拒否のテスト                                           | 製品契約、セキュリティモデル           | ポリシーのアプリケーション層とインフラストラクチャ層 |
+| 学習済みルールは Context とプロジェクトにも結び付く                | Rego とポリシーデータに Context ID とプロジェクト ID を含める                                                              | Rego テスト、Context とプロジェクトの分離を確認する統合テスト                                            | アーキテクチャ、セキュリティモデル     | `tobari.rego`、`policydata.go`                       |
+| Auth Broker の認証状態は Workspace の外に残る                      | 暗号化した Context 保管庫と、ハンドルだけの Workspace への配置                                                             | 保管庫、プロジェクト結び付き、固定・AWS・Datadog の認証情報が Workspace に存在しないことを確認するテスト | 認証契約、セキュリティモデル           | `vault.py`、`project_auth.go`                        |
+| プロバイダーへのログインは信頼するホスト上で完結する               | 隔離した非公開ホームと、識別情報を確認済みの固定 `gh`・`aws`・`pup` ドライバー                                             | `credentialhost` のドライバー・状態テスト、ホストログインの統合テスト                                    | 認証契約、ADR 0020・0021・0023         | `internal/infra/credentialhost`                      |
+| OPA の拒否時には、認証情報を扱う Auth Broker の処理を実行しない    | ポリシー前は秘密情報を使わない照会だけ。固定認証情報の解決、AWS コンパニオン、署名、Datadog トークン処理は許可後に限定する | 拒否時の解決、コンパニオン、更新、署名がゼロであることを確認する Gateway テスト                          | 認証契約                               | `broker_credentials.py`、`broker.py`                 |
+| AWS のホスト側処理は用途が限定され、Auth Broker だけが使える       | 認証済みの逆向き実行、公開リスナーなし、Workspace へのソケットマウントなし、固定された操作                                 | コンパニオンプロトコルの再送・フレーム・期限のテスト、Docker ランタイムのコンパニオンテスト              | 認証契約、セキュリティモデル、ADR 0020 | `companion_protocol.py`、`credential_companion.go`   |
+| Datadog の更新先は固定され、許可前には動かない                     | 完全一致の US1 HTTPS トークン接続先、プロキシとリダイレクトなし、同じレコードの更新は一度だけ同時実行する                  | Datadog OAuth の解析・交換テスト、Gateway の拒否順序テスト                                               | 認証契約、ADR 0021                     | `datadog_oauth.py`、`broker.py`                      |
+| 認証処理の結果を確定できない場合は自動再実行しない                 | 暗号化して永続化する処理停止情報と、再試行不可の HTTP 409                                                                  | AWS コンパニオンの切断、Datadog 送信後の結果不明、Gateway の 409 対応テスト                              | 外部 API 契約、認証契約                | `broker.py`、`broker_credentials.py`                 |
+| 不正な Tobari ハンドルを別の認証方式へ切り替えない                 | Tobari 形式を認識したリクエストは、Auth Broker の検証に固定する                                                            | 形式不正、古い、コピー済み、結び付き不一致の Gateway・Auth Broker テスト                                 | 認証契約、セキュリティモデル           | `broker_credentials.py`、`broker.py`                 |
+| 安全でないルート鍵または保管庫の状態では処理を拒否する             | 所有者権限とシンボリックリンクの検査、認証付き暗号化、鍵不在時の拒否                                                       | Auth Broker、ルート鍵、Docker ランタイムのテスト                                                         | 認証契約、セキュリティモデル           | `rootkey`、`vault.py`                                |
+| `exit`、`delete`、`cluster down`、`--purge` は異なる状態を変更する | Workspace とクラスターの所有関係に基づくライフサイクル処理                                                                 | サービス、プロジェクトランタイム、状態、ライフサイクルの統合テスト                                       | 製品契約、アーキテクチャ               | `service.go`、プロジェクトランタイムと状態管理       |
+| ランタイムイメージの `CMD` は Workspace の寿命を決めない           | Tobari が固定の `sleep infinity` とランタイム API ラベルを設定する                                                         | ランタイムテストと `runtimecheck`                                                                        | アーキテクチャ、ランタイム契約         | `project_runtime.go`、ランタイムのメタデータ         |
+| 埋め込みソースは正本と無検知にずれない                             | 正本とスナップショットのバイト列・内容を検査する                                                                           | `task check` 内のソース検査                                                                              | 検査契約、リリース契約                 | ランタイム成果物と同期・検査スクリプト               |
+| サービスイメージは完全一致の識別情報で選ぶ                         | `versions.env` によるダイジェスト固定とイメージ契約の検証                                                                  | ランタイム成果物、Gateway、Auth Broker イメージのテスト                                                  | セキュリティモデル、リリース契約       | `versions.env`                                       |
 
 ## 根拠への直接リンク
 
@@ -65,7 +65,8 @@ description: Tobari の主要なセキュリティ保証と動作を、強制箇
 <aside class="limitation">
   <h2>根拠の制限</h2>
   <div class="prose-block">
-    クラスターの完全削除後にも Context 保管庫とルート鍵が残ることなど、一部の保持動作は、所有関係と実装から確認できます。ただし、保持されるすべてのファイルに専用の単独テストがあるわけではありません。実装上の根拠と、直接確認したテスト範囲を区別して読んでください。
+    クラスターの完全削除後にも Context
+    保管庫とルート鍵が残ることなど、一部の保持動作は、所有関係と実装から確認できます。ただし、保持されるすべてのファイルに専用の単独テストがあるわけではありません。実装上の根拠と、直接確認したテスト範囲を区別して読んでください。
   </div>
 </aside>
 
@@ -73,25 +74,36 @@ description: Tobari の主要なセキュリティ保証と動作を、強制箇
 
 <div class="question-list">
   <details>
-    <summary>偽装したプロジェクトヘッダーが権限にならないことは、どの根拠で確認できますか？</summary>
+    <summary>
+      偽装したプロジェクトヘッダーが権限にならないことは、どの根拠で確認できますか？
+    </summary>
     <div class="prose-block">
-      Gateway のプリンシパルテスト、<code>principal_registry.go</code>、ADR 0011 です。権限の根拠はヘッダーではなく、Gateway の受信インターフェースとホスト管理の登録簿です。
+      Gateway のプリンシパルテスト、<code>principal_registry.go</code>、ADR 0011
+      です。権限の根拠はヘッダーではなく、Gateway
+      の受信インターフェースとホスト管理の登録簿です。
     </div>
   </details>
   <details>
-    <summary>OPA の停止時に外部の接続先へ接続しないことは、どの根拠で確認できますか？</summary>
+    <summary>
+      OPA の停止時に外部の接続先へ接続しないことは、どの根拠で確認できますか？
+    </summary>
     <div class="prose-block">
-      Gateway のポリシー障害テスト、OPA 停止時の統合テスト、許可後に初めて接続を作る実装を合わせて確認します。
+      Gateway のポリシー障害テスト、OPA
+      停止時の統合テスト、許可後に初めて接続を作る実装を合わせて確認します。
     </div>
   </details>
   <details>
     <summary>CLI 障害に対する正確な復旧方法は、どこで確認できますか？</summary>
     <div class="prose-block">
-      生成された<a href="../../reference/faults-and-recovery/">障害と復旧</a>を確認します。内容は Catalog のエージェント向けヘルプから導出されます。
+      生成された<a href="../../reference/faults-and-recovery/">障害と復旧</a>
+      を確認します。内容は Catalog のエージェント向けヘルプから導出されます。
     </div>
   </details>
 </div>
 
 <div class="page-next">
-  <strong>次へ:</strong> 症状から調べる場合は <a href="../../guides/troubleshooting/">トラブルシューティング</a>、正確なコマンド仕様を調べる場合は <a href="../../reference/cli/">CLI リファレンス →</a> を使います。
+  <strong>次へ:</strong> 症状から調べる場合は{" "}
+  <a href="../../guides/troubleshooting/">トラブルシューティング</a>
+  、正確なコマンド仕様を調べる場合は{" "}
+  <a href="../../reference/cli/">CLI リファレンス →</a> を使います。
 </div>

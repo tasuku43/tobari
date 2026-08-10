@@ -126,26 +126,33 @@ Tobari は、Workspace の権限を一つのプロジェクト、ホストが発
 <div class="question-list">
   <details>
     <summary>
-      プロセスが <code>HTTPS_PROXY</code> を無視すると、Tobari は直接の TLS 通信を許可しますか？
+      プロセスが <code>HTTPS_PROXY</code> を無視すると、Tobari は直接の TLS
+      通信を許可しますか？
     </summary>
     <div class="prose-block">
-      いいえ。サポート対象の構成では、Workspace はプロジェクト専用の内部ネットワークだけを持ちます。プロキシを無視すると利用可能な経路がなくなるだけで、外部への経路が追加されるわけではありません。
+      いいえ。サポート対象の構成では、Workspace
+      はプロジェクト専用の内部ネットワークだけを持ちます。プロキシを無視すると利用可能な経路がなくなるだけで、外部への経路が追加されるわけではありません。
     </div>
   </details>
   <details>
     <summary>
-      以前に許可されていた経路でも、リクエスト中に OPA が停止した場合は許可されますか？
+      以前に許可されていた経路でも、リクエスト中に OPA
+      が停止した場合は許可されますか？
     </summary>
     <div class="prose-block">
-      いいえ。Gateway はリクエストごとに有効な判断結果を必要とします。OPA の障害は <code>policy_unavailable</code> となり、外部の接続先への接続は作られません。
+      いいえ。Gateway はリクエストごとに有効な判断結果を必要とします。OPA
+      の障害は <code>policy_unavailable</code>{" "}
+      となり、外部の接続先への接続は作られません。
     </div>
   </details>
   <details>
     <summary>
-      エージェントが、すでに許可された接続先へ作業対象のソースツリーを送ることを、Tobari は防げますか？
+      エージェントが、すでに許可された接続先へ作業対象のソースツリーを送ることを、Tobari
+      は防げますか？
     </summary>
     <div class="prose-block">
-      いいえ。作業対象のディレクトリは意図的に読み取り可能です。ポリシーはリクエスト本文の意味を検査せず、HTTP 通信の条件だけを判断します。
+      いいえ。作業対象のディレクトリは意図的に読み取り可能です。ポリシーはリクエスト本文の意味を検査せず、HTTP
+      通信の条件だけを判断します。
     </div>
   </details>
   <details>

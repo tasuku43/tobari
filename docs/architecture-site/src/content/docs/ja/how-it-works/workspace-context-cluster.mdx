@@ -113,20 +113,27 @@ Workspace は永続する論理的な作業環境です。Context は、そこ�
 Context またはランタイム状態が変わったとき、何が変わり、何が変わらないかを説明できるはずです。
 
 <details>
-  <summary><code>context use</code> は既存 Workspace を移行しますか？</summary>
-  いいえ。後続のコマンドで Context を省略した場合に使う既定値だけを変えます。既存 Workspace は保存済みの Context ID を保持します。
+  <summary>
+    <code>context use</code> は既存 Workspace を移行しますか？
+  </summary>
+  いいえ。後続のコマンドで Context
+  を省略した場合に使う既定値だけを変えます。既存 Workspace は保存済みの Context
+  ID を保持します。
 </details>
 
 <details>
   <summary>同じプロジェクトルートに二つの Workspace を作れますか？</summary>
-  安定した Context ID が異なれば作れます。ランタイムと権限は別ですが、重なったホストファイルは共有されます。
+  安定した Context ID
+  が異なれば作れます。ランタイムと権限は別ですが、重なったホストファイルは共有されます。
 </details>
 
 <details>
   <summary>
-    ランタイムイメージが短時間で終了する <code>CMD</code> を宣言した場合、そのコマンドの終了時に Workspace も停止しますか？
+    ランタイムイメージが短時間で終了する <code>CMD</code>{" "}
+    を宣言した場合、そのコマンドの終了時に Workspace も停止しますか？
   </summary>
-  いいえ。Tobari は寿命の管理にイメージの <code>CMD</code> を使わず、検証済みの <code>sleep infinity</code> を寿命管理用コマンドとして渡します。
+  いいえ。Tobari は寿命の管理にイメージの <code>CMD</code> を使わず、検証済みの{" "}
+  <code>sleep infinity</code> を寿命管理用コマンドとして渡します。
 </details>
 
 共有範囲と Workspace ごとの範囲が不明確なら、[システム全体像](../system-overview/)を復習してください。次は、これらの識別情報を[Workspace のライフサイクル](../workspace-lifecycle/)で追います。
