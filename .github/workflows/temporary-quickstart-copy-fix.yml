@@ -1,0 +1,52 @@
+name: Temporary quickstart copy fix
+
+on:
+  push:
+    branches:
+      - agent/fix-quickstart-runtime-copy
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ github.event.head_commit.message != 'docs: correct quickstart runtime explanation' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Correct quickstart explanation
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('docs/architecture-site/src/components/QuickstartWalkthrough.astro')
+          text = path.read_text()
+          replacements = {
+              '事前にインストールを完了し、対話型ターミナルを用意してください。作業ディレクトリ内のファイルはエージェントから保護されないため、実際のリポジトリではなく空の練習用ディレクトリを使います。':
+              '事前にインストールを完了し、対話型ターミナルを用意してください。このクイックスタートでは、標準のベースランタイムに含まれる `curl` を使って通信制御だけを確認します。コーディングエージェントや実際のリポジトリは必要ないため、空の練習用ディレクトリを使います。',
+              'Complete installation first and use an interactive terminal. Files inside the selected project are not protected, so use the synthetic directory below instead of a real work project.':
+              "Complete installation first and use an interactive terminal. This quickstart uses `curl` from the standard base runtime to exercise network control directly; it does not require a coding agent or a real repository. Use the empty synthetic directory below.",
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one match, found {count}: {old}')
+              text = text.replace(old, new)
+          path.write_text(text)
+
+      - name: Format changed file
+        run: npx --yes prettier@3.6.2 --write docs/architecture-site/src/components/QuickstartWalkthrough.astro
+
+      - name: Commit and push
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add docs/architecture-site/src/components/QuickstartWalkthrough.astro
+          git commit -m "docs: correct quickstart runtime explanation"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
