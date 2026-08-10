@@ -1,0 +1,50 @@
+name: Temporary documentation formatter
+
+on:
+  push:
+    branches:
+      - agent/rewrite-japanese-documentation
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: ${{ github.event.head_commit.message != 'chore: format Japanese documentation' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the documentation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up the repository-pinned Node.js version
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: docs/architecture-site/package-lock.json
+
+      - name: Select the repository-pinned npm version
+        run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
+
+      - name: Install locked documentation dependencies
+        working-directory: docs/architecture-site
+        run: npm ci
+
+      - name: Format the documentation source
+        working-directory: docs/architecture-site
+        run: npm exec -- prettier --write .
+
+      - name: Commit the formatter output
+        run: |
+          if git diff --quiet -- docs/architecture-site; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add docs/architecture-site
+          git commit -m "chore: format Japanese documentation"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
