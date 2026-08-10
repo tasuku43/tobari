@@ -141,6 +141,12 @@ correct `html` language, and same-topic `en`, `ja`, and `x-default` alternate
 links. Browser coverage exercises the same-topic language switch and localized
 navigation without adding a runtime translation service.
 
+Site source verification also rejects the retired universal
+“question this page answers” opening in either locale. Concept, sequence,
+guide, security, and reference pages begin with their own subject or task
+instead of sharing one classroom-style preamble; end-of-page understanding
+checks remain available where they support the learning path.
+
 Public reference generation and claim links use the immutable product commit
 recorded in `docs/architecture-site/source-snapshot.txt`; page-source
 provenance separately identifies the documentation build commit. The static

@@ -22,6 +22,8 @@ const textExtensions = new Set([
 ]);
 const errors = [];
 const evidenceLinks = new Map();
+const universalQuestionOpening =
+  /^##\s+(?:(?:The question this (?:page|guide) answers)|(?:What question does this page answer\?)|(?:この(?:ページ|ガイド)で答える問い))\s*$/m;
 
 async function filesBelow(directory) {
   const result = [];
@@ -48,6 +50,15 @@ for (const file of files) {
   if (!textExtensions.has(extname(file))) continue;
   const label = relative(root, file);
   const source = await readFile(file, "utf8");
+
+  if (
+    label.startsWith("src/content/docs/") &&
+    universalQuestionOpening.test(source)
+  ) {
+    errors.push(
+      `${label} uses the retired universal question-first documentation opening`,
+    );
+  }
 
   if (
     /\b(?:google-analytics|googletagmanager|segment\.com|plausible\.io|mixpanel|hotjar)\b/i.test(
