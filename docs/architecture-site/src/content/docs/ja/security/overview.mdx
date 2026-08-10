@@ -1,13 +1,13 @@
 ---
 title: 概要
-description: Tobari のセキュリティ保証を、成立する前提、強制するコンポーネント、障害時の動作、根拠、保護しない範囲に分けて説明します。
+description: Tobari のセキュリティ保証を、成立する前提、制御の仕組み、障害時の動作、保護しない範囲に分けて説明します。
 ---
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
 Tobari は、Workspace へ渡すホスト権限、外部通信、ポリシー変更、Auth Broker が管理する認証情報へのアクセスを制限します。これらの保証は、サポート対象の Docker 構成と、信頼するホスト側のコンポーネントが正しく動作する場合に成立します。作業対象のディレクトリ内にあるコードやファイルを、エージェントから保護する仕組みではありません。
 
-そのため、このセクションでは「コンテナで動く」「プロキシを使う」「暗号化されている」といった説明だけで安全性を表しません。各保証について、前提、強制箇所、障害時の動作、根拠、対象外を明記します。構成要素や通信経路が分からない場合は、先に[基本モデル](../../how-it-works/mental-model/)と[システム全体像](../../how-it-works/system-overview/)を読んでください。
+そのため、このセクションでは「コンテナで動く」「プロキシを使う」「暗号化されている」といった説明だけで安全性を表しません。各保証について、前提、制御の仕組み、障害時の動作、対象外を明記します。構成要素や通信経路が分からない場合は、先に[基本モデル](../../how-it-works/mental-model/)と[システム全体像](../../how-it-works/system-overview/)を読んでください。
 
 <ConceptDiagram name="trust-boundaries" />
 
@@ -17,10 +17,9 @@ Tobari は、Workspace へ渡すホスト権限、外部通信、ポリシー変
 
 1. **保証** — Tobari が成立させる、範囲を限定した結果。
 2. **前提** — 保証が成立するために、あらかじめ満たす必要がある条件。
-3. **強制箇所** — 保証を実際に成立させるコードまたは構成。
-4. **障害時の動作** — 強制箇所が利用できない、または不正な状態になった場合の結果。
-5. **根拠** — 規定文書、実装、テスト。
-6. **対象外** — 保証に含まれない、最も近い範囲。
+3. **仕組み** — どのコンポーネントと構成が、その保証を成立させるか。
+4. **障害時の動作** — 必要なコンポーネントが利用できない、または不正な状態になった場合の結果。
+5. **対象外** — 保証に含まれない、最も近い範囲。
 
 たとえば「Workspace は公開インターネットへ直接到達できない」という保証には、Workspace が Tobari のサポート対象となる Docker 構成で作られていることが前提になります。専用の `internal` ネットワークと、Gateway だけが内部ネットワークと外部向けネットワークの両方へ接続する構成が、この保証を強制します。Gateway が利用できなくても別の経路へ切り替わらず、通信は失敗します。一方、利用者が許可した接続先には、Workspace から読めるデータを送信できます。
 
@@ -84,7 +83,7 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
 <aside class="guarantee">
   <h2>この概要で示す保証</h2>
   <div class="prose-block">
-    以降のページでは、保証をさらに狭い単位へ分け、それぞれを強制箇所と根拠へ結び付けます。HTTP
+    以降のページでは、保証をさらに狭い単位へ分け、それぞれの前提、仕組み、障害時の動作、対象外を具体化します。HTTP
     通信の拒否を、ファイル保護やマルウェア対策など、別の保証へ広げて説明しません。
   </div>
 </aside>
@@ -97,32 +96,7 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
   </div>
 </aside>
 
-<aside class="evidence">
-  <h2>ソース</h2>
-  <ul>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md">
-        セキュリティモデル
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/THREAT_MODEL.md">
-        リポジトリの脅威モデル
-      </a>{" "}
-      — 攻撃者、保護対象、制御策の一覧。
-    </li>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml">
-        Compose の構成
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh">
-        統合テスト
-      </a>
-    </li>
-  </ul>
-</aside>
+公開仕様と、それを維持する実装・テストの対応は、[実装とテスト](../verification-evidence/)にまとめています。
 
 ## ここまでで説明できること
 

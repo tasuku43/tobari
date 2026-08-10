@@ -12,7 +12,7 @@ const ui = isJapanese
       intro:
         "練習用ディレクトリで、未許可の通信が拒否され、ホスト側のレビューを経て、新しいリクエストが外部へ届くまでを確認します。",
       prerequisite:
-        "事前にインストールを完了し、対話型ターミナルを用意してください。作業ディレクトリ内のファイルはエージェントから保護されないため、実際のリポジトリではなく空の練習用ディレクトリを使います。",
+        "事前にインストールを完了し、対話型ターミナルを用意してください。このクイックスタートでは、標準のベースランタイムに含まれる `curl` だけを使って通信制御を確認します。コーディングエージェントや実際のリポジトリは必要ないため、空の練習用ディレクトリを使います。",
       install: "インストール手順を確認する",
       labels: {
         location: "実行場所",
@@ -122,7 +122,7 @@ tobari policy allow --id <exact-pcy-id-from-policy-review>`,
       intro:
         "Use a synthetic project to see one undeclared request stop, review and allow it on the host, and then send a new request that can reach the upstream path.",
       prerequisite:
-        "Complete installation first and use an interactive terminal. Files inside the selected project are not protected, so use the synthetic directory below instead of a real work project.",
+        "Complete installation first and use an interactive terminal. This quickstart uses `curl` from the standard base runtime to exercise network control directly; it does not require a coding agent or a real repository. Use the empty synthetic directory below.",
       install: "Review installation",
       labels: {
         location: "Run this on",
