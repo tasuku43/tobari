@@ -2,12 +2,14 @@
 import EditLink from "@astrojs/starlight/components/EditLink.astro";
 import LastUpdated from "@astrojs/starlight/components/LastUpdated.astro";
 import Pagination from "@astrojs/starlight/components/Pagination.astro";
+import { getLearningPathContext } from "../learning-path.mjs";
+import LearningProgress from "./LearningProgress.astro";
 
 const isJapanese = Astro.locals.starlightRoute.locale === "ja";
 const labels = isJapanese
   ? {
-      aria: "ドキュメントの生成元",
       heading: "ドキュメントの生成元",
+      summary: "このページのソース時点と根拠を確認する",
       builtFrom: "ドキュメントのビルド元",
       productSnapshot: "製品ソースのスナップショット",
       pageStatus: "ページの状態",
@@ -22,8 +24,8 @@ const labels = isJapanese
       securityPolicy: "セキュリティポリシー",
     }
   : {
-      aria: "Documentation provenance",
       heading: "Documentation provenance",
+      summary: "Check this page's source snapshot and evidence",
       builtFrom: "Documentation built from",
       productSnapshot: "Product source snapshot",
       pageStatus: "Page status",
@@ -57,38 +59,48 @@ const generatedAt = new Date(__TOBARI_DOCS_GENERATED_AT__).toLocaleString(
     timeZone: "UTC",
   },
 );
+const learningContext = getLearningPathContext(
+  Astro.url.pathname,
+  import.meta.env.BASE_URL,
+);
 ---
 
 <footer class="page-footer sl-flex">
-  <aside class="provenance" aria-label={labels.aria}>
-    <h2>{labels.heading}</h2>
-    <dl>
-      <div>
-        <dt>{labels.builtFrom}</dt><dd>
-          <a href={`${repository}/commit/${buildCommit}`}
-            ><code>{shortBuildCommit}</code></a
-          >
-        </dd>
-      </div>
-      <div>
-        <dt>{labels.productSnapshot}</dt><dd>
-          <a href={`${repository}/commit/${productCommit}`}
-            ><code>{shortProductCommit}</code></a
-          >
-        </dd>
-      </div>
-      <div><dt>{labels.pageStatus}</dt><dd>{labels.current}</dd></div>
-      <div><dt>{labels.snapshotTime}</dt><dd>{generatedAt} UTC</dd></div>
-      <div>
-        <dt>{labels.pageSource}</dt><dd>
-          <a href={sourceUrl}>{labels.viewMdx}</a>
-        </dd>
-      </div>
-    </dl>
-    <p>{labels.explanation}</p>
-  </aside>
+  <LearningProgress />
+  {!learningContext && <Pagination />}
+  <details class="provenance">
+    <summary>
+      <span role="heading" aria-level="2">{labels.heading}</span>
+      <small>{labels.summary}</small>
+    </summary>
+    <div class="provenance-body">
+      <dl>
+        <div>
+          <dt>{labels.builtFrom}</dt><dd>
+            <a href={`${repository}/commit/${buildCommit}`}
+              ><code>{shortBuildCommit}</code></a
+            >
+          </dd>
+        </div>
+        <div>
+          <dt>{labels.productSnapshot}</dt><dd>
+            <a href={`${repository}/commit/${productCommit}`}
+              ><code>{shortProductCommit}</code></a
+            >
+          </dd>
+        </div>
+        <div><dt>{labels.pageStatus}</dt><dd>{labels.current}</dd></div>
+        <div><dt>{labels.snapshotTime}</dt><dd>{generatedAt} UTC</dd></div>
+        <div>
+          <dt>{labels.pageSource}</dt><dd>
+            <a href={sourceUrl}>{labels.viewMdx}</a>
+          </dd>
+        </div>
+      </dl>
+      <p>{labels.explanation}</p>
+    </div>
+  </details>
   <div class="meta sl-flex"><EditLink /><LastUpdated /></div>
-  <Pagination />
   <nav class="project-links" aria-label={labels.projectLinks}>
     <a href={repository}>GitHub</a>
     <a href={`${repository}/blob/${buildCommit}/CONTRIBUTING.md`}
@@ -107,22 +119,35 @@ const generatedAt = new Date(__TOBARI_DOCS_GENERATED_AT__).toLocaleString(
       gap: 1.5rem;
     }
     .provenance {
-      margin-top: 3rem;
-      padding: 1rem 1.1rem;
+      margin-top: 1rem;
       border: 1px solid var(--sl-color-gray-5);
-      border-inline-start: 0.3rem solid var(--tobari-diagnostic);
-      background: var(--sl-color-gray-6);
       font-size: var(--sl-text-sm);
     }
-    .provenance h2 {
-      margin: 0 0 0.75rem;
-      font-size: var(--sl-text-base);
+    .provenance summary {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 1rem;
+      cursor: pointer;
+      list-style-position: inside;
+    }
+    .provenance summary span {
+      font-weight: 750;
+    }
+    .provenance summary small {
+      color: var(--sl-color-gray-3);
+      text-align: end;
+    }
+    .provenance-body {
+      padding: 0 1rem 1rem;
+      border-block-start: 1px solid var(--sl-color-gray-5);
     }
     .provenance dl {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 0.65rem 1.25rem;
-      margin: 0;
+      margin: 1rem 0 0;
     }
     .provenance dl div {
       min-width: 0;
@@ -155,6 +180,14 @@ const generatedAt = new Date(__TOBARI_DOCS_GENERATED_AT__).toLocaleString(
       font-size: var(--sl-text-sm);
     }
     @media (max-width: 38rem) {
+      .provenance summary {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+      .provenance summary small {
+        text-align: start;
+      }
       .provenance dl {
         grid-template-columns: 1fr;
       }
@@ -162,7 +195,13 @@ const generatedAt = new Date(__TOBARI_DOCS_GENERATED_AT__).toLocaleString(
     @media print {
       .provenance {
         break-inside: avoid;
-        background: none;
+      }
+      .provenance summary {
+        display: none;
+      }
+      .provenance-body {
+        display: block !important;
+        border: 0;
       }
     }
   }

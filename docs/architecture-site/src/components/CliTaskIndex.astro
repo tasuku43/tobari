@@ -1,0 +1,209 @@
+---
+import catalogData from "../generated/catalog.json";
+
+interface CatalogCommand {
+  path: string;
+  summary: string;
+  outcome: string;
+}
+
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const commands = new Map(
+  (catalogData.root.commands as CatalogCommand[]).map((command) => [
+    command.path,
+    command,
+  ]),
+);
+const commandHref = (path: string) => `#command-${path.replaceAll(" ", "-")}`;
+const group = (
+  title: string,
+  japaneseTitle: string,
+  detail: string,
+  japaneseDetail: string,
+  paths: string[],
+) => ({
+  title: isJapanese ? japaneseTitle : title,
+  detail: isJapanese ? japaneseDetail : detail,
+  commands: paths
+    .map((path) => commands.get(path))
+    .filter((command): command is CatalogCommand => Boolean(command)),
+});
+
+const ui = isJapanese
+  ? {
+      eyebrow: "目的からコマンドを探す",
+      title: "今したい作業を選ぶ",
+      intro:
+        "ここでは作業から候補を絞ります。リンク先の入力、前提条件、障害、変更内容は、すべて Catalog から生成した契約です。",
+      commandLabel: "候補のコマンド",
+    }
+  : {
+      eyebrow: "Find commands by task",
+      title: "Choose what you need to do",
+      intro:
+        "Use these task groups to narrow the list. Every linked input, prerequisite, failure, and mutation fact below is still generated from the Catalog.",
+      commandLabel: "Candidate commands",
+    };
+
+const groups = [
+  group(
+    "Inspect local state",
+    "状態を確認する",
+    "Check prerequisites, cluster health, the nearest Workspace, or the current Context.",
+    "前提条件、共有クラスター、現在地に近い Workspace、現在の Context を確認します。",
+    ["doctor", "cluster status", "status", "list", "context show"],
+  ),
+  group(
+    "Start or remove a Workspace",
+    "Workspace を作る・削除する",
+    "Start the shared services, enter the current project, or remove resources deliberately.",
+    "共有サービスを起動し、現在のプロジェクトへ入り、不要な資源を意図的に削除します。",
+    ["cluster up", "tobari", "delete", "cluster down"],
+  ),
+  group(
+    "Review a denied request",
+    "拒否された通信を確認する",
+    "Inspect pending exact effects and decide whether one should be allowed or denied.",
+    "保留中の完全一致の通信を確認し、一つを許可するか拒否するか決めます。",
+    ["policy review", "policy allow", "policy deny"],
+  ),
+  group(
+    "Inspect or change learned policy",
+    "学習済みポリシーを確認・変更する",
+    "Read current decisions, return one effect to default deny, or inspect denial evidence.",
+    "現在の判断を確認し、一つをデフォルト拒否へ戻すか、拒否の根拠を調べます。",
+    ["policy rules", "policy reset", "cluster denials", "cluster logs"],
+  ),
+  group(
+    "Configure a Context and runtime",
+    "Context とランタイムを設定する",
+    "Create or select an execution Context, configure presentation, and build its runtime.",
+    "実行 Context を作成・選択し、表示設定とランタイムを準備します。",
+    [
+      "context list",
+      "context create",
+      "context use",
+      "config shell",
+      "config git",
+      "runtime init",
+      "runtime build",
+    ],
+  ),
+  group(
+    "Set up authentication",
+    "認証を設定する",
+    "Acquire, import, inspect, or remove a supported provider credential on the trusted host.",
+    "対応する認証情報を、信頼するホストで取得・取り込み・確認・削除します。",
+    ["auth login", "auth import", "auth status", "auth logout"],
+  ),
+].filter((item) => item.commands.length > 0);
+---
+
+<section class="cli-task-index" aria-labelledby="cli-task-index-heading">
+  <p class="cli-task-eyebrow">{ui.eyebrow}</p>
+  <h2 id="cli-task-index-heading">{ui.title}</h2>
+  <p class="cli-task-intro">{ui.intro}</p>
+  <div class="cli-task-grid">
+    {
+      groups.map((item) => (
+        <section>
+          <h3>{item.title}</h3>
+          <p>{item.detail}</p>
+          <strong>{ui.commandLabel}</strong>
+          <ul>
+            {item.commands.map((command) => (
+              <li>
+                <a href={commandHref(command.path)}>
+                  <code>tobari {command.path}</code>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .cli-task-index {
+    margin-block: 2rem 3rem;
+  }
+  .cli-task-eyebrow {
+    margin: 0;
+    color: var(--tobari-control);
+    font-size: var(--sl-text-xs);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .cli-task-index > h2 {
+    margin: 0.45rem 0 0;
+  }
+  .cli-task-intro {
+    max-width: 46rem;
+    color: var(--sl-color-gray-2);
+  }
+  .cli-task-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    margin-top: 1.5rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-gray-5);
+  }
+  .cli-task-grid > section {
+    min-width: 0;
+    padding: 1rem;
+    background: var(--sl-color-bg);
+  }
+  .cli-task-grid h3 {
+    margin: 0;
+    font-size: var(--sl-text-lg);
+  }
+  .cli-task-grid p {
+    margin: 0.45rem 0 0.8rem;
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
+  }
+  .cli-task-grid > section > strong {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .cli-task-grid ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.75rem;
+    margin: 0.55rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .cli-task-grid a {
+    display: inline-block;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--sl-color-gray-5);
+    text-decoration: none;
+  }
+  .cli-task-grid a:hover,
+  .cli-task-grid a:focus-visible {
+    border-color: var(--tobari-control);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+  .cli-task-grid code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 44rem) {
+    .cli-task-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media print {
+    .cli-task-index {
+      display: none;
+    }
+  }
+</style>

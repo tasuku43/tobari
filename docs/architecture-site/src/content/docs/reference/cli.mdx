@@ -1,24 +1,22 @@
 ---
 title: CLI reference
-description: The generated public command contract, including inputs, outputs, effects, references, mutations, faults, and recovery.
+description: Find a Tobari command by task, then inspect the generated public contract for its exact inputs, outputs, effects, failures, and recovery.
 ---
 
 import CliReference from "../../../components/CliReference.astro";
+import CliTaskIndex from "../../../components/CliTaskIndex.astro";
 
-This reference lists every public Tobari command and its exact inputs, outputs,
-effects, reference flow, mutation contract, faults, and recovery actions. The
-source of truth is the Go `cli.Catalog`; the content below is generated through
-Tobari's machine-readable help rather than maintained as a second command list.
+The source of truth for the public CLI is the Go `cli.Catalog`. This page starts
+from the task you want to complete, then links into the complete generated
+contract. Command inputs, outputs, prerequisites, mutations, failures, and
+recovery actions are not copied into a second hand-maintained registry.
 
-Use the summary view to choose a command by user outcome. Open the complete
-contract when you need required inputs, defaults, conflicts, prerequisites,
-output coverage, or the opaque reference consumed by an action. If these terms
-are new, read [the mental model](/how-it-works/mental-model/) before using the
-machine contract.
+<CliTaskIndex />
 
-## How to read the contract
+<details>
+<summary>How to read an exact command contract</summary>
 
-Every command has one exact path and one complete specification:
+Each command has one exact path and one complete specification:
 
 | Field             | Meaning                                                                                                              |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -28,7 +26,7 @@ Every command has one exact path and one complete specification:
 | Inputs            | Typed positional arguments and flags, including cardinality, omission behavior, bounds, dependencies, and conflicts. |
 | Output            | Formats, fields, JSON envelope and schema version, delivery mode, and collection coverage.                           |
 | Prerequisites     | State that must already exist before the operation can succeed.                                                      |
-| Failures          | Stable kind, code, retryability, and catalog-owned next actions.                                                     |
+| Failures          | Stable kind, code, retryability, and Catalog-owned next actions.                                                     |
 | References        | Opaque values produced by discovery or consumed unchanged by an action.                                              |
 | Mutation contract | Intent, target binding, impact, and confirmed outcome for a create or write.                                         |
 
@@ -50,39 +48,20 @@ Dash-prefixed flag values use the equals form. A dash-prefixed positional value
 follows the positional-only marker. The generated invocation grammar below is
 authoritative for the built commit.
 
+</details>
+
 ## Generated command contract
 
 <CliReference />
 
-## Failure and recovery rules
+<details>
+<summary>Failure and recovery rules</summary>
 
 A normal command failure can be rendered as text or as error JSON schema 1.
-The machine form contains:
-
-```json
-{
-  "schema_version": 1,
-  "error": {
-    "kind": "canceled",
-    "code": "operation_canceled",
-    "message": "The operation was canceled.",
-    "retryable": true,
-    "retry_after": null,
-    "next_actions": [
-      {
-        "command": "doctor",
-        "reason": "Retry when the caller is ready."
-      }
-    ]
-  }
-}
-```
-
 Treat `kind` as the broad recovery class and `code` as the exact programmatic
 condition. `retryable: true` is permission to consider a retry, not proof that
-a mutation is safe to replay. `retry_after` is rate-window evidence and is
-independent from logical replay safety. For an interrupted mutation, inspect
-the command's outcome contract and reconcile state before retrying.
+a mutation is safe to replay. For an interrupted mutation, inspect the
+command's outcome contract and reconcile current state before retrying.
 
 Recovery commands come from the Catalog. They are exact command paths, or
 `help <exact-path-or-namespace>`. Do not append untrusted text from an upstream
@@ -94,32 +73,32 @@ Two fail-closed diagnostics protect the fault boundary itself:
 Catalog declaration. These diagnostics indicate a Tobari contract defect, not
 an ordinary provider response.
 
-## Limits of this reference
+</details>
+
+<details>
+<summary>Limits and source evidence</summary>
 
 - Human wording may improve without changing a stable machine field.
 - The Catalog describes the supported public CLI. It does not expose raw
   vendor routes, Docker commands, broker protocols, or arbitrary HTTP calls.
-- The generated contract describes command behavior. It does not make an
-  external service available or grant network permission.
-- A complete delivery mode does not imply exhaustive provider history.
-  Collection coverage is declared separately.
-- The source build normally reports version `dev`. Release automation injects
-  a release version and source commit; this page does not invent a release
-  number.
+- A generated command contract does not make an external service available or
+  grant network permission.
+- A complete delivery mode does not imply exhaustive provider history;
+  collection coverage is declared separately.
+- Ordinary source builds report version `dev`. Release automation injects a
+  release version and source commit.
 
-## Evidence
+Primary sources:
 
-- Governing contract:
-  <a
+- <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/01_product_contract.md`}
   >
     product contract
   </a>
-- Catalog source:
-  <a
+- <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog.go`}
   >
-    `internal/cli/catalog.go`
+    <code>internal/cli/catalog.go</code>
   </a>
   and
   <a
@@ -127,20 +106,17 @@ an ordinary provider response.
   >
     runtime command specifications
   </a>
-- Machine-help projection:
-  <a
+- <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/help.go`}
   >
-    `internal/cli/help.go`
+    <code>internal/cli/help.go</code>
   </a>
-- Site generator:
-  <a
+- <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_BUILD_COMMIT__}/tools/sitegen/main.go`}
   >
-    `tools/sitegen/main.go`
+    <code>tools/sitegen/main.go</code>
   </a>
-- Contract tests:
-  <a
+- <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog_test.go`}
   >
     Catalog validation
@@ -158,40 +134,9 @@ an ordinary provider response.
     output schema agreement
   </a>
 
-## Summary
-
-The Catalog is the public CLI source of truth. Generated help exposes its
-typed grammar, output, reference flow, mutation facts, failures, and recovery.
-The site reads that contract; it does not create a second registry.
-
-## Check your understanding
-
-You should now be able to explain why a copied list of command names is not an
-adequate CLI reference.
-
-<details>
-  <summary>Why does `policy allow` consume an opaque reference?</summary>
-
-Discovery and action are separate. The reference binds the host-side action
-to one reviewed candidate without asking the action to rediscover, decode, or
-reconstruct its identity.
-
 </details>
 
-<details>
-  <summary>Does `retryable: true` make every failed write safe to repeat?</summary>
-
-No. It classifies the fault. A mutation may already have completed, so its
-structured outcome and the current state must be reconciled before replay.
-
-</details>
-
-<details>
-  <summary>Where do you look for an argument's default and conflicts?</summary>
-
-In exact-command agent help, generated from the command's Catalog inputs.
-The root help index intentionally omits that detail.
-
-</details>
+The task groups above are navigation only. The generated Catalog remains the
+public CLI source of truth.
 
 Next: [Configuration and state](/reference/configuration-and-state/).

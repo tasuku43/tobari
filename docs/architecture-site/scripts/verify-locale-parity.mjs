@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   collectLocaleRoutes,
@@ -16,13 +16,30 @@ const { canonical, japanese, duplicates } =
 const errors = localeRouteProblems({ canonical, japanese, duplicates }).map(
   ({ message }) => message,
 );
+const localAstroImport = /\bfrom\s+["']([^"']+\.astro)["']/g;
+
+async function pageSource(file) {
+  const pagePath = resolve(contentRoot, file);
+  const source = await readFile(pagePath, "utf8");
+  const componentPaths = [
+    ...new Set(
+      [...source.matchAll(localAstroImport)].map((match) =>
+        resolve(dirname(pagePath), match[1]),
+      ),
+    ),
+  ];
+  const componentSources = await Promise.all(
+    componentPaths.map((path) => readFile(path, "utf8")),
+  );
+  return [source, ...componentSources].join("\n");
+}
 
 for (const [route, canonicalFile] of canonical) {
   const japaneseFile = japanese.get(route);
   if (!japaneseFile) continue;
   const [canonicalSource, japaneseSource] = await Promise.all([
-    readFile(resolve(contentRoot, canonicalFile), "utf8"),
-    readFile(resolve(contentRoot, japaneseFile), "utf8"),
+    pageSource(canonicalFile),
+    pageSource(japaneseFile),
   ]);
   errors.push(
     ...localeContentProblems({
