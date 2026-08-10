@@ -1,21 +1,22 @@
 ---
 title: 設定と状態
-description: ホスト上の正規パス、状態の管理主体、schema の境界、永続性、削除、復旧動作を説明します。
+description: ホスト上の正規パス、状態の管理主体、スキーマの境界、永続性、削除、復旧時の動作を説明します。
 ---
 
-このリファレンスでは、Tobari の host-owned configuration、durable runtime
-state、shared read-only projection、Docker resource、選択した project 内の file
-を、それぞれの owner と lifetime に対応付けます。runtime container は
-Workspace の source of truth ではありません。
+このページでは、Tobari がホスト上で管理する設定、永続するランタイム状態、共有の
+読み取り専用データ、Docker リソース、選択したプロジェクト内のファイルについて、
+それぞれの管理主体と寿命を整理します。ランタイムコンテナは Workspace の正本では
+ありません。
 
-operation table から、`exit`、`delete`、`cluster down`、`cluster down --purge`、
-credential replacement、runtime rebuild の後に残るものを確認できます。これらの
-path の ownership model は、先に [Workspace、Context、cluster](../../how-it-works/workspace-context-cluster/)
-で説明します。
+操作ごとの表から、`exit`、`delete`、`cluster down`、`cluster down --purge`、
+認証情報の置換、ランタイムの再ビルド後に何が残るかを確認できます。パスの所有関係は、
+先に[Workspace、Context、クラスター](../../how-it-works/workspace-context-cluster/)で
+説明します。
 
-## ホスト上の三つの root
+## ホスト上の三つのルート
 
-Tobari は standard XDG home を resolve し、`tobari` directory 一つを加えます。
+Tobari は標準の XDG ホームディレクトリを解決し、その下に `tobari` ディレクトリを一つ
+追加します。
 
 ```text
 Configuration  ${XDG_CONFIG_HOME:-$HOME/.config}/tobari
@@ -23,123 +24,155 @@ State          ${XDG_STATE_HOME:-$HOME/.local/state}/tobari
 Shared data    ${XDG_DATA_HOME:-$HOME/.local/share}/tobari
 ```
 
-これらは protected host path です。重なる project root を拒否します。owner-only file は使用前に unsafe symlink、unexpected file type、ownership、permissive mode も確認します。
+これらは保護対象のホストパスです。Tobari は、これらと重なるプロジェクトルートを
+拒否します。所有者だけが使うファイルは、使用前に危険なシンボリックリンク、想定外の
+ファイル種別、所有者、緩すぎるアクセス権も検査します。
 
 ## ホストが管理する設定
 
-| configuration root 以下の path                            | contract と意味                                                                                                                                            |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config.json`                                             | compatibility schema `v1`。default Context image を一度 seed                                                                                               |
-| `contexts/active.json`                                    | current/default Context name。omitted selector の default を選び、request authority ではない                                                               |
-| `contexts/<name>/context.json`                            | **stored Context manifest schema 4**。stable Context ID、agent profile、selected image、policy mode、narrow shell setting、optional runtime-build metadata |
-| `contexts/<name>/runtime/Dockerfile`                      | `runtime init` が作る optional owner-only build recipe。編集だけでは image を選ばない                                                                      |
-| `contexts/<name>/policy/data.json`                        | Context-owned boundary と learned allow/deny data                                                                                                          |
-| `contexts/<name>/policy/tobari.rego` / `tobari_test.rego` | Advanced policy 用。Guided policy は reviewed embedded evaluator を使用                                                                                    |
-| `contexts/<name>/credentials.json` / `credentials/`       | retained managed-adapter metadata/secret file。Workspace へ mount しない                                                                                   |
-| `auth/providers/*.json`                                   | optional strict provider-manifest v1 document                                                                                                              |
-| `principal-registry/principals.json`                      | host-issued principal registry schema 2。directory ごと Gateway へ read-only mount                                                                         |
+| 設定ルートからの相対パス                                   | 契約と意味                                                                                                                                                                         |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config.json`                                              | 互換スキーマ `v1`。デフォルト Context のイメージを初回だけ設定                                                                                                                     |
+| `contexts/active.json`                                     | 現在のデフォルト Context 名。Context 指定を省略したときの既定値を選ぶだけで、リクエストの権限にはならない                                                                          |
+| `contexts/<name>/context.json`                             | **保存用 Context マニフェストのスキーマ 4**。安定した Context ID、エージェントプロファイル、選択中のイメージ、ポリシーモード、限定的なシェル設定、任意のランタイムビルド情報を保持 |
+| `contexts/<name>/runtime/Dockerfile`                       | `runtime init` が作成する、任意の所有者専用ビルド定義。編集しただけではイメージを選択しない                                                                                        |
+| `contexts/<name>/policy/data.json`                         | Context が所有する境界と、学習済みの許可・拒否データ                                                                                                                               |
+| `contexts/<name>/policy/tobari.rego` と `tobari_test.rego` | Advanced ポリシー用。Guided ポリシーでは、レビュー済みの組み込み評価器を使用                                                                                                       |
+| `contexts/<name>/credentials.json` と `credentials/`       | 保持型 managed アダプター（retained managed adapter）のメタデータと秘密ファイル。Workspace にはマウントしない                                                                      |
+| `auth/providers/*.json`                                    | 任意の、厳格なプロバイダーマニフェスト v1 文書                                                                                                                                     |
+| `principal-registry/principals.json`                       | ホストが発行するプリンシパル台帳（principal registry）のスキーマ 2。ディレクトリごと Gateway へ読み取り専用でマウント                                                              |
 
-stored manifest と public output を混同しないでください。`context show` などは **public Context report schema 6** を出力します。これは task-owned secret-free projection で、version は persisted Context manifest と独立して変えられます。
+保存用マニフェストと公開出力を混同しないでください。`context show` などの Context 結果
+コマンドは、**公開 Context レポートのスキーマ 6**を出力します。これは各タスクが所有する、
+秘密情報を除いた公開用データです。バージョンは、永続化した Context マニフェストとは独立して
+変更できます。
 
 ## 永続するランタイム状態
 
-| state root 以下の path                 | contract と lifetime                                                                                                                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `roots/<hash>.json`                    | root index schema 2。canonical project root/stable Context ID を Workspace ID 一つへ bind                                                                                             |
-| `instances/<id>/state.json`            | Workspace instance schema 2。logical identity、permanent Context binding、last reconciled image、diagnostic Docker ID                                                                 |
-| `instances/<id>/home`                  | tool-native authentication/projected broker handle 用 independent writable Workspace home。exit/container recreation 後も残り、`delete` で削除                                        |
-| `state.json`                           | shared cluster state schema 3。aggregate revision/shared resource identity を記録し、credential content/current Context authority は含まない                                          |
-| `cluster-projections/<revision>/`      | content-addressed complete policy/managed-provider projection。OPA へ policy directory を read-only で渡す                                                                            |
-| `auth/projection/providers.json`       | normalized non-secret provider projection schema 2。owner manifest は schema 1、reviewed built-in は schema 1/2                                                                       |
-| `auth/contexts/<context-id>/vault.enc` | encrypted Context vault。AES-256-GCM envelope schema 1/payload schema 2。typed static secret、opaque AWS state、Datadog OAuth state、revision、durable barrier、raw handle を保持可能 |
-| `auth/keys/root.key`                   | Linux installation root key。exactly 32 owner-only bytes。macOS は Keychain                                                                                                           |
-| `auth/projects/<project-id>.json`      | project authentication file registry schema 1                                                                                                                                         |
-| `auth/runtime/`                        | host-owned Gateway runtime Unix-socket directory。socket は service と再作成し、durable credential ではない                                                                           |
-| `runtime/<asset-revision>/`            | materialized embedded Compose、Gateway、OPA、Broker runtime asset                                                                                                                     |
-| journal file                           | interrupted multi-step project/cluster mutation の reconcile に使う durable marker                                                                                                    |
+| 状態ルートからの相対パス               | 契約と寿命                                                                                                                                                                                                                    |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `roots/<hash>.json`                    | ルート索引のスキーマ 2。正規化したプロジェクトルートと安定した Context ID を、一つの Workspace ID へ結び付ける                                                                                                                |
+| `instances/<id>/state.json`            | Workspace インスタンスのスキーマ 2。論理識別情報、固定された Context との対応、最後に整合を取ったイメージ、診断用 Docker 識別子を保持                                                                                         |
+| `instances/<id>/home`                  | ツール自身の認証情報と、Workspace へ渡した Auth Broker のハンドルを置く、独立した書き込み可能ホーム。`exit` やコンテナ再作成後も残り、`delete` で削除                                                                         |
+| `state.json`                           | 共有クラスター状態のスキーマ 3。集約リビジョンと共有リソースの識別情報を記録する。認証情報の内容や、一つの Context を現在の権限として扱う情報は含まない                                                                       |
+| `cluster-projections/<revision>/`      | 内容アドレス方式で保存した、完全なポリシーと managed 方式プロバイダーの投影。OPA にはポリシーディレクトリを読み取り専用で渡す                                                                                                 |
+| `auth/projection/providers.json`       | 正規化済みで秘密情報を含まないプロバイダー投影のスキーマ 2。所有者が置くマニフェストはスキーマ 1、レビュー済みの組み込み定義はスキーマ 1 または 2                                                                             |
+| `auth/contexts/<context-id>/vault.enc` | 暗号化した Context 保管庫（vault）。AES-256-GCM エンベロープのスキーマ 1 にペイロードのスキーマ 2 を格納。型付きの固定認証情報、不透明な AWS 状態、Datadog OAuth 状態、リビジョン、永続する再実行防止状態、元のハンドルを保持 |
+| `auth/keys/root.key`                   | Linux のインストール用ルート鍵。所有者だけが読める正確に 32 バイトのファイル。macOS では Keychain へ保存                                                                                                                      |
+| `auth/projects/<project-id>.json`      | プロジェクト認証ファイル登録簿のスキーマ 1                                                                                                                                                                                    |
+| `auth/runtime/`                        | ホストが管理する Gateway ランタイム用 Unix ソケットディレクトリ。ソケットはサービスとともに再作成し、永続する認証情報としては扱わない                                                                                         |
+| `runtime/<asset-revision>/`            | 埋め込まれた Compose、Gateway、OPA、Broker のランタイム資材を展開したもの                                                                                                                                                     |
+| ジャーナルファイル                     | 中断した複数段階のプロジェクト変更やクラスター変更について、整合を取り直すための永続マーカー                                                                                                                                  |
 
-macOS の root-key backend は service `io.tobari.auth-root.v1`、account `tobari` の generic Keychain password です。Linux の XDG file protection は host user と Workspace を分けますが、host user compromise 後の保護は主張しません。
+macOS では、サービス `io.tobari.auth-root.v1`、アカウント `tobari` の汎用 Keychain
+パスワードとしてルート鍵を保存します。Linux では、XDG ファイルの保護によってホスト利用者と
+Workspace を隔離します。ただし、ホスト利用者が侵害された後まで保護できるとは主張しません。
 
-shared read-only agent profile は `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles` 以下です。
+共有の読み取り専用エージェントプロファイルは、
+`${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles` 以下にあります。
 
-Auth Broker は container-private socket location も二つ所有します。control socket は Auth Broker tmpfs 内にあり、fixed host control operation だけが到達します。`/run/tobari-auth/companion/bridge.sock` は別の Broker-private tmpfs 内だけにあり、authenticated reverse companion session の server end です。host-mounted service/Workspace mount ではありません。
+Auth Broker は、コンテナ内だけにある二つのソケットも管理します。制御用ソケットは Auth Broker の
+tmpfs 内にあり、固定されたホスト制御操作だけが到達できます。
+`/run/tobari-auth/companion/bridge.sock` は、別の Broker 専用 tmpfs 内だけにあります。
+認証済みの逆向きコンパニオンセッションでサーバー側となるソケットです。ホストへ公開する
+サービスでも、Workspace へマウントするソケットでもありません。
 
-## Tobari の host root 外にある状態
+## Tobari のホストルート外にある状態
 
-selected project root は read-write mount され、Workspace lifecycle ではなく user が所有します。Tobari の delete/cluster command は root 内の file を削除しません。
+選択したプロジェクトルートは、読み書き可能でマウントします。これは利用者の所有物で
+あり、Workspace のライフサイクルには含まれません。Tobari の `delete` やクラスター操作が、
+プロジェクトルートやその中のファイルを削除することはありません。
 
-Docker は runtime container、network、shared service、Gateway CA volume を保持します。Docker inspection は current runtime resource の evidence ですが、logical Workspace の existence は決めません。root index と instance state が決めます。
+Docker は、ランタイムコンテナ、ネットワーク、共有サービス、Gateway CA ボリュームを
+保持します。Docker を調べれば、現在のランタイムリソースは確認できます。しかし、論理
+Workspace が存在するかどうかを決めるのは、ルート索引とインスタンス状態です。
 
 ## 各操作の後に残るもの
 
-| Operation                               | 変わるもの                                                                                    | 残るもの                                                                                                                |
-| --------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| shell `exit` / child command completion | attached exec session だけが終了                                                              | logical Workspace、work container、dedicated network、home、root index、project file、policy、credential                |
-| `delete`                                | exact detached Workspace container/network/root index/instance state/home を削除              | project-root file、Context configuration/policy、cluster、vault、root key、別 Workspace                                 |
-| `delete --force`                        | 同じ deletion で「attached exec がある」guard だけを上書き                                    | target を広げず project-root file を削除しない                                                                          |
-| container/project-network loss          | next root entry が missing owned runtime resource を reconcile                                | logical Workspace identity、Context binding、root index、instance state、home、project file                             |
-| `cluster down`                          | logical Workspace がないことを要求し、shared container/transient resource を削除              | Context、policy、provider manifest、encrypted vault、installation root key、Gateway CA volume                           |
-| `cluster down --purge`                  | shared Gateway/public CA volume も削除                                                        | Context、encrypted vault、root key、provider configuration。logout ではない                                             |
-| `auth logout <provider>`                | Context/provider credential 一つを削除し、issued handle を local revoke                       | 他 provider、policy rule、project file、cluster CA、root key。remote revocation は保証しない                            |
-| Credential replacement                  | new credential revision を書き old handle を revoke                                           | Workspace identity/home。running process environment は変わらず re-entry が必要                                         |
-| `runtime build`                         | immutable local image digest を build/validate/record し current Context へ atomically select | existing Workspace identity、home、current container は next entry まで。failed build では prior selection が authority |
+| 操作                                   | 変わるもの                                                                                          | 残るもの                                                                                                            |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| シェルの `exit` または子コマンドの完了 | 接続中の exec セッションだけが終了                                                                  | 論理 Workspace、作業コンテナ、専用ネットワーク、ホーム、ルート索引、プロジェクトファイル、ポリシー、認証情報        |
+| `delete`                               | 接続されていない対象 Workspace のコンテナ、ネットワーク、ルート索引、インスタンス状態、ホームを削除 | プロジェクトルート内のファイル、Context の設定とポリシー、クラスター、保管庫、ルート鍵、別の Workspace              |
+| `delete --force`                       | 同じ削除処理を行い、「接続中の exec がある」という安全確認だけを無視                                | 削除対象は広がらず、プロジェクトルート内のファイルも削除しない                                                      |
+| コンテナまたは専用ネットワークの消失   | 次回そのプロジェクトルートから入るときに、失われた管理対象ランタイムリソースの整合を取り直す        | 論理 Workspace の識別情報、Context との対応、ルート索引、インスタンス状態、ホーム、プロジェクトファイル             |
+| `cluster down`                         | 論理 Workspace が一つもないことを要求し、共有コンテナと一時的な共有リソースを削除                   | Context、ポリシー、プロバイダーマニフェスト、暗号化保管庫、インストール用ルート鍵、Gateway CA ボリューム            |
+| `cluster down --purge`                 | 共有 Gateway と公開 CA のボリュームも削除                                                           | Context、暗号化保管庫、ルート鍵、プロバイダー設定。ログアウトではない                                               |
+| `auth logout <provider>`               | 一つの Context とプロバイダーに対応する認証情報を削除し、発行済みハンドルをローカルで失効           | 他のプロバイダー、ポリシー規則、プロジェクトファイル、クラスター CA、ルート鍵。外部サービスでの失効は保証しない     |
+| 認証情報の置換                         | 新しい認証情報リビジョンを書き、古いハンドルを失効                                                  | Workspace の識別情報とホーム。実行中プロセスの環境は変わらないため、Workspace へ入り直す必要がある                  |
+| `runtime build`                        | 不変なローカルイメージダイジェストをビルド、検証、記録し、現在の Context 用として一括して選択       | 既存 Workspace の識別情報、ホーム、現在のコンテナは、次回入るまで残る。ビルド失敗時は以前の選択が引き続き正本となる |
 
-default official runtime selector `ghcr.io/tasuku43/tobari/runtime:latest` は **moving tag** です。documented explicit path でだけ refresh され、immutable digest ではありません。successful managed runtime build は inspected local image digest を Context manifest へ別に記録します。
+公式のデフォルトランタイムセレクター
+`ghcr.io/tasuku43/tobari/runtime:latest` は、**更新されるタグ**です。文書化された明示的な
+経路でだけ更新します。不変なダイジェストではありません。管理対象ランタイムのビルドに
+成功すると、検査済みのローカルイメージダイジェストを Context マニフェストへ別に記録します。
 
 ## 障害と復旧
 
-Tobari は ambiguous state で fail closed します。
+状態を一意に判断できない場合、Tobari は安全側に倒して拒否します（fail closed）。
 
-- instance state のない surviving root index は `incomplete`。entry は replacement record を推測せず、exact deletion が cleanup path
-- interrupted project/cluster journal は selection/mutation 前に lock の下で reconcile
-- mismatched aggregate revision または failed policy activation は exact cluster operation 完了まで dependent entry/policy operation を block
-- encrypted vault があるのに root key missing は recovery fault。replacement key で new vault のふりをしない
-- owner-label/runtime-spec disagreement は unrelated Docker resource の deletion/adoption を authorize しない
+- インスタンス状態がないまま残ったルート索引は `incomplete` と報告します。Workspace へ
+  入るときに代替レコードを推測せず、完全一致する削除操作を後始末の経路とします。
+- 中断したプロジェクトまたはクラスターのジャーナルは、選択や変更の前に、そのロックを
+  保持した状態で整合を取り直します。
+- 集約リビジョンの不一致やポリシー有効化の失敗があると、対応するクラスター操作が
+  完了するまで、依存する Workspace に入る処理とポリシー操作を止めます。
+- 暗号化保管庫があるのにルート鍵がない場合は、復旧が必要な障害です。代替鍵を生成して、
+  新しい保管庫であるかのようには扱いません。
+- 所有者ラベルとランタイム仕様が一致しなくても、無関係な Docker リソースを削除したり、
+  管理対象として取り込んだりする権限にはなりません。
 
-prerequisite の観測には `tobari doctor` を使います。Doctor は read-only で、repair、migration、rotation、deletion、unlock を自動実行しません。
+前提の確認には `tobari doctor` を使います。Doctor は読み取り専用です。修復、移行、鍵や
+認証情報の更新、削除、ロック解除を自動では実行しません。
 
 ## 保証と制限
 
-Tobari は supported host/Docker topology 内で exact ownership check と durable logical selection を保証します。selected project root の snapshot/integrity layer は提供しません。overlapping project root は互いの file change を観測できます。Workspace home は設計上 tool-native credential/non-secret broker handle を含む場合がありますが、brokered primary secret を含んではいけません。
+Tobari は、サポート対象のホストと Docker の構成内で、所有関係の完全一致検査と、論理的な
+選択の永続化を保証します。選択したプロジェクトルートのスナップショットを作ったり、
+完全性を守ったりする層は、意図的に提供しません。プロジェクトルートが重なっていると、
+互いのファイル変更を観測できます。Workspace ホームには、設計上、ツール自身が管理する
+認証情報や、秘密ではない Auth Broker ハンドルが入ることがあります。Broker が管理する
+実物の認証情報は含めません。
 
 ## 根拠
 
 - 設定を規定する契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/01_product_contract.md`}><code>docs/01_product_contract.md</code></a>
 - ライフサイクルのアーキテクチャ：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/02_architecture.md`}><code>docs/02_architecture.md</code></a>
-- パスと状態の実装：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime.go`}>共有状態</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_state.go`}>Workspace 状態</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_store.go`}>Context store</a>
-- 認証経路と schema：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/07_authentication.md`}>認証契約</a>
-- テスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_state_test.go`}>状態の復旧</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_runtime_test.go`}>runtime の調整</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_store_test.go`}>Context の永続化</a>
+- パスと状態の実装：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime.go`}>共有状態</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_state.go`}>Workspace 状態</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_store.go`}>Context の保存処理</a>
+- 認証経路とスキーマ：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/07_authentication.md`}>認証契約</a>
+- テスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_state_test.go`}>状態の復旧</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_runtime_test.go`}>ランタイムの整合化</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_store_test.go`}>Context の永続化</a>
 
 ## まとめ
 
-configuration は存在すべきものを示します。durable host state は、どの logical Workspace が存在するかを示します。Docker は reconciled runtime resource を提供します。selected project root は Workspace deletion boundary 外の user data です。
+設定は、存在すべきものを示します。永続するホスト状態は、どの論理 Workspace が存在するか
+を示します。Docker は、整合を取り直したランタイムリソースを提供します。選択した
+プロジェクトルートは利用者のデータであり、Workspace を削除しても残ります。
 
 ## 理解を確認する
 
-container deletion と Workspace deletion が違う理由を説明できるはずです。
+コンテナの削除と Workspace の削除では、対象となる状態が異なります。
 
 <details>
   <summary>
-    <code>cluster down --purge</code> は暗号化された vault/root key
-    を削除しますか？
+    <code>cluster down --purge</code> は暗号化保管庫やルート鍵を削除しますか？
   </summary>
-  いいえ。shared runtime resource と shared CA volume を削除します。vault と
-  installation root key は残ります。
+  いいえ。共有ランタイムリソースに加えて共有 CA
+  ボリュームを削除しますが、保管庫と インストール用ルート鍵は残ります。
 </details>
 
 <details>
   <summary>
-    Context manifest schema 4 と Context report schema 6 は同じ契約 ですか？
+    Context マニフェストのスキーマ 4 と Context レポートのスキーマ 6
+    は同じ契約ですか？
   </summary>
-  いいえ。schema 4 は persisted host configuration、schema 6 は public
-  task-owned secret-free CLI projection です。
+  いいえ。スキーマ 4 は永続化するホスト設定です。スキーマ 6 は公開 CLI
+  向けに各タスクが 所有する、秘密情報を除いた出力です。
 </details>
 
 <details>
-  <summary>runtime の再ビルドに成功した後、何が残りますか？</summary>
-  logical Workspace identity、root binding、project file、Workspace home
-  です。next entry で newly selected image 用 work container
-  だけを再作成する場合があります。
+  <summary>ランタイムの再ビルドに成功した後、何が残りますか？</summary>
+  論理 Workspace の識別情報、プロジェクトルートとの対応、プロジェクトファイル、
+  Workspace ホームです。次回 Workspace へ入るときに、新しく選択したイメージ用の
+  作業コンテナだけを再作成する場合があります。
 </details>
 
 次へ：[プロバイダーマニフェスト](../provider-manifest/)。

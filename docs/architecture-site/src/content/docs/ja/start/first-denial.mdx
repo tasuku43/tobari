@@ -6,23 +6,23 @@ description: 学習可能な 403 が、秘密情報を含まない根拠、ホ�
 import PolicyLoopMap from "../../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
-学習可能な拒否は、upstream connection が作られる前に Gateway で止まります。Gateway は、量を制限した秘密情報を含まない根拠を保持し、ホスト側の review queue を案内します。保持された effect が exact allow または exact deny になるのは、明示的な判断と policy 全体の検証が完了した後だけです。元の request が自動的に再試行されることはありません。
+学習可能な拒否は、Upstream への接続が作られる前に Gateway で止まります。Gateway は、量を制限した秘密情報を含まない根拠を保持し、ホスト側のレビューキューを案内します。保持された通信が完全一致の許可または拒否になるのは、利用者が明示的に判断し、ポリシー全体の検証が完了した後だけです。元のリクエストが自動的に再試行されることはありません。
 
-ここでは、拒否からホスト上のレビュー、意図的な再試行までを順に追います。先に[クイックスタート](../quickstart/)を完了するか、host と Workspace の command が分離されていることを確認してください。
+ここでは、拒否からホスト上のレビュー、意図的な再試行までを順に追います。先に[クイックスタート](../quickstart/)を完了するか、ホストと Workspace のコマンドが分離されていることを確認してください。
 
 <PolicyLoopMap headingLevel={2} />
 
 ## 拒否を時間順に追う
 
-1. Gateway は request を受けた network interface と host-owned principal registry から Context/project principal を導出します。
-2. body-free に正規化した policy input を構築し、OPA へ一度問い合わせます。
-3. OPA は allow rule で覆われない effect を deny します。
-4. Gateway は brokered secret を resolve せず、宛先の DNS lookup も upstream connection の作成も行いません。
-5. Gateway は bounded `403` response を返します。response が示すのは固定された host review command であり、action reference ではありません。
-6. secret-free denial evidence が、保持期間を制限した review window に入ります。同じ exact effect を繰り返し観測しても、新しい authority を生み出さず、一つにまとめられます。
+1. Gateway はリクエストを受けたネットワークインターフェースとホスト所有のプリンシパルレジストリから Context/プロジェクトプリンシパルを導出します。
+2. リクエスト本文を含まない形に正規化したポリシー入力を作り、OPA へ一度問い合わせます。
+3. OPA は、許可規則のない通信を拒否します。
+4. Gateway は Broker 管理の秘密情報を解決せず、宛先の DNS 名前解決も Upstream への接続も行いません。
+5. Gateway は情報量を制限した `403` レスポンスを返します。示すのは固定されたホスト側のレビューコマンドであり、操作用の参照ではありません。
+6. 秘密情報を含まない拒否の根拠が、保持期間を制限したレビュー対象に加わります。同じ通信を繰り返し観測しても新しい権限は生まれず、一つにまとめられます。
 
 <SequenceExplorer
-  title="拒否された effect から意図的な再試行まで"
+  title="拒否された通信から意図的な再試行まで"
   scenarios={["learnable-denial", "policy-review"]}
   initial="learnable-denial"
 />
@@ -35,13 +35,13 @@ import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 tobari policy review
 ```
 
-TTY flow では pending effect を確認し、一つの Context に対する exact choice を stage し、set をレビューした後に一度だけ **Apply** を押します。Apply 前に cancel すると何も変わりません。redirect された review は読み取り専用です。
+TTY のフローでは保留中の通信を確認し、一つの Context に対する完全一致の判断を準備します。一式をレビューした後に一度だけ **Apply** を押してください。Apply 前にキャンセルすると何も変わりません。リダイレクトされたレビューは読み取り専用です。
 
 ```sh
 tobari policy review --format json
 ```
 
-machine caller は opaque な `pcy_...` reference を変更せず、action 一つへ渡します。
+機械から利用する場合は、不透明な `pcy_...` 参照を変更せず、一つの操作へ渡します。
 
 ```sh
 tobari policy allow --id <pcy-id>
@@ -49,93 +49,93 @@ tobari policy allow --id <pcy-id>
 tobari policy deny --id <pcy-id>
 ```
 
-表示順、host label、手作りした identifier は authority ではありません。action は保持された reference を resolve し、それが現在の denial を表すことを確認し、owner-only policy data を変更して、complete aggregate をテストし、complete revisioned bundle 一つを有効化します。validation または activation が失敗した場合、直前の known-good policy が active のまま残ります。
+表示順、ホスト名のラベル、手作りした識別子は権限になりません。操作では、保持された参照を解決し、それが現在の拒否を表すことを確認します。次に、所有者だけがアクセスできるポリシーデータを変更し、集約後のポリシー全体をテストして、リビジョン付きの完全なバンドルを一つだけ有効にします。検証または有効化に失敗した場合は、直前に検証済みだったポリシーが引き続き使われます。
 
-## 「exact」が意味する範囲
+## 「完全一致の」が意味する範囲
 
-learned rule は次に結び付きます。
+学習済み規則は次に結び付きます。
 
-- stable Context ID
-- host-issued project ID
-- scheme
-- destination host と port
-- HTTP method
-- path
+- 安定した Context ID
+- ホストが発行したプロジェクト ID
+- スキーム
+- 宛先ホストとポート
+- HTTP メソッド
+- パス
 
-request body は意図的に含めません。body content だけが異なる二つの request は、同じ policy effect です。Tobari は prompt、JSON payload、upload、form body を調べて intent を推測しません。
+リクエスト本文は意図的に含めません。本文だけが異なる二つのリクエストには、同じ許可規則が適用されます。Tobari はプロンプト、JSON の内容、アップロードデータ、フォーム本文を調べて、リクエストの意図を推測しません。
 
-exact learned deny は baseline default deny と異なります。baseline deny は allow が一致しなかったことを意味します。explicit exact deny は信頼するホストの decision を記録し、pending learnable candidate として繰り返し現れません。どちらも request を止めます。
+完全一致の学習済み拒否は基本デフォルト拒否と異なります。基本拒否は許可が一致しなかったことを意味します。明示的な完全一致の拒否は信頼するホストの判断を記録し、保留中学習可能な候補として繰り返し現れません。どちらもリクエストを止めます。
 
 ## 判断を修正する
 
-現在の learned rule を確認します。
+現在の学習済み規則を確認します。
 
 ```sh
 tobari policy rules
 ```
 
-現在の decision 一つを削除するには、その opaque rule ID を変更せずコピーします。
+現在の判断一つを削除するには、その不透明な規則 ID を変更せずコピーします。
 
 ```sh
 tobari policy reset --id <policy-rule-id>
 ```
 
-reset は effect を許可せず、再実行もしません。その effect を default deny に戻します。その後、同じ denial が観測されれば再び review できます。
+リセットは許可対象を許可せず、再実行もしません。その許可対象をデフォルト拒否に戻します。その後、同じ拒否が観測されれば再びレビューできます。
 
-関連する exact rule が十分に集まると、Tobari は bounded かつ test-backed な path-prefix compaction も discovery します。
+関連する完全一致規則が十分に集まると、Tobari は範囲を限定し、テストで裏付けたパス接頭辞の集約候補も提示します。
 
 ```sh
 tobari policy compactions
 tobari policy compact --id <policy-compaction-id>
 ```
 
-compaction は自動ではありません。positive example を保ち、prefix 外側の隣接 path を canary として確認しますが、有限の test で将来のすべての path が安全だと証明することはできません。
+集約は自動ではありません。一致すべき例を保ち、接頭辞の外側にある隣接パスを検証用リクエストとして確認します。ただし、有限のテストで将来のすべてのパスが安全だと証明することはできません。
 
 ## 失敗時の動作
 
-- OPA が unavailable、または OPA response が invalid の場合は service failure となり、upstream connection は作られません。
-- immutable scheme、cluster、principal、credential binding の failure は diagnostic であり、learnable candidate ではありません。
-- expired または stale な candidate reference は拒否されます。queue を再 discovery してください。
-- policy が並行して変更されると、stale action または compaction は推測せず失敗します。
-- complete policy が invalid なら、直前の active policy は変わりません。
-- mutation が confirmed でも output が uncertain の場合、replay 前に read-only state で reconcile する必要があります。mutation command を盲目的に繰り返さないでください。
+- OPA が利用できない、または OPA のレスポンスが無効な場合はサービス障害となり、外部の接続先への接続は作られません。
+- 不変のスキーム、クラスター、プリンシパル、認証情報結び付けの障害は診断であり、学習可能な候補ではありません。
+- 期限切れまたは古い候補参照は拒否されます。キューから候補を再取得してください。
+- ポリシーが並行して変更されると、古い操作または集約は推測せず失敗します。
+- 完全なポリシーが無効なら、直前に有効だったポリシーは変わりません。
+- 変更が確定していても結果が不確かな場合は、再実行する前に読み取り専用の状態確認で整合を取る必要があります。変更操作コマンドを盲目的に繰り返さないでください。
 
 ## 保証と制限
 
-Tobari は、観測された traffic が自動的に permission にならず、通常の learned decision が exact かつ project-bound のままであることを保証します。destination の信頼性は判断せず、body 内の sensitive information は検査せず、すでに許可された effect が Workspace から読める data を送ることも防ぎません。
+Tobari は、観測した通信が自動的に権限へ変わらず、通常の学習済み判断が完全一致かつプロジェクトに結び付いたままであることを保証します。一方で、接続先が信頼できるかは判断しません。本文内の機微情報を検査せず、すでに許可された接続先へ Workspace から読めるデータを送ることも防ぎません。
 
 ## 根拠となるソース
 
-- [Policy-learning product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
-- [Policy mutation and activation implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata.go)
-- [Policy Catalog specifications](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
-- [CLI review and opaque-reference tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/tobari_test.go)
-- [Gateway deny and OPA-failure tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [ポリシー学習の製品契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [ポリシー変更と有効化の実装](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata.go)
+- [Catalog にあるポリシー仕様](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
+- [CLI のレビューと不透明な参照のテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/tobari_test.go)
+- [Gateway の拒否と OPA 障害を確認するテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
 
 ## まとめ
 
-拒否とは、停止された effect と bounded evidence です。信頼するホストで opaque reference に対する action を実行したときだけ policy が変わります。validation は all-or-nothing で、retry は常に意図的な新しい request です。
+拒否とは、停止された許可対象と上限のある根拠です。信頼するホストで不透明な参照に対する操作を実行したときだけポリシーが変わります。検証は全体が成功した場合だけで、再試行は常に意図的な新しいリクエストです。
 
 ## 理解を確認する
 
 <details>
-<summary>二つの POST リクエストで project、host、port、method、path は同じですが、JSON body が異なります。ポリシー candidate は二つになりますか？</summary>
+<summary>二つの POST リクエストでプロジェクト、ホスト、ポート、メソッド、パスは同じですが、JSON 本文が異なります。ポリシー候補は二つになりますか？</summary>
 
-いいえ。body は policy identity dimension ではないため、同じ ordinary HTTP effect を表します。
+いいえ。本文はポリシー識別情報 dimension ではないため、同じ通常の HTTP 操作を表します。
 
 </details>
 
 <details>
-<summary><code>policy reset</code> は完全一致の拒否を許可に変えますか？</summary>
+<summary><code>ポリシーリセット</code> は完全一致の拒否を許可に変えますか？</summary>
 
-いいえ。learned decision を取り除き、その effect を baseline default deny に戻します。
+いいえ。学習済みの判断を取り除き、その許可対象を基本デフォルト拒否に戻します。
 
 </details>
 
 <details>
 <summary>許可操作の途中でポリシー検証が失敗すると、どうなりますか？</summary>
 
-candidate は部分的に有効化されません。直前の known-good aggregate が active のまま残り、後で valid action が完了するまで request は拒否されます。
+候補は部分的に有効化されません。直前の検証済み集約ポリシーが active のまま残り、後で有効な操作が完了するまでリクエストは拒否されます。
 
 </details>
 

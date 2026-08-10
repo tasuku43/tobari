@@ -3,64 +3,87 @@ title: 監査とプライバシー
 description: ポリシー学習と診断のために記録する情報、除外する情報、秘密情報を含まなくても内容が空ではない理由を説明します。
 ---
 
-Tobari は、HTTP effect の説明とレビューに必要な、範囲を限定した
-secret-free decision metadata を保持します。request body、broker handle、
-resolved secret、設定済みの credential header は除外します。一方で、通常の
-URL path、query value、分類されていない header が自動的に non-sensitive に
-なるわけではありません。
+Tobari が保持するのは、HTTP 通信を説明し、レビューするために必要な範囲の
+メタデータです。リクエスト本文、Auth Broker のハンドル、解決後の秘密情報、
+設定済みの認証ヘッダーは除外します。ただし、URL のパス、クエリの値、分類されて
+いないヘッダーまで、機微情報ではないと判断するわけではありません。
 
-ここで説明するのは policy と診断の記録であり、汎用的な data-loss
-prevention ではありません。この記録が作られる request と credential の境界は、
-先に [Request journey](../../how-it-works/request-journey/) と
-[Credential security](../credential-security/) で確認できます。
+ここで扱うのはポリシーと診断のための記録です。汎用的な情報漏えい防止機能では
+ありません。この記録が作られるリクエストと認証情報の境界は、
+先に [リクエストの流れ](../../how-it-works/request-journey/) と
+[認証情報の安全性](../credential-security/) で確認できます。
 
 ## 許可判断の入力に含まれるもの
 
-Gateway は trusted principal と normalized HTTP information から schema-5 input を作ります。scheme、normalized host、fixed port、method、raw/decoded path、multi-valued query、redacted header、non-secret authorization metadata が含まれ、request body はありません。
+Gateway は、信頼できるプリンシパルと正規化した HTTP 情報からスキーマ 5 の入力を
+作ります。スキーム、正規化したホスト、確定したポート、メソッド、未加工と復号後の
+パス、複数の値を持つクエリー、認証情報を伏せたヘッダー、秘密情報を含まない認可
+メタデータが対象です。リクエスト本文は含みません。
 
-configured/recognized secret header と broker handle は削除または redact されます。ただし実装を、secret らしい string をすべて識別する oracle と説明してはいけません。URL path、query、unclassified header に confidential data を置くと、その値が decision metadata または diagnostic に含まれる可能性があります。
+設定または認識済みの秘密ヘッダーと Auth Broker のハンドルは、削除するか値を
+伏せます。ただし、秘密情報らしい文字列をすべて発見できるわけではありません。
+URL のパス、クエリ、分類されていないヘッダーに機密データを入れると、その値が
+許可判断用のメタデータや診断情報に含まれる可能性があります。
 
 ## 保持する拒否の根拠に含まれるもの
 
-learnable denial は、Context/project identity、host、port、method、path、decision/reason、request ID、timestamp、duration、secret-free classification metadata を含む bounded schema-2 JSON audit record を使います。policy discovery は bounded Docker log を読み、exact rule dimension で candidate を grouping します。
+学習可能な拒否は、上限を設けたスキーマ 2 の JSON 監査レコードとして記録します。
+Context とプロジェクトの識別情報、ホスト、ポート、メソッド、パス、判断と理由、リクエスト
+ID、時刻、処理時間、秘密情報を含まない分類メタデータが対象です。ポリシーの
+検出処理は、上限付きで Docker ログを読み、完全一致規則の各項目で候補をまとめます。
 
-body は candidate を分割しません。query と safe header は OPA input に現れる場合がありますが、current learned exact-rule identity にはなりません。review reference は SHA-256-derived opaque value です。user は list order や decoded provider notation ではなく、unchanged reference へ action します。
+本文の違いによって候補が分かれることはありません。クエリと安全なヘッダーは OPA
+の入力に現れる場合がありますが、現在の学習済み完全一致規則を識別する項目には
+なりません。レビュー用の参照値は SHA-256 から導出した不透明な参照です。
+利用者は表示順や復号したプロバイダー表記ではなく、受け取った参照値をそのまま
+操作へ渡します。
 
 ## 公開出力に含めてはいけないもの
 
-- primary credential、root key、decrypted vault content
-- broker handle value
-- request/response body
-- credential-bearing upstream cause
-- private organization/account fixture または accidental build-machine path。trusted canonical project root は意図的な diagnostic data であり、host-side output に現れる場合があります
-- terminal、TSV、JSON、Unicode line structure を壊す raw control character
+- 実物の認証情報、ルート鍵、復号した保管庫の内容
+- Auth Broker のハンドル値
+- リクエスト本文とレスポンス本文
+- 認証情報を含む外部接続先側の原因
+- 非公開の組織名やアカウントを含むテストデータ、偶発的に混入したビルド環境のパス。
+  ただし、信頼できる基準プロジェクトルートは意図した診断情報であり、ホスト側の
+  出力に現れる場合があります
+- 端末、TSV、JSON、Unicode の行構造を壊す未加工の制御文字
 
-visible projection は control、format、backslash、Unicode line separator を区別します。printable text が instruction のように見えるという理由だけでは filter しません。external text は untrusted data のままです。
+表示用の変換では、制御文字、書式文字、バックスラッシュ、Unicode の行区切りを
+区別します。表示可能な文字列が命令文のように見えるという理由だけで除去することは
+ありません。外部から届く文字列は、表示後も信頼しないデータです。
 
 ## 保持期間とプライバシーの境界
 
-Gateway log は Docker logging configuration で bounded です。discovery は bounded window であり、complete historical ledger ではありません。candidate evidence が missing/expired なら operator は安全に action できません。compaction は自動ではありません。この site は analytics、tracker、runtime API call、external font、cookie を使いません。必要な browser state は local theme preference だけです。
+Gateway のログ量は Docker のログ設定で制限します。検出処理が
+参照するのも一定範囲の期間だけで、完全な履歴台帳ではありません。候補の根拠が
+見つからない、または保持期間を過ぎた場合、利用者はその候補を安全に操作できません。
+規則の集約は自動実行されません。
+
+このサイトはアクセス解析、追跡機能、実行時の API 呼び出し、外部フォント、Cookie を
+使いません。ブラウザーに保存するのはローカルのテーマ設定だけです。
 
 ## 失敗時の動作
 
-audit retention が失敗しても authorization は変わりません。denied request は deny のままです。candidate が stale または retention 外になると、host mutation は拒否し、rediscovery を求めます。diagnostic は replay を authorize しません。
+監査記録の保持に失敗しても、許可判断は変わりません。拒否されたリクエストは拒否の
+ままです。候補が古い、または保持範囲から外れた場合、ホスト側の変更操作は拒否され、
+再検出が必要になります。診断情報だけで再実行が許可されることはありません。
 
 <aside class="guarantee">
   <h2>保証すること</h2>
   <div class="prose-block">
-    対応する policy/broker flow では body と recognized credential material を
-    OPA と retained audit から意図的に除外します。public CLI output には
-    hostile-text projection と bounded schema があります。
+    対応するポリシー処理と Auth Broker の処理では、本文と認識済みの認証情報を
+    OPA の入力と保持する監査記録から意図的に除外します。公開 CLI 出力では、悪意
+    ある文字列を安全に表示する変換と、上限を定めたスキーマを適用します。
   </div>
 </aside>
 
 <aside class="limitation">
   <h2>保証しないこと</h2>
   <div class="prose-block">
-    ordinary path、query、unclassified header data 自体が sensitive
-    な場合があります。secret-free は credential/body class
-    を除外するという意味であり、universal data-loss-prevention classifier
-    ではありません。
+    通常のパス、クエリ、分類されていないヘッダー自体が機微情報を含む場合があります。
+    「秘密情報を含まない」とは、認証情報と本文に分類されるデータを除外するという
+    意味です。あらゆる情報漏えいを検出する仕組みではありません。
   </div>
 </aside>
 
@@ -79,12 +102,12 @@ audit retention が失敗しても authorization は変わりません。denied 
     </li>
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policy.go">
-        上限付きの拒否情報 reader
+        上限付きの拒否情報読み取り処理
       </a>
     </li>
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py">
-        body と認証情報を除外するテスト
+        本文と認証情報を除外するテスト
       </a>
     </li>
   </ul>
@@ -92,23 +115,25 @@ audit retention が失敗しても authorization は変わりません。denied 
 
 ## ここまでで説明できること
 
-「body-free」「secret-free」「sensitive user text を含まない」の違いを説明できるはずです。
+「本文を含まない」「認証用の秘密情報を含まない」「利用者の機微な文字列を含まない」
+という三つの主張は、それぞれ意味が異なります。
 
 <div class="question-list">
   <details>
-    <summary>拒否の記録に POST body は含まれますか？</summary>
+    <summary>拒否の記録に POST の本文は含まれますか？</summary>
     <div class="prose-block">
-      いいえ。body byte は policy identity にも retained audit content
-      にもなりません。
+      いいえ。本文のバイト列は、ポリシーで通信を識別する項目にも、保持する監査記録の
+      内容にもなりません。
     </div>
   </details>
   <details>
     <summary>
-      Tobari が認証情報を伏せるなら、API key を URL query に置いても安全ですか？
+      Tobari が認証情報を伏せるなら、API キーを URL
+      のクエリに置いても安全ですか？
     </summary>
     <div class="prose-block">
-      いいえ。recognized credential header/handle は保護されますが、ordinary
-      query metadata は decision/diagnostic path から見える場合があります。
+      いいえ。認識済みの認証ヘッダーとハンドルは保護されますが、通常のクエリは
+      許可判断や診断のためのメタデータに含まれる場合があります。
     </div>
   </details>
   <details>
@@ -116,8 +141,8 @@ audit retention が失敗しても authorization は変わりません。denied 
       行の順番は <code>policy allow</code> の操作対象を決められますか？
     </summary>
     <div class="prose-block">
-      いいえ。action は rediscover/revalidate される opaque reference を consume
-      します。必要なら{" "}
+      いいえ。操作では、再検出と再検証の対象になる不透明な参照値をそのまま
+      使用します。必要なら{" "}
       <a href="../../how-it-works/policy-learning/">ポリシー学習</a>{" "}
       を復習してください。
     </div>
@@ -126,5 +151,5 @@ audit retention が失敗しても authorization は変わりません。denied 
 
 <div class="page-next">
   <strong>次へ:</strong> <a href="../supply-chain/">サプライチェーン →</a>{" "}
-  で固定された asset と snapshot を追います。
+  で、固定された成果物とスナップショットの関係を確認します。
 </div>

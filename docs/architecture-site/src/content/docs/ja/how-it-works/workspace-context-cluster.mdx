@@ -1,144 +1,145 @@
 ---
-title: Workspace、Context、cluster
-description: 論理的なプロジェクト環境を、ホストが管理する設定、共有サービス、交換可能な container と区別します。
+title: Workspace、Context、クラスター
+description: 論理的なプロジェクト環境を、ホストが管理する設定、共有サービス、交換可能なコンテナと区別します。
 ---
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Workspace は、directory に結び付いた一つの logical Tobari です。その永続的な
-identity は canonical project root と stable Context ID の組み合わせで決まり、
-process を実行する runtime container は交換できます。
+Workspace は、ディレクトリに結び付いた一つの論理的な Tobari です。その永続的な
+識別情報は、正規化したプロジェクトルートと安定した Context ID の組み合わせで決まります。
+プロセスを実行するランタイムコンテナは交換できます。
 
-Context は、runtime、policy、agent、credential に関する host-owned configuration
-を提供します。一つの installation は enforcement service の cluster を共有しますが、
-Workspace identity、home、project network は共有しません。この分離により、current
-Context を切り替えても既存 Workspace は移行せず、同じ project root に別 Context
-の Workspace を持つこともできます。周囲の network role は[システム全体像](../system-overview/)で説明しています。
+Context は、ランタイム、ポリシー、エージェント、認証情報に関する、ホスト所有の設定を提供します。
+一つのインストール環境は強制サービスのクラスターを共有しますが、Workspace の識別情報、
+ホームディレクトリ、プロジェクトネットワークは共有しません。そのため、現在選択中の Context を切り替えても
+既存 Workspace は移行しません。同じプロジェクトルートに、別 Context の Workspace を
+持つこともできます。周囲のネットワーク上の役割は[システム全体像](../system-overview/)で説明しています。
 
 <ConceptDiagram name="workspace-context-cluster" />
 
-## 最も長く残る identity からランタイムの詳細まで
+## 最も長く残る識別情報からランタイムの詳細へ
 
 ### Tobari と Workspace
 
-一つの **Tobari** は、長期間存在する logical untrusted execution environment です。**Workspace** は lifecycle と list output で人に見せる directory-bound の呼び名であり、別の resource ではありません。
+一つの **Tobari** は、長期間存在する、信頼しない論理実行環境です。**Workspace** は、ライフサイクル操作と一覧表示で利用者に見せる、ディレクトリに結び付いた呼び名です。Tobari とは別の資源ではありません。
 
-durable identity は次を組み合わせます。
+永続的な識別情報は、次の組み合わせで決まります。
 
-- canonical host project root
-- stable Context ID
-- state、label、principal に使う、生成済み stable internal Tobari/project ID
+- 正規化したホスト上のプロジェクトルート
+- 安定した Context ID
+- 状態、ラベル、通信主体の識別に使う、生成済みの安定した内部 Tobari ID とプロジェクト ID
 
-project ID は diagnostic であり、通常の操作で user が指定する action target ではありません。
+プロジェクト ID は診断用であり、通常の操作で利用者が指定する操作対象ではありません。
 
 ### Context
 
-**Context** は stable opaque ID と人が読む name を持つ、host-owned execution setup です。manifest は次を参照します。
+**Context** は、安定した不透明な ID と人が読む名前を持つ、ホスト所有の実行設定です。マニフェストファイルは次を参照します。
 
-- compatible runtime image
-- read-only agent profile
-- guided または advanced policy source
-- retained managed-credential store
-- encrypted Broker vault とは別に保存される provider configuration
+- 互換性のあるランタイムイメージ
+- 読み取り専用のエージェントプロファイル
+- ガイド付きまたは高度なポリシーのソース
+- 保持型の管理方式で使う認証情報の保存領域
+- 暗号化した Broker 保管庫とは別に保存するプロバイダー設定
 
-manifest 自体には root key、primary broker secret、vault content は含まれません。**current Context** は command で `--context` を省略したときの default にすぎず、shared enforcement authority ではありません。
+マニフェストファイル自体には、ルート鍵、Broker が管理する実物の秘密情報、保管庫の内容は含まれません。**現在選択中の Context** は、コマンドで `--context` を省略したときの既定値にすぎません。共有の強制権限ではありません。
 
-### cluster
+### クラスター
 
-installation-local の **cluster** には Gateway、OPA、locked Auth Broker がそれぞれ一つだけあります。さらに control/egress network、aggregate projection、principal registry、managed-credential projection、CA lifecycle が含まれます。
+インストール環境ごとの **クラスター** には、Gateway、OPA、ロック状態の Auth Broker が一つずつあります。さらに、`control` と `egress` のネットワーク、集約した反映データ、通信主体の登録簿、保持型認証情報の反映データ、CA のライフサイクルが含まれます。
 
-すべての Context-bound Workspace がこの cluster を共有します。共有サービスが project identity を消すことはありません。Gateway は request ごとに project/Context principal を導出し、OPA は stable Context ID で Context policy へ route します。
+Context に結び付いたすべての Workspace がこのクラスターを共有します。サービスを共有しても、プロジェクトの識別情報は失われません。Gateway はリクエストごとにプロジェクトと Context の通信主体を導出し、OPA は安定した Context ID を使って Context のポリシーへ振り分けます。
 
-### runtime image と container
+### ランタイムイメージとコンテナ
 
-**runtime image** は OS、tool、entrypoint、runtime API を提供します。**runtime container** は、ある時点の Workspace を実現するものです。どちらも Workspace identity を定義しません。
+**ランタイムイメージ**は OS、ツール、エントリーポイント、ランタイム API を提供します。**ランタイムコンテナ**は、ある時点の Workspace を実行可能にします。どちらも Workspace の識別情報は定義しません。
 
-Tobari は独自の mount、network、proxy/CA environment、user、security/resource limit、health contract、明示的な `sleep infinity` lifetime command で container を作ります。image の `CMD` は Workspace lifetime を決めません。drift や loss が起きても、logical Workspace と home を保持したまま container を再作成できます。
+Tobari は、独自のマウント、ネットワーク、プロキシと CA の環境変数、実行ユーザー、セキュリティと資源の制限、正常性の契約、明示的な `sleep infinity` を寿命管理用コマンドとして指定し、コンテナを作ります。イメージの `CMD` が Workspace の寿命を決めることはありません。構成のずれや消失が起きても、論理 Workspace とホームディレクトリを残したままコンテナを作り直せます。
 
-## 現在の directory から Workspace を選ぶ
+## 現在のディレクトリから Workspace を選ぶ
 
-Tobari は state または Docker を扱う前に、host current working directory を canonicalize します。
+Tobari は、状態や Docker を扱う前に、ホスト上の現在の作業ディレクトリを正規化します。
 
-1. 選択中の Context に exact indexed root があれば直接再利用できます。
-2. current directory を含む indexed ancestor root が一つ以上あれば、interactive `tobari` は近い順に有効な候補をすべて表示します。
-3. user は既存 Workspace の選択、current directory での明示的な作成、cancel のいずれかを選びます。
-4. Tobari は nested Workspace を暗黙に作りません。
+1. 選択中の Context に完全一致する索引登録済みルートがあれば、その Workspace を直接再利用できます。
+2. 現在のディレクトリを含む上位の索引登録済みルートが一つ以上あれば、対話型の `tobari` は近い順に有効な候補をすべて表示します。
+3. 利用者は、既存 Workspace の選択、現在のディレクトリでの明示的な作成、キャンセルのいずれかを選びます。
+4. Tobari は入れ子の Workspace を暗黙に作りません。
 
-`status` と `delete` は、明示または current Context の中で current directory に最も近い Workspace を resolve します。CWD selection は、user に Docker name や internal ID の管理を求める仕組みではありません。
+`status` と `delete` は、明示した Context または現在選択中の Context の中から、現在のディレクトリに最も近い Workspace を特定します。CWD による選択は、Docker の名前や内部 ID の管理を利用者へ求める仕組みではありません。
 
-## 同じプロジェクト root、異なる Context
+## 同じプロジェクトルート、異なる Context
 
-`/work/payments` が Context `default` の Workspace に mount されているとします。Context `review` で実行すると、`(root, Context ID)` が異なるため、同じ canonical root に二つ目の Workspace を作れます。
+`/work/payments` が Context `default` の Workspace にマウントされているとします。Context `review` で実行すると、プロジェクトルートと Context ID の組み合わせが異なるため、同じ正規化済みルートに二つ目の Workspace を作れます。
 
 二つの Workspace では、次が別々です。
 
-- stable project ID
-- home と tool-owned authentication state
-- runtime container と internal network
-- project principal
-- Context-scoped learned rule と broker handle
+- 安定したプロジェクト ID
+- ホームディレクトリと、ツールが所有する認証状態
+- ランタイムコンテナと内部ネットワーク
+- プロジェクトの通信主体
+- Context に限定された学習済み規則と Broker ハンドル
 
-一方で `/work/payments` 以下の file は意図的に共有されます。Tobari は overlay、checkout clone、root lock、filesystem integrity isolation を追加しません。
+一方、`/work/payments` 以下のファイルは意図的に共有されます。Tobari はオーバーレイ、チェックアウトの複製、ルートのロック、ファイルシステムの完全性分離を追加しません。
 
-## Context と runtime を変更する
+## Context とランタイムを変更する
 
-`context use --name review` が変えるのは default marker だけです。既存 Workspace の mutation、Context の変更、Docker の起動、新しい aggregate の有効化は行いません。
+`context use --name review` が変更するのは、既定値を示すマーカーだけです。既存 Workspace の状態や Context は変更せず、Docker を起動したり、新しい集約ポリシーを有効化したりもしません。
 
-既存 Workspace は保存済み Context ID に恒久的に結び付きます。Context runtime rebuild は、その Context が求める image を変更します。次の entry で bound Workspace がその image に reconcile されますが、identity と home は残ります。custom image が missing または incompatible なら、project runtime を変更する前に失敗します。
+既存 Workspace は、保存済みの Context ID に恒久的に結び付きます。Context のランタイムを再ビルドすると、その Context が要求するイメージが変わります。次に Workspace へ入るとき、結び付いた実行環境をそのイメージへ合わせますが、識別情報とホームディレクトリは残ります。カスタムイメージが見つからない、または互換性がない場合は、プロジェクトのランタイムを変更する前に失敗します。
 
 ## 失敗時の動作
 
-- 同じ `(canonical root, Context ID)` の重複作成は拒否されます。並行作成では一つだけが成功します。
-- ancestor の候補が曖昧なら明示的な選択が必要です。list order は authority ではありません。
-- durable root index があり instance state がない場合、`incomplete` と報告します。entry は欠けた instance を推測せず、exact deletion が cleanup path になります。
-- runtime container または network がない場合、次の entry で reconcile されます。
-- image が missing または incompatible の場合、project runtime の作成・交換前に fail closed します。
-- current Context の変更で、既存 state が暗黙に移動することはありません。
+- 同じ正規化済みルートと Context ID を持つ Workspace の重複作成は拒否されます。並行して作成した場合も、成功するのは一つだけです。
+- 親ディレクトリの候補が曖昧なら、明示的に選ぶ必要があります。表示順には権限上の意味がありません。
+- 永続的なルート索引があるのにインスタンス状態がない場合は、`incomplete` と報告します。Workspace へ入る処理は欠けたインスタンスを推測せず、完全一致する対象の削除がクリーンアップ経路になります。
+- ランタイムコンテナまたはネットワークがない場合は、次に Workspace へ入るときに調整します。
+- イメージが見つからない、または互換性がない場合は、プロジェクトのランタイムを作成・交換する前に安全側へ閉じて失敗します。
+- 現在選択中の Context を変更しても、既存の状態が暗黙に移動することはありません。
 
 ## 保証と制限
 
-**保証すること:** stable Context/project identity は container reconciliation 後も維持されます。exact root/Context pair ごとに Workspace は一つです。Context selection と既存 Workspace authority は別です。runtime `CMD` は Tobari の lifetime contract を置き換えられません。
+**保証すること:** 安定した Context とプロジェクトの識別情報は、コンテナの調整後も維持されます。完全一致するプロジェクトルートと Context の組み合わせごとに Workspace は一つです。Context の選択と既存 Workspace の権限は別です。ランタイムの `CMD` は、Tobari が定める寿命の契約を置き換えられません。
 
-**保証しないこと:** 同じ root または重なる root の filesystem isolation、project directory を移動・copy した後の自動推論、任意の custom image の信頼性、設定済み local/custom image の自動 pull。
+**保証しないこと:** 同じルートまたは重なるルート間のファイルシステム分離。プロジェクトディレクトリを移動またはコピーした後の自動推論。任意のカスタムイメージの信頼性。設定済みのローカルイメージやカスタムイメージの自動取得。
 
 ## 根拠となるソース
 
-- [Public vocabulary, CWD selection, and path contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
-- [Context composition and runtime lifecycle](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
-- [Context/project binding decision](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
-- [Domain Workspace vocabulary](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari)
-- [Root index and instance state implementation](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime)
-- [Runtime and selection contract tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/app/tobaricmd/service_test.go)
+- [公開用語、現在のディレクトリからの選択、パスの契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Context の構成とランタイムのライフサイクル](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [Context とプロジェクトを結び付ける設計判断](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
+- [ドメイン層の Workspace 用語](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari)
+- [ルート索引とインスタンス状態の実装](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime)
+- [ランタイムと選択処理の契約テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/app/tobaricmd/service_test.go)
 
 ## まとめ
 
-Workspace は durable な product concept です。Context はその恒久的な host-owned configuration identity です。cluster は共有の enforcement infrastructure です。runtime image は環境を提供し、runtime container は交換可能な implementation detail です。
+Workspace は永続的な製品概念です。Context は、そこへ恒久的に結び付く、ホスト所有の設定と識別情報です。クラスターは共有の強制基盤です。ランタイムイメージが環境を提供し、ランタイムコンテナは交換可能な実装詳細です。
 
 ## 理解を確認する
 
-Context または runtime state が変わったとき、何が変わり何が変わらないかを説明できるはずです。
+Context またはランタイム状態が変わったとき、何が変わり、何が変わらないかを説明できるはずです。
 
 <details>
   <summary>
     <code>context use</code> は既存 Workspace を移行しますか？
   </summary>
-  いいえ。明示的な Context を省略した後続 command の default
-  だけを変えます。既存 Workspace は保存済み Context ID を保持します。
+  いいえ。後続のコマンドで明示的な Context
+  を省略した場合に使う既定値だけを変えます。 既存 Workspace は保存済みの Context
+  ID を保持します。
 </details>
 
 <details>
-  <summary>同じプロジェクト root に二つの Workspace を作れますか？</summary>
-  stable Context ID が異なれば作れます。runtime と authority
-  は別ですが、重なった host file は共有されます。
+  <summary>同じプロジェクトルートに二つの Workspace を作れますか？</summary>
+  安定した Context ID が異なれば作れます。ランタイムと権限は別ですが、
+  重なったホストファイルは共有されます。
 </details>
 
 <details>
   <summary>
-    runtime image が短時間で終了する <code>CMD</code> を宣言した場合、その
-    command の終了時に Workspace も停止しますか？
+    ランタイムイメージが短時間で終了する <code>CMD</code> を宣言した場合、その
+    コマンドの終了時に Workspace も停止しますか？
   </summary>
-  いいえ。Tobari は lifetime に image の `CMD` を使わず、検証済みの `sleep
-  infinity` contract を渡します。
+  いいえ。Tobari は寿命の管理にイメージの `CMD` を使わず、検証済みの `sleep
+  infinity` を寿命管理用コマンドとして渡します。
 </details>
 
-共有範囲と Workspace ごとの範囲が不明確なら[システム全体像](../system-overview/)を復習してください。次は、これらの identity を[Workspaceのライフサイクル](../workspace-lifecycle/)で追います。
+共有範囲と Workspace ごとの範囲が不明確なら、[システム全体像](../system-overview/)を復習してください。次は、これらの識別情報を[Workspace のライフサイクル](../workspace-lifecycle/)で追います。

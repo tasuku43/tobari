@@ -6,17 +6,17 @@ description: 保持された拒否の根拠を確認し、完全一致の判断�
 import PolicyLoopMap from "../../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
-ポリシーレビューは、保持された拒否の根拠を、ホストが所有する明示的な判断へ変える操作です。Workspace から出て、信頼するホスト上の bounded secret-free Permission Inbox を確認します。exact detail screen から choice を stage し、一つの Context の reviewed set を一度だけ Apply します。approval は policy を変更しますが、拒否された通信を retry しません。
+ポリシーレビューは、保持された拒否の根拠を、ホストが所有する明示的な判断へ変える操作です。Workspace から出て、信頼するホスト上の Permission Inbox で、量を制限した秘密情報を含まない記録を確認します。完全一致の詳細画面で判断を準備し、一つの Context についてレビュー済みの一式を一度だけ Apply します。承認はポリシーを変更しますが、拒否された通信を再試行しません。
 
-[最初の拒否](../../start/first-denial/)では、request からこのホスト側 review flow までの引き継ぎを説明しています。
+[最初の拒否](../../start/first-denial/)では、リクエストの拒否からこのホスト側のレビューフローまでを説明しています。
 
 <PolicyLoopMap headingLevel={2} />
 
 ## 1. 再試行を止め、Workspace から出る
 
-learnable Gateway `403` は、host で `tobari policy review` を実行する固定 guidance を含みます。candidate ID はなく、agent 自身を承認する手段を与えません。
+学習可能な Gateway `403` は、ホストで `tobari policy review` を実行する固定案内を含みます。候補 ID はなく、エージェント自身を承認する手段を与えません。
 
-review 前に Workspace を出ます。repeated retry は authority を増やさず、同じ effect の bounded evidence を更新するだけです。
+レビュー前に Workspace を出ます。繰り返しの再試行は権限を増やさず、同じ許可対象の上限のある根拠を更新するだけです。
 
 ## 2. 人向けのレビューフローを開く
 
@@ -24,16 +24,16 @@ review 前に Workspace を出ます。repeated retry は authority を増やさ
 tobari policy review --tail 100
 ```
 
-installation-wide TTY queue は bounded Gateway-log window の pending effect を表示します。一つを選び、次を確認します。
+インストール全体を対象とする TTY キューには、取得件数を制限した Gateway ログから、保留中の通信候補が表示されます。一つを選び、次を確認します。
 
-- Context と stable Context identity
-- project/root と host-issued project principal
-- scheme、host、port
-- method と normalized path
-- denial reason、timestamp、retained observation count
-- proposed exact allow/deny outcome
+- Context と安定した Context ID
+- プロジェクトとルート、およびホストが発行したプロジェクトプリンシパル
+- スキーム、ホスト、ポート
+- メソッドと正規化されたパス
+- 拒否理由、時刻、保持された観測回数
+- 提案される完全一致の許可または拒否
 
-detail view からだけ **Allow exact** または **Deny exact** を選びます。choice は explicit ですが stage 状態では authority を与えません。同じ Context の candidate を確認し、**Apply** で complete set を再検証して一度だけ有効化します。Apply 前の cancel は staged choice をすべて破棄します。Context switch 前に Apply または discard するため、source update は一つの atomic file replacement になります。
+詳細画面からだけ **Allow exact** または **Deny exact** を選びます。選択を準備しただけでは権限は変わりません。同じ Context の候補を確認し、**Apply** で一式を再検証して一度だけ有効化します。Apply 前にキャンセルすると、準備した選択はすべて破棄されます。Context を切り替える前に適用または破棄するため、ソースの更新は一度のアトミックなファイル置換になります。
 
 <SequenceExplorer
   title="ホスト側でのポリシーレビューと有効化"
@@ -43,13 +43,13 @@ detail view からだけ **Allow exact** または **Deny exact** を選びま�
 
 ## 3. 必要な場合だけ機械向けの経路を使う
 
-redirected review は read-only です。
+リダイレクトされた環境でのレビューは読み取り専用です。
 
 ```sh
 tobari policy review --tail 100 --format json
 ```
 
-出力された opaque `pcy_...` ID を変更せず、一つの action へコピーします。
+出力された不透明な `pcy_...` ID を変更せず、一つの操作へコピーします。
 
 ```sh
 tobari policy allow --id <pcy-id>
@@ -57,92 +57,92 @@ tobari policy allow --id <pcy-id>
 tobari policy deny --id <pcy-id>
 ```
 
-decode、normalize、reconstruct、unchecked display text の追加をしないでください。action は current retained evidence で ID を resolve します。stale/expired reference は類似 request を推測せず失敗します。
+ID をデコード、正規化、再構成したり、未検査の表示文字列を付け足したりしないでください。操作時には、現在保持されている根拠を使って ID を解決します。古い参照や期限切れの参照は、類似リクエストを推測せずに失敗します。
 
-`tobari policy candidates --format json` は専用 structured discovery view、`tobari policy tail` は compatibility view です。どちらも action を行いません。
+`tobari policy candidates --format json` は機械向けに構造化された候補一覧を返し、`tobari policy tail` は互換性のための表示を返します。どちらも状態を変更しません。
 
 ## 4. 有効化の仕組みを理解する
 
-一度の reviewed Apply は次を行います。
+一度のレビュー済み Apply は次を行います。
 
-1. fresh queue snapshot で retained reference をすべて resolve する
-2. policy generation を lock する
-3. 所有する Context 一つの learned data だけを変更する
-4. private Context source を検証する
-5. complete all-Context aggregate を生成・test する
-6. revisioned complete bundle 一つを publish する
-7. running OPA が exact revision を報告するまで待つ
-8. request を replay せず confirmed decision を報告する
+1. 最新のキュースナップショットで、保持された参照をすべて解決する
+2. ポリシー生成処理をロックする
+3. 所有する Context 一つの学習済みデータだけを変更する
+4. 非公開の Context ソースを検証する
+5. すべての Context を含む完全な集約ポリシーを生成し、テストする
+6. リビジョンを持つ完全なバンドルを一つ公開する
+7. 実行中の OPA が完全一致のリビジョンを報告するまで待つ
+8. リクエストを再実行せず確定した判断を報告する
 
-validation/activation step が一つでも失敗すれば、Tobari は previous known-good aggregate を保持または restore します。new rule を部分的に有効化しません。
+検証または有効化の手順が一つでも失敗すれば、Tobari は以前の検証済み集約ポリシーを保持または復元します。新しい規則を部分的に有効化することはありません。
 
 ## 5. 意図的に再試行する
 
-confirmed allow 後、matching Workspace へ再 entry して新しい request を送ります。古い denied request はすでになく、Gateway は body を queue/replay しません。
+確定した許可後、一致する Workspace へ再入室して新しいリクエストを送ります。古い拒否されたリクエストはすでになく、Gateway は本文をキュー/再実行しません。
 
-exact rule は Context ID、project ID、scheme、host、port、method、path に結び付きます。body、timestamp、display order、request ID、credential label は authority を広げたり分割したりしません。
+完全一致規則は Context ID、プロジェクト ID、スキーム、ホスト、ポート、メソッド、パスに結び付きます。本文、時刻、表示順、リクエスト ID、認証情報ラベルによって権限が広がったり分割されたりすることはありません。
 
-## 現在のポリシーの修正または compaction
+## 現在のポリシーの修正または集約
 
 ```sh
 tobari policy rules
 tobari policy reset --id <policy-rule-id>
 ```
 
-reset は CLI-owned learned decision 一つだけを削除し、その effect を default deny へ戻します。allow、request retry、baseline-policy edit ではありません。
+リセットは、CLI が管理する学習済みの判断を一つだけ削除し、その通信候補をデフォルト拒否へ戻します。許可する操作でも、リクエストを再試行する操作でも、基本ポリシーを編集する操作でもありません。
 
-互換性のある exact allow rule が三つ以上あると、optional bounded compaction を discovery できる場合があります。
+互換性のある完全一致の許可規則が三つ以上あると、省略可能な上限付きの集約候補が見つかる場合があります。
 
 ```sh
 tobari policy compactions
 tobari policy compact --id <policy-compaction-id>
 ```
 
-compaction は explicit で test-backed です。host/method wildcard を作らず、自動実行されません。
+集約は明示的に実行し、テストで検証します。ホストやメソッドのワイルドカードを作ることはなく、自動実行もされません。
 
 ## 失敗時の動作
 
-- empty queue: 指定 window に valid pending learnable denial がありません。historical denial がなかった証明ではありません。
-- baseline deny または current exact deny: audit evidence には残りますが pending candidate ではありません。
-- scheme、principal、cluster、credential-binding failure: ineffective exact rule では learnable になりません。
-- `policy_candidate_not_found` または stale compaction: current state を再 discovery し、古い reference を再利用しません。
-- `policy_test_failed` または preflight failure: owner-only policy と OPA diagnostic を確認します。prior policy が authority のままです。
-- uncertain mutation output: 別 mutation 前に `tobari policy rules` と `tobari cluster status` で reconcile します。
+- 空のキュー: 指定期間内に、有効かつ保留中の学習可能な拒否がありません。過去に拒否がなかったことまで証明するものではありません。
+- 基本拒否または現在の完全一致の拒否: 監査根拠には残りますが保留中候補ではありません。
+- スキーム、プリンシパル、クラスター、認証情報の結び付けに関する障害: 効果のない完全一致規則を作って学習対象にすることはできません。
+- `policy_candidate_not_found` または古い集約: 現在の状態から候補を取り直し、古い参照を再利用しません。
+- `policy_test_failed` または事前検査の障害: 所有者だけがアクセスできるポリシーと OPA の診断を確認します。それまでのポリシーが引き続き有効です。
+- 結果が不確実な変更操作: 別の変更操作を行う前に、`tobari policy rules` と `tobari cluster status` で状態を調整します。
 
 ## 保証と制限
 
-通常の learning は wildcard rule を暗黙に作らず、observation だけで authorize しません。exact decision は project/Context scoped で body-free です。destination/effect が適切かを決めるのは user であり、Tobari は semantic intent を推測せず、allowed effect が readable sensitive data を運ぶのを防げません。
+通常の学習ではワイルドカード規則を暗黙に作らず、観測しただけで通信を許可することもありません。完全一致の判断はプロジェクトと Context に限定され、本文を含みません。宛先と通信内容が適切かを決めるのは利用者です。Tobari は意味上の意図を推測せず、許可された通信が Workspace から読める機密データを運ぶことまでは防げません。
 
 ## 根拠となるソース
 
-- [Policy-learning product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
-- [Policy Catalog and mutation contracts](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
-- [Policy candidate/domain semantics](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari)
-- [Atomic policy implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata.go)
-- [Interactive review and reference tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/tobari_test.go)
+- [ポリシー学習の製品契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [ポリシー Catalog と変更操作の契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
+- [ポリシー候補に関するドメインの意味](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari)
+- [ポリシーをアトミックに変更する実装](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata.go)
+- [対話型レビューと参照のテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/tobari_test.go)
 
 ## まとめ
 
-review は trusted-host discovery と explicit staged exact decision です。reference は opaque のまま、一つの Context set が全体として有効化され、retry は confirmation 後に user または agent が始める新しい request です。
+レビューは、信頼するホストで候補を確認し、完全一致の判断を明示的に準備する操作です。参照は不透明なまま扱います。一つの Context の一式を全体として有効化し、確定後の再試行は利用者またはエージェントが新しいリクエストとして開始します。
 
 ## 理解を確認する
 
 <details>
   <summary>レビュー一覧の項目番号が操作対象にならないのはなぜですか？</summary>
-  list order は presentation であり authority ではありません。action は effect
-  に結び付いた opaque reference を consume し、実行時に再検証します。
+  一覧の表示順は権限ではありません。操作は通信候補に結び付いた不透明な参照を
+  そのまま受け取り、実行時に再検証します。
 </details>
 
 <details>
   <summary>学習した完全一致の拒否は、未処理項目として戻り続けますか？</summary>
-  いいえ。current resolved policy と audit evidence のままです。将来同じ denial
-  を reviewable に戻す意図がある場合、default deny へ reset します。
+  いいえ。解決済みのポリシーと監査根拠として残ります。将来、同じ拒否をもう一度
+  レビュー対象に戻したい場合は、デフォルト拒否へリセットします。
 </details>
 
 <details>
-  <summary>許可操作は元の request body をどう扱いますか？</summary>
-  何もしません。body は policy や replay のために保持されません。approval は
-  policy を変え、caller が新しい request を送ります。
+  <summary>許可操作は元のリクエスト本文をどう扱いますか？</summary>
+  何もしません。本文はポリシーや再実行のために保持されません。承認は
+  ポリシーを変え、呼び出し元が新しいリクエストを送ります。
 </details>
 
 **次へ:** 完全一致のレビューで必要なホスト側の規則を表せない場合に限り、[高度なポリシー](../advanced-policy/)を使います。

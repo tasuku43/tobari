@@ -5,9 +5,9 @@ description: 既存 Workspace の権限を変えずに、ホストが管理す�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Context は、runtime、ポリシー、agent profile、認証情報の設定を分離する単位です。信頼するホストで作成し、`--context` を省略した command が使う default を一つ選びます。default を変更しても、既存 Workspace は作成時の stable Context ID に恒久的に結び付いたままです。
+Context は、ランタイム、ポリシー、エージェント設定、認証情報の設定を分けて管理する単位です。信頼するホストで作成し、`--context` を省略したコマンドが使うデフォルトを一つ選びます。デフォルトを変更しても、既存 Workspace は作成時の安定した Context ID に結び付いたままです。
 
-Context、Workspace、shared cluster の関係は、[Workspace、Context、cluster](../../how-it-works/workspace-context-cluster/)を参照してください。
+Context、Workspace、共有クラスターの関係は、[Workspace、Context、cluster](../../how-it-works/workspace-context-cluster/)を参照してください。
 
 <ConceptDiagram name="workspace-context-cluster" headingLevel={2} />
 
@@ -20,32 +20,32 @@ tobari context list
 tobari context show
 ```
 
-`context list` は complete local collection を報告し、current/default name を示します。`context show` で `--name` を省略すると、その default を確認します。report には stable ID、image selector、agent profile、policy mode、allowlisted shell setting、store reference、runtime status が含まれます。primary credential、broker handle、root key、vault content は含まれません。
+`context list` はローカルにあるすべての Context と、現在のデフォルト名を示します。`context show` で `--name` を省略すると、そのデフォルトを確認します。報告には安定した ID、イメージの選択情報、エージェントプロファイル、ポリシーモード、許可済みのシェル設定、保存領域への参照、ランタイム状態が含まれます。実物の認証情報、Broker ハンドル、ルート鍵、保管庫の内容は含まれません。
 
-display name は選択に便利な text です。stable Context ID は Workspace、policy、principal、broker record に結び付く durable authority です。
+表示名は Context を選ぶための読みやすい名前です。安定した Context ID は、Workspace、ポリシー、プリンシパル、Broker の記録に結び付く永続的な権限情報です。
 
 ## Context を作成する
 
-別の Guided Context を作ります。
+別のガイド付き Context を作ります。
 
 ```sh
 tobari context create --name review --mode guided
 tobari context show --name=review
 ```
 
-作成時に owner-only Context store を初期化しますが、Docker の起動、既存 Workspace の mutation、shared aggregate の更新は行いません。cluster がすでに存在する場合、result は explicit reconciliation が必要だと報告します。
+作成時に所有者だけがアクセスできる Context 保存領域を初期化しますが、Docker の起動、既存 Workspace の変更、共有集約ポリシーの更新は行いません。クラスターがすでに存在する場合、結果には明示的な調整が必要であることが示されます。
 
 ```sh
 tobari cluster up
 ```
 
-Advanced Context は、信頼するホストが Rego を所有する明示的な選択です。
+高度な Context は、信頼するホスト側で Rego を管理するという明示的な選択です。
 
 ```sh
 tobari context create --name policy-lab --mode advanced
 ```
 
-通常の exact policy learning には Guided mode を使います。Advanced mode は Rego と test を保守できる人向けです。[Advanced policy](../advanced-policy/)を参照してください。
+通常の完全一致のポリシー学習にはガイド付きモードを使います。高度なモードは Rego とテストを保守できる人向けです。[高度なポリシー](../advanced-policy/)を参照してください。
 
 ## 省略時に使う Context を変える
 
@@ -54,9 +54,9 @@ tobari context use --name review
 tobari context show
 ```
 
-`context use` が変えるのは host marker 一つです。Docker の起動、cluster の書き換え、Workspace Context の変更、persistent home の移動、credential の rotation は行いません。
+`context use` が変えるのは、ホスト上のデフォルトを示す印だけです。Docker の起動、クラスターの書き換え、Workspace に結び付いた Context の変更、永続ホームの移動、認証情報のローテーションは行いません。
 
-default を変えずに Context を明示できます。
+デフォルトを変えずに Context を明示できます。
 
 ```sh
 tobari --context review
@@ -64,11 +64,11 @@ tobari status --context review
 tobari delete --context review
 ```
 
-同じ canonical project root でも、`(root, Context A)` と `(root, Context B)` は別の logical Workspace です。stable project ID、home、container、network、principal、policy authority、broker handle は別です。ただし同じ host project file を mount するため、Context separation は filesystem overlay ではありません。
+同じ正規化済みプロジェクトルートでも、`(root, Context A)` と `(root, Context B)` は別の論理 Workspace です。安定したプロジェクト ID、ホーム、コンテナ、ネットワーク、プリンシパル、ポリシー権限、Broker ハンドルは別々です。ただし、どちらも同じホスト上のプロジェクトファイルをマウントします。Context の分離は、ファイルシステムを複製したり重ねたりするものではありません。
 
-## 制限付きの shell 表示を設定する
+## 制限付きのシェル表示を設定する
 
-信頼するホストで allowlisted variable を設定します。shell configuration が対応するのは `PS1`、`TERM`、`COLORTERM`、`NO_COLOR` だけです。
+信頼するホストで、許可リストにある変数を設定します。シェル設定が対応するのは `PS1`、`TERM`、`COLORTERM`、`NO_COLOR` だけです。
 
 ```sh
 tobari context shell configure --context review --variable PS1 --source inherit
@@ -77,68 +77,68 @@ tobari context shell configure --context review --variable NO_COLOR --source lit
 tobari context shell configure --context review --variable TERM --source default
 ```
 
-`default` はその Context override を削除します。`inherit` は次の shell 開始時に、指定した exported host value だけを読みます。`literal` は bounded Context value 一つを保存し、explicitly empty value も保持します。Tobari は host environment、credential variable、startup file、host home を列挙・copy しません。`PATH`、`HOME`、`BASH_ENV`、`ENV`、`PROMPT_COMMAND` は対象外です。
+`default` は、その Context にある上書き設定を削除します。`inherit` は次にシェルを開始するとき、指定したホスト上の export 済みの値だけを読み取ります。`literal` はサイズに上限のある Context 固有の値を一つ保存し、明示的な空文字列も保持します。Tobari がホスト環境、認証情報変数、起動時ファイル、ホストホームを列挙またはコピーすることはありません。`PATH`、`HOME`、`BASH_ENV`、`ENV`、`PROMPT_COMMAND` は対象外です。
 
-設定変更後は Workspace へ再 entry し、新しい shell を開始してください。実行中 process の environment は変わりません。rejected combination は mutation 前にすべて失敗します。
+設定変更後は Workspace へ再入室し、新しいシェルを開始してください。実行中のプロセス環境は変わりません。許可されない組み合わせは、変更を行う前にすべて拒否されます。
 
 ## 二つの Context の具体例
 
 1. `/work/app` では `default` が Workspace A をすでに所有しています。
 2. `review` を作成して選択します。
-3. `/work/app` から再び `tobari` を実行し、`review` binding を明示的に作成または選択します。
-4. Workspace B は同じ project file と、独自の home/project principal を受け取ります。
-5. Context ID と project ID が異なるため、A の learned rule または broker handle は B を authorize しません。
-6. default を `default` へ戻すと、省略された command は再び A を選びます。B は変わりません。
+3. `/work/app` から再び `tobari` を実行し、`review` 結び付けを明示的に作成または選択します。
+4. Workspace B は同じプロジェクトファイルと、独自のホーム/プロジェクトプリンシパルを受け取ります。
+5. Context ID とプロジェクト ID が異なるため、A の学習済み規則または Broker ハンドルは B を許可しません。
+6. デフォルトを `default` へ戻すと、省略されたコマンドは再び A を選びます。B は変わりません。
 
 ## 失敗時の動作
 
-- `context_not_found`: `tobari context list` から既存 name を選びます。
+- `context_not_found`: `tobari context list` から既存名前を選びます。
 - `context_exists`: 上書きせず既存 Context を確認します。
-- `invalid_context`: name、image selector、policy mode を修正します。
-- create 後の `requires_reconcile`: 新しい Context で shared service を使う前に、明示的な `tobari cluster up` を実行します。
-- `workspace_selection_stale`: `tobari` を再実行します。選択中に candidate collection が変わっています。
-- Context image が invalid または unavailable なら、新しい registration/reconciliation を止めますが、既存 logical Workspace state と home は保持します。
+- `invalid_context`: 名前、イメージの選択情報、ポリシーモードを修正します。
+- 作成後の `requires_reconcile`: 新しい Context で共有サービスを使う前に、明示的な `tobari cluster up` を実行します。
+- `workspace_selection_stale`: `tobari` を再実行します。選択中に候補一覧が変わっています。
+- Context イメージが無効または利用不可なら、新しい登録や調整を止めますが、既存の論理 Workspace の状態とホームは保持します。
 
 ## 保証と制限
 
-Context binding は stable で host-owned です。caller-supplied header または display name で authority を切り替えられません。Context は policy、home、runtime selection、principal、credential handle を分けます。同じ重複 host directory への mutation は分離せず、すべて同じ trusted cluster service を利用します。
+Context の結び付けは安定しており、ホストが所有します。呼び出し元が指定したヘッダーや表示名で権限を切り替えることはできません。Context はポリシー、ホーム、ランタイム選択、プリンシパル、認証情報ハンドルを分けます。一方、同じホストディレクトリに対するファイル変更は分離しません。また、すべての Context が同じ信頼するクラスターサービスを利用します。
 
 ## 根拠となるソース
 
-- [Context product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
-- [Context domain invariants](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari/context.go)
-- [Context store implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/context_store.go)
-- [Current-marker-only tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/context_store_test.go)
-- [Same-root/different-Context tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_state_test.go)
+- [Context の製品契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [Context ドメインの不変条件](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari/context.go)
+- [Context 保存領域の実装](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/context_store.go)
+- [デフォルトを示す印だけを変更するテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/context_store_test.go)
+- [同じルートを異なる Context で使うテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_state_test.go)
 
 ## まとめ
 
-Context は host-owned configuration と stable authority であり、running container や shared cluster ではありません。default の変更は将来の選択だけに影響し、既存 Workspace が暗黙に Context を変えることはありません。
+Context はホストが所有する設定と安定した権限情報であり、実行中のコンテナや共有クラスターではありません。デフォルトの変更は将来の選択だけに影響し、既存 Workspace が暗黙に Context を変えることはありません。
 
 ## 理解を確認する
 
 <details>
   <summary>
-    cluster が停止中に <code>context use</code> を実行すると、Docker
+    クラスターが停止中に <code>context use</code> を実行すると、Docker
     を起動しますか？
   </summary>
-  いいえ。Context を検証し、default marker だけを atomically に変えます。
+  いいえ。Context を検証し、デフォルトを示す印だけをアトミックに変えます。
 </details>
 
 <details>
   <summary>
-    同じ root の二つの Context を、分離されたファイルのコピーと説明できますか？
+    同じルートの二つの Context を、分離されたファイルのコピーと説明できますか？
   </summary>
-  いいえ。Tobari state と authority は別ですが、両方が同じ host directory を
-  mount するため、file change は共有されます。
+  いいえ。Tobari 状態と権限は別ですが、両方が同じホストディレクトリを
+  マウントするため、ファイル変更は共有されます。
 </details>
 
 <details>
   <summary>
-    Context は shell 設定で任意の <code>SERVICE_TOKEN</code> を継承できますか？
+    Context はシェル設定で任意の <code>SERVICE_TOKEN</code> を継承できますか？
   </summary>
   いいえ。許可されるのは `PS1`、`TERM`、`COLORTERM`、`NO_COLOR`
-  だけです。credential environment name は意図的に対象外です。
+  だけです。認証情報環境名前は意図的に対象外です。
 </details>
 
-**次へ:** [Context の runtime をカスタマイズする](../runtime-customization/)。
+**次へ:** [Context のランタイムをカスタマイズする](../runtime-customization/)。

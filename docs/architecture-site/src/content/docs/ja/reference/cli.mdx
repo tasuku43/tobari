@@ -1,39 +1,43 @@
 ---
 title: CLI
-description: 入力、出力、effect、reference、変更操作、fault、復旧を含む、Catalog から生成した公開コマンド契約です。
+description: Catalog から生成した公開コマンド契約です。入力、出力、作用、参照値、変更操作、障害、復旧を確認できます。
 ---
 
 import CliReference from "../../../../components/CliReference.astro";
 
-このリファレンスには、すべての公開 Tobari command と、その正確な input、
-output、effect、reference flow、mutation contract、fault、recovery action を掲載します。
-正本は Go の `cli.Catalog` です。以下の内容は Tobari の machine-readable help
-を通じて生成され、別の command list として保守されていません。
+このページには、Tobari が公開するすべてのコマンドと、その正確な入力、出力、作用、
+参照値の受け渡し、変更操作の契約、障害、復旧操作を掲載します。正本は Go の
+`cli.Catalog` です。内容は Tobari の機械可読ヘルプから生成しており、別のコマンド一覧を
+手作業で保守しているわけではありません。
 
-summary view では user outcome から command を選べます。required input、default、
-conflict、prerequisite、output coverage、action が consume する opaque reference
-を確認するときは complete contract を開いてください。これらの用語が初めてなら、
-machine contract の前に [mental model](../../how-it-works/mental-model/) を読んでください。
+概要表示では、達成したい作業からコマンドを選べます。必須入力、既定値、競合条件、
+前提、出力範囲、操作が受け取る不透明な参照値（opaque reference）を調べるときは、
+完全な契約を開いてください。これらの用語になじみがなければ、機械向け契約より先に
+[メンタルモデル](../../how-it-works/mental-model/)を読んでください。
 
 ## 契約の読み方
 
-すべての command は一つの exact path と一つの complete specification を持ちます。
+各コマンドには、完全一致するコマンドパスと、一つの完全な仕様があります。
 
-| Field             | 意味                                                                                                 |
-| ----------------- | ---------------------------------------------------------------------------------------------------- |
-| Outcome           | command が完了させる user task                                                                       |
-| Role              | `utility`、`discover`、`act`                                                                         |
-| Effect            | `read`、`create`、`write`。unknown effect は invalid                                                 |
-| Inputs            | cardinality、omission behavior、bound、dependency、conflict を含む typed positional argument と flag |
-| Output            | format、field、JSON envelope/schema version、delivery mode、collection coverage                      |
-| Prerequisites     | operation が成功する前に存在すべき state                                                             |
-| Failures          | stable kind、code、retryability、Catalog-owned next action                                           |
-| References        | discovery が生成し、action が変更せず consume する opaque value                                      |
-| Mutation contract | create/write の intent、target binding、impact、confirmed outcome                                    |
+| 項目                              | 意味                                                                         |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| 達成結果（Outcome）               | コマンドが完了させる利用者の作業                                             |
+| 役割（Role）                      | `utility`、`discover`、`act`                                                 |
+| 作用（Effect）                    | `read`、`create`、`write`。未定義の作用は不正                                |
+| 入力（Inputs）                    | 個数、省略時の動作、範囲、依存関係、競合条件を含む、型付きの位置引数とフラグ |
+| 出力（Output）                    | 形式、フィールド、JSON エンベロープとスキーマバージョン、配信方式、収集範囲  |
+| 前提（Prerequisites）             | 操作が成功する前に存在していなければならない状態                             |
+| 障害（Failures）                  | 安定した `kind` と `code`、再試行可否、Catalog に宣言された次の操作          |
+| 参照値（References）              | 検出操作が生成し、実行操作が変更せずに受け取る不透明な値                     |
+| 変更操作契約（Mutation contract） | `create` または `write` の意図、対象との結び付き、影響、確定した結果         |
 
-`utility` は self-contained task を実行します。`discover` は candidate と、必要なら opaque reference を返します。`act` は target 一つを変更します。action は required opaque reference を exact に consume するか、command-owned fixed target 一つを使います。identifier を rediscover/decode しません。
+`utility` は単独で完結する作業を実行します。`discover` は候補を返し、必要に応じて
+不透明な参照値も返します。`act` は対象を一つ変更します。実行操作は、必須の参照値を
+そのまま受け取るか、コマンド自身が所有する固定対象を一つ使います。識別子を再検出したり、
+デコードしたり、組み立て直したりはしません。
 
-root agent-help view は意図的に小さな capability index です。complete contract には exact command または namespace selector を使います。
+ルートのエージェント向けヘルプ（agent help）は、意図的に小さくした機能索引です。
+完全な契約を取得するには、コマンドまたは名前空間を完全一致で指定します。
 
 ```console
 tobari help --format agent
@@ -41,7 +45,9 @@ tobari help policy --format agent
 tobari help policy allow --format agent
 ```
 
-dash-prefixed flag value は equals form を使います。dash-prefixed positional value は positional-only marker の後に置きます。以下の generated invocation grammar が build commit の authority です。
+ハイフンで始まるフラグ値には、equals 形式を使います。ハイフンで始まる位置引数は、
+位置引数専用マーカーの後に置きます。以下に生成される呼び出し構文が、ビルド対象
+コミットにおける正本です。
 
 ## 生成されたコマンド契約
 
@@ -49,7 +55,8 @@ dash-prefixed flag value は equals form を使います。dash-prefixed positio
 
 ## 障害と復旧の規則
 
-normal command failure は text または error JSON schema 1 で render できます。machine form は次の形です。
+通常のコマンド失敗は、テキストまたはエラー JSON のスキーマ 1 で表示できます。機械向けの
+形式は次のとおりです。
 
 ```json
 {
@@ -70,60 +77,73 @@ normal command failure は text または error JSON schema 1 で render でき�
 }
 ```
 
-`kind` は broad recovery class、`code` は exact programmatic condition として扱います。`retryable: true` は retry の検討を許可しますが、mutation replay が安全だと証明しません。`retry_after` は rate-window evidence で、logical replay safety とは独立しています。interrupted mutation では、retry 前に command outcome contract を確認して state を reconcile します。
+`kind` は大まかな復旧分類、`code` はプログラムが完全一致で判定する条件です。
+`retryable: true` は再試行を検討できるという意味であり、変更操作を安全に再実行できる
+証明ではありません。`retry_after` はレート制限の時間枠を示す根拠であり、論理的な
+再実行の安全性とは独立しています。変更操作が中断された場合は、コマンドの結果契約と
+現在の状態を照合してから再試行してください。
 
-recovery command は Catalog から来ます。exact command path または `help <exact-path-or-namespace>` です。upstream error の untrusted text を追加しないでください。
+復旧コマンドも Catalog から生成されます。完全一致するコマンドパス、または
+`help <exact-path-or-namespace>` です。接続先のエラーに含まれる信頼できない文字列を
+付け足してはいけません。
 
-二つの fail-closed diagnostic が fault boundary 自体を保護します。`invalid_fault_contract` は malformed structured fault を置換し、`undeclared_fault_contract` は Catalog declaration と一致しない command fault を置換します。これらは ordinary provider response ではなく Tobari contract defect を示します。
+障害境界そのものは、二つの診断によって拒否側に倒れます。
+`invalid_fault_contract` は形式不正の構造化障害を置き換え、
+`undeclared_fault_contract` は Catalog の宣言と一致しないコマンド障害を置き換えます。
+どちらも通常のプロバイダー応答ではなく、Tobari の契約不備を示します。
 
 ## このリファレンスの制限
 
-- stable machine field を変えず human wording が改善される場合があります。
-- Catalog が記述するのは supported public CLI です。raw vendor route、Docker command、broker protocol、arbitrary HTTP call は公開しません。
-- generated contract は command behavior を説明します。external service の availability や network permission は与えません。
-- complete delivery mode は exhaustive provider history を意味しません。collection coverage は別に宣言します。
-- source build は通常 version `dev` です。release automation が release version/source commit を inject します。この page は release number を発明しません。
+- 安定した機械向けフィールドを変えずに、人向けの文言を改善する場合があります。
+- Catalog が記述するのは、サポート対象の公開 CLI です。ベンダーの未加工ルート、Docker
+  コマンド、Broker プロトコル、任意の HTTP 呼び出しは公開しません。
+- 生成した契約が説明するのは、コマンドの動作です。外部サービスを利用可能にしたり、
+  ネットワーク権限を与えたりはしません。
+- `complete` という配信方式は、プロバイダーの全履歴を網羅するという意味では
+  ありません。収集範囲は別に宣言します。
+- ソースから通常ビルドしたバージョンは `dev` です。リリース処理がリリースバージョンと
+  ソースコミットを埋め込みます。このページがリリース番号を推測することはありません。
 
 ## 根拠
 
 - 規定する契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/01_product_contract.md`}>製品契約</a>
-- Catalog の正本：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog.go`}><code>internal/cli/catalog.go</code></a> と <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>runtime コマンド仕様</a>
-- 機械向け help の生成：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/help.go`}><code>internal/cli/help.go</code></a>
+- Catalog の正本：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog.go`}><code>internal/cli/catalog.go</code></a>と<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>ランタイムコマンド仕様</a>
+- 機械向けヘルプの生成：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/help.go`}><code>internal/cli/help.go</code></a>
 - サイト生成処理：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_BUILD_COMMIT__}/tools/sitegen/main.go`}><code>tools/sitegen/main.go</code></a>
-- 契約テスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog_test.go`}>Catalog の検証</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/help_test.go`}>agent help の構造</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/output_schema_contract_test.go`}>出力 schema の整合性</a>
+- 契約テスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog_test.go`}>Catalog の検証</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/help_test.go`}>エージェント向けヘルプの構造</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/output_schema_contract_test.go`}>出力スキーマの整合性</a>
 
 ## まとめ
 
-Catalog は public CLI の source of truth です。generated help が typed grammar、output、reference flow、mutation fact、failure、recovery を公開します。site はその contract を読み、二つ目の registry を作りません。
+Catalog は公開 CLI の正本です。生成したヘルプが、型付きの呼び出し構文、出力、参照値の
+受け渡し、変更操作の事実、障害、復旧を公開します。サイトはその契約を読み取り、
+別のコマンド台帳を作りません。
 
 ## 理解を確認する
 
-copied command name list だけでは CLI reference として不十分な理由を説明できるはずです。
+コマンド名をコピーしただけの一覧では、CLI リファレンスとして不十分です。
 
 <details>
   <summary>
-    <code>policy allow</code> が opaque reference を受け取る
-    するのはなぜですか？
+    <code>policy allow</code> が不透明な参照値を受け取るのはなぜですか？
   </summary>
-  discovery と action を分離するためです。reference は action に
-  rediscover/decode/reconstruct させず、host-side action を reviewed candidate
-  一つへ bind します。
+  検出と実行を分離するためです。参照値によって、実行操作が対象を再検出、デコード、
+  再構築することなく、ホスト側の操作をレビュー済みの候補一つへ結び付けられます。
 </details>
 
 <details>
   <summary>
-    <code>retryable: true</code> なら、失敗した変更操作
-    はすべて繰り返して安全ですか？
+    <code>retryable: true</code>
+    なら、失敗した変更操作はすべて繰り返して安全ですか？
   </summary>
-  いいえ。fault を分類しているだけです。mutation
-  がすでに完了した可能性があるため、replay 前に structured outcome と current
-  state を reconcile する必要があります。
+  いいえ。これは障害の分類を示すだけです。変更操作がすでに完了した可能性があるため、
+  再実行する前に構造化された結果と現在の状態を照合する必要があります。
 </details>
 
 <details>
-  <summary>argument の既定値と競合条件はどこで確認しますか？</summary>
-  command の Catalog input から生成される exact-command agent help です。root
-  help index はその detail を意図的に省略します。
+  <summary>引数の既定値と競合条件はどこで確認しますか？</summary>
+  コマンドの Catalog
+  入力から生成される、完全一致コマンドのエージェント向けヘルプです。
+  ルートのヘルプ索引は、その詳細を意図的に省略します。
 </details>
 
 次へ：[設定と状態](../configuration-and-state/)。

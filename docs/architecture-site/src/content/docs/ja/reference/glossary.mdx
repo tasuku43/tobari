@@ -3,313 +3,452 @@ title: 用語集
 description: Tobari の実行、ネットワーク、ポリシー、認証、状態、CLI 契約を一貫して説明するための用語集です。
 ---
 
-この用語集では、Tobari の実行、network、policy、authentication、state、CLI
-contract で使う語を定義します。logical execution state、host-owned
-configuration、shared enforcement、runtime container、authentication、
-authorization は、owner と security 上の意味が異なるため別の名前を使います。
+この用語集では、Tobari の実行、ネットワーク、ポリシー、認証、状態、CLI 契約で
+使う語を定義します。論理的な実行状態、ホスト管理の設定、共有の実施基盤、ランタイム
+コンテナ、認証、通信許可は、管理主体とセキュリティ上の意味が異なるため、別の名前を
+使います。
 
-最初の導入には [五つの要素からなる mental model](../../how-it-works/mental-model/)
+最初の導入には[五つの要素からなるメンタルモデル](../../how-it-works/mental-model/)
 を使ってください。正確な用語、または似た用語の区別が必要になったときに、この
-reference へ戻れます。
+用語集へ戻れます。
 
 ## 実行と管理主体
 
 ### Tobari
 
-canonical project root と stable Context ID で選ばれる、長く存続する論理的な untrusted execution environment です。work container は必要に応じて reconcile される runtime resource であり、Tobari 自体の identity や lifetime ではありません。
+正規化したプロジェクトルートと安定した Context ID で選ばれる、長く存続する論理的な
+実行環境です。この環境自体は信頼しません。作業コンテナは必要に応じて調整される
+ランタイムリソースにすぎず、Tobari の識別情報や寿命を決めるものではありません。
 
 ### Workspace
 
-一つの論理的な Tobari へ入り、作業するための directory-bound な利用者向け表現です。stable logical record、選択した project root、Context binding、独立した home、reconcile される runtime resource を含みます。「Workspace を出る」操作は session を終了するだけで、論理 Workspace を削除しません。
+一つの論理的な Tobari へ入り、作業するための、ディレクトリに結び付いた利用者向けの
+表現です。安定した論理レコード、選択したプロジェクトルート、Context との結び付き、
+独立したホーム、調整可能なランタイムリソースで構成されます。「Workspace を出る」
+操作はセッションを終了するだけで、論理 Workspace は削除しません。
 
-### project root
+### プロジェクトルート（project root）
 
-現在の working directory から選ばれ、Workspace へ read-write mount される canonical host directory です。Tobari は、この root を読み書きする能力を意図的に Workspace へ委ねます。Workspace process から内部の file を守る snapshot や overlay は提供しません。
+現在の作業ディレクトリから選び、Workspace へ読み書き可能でマウントする正規の
+ホストディレクトリです。Tobari は、このルートを読み書きする権限を意図的に Workspace
+へ委ねます。Workspace 内のプロセスからファイルを守るスナップショットやオーバーレイは
+提供しません。
 
 ### Context
 
-stable opaque UUIDv7 ID を持つ、一つの host-owned logical execution setup です。agent profile、runtime image、policy mode/source、allowlist 済み shell setting、provider configuration、独立した encrypted credential vault を選びます。Workspace は一つの Context へ恒久的に bind されます。
+安定した不透明な UUIDv7 ID を持つ、ホスト管理の論理実行設定です。エージェントプロファイル、
+ランタイムイメージ、ポリシーの方式とソース、許可済みのシェル設定、プロバイダー設定、
+独立した暗号化認証情報保管庫を選びます。Workspace は一つの Context へ恒久的に
+結び付きます。
 
-### current Context
+### 現在の Context（current Context）
 
-明示的な Context selector を省略した invocation に使う default Context です。切り替えると、以後の default selection が変わります。既存 Workspace の恒久的な Context binding は書き換えず、request authority にもなりません。
+Context セレクターを省略した呼び出しに使うデフォルト Context です。切り替えると、
+以後のデフォルト選択だけが変わります。既存 Workspace と Context の恒久的な結び付き
+は書き換えず、リクエストの権限にもなりません。
 
-### cluster
+### クラスター（cluster）
 
-installation-local な共有 Gateway、OPA、locked Auth Broker、共有 network、CA volume、aggregate projection の集合です。Context は policy と credential を scope し、cluster は読み込まれた全 Context の enforcement を実行します。
+一つのインストール内で共有する Gateway、OPA、ロック状態の Auth Broker、共有ネットワーク、
+CA ボリューム、集約済みの投影データの集合です。Context がポリシーと認証情報の範囲を
+決め、クラスターが読み込み済みの全 Context に対する制御を実施します。
 
-### runtime image
+### ランタイムイメージ（runtime image）
 
-Workspace の tool と root filesystem を提供する OCI image です。runtime API `1`、`tobari` user、固定 lifetime capability、entrypoint を保持する必要があります。mount、network、policy、credential、論理 Workspace の lifetime は選びません。
+Workspace のツールとルートファイルシステムを提供する OCI イメージです。ランタイム API `1`、
+`tobari` ユーザー、固定された寿命管理機能、エントリーポイントを備える必要があります。
+マウント、ネットワーク、ポリシー、認証情報、論理 Workspace の寿命は決めません。
 
-### work container
+### 作業コンテナ（work container）
 
-一つの Workspace を現在実現している Docker container です。image や runtime-spec に drift があれば、Tobari は論理 Workspace、project root、home を保ったまま再作成できます。
+一つの Workspace を現在実体化している Docker コンテナです。イメージや runtime-spec に
+差分があれば、Tobari は論理 Workspace、プロジェクトルート、ホームを保ったまま
+再作成できます。
 
-### attached session
+### 接続中のセッション（attached session）
 
-child `docker exec` process を通じて動く一時的な shell または exact command です。`exit` はこの process だけを終了します。attachment は Workspace lifecycle state として永続化されません。
+子の `docker exec` プロセスを通じて動く、一時的なシェルまたは完全一致コマンド
+です。`exit` はこのプロセスだけを終了します。接続状態は Workspace のライフサイクル
+状態として永続化されません。
 
-### Workspace home
+### Workspace ホーム（Workspace home）
 
-一つの論理 Workspace が所有する独立した writable home です。tool-native login state や、投影された broker handle が置かれることがあります。session exit と work-container recreation を越えて残り、Workspace の `delete` で削除されます。
+一つの論理 Workspace が所有する、独立した書き込み可能なホームです。ツール自身の
+ログイン状態や、投影された Auth Broker のハンドルが置かれる場合があります。
+セッションの終了後や作業コンテナの再作成後も残り、Workspace の `delete` で
+削除されます。
 
 ## リクエストの制御
 
 ### Gateway
 
-Workspace の HTTP proxy traffic を受け取り、必要なら Workspace 側 TLS を終端し、host-issued project principal を導出する component です。decision input から secret を除き、OPA へ一度問い合わせ、allow の場合だけ別の upstream connection を開いて body を stream します。decision を強制するのは Gateway であり、OPA は traffic を forward しません。
+Workspace の HTTP プロキシ通信を受け取り、必要に応じて Workspace 側の TLS を終端し、
+ホスト発行のプロジェクトプリンシパルを導出するコンポーネントです。判断入力から秘密
+情報を除き、OPA へ一度問い合わせます。許可された場合だけ接続先への別の接続を開き、
+本文をストリーミングします。判断を実施するのは Gateway です。OPA は通信を転送しません。
 
 ### OPA
 
-Open Policy Agent です。正規化され body を含まない一つの HTTP decision input を、読み込んだ aggregate Rego/data projection に対して評価し、decision を返します。Workspace network route を持たず、upstream connection を開かず、brokered secret を resolve しません。
+Open Policy Agent です。正規化して本文を除いた一つの HTTP 判断入力を、読み込み済みの
+集約した Rego とデータの投影に対して評価し、判断を返します。Workspace への
+ネットワーク経路を持たず、接続先へ接続せず、Auth Broker 管理の秘密情報を
+解決しません。
 
-### upstream
+### 接続先（upstream）
 
-許可された request が選ぶ最終 HTTP/HTTPS service です。HTTPS では、Workspace 側 TLS connection が Gateway で終端した後、Gateway がこの service へ独立した検証済み TLS connection を作ります。
+許可されたリクエストの最終接続先となる HTTP/HTTPS サービスです。HTTPS では、
+Workspace 側の TLS 接続を Gateway で終端した後、Gateway がこのサービスへ独立した
+検証済み TLS 接続を作ります。
 
-### HTTP effect
+### HTTP 操作（HTTP effect）
 
-正規化された authorization unit です。Context ID、project ID、host、port、HTTP method、path と、範囲を限定した non-secret protocol metadata で構成されます。request body の内容は identity dimension ではなく、policy candidate を分割しません。
+ポリシーが許可または拒否する、正規化済みの HTTP 操作です。Context ID、プロジェクト
+ID、ホスト、ポート、HTTP メソッド、パスと、範囲を限定した秘密情報を含まないプロトコル
+メタデータで構成されます。リクエスト本文は識別項目ではなく、ポリシー候補を分けません。
 
-### TLS connection A
+### TLS 接続 A（TLS connection A）
 
-HTTP `CONNECT` の後に Workspace から Gateway へ張られる HTTPS connection です。Gateway は Tobari の Workspace-trusted CA に連なる certificate を提示し、policy に必要な HTTP attribute を復号します。
+HTTP `CONNECT` の後に、Workspace から Gateway へ張る HTTPS 接続です。Gateway は
+Workspace が信頼する Tobari CA に連なる証明書を提示し、ポリシーに必要な HTTP
+属性を復号します。
 
-### TLS connection B
+### TLS 接続 B（TLS connection B）
 
-Gateway から upstream へ張られる、独立した検証済み HTTPS connection です。connection A を intercept しても、Gateway が最終 HTTPS destination へ平文 HTTP を送るわけではありません。
+Gateway から接続先へ張る、独立した検証済み HTTPS 接続です。接続 A を
+検査しても、Gateway が最終 HTTPS 接続先へ平文 HTTP を送るわけではありません。
 
 ### Tobari CA
 
-Gateway が Workspace 側 TLS を終端できるよう、public certificate が Workspace trust bundle へ組み込まれる certificate authority です。CA を trust することは transport の前提であり、allow rule ではありません。certificate pinning を行う client は Gateway を迂回せず、接続に失敗します。
+Gateway が Workspace 側の TLS を終端できるよう、公開証明書を Workspace の
+信頼バンドルへ組み込む認証局です。CA を信頼することは通信の前提であり、許可規則
+ではありません。証明書ピンニングを行うクライアントは
+Gateway を迂回せず、接続に失敗します。
 
-### fail closed
+### 安全側に倒して拒否（fail closed）
 
-必要な identity、policy、broker、schema、state、ownership evidence が missing、invalid、ambiguous、unavailable の場合に effect を拒否することです。request path では、未許可の upstream connection を作らないことを意味します。
+必要な識別情報、ポリシー、Broker、スキーマ、状態、管理主体の根拠が存在しない、
+不正、曖昧、利用不能な場合に、外部通信を拒否することです。リクエストの経路では、
+未許可の接続先へ接続しないことを意味します。
 
-## プロジェクトの identity
+## プロジェクト識別
 
-### project ID
+### プロジェクト ID（project ID）
 
-一つの論理 Workspace に host が発行する stable opaque ID です。project name ではなく、Workspace header に書かれた値を authority として受け入れません。
+一つの論理 Workspace にホストが発行する、安定した不透明な ID です。プロジェクト名
+とは異なります。Workspace のヘッダーに書かれた値は、権限の根拠として受け入れません。
 
 ### Context ID
 
-Context に host が発行する stable UUIDv7 identity です。変更可能な display name や current Context marker とは別物です。
+Context にホストが発行する、安定した UUIDv7 識別情報です。変更可能な表示名
+や現在の Context を示すマーカーとは別物です。
 
-### project principal
+### プロジェクトプリンシパル（project principal）
 
-専用 Workspace network 上の exact local interface から Gateway が導出する、stable Context ID と project ID の trusted pairing です。policy と broker handle を scope します。
+Workspace 専用ネットワーク上の完全一致するローカルインターフェースから Gateway が導出する、
+安定した Context ID とプロジェクト ID の信頼できる組です。ポリシーと Auth Broker の
+ハンドルを使える範囲を決めます。
 
-### principal registry
+### プリンシパル登録簿（principal registry）
 
-exact Gateway project-network interface を Context/project identity へ対応付ける、host-owned schema-2 mapping です。Gateway にはこの directory だけが read-only で渡されます。caller が指定した `X-Tobari-*` text はこの mapping の代わりになりません。
+Gateway のプロジェクトネットワークインターフェースを、Context とプロジェクトの識別情報
+へ完全一致で対応付ける、ホスト管理のスキーマ 2 対応表です。Gateway にはこの
+ディレクトリだけを読み取り専用で渡します。呼び出し元が指定した `X-Tobari-*` の
+文字列は、この対応付けの代わりになりません。
 
-### dedicated project network
+### プロジェクト専用ネットワーク（dedicated project network）
 
-一つの Workspace が所有する Docker internal network です。work container と Gateway interface 一つだけが参加します。supported topology では、Workspace は OPA、Auth Broker、別 Workspace、通常の external network へ参加できません。
+一つの Workspace が所有する Docker 内部ネットワークです。作業コンテナと
+Gateway インターフェース一つだけが参加します。サポート対象の構成では、Workspace は
+OPA、Auth Broker、別 Workspace、通常の外部ネットワークへ参加できません。
 
 ## ポリシー
 
-### baseline deny
+### 既定の拒否（baseline deny）
 
-一致する allow rule がないときの default policy result です。それ以外は valid な request について、learnable な secret-free evidence を生成できます。learned exact deny entry ではありません。
+一致する許可規則がない場合の、デフォルトのポリシー結果です。それ以外は有効な
+リクエストについて、学習可能で秘密情報を含まない根拠を生成できます。学習済みの
+完全一致拒否エントリーとは異なります。
 
-### learned allow
+### 学習済み許可（learned allow）
 
-一つの Context/project/host/port/method/path effect に対する、明示的に activate された exact rule です。trusted host action が policy 全体を validate し、atomic activation に成功した場合だけ作られます。
+Context、プロジェクト、ホスト、ポート、メソッド、パスが一致する一つの HTTP 通信に対し、
+明示的に有効化した完全一致規則です。信頼するホスト側の操作がポリシー全体を検証し、
+アトミックな有効化に成功した場合だけ作られます。
 
-### learned deny
+### 学習済み拒否（learned deny）
 
-明示的に activate された exact denial です。baseline default と異なり learned rule inventory に現れ、明示的に reset できます。
+明示的に有効化した完全一致の拒否です。baseline のデフォルト拒否とは異なり、学習済み
+規則の一覧へ現れ、明示的にリセットできます。
 
-### policy candidate
+### ポリシー候補（policy candidate）
 
-保持された learnable-denial evidence から決定的に fold した提案です。authority でも automatic mutation でもありません。body content は別 candidate を作りません。
+保持している学習可能な拒否の根拠から、決定的にまとめた提案です。権限でも、自動の
+変更操作でもありません。本文の内容が違っても別の候補にはなりません。
 
-### opaque reference
+### 不透明な参照値（opaque reference）
 
-discovery command が生成し、一つの対応する action が変更せず consume する validated value です。decode、reconstruct、shorten したり、display order で置き換えたりしません。
+検出コマンドが生成し、対応する一つの実行操作が変更せずに受け取る検証済みの値です。
+デコード、再構築、短縮をしたり、表示順で置き換えたりしません。
 
-### policy review
+### ポリシーレビュー（policy review）
 
-candidate を確認し、allow、deny、no action のいずれかを意図的に選ぶ trusted host-side flow です。Gateway の denial response は、この flow の入口だけを示します。
+候補を確認し、許可、拒否、何もしない、のいずれかを意図的に選ぶ、信頼するホスト側の
+手順です。Gateway の拒否レスポンスは、この手順の入口だけを示します。
 
-### policy activation
+### ポリシー有効化（policy activation）
 
-policy state を lock し、target Context source を validate し、全 Context を含む complete projection を test し、atomic に publish して OPA を reconcile する host process です。失敗時は known-good projection を保持または復元します。
+ポリシー状態をロックし、対象 Context のソースを検証し、全 Context を含む完全な
+投影データをテストし、アトミックに公開して OPA の状態を合わせるホスト側の処理です。
+失敗時は、既知の正しい投影データを保持または復元します。
 
-### reset
+### リセット（reset）
 
-選択した learned decision 一つを削除し、一致した request を default deny へ戻す操作です。reset は allow ではなく、request を retry もしません。
+選択した学習済み判断を一つ削除し、一致するリクエストをデフォルト拒否へ戻す操作です。
+リセットは許可ではなく、リクエストを再試行もしません。
 
-### compaction
+### ポリシー圧縮（compaction）
 
-review 済み exact learned rule を、安全な path-prefix rule へ変換する明示的で bounded な処理です。隣接する outside-prefix canary も検査します。自動ではなく、host や method の wildcard を作りません。
+レビュー済みの完全一致学習規則を、安全なパス接頭辞規則へ変換する、明示的で範囲を
+限定した処理です。隣接する接頭辞外のカナリアも検査します。自動ではなく、ホスト
+やメソッドのワイルドカードは作りません。
 
 ## 認証と認証情報
 
-### authentication
+### 認証（authentication）
 
-external service の credential material を確立または保存することです。「どの credential を提示できるか」には答えますが、「この HTTP effect を Workspace から出してよいか」には答えません。
+外部サービスの認証情報を確立または保存することです。「どの認証情報を提示できるか」
+には答えますが、「この HTTP 通信を Workspace から出してよいか」には答えません。
 
-### authorization
+### 認可（authorization）
 
-通常の HTTP effect について OPA が行い、Gateway が強制する decision です。login、import、provider installation、handle の所持は authorization を付与しません。
+通常の HTTP 通信について OPA が判断し、Gateway が実施する許可または拒否です。
+ログイン、インポート、プロバイダーのインストール、ハンドルの所持によって、この許可が
+付与されません。
 
-### credential provider
+### 認証情報プロバイダー（credential provider）
 
-credential を取得または import し、保存して、レビュー済みの完全一致 request binding 一つへ適用する外部 service または authority です。Provider は、その credential を使う Workspace client を示しません。
+認証情報を取得またはインポートし、保存して、レビュー済みの完全一致リクエストとの
+結び付き一つへ適用する外部サービスまたは権限の提供元です。Provider は、その認証情報
+を使う Workspace クライアントを表しません。
 
-### Workspace client Tool
+### Workspace クライアントツール（Workspace client Tool）
 
-provider-declared handle projection を受け取り、matching request を送る Workspace 内の CLI または client です。現在の例は `gh`、`aws`、`pup`、`cwk` です。Tool 名は provider identity も network authority も与えません。
+プロバイダーが宣言したハンドルの投影を受け取り、結び付きに一致するリクエストを送る
+Workspace 内の CLI またはクライアントです。現在の例は `gh`、`aws`、`pup`、`cwk` です。
+Tool 名はプロバイダーの識別情報もネットワーク権限も与えません。
 
-### supported Provider-Tool pairing
+### サポート対象の Provider–Tool 対応（supported Provider-Tool pairing）
 
-Provider、Workspace client Tool、acquisition mode、handle projection、exact request binding を組み合わせたレビュー済みの対応です。現在の built-in はすべて対応 Tool が一つなので、Provider 選択後に Tool を表示して自動選択します。AWS の `identity-center` と `console` は一つの対応ペア内の acquisition method であり、Tool ではありません。
+Provider、Workspace client Tool、取得方式、ハンドルの投影、完全一致リクエストとの
+結び付きを組み合わせたレビュー済みの対応です。現在の組み込み定義はすべて対応 Tool が
+一つなので、Provider 選択後に Tool を表示して自動選択します。AWS の
+`identity-center` と `console` は、一つの対応内で使う取得方式であり、Tool では
+ありません。
 
-### tool-native passthrough
+### ツール固有のパススルー（tool-native passthrough）
 
-tool が自身の persistent Workspace home 内で login する universal default です。Gateway は OPA input と audit から authentication/cookie value を除き、policy allow 後にだけ値を変更せず forward します。Workspace は、この tool-owned secret を読めます。
+ツールが自身の永続 Workspace ホーム内でログインする、どのツールでも使えるデフォルト
+方式です。Gateway は OPA 入力と監査記録から認証情報と cookie の値を除き、ポリシー
+許可後にだけ値を変えず転送します。Workspace は、このツール管理の秘密情報を読めます。
 
-### retained managed adapter
+### 保持型 managed アダプター（retained managed adapter）
 
-review 済み host-side credential profile configuration を読む、以前からある Context/project-scoped Gateway adapter です。独立した明示的な経路として残り、brokered behavior や passthrough behavior と暗黙に混ざりません。
+レビュー済みのホスト側認証プロファイル設定を読む、従来からある Context とプロジェクト
+単位の Gateway アダプターです。独立した明示的な経路として残り、Auth Broker 方式や
+パススルー方式と暗黙には混ざりません。
 
 ### Auth Broker
 
-Context/provider ごとに typed encrypted credential state を保存し、project-bound opaque handle を発行し、non-secret introspection を行う shared locked service です。Gateway が policy allow を報告した後にだけ、review 済み credential-plan action を実行します。static plan は secret 一つを resolve します。AWS は private host companion を通じて temporary credential export 一つを取得し、local で署名します。Datadog は token 一つを選択または refresh します。Broker は Unix socket を持ちますが Workspace network や TCP listener は持ちません。
+Context とプロバイダーごとに、型付きで暗号化した認証状態を保存する共有サービスです。
+プロジェクトに結び付いた不透明なハンドルを発行し、秘密情報を使わずに照会します。
+起動時はロックされています。Gateway がポリシーの許可を報告した後にだけ、レビュー済みの
+認証計画を実行します。固定計画は秘密情報を一つ解決します。AWS では専用ホスト
+コンパニオンから一時認証情報のエクスポートを一つ取得し、ローカルで署名します。Datadog では
+トークンを一つ選択または更新します。Broker は Unix ソケットを持ちますが、Workspace
+ネットワークや TCP リスナーは持ちません。
 
-### brokered credential state
+### Broker 管理の認証状態（brokered credential state）
 
-一つの Context vault 内で暗号化される typed record です。static primary secret、opaque AWS host-driver state、Datadog OAuth-session state を保持できます。Workspace や OPA へ投影されません。request-local な derived value は、宣言された post-policy Broker/Gateway boundary だけを越えます。
+一つの Context 保管庫内で暗号化する型付きレコードです。固定された実物の秘密情報、
+不透明な AWS ホストドライバーの状態、Datadog OAuth セッションの状態を保持できます。
+Workspace や OPA へは投影しません。リクエスト処理中に導出した値が境界を越えるのは、
+宣言済みのポリシー許可後に Auth Broker から Gateway へ渡る場合だけです。
 
-### broker handle
+### Broker ハンドル（broker handle）
 
-eligible Workspace へ投影される versioned opaque `tobari-h1_…` value です。実物の credential ではなく、それだけで十分な authority にもなりません。利用時には Context、project、provider、credential revision、target、source header、syntax の一致と、その後の OPA allow が必要です。同じ Workspace 内で handle を読める process は、委ねられた capability の利用を試みられます。Tobari は同一 Workspace 内の process 同士を分離しません。
+対象 Workspace へ投影する、バージョン付きの不透明な `tobari-h1_…` 値です。実物の
+認証情報ではなく、それだけで十分な権限にもなりません。利用時には Context、
+プロジェクト、プロバイダー、認証情報のリビジョン、接続先、送信元ヘッダー、構文の
+一致と、その後の OPA の許可が必要です。同じ Workspace 内でハンドルを読める
+プロセスは、委ねられた権限の利用を試みられます。Tobari は同一 Workspace 内の
+プロセス同士を分離しません。
 
-### non-secret introspection
+### 秘密情報を使わない照会（non-secret introspection）
 
-candidate handle を validate し、provider、revision、normalized binding metadata だけを返す pre-policy Broker operation です。primary secret を公開も resolve もしません。
+候補ハンドルを検証し、プロバイダー、リビジョン、正規化した結び付きのメタデータだけを
+返す、ポリシー判断前の Broker 操作です。実物の秘密情報を公開も解決もしません。
 
-### resolve
+### 解決（resolve）
 
-schema-1 static-provider 向けの post-allow Broker operation です。宣言された destination header へ入れる matching current primary secret を Gateway に返します。AWS signing や Datadog refresh の総称ではありません。deny では resolve call も dynamic-plan action もゼロです。
+スキーマ 1 の固定プロバイダー向けに、許可後に実行する Broker 操作です。宣言済みの
+宛先ヘッダーへ入れる、現在の実物の秘密情報を Gateway に返します。AWS の署名や
+Datadog の更新を含む総称ではありません。拒否時には、resolve の呼び出しも動的計画
+の処理もありません。
 
-### host credential companion
+### ホスト認証情報コンパニオン（host credential companion）
 
-review 済み AWS plan が OPA allow 後にだけ使う resident private Tobari process です。Broker は authenticated、encrypted、strictly sequenced な reverse `docker exec -i` session で接続し、compiled fixed AWS CLI credential export 一つを要求します。listener や mounted host socket を公開せず、interactive login や Datadog refresh には使いません。
+レビュー済みの AWS 計画が OPA の許可後にだけ使う、常駐する非公開 Tobari プロセス
+です。Broker は、認証と暗号化を施し、厳密に順序付けた逆向きの `docker exec -i`
+セッションで接続します。コンパイル済みで固定された AWS CLI 認証情報のエクスポートを一つだけ
+要求します。リスナーやマウント済みのホストソケットを公開せず、対話ログインや Datadog の
+更新には使いません。
 
-### Datadog OAuth refresh
+### Datadog OAuth 更新（Datadog OAuth refresh）
 
-Auth Broker が所有する compiled schema-2 post-policy action です。保存した access token が五分の refresh window に入ると、Broker は exact、proxy-free、no-redirect な Datadog US1 token endpoint で同じ record の strict exchange を一度行い、refresh 済み state を commit してから request-local bearer value を返します。trusted-host `pup` driver は acquisition 専用です。
+Auth Broker が所有する、コンパイル済みスキーマ 2 のポリシー許可後操作です。保存した
+アクセストークンが 5 分の更新時間帯に入ると、Broker は完全一致する Datadog US1 トークン
+エンドポイントに対し、プロキシとリダイレクトを無効にして、同じレコードの厳密な交換を一度だけ
+行います。更新済みの状態を保存してから、リクエスト用 bearer 値を返します。
+信頼するホストの `pup` ドライバーは取得専用です。
 
-### credential revision
+### 認証情報リビジョン（credential revision）
 
-現在の Context/provider credential に対応する secret-free random identity です。replacement または logout により、以前の revision 用 handle が revoke されます。
+現在の Context とプロバイダーの認証情報に対応する、秘密情報を含まないランダムな
+識別情報です。置換またはログアウトにより、以前のリビジョン用ハンドルを失効させます。
 
-### encrypted Context vault
+### 暗号化 Context 保管庫（encrypted Context vault）
 
-stable Context ID を authenticated data として bind した、一つの schema-1 AES-256-GCM envelope です。encrypted schema-2 payload は typed credential record、revision、durable operation barrier、raw handle を保持します。暗号化は documented root-key precondition の下で container/Workspace boundary を守りますが、host user と key backend の侵害からは守りません。
+安定した Context ID を認証付きデータとして結び付けた、スキーマ 1 の
+AES-256-GCM エンベロープです。暗号化したスキーマ 2 ペイロードは、型付きの認証情報
+レコード、リビジョン、永続する操作バリア、ハンドルの元レコードを保持します。
+暗号化は文書化したルート鍵の前提のもとで、コンテナと Workspace の境界を守ります。
+ホスト利用者と鍵の保管基盤の侵害からは守りません。
 
-### installation root key
+### インストール用ルート鍵（installation root key）
 
-Context vault を unlock する 32-byte key です。Linux では owner-only XDG state file、macOS では固定 Keychain item に置かれます。`cluster down --purge` でも残ります。
+Context 保管庫を解錠する 32 バイトの鍵です。Linux では所有者だけが読める XDG
+状態ファイル、macOS では固定した Keychain 項目に置きます。`cluster down --purge`
+でも残ります。
 
-### provider manifest
+### プロバイダーマニフェスト（provider manifest）
 
-acquisition mode、Workspace handle projection、exact HTTPS binding、redaction を宣言する strict non-secret data document です。owner manifest は schema 1 かつ `stdin_import` のみです。review 済み builtin は schema 1、または closed schema-2 AWS/Datadog plan vocabulary を使えます。manifest は executable code ではなく、method/path policy を宣言せず、通信許可を付与しません。
+取得方式、Workspace へのハンドル投影、完全一致の HTTPS との結び付き、秘密情報を
+伏せる方法を宣言する、厳密で秘密情報を含まないデータ文書です。所有者マニフェストは
+スキーマ 1 かつ `stdin_import` だけを使います。レビュー済みの組み込み定義はスキーマ 1、
+または閉じたスキーマ 2 の AWS と Datadog 計画の語彙を使えます。マニフェストは実行可能な
+コードではなく、
+メソッドとパスのポリシーを宣言せず、通信許可を付与しません。
 
 ## 状態と公開契約
 
-### root index
+### ルート索引（root index）
 
-canonical root と stable Context ID を一つの Workspace ID へ対応付ける durable schema-2 record です。nearest-root selection は Context で filter してから選びます。
+正規のプロジェクトルートと安定した Context ID を、一つの Workspace ID へ対応付ける
+永続スキーマ 2 レコードです。最も近いルートを選ぶ前に、Context で対象を絞ります。
 
-### Workspace instance state
+### Workspace インスタンス状態（Workspace instance state）
 
-一つの Workspace に対応する durable schema-2 logical record です。恒久的な Context binding と diagnostic runtime identifier を含みます。
+一つの Workspace に対応する、永続スキーマ 2 の論理レコードです。Context との
+恒久的な結び付きと、診断用のランタイム識別子を含みます。
 
-### aggregate policy projection
+### 集約ポリシー投影（aggregate policy projection）
 
-全 Context から組み立て、OPA へ read-only mount する content-addressed complete projection です。一つの Context の変更は、candidate 全体が validate/activate された後にだけ authority になります。
+全 Context から組み立て、OPA へ読み取り専用でマウントする、内容で識別される完全な
+投影データです。一つの Context の変更が権限として有効になるのは、候補全体を検証して
+有効化した後だけです。
 
 ### Catalog
 
-command path、typed input、effect、role、output、reference flow、mutation、failure、recovery に関する public source of truth、`cli.Catalog` です。routing、help、generated CLI reference はここから導出します。
+コマンドパス、型付き入力、効果、役割、出力、参照の受け渡し、変更操作、
+失敗、復旧に関する公開仕様の正本である `cli.Catalog` です。ルーティング、ヘルプ、生成する
+CLI リファレンスはここから導出します。
 
-### command role
+### コマンドの役割（command role）
 
-`utility`、`discover`、`act` のいずれかです。discovery は opaque reference を生成できます。action は reference-bound mode または command-owned fixed-target mode の、どちらか一つだけを持ちます。
+`utility`、`discover`、`act` のいずれかです。検出操作は不透明な参照を生成
+できます。実行操作は、参照結び付き方式またはコマンド管理の固定対象方式
+の、どちらか一つだけを持ちます。
 
-### operation effect
+### 操作の作用（operation effect）
 
-`read`、`create`、`write` のいずれかです。すべての externally visible operation が一つを宣言し、unknown effect は fail closed します。
+`read`、`create`、`write` のいずれかです。外部から見えるすべての操作が一つを宣言し、
+未知の効果は安全側に倒して拒否します。
 
-### mutation contract
+### 変更操作契約（mutation contract）
 
-external create/write の前後に必要な、宣言された intent、target binding、impact dimension、confirmed outcome です。
+外部への作成または書き込みの前後で必要になる、宣言済みの意図、対象との結び付き、
+影響項目、確認済みの結果です。
 
-### source snapshot
+### ソーススナップショット（source snapshot）
 
-canonical Gateway/Auth Broker source tree です。CLI は orchestration 用の byte-checked runtime snapshot を embed します。drift check により embedded copy が二つ目の editable implementation になることを防ぎます。
+正本となる Gateway と Auth Broker のソースツリーです。CLI はオーケストレーション用に、
+バイト単位の一致を検査したランタイムスナップショットを埋め込みます。差分検査により、埋め込み
+コピーが二つ目の編集可能な実装になることを防ぎます。
 
 ## 混同してはいけないもの
 
-| 同一視しないもの                        | 違い                                                                                                          |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Workspace と work container             | Workspace は durable logical state。container は交換可能な runtime                                            |
-| Context と cluster                      | Context は一つの setup と authority を scope し、cluster は読み込んだ全 Context の共有 enforcement を実行する |
-| authentication と authorization         | credential が存在しても OPA は HTTP effect を deny できる                                                     |
-| CA trust と policy allow                | CA trust は inspection を可能にし、allow は一つの normalized effect を authorize する                         |
-| broker handle と credential state       | handle は project-bound、revocable、non-secret。vault は static/renewable state を保持する                    |
-| `exit` と `delete`                      | exit は child session を終了し、delete は論理 Workspace と home を削除する                                    |
-| `cluster down --purge` と `auth logout` | purge は shared runtime/CA volume を削除し、logout は local credential 一つと handle を削除する               |
-| tag と digest                           | tag は移動可能。digest は immutable OCI content を識別する                                                    |
-| manifest schema と report schema        | stored Context manifest は schema 4、public Context report は schema 6                                        |
+| 同一視しないもの                        | 違い                                                                                                     |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Workspace と作業コンテナ                | Workspace は永続する論理状態。コンテナは交換可能なランタイム                                             |
+| Context とクラスター                    | Context は一つの設定と権限の範囲を決め、クラスターは読み込んだ全 Context を共有基盤で制御する            |
+| 認証と認可                              | 認証情報が存在しても、OPA は HTTP 通信を拒否できる                                                       |
+| CA の信頼とポリシーの許可               | CA の信頼は通信の検査を可能にし、許可は正規化した一つの通信を通す                                        |
+| Auth Broker のハンドルと認証状態        | ハンドルはプロジェクトに結び付き、失効でき、秘密情報ではない。保管庫は固定または更新可能な状態を保持する |
+| `exit` と `delete`                      | `exit` は子のセッションを終了し、`delete` は論理 Workspace とホームを削除する                            |
+| `cluster down --purge` と `auth logout` | purge は共有ランタイムと CA ボリュームを削除し、logout はローカル認証情報一つとハンドルを削除する        |
+| タグとダイジェスト                      | タグは移動可能。ダイジェストは不変な OCI コンテンツを識別する                                            |
+| マニフェストとレポートのスキーマ        | 保存する Context マニフェストはスキーマ 4、公開 Context レポートはスキーマ 6                             |
 
 ## 障害と制限
 
-これらの定義は supported implementation を説明するもので、Tobari の threat model を広げません。特に「untrusted Workspace」は、選択した project root がその Workspace から保護されることや、明示的に allow した destination へ data を送れないことを意味しません。
+これらの定義はサポート対象の実装を説明するもので、Tobari の脅威モデルを広げません。
+特に「信頼しない Workspace」は、選択したプロジェクトルートがその Workspace から
+保護されることや、明示的に許可した接続先へデータを送れないことを意味しません。
 
-二つの用語が矛盾して見えても、display order や都合で一方を選ばないでください。governing contract と exact boundary へ戻って確認します。trusted identity、schema、ownership、policy、credential state が missing/ambiguous なら、Tobari は fail closed します。用語は authority の代替ではありません。
+二つの用語が矛盾して見えても、表示順や都合で一方を選ばないでください。規定する契約と
+完全一致の境界へ戻って確認します。信頼できる識別情報、スキーマ、管理主体、
+ポリシー、認証状態がない、または曖昧なら、Tobari は安全側に倒して拒否します。用語は
+権限の代わりにはなりません。
 
 ## 根拠
 
 - 公開語彙の正本：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/01_product_contract.md`}>製品契約</a>
-- レイヤーと runtime の管理主体：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/02_architecture.md`}>アーキテクチャ</a>
+- レイヤーとランタイムの管理主体：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/02_architecture.md`}>アーキテクチャ</a>
 - 信頼と制限の語彙：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/03_security_model.md`}>セキュリティモデル</a>と <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/THREAT_MODEL.md`}>脅威モデル</a>
 - 認証の語彙：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/07_authentication.md`}>認証契約</a>
-- Domain の定義：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/project.go`}>Workspace identity</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>Context</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider.go`}>provider の語彙</a>
+- Domain の定義：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/project.go`}>Workspace の識別情報</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>Context</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider.go`}>プロバイダーの語彙</a>
 
 ## まとめ
 
-Tobari は durable execution identity、host configuration、shared enforcement、runtime realization、credential possession、network authorization を分離します。exact boundary には exact term を使ってください。
+Tobari は、永続する実行識別情報、ホスト設定、共有の制御基盤、ランタイムによる
+実体化、認証情報の所持、ネットワークの許可を分離します。完全一致の境界には、対応する
+用語を使ってください。
 
 ## 理解を確認する
 
-「container」「Context」「Workspace」を同義語にせず、Tobari を説明できるはずです。
+「コンテナ」「Context」「Workspace」は同義語ではありません。
 
 <details>
-<summary>process が有効な broker handle を持っています。認証と通信許可は完了していますか？</summary>
+<summary>プロセスが有効な Auth Broker のハンドルを持っています。認証と通信許可は完了していますか？</summary>
 
-いいえ。credential capability の candidate を持っているだけです。Broker が Context、project、provider、revision、HTTP binding を一致させ、さらに OPA が通常の HTTP effect を allow した後で、宣言された resolve、refresh、signing action が実行されます。
+いいえ。認証機能の候補を持っているだけです。Broker が Context、プロジェクト、
+プロバイダー、リビジョン、HTTP との結び付きの一致を確認し、さらに OPA が通常の HTTP
+通信を許可した後で、宣言済みの解決、更新、署名処理を実行します。
 
 </details>
 
 <details>
 <summary>現在の Context を変更すると、既存 Workspace もその Context へ移りますか？</summary>
 
-移りません。Workspace の Context ID binding は恒久的です。current Context は selector を省略した invocation の default にすぎません。
+移りません。Workspace と Context ID の結び付きは恒久的です。現在の Context は、
+セレクターを省略した呼び出しのデフォルトにすぎません。
 
 </details>
 
 <details>
 <summary>許可された Upstream 接続を実際に開くのは Gateway と OPA のどちらですか？</summary>
 
-Gateway です。OPA は decision を評価して返しますが、traffic を forward しません。
+Gateway です。OPA は判断を評価して返しますが、通信を転送しません。
 
 </details>
 

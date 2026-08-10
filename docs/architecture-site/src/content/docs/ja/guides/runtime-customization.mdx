@@ -1,22 +1,22 @@
 ---
-title: runtimeのカスタマイズ
-description: Workspace の identity と永続 home を変えずに、Context が管理する互換ランタイムをビルドして選択します。
+title: ランタイムのカスタマイズ
+description: Workspace の識別情報と永続ホームを変えずに、Context が管理する互換ランタイムをビルドして選択します。
 ---
 
-プロジェクトへツールを追加するには、current Context の owner-only Dockerfile recipe を初期化し、信頼するホストで編集してから、明示的に `runtime build` を実行します。次の Workspace entry では work container だけを調整し、logical Workspace identity と persistent home を保持します。
+プロジェクトへツールを追加するには、現在の Context にある所有者専用の Dockerfile レシピを初期化します。信頼するホストで編集してから、明示的に `runtime build` を実行してください。次に Workspace へ入るときは作業コンテナだけが調整され、論理 Workspace の識別情報と永続ホームは維持されます。
 
-作業前に current Context を確認してください。詳しくは [Context](../contexts/)を参照してください。custom runtime image は作業環境を提供しますが、mount、network、Workspace lifetime を決める権限は持ちません。
+作業前に現在の Context を確認してください。詳しくは [Context](../contexts/)を参照してください。カスタムランタイムイメージは作業環境を提供しますが、マウント、ネットワーク、Workspace の寿命を決める権限は持ちません。
 
 ## 1. Context を選択して確認する
 
-runtime command は current/default Context に作用します。named Context を使う場合は先に選択します。
+ランタイムコマンドは現在またはデフォルトの Context に作用します。名前付きの Context を使う場合は先に選択します。
 
 ```sh
 tobari context use --name review
 tobari context show
 ```
 
-Context report は selected image と managed recipe の有無を示します。この Context に恒久的に bound された既存 Workspace は、次の entry で current image を参照します。
+Context の報告には、選択したイメージと管理対象レシピの有無が示されます。この Context に恒久的に結び付いた既存 Workspace は、次の入室時に現在のイメージを参照します。
 
 ## 2. 一度だけ初期化する
 
@@ -25,9 +25,9 @@ tobari runtime init --format json
 tobari context show --format json
 ```
 
-path を推測せず、報告された runtime recipe path を使ってください。`runtime init` は owner-only `runtime/Dockerfile` template を作ります。image build、selected image の変更、Docker service の起動、既存 recipe の上書きは行いません。
+パスを推測せず、報告されたランタイムレシピのパスを使ってください。`runtime init` は所有者だけがアクセスできる `runtime/Dockerfile` テンプレートを作ります。イメージのビルド、選択したイメージの変更、Docker サービスの起動、既存レシピの上書きは行いません。
 
-信頼するホストで recipe を編集します。最小 customization では template の base と user transition を保ち、既存 `USER root` と `USER tobari` の間に package を追加します。
+信頼するホストでレシピを編集します。最小限のカスタマイズでは、テンプレートのベースと利用者の切り替えを保ち、既存の `USER root` と `USER tobari` の間にパッケージを追加します。
 
 ```dockerfile
 RUN apt-get update \
@@ -35,7 +35,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ```
 
-real credential を Dockerfile、build context、image layer、example に入れないでください。
+実物の認証情報を Dockerfile、ビルドコンテキスト、イメージレイヤー、例に入れないでください。
 
 ## 3. ビルド、検証、昇格
 
@@ -43,20 +43,20 @@ real credential を Dockerfile、build context、image layer、example に入れ
 tobari runtime build --format json
 ```
 
-これは意図的な host Docker-build boundary 一つです。Tobari は次を行います。
+これは、意図的に一か所へ限定したホスト上の Docker ビルド境界です。Tobari は次を行います。
 
-1. Context runtime directory だけを build context にする
-2. Context と recipe source digest から local image identity を導出する
-3. bounded structured invocation で Docker build を実行する
-4. resulting image を Tobari runtime contract で検証する
-5. confirmed image digest を記録する
-6. Context manifest の image selector を atomically に promote する
+1. Context のランタイムディレクトリだけをビルドコンテキストにする
+2. Context とレシピソースダイジェストからローカルイメージ識別情報を導出する
+3. 引数と出力を制限した構造化呼び出しで Docker ビルドを実行する
+4. 生成されたイメージを Tobari ランタイム契約で検証する
+5. 確定したイメージダイジェストを記録する
+6. Context マニフェストのイメージ選択情報をアトミックに昇格する
 
-file を編集しただけでは何も変わりません。build または compatibility check に失敗すると、prior selected image が authority のままです。Docker/BuildKit が cache または unselected candidate image を保持しても、Tobari はそれを active と報告しません。
+ファイルを編集しただけでは何も変わりません。ビルドまたは互換性検査に失敗すると、それまで選択されていたイメージが引き続き有効です。Docker または BuildKit がキャッシュや未選択の候補イメージを保持していても、Tobari がそれを有効なイメージとして報告することはありません。
 
 ## 4. 既存 Workspace へ入り直す
 
-この Context に bound された project から実行します。
+この Context に結び付いたプロジェクトから実行します。
 
 ```sh
 tobari
@@ -64,50 +64,50 @@ tree --version
 exit
 ```
 
-entry は desired image と complete runtime spec を existing container と比較します。変化があれば、その container だけを再作成します。logical Workspace ID、canonical root、Context binding、persistent home、learned policy、project file は保持します。
+入室時には、望ましいイメージと完全なランタイム仕様を既存コンテナと比較します。違いがあれば、そのコンテナだけを再作成します。論理 Workspace ID、正規化済みルート、Context の結び付け、永続ホーム、学習済みポリシー、プロジェクトファイルは保持されます。
 
-image の `CMD` は Workspace lifetime を定義しません。Tobari が fixed lifetime command を与え、shell または agent command は child exec session として開始します。container loss は recoverable であり、logical Workspace は container そのものではありません。
+イメージの `CMD` は Workspace の寿命を定義しません。Tobari が固定された生存コマンドを与え、シェルまたはエージェントコマンドは子の exec セッションとして開始します。コンテナを失っても復旧でき、論理 Workspace はコンテナそのものではありません。
 
 ## 互換性が意味すること
 
-custom image は、expected non-root `tobari` user、entrypoint behavior、fixed lifetime-command capability、CA/proxy environment compatibility、writable home location、health behavior、supported architecture を含む Tobari runtime API と operational contract を保持する必要があります。
+カスタムイメージは、想定された非 root の `tobari` 利用者、エントリーポイントの動作、固定された生存コマンド、CA とプロキシ環境との互換性、書き込み可能なホーム、ヘルスチェック、サポート対象のアーキテクチャを含む Tobari ランタイム API と運用契約を守る必要があります。
 
-image 自身が次を与えることはできません。
+イメージ自身が次を与えることはできません。
 
-- extra host mount または host home
-- Docker socket access
-- host networking または direct external route
-- 追加 Linux capability
-- 別 project principal
-- `CMD` 変更による長い logical lifetime
+- 追加のホストマウントまたはホストホーム
+- Docker ソケットへのアクセス
+- ホストネットワークまたは直接の外部経路
+- 追加 Linux 権限
+- 別プロジェクトプリンシパル
+- `CMD` 変更による長い論理寿命
 
-これらの control は image metadata ではなく host lifecycle implementation が所有します。
+これらの制御はイメージメタデータではなくホストライフサイクル実装が所有します。
 
 ## 失敗時の動作
 
-- `runtime_recipe_exists`: 既存 recipe を確認します。init は上書きしません。
-- `runtime_recipe_missing`: build 前に `tobari runtime init` を実行します。
-- `runtime_build_failed`: Dockerfile を直し `tobari context show` を確認します。promotion 完了済みでない限り old selection が残ります。
-- `image_not_found`: declared base または selected image を利用可能にして、explicit build/reconcile を再試行します。
-- `incompatible_image`: required user、label/API、entrypoint、lifetime capability、architecture を復元します。
-- uncertain mutation outcome: promotion failure と決めつけず、別 build 前に `tobari context show` を確認します。
-- existing Workspace entry failure: prior logical state と home は残ります。Context image を直して再 entry します。
+- `runtime_recipe_exists`: 既存レシピを確認します。`runtime init` は上書きしません。
+- `runtime_recipe_missing`: ビルド前に `tobari runtime init` を実行します。
+- `runtime_build_failed`: Dockerfile を直し `tobari context show` を確認します。採用が完了していない限り、以前の選択が残ります。
+- `image_not_found`: 宣言されたベースイメージまたは選択したイメージを利用可能にして、明示的なビルドか調整を再試行します。
+- `incompatible_image`: 必須の利用者、ラベルと API、エントリーポイント、生存コマンドの権限、アーキテクチャを復元します。
+- 結果が不確実な変更操作: 採用に失敗したと決めつけず、別のビルドを行う前に `tobari context show` を確認します。
+- 既存 Workspace への入室障害: 以前の論理状態とホームは残ります。Context のイメージを直して再入室します。
 
 ## 保証と制限
 
-promotion は content-aware で Context-scoped です。validation failure が active selection を暗黙に置き換えることはありません。compatibility validation で image 内の任意 software を trustworthy にすることはできません。Workspace 内の process は selected project を変更し、すでに許可済みの network effect を利用できます。
+採用処理は内容を検査し、対象の Context に限定されます。検証に失敗しても、現在有効な選択が暗黙に置き換わることはありません。互換性検証は、イメージ内のあらゆるソフトウェアが信頼できることまでは保証しません。Workspace 内のプロセスは選択したプロジェクトを変更し、すでに許可済みのネットワーク通信を利用できます。
 
 ## 根拠となるソース
 
-- [Runtime customization contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
-- [Runtime Catalog specifications](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
-- [Context runtime implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/context_runtime.go)
-- [Container drift reconciliation tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime_test.go)
-- [Base runtime contract checker](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/tools/runtimecheck/main.go)
+- [ランタイムカスタマイズの契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [ランタイム Catalog の仕様](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
+- [Context ランタイムの実装](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/context_runtime.go)
+- [コンテナの構成ずれを調整するテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime_test.go)
+- [ベースランタイム契約の検査処理](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/tools/runtimecheck/main.go)
 
 ## まとめ
 
-recipe は source、`runtime build` は明示的に検証される promotion boundary、Workspace entry は reconciliation point です。runtime image は tool を提供し、host lifecycle code が authority と lifetime を所有します。
+レシピはソース、`runtime build` は明示的に検証される採用境界、Workspace への入室は調整点です。ランタイムイメージはツールを提供し、ホストのライフサイクルコードが権限と寿命を管理します。
 
 ## 理解を確認する
 
@@ -115,24 +115,24 @@ recipe は source、`runtime build` は明示的に検証される promotion bou
   <summary>
     Dockerfile を編集すると実行中の Workspace は更新されますか？
   </summary>
-  いいえ。`runtime build` が必要です。既存 Workspace は、promote 済み compatible
-  image を次の entry で利用します。
+  いいえ。`runtime build` が必要です。既存 Workspace は、昇格済みの互換
+  イメージを次の入室で利用します。
 </details>
 
 <details>
   <summary>
-    image の構成ずれにより container を再作成すると、Workspace home
+    イメージの構成ずれによりコンテナを再作成すると、Workspace ホーム
     はどうなりますか？
   </summary>
-  保持されます。交換可能な container とは別に mount される logical Workspace
-  state です。
+  保持されます。交換可能なコンテナとは別にマウントされる論理 Workspace
+  状態です。
 </details>
 
 <details>
   <summary>
-    カスタム image は Dockerfile の宣言だけで Docker socket を追加できますか？
+    カスタムイメージは Dockerfile の宣言だけで Docker ソケットを追加できますか？
   </summary>
-  いいえ。host lifecycle code が mount と capability を固定します。
+  いいえ。ホストライフサイクルコードがマウントと権限を固定します。
 </details>
 
 **次へ:** [認証方式を選ぶ](../authentication/)。

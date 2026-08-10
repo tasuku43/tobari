@@ -3,7 +3,7 @@ title: 学習経路
 description: Tobari の目的から、正確なセキュリティ境界と復旧境界までをたどる 10 段階の学習経路です。
 ---
 
-この学習経路では、利用者が得る結果から始め、Tobari の正確なセキュリティ境界と復旧境界までを順に理解します。一つの request path を把握した後で、lifecycle、policy、credential、failure を加え、最後に reference material へ進みます。
+この学習経路では、Tobari が利用者へ提供するものから始め、正確なセキュリティ境界と復旧方法までを順に理解します。一つのリクエストが通る経路を把握した後で、ライフサイクル、ポリシー、認証情報、障害時の動作を学び、最後にリファレンスへ進みます。
 
 前提知識は必要ありません。各ステップでは説明を重複させず、詳しいページへ案内します。
 
@@ -11,17 +11,17 @@ description: Tobari の目的から、正確なセキュリティ境界と復旧
 
 学習経路は、次の五段階に分かれています。
 
-1. **目的:** Tobari が開発者のどの task を完結させるか。
+1. **目的:** Tobari が開発者のどの作業を支えるか。
 2. **最小モデル:** Workspace → Gateway → Upstream と、Gateway の隣にある OPA と Auth Broker。
-3. **シーケンス:** Workspace entry、HTTP/HTTPS、拒否のレビュー、credential 利用を時間順に理解する。
-4. **境界と失敗:** identity と state を誰が所有するか、何が fail closed するか、Tobari が何を保護しないか。
-5. **正確な仕様:** Catalog から生成される CLI、schema、path、version、fault、evidence。
+3. **シーケンス:** Workspace への入室、HTTP/HTTPS、拒否のレビュー、認証情報利用を時間順に理解する。
+4. **境界と失敗:** 識別情報と状態を誰が所有するか、障害時に何が拒否されるか、Tobari が何を保護しないか。
+5. **正確な仕様:** Catalog から生成される CLI、スキーマ、パス、バージョン、fault code、根拠。
 
 ## 推奨する 10 ステップ
 
 ### 1. Tobari とは何か
 
-[概要](../overview/)を読みます。agent が受け取る権限と、引き続き制御される outbound effect を説明できるようにしてください。
+[概要](../overview/)を読みます。エージェントが受け取る権限と、引き続き制御される外向き許可対象を説明できるようにしてください。
 
 ### 2. 五つの要素で捉える全体像
 
@@ -29,31 +29,31 @@ description: Tobari の目的から、正確なセキュリティ境界と復旧
 
 ### 3. Workspace のライフサイクル
 
-[Workspace lifecycle](../../how-it-works/workspace-lifecycle/)を読みます。`exit`、`delete`、runtime loss、`cluster down`、`cluster down --purge` を区別します。
+[Workspace lifecycle](../../how-it-works/workspace-lifecycle/)を読みます。`exit`、`delete`、ランタイム喪失、`cluster down`、`cluster down --purge` を区別します。
 
 ### 4. 一つの外向きリクエスト
 
-[Request journey](../../how-it-works/request-journey/)を読みます。principal の導出、body を含まない OPA input、allow/deny、別の upstream connection、secret-free audit を順に追います。
+[Request journey](../../how-it-works/request-journey/)を読みます。プリンシパルの導出、本文を含まない OPA 入力、許可/拒否、別の Upstream への接続、秘密情報を含まない監査を順に追います。
 
 ### 5. HTTPS と TLS
 
-[HTTPS と TLS](../../how-it-works/https-and-tls/)を読みます。`CONNECT`、Workspace 側 TLS の終端、それとは別に検証される upstream TLS connection を説明できるようにします。
+[HTTPS と TLS](../../how-it-works/https-and-tls/)を読みます。`CONNECT`、Workspace 側での TLS 終端、それとは別に検証される接続先側の TLS 接続を説明できるようにします。
 
 ### 6. ポリシーの拒否とレビュー
 
-[Policy learning](../../how-it-works/policy-learning/)と[最初の拒否](../first-denial/)を読みます。exact rule、opaque reference、all-or-nothing activation、deliberate retry を説明します。
+[ポリシー学習](../../how-it-works/policy-learning/)と[最初の拒否](../first-denial/)を読みます。完全一致規則、不透明な参照、全体が成功した場合だけ行う有効化、意図的な再試行を説明します。
 
 ### 7. 認証と認証情報
 
-[Credential](../../how-it-works/credentials/)と[Authentication guide](../../guides/authentication/)を読みます。authentication と authorization を分けて考えてください。
+[Credential](../../how-it-works/credentials/)と[Authentication guide](../../guides/authentication/)を読みます。認証と通信許可を分けて考えてください。
 
 ### 8. セキュリティ上の保証と制限
 
-[保証と制限](../../security/guarantees-and-limitations/)と[信頼境界](../../security/trust-boundaries/)を読みます。すべての claim について、その precondition と信頼する enforcement point を特定します。
+[保証と制限](../../security/guarantees-and-limitations/)と[信頼境界](../../security/trust-boundaries/)を読みます。すべての保証について、成立する前提と、動作を実際に強制する場所を特定します。
 
 ### 9. 状態と復旧
 
-[State と復旧](../../how-it-works/state-and-recovery/)と[トラブルシューティング](../../guides/troubleshooting/)を読みます。破壊的に見える各 command が、実際には何を保持するかを説明します。
+[状態と復旧](../../how-it-works/state-and-recovery/)と[トラブルシューティング](../../guides/troubleshooting/)を読みます。破壊的に見える各コマンドが、実際には何を残すのかを説明します。
 
 ### 10. 最終理解確認
 
@@ -61,49 +61,49 @@ description: Tobari の目的から、正確なセキュリティ境界と復旧
 
 ## リファレンスを使うタイミング
 
-Reference page は、model を理解した後の正確な運用上の問いに答えます。
+Reference page は、モデルを理解した後の正確な運用上の問いに答えます。
 
 - [CLI](../../reference/cli/) は `cli.Catalog` から生成されます。
-- [Configuration と state](../../reference/configuration-and-state/)は、正確な store と lifetime を列挙します。
-- [Provider manifest](../../reference/provider-manifest/)は、owner-controlled strict schema 1 と、reviewed built-in schema-2 plan を区別します。
-- [Fault と復旧](../../reference/faults-and-recovery/)は、code を安全な action に対応付けます。
-- [Component version](../../reference/component-versions/)は、repository の正本から生成されます。
+- [設定と状態](../../reference/configuration-and-state/)は、正確な保存場所と寿命を列挙します。
+- [プロバイダーマニフェスト](../../reference/provider-manifest/)は、所有者だけが変更できる厳格なスキーマ 1 と、レビュー済みの組み込みスキーマ 2 プランを区別します。
+- [障害と復旧](../../reference/faults-and-recovery/)は、障害コードを安全な操作に対応付けます。
+- [コンポーネントのバージョン](../../reference/component-versions/)は、リポジトリの正本から生成されます。
 
-path や schema の詳細を、ownership の理解の代わりにしないでください。たとえば `vault.enc` の保存場所を知っていても、OPA deny によって static resolution、AWS companion/signing work、Datadog token の選択または refresh が防がれる理由を説明したことにはなりません。
+パスやスキーマの詳細を覚えるだけでは、所有権を理解したことにはなりません。たとえば `vault.enc` の保存場所を知っていても、OPA が拒否したときに、静的な認証情報の解決、AWS コンパニオンによる処理と署名、Datadog トークンの選択や更新が実行されない理由は説明できません。
 
 ## リンク先の説明が予想と違った場合
 
 いったん止まり、直前の概念ページへ戻ってください。特に次の場合です。
 
-- Workspace と container が同じものに見えた場合は、[Workspace、Context、cluster](../../how-it-works/workspace-context-cluster/)へ戻る。
-- login によって network permission が作られるように見えた場合は、[Credential](../../how-it-works/credentials/)へ戻る。
-- OPA が traffic を forward するように見えた場合は、[Request journey](../../how-it-works/request-journey/)へ戻る。
-- 「encrypted」が完全な security claim に聞こえた場合は、[Credential security](../../security/credential-security/)へ戻る。
+- Workspace とコンテナが同じものに見えた場合は、[Workspace、Context、cluster](../../how-it-works/workspace-context-cluster/)へ戻る。
+- ログインによってネットワーク権限が作られるように見えた場合は、[Credential](../../how-it-works/credentials/)へ戻る。
+- OPA が traffic を転送するように見えた場合は、[Request journey](../../how-it-works/request-journey/)へ戻る。
+- 「暗号化された」が完全なセキュリティ保証に聞こえた場合は、[Credential security](../../security/credential-security/)へ戻る。
 
 ## 根拠となるソース
 
 - [学習モデルを規定する Project theses](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/00_theses.md)
-- [Product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
-- [Architecture](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
-- [Security model](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [製品契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [アーキテクチャ](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [セキュリティモデル](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
 
 ## まとめ
 
-Tobari は、利用者が得る結果、シーケンス、境界、仕様の順に学びます。この順序には意図があります。Docker の詳細、credential schema、fault code によって、各 step で誰が権限を持つのかが見えなくなるのを防ぎます。
+Tobari は、利用者が得る結果、シーケンス、境界、仕様の順に学びます。この順序には意図があります。Docker の詳細、認証情報スキーマ、障害コードによって、各 step で誰が権限を持つのかが見えなくなるのを防ぎます。
 
 ## 理解を確認する
 
 <details>
-<summary>fault code は分かっていても、リクエストが Gateway を通る理由を理解していない場合、まずどこを見ればよいですか？</summary>
+<summary>障害コードは分かっていても、リクエストが Gateway を通る理由を理解していない場合、まずどこを見ればよいですか？</summary>
 
-fault reference より先に、mental model と request journey を読んでください。失敗した step をどの component が所有するか分かっていれば、より安全に復旧できます。
+障害参照より先に、mental モデルとリクエスト journey を読んでください。失敗した step をどのコンポーネントが所有するか分かっていれば、より安全に復旧できます。
 
 </details>
 
 <details>
-<summary>完全な provider manifest schema は、いつ読むべきですか？</summary>
+<summary>完全なプロバイダーマニフェストスキーマは、いつ読むべきですか？</summary>
 
-三つの credential path と、authentication/authorization の分離を理解した後です。schema は段階 5 の reference detail です。
+三つの認証情報パスと、認証/通信許可の分離を理解した後です。スキーマは段階 5 の参照 detail です。
 
 </details>
 

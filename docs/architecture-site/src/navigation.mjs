@@ -33,7 +33,7 @@ export const navigationGroups = [
     ),
     item(
       "Workspace lifecycle",
-      "Workspaceのライフサイクル",
+      "Workspace のライフサイクル",
       "/how-it-works/workspace-lifecycle/",
     ),
     item(
@@ -41,7 +41,7 @@ export const navigationGroups = [
       "リクエストの流れ",
       "/how-it-works/request-journey/",
     ),
-    item("HTTPS and TLS", "HTTPSとTLS", "/how-it-works/https-and-tls/"),
+    item("HTTPS and TLS", "HTTPS と TLS", "/how-it-works/https-and-tls/"),
     item(
       "Project identity",
       "プロジェクト識別",
@@ -83,7 +83,7 @@ export const navigationGroups = [
     item("Supply chain", "サプライチェーン", "/security/supply-chain/"),
     item(
       "Verification evidence",
-      "検証証拠",
+      "検証の根拠",
       "/security/verification-evidence/",
     ),
   ]),
@@ -91,13 +91,13 @@ export const navigationGroups = [
     item("Contexts", "Context", "/guides/contexts/"),
     item(
       "Runtime customization",
-      "runtimeのカスタマイズ",
+      "ランタイムのカスタマイズ",
       "/guides/runtime-customization/",
     ),
     item("Authentication", "認証", "/guides/authentication/"),
     item("Policy review", "ポリシーレビュー", "/guides/policy-review/"),
     item("Advanced policy", "高度なポリシー", "/guides/advanced-policy/"),
-    item("Colima and Lima", "ColimaとLima", "/guides/colima-and-lima/"),
+    item("Colima and Lima", "Colima と Lima", "/guides/colima-and-lima/"),
     item(
       "Troubleshooting",
       "トラブルシューティング",
@@ -124,7 +124,7 @@ export const navigationGroups = [
     ),
     item(
       "Runtime image contract",
-      "runtime image契約",
+      "ランタイムイメージ契約",
       "/reference/runtime-image-contract/",
     ),
     item(

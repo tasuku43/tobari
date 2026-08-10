@@ -1,66 +1,102 @@
 ---
 title: サプライチェーン
-description: ランタイムの正本、埋め込み snapshot、不変な image identity、license、workflow、検証 gate の関係を説明します。
+description: ランタイムの正本、埋め込みスナップショット、変更されないイメージ識別情報、ライセンス、ワークフロー、検証ゲートの関係を説明します。
 ---
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari は Gateway、OPA、Auth Broker を、レビュー済みの immutable image
-digest から起動します。CLI が使う embedded runtime snapshot と canonical
-source の一致を検査し、runtime metadata、license、repository gate により
-publication または release 前の drift を拒否します。
+Tobari は Gateway、OPA、Auth Broker を、レビュー済みの変更されないイメージダイジェスト
+から起動します。CLI が使う埋め込みランタイムのスナップショットと正本のソースが一致する
+ことを検査し、ランタイムのメタデータ、ライセンス、リポジトリの検証ゲートによって、
+公開またはリリース前の差分を拒否します。
 
-default Workspace runtime selector は別の契約で、現在は immutable service
-identity ではなく moving tag です。各 image と embedded asset の役割は、先に
-[Implementation stack](../../how-it-works/implementation-stack/) で確認できます。
+Workspace のデフォルトランタイム選択子は別の契約で、現在は変更されないサービス
+識別情報ではなく、更新されるタグです。各イメージと埋め込み成果物の役割は、
+先に[実装技術](../../how-it-works/implementation-stack/)で確認できます。
 
 <ConceptDiagram name="image-supply" />
 
-## 正本と snapshot の両方がある理由
+## 正本とスナップショットの両方がある理由
 
-Go CLI は startup 時に executable policy または Python source を download せず、runtime directory を materialize する必要があります。editable canonical Gateway code は `gateway/`、Auth Broker は `authbroker/`、runtime source は `runtimes/base/` にあります。embedding 用の byte/content-checked copy は `internal/infra/runtimeassets/assets/` にあります。Auth Broker snapshot は private AWS companion protocol と固定された Datadog refresh logic を含みますが、image contract は GitHub CLI、AWS CLI、`pup`、その他の provider executable を拒否します。
+Go CLI は起動時に実行可能なポリシーや Python ソースをダウンロードせず、ランタイム
+ディレクトリを展開できる必要があります。編集する正本は、Gateway が `gateway/`、
+Auth Broker が `authbroker/`、ランタイムが `runtimes/base/` にあります。
+埋め込み用にバイト列と内容の一致を検査する複製は、
+`internal/infra/runtimeassets/assets/` にあります。Auth Broker のスナップショットには、
+非公開の AWS コンパニオンプロトコルと、接続先を固定した Datadog 更新処理が含まれます。
+ただしイメージ契約では、GitHub CLI、AWS CLI、`pup`、その他のプロバイダー実行
+ファイルがイメージに入ることを拒否します。
 
-copy は二つ目の実装ではありません。`check-gateway-source.sh`、`check-authbroker-source.sh`、`check-runtime-base.sh` が drift を拒否します。synchronization は明示的な maintainer operation です。
+埋め込みの複製は二つ目の実装ではありません。`check-gateway-source.sh`、
+`check-authbroker-source.sh`、`check-runtime-base.sh` が正本との差分を拒否します。
+同期は保守担当者が明示的に行う操作です。
 
-## 不変な identity と移動する identity
+## 変更されない識別情報と更新される識別情報
 
-`versions.env` は OPA、mitmproxy build base、Gateway、Auth Broker、Debian build base を `@sha256:` digest で pin します。Gateway と Auth Broker は架空の public SemVer を持ちません。その digest が exact runtime identity です。friendly OPA/mitmproxy version string は、それらの digest と組み合わせた repository declaration です。
+`versions.env` は OPA、mitmproxy のビルド元、Gateway、Auth Broker、Debian の
+ビルド元を `@sha256:` ダイジェストで固定します。Gateway と Auth Broker に架空の
+公開 SemVer は付けません。そのダイジェストがランタイムの完全一致の識別情報です。
+読みやすい OPA と mitmproxy のバージョン文字列は、ダイジェストと組み合わせてリポジトリが
+宣言する情報です。
 
-official default runtime selector は現在 `ghcr.io/tasuku43/tobari/runtime:latest` です。意図的な moving selector であり、immutable digest と説明してはいけません。Context reconciliation は実際に使う image identity を resolve/record し、runtime API label と metadata が compatibility を gate します。
+公式のデフォルトランタイム選択子は、現在
+`ghcr.io/tasuku43/tobari/runtime:latest` です。意図的に更新される選択子であり、
+変更されないダイジェストと説明してはいけません。Context の状態調整では、実際に使う
+イメージの識別情報を解決して記録します。互換性はランタイム API ラベルとメタデータで
+検査します。
 
-canonical source と pinned runtime artifact は別々の事実です。source が変わっても、対応する multi-architecture Gateway/Auth Broker manifest を publish/review し、`versions.env` の immutable digest を更新するまで、running cluster や新しく reconcile する standard cluster の byte は変わりません。この source snapshot が実際に選ぶ artifact の正本は、generated [Component version](../../reference/component-versions/) table です。
+正本のソースと、ダイジェストで固定したランタイム成果物は別の事実です。ソースが
+変わっても、対応する複数アーキテクチャの Gateway と Auth Broker のマニフェストを
+公開してレビューし、`versions.env` の変更されないダイジェストを更新するまでは、実行中または
+新たに状態を調整する標準クラスターのバイト列は変わりません。このソースのスナップショット
+が実際に選ぶ成果物は、生成された[コンポーネントバージョン](../../reference/component-versions/)
+の表を正本として確認できます。
 
-現在選択されている Gateway/Auth Broker pair には、以前の AWS Identity Center companion/SigV4 path が含まれますが、canonical source/test にある AWS console login と Datadog post-policy request path より古いものです。immutable pin が更新されるまで、それらの新しい path は standard-cluster capability ではありません。source test の成功だけで runtime byte が暗黙に置き換わることはありません。
+現在選択されている Gateway と Auth Broker の組み合わせには、従来の AWS Identity
+Center の補助処理と SigV4 の経路が含まれます。一方、正本のソースとテストにある
+AWS コンソールへのログインと、ポリシー許可後の Datadog リクエスト処理より古いものです。
+変更されない参照を更新するまでは、これらの新しい経路は標準クラスターの機能では
+ありません。ソースのテストが成功しただけで、ランタイムのバイト列が暗黙に
+置き換わることはありません。
 
 ## ビルドとリリースの制御
 
-- OCI image は reviewed workflow で build し GHCR へ publish する
-- external workflow action は full commit SHA で pin する
-- release packaging は CLI version と commit を inject し、ordinary build は `dev` のまま
-- base/derived runtime metadata は architecture、parent、API、lifetime command、tool source、checksum/signature、license expectation を記録する
-- Auth Broker image check は provider CLI と public TCP listener が存在しないことを確認する。companion test は host side に listener/socket mount がなく、compiled AWS operation だけを受け入れることを確認する
-- public/release guard は repository boundary、secret、license、package input、immutable service reference を確認する。ここで separate code-signing、SBOM-attestation、externally verifiable provenance system までは主張しない
+- OCI イメージはレビュー済みのワークフローでビルドし、GHCR へ公開する
+- 外部ワークフローのアクションは完全なコミット SHA で固定する
+- リリースパッケージには CLI のバージョンとコミットを埋め込み、通常のビルドは `dev` のままにする
+- 基盤ランタイムと派生ランタイムのメタデータには、アーキテクチャ、親、API、寿命を保つ
+  コマンド、ツールのソース、チェックサムまたは署名、ライセンスの要件を記録する
+- Auth Broker イメージの検査では、プロバイダー CLI と公開 TCP リスナーが存在しない
+  ことを確認する。コンパニオンのテストでは、ホスト側にリスナーやソケットのマウントが
+  なく、コンパイル済みの AWS 操作だけを受け入れることを確認する
+- 公開・リリース用の検査は、リポジトリ境界、秘密情報、ライセンス、パッケージ入力、
+  変更されないサービス参照を確認する。独立したコード署名、SBOM の証明、外部から
+  検証できる来歴管理の仕組みまでを保証するものではない
 
 ## 起動に失敗したときの動作
 
-required identity が missing、immutable が必要な場所で mutable、incompatible、unverifiable なら reconciliation を止めます。embedded asset の missing または source drift は repository gate を失敗させます。invalid policy/provider projection と locked/unsafe broker state は、dependent service が ready になるのを防ぎます。failure 時に別の unreviewed image へ切り替えたり、script を動的 download したりしません。
+必要な識別情報が存在しない、変更されないはずの参照が可変である、互換性がない、
+または検証できない場合は、状態調整を停止します。埋め込み成果物がない、または正本の
+ソースと一致しない場合は、リポジトリの検証ゲートが失敗します。ポリシーやプロバイダーの
+投影結果が不正、Broker がロック中または安全でない状態の場合、依存するサービスは
+準備完了になりません。障害時に、レビューしていない別のイメージへ切り替えたり、
+スクリプトを動的にダウンロードしたりすることはありません。
 
 <aside class="guarantee">
   <h2>保証すること</h2>
   <div class="prose-block">
-    reviewed service identity は digest-pinned で、source/snapshot equality
-    は機械的に確認されます。static documentation site 自体も lockfile
-    を使い、runtime CDN はありません。
+    レビュー済みのサービス識別情報はダイジェストで固定され、ソースとスナップショットの
+    一致は機械的に確認されます。静的ドキュメントサイト自体も lockfile を使い、
+    実行時に CDN を読み込みません。
   </div>
 </aside>
 
 <aside class="limitation">
   <h2>保証しないこと</h2>
   <div class="prose-block">
-    digest は byte identity を示しますが、その byte に vulnerability
-    がない証明ではありません。default runtime tag は moving です。trusted
-    registry、CI、host、reviewed dependency process は supply-chain assumption
-    の一部です。
+    ダイジェストが示すのはバイト列の識別情報であり、その内容に脆弱性がないことでは
+    ありません。デフォルトランタイムのタグは更新されます。信頼するレジストリ、
+    CI、ホスト、レビュー済みの依存関係管理手順は、サプライチェーンの前提です。
   </div>
 </aside>
 
@@ -69,17 +105,17 @@ required identity が missing、immutable が必要な場所で mutable、incomp
   <ul>
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/versions.env">
-        サービスの version と digest
+        サービスのバージョンとダイジェスト
       </a>
     </li>
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets.go">
-        埋め込み asset の展開と hash
+        埋め込み成果物の展開とハッシュ
       </a>
     </li>
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/tools/runtimecheck/main.go">
-        runtime metadata の検証処理
+        ランタイムメタデータの検証処理
       </a>
     </li>
     <li>
@@ -92,7 +128,8 @@ required identity が missing、immutable が必要な場所で mutable、incomp
 
 ## ここまでで説明できること
 
-「固定された image」と「レビュー済みのソース snapshot」が関連しながら異なる制御である理由を説明できるはずです。
+「固定されたイメージ」と「レビュー済みのソースのスナップショット」は関係しますが、別々の
+制御です。
 
 <div class="question-list">
   <details>
@@ -100,8 +137,8 @@ required identity が missing、immutable が必要な場所で mutable、incomp
       <code>runtime:latest</code> は不変ですか？
     </summary>
     <div class="prose-block">
-      いいえ。current moving official selector です。service component digest と
-      resolved runtime identity は別々に説明する必要があります。
+      いいえ。現在の公式選択子は更新されます。サービスコンポーネントの
+      ダイジェストと、実際に解決したランタイムの識別情報は別々に扱います。
     </div>
   </details>
   <details>
@@ -109,21 +146,21 @@ required identity が missing、immutable が必要な場所で mutable、incomp
       正本があるのに Python/Rego のソースを埋め込むのはなぜですか？
     </summary>
     <div class="prose-block">
-      CLI が deterministic offline materialization
-      を必要とするためです。equality check により embedded copy
-      が独立した実装になるのを防ぎます。
+      CLI
+      が、ネットワークを使わず決定的にファイルを展開できる必要があるためです。
+      一致検査によって、埋め込みの複製が独立した実装になるのを防ぎます。
     </div>
   </details>
   <details>
-    <summary>digest は image が安全だと証明しますか？</summary>
+    <summary>ダイジェストはイメージが安全だと証明しますか？</summary>
     <div class="prose-block">
-      いいえ。exact identity を与えます。review、test、vulnerability
-      check、provenance、trusted infrastructure は別の control です。
+      いいえ。ダイジェストは完全一致の識別情報を与えるだけです。レビュー、テスト、
+      脆弱性検査、来歴の確認、信頼する基盤は、それぞれ別の制御です。
     </div>
   </details>
 </div>
 
 <div class="page-next">
-  <strong>次へ:</strong> <a href="../verification-evidence/">検証証拠 →</a>{" "}
+  <strong>次へ:</strong> <a href="../verification-evidence/">検証の根拠 →</a>{" "}
   で主張と テストの対応を確認します。
 </div>

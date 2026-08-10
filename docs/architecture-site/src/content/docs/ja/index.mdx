@@ -1,6 +1,6 @@
 ---
 title: Tobari
-description: 選択した一つのプロジェクトで agent を動かし、外向き HTTP/HTTPS を最初は拒否して、レビューした完全一致の effect だけを許可します。
+description: 選択した一つのプロジェクトでエージェントを動かし、外向きの HTTP/HTTPS 通信を最初は拒否して、確認した通信だけを完全一致で許可します。
 template: splash
 sidebar:
   hidden: true
@@ -14,12 +14,14 @@ import SystemMap from "../../../components/SystemMap.astro";
   <div class="home-intro-copy">
     <p class="home-kicker">説明できる境界</p>
     <h2 class="home-statement">
-      <span>Agent を動かす。</span>
-      <span>通信の effect をレビューする。</span>
+      <span>エージェントを</span>
+      <span>動かす。</span>
+      <span>必要な通信だけを</span>
+      <span>許可する。</span>
     </h2>
     <p class="home-answer">
       {
-        "Tobari は、選択した一つのプロジェクトの Workspace で agent を動かし、未宣言の HTTP/HTTPS effect を最初は拒否します。意図した完全一致の通信だけをレビューして許可できます。"
+        "Tobari は、選択した一つのプロジェクトの Workspace でエージェントを動かし、未宣言の HTTP/HTTPS 通信を最初は拒否します。意図した完全一致の通信だけをレビューして許可できます。"
       }
     </p>
     <p class="home-caveat">
@@ -46,7 +48,7 @@ import SystemMap from "../../../components/SystemMap.astro";
       </li>
       <li>
         <span>03</span>
-        <strong>Upstream への経路</strong>
+        <strong>外部の接続先への経路</strong>
         <em>閉鎖</em>
       </li>
     </ol>
@@ -67,7 +69,7 @@ import SystemMap from "../../../components/SystemMap.astro";
       <h3>一つのリクエストを追う</h3>
       <p>
         {
-          "identity、ポリシー、TLS、認証情報、外向き通信、障害を時間順に追います。"
+          "識別情報、ポリシー、TLS、認証情報、外向き通信、障害を時間順に追います。"
         }
       </p>
     </a>
@@ -89,32 +91,32 @@ import SystemMap from "../../../components/SystemMap.astro";
   <li>
     <strong>Workspace へ入る</strong>
     <span>
-      現在の directory からプロジェクト root と、Context に結び付く論理
+      現在のディレクトリからプロジェクトルートと、Context に結び付く論理
       Workspace を選びます。
     </span>
   </li>
   <li>
-    <strong>agent に作業させる</strong>
+    <strong>エージェントに作業させる</strong>
     <span>
-      HTTP/HTTPS client は Gateway を使います。外部への直接経路はありません。
+      HTTP/HTTPS クライアントは Gateway
+      を使います。外部への直接経路はありません。
     </span>
   </li>
   <li>
     <strong>未宣言のリクエストが拒否される</strong>
     <span>
-      OPA が default deny を返し、Gateway は Upstream へ接続しません。
+      OPA がデフォルト拒否を返し、Gateway は外部の接続先へ接続しません。
     </span>
   </li>
   <li>
     <strong>信頼するホストでレビューする</strong>
     <span>
-      秘密情報を含まない保持済みの根拠が、opaque reference で完全一致の effect
-      を識別します。
+      秘密情報を含まない保持済みの根拠が、不透明な参照で完全一致の許可対象を識別します。
     </span>
   </li>
   <li>
-    <strong>完全一致の effect を許可または拒否する</strong>
-    <span>ポリシー全体を検証し、アトミックに有効化します。</span>
+    <strong>完全一致の許可対象を許可または拒否する</strong>
+    <span>ポリシー全体を検証し、途中状態を見せず一括で有効にします。</span>
   </li>
   <li>
     <strong>意図的に再試行する</strong>
@@ -139,9 +141,9 @@ import SystemMap from "../../../components/SystemMap.astro";
   <section class="protects">
     <h3>対応する構成で保護するもの</h3>
     <ul>
-      <li>選択したプロジェクトの mount 外にあるホストのファイル</li>
-      <li>Docker の制御機能と socket</li>
-      <li>別 Workspace のネットワークと home</li>
+      <li>選択したプロジェクトのマウント外にあるホストのファイル</li>
+      <li>Docker の制御機能とソケット</li>
+      <li>別 Workspace のネットワークとホーム</li>
       <li>許可されていない外部への直接通信</li>
       <li>Auth Broker が管理する実物の認証情報</li>
     </ul>
@@ -149,14 +151,14 @@ import SystemMap from "../../../components/SystemMap.astro";
   <section class="does-not-protect">
     <h3>意図的に保護しないもの</h3>
     <ul>
-      <li>選択したプロジェクト root 内のファイル</li>
+      <li>選択したプロジェクトルート内のファイル</li>
       <li>明示的に許可した宛先へ送るデータ</li>
-      <li>同じ Workspace 内の process 同士</li>
+      <li>同じ Workspace 内のプロセス同士</li>
       <li>
-        侵害された Docker Engine、ホスト、kernel、Gateway、OPA、Auth Broker
+        侵害された Docker Engine、ホスト、カーネル、Gateway、OPA、Auth Broker
       </li>
-      <li>通常の HTTP/HTTPS 以外の protocol</li>
-      <li>重なっているプロジェクト root 間のファイル変更</li>
+      <li>通常の HTTP/HTTPS 以外のプロトコル</li>
+      <li>重なっているプロジェクトルート間のファイル変更</li>
     </ul>
   </section>
 </div>
@@ -167,10 +169,10 @@ import SystemMap from "../../../components/SystemMap.astro";
 
 <div class="status-grid">
   <section class="status-implemented">
-    <h3>このソース commit で実装済み</h3>
+    <h3>このソースコミットで実装済み</h3>
     <p>
       {
-        "現在の directory から選ぶ Workspace のライフサイクル、共有 Gateway/OPA、locked Auth Broker、default-deny の完全一致ポリシー学習、検査される HTTP/HTTPS、Context が管理する runtime recipe、schema 1 の static provider、レビュー済み schema 2 の AWS SigV4/Datadog OAuth のソース、Catalog から生成する help が実装済みです。現在固定されている Gateway/Auth Broker image が含むのは、AWS console login と Datadog のリクエスト経路より前の AWS Identity Center までです。"
+        "現在のディレクトリから選ぶ Workspace のライフサイクル、共有 Gateway／OPA、ロック状態から起動する Auth Broker、デフォルト拒否から始まる完全一致のポリシー学習、検査対象となる HTTP/HTTPS、Context が管理するランタイムレシピ、スキーマ 1 の静的プロバイダー、レビュー済みスキーマ 2 の AWS SigV4／Datadog OAuth のソース、Catalog から生成するヘルプが実装済みです。現在固定されている Gateway／Auth Broker イメージに含まれるのは、AWS のコンソールログインと Datadog のリクエスト経路より前に実装された AWS Identity Center までです。"
       }
     </p>
   </section>
@@ -178,7 +180,7 @@ import SystemMap from "../../../components/SystemMap.astro";
     <h3>v1 より前のため互換性は変更される可能性あり</h3>
     <p>
       {
-        "Tobari は v1 より前の製品です。schema version と明示的な移行規則が現在の互換性を定義しますが、すべての interface が固定されたという約束ではありません。"
+        "Tobari は v1 より前の製品です。スキーマバージョンと明示的な移行規則が現在の互換性を定義しますが、すべての外部仕様が固定されたという約束ではありません。"
       }
     </p>
   </section>
@@ -186,7 +188,7 @@ import SystemMap from "../../../components/SystemMap.astro";
     <h3>実装済みとして示さないもの</h3>
     <p>
       {
-        "このサイトは roadmap の案や未完成の機能を宣伝しません。ソース commit、契約、テストにない動作は、ここにも記載しません。"
+        "このサイトは、ロードマップ上の案や未完成の機能を宣伝しません。ソースコミット、契約、テストにない動作は、ここにも記載しません。"
       }
     </p>
   </section>
@@ -197,7 +199,7 @@ import SystemMap from "../../../components/SystemMap.astro";
   <ul>
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/00_theses.md">
-        プロジェクトの theses
+        プロジェクトの基本方針
       </a>
     </li>
     <li>
@@ -217,7 +219,7 @@ import SystemMap from "../../../components/SystemMap.astro";
     </li>
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh">
-        境界の end-to-end テスト
+        境界の一連の動作を確認するテスト
       </a>
     </li>
   </ul>
@@ -271,7 +273,7 @@ import SystemMap from "../../../components/SystemMap.astro";
   .home-statement {
     max-width: 42rem;
     margin: 1rem 0 1.25rem;
-    font-size: clamp(2.5rem, 6vw, 5.3rem);
+    font-size: clamp(2.5rem, 5vw, 4.1rem);
     font-weight: 780;
     letter-spacing: -.06em;
     line-height: .98;
@@ -279,6 +281,7 @@ import SystemMap from "../../../components/SystemMap.astro";
   }
   .home-statement span {
     display: block;
+    white-space: nowrap;
   }
   .home-answer {
     max-width: 42rem;
@@ -442,7 +445,7 @@ import SystemMap from "../../../components/SystemMap.astro";
     border-block-start: 0.3rem solid var(--tobari-allowed) !important;
   }
   .protects::before {
-    content: '境界の CLAIM';
+    content: '保護する範囲';
     color: var(--tobari-allowed);
   }
   .does-not-protect {
@@ -487,7 +490,9 @@ import SystemMap from "../../../components/SystemMap.astro";
       padding: 3rem 0 2.5rem;
     }
     .home-statement {
-      font-size: clamp(2.7rem, 14vw, 4rem);
+      font-size: 2.15rem;
+      letter-spacing: -.05em;
+      line-height: 1.02;
     }
     .home-trace {
       padding: .9rem;

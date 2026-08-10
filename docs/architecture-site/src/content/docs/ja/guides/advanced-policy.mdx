@@ -3,20 +3,20 @@ title: 高度なポリシー
 description: 通常の完全一致ポリシーでは必要な境界を表現できない場合に限り、信頼するホスト側で Rego を保守します。
 ---
 
-通常は Guided policy learning を使います。exact allow/deny workflow で表現できない host-authored policy shape が必要な場合だけ Advanced Context を選びます。Rego source と test を一緒に保ち、explicit complete-cluster validation を経て変更を有効化します。
+通常はガイド付きポリシー学習を使います。完全一致の許可・拒否では表現できないポリシーをホスト側で管理する必要がある場合だけ、高度な Context を選びます。Rego ソースとテストを一緒に保ち、クラスター全体を明示的に検証してから変更を有効化します。
 
-これは通常の first-denial path ではありません。先に [Policy review](../policy-review/)と OPA/Rego を理解してください。
+これは通常の拒否を処理するための経路ではありません。先に[ポリシーレビュー](../policy-review/)と OPA/Rego を理解してください。
 
 ## ガイド付きポリシーと高度なポリシーでは、管理方式が異なる
 
-| Guided Context                                  | Advanced Context                                        |
-| ----------------------------------------------- | ------------------------------------------------------- |
-| `policy/data.json` だけを所有                   | `data.json`、`tobari.rego`、`tobari_test.rego` を所有   |
-| current Tobari-owned shared evaluator を使用    | maintainer が Context-local policy logic と test を所有 |
-| 通常は exact allow/deny/reset/compaction を使う | routine model で不足する場合、host から直接編集可能     |
-| Tobari release が evaluator logic を更新        | maintainer が compatibility と behavior をレビュー      |
+| ガイド付き Context                                | 高度な Context                                               |
+| ------------------------------------------------- | ------------------------------------------------------------ |
+| `policy/data.json` だけを所有                     | `data.json`、`tobari.rego`、`tobari_test.rego` を所有        |
+| Tobari が所有する現在の共有評価器を使用           | 保守担当者が Context 固有のポリシーロジックとテストを所有    |
+| 通常は完全一致の許可・拒否、リセット、集約を使う  | 通常のモデルで不足する場合、信頼するホスト上で直接編集できる |
+| Tobari のリリースに合わせて共有評価器が更新される | 保守担当者が互換性と動作をレビューする                       |
 
-どちらの mode でも Workspace は active policy を編集できません。Context policy directory は owner-only host state であり、Workspace へ mount されません。
+どちらのモードでも Workspace は有効なポリシーを編集できません。Context のポリシーディレクトリは所有者だけがアクセスできるホスト状態であり、Workspace へマウントされません。
 
 ## 高度なポリシーを使う Context を意図的に作る
 
@@ -26,9 +26,9 @@ tobari context show --name=policy-lab --format=json
 tobari context use --name policy-lab
 ```
 
-`context show` が報告した exact store path を使います。親の Tobari configuration directory を Workspace へ mount せず、policy directory に credential を copy しないでください。
+`context show` が報告した完全一致の保存領域パスを使います。親の Tobari 設定ディレクトリを Workspace へマウントせず、ポリシーディレクトリに認証情報をコピーしないでください。
 
-作成しても running cluster は変わりません。新しい Context を使う前に明示的に reconcile します。
+作成しても実行中のクラスターは変わりません。新しい Context を使う前に明示的に調整します。
 
 ```sh
 tobari cluster up
@@ -36,93 +36,94 @@ tobari cluster up
 
 ## ソースとテストを一緒に編集する
 
-信頼するホストで、報告された `policy/tobari.rego` と `policy/tobari_test.rego` を編集します。stable public decision contract を保ち、intended match と negative canary の test を追加します。
+信頼するホストで、報告された `policy/tobari.rego` と `policy/tobari_test.rego` を編集します。安定した公開判断契約を保ち、意図した一致を確認するテストと、不適切な推論を検出するカナリアテストを追加します。
 
-Advanced source は stable Context ID から導出される isolated package へ project されます。次の namespace を奪おうとすると validation が拒否します。
+高度なポリシーのソースは、安定した Context ID から導出される隔離されたパッケージへ投影されます。次の名前空間を使おうとすると検証で拒否されます。
 
-- cluster-owned `tobari.http/decision` router
-- reserved `tobari.system` package
-- 別 Context の namespace
-- aggregate Context data namespace
+- クラスターが所有する `tobari.http/decision` ルーター
+- 予約済みの `tobari.system` パッケージ
+- 別 Context の名前空間
+- 集約ポリシー Context データ名前空間
 
-これは一つの trusted OPA process 内での routing/namespace enforcement です。Rego module 間の process-level confidentiality ではありません。
+これは一つの信頼する OPA プロセス内で経路と名前空間を強制する仕組みです。Rego モジュール間をプロセスレベルで秘匿する仕組みではありません。
 
 ## 明示的に検証して有効化する
 
-activation 前に read-only diagnosis を使います。
+有効化前に読み取り専用の診断を使います。
 
 ```sh
 tobari doctor
 tobari cluster logs --component opa --tail 100
 ```
 
-`doctor` は観測だけを行い、source edit を publish しません。all-Context projection を再生成、test、有効化するには explicit cluster reconciliation を実行します。
+`doctor` は観測だけを行い、ソースの編集内容を有効化しません。すべての Context を含むプロジェクションを再生成し、テストして有効化するには、明示的なクラスター調整を実行します。
 
 ```sh
 tobari cluster up
 ```
 
-projection は fixed router、Context-ID data namespace、shared Guided evaluator、rewritten Advanced package を所有します。すべての source と complete aggregate が pass する必要があります。valid candidate だけが publish され、failure では prior known-good aggregate が authority のままです。
+プロジェクションには、固定ルーター、Context ID ごとのデータ名前空間、共有のガイド付き評価器、書き換え済みの高度なパッケージが含まれます。すべてのソースと集約ポリシー全体がテストに合格する必要があります。有効な候補だけが公開され、障害時には以前の検証済み集約ポリシーが引き続き有効です。
 
-通常の exact allow/deny/reset operation も同じ all-Context safety boundary を使い、`data.json` の learned collection だけを変えます。host-authored boundary policy または arbitrary Rego は書き換えません。
+通常の完全一致の許可・拒否・リセット操作も、同じ全 Context の安全境界を使い、`data.json` の学習済み一覧だけを変更します。ホスト側で管理する境界ポリシーや任意の Rego は書き換えません。
 
 ## 高度なポリシーが適切な例
 
-信頼する maintainer が、exact path rule では表現できない non-secret request metadata から有限の rule を作る必要があるとします。
+信頼する保守担当者が、完全一致のパス規則では表現できない、秘密情報を含まないリクエストメタデータから有限の規則を作る必要があるとします。
 
-1. exact review では不足する理由を記録する
-2. Advanced Context 一つに最小の Rego condition を書く
-3. positive fixture と negative-inference canary を追加する
-4. aggregate 内のすべての Context を検証する
-5. denied/allowed synthetic request で resulting behavior を確認する
+1. 完全一致のレビューでは不足する理由を記録する
+2. 一つの高度な Context に最小限の Rego 条件を書く
+3. 許可すべき入力のテストデータと、不適切な推論を検出するカナリアを追加する
+4. 集約ポリシー内のすべての Context を検証する
+5. 合成した拒否対象と許可対象のリクエストで、最終的な動作を確認する
 
-Advanced mode を provider SDK、request body の読み取り、shell 実行、credential loading、Gateway/Auth Broker boundary の迂回に使わないでください。Rego が受け取るのは normalized decision data であり、arbitrary effect execution authority ではありません。
+高度なモードを、プロバイダー SDK、リクエスト本文の読み取り、シェル実行、認証情報の読み込み、Gateway/Auth Broker 境界の迂回に使わないでください。Rego が受け取るのは正規化された判断データであり、任意の処理を実行する権限ではありません。
 
 ## 失敗時の動作
 
-- invalid Rego、test failure、forbidden package、schema mismatch は activation を防ぎます。
-- partial source edit が partially active aggregate になることはありません。
-- OPA watch/health failure は request を fail closed させ、availability のため allow にはしません。
-- `cluster up` が Context source failure を報告したら、その exact Context を直してから再試行します。
-- exact policy mutation と host edit が競合した場合、content/revision check が stale state を拒否し、推測で merge しません。
-- valid Rego test suite は宣言した case だけを証明し、未知の将来 URL がすべて安全だとは証明しません。
+- 無効な Rego、テスト障害、禁止されたパッケージ、スキーマの不一致があると有効化されません。
+- ソースの一部だけを編集しても、集約ポリシーの一部だけが有効になることはありません。
+- OPA の監視やヘルスチェックに障害がある場合、リクエストは安全側に閉じて拒否されます。可用性を優先して許可することはありません。
+- `cluster up` が Context ソース障害を報告したら、その完全一致の Context を直してから再試行します。
+- 完全一致のポリシー変更操作とホスト編集が競合した場合、内容とリビジョンの検査で古い状態を拒否します。推測でマージすることはありません。
+- 有効な Rego テストスイートが証明するのは、宣言したテストケースだけです。将来現れる未知の URL がすべて安全だとは証明しません。
 
 ## 保証と制限
 
-Tobari は router と Context namespace を予約し、projection 全体を test し、atomically に publish し、failure では known-good policy を保持します。Advanced rule の意味と完全性は maintainer の責任です。Tobari は provider semantics を解釈せず、安全な wildcard を推論しません。
+Tobari はルーターと Context 名前空間を予約し、プロジェクション全体をテストしてアトミックに公開します。障害時には検証済みポリシーを保持します。高度な規則の意味と完全性は保守担当者の責任です。Tobari はプロバイダー固有の意味を解釈せず、安全なワイルドカードを推論しません。
 
 ## 根拠となるソース
 
-- [Advanced policy product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
-- [Aggregate policy architecture](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
-- [Aggregate generator and package rewriting](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/aggregate.go)
-- [Guided/Advanced isolation tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/aggregate_test.go)
-- [Atomic policy mutation tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata_test.go)
+- [高度なポリシーの製品契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [集約ポリシーのアーキテクチャ](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [集約生成とパッケージの書き換え](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/aggregate.go)
+- [ガイド付きポリシーと高度なポリシーの分離テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/aggregate_test.go)
+- [ポリシー変更をアトミックに行うテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata_test.go)
 
 ## まとめ
 
-Advanced mode では policy-logic ownership が Workspace ではなく信頼する maintainer へ移ります。Context namespace enforcement、whole-projection test、atomic activation は引き続き必須です。
+高度なモードでは、ポリシーロジックの所有権が Workspace ではなく信頼する保守担当者へ移ります。Context 名前空間の強制、プロジェクション全体のテスト、アトミックな有効化は引き続き必須です。
 
 ## 理解を確認する
 
 <details>
   <summary>通常の拒否は、最初に Rego を編集して解決すべきですか？</summary>
-  いいえ。`policy review` と exact allow/deny を使います。Advanced edit は
-  routine exact model で表せない behavior のためのものです。
+  いいえ。`policy review`
+  と完全一致の許可・拒否を使います。高度なポリシーの編集は
+  通常の完全一致モデルで表せない動作のためのものです。
 </details>
 
 <details>
   <summary>
     <code>doctor</code> は編集した Rego ファイルを有効化しますか？
   </summary>
-  いいえ。観測だけを行います。explicit cluster reconciliation または supported
-  exact policy mutation が validated activation を所有します。
+  いいえ。観測だけを行います。明示的なクラスター調整またはサポート対象の
+  完全一致のポリシー変更操作が、検証済みポリシーの有効化を担います。
 </details>
 
 <details>
   <summary>高度な Rego は Auth Broker へ認証情報を要求できますか？</summary>
-  いいえ。OPA は normalized non-secret HTTP metadata を判断します。post-allow
-  broker resolution boundary は Gateway が所有します。
+  いいえ。OPA が判断するのは、正規化され、秘密情報を含まない HTTP
+  メタデータです。許可後の Broker 解決は Gateway が担います。
 </details>
 
 **次へ:** [トラブルシューティング](../troubleshooting/)で観測できる障害を調べるか、通常の作業は[ポリシーレビュー](../policy-review/)へ戻ってください。

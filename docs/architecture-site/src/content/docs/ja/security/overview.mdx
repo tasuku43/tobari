@@ -5,104 +5,127 @@ description: Tobari のセキュリティを、明示した前提、実施点、
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari は、Workspace が暗黙に持つ host、network、policy、broker-managed
-credential の authority を狭めます。この主張は、Tobari が対応する Docker
-topology と trusted host service が成立する場合に限られます。選択した project
-内の code を無害にするものではありません。
+Tobari は、Workspace が暗黙に持つホスト、ネットワーク、ポリシー、Auth Broker
+管理の認証情報に対する権限を狭めます。この主張が成立するのは、サポート対象の
+Docker 構成と信頼するホストサービスが正しく動く場合だけです。選択した
+プロジェクト内のコードを無害にするものではありません。
 
-そのため、Tobari のセキュリティは「container」「proxy」「暗号化」といった
+そのため、Tobari のセキュリティは「コンテナ」「プロキシ」「暗号化」といった
 言葉だけではなく、範囲を限定した主張として説明します。各主張には前提、実施点、
-fail-closed の動作、根拠、制限があります。component または request path が
-初めてなら、先に [Mental model](../../how-it-works/mental-model/) と
-[System overview](../../how-it-works/system-overview/) を読んでください。
+安全側に倒す障害動作、根拠、制限があります。コンポーネントやリクエストの経路が
+分からない場合は、先に [メンタルモデル](../../how-it-works/mental-model/) と
+[システム全体像](../../how-it-works/system-overview/) を読んでください。
 
 <ConceptDiagram name="trust-boundaries" />
 
 ## すべての主張を六つの要素で読む
 
-この section の各ページは、次の原則で書かれています。
+このセクションの各ページは、次の原則で書かれています。
 
-1. **Claim** — Tobari が主張する狭い outcome。
-2. **Preconditions** — あらかじめ成立していなければならない条件。
-3. **Enforcement point** — claim を成立させる code または topology。
-4. **Failure behavior** — enforcement point が存在しない、または healthy でない場合の動作。
-5. **Evidence** — governing document、implementation、test。
-6. **Limitations** — claim が意図的に対象外とする近接した outcome。
+1. **主張** — Tobari が保証する、範囲を限定した結果。
+2. **前提** — あらかじめ成立していなければならない条件。
+3. **実施箇所** — 主張を成立させるコードまたは構成。
+4. **障害時** — 実施箇所が存在しない、または正常でない場合の動作。
+5. **根拠** — 規定文書、実装、テスト。
+6. **制限** — 主張が意図的に対象外とする隣接した結果。
 
-「Workspace は public Internet へ直接到達できない」という説明は、Workspace が Tobari の supported Docker configuration で作られたという precondition と組み合わせて初めて意味を持ちます。enforcement は dedicated <code>internal</code> network と Gateway だけが持つ dual attachment です。失敗した場合は別経路へ切り替わるのではなく、通信できなくなります。同じくらい重要な制限は、allowed destination には Workspace が読める data を送信できることです。
+たとえば「Workspace は公開インターネットへ直接到達できない」という説明には、
+Workspace が Tobari のサポート対象となる Docker 構成で作られている、という
+前提が必要です。この主張は、専用の <code>internal</code> ネットワークと、Gateway
+だけが内部ネットワークと外向きネットワークの両方へ接続する構成によって実施されます。障害時に別の
+経路へ切り替わることはなく、通信に失敗します。一方で、許可済みの接続先には、
+Workspace から読めるデータを送信できるという制限があります。
 
 ## 信頼する計算基盤
 
-Tobari は host user、host filesystem control、Docker Engine、kernel、Gateway、OPA、Auth Broker、root-key backend、reviewed runtime asset を trusted enforcement infrastructure として扱います。Workspace process と external HTTP service は untrusted です。Policy candidate、request attribute、provider manifest、external response text は、trusted code が parse する場合でも untrusted data のままです。
+Tobari は、ホストの利用者、ホストのファイルシステム制御、Docker Engine、カーネル、
+Gateway、OPA、Auth Broker、ルート鍵の保管機構、レビュー済みのランタイム成果物を
+信頼する実施基盤として扱います。Workspace 内のプロセスと外部 HTTP サービスは
+信頼しません。ポリシー候補、リクエスト属性、プロバイダーマニフェスト、外部から届く
+レスポンス文字列は、信頼するコードが解析する場合でも信頼しないデータです。
 
-この区別により、偽造した project header が役に立たない一方で、compromised Gateway が対象外になる理由が分かります。Gateway は host が作成した receiving interface から project authority を導出します。Gateway 自体が malicious なら、その enforcement point は失われています。
+この区別により、偽造したプロジェクトヘッダーが権限にならない一方で、Gateway の
+侵害が保証対象外になる理由が分かります。Gateway は、ホストが作成した受信インターフェース
+からプロジェクトの権限を導出します。Gateway 自体が悪意ある動作をすれば、その
+実施箇所は失われています。
 
 ## 四つの境界と役割
 
 <div class="comparison-grid">
   <section>
-    <h3>プロジェクトの filesystem</h3>
+    <h3>プロジェクトのファイル</h3>
     <div class="prose-block">
-      選択した root は作業用に mount されます。選択していない host path と別の
-      Workspace home は通常の mount set の外にあります。選択した file は agent
-      から保護されません。
+      選択したルートは作業用にマウントされます。選択していないホスト上のパスと、別の
+      Workspace
+      のホームは通常のマウント対象外です。選択したファイルはエージェントから保護されません。
     </div>
   </section>
   <section>
     <h3>ネットワーク</h3>
     <div class="prose-block">
-      Workspace には supported direct egress route がありません。Gateway だけが
-      dedicated internal network から egress へ渡ります。
+      Workspace には、サポート対象となる外部への直接経路がありません。Gateway
+      だけが、専用の内部ネットワークと外向きネットワークの両方へ接続します。
     </div>
   </section>
   <section>
     <h3>通信許可</h3>
     <div class="prose-block">
-      OPA は normalized HTTP effect を判断し、Gateway が結果を enforce
-      します。policy が missing、malformed、unavailable の場合は fail closed
-      します。
+      OPA は正規化した HTTP 通信を判断し、Gateway がその結果を実施します。
+      ポリシーが存在しない、形式が正しくない、または利用できない場合は、安全側に倒して拒否します。
     </div>
   </section>
   <section>
     <h3>Auth Broker が管理する認証情報</h3>
     <div class="prose-block">
-      Auth Broker は static または renewable credential state を encrypted
-      Context vault に保持します。Workspace が受け取るのは bound handle
-      だけで、static resolve、AWS signing、Datadog token refresh は post-policy
-      のままです。
+      Auth Broker は、固定または更新可能な認証状態を、暗号化した Context
+      保管庫に保持します。Workspace
+      が受け取るのは利用範囲を結び付けたハンドルだけです。
+      固定認証情報の解決、AWS の署名、Datadog
+      トークンの更新は、ポリシーの許可後に 限って実行します。
     </div>
   </section>
 </div>
 
 ## 失敗時の見え方
 
-- Gateway がない: proxy connection は失敗します。
-- valid principal がない: Gateway は OPA より前に <code>project_principal_unavailable</code> を返します。
-- OPA が unavailable または malformed: Gateway は <code>policy_unavailable</code> を返し、upstream connection を作りません。
-- Auth Broker が locked または unavailable: brokered request は失敗し、secret resolution へ fallback しません。
-- handle が invalid または stale: <code>credential_handle_invalid</code> となり、passthrough へ downgrade しません。
-- companion または refresh が既知の pre-execution failure: <code>credential_broker_unavailable</code> となり、upstream attempt はありません。
-- AWS/Datadog operation が明示的または post-dispatch に outcome uncertain: non-retryable な <code>credential_refresh_outcome_unknown</code> となります。replay せず、trusted host で reconcile します。
-- invalid policy activation: Tobari は可能な限り以前の source と既知の projection を保持または復元します。OPA を healthy にできなければ、以前の service が active だと仮定せず、通信は fail closed のままです。
+- Gateway がない: プロキシ接続は失敗します。
+- 有効なプリンシパルがない: Gateway は OPA より前に
+  <code>project_principal_unavailable</code> を返します。
+- OPA が利用不能または応答が不正: Gateway は <code>policy_unavailable</code> を
+  返し、外部の接続先へ接続しません。
+- Auth Broker がロック中または利用不能: Auth Broker を使うリクエストは失敗し、
+  秘密情報を別の方法で解決しません。
+- ハンドルが不正または古い: <code>credential_handle_invalid</code> となり、
+  別の認証方式へ切り替わりません。
+- コンパニオンまたは更新処理を始める前に利用不能と判明:
+  <code>credential_broker_unavailable</code>
+  となり、外部の接続先へ接続しません。
+- AWS または Datadog の処理開始後に結果が不明: 再試行不可の
+  <code>credential_refresh_outcome_unknown</code>
+  となります。再実行せず、信頼する ホスト側で状態を確認します。
+- 不正なポリシーの有効化: Tobari は可能な限り、以前の定義元と既知の集約結果
+  を保持または復元します。OPA を正常にできない場合、以前のサービスが有効だとは
+  仮定せず、通信を安全側に倒して拒否し続けます。
 
-これらは対象となる path の closed failure です。すべての process action が rollback されるという意味ではありません。選択した project 内の local file write はすでに発生している可能性があります。
+これらは、該当する通信経路を閉じたままにする障害動作です。プロセスが行ったすべての
+操作を巻き戻すという意味ではありません。選択したプロジェクト内では、ローカル
+ファイルへの書き込みがすでに発生している可能性があります。
 
 <aside class="guarantee">
-  <h2>この overview が保証すること</h2>
+  <h2>この概要が保証すること</h2>
   <div class="prose-block">
-    以降の security page では、より狭い claim を提示し、それぞれを enforcement
-    point と evidence へ結び付けます。denial を、実際の HTTP effect を超える
-    protection として説明しません。
+    以降のセキュリティページでは、より狭い主張を提示し、それぞれを実施箇所と根拠へ
+    結び付けます。通信の拒否を、実際の HTTP
+    通信を超える保護としては説明しません。
   </div>
 </aside>
 
 <aside class="limitation">
-  <h2>この overview が保証しないこと</h2>
+  <h2>この概要が保証しないこと</h2>
   <div class="prose-block">
-    container boundary は、その Workspace 自身から選択した project root
-    を保護しません。policy は、trusted user が明示的に許可した effect への data
-    exfiltration を防ぎません。trusted base が compromised になれば、どの claim
-    も成立しません。
+    コンテナ境界は、選択したプロジェクトルートを、その Workspace 自身から保護
+    しません。ポリシーは、信頼する利用者が明示的に許可した通信によるデータ送信を
+    防ぎません。信頼基盤が侵害されれば、どの主張も成立しません。
   </div>
 </aside>
 
@@ -118,8 +141,7 @@ Tobari は host user、host filesystem control、Docker Engine、kernel、Gatewa
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/THREAT_MODEL.md">
         リポジトリの脅威モデル
       </a>{" "}
-      — 上の governing security model と対になる、簡潔な attacker/control
-      inventory。
+      — 上の規定セキュリティモデルと対になる、攻撃者と制御の簡潔な一覧。
     </li>
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/compose.yaml">
@@ -136,15 +158,16 @@ Tobari は host user、host filesystem control、Docker Engine、kernel、Gatewa
 
 ## ここまでで説明できること
 
-Tobari のセキュリティが、一つの「secure sandbox」という label ではなく、条件付きの境界の集合である理由を説明できるはずです。
+Tobari のセキュリティは、一つの「安全なサンドボックス」というラベルではなく、条件付きの
+境界を組み合わせたものです。
 
 <div class="question-list">
   <details>
     <summary>「Docker で動く」だけでは、なぜ不十分ですか？</summary>
     <div class="prose-block">
-      claim は exact mount、internal network、service attachment、trusted
-      principal derivation、fail-closed behavior に依存するからです。generic
-      container という事実だけでは、これらの詳細を何も証明できません。
+      主張は、完全一致のマウント、内部ネットワーク、サービスの接続関係、信頼
+      できるプリンシパルの導出、安全側に倒す障害動作に依存するためです。一般的な
+      コンテナであるというだけでは、これらの詳細を証明できません。
     </div>
   </details>
   <details>
@@ -152,8 +175,8 @@ Tobari のセキュリティが、一つの「secure sandbox」という label �
       「外部への直接通信は遮断される」の直後に述べるべき最初の制限は何ですか？
     </summary>
     <div class="prose-block">
-      explicitly allowed destination は、Workspace が読み、allowed HTTP request
-      に載せられるすべての data を受け取れます。
+      明示的に許可された接続先は、Workspace から読めて、許可済みの HTTP
+      リクエストに載せられるすべてのデータを受け取れます。
     </div>
   </details>
   <details>

@@ -1,13 +1,13 @@
 ---
 title: クイックスタート
-description: 合成 Workspace を作り、拒否を確認し、完全一致の effect を一つレビューして再試行し、意図的に後片付けします。
+description: 練習用 Workspace を作り、拒否を確認し、通信を一つ完全一致で許可して再試行した後、意図的に後片付けします。
 ---
 
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
-この手順では、信頼するホストで共有 cluster を起動し、合成 project の Workspace へ入ります。一つの request が拒否されることを確認し、その exact effect をホストでレビューして許可した後、再度 entry して意図的に再試行します。host-owned control command と Workspace 内の command の違い、`exit` 後に残る状態も確認します。
+この手順では、信頼するホストで共有クラスターを起動し、練習用プロジェクトの Workspace へ入ります。リクエストが一度拒否されることを確認し、その通信をホストで確認して完全一致で許可します。その後、Workspace へ入り直して意図的に再試行します。ホスト側で実行する制御コマンドと Workspace 内のコマンドの違い、`exit` 後に残る状態も確認できます。
 
-先に[インストール](../install/)を完了し、interactive terminal を使ってください。以下の command は現在の CLI Catalog と一致します。
+先に[インストール](../install/)を完了し、対話型ターミナルを使ってください。以下のコマンドは現在の CLI Catalog に基づいています。
 
 ## 1. 安全な合成プロジェクトを選ぶ
 
@@ -19,28 +19,28 @@ cd quickstart-example
 tobari cluster up
 ```
 
-`/`、home directory 全体、Tobari の configuration/state directory を project root にしないでください。`cluster up` は共有する Gateway、OPA、Auth Broker を起動し、検証します。project Workspace は作成しません。
+`/`、ホームディレクトリ全体、Tobari の設定/状態ディレクトリをプロジェクトルートにしないでください。`cluster up` は共有する Gateway、OPA、Auth Broker を起動し、検証します。プロジェクト Workspace は作成しません。
 
-起動に失敗したら、`tobari doctor` と `tobari cluster status` を実行します。報告された host prerequisite を直してから `tobari cluster up` を再試行し、runtime topology を弱めないでください。
+起動に失敗したら、`tobari doctor` と `tobari cluster status` を実行します。表示されたホスト側の前提条件を直してから `tobari cluster up` を再試行してください。問題を避けるためにランタイム構成を弱めてはいけません。
 
 ## 2. Workspace へ入る
 
-引き続き合成 project directory から実行します。
+引き続き合成プロジェクトディレクトリから実行します。
 
 ```sh
 tobari
 ```
 
-root command は current/default Context に結び付いた Workspace を選択または作成し、interactive shell を開きます。project は read-write で mount されます。Workspace には proxy と CA の設定が渡されますが、Docker control や外部への direct route は渡されません。
+ルートコマンドは現在またはデフォルトの Context に結び付いた Workspace を選択または作成し、対話型シェルを開きます。プロジェクトは読み書き可能な状態でマウントされます。Workspace にはプロキシと CA の設定が渡されますが、Docker 制御や外部への直接経路は渡されません。
 
-Workspace **内** で次の合成 request を実行します。
+Workspace **内** で次の合成リクエストを実行します。
 
 ```sh
 curl -sS -w '\nhttp=%{http_code}\n' \
   -X PUT https://example.com/quickstart
 ```
 
-初期化済み policy は、この exact effect を許可していません。Gateway は secret-free な `policy_denied` response を HTTP `403` で返し、信頼するホストで実行する review command を示します。承認も再試行も行いません。
+初期化済みポリシーは、この完全一致の通信を許可していません。Gateway は秘密情報を含まない `policy_denied` レスポンスを HTTP `403` で返し、信頼するホストで実行するレビューコマンドを示します。承認も再試行も行いません。
 
 Workspace から出ます。
 
@@ -48,7 +48,7 @@ Workspace から出ます。
 exit
 ```
 
-`exit` が終了するのは、この attached shell だけです。logical Workspace、persistent home、Context binding、runtime container、project network、learned-policy state は、再利用のため残ります。
+`exit` が終了するのは、このシェルだけです。論理 Workspace、永続ホーム、Context の結び付け、ランタイムコンテナ、プロジェクトネットワーク、学習済みポリシーの状態は、再利用のため残ります。
 
 ## 3. 信頼するホストでレビューする
 
@@ -58,16 +58,16 @@ exit
 tobari policy review --tail 100
 ```
 
-TTY では request を選び、その Context、project、host、port、method、path を確認します。exact **allow** action を選びます。その確認によって complete aggregate policy がテストされ、新しい rule が atomically に有効化されます。
+TTY ではリクエストを選び、その Context、プロジェクト、ホスト、ポート、メソッド、パスを確認します。完全一致の **許可** 操作を選びます。その確認によって集約ポリシー全体がテストされ、新しい規則が途中状態を見せずに有効化されます。
 
-redirect または script から利用する flow では、review は読み取り専用です。JSON の opaque ID を変更せずコピーし、reference-bound action を呼び出します。
+リダイレクトまたはスクリプトから利用する場合、レビューは読み取り専用です。JSON の不透明な ID を変更せずコピーし、参照に結び付いた操作を呼び出します。
 
 ```sh
 tobari policy review --tail 100 --format json
 tobari policy allow --id <exact-pcy-id-from-policy-review>
 ```
 
-placeholder は出力された値に置き換えてください。row の順番から ID を導出したり、request text から再構築したりしないでください。その effect を引き続き遮断する場合は、review UI の deny action または `tobari policy deny --id <exact-pcy-id-from-policy-review>` を使います。
+山括弧内の値は、コマンドが出力した値に置き換えてください。表示順から ID を推測したり、リクエスト本文から組み立て直したりしてはいけません。その通信を今後も遮断する場合は、レビュー画面の拒否操作か `tobari policy deny --id <exact-pcy-id-from-policy-review>` を使います。
 
 ## 4. Workspace へ入り直して、意図的に再試行する
 
@@ -78,9 +78,9 @@ curl -sS -w '\nhttp=%{http_code}\n' \
 exit
 ```
 
-今回は Gateway が新しい request を active exact rule で評価します。HTTP result は upstream から返ります。Tobari が保証するのは `example.com` の特定の response code ではなく、この exact authorized effect が upstream path へ到達できることです。
+今回は Gateway が新しいリクエストを有効な完全一致規則で評価します。HTTP の結果は外部の接続先から返ります。Tobari が保証するのは `example.com` の特定のレスポンスコードではなく、この許可された完全一致の通信が接続先へ到達できることです。
 
-別の method、path、Context、project が、この permission を自動的に継承することはありません。body は rule identity に含まれないため、body だけを変えても別の reviewable effect にはなりません。
+別のメソッド、パス、Context、プロジェクトが、この権限を自動的に継承することはありません。本文は規則の識別情報に含まれないため、本文だけを変えても別のレビュー候補にはなりません。
 
 <SequenceExplorer
   title="クイックスタートでの拒否とレビュー"
@@ -100,57 +100,57 @@ tobari delete
 tobari cluster down --purge
 ```
 
-`status` と `list` は観測だけを行います。`delete` は最も近い detached Workspace を、persistent home と所有する runtime resource を含めて削除しますが、project file は決して削除しません。`cluster down` を実行するには、すべての Workspace が削除済みである必要があります。`--purge` を付けると、共有 CA volume と active policy-bundle volume も削除されます。Auth Broker の root key や encrypted Context vault は削除されず、provider logout でもありません。
+`status` と `list` は状態を見るだけです。`delete` は現在地に最も近い、切断済みの Workspace を、永続ホームとその Workspace が所有するランタイムリソースごと削除します。プロジェクトファイルは削除しません。`cluster down` を実行するには、先にすべての Workspace を削除する必要があります。`--purge` を付けると、共有 CA ボリュームと使用中のポリシーバンドル用ボリュームも削除されます。ただし、Auth Broker のルート鍵と暗号化された Context 保管庫は残ります。プロバイダーからのログアウトも行いません。
 
-attached session を意図的に終了させる場合に限り、`tobari delete --force` を使ってください。`--force` は attachment safety guard を迂回しますが、削除対象を広げません。
+接続中のセッションを意図的に終了させる場合に限り、`tobari delete --force` を使ってください。`--force` が省略するのは、接続中セッションの誤削除を防ぐ検査だけです。削除対象は広がりません。
 
 ## 失敗時の動作
 
-- `tty_required`: root の `tobari` entry には interactive terminal を使います。
+- `tty_required`: ルートの `tobari` 入室には対話型ターミナルを使います。
 - `workspace_selection_stale`: `tobari` をもう一度実行し、更新された候補から選びます。
-- `image_not_found` または `incompatible_image`: `tobari context show` で Context を確認し、entry 前に compatible runtime を build または復元します。
-- `policy_denied` (`403`): Workspace から出て、ホストでレビューします。retry loop を回さないでください。
-- `credential_handle_invalid` (`403`): current projection を受け取るため、いったん出て再 entry します。別の Workspace の handle で代用しないでください。
-- OPA、Gateway、Broker が unavailable: request は fail closed します。ホストから調整し、readiness を確認してから再試行します。
+- `image_not_found` または `incompatible_image`: `tobari context show` で Context を確認し、対応するランタイムをビルドまたは復元してから入り直します。
+- `policy_denied` (`403`): Workspace から出て、ホストでレビューします。自動再試行を繰り返さないでください。
+- `credential_handle_invalid` (`403`): 現在のプロジェクションを受け取るため、いったん出て再入室します。別の Workspace のハンドルで代用しないでください。
+- OPA、Gateway、Broker が利用不可: リクエストは安全側に閉じて拒否します。ホストから調整し、readiness を確認してから再試行します。
 - `project_session_attached`: exit 後に `tobari delete` を実行します。終了させる意図がある場合だけ `--force` を使います。
-- `cluster_not_empty`: `tobari list` で確認し、各 Workspace をその root/Context から削除してから `cluster down` を再実行します。
+- `cluster_not_empty`: `tobari list` で確認し、各 Workspace をそのルート/Context から削除してから `cluster down` を再実行します。
 
 ## 保証と制限
 
-この workflow が示すのは、一つの exact HTTP effect と lifecycle path です。すべての tool が proxy/CA setting に従うこと、許可した宛先が安全であること、選択した project file が agent から保護されることまでは証明しません。host、Docker、enforcement service、reviewed image は引き続き信頼する前提です。
+この手順で確認できるのは、一つの完全一致の HTTP 操作とライフサイクルです。すべてのツールがプロキシと CA の設定に従うこと、許可した宛先が安全であること、選択したプロジェクトファイルがエージェントから保護されることまでは証明しません。ホスト、Docker、境界を実施するサービス、レビュー済みイメージは引き続き信頼する前提です。
 
 ## 根拠となるソース
 
-- [Catalog command specifications](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
-- [Catalog contract tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/tobari_test.go)
-- [Public quickstart contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/README.md)
-- [Workspace application selection tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/app/tobaricmd/service_test.go)
-- [End-to-end integration checks](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+- [Catalog にあるコマンド仕様](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
+- [Catalog の契約テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/tobari_test.go)
+- [公開クイックスタートの契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/README.md)
+- [Workspace を選ぶ処理のテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/app/tobaricmd/service_test.go)
+- [一連の動作を確認する統合テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
 
 ## まとめ
 
-通常の loop は、entry、作業、拒否の受信、退出、ホストでのレビュー、exact decision の有効化、意図的な再試行です。authentication、policy authorization、Workspace deletion は別々の操作です。
+通常の loop は、入室、作業、拒否の受信、退出、ホストでのレビュー、完全一致の判断の有効化、意図的な再試行です。認証、ポリシー通信許可、Workspace deletion は別々の操作です。
 
 ## 理解を確認する
 
 <details>
-<summary><code>policy review</code> の前に Workspace を出るのはなぜですか？</summary>
+<summary><code>ポリシーレビュー</code> の前に Workspace を出るのはなぜですか？</summary>
 
-policy review と mutation は、信頼するホスト側の境界に属するからです。Workspace には二つ目の Tobari control path がなく、自分の request を自分で承認できません。
+ポリシーレビューと変更操作は、信頼するホスト側の境界に属するからです。Workspace には二つ目の Tobari 制御パスがなく、自分のリクエストを自分で承認できません。
 
 </details>
 
 <details>
 <summary>最初の <code>exit</code> 後も残るものは何ですか？</summary>
 
-logical Workspace、home、Context binding、runtime resource、principal registration、policy が残ります。終了するのは現在の shell/exec session だけです。
+論理 Workspace、ホーム、Context 結び付け、ランタイムリソース、プリンシパル registration、ポリシーが残ります。終了するのは現在のシェル/exec セッションだけです。
 
 </details>
 
 <details>
 <summary>許可操作は、拒否された HTTP リクエストを再実行しますか？</summary>
 
-いいえ。policy を検証して有効化します。再度 entry し、新しい request を明示的に送信します。
+いいえ。ポリシーを検証して有効化します。再度入室し、新しいリクエストを明示的に送信します。
 
 </details>
 

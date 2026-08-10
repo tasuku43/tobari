@@ -1,26 +1,26 @@
 ---
 title: リクエストの流れ
-description: Workspace process から許可判断、Upstream 接続、秘密情報を含まない監査まで、外向きリクエストを追います。
+description: Workspace のプロセスから許可判断、接続先への通信、秘密情報を含まない監査まで、外向きリクエストを追います。
 ---
 
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 import SystemMap from "../../../../components/SystemMap.astro";
 
-外向きリクエストは Workspace の専用 network から始まり、Upstream へ到達する前に
-Gateway へ届きます。Gateway はまず host-issued project principal を確立し、credential
-の値を公開せずに必要な metadata を準備します。その後、正規化した一つの decision
-input を OPA へ送ります。
+外向きリクエストは Workspace の専用ネットワークから始まり、接続先へ
+到達する前に Gateway へ届きます。Gateway はまず、ホストが発行したプロジェクトの通信主体
+を確立します。認証情報の値を公開せずに必要なメタデータを準備し、正規化した判断入力を
+一つだけ OPA へ送ります。
 
-deny または不正な decision は local で処理を止めます。Gateway が宣言済みの credential
-action を実行し、宛先を resolve して pin し、別の upstream connection を開き、通常の
-body byte を stream できるのは allow 後だけです。この順序により、policy denial、policy
-failure、upstream failure を区別できます。
+拒否または不正な判断結果は、ローカルで処理を止めます。Gateway が宣言済みの認証操作を
+実行し、宛先を名前解決して固定し、接続先への別接続を開き、通常の本文を
+ストリーミングできるのは、許可後だけです。この順序により、ポリシーによる拒否、
+ポリシーの障害、接続先の障害を区別できます。
 
-[システム全体像](../system-overview/)には固定された network map があります。Broker の詳細は後で扱い、ここでは optional な準備 step としてだけ登場します。
+[システム全体像](../system-overview/)には固定されたネットワーク図があります。Broker の詳細は後で扱い、ここでは必要な場合にだけ行う準備処理として登場します。
 
 <SystemMap
   title="コンポーネントの配置は固定"
-  description="下の操作図で変わるのは処理の進行であり、アーキテクチャではありません。Gateway は中央に留まり、会話の相手が Workspace、OPA、Auth Broker、Upstream の間で移ります。"
+  description="下の操作図で変わるのは処理の進行であり、アーキテクチャではありません。Gateway は中央に留まり、通信相手が Workspace、OPA、Auth Broker、接続先の間で移ります。"
   compact
 />
 
@@ -32,70 +32,70 @@ failure、upstream failure を区別できます。
 
 ## 処理順序
 
-### 1. proxy 通信を受け取る
+### 1. プロキシ通信を受け取る
 
-Workspace process は dedicated internal network 上の `gateway:8080` へ接続します。plain HTTP では proxy が request を直接見ます。HTTPS では `CONNECT` と Workspace-side TLS が intercepted HTTP flow を確立します。この分割は [HTTPS と TLS](../https-and-tls/)で説明します。
+Workspace のプロセスは、専用の内部ネットワーク上にある `gateway:8080` へ接続します。平文 HTTP ではプロキシがリクエストを直接受け取ります。HTTPS では `CONNECT` と Workspace 側の TLS により、Gateway が検査できる HTTP 通信を確立します。この分割は [HTTPS と TLS](../https-and-tls/)で説明します。
 
-この時点で request byte は untrusted です。project らしい header は principal ではありません。
+この時点では、リクエストのバイト列を信頼しません。プロジェクトを名乗るヘッダーも、信頼できる通信主体にはなりません。
 
-### 2. Context とプロジェクトの identity を確立する
+### 2. Context とプロジェクトの識別情報を確立する
 
-Gateway は connection を受けた自分の interface の local address を読み、host-owned principal registry で lookup します。その結果から stable `context_id` と `project_id` を得ます。binding が missing、unknown、stale、unsafe、ambiguous なら OPA より前に停止します。
+Gateway は、接続を受けた自身のインターフェースのローカルアドレスを読み取り、ホスト所有の通信主体登録簿で照合します。その結果から、安定した `context_id` と `project_id` を得ます。結び付きが欠落、未知、古い、安全でない、または曖昧な場合は、OPA へ問い合わせる前に停止します。
 
 ### 3. 認証方式を準備する
 
-selected credential adapter は policy 前に request を準備します。
+選択した認証アダプターは、ポリシー判断の前にリクエストを準備します。
 
-- **tool-native passthrough:** credential/cookie value を OPA input から除外し、allow 後に forward する可能性に備えて保持します。
-- **retained managed adapter:** non-secret requested profile を Context、project、host と照合し、secret は読みません。
-- **Auth Broker:** exact に recognized handle を forwardable request から削除し、non-secret binding metadata を introspect します。
+- **ツール自身で管理（そのまま転送）:** 認証情報と Cookie の値を OPA 入力から除外し、許可後に転送できるよう保持します。
+- **保持型の管理アダプター:** 秘密を含まない要求プロファイルを Context、プロジェクト、ホストと照合します。この時点では秘密情報を読みません。
+- **Auth Broker:** 完全に認識できたハンドルを、転送対象のリクエストから削除します。その後、秘密を含まない結び付きのメタデータを照合します。
 
-invalid Tobari-looking handle はここで失敗し、passthrough traffic にはなりません。
+Tobari 形式に見える不正なハンドルはここで失敗し、そのまま転送する通信には切り替わりません。
 
-### 4. 正規化した body-free の判断入力を一つ作る
+### 4. 正規化した、本文を含まない判断入力を一つ作る
 
-Gateway は schema 5 input を固定 OPA endpoint 一つへ POST します。次を含みます。
+Gateway はスキーマ 5 の入力を、固定の OPA エンドポイント一つへ POST します。内容は次のとおりです。
 
-- registry-derived cluster、Context ID、project ID
-- normalized scheme、trailing dot のない lowercase host、port
-- uppercase method
-- raw path と decoded path segment
-- multi-valued query
-- redacted non-secret header と non-secret authorization metadata
+- 登録簿から導出したクラスター、Context ID、プロジェクト ID
+- 正規化したスキーム、末尾のドットを除いた小文字のホスト、ポート
+- 大文字のメソッド
+- 生のパスと、デコード済みのパス区間
+- 複数値を保持したクエリー
+- 秘密情報を除いたヘッダーと、秘密を含まない認可メタデータ
 
-request/response body、broker handle、resolved primary credential、known/configured credential-header value は除外します。ordinary query は OPA input に含まれるため、URL に置いた arbitrary data を scrub する general secret scrubber とは考えないでください。
+リクエストとレスポンスの本文、Broker ハンドル、解決済みの実物の認証情報、既知または設定済みの認証用ヘッダー値は除外します。通常のクエリーは OPA 入力に含まれます。URL に置かれた任意のデータを除去する、汎用の秘密情報消去処理ではありません。
 
 ### 5. OPA へ正確に一度問い合わせる
 
-Gateway は finite timeout、retry なしの bounded HTTP POST を送ります。HTTP 200 と、boolean `allow`、non-empty reason、status `403`、boolean `learnable`、valid optional managed profile を含む valid result 一つを要求します。
+Gateway は有限のタイムアウトと上限を持つ HTTP POST を一度だけ送り、再試行しません。HTTP 200 であり、真偽値の `allow`、空でない `reason`、`status` が `403`、真偽値の `learnable`、必要に応じて有効な保持型プロファイルを含む、正しい結果を一つ要求します。
 
-OPA が判断し、Gateway が enforce します。
+OPA が判断し、Gateway がその判断を強制します。
 
 ### 6A. ローカルで拒否する
 
-valid deny では Gateway が `403 policy_denied` を作ります。learnable denial に含まれるのは、`tobari policy review` を示す fixed host-side navigation object、exact host/port/method/path、`automatic_retry: false` だけです。
+正しい拒否結果を受け取ると、Gateway は `403 policy_denied` を作ります。学習可能な拒否に含まれるのは、`tobari policy review` を示す固定のホスト側案内オブジェクト、完全一致するホスト、ポート、メソッド、パス、`automatic_retry: false` だけです。
 
-candidate ID、query、body、header、credential、dynamic command argument は含まれません。candidate の opaque reference は retained host evidence から後で導出します。
+候補 ID、クエリー、本文、ヘッダー、認証情報、動的なコマンド引数は含まれません。候補の不透明な参照は、ホスト上に保持した根拠から後で導出します。
 
 ### 6B. 許可後に続行する
 
-allow 後にだけ Gateway は次を行えます。
+許可後にだけ、Gateway は次の処理を行えます。
 
-1. managed profile を適用するか、同じ revision に対する declared Broker action 一つを行う
-2. upstream hostname を resolve する
-3. dotted host の unsafe non-global result を拒否する
-4. selected address を pin し、後の DNS answer で connection が変わらないようにする
-5. upstream connection 一つを作り、authorized request を forward する
+1. 保持型プロファイルを適用するか、同じリビジョンに対して宣言済みの Broker 操作を一つ行う
+2. 接続先のホスト名を名前解決する
+3. ドットを含むホスト名に対する、安全でない非グローバルアドレスを拒否する
+4. 選択したアドレスを固定し、後の DNS 応答で接続先が変わらないようにする
+5. 接続先への接続を一つ作り、許可済みリクエストを転送する
 
-ordinary passthrough、managed、static-header Broker request では body を allow 後に stream します。Datadog では Broker が valid token を選択するか、allow 後に同じ record の fixed refresh 一つを行い、Gateway は bearer header だけを置換します。AWS SigV4 は reviewed exception です。allow 後、Gateway は complete request を 8 MiB cap 内で保持・hash し、private host companion による fixed credential export 一つを Broker へ要求します。Broker が local signing した後にだけ、Gateway が bounded request を一度送ります。
+通常のそのまま転送、保持型、静的ヘッダーを使う Broker リクエストでは、許可後に本文をストリーミングします。Datadog では、Broker が有効なトークンを選ぶか、許可後に同じレコードへ固定の更新処理を一度だけ行います。Gateway が置換するのは Bearer ヘッダーだけです。AWS SigV4 はレビュー済みの例外です。許可後、Gateway はリクエスト全体を 8 MiB の上限内で保持してハッシュを計算し、非公開のホストコンパニオンによる固定の認証情報エクスポートを一度だけ Broker へ要求します。Broker がローカルで署名した後に限り、Gateway は上限付きのリクエストを一度送ります。
 
-application request の automatic retry はありません。redirect は new request となり、再び policy を通ります。
+アプリケーションリクエストの自動再試行はありません。リダイレクトは新しいリクエストとなり、再びポリシー判断を通ります。
 
 ### 7. 結果を記録する
 
-denial は即座に log します。allowed request は response または connection error 後に log します。audit schema 2 には bounded identity、authority、method、redacted path、decision、reason、non-secret profile/provider metadata、status、timing が含まれ、query、header、body、handle、primary credential は含まれません。
+拒否は即座にログへ記録します。許可したリクエストは、レスポンスまたは接続エラーの後に記録します。監査スキーマ 2 には、上限付きの識別情報、オーソリティ、メソッド、秘匿化したパス、判断、理由、秘密を含まないプロファイルとプロバイダーのメタデータ、状態、処理時間が含まれます。クエリー、ヘッダー、本文、ハンドル、実物の認証情報は含まれません。
 
-## 具体例：body だけが異なる
+## 具体例：本文だけが異なる
 
 Workspace が最初に次を送るとします。
 
@@ -107,61 +107,62 @@ Content-Type: application/json
 {"state":"ready"}
 ```
 
-後で同じ Context/project/host/port/method/path に `{"state":"deleted"}` を送ります。
+後で、同じ Context、プロジェクト、ホスト、ポート、メソッド、パスに `{"state":"deleted"}` を送ります。
 
-application 上の意味は大きく異なりますが、Tobari の exact policy identity は同じです。body は二つ目の review candidate や狭い rule を作りません。route が allowed なら、どちらの body も送れます。reviewer は payload inspection を想定せず、route-level capability を評価する必要があります。
+アプリケーション上の意味は大きく異なりますが、Tobari では同じ完全一致のポリシー識別情報です。本文の違いから二つ目のレビュー候補や、より狭い規則は作りません。経路が許可されていれば、どちらの本文も送れます。レビューする人は送信内容の検査を前提にせず、その経路で可能になる操作全体を評価する必要があります。
 
 ## 失敗時の動作
 
-| Stage                    | Failure                                                              | Result                                                                           |
-| ------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Principal                | registry unreadable または interface unknown                         | 403 `project_principal_unavailable`                                              |
-| Credential preparation   | invalid/stale/mismatched handle                                      | 403 `credential_handle_invalid`                                                  |
-| OPA                      | timeout、connection error、non-200、invalid/oversized result         | 503 `policy_unavailable`                                                         |
-| Decision                 | valid deny                                                           | 403 `policy_denied`。upstream untouched                                          |
-| Post-allow credential    | known pre-execution Broker/companion/refresh/signing/managed failure | 503 credential fault。upstream untouched                                         |
-| Post-dispatch credential | AWS companion または Datadog refresh outcome が uncertain            | 409 `credential_refresh_outcome_unknown`。automatic replay/upstream attempt なし |
-| DNS/address              | safe usable address なし                                             | upstream/proxy error。別 authority を発明しない                                  |
-| Upstream                 | allow 後の TCP/TLS/HTTP failure                                      | audit は `upstream_error`。policy は変更しない                                   |
+| 段階             | 障害                                                                | 結果                                                                           |
+| ---------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 通信主体         | 登録簿を読めない、またはインターフェースが未知                      | 403 `project_principal_unavailable`                                            |
+| 認証情報の準備   | 不正、古い、または一致しないハンドル                                | 403 `credential_handle_invalid`                                                |
+| OPA              | タイムアウト、接続エラー、HTTP 200 以外、不正または上限超過の結果   | 503 `policy_unavailable`                                                       |
+| 判断             | 正しい拒否結果                                                      | 403 `policy_denied`。接続先には何も届かない                                    |
+| 許可後の認証処理 | 実行前に判明した Broker、コンパニオン、更新、署名、保持型方式の障害 | 503 の認証障害。接続先には何も届かない                                         |
+| 実行後の認証処理 | AWS コンパニオンまたは Datadog 更新の結果が不明                     | 409 `credential_refresh_outcome_unknown`。自動再実行も接続先への試行も行わない |
+| DNS／アドレス    | 安全で利用可能なアドレスがない                                      | 接続先またはプロキシのエラー。別のオーソリティは選ばない                       |
+| 接続先           | 許可後の TCP/TLS/HTTP 障害                                          | 監査結果は `upstream_error`。ポリシーは変更しない                              |
 
-known `Content-Length` が mitmproxy の 8 MiB limit を超えると、ordinary addon header hook より前に拒否される場合があります。allowed unknown-length body は pinned product contract 上、total-byte limit なしで stream されます。
+既知の `Content-Length` が mitmproxy の 8 MiB 制限を超えると、通常のアドオンのヘッダーフックより前に拒否される場合があります。長さが不明な許可済み本文は、固定された製品契約に従い、総バイト数の上限なしでストリーミングされます。
 
 ## 保証と制限
 
-**保証すること:** ordinary Gateway attempt ごとに OPA call は一度。principal、credential preparation、decision、post-allow credential application が成功する前に request-body byte を forward しないこと。deny では secret resolve、Datadog refresh、AWS companion call、signing がゼロであること。application-level retry なし。secret-free denial/review projection。
+**保証すること:** 通常の Gateway 試行ごとに、OPA の呼び出しは一度です。通信主体の確立、認証情報の準備、許可判断、許可後の認証情報適用が成功する前に、リクエスト本文のバイト列を転送しません。拒否時には、秘密情報の解決、Datadog の更新、AWS コンパニオンの呼び出し、署名を一度も行いません。アプリケーション層の再試行もありません。拒否とレビュー用の投影に秘密情報は含めません。
 
-**保証しないこと:** body-aware authorization、application semantic understanding、idempotence、provider-operation interpretation、allowed unknown-length streaming body の total-byte limit、すべての low-level upstream failure に対する stable Tobari JSON fault。
+**保証しないこと:** 本文の内容に基づく認可。アプリケーション上の意味の理解。冪等性。プロバイダー操作の解釈。長さが不明な許可済み本文をストリーミングする場合の総バイト数制限。低レベルな接続先障害すべてに対応する安定した Tobari JSON 障害コード。
 
 ## 根拠となるソース
 
-- [External HTTP contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/08_external_api_contracts.md)
-- [HTTP authorization security boundary](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
-- [Gateway implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py)
-- [Credential adapter boundary](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/credential_adapters.py)
-- [Broker handle adapter](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/broker_credentials.py)
-- [Gateway ordering, redaction, outage, and streaming tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [外部 HTTP 通信の契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/08_external_api_contracts.md)
+- [HTTP 通信許可のセキュリティ境界](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Gateway の実装](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py)
+- [認証情報アダプターの境界](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/credential_adapters.py)
+- [Broker ハンドルのアダプター](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/broker_credentials.py)
+- [処理順、秘匿化、障害、ストリーミングを確認する Gateway テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
 
 ## まとめ
 
-identity は receiving interface から得ます。OPA は normalized body-free ordinary request を一度だけ受け取って答えます。deny は local で停止します。secret-bearing Broker action、destination resolution、upstream connection の前提は allow です。ordinary body は allow 後に stream し、reviewed AWS plan は allow 後に bounded request を buffer/sign します。
+識別情報は受信側インターフェースから得ます。OPA は、本文を含まない正規化済みの通常リクエストを一度だけ受け取って判断します。拒否はローカルで停止します。秘密を扱う Broker 操作、宛先の名前解決、接続先への接続は、すべて許可後にだけ行います。通常の本文は許可後にストリーミングし、レビュー済みの AWS 処理計画は許可後に上限付きでリクエストを保持して署名します。
 
 ## 理解を確認する
 
-Gateway と OPA の responsibility を逆にせず、allowed/denied request を説明できるはずです。
+Gateway と OPA の責任を逆にせず、許可されるリクエストと拒否されるリクエストを説明できるはずです。
 
 <details>
   <summary>
-    OPA はリクエストの query を受け取りますか？学習した完全一致の規則は identity
+    OPA はリクエストのクエリーを受け取りますか？学習した完全一致の規則は識別情報
     に使いますか？
   </summary>
-  OPA input は multi-valued query を含みます。current exact candidate/rule
-  identity は query を含まず、Context、project、host、port、method、path です。
+  OPA 入力には複数値を保持したクエリーが含まれます。現在の完全一致候補と規則
+  の識別情報にクエリーは含まれず、Context、プロジェクト、ホスト、ポート、メソッド、パス
+  で決まります。
 </details>
 
 <details>
-  <summary>最初の body byte が Upstream へ届くのはいつですか？</summary>
-  principal establishment、credential preparation、valid OPA allow、post-allow
-  credential action がすべて成功した後だけです。
+  <summary>本文の最初のバイトが接続先へ届くのはいつですか？</summary>
+  通信主体の確立、認証情報の準備、正しい OPA の許可、許可後の認証操作が
+  すべて成功した後だけです。
 </details>
 
 <details>
@@ -169,10 +170,10 @@ Gateway と OPA の responsibility を逆にせず、allowed/denied request を�
     <code>policy_denied</code> と <code>policy_unavailable</code>{" "}
     の違いは何ですか？
   </summary>
-  `policy_denied` は valid deny decision で、reviewable
-  な場合があります。`policy_unavailable` は Gateway が valid decision
-  を受け取れなかったことを意味し、fail closed して permission proposal
-  にはなりません。
+  `policy_denied` は正しい拒否判断で、レビューできる場合があります。
+  `policy_unavailable` は Gateway
+  が正しい判断結果を受け取れなかったことを意味します。安全側に閉じて失敗し、
+  許可候補にはなりません。
 </details>
 
-ネットワークの配置は[システム全体像](../system-overview/)へ戻ってください。次は[HTTPSとTLS](../https-and-tls/)で暗号化された経路を分けます。
+ネットワークの配置は[システム全体像](../system-overview/)へ戻ってください。次は[HTTPS と TLS](../https-and-tls/)で暗号化された経路を分けます。

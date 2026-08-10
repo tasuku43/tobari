@@ -5,52 +5,52 @@ description: Tobari が行うこと、境界の位置、一つの外向きリク
 
 import SystemMap from "../../../../components/SystemMap.astro";
 
-Tobari は agent を project-bound Workspace で動かし、未宣言の HTTP/HTTPS effect を最初は拒否します。信頼するホストから人が exact effect を review/authorize した後、意図的に retry できます。
+Tobari はエージェントをプロジェクトに結び付いた Workspace で動かし、未宣言の HTTP/HTTPS 通信を最初は拒否します。利用者は信頼するホストで必要な通信を確認し、完全一致で許可してから意図的に再試行できます。
 
-Tobari は単に Docker container を起動する command ではありません。directory に結び付いた作業環境と、外向きの request を強制的に通す経路を組み合わせています。この概要では、その境界を構成する五つの要素と、保護範囲の限界を説明します。Tobari の前提知識は必要ありません。読み終えたら[インストール](../install/)へ進めます。
+Tobari は単に Docker コンテナを起動するコマンドではありません。ディレクトリに結び付いた作業環境と、外向きのリクエストを強制的に通す経路を組み合わせています。この概要では、その境界を構成する五つの要素と、保護範囲の限界を説明します。Tobari の前提知識は必要ありません。読み終えたら[インストール](../install/)へ進めます。
 
 ## 実装技術より先に、一つの境界から始める
 
-agent は selected project を読み書きできます。これは利用者が意図的に与えた有用な authority です。Tobari は、その選択の外側を狭めます。他の host file は mount せず、Docker control は公開せず、Workspace ごとに internal network を分け、通常の outbound HTTP/HTTPS は shared enforcement path を必ず通します。
+エージェントは、選択したプロジェクトを読み書きできます。これは利用者が意図的に与える権限です。Tobari は、その外側へ及ぶ権限を狭めます。他のホストファイルはマウントせず、Docker の制御機能は公開しません。Workspace ごとに内部ネットワークを分け、通常の外向き HTTP/HTTPS 通信は共有の強制経路を必ず通します。
 
 <SystemMap headingLevel={2} compact />
 
 図は次の順番で読んでください。
 
-1. **Workspace** 内の process が proxy-aware HTTP/HTTPS request を送ります。
-2. **Gateway** が request を受け、host-owned network state から project principal を導出します。
-3. **OPA** が normalized HTTP effect、つまり Context、project、scheme、destination、port、method、path を判断します。request body は policy identity field ではありません。
-4. **Auth Broker** は recognized broker handle がある場合だけ参加します。policy 前には non-secret binding metadata だけを示せます。static resolution、Datadog token selection/refresh、AWS export/signing は allow 後にだけ行います。
-5. allow 後、**Workspace** ではなく **Gateway** が **Upstream** への別 connection を開きます。
+1. **Workspace** 内のプロセスがプロキシを利用する HTTP/HTTPS リクエストを送ります。
+2. **Gateway** がリクエストを受け、ホスト所有のネットワーク状態からプロジェクトプリンシパルを導出します。
+3. **OPA** は、Context、プロジェクト、スキーム、宛先、ポート、メソッド、パスに正規化された HTTP 操作を判断します。リクエスト本文は、ポリシーが許可対象を識別する項目ではありません。
+4. **Auth Broker** は、Tobari の Broker ハンドルを Gateway が認識した場合だけ参加します。ポリシー判断前に扱うのは、秘密情報を含まない結び付け情報だけです。静的な認証情報の解決、Datadog トークンの選択や更新、AWS のエクスポートや署名は、許可後にだけ行います。
+5. 許可後、**Workspace** ではなく **Gateway** が **Upstream** への別接続を開きます。
 
-decision を行うのは OPA です。Gateway は request を拒否するか upstream connection を作ることで、その decision を enforce します。
+判断を行うのは OPA です。Gateway はリクエストを拒否するか Upstream への接続を作ることで、その判断を実施します。
 
 ## 最初の具体例
 
-`/work/example` の agent が次を試すとします。
+`/work/example` のエージェントが次を試すとします。
 
 ```sh
 curl -X PUT https://example.com/quickstart
 ```
 
-その exact effect を覆う rule がなければ、Gateway は learnable `403` を返します。bounded secret-free evidence を保持し、信頼するホストで review する場所を agent へ示します。自動承認はありません。人が Workspace から出て `tobari policy review` を実行し、exact effect の allow/deny を選び、confirmed decision 後にだけ retry します。
+その完全一致の通信を覆う規則がなければ、Gateway は学習可能な `403` を返します。上限のある秘密情報を含まない根拠を保持し、信頼するホストでレビューする場所をエージェントへ示します。自動承認はありません。人が Workspace から出て `tobari policy review` を実行し、完全一致の通信の許可/拒否を選び、確定した判断後にだけ再試行します。
 
-rule は「agent が example.com を使ってよい」という意味ではありません。reviewed effect が表す stable Context、project principal、HTTPS destination/port、HTTP method、path に結び付いたままです。
+規則は「エージェントが example.com を使ってよい」という意味ではありません。レビュー済みの通信が表す、安定した Context、プロジェクトプリンシパル、HTTPS の接続先とポート、HTTP メソッド、パスに結び付いたままです。
 
 <span id="boundary-protects"></span>
 
 ## 境界が保護するもの
 
-supported Docker topology では、次を untrusted Workspace process の外に置くよう設計されています。
+サポート対象の Docker 構成では、次を信頼しない Workspace プロセスの外に置くよう設計されています。
 
-- selected project root 外の host file
-- Docker socket と Docker control plane
-- 別 Workspace とその persistent home
-- Gateway を迂回する direct public-Internet route
-- broker-managed primary credential
-- host-owned policy review/activation path
+- 選択したプロジェクトルート外のホストファイル
+- Docker socket と Docker 制御 plane
+- 別 Workspace とその永続ホーム
+- Gateway を迂回する、公開インターネットへの直接経路
+- Broker が管理する実物の認証情報
+- ホストが所有するポリシーのレビュー／有効化経路
 
-Gateway、OPA、principal registry、broker binding が valid decision を確立できなければ、関連 request は fail closed します。OPA outage が allow に変わることはありません。
+Gateway、OPA、プリンシパル登録簿、Broker の結び付けが有効な判断を確立できなければ、関連するリクエストは安全側に倒して拒否します。OPA の障害が許可に変わることはありません。
 
 <span id="boundary-does-not-protect"></span>
 
@@ -58,57 +58,57 @@ Gateway、OPA、principal registry、broker binding が valid decision を確立
 
 Tobari は次を意図的に保証しません。
 
-- selected project root 内の file を、その Workspace の process から守ること
-- user が許可した destination へ process が送る data
-- 同じ Workspace 内の process 同士の分離
-- overlapping project root が互いの host-file change を観測しないこと
-- host、kernel、Docker、Gateway、OPA、Auth Broker が侵害された後の system
-- raw TCP、UDP、HTTP/3、Git over SSH など non-HTTP protocol
+- 選択したプロジェクトルート内のファイルを、その Workspace のプロセスから守ること
+- 利用者が許可した宛先へプロセスが送るデータ
+- 同じ Workspace 内のプロセス同士の分離
+- 重複するプロジェクトルート間で、互いのホストファイル変更が見えないこと
+- ホスト、カーネル、Docker、Gateway、OPA、Auth Broker が侵害された後のシステム
+- 生の TCP、UDP、HTTP/3、Git over SSH など HTTP 以外のプロトコル
 
-proxy configuration を無視する client には supported direct egress route がなく、失敗します。Tobari CA を拒否する certificate-pinned HTTPS client も、Gateway を迂回せず失敗します。
+プロキシ設定を無視するクライアントには、サポート対象となる外向きの直接通信経路がないため失敗します。Tobari CA を拒否する、証明書を固定した HTTPS クライアントも、Gateway を迂回せず失敗します。
 
 ## 現在の実装状態
 
-**現在実装済み:** reusable Context-bound Workspace、dedicated internal project network、Gateway/OPA mediation、exact denial review、Guided/Advanced policy mode、Context runtime recipe、tool-native authentication、retained managed adapter、strict schema-1 static Broker provider、reviewed built-in GitHub/AWS/Datadog acquisition。built-in schema-2 plan は、private host companion による bounded AWS SigV4 と、Broker 内での固定 Datadog US1 OAuth refresh を提供します。
+**現在実装済み:** 再利用できる Context に結び付いた Workspace、プロジェクト専用の内部ネットワーク、Gateway と OPA による通信制御、完全一致の拒否レビュー、ガイド付き／高度なポリシーモード、Context ごとのランタイムレシピ、ツール自身による認証、保持型の managed アダプター、厳格なスキーマ 1 の静的 Broker プロバイダー、レビュー済みの組み込み GitHub／AWS／Datadog 認証情報取得処理です。組み込みのスキーマ 2 プランでは、非公開のホスト側コンパニオンを使う上限付きの AWS SigV4 と、Broker 内で行う Datadog US1 OAuth の更新に対応しています。
 
-source tree と test は両方の schema-2 plan を含みます。`versions.env` で現在選択される immutable Gateway/Auth Broker digest が含むのは earlier AWS Identity Center path で、AWS console login と Datadog request path より前の artifact です。後二つは source に実装されていますが、pin を review して更新するまで standard cluster では active ではありません。[Component version](../../reference/component-versions/)は selected artifact を報告し、[Supply chain](../../security/supply-chain/)は source と runtime identity が別の claim である理由を説明します。
+ソースツリーとテストには、両方のスキーマ 2 プランが含まれています。ただし、`versions.env` で現在選ばれる変更不能な Gateway／Auth Broker のダイジェストは、以前の AWS Identity Center 経路までを含む成果物です。AWS のコンソールログインと Datadog のリクエスト経路は、それより後に実装されました。この二つはソースには存在しますが、固定値をレビューして更新するまでは標準クラスターで有効になりません。[コンポーネントのバージョン](../../reference/component-versions/)では実際に選ばれる成果物を確認でき、[サプライチェーン](../../security/supply-chain/)ではソースとランタイムの識別情報を別々に確認する理由を説明しています。
 
-この documentation は、arbitrary manifest-selected signing/refresh、arbitrary OAuth helper、provider-operation policy、Git credential helper、provider/Context ごとの複数 account、追加 built-in plan を current behavior として示しません。
+この文書では、マニフェストで任意に選べる署名・更新処理、任意の OAuth ヘルパー、プロバイダー操作に対するポリシー、Git 認証情報ヘルパー、プロバイダー／Context ごとの複数アカウント、追加の組み込みプランを、現在の機能として扱いません。
 
 ## 根拠となるソース
 
-次の link は、この page でレビューした implementation commit に固定されています。
+次のリンクは、このページでレビューした実装コミットに固定されています。
 
-- [Product contract: vocabulary and public outcomes](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
-- [Architecture: topology and request path](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
-- [Security model: trust assumptions and limits](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
-- [Workspace runtime implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime.go)
-- [Gateway enforcement tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [製品契約: 用語と公開仕様](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
+- [アーキテクチャ: 構成とリクエスト経路](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
+- [セキュリティモデル: 信頼の前提と制限](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [Workspace ランタイムの実装](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime.go)
+- [Gateway の強制動作を確認するテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
 
 ## まとめ
 
-Tobari は、まず有用な project access を与え、通常の outbound web effect を別に制御します。Workspace は自分自身を authorize できません。host が identity を確立し、OPA が判断し、Gateway が enforce し、Auth Broker は allowed path で宣言済み post-policy credential action だけを行います。
+Tobari はプロジェクトへの必要なアクセスを与え、通常の外向き Web 通信は別に制御します。Workspace は自分自身を許可できません。ホストが識別情報を確立し、OPA が判断し、Gateway が実施します。Auth Broker が行うのは、許可された経路で宣言済みの認証情報操作をポリシー判断後に実行することだけです。
 
 ## 理解を確認する
 
 <details>
-<summary>process が <code>HTTPS_PROXY</code> を無視すると、Internet へ直接到達しますか？</summary>
+<summary>プロセスが <code>HTTPS_PROXY</code> を無視すると、Internet へ直接到達しますか？</summary>
 
-いいえ。supported topology では Workspace は dedicated internal Docker network だけに参加します。project network と egress の両方へ接続するのは Gateway だけなので、proxy を無視した connection は失敗します。
+いいえ。サポート対象の構成では Workspace は専用の内部 Docker ネットワークだけに参加します。プロジェクトネットワークと外向き通信の両方へ接続するのは Gateway だけなので、プロキシを無視した接続は失敗します。
 
 </details>
 
 <details>
 <summary>OPA の許可応答自体がリクエストを Upstream へ送信しますか？</summary>
 
-いいえ。OPA は decision を返します。Gateway がその decision を enforce し、allow 後にだけ upstream connection を作ります。
+いいえ。OPA は判断を返します。Gateway がその判断を実施し、許可後にだけ Upstream への接続を作ります。
 
 </details>
 
 <details>
-<summary>Tobari は選択したプロジェクトを agent から保護しますか？</summary>
+<summary>Tobari は選択したプロジェクトをエージェントから保護しますか？</summary>
 
-いいえ。selected root は意図的に read-write で mount されます。Tobari はその選択外の authority を狭めますが、project を read-only にはしません。
+いいえ。選択したルートは意図的に読み書き可能な状態でマウントされます。Tobari はその選択外の権限を狭めますが、プロジェクトを読み取り専用にはしません。
 
 </details>
 

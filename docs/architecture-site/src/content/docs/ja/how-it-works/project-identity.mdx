@@ -1,53 +1,53 @@
 ---
 title: プロジェクト識別
-description: Gateway の interface とホストが管理する registry から Context とプロジェクトの principal を確立する仕組みを説明します。
+description: Gateway のインターフェースとホスト管理の登録簿から、Context とプロジェクトの通信主体を確立する仕組みを説明します。
 ---
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Gateway は credential を準備したり OPA へ問い合わせたりする前に、リクエストの
-Context と project を特定します。trusted host が作成した owner-controlled registry と、
-リクエストを受けた local interface の組み合わせから principal を選びます。
+Gateway は認証情報を準備したり OPA へ問い合わせたりする前に、リクエストの
+Context とプロジェクトを特定します。信頼するホストが作成した、所有者管理の登録簿と、
+リクエストを受けたローカルインターフェースの組み合わせからプリンシパル（通信主体）を選びます。
 
-caller-supplied の project ID や Context ID は authorization input になりません。そのため
-header を変えても別 Workspace の learned rule は利用できず、同じ host、method、path への
-通信でも、その Workspace の principal に scope された authority が必要です。この仕組みは
-[システム全体像](../system-overview/)の専用 network を利用し、[HTTPS と TLS](../https-and-tls/)の intercepted flow にも同じように適用されます。
+呼び出し元が申告したプロジェクト ID や Context ID は、認可の入力になりません。そのため、
+ヘッダーを変えても別 Workspace の学習済み規則は利用できません。同じホスト、メソッド、パスへの
+通信でも、その Workspace の通信主体に限定された権限が必要です。この仕組みは
+[システム全体像](../system-overview/)の専用ネットワークを利用し、[HTTPS と TLS](../https-and-tls/)で検査する通信にも同じように適用されます。
 
 <ConceptDiagram name="project-principal" />
 
-## 信頼するホストで principal を作る
+## 信頼するホストで通信主体を登録する
 
-logical Workspace ごとに host-side lifecycle code が次を行います。
+論理 Workspace ごとに、ホスト側のライフサイクル処理が次を行います。
 
-1. stable UUIDv7 project ID と permanent Context ID を検証する
-2. exact owner-labeled dedicated internal network を作成または検証する
-3. Gateway をその network へ接続する
-4. その exact network 上の Gateway IP address を inspect する
-5. schema 2 binding を owner-only principal registry へ atomically に書く
+1. 安定した UUIDv7 プロジェクト ID と永続的な Context ID を検証する
+2. 所有者ラベルが完全一致する専用内部ネットワークを作成または検証する
+3. Gateway をそのネットワークへ接続する
+4. そのネットワーク上の Gateway IP アドレスを取得する
+5. スキーマ 2 の結び付き情報を、所有者だけが読める通信主体登録簿へアトミックに書く
 
-binding には project ID、Context ID、Context name、canonical root、network name、Gateway interface IP が含まれます。project entry と address entry は一意である必要があり、unsafe loopback、link-local、multicast、unspecified address は拒否されます。
+結び付き情報には、プロジェクト ID、Context ID、Context の名前、正規化済みルート、ネットワーク名、Gateway のインターフェース IP が含まれます。プロジェクト側とアドレス側の登録は、それぞれ一意である必要があります。安全でないループバック、リンクローカル、マルチキャスト、未指定アドレスは拒否します。
 
-registry は Gateway へ read-only で mount されます。Workspace には書き込み権限も、その binding を作成できる Docker control も渡されません。
+登録簿は Gateway へ読み取り専用でマウントされます。Workspace には、書き込み権限も、結び付き情報を作成できる Docker の制御権も渡しません。
 
-## リクエストごとに principal を特定する
+## リクエストごとに通信主体を特定する
 
-Gateway は `flow.client_conn.sockname[0]`、つまり accepted project-network connection における自分自身の local address を観測します。この local address が一つの binding を選びます。
+Gateway は `flow.client_conn.sockname[0]`、つまり受け付けたプロジェクトネットワーク接続における、自身のローカルアドレスを観測します。このアドレスが結び付き情報を一つ選びます。
 
 この詳細は重要です。この値は次のいずれでもありません。
 
-- header で主張された client source IP
-- Workspace environment の `TOBARI_ID` または `TOBARI_CONTEXT_ID`
-- `x-tobari-session` または別の request field
-- Context display name
-- credential profile/provider name
-- URL parameter
+- ヘッダーで申告されたクライアントの送信元 IP
+- Workspace 環境の `TOBARI_ID` または `TOBARI_CONTEXT_ID`
+- `x-tobari-session` または別のリクエスト項目
+- Context の表示名
+- 認証情報のプロファイルまたはプロバイダー名
+- URL パラメーター
 
-lookup 後、Gateway は registry-derived `context_id` と `project_id` を schema 5 OPA input へ入れます。固定された OPA router は Context ID で policy を選択し、learned rule は project ID も要求します。
+照合後、Gateway は登録簿から得た `context_id` と `project_id` をスキーマ 5 の OPA 入力へ入れます。固定された OPA の振り分け処理は Context ID でポリシーを選び、学習済み規則はプロジェクト ID も要求します。
 
 ## 偽装を試みる具体例
 
-Workspace B が Workspace A から次の request header を copy したとします。
+Workspace B が Workspace A から次のリクエストヘッダーをコピーしたとします。
 
 ```http
 X-Tobari-Session: project-a
@@ -55,74 +55,74 @@ X-Tobari-Context: review
 Authorization: Bearer example
 ```
 
-connection は変わらず Gateway の Workspace B interface に到着します。Gateway は B の Context/project binding を選択し、必要に応じ control/credential value を strip または redact します。host、port、method、path が同じでも、A のために学習した rule は B に一致しません。
+接続は変わらず、Gateway の Workspace B 用インターフェースに到着します。Gateway は B の Context とプロジェクトの結び付きを選び、必要に応じて制御用の値や認証情報を削除または秘匿化します。ホスト、ポート、メソッド、パスが同じでも、A のために学習した規則は B に一致しません。
 
-request に A からコピーした broker handle が含まれる場合は、さらに厳格です。non-secret Broker introspection は、derived B principal と handle の Context、project、provider、credential revision、target、source-header binding を照合します。不一致は OPA より前に `403 credential_handle_invalid` になります。
+リクエストに A からコピーした Broker ハンドルが含まれる場合は、さらに厳格です。秘密を含まない Broker の照合処理は、導出した B の通信主体と、ハンドルの Context、プロジェクト、プロバイダー、認証情報のリビジョン、宛先、送信元ヘッダーの結び付きを照合します。一致しない場合は、OPA より前に `403 credential_handle_invalid` になります。
 
-## ネットワーク上の identity を使う理由
+## ネットワーク上の識別情報を使う理由
 
-Workspace process は、自分の request、environment、filesystem、tool configuration を変更できます。そこに置かれた identity はすべて attacker-controlled data です。dedicated network は、信頼する host lifecycle code が interface binding を確立し、Workspace が request ごとに選べない場所を提供します。
+Workspace のプロセスは、自身のリクエスト、環境、ファイルシステム、ツール設定を変更できます。そこに置かれた識別情報は、すべて攻撃者が制御できるデータです。専用ネットワークでは、信頼するホストのライフサイクル処理がインターフェースとの結び付きを確立します。Workspace がリクエストごとに選べない場所から、識別情報を得られます。
 
-これは、より一般的な contract を Docker で実装したものです。runtime は、connection-to-principal の信頼できる binding を提供します。policy code は、name や parsing convention から identity を再構築しません。
+これは、より一般的な契約を Docker で実装したものです。ランタイムは、接続と通信主体の信頼できる結び付きを提供します。ポリシー処理が、名前や構文規則から識別情報を組み立て直すことはありません。
 
 ## 失敗時の動作
 
-- registry が missing、unreadable、too large、wrong version、malformed、unsafe、duplicate、ambiguous の場合、Gateway は `403 project_principal_unavailable` を返します。
-- incoming local interface が未登録なら、OPA または upstream I/O より前に同じ 403 を返します。
-- network recreation で Gateway interface address が変わった場合、Workspace を ready にする前に lifecycle が registry を reconcile する必要があります。
-- OPA にとって Context ID が unknown なら aggregate router は deny し、current/default Context へ fallback しません。
-- user が Context display name/default を変えても、name ではなく stable stored ID が enforcement identity のままです。
+- 登録簿が欠落、読み取り不能、上限超過、バージョン不一致、不正、安全でない、重複、または曖昧な場合、Gateway は `403 project_principal_unavailable` を返します。
+- 受信したローカルインターフェースが未登録なら、OPA または接続先への I/O より前に同じ 403 を返します。
+- ネットワークの再作成で Gateway のインターフェースアドレスが変わった場合は、Workspace を利用可能にする前に、ライフサイクル処理が登録簿を調整する必要があります。
+- OPA にとって Context ID が未知なら、集約ポリシーの振り分け処理は拒否し、現在選択中または既定の Context へ切り替えません。
+- 利用者が Context の表示名や既定値を変えても、強制に使う識別情報は、名前ではなく保存済みの安定した ID のままです。
 
-Gateway binding parser は binding ごとの exact shape と required value を検証します。この site は、Python の general JSON parser について、より強い duplicate-key rejection property までは主張しません。
+Gateway の結び付き情報の解析処理は、各レコードの形式と必須値が完全に一致することを検証します。このサイトは、Python の汎用 JSON 解析処理について、重複キーを必ず拒否するという、さらに強い性質までは主張しません。
 
 ## 保証と制限
 
-**対応 lifecycle/topology で保証すること:** caller-supplied identity は authority ではありません。project と Context は OPA より前に一緒に確立されます。learned rule と broker handle は project principal を越えられません。stale network binding は fail closed します。
+**対応するライフサイクルと構成で保証すること:** 呼び出し元が申告した識別情報に権限はありません。プロジェクトと Context は、OPA より前に一緒に確立されます。学習済み規則と Broker ハンドルは、プロジェクトの通信主体を越えられません。古いネットワーク結び付きは、安全側に閉じて失敗します。
 
-**保証しないこと:** host、Docker、Gateway、registry の侵害後の耐性、重なる selected root の tenant isolation、general cryptographic remote-workload identity、Tobari lifecycle 外で手作業により作られた任意の container からの identity derivation。
+**保証しないこと:** ホスト、Docker、Gateway、登録簿が侵害された後の耐性。重なる選択ルート間のテナント分離。リモートの処理主体を暗号学的に識別する一般的な仕組み。Tobari のライフサイクル外で手作業により作られた任意のコンテナからの識別情報導出。
 
 ## 根拠となるソース
 
-- [Principal and Context security contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
-- [Host-network authority decision](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0011-bind-project-authority-to-host-network.md)
-- [Shared Context routing decision](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
-- [Principal registry writer and reconciliation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry.go)
-- [Gateway registry parser and interface lookup](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py)
-- [Registry negative tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry_test.go)
-- [Forged-header and unknown-principal Gateway tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
+- [principal と Context のセキュリティ契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [ホスト所有のネットワークへ権限を結び付ける設計判断](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0011-bind-project-authority-to-host-network.md)
+- [Context を共有の強制経路へ結び付ける設計判断](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0018-route-context-bound-tobari-through-shared-enforcement.md)
+- [プリンシパル登録簿の書き込みと調整処理](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry.go)
+- [Gateway による登録簿の解析とインターフェース検索](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/addon/tobari_gateway.py)
+- [不正な登録簿を拒否するテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/principal_registry_test.go)
+- [偽造ヘッダーと未知のプリンシパルを拒否する Gateway テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
 
 ## まとめ
 
-host は、一つの exact Gateway project-network interface を stable Context/project ID へ bind します。Gateway は request ごとにその interface を観測します。header と name は caller を記述できますが、別 principal の authority を与えられません。
+ホストは、完全一致する一つの Gateway プロジェクトネットワークインターフェースを、安定した Context とプロジェクトの ID へ結び付けます。Gateway はリクエストごとにそのインターフェースを観測します。ヘッダーと名前で呼び出し元を記述することはできますが、別の通信主体が持つ権限は得られません。
 
 ## 理解を確認する
 
-shared Gateway/OPA service が shared learned permission を意味しない理由を説明できるはずです。
+Gateway と OPA を共有しても、学習済みの許可まで共有されない理由を説明できるはずです。
 
 <details>
   <summary>
-    process が別の project ID を header に書いた場合、どの ID が principal
+    プロセスが別のプロジェクト ID をヘッダーに書いた場合、どの ID が通信主体
     として OPA へ届きますか？
   </summary>
-  Gateway の receiving local interface と host principal registry で選ばれた ID
-  です。header は authority ではありません。
+  Gateway の受信側ローカルインターフェースと、ホストの通信主体登録簿 で選ばれた
+  ID です。ヘッダーに権限はありません。
 </details>
 
 <details>
   <summary>
-    Workspace A と B が同じ host、port、method、path を使うとき、A が学習した
-    規則は B の通信を許可しますか？
+    Workspace A と B が同じホスト、ポート、メソッド、パスを使うとき、A
+    が学習した 規則は B の通信を許可しますか？
   </summary>
-  いいえ。exact learned rule は stable Context ID と project ID
+  いいえ。完全一致の学習済み規則は、安定した Context ID とプロジェクト ID
   にも結び付きます。
 </details>
 
 <details>
   <summary>
-    再作成されたネットワークに有効な registry binding がない間、どうなりますか？
+    再作成されたネットワークに有効な登録簿 の結び付きがない間、どうなりますか？
   </summary>
-  request は `project_principal_unavailable` で fail closed します。まず
-  lifecycle が interface binding を reconcile する必要があります。
+  リクエストは `project_principal_unavailable` で安全側に閉じて失敗します。まず
+  ライフサイクル処理がインターフェースの結び付きを調整する必要があります。
 </details>
 
-ネットワークの配置は[システム全体像](../system-overview/)で確認できます。次はこの principal を[ポリシー学習](../policy-learning/)で使います。
+ネットワークの配置は[システム全体像](../system-overview/)で確認できます。次はこの通信主体を[ポリシー学習](../policy-learning/)で使います。
