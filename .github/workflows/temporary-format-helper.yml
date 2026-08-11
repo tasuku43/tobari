@@ -1,0 +1,56 @@
+name: One-shot documentation formatter
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out helper branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Skip formatter-authored commit
+        id: skip
+        run: |
+          if [ "$(git log -1 --pretty=%s)" = "docs: format synchronized pages" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js
+        if: steps.skip.outputs.value != 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: docs/architecture-site/package-lock.json
+
+      - name: Select repository-pinned npm
+        if: steps.skip.outputs.value != 'true'
+        run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
+
+      - name: Install dependencies and format
+        if: steps.skip.outputs.value != 'true'
+        working-directory: docs/architecture-site
+        run: |
+          npm ci
+          npm run format:write
+
+      - name: Remove workflow, commit, and push
+        if: steps.skip.outputs.value != 'true'
+        run: |
+          rm .github/workflows/temporary-format-helper.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "docs: format synchronized pages"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
