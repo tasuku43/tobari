@@ -26,20 +26,27 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 
 ## 公開 CLI JSON
 
-| 対象                                                                 | エンベロープ                         | 現在のスキーマ |
-| -------------------------------------------------------------------- | ------------------------------------ | -------------: |
-| 構造化エラー                                                         | `error`                              |              1 |
-| エージェント向けヘルプ                                               | `commands`                           |              8 |
-| doctor レポート                                                      | `report`                             |              1 |
-| Context 一覧                                                         | `contexts`                           |              3 |
-| Context レポート（`context show`、create/use/config/runtime の結果） | `context`                            |          **6** |
-| クラスター状態                                                       | `cluster`                            |              4 |
-| クラスターの拒否                                                     | `denials`                            |              3 |
-| ポリシー候補とレビュー                                               | `policy_candidates`、`policy_review` |              4 |
-| ポリシー規則                                                         | `policy_rules`                       |              2 |
-| ポリシー圧縮                                                         | `policy_compactions`                 |              3 |
-| 認証コマンド                                                         | `auth`                               |              1 |
-| Workspace の一覧と状態                                               | `tobari` または `status`             |              2 |
+{/* public-cli-json-schemas:start */}
+
+| 対象                                                                 | エンベロープ         | 現在のスキーマ |
+| -------------------------------------------------------------------- | -------------------- | -------------: |
+| 構造化エラー                                                         | `error`              |              1 |
+| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`）   | `commands`           |              9 |
+| バージョン                                                           | `build_identity`     |              1 |
+| doctor レポート                                                      | `report`             |              2 |
+| Context 一覧                                                         | `contexts`           |              4 |
+| Context レポート（`context show`、create/use/config/runtime の結果） | `context`            |              8 |
+| クラスター状態                                                       | `cluster`            |              5 |
+| クラスターの拒否                                                     | `denials`            |              4 |
+| ポリシー候補                                                         | `policy_candidates`  |              5 |
+| ポリシーレビュー                                                     | `policy_review`      |              5 |
+| ポリシー規則                                                         | `policy_rules`       |              3 |
+| ポリシー圧縮                                                         | `policy_compactions` |              3 |
+| 認証結果と状態                                                       | `auth`               |              4 |
+| Workspace の一覧                                                     | `tobari`             |              2 |
+| Workspace の状態                                                     | `status`             |              4 |
+
+{/* public-cli-json-schemas:end */}
 
 フィールドの正確な内容、任意項目、コレクションの対象範囲、出力形式は
 [CLI リファレンス](../cli/)で生成します。オブジェクトの名前が同じでも、別のエンベロープの
@@ -55,8 +62,8 @@ Host configuration
   Context manifest schema 4
 
 CLI presentation
-  {"schema_version": 6, "context": ...}
-  public Context report schema 6
+  {"schema_version": 8, "context": ...}
+  public Context report schema 8
 ```
 
 レポートには、タスクが管理するランタイム、クラスター、完全なシェル設定、秘密情報を
@@ -136,7 +143,7 @@ Broker フレームと、形式が Tobari に見える不正なハンドルは�
 ## 根拠
 
 - 公開出力の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>Catalog の出力スキーマ</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/output_schema_contract_test.go`}>レンダラー整合テスト</a>
-- Context の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>マニフェストスキーマ 4</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}>レポートスキーマ 6</a>
+- Context の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>マニフェストスキーマ 4</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}>レポートスキーマ 8</a>
 - Gateway の入力と監査：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}>Gateway addon の正本</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}>Gateway 契約テスト</a>
 - ポリシーの正本と変換：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/aggregate.go`}>集約した投影</a>
 - Auth Broker プロトコル：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/protocol.py`}>プロトコルパーサー</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_broker.py`}>否定系テスト</a>
@@ -145,7 +152,7 @@ Broker フレームと、形式が Tobari に見える不正なハンドルは�
 ## まとめ
 
 スキーマバージョンは境界ごとに独立しています。保存する Context スキーマ 4 と公開 Context
-レポートスキーマ 6 は別の文書を規定するため、どちらも正しい値です。互換性を定義するのは
+レポートスキーマ 8 は別の文書を規定するため、どちらも正しい値です。互換性を定義するのは
 共有する番号ではなく、対象に対応した読み取り処理とテストです。
 
 ## 理解を確認する

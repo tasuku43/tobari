@@ -29,20 +29,27 @@ owning domain or infrastructure reader defines validation and compatibility.
 
 ## Public CLI JSON
 
-| Surface                                                            | Envelope                             | Current schema |
-| ------------------------------------------------------------------ | ------------------------------------ | -------------: |
-| Structured error                                                   | `error`                              |              1 |
-| Agent help                                                         | `commands`                           |              8 |
-| Doctor report                                                      | `report`                             |              1 |
-| Context list                                                       | `contexts`                           |              3 |
-| Context report (`context show`, create/use/config/runtime results) | `context`                            |          **6** |
-| Cluster status                                                     | `cluster`                            |              4 |
-| Cluster denials                                                    | `denials`                            |              3 |
-| Policy candidates and review                                       | `policy_candidates`, `policy_review` |              4 |
-| Policy rules                                                       | `policy_rules`                       |              2 |
-| Policy compactions                                                 | `policy_compactions`                 |              3 |
-| Authentication commands                                            | `auth`                               |              1 |
-| Workspace list and status                                          | `tobari` or `status`                 |              2 |
+{/* public-cli-json-schemas:start */}
+
+| Surface                                                            | Envelope             | Current schema |
+| ------------------------------------------------------------------ | -------------------- | -------------: |
+| Structured error                                                   | `error`              |              1 |
+| Agent help (`view: index` and input-selected `view: scope`)        | `commands`           |              9 |
+| Version                                                            | `build_identity`     |              1 |
+| Doctor report                                                      | `report`             |              2 |
+| Context list                                                       | `contexts`           |              4 |
+| Context report (`context show`, create/use/config/runtime results) | `context`            |              8 |
+| Cluster status                                                     | `cluster`            |              5 |
+| Cluster denials                                                    | `denials`            |              4 |
+| Policy candidates                                                  | `policy_candidates`  |              5 |
+| Policy review                                                      | `policy_review`      |              5 |
+| Policy rules                                                       | `policy_rules`       |              3 |
+| Policy compactions                                                 | `policy_compactions` |              3 |
+| Authentication result and status                                   | `auth`               |              4 |
+| Workspace list                                                     | `tobari`             |              2 |
+| Workspace status                                                   | `status`             |              4 |
+
+{/* public-cli-json-schemas:end */}
 
 Exact fields, optionality, collection coverage, and output formats are
 generated on the [CLI reference](/reference/cli/). Do not infer a field from
@@ -58,8 +65,8 @@ Host configuration
   Context manifest schema 4
 
 CLI presentation
-  {"schema_version": 6, "context": ...}
-  public Context report schema 6
+  {"schema_version": 8, "context": ...}
+  public Context report schema 8
 ```
 
 The report adds task-owned runtime, cluster, complete shell-setting, and
@@ -166,7 +173,7 @@ external contracts are supported public boundaries.
   <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}
   >
-    report schema 6
+    report schema 8
   </a>
 - Gateway input and audit:
   <a
@@ -208,7 +215,7 @@ external contracts are supported public boundaries.
 ## Summary
 
 Schema versions are local to a boundary. Stored Context schema 4 and public
-Context report schema 6 are both correct because they govern different
+Context report schema 8 are both correct because they govern different
 documents. Exact readers and tests, not a shared number, define compatibility.
 
 ## Check your understanding
