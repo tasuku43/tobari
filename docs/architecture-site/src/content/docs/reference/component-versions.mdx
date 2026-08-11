@@ -20,16 +20,16 @@ identities separate when comparing the site with a local installation.
 
 ## How to interpret each identity
 
-| Identity type          | What it answers                                                  | What it does not answer                                               |
-| ---------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Tool version           | Which Go, OPA, mitmproxy, or other build input is selected.      | Which local image bytes Docker currently has.                         |
-| OCI tag                | Which registry channel or human selector is requested.           | Immutability. A tag can move.                                         |
-| OCI digest             | Which content-addressed manifest is selected.                    | Whether it satisfies the API required by this source.                 |
-| Runtime API            | Whether a work image declares the supported Workspace interface. | Whether every package in the image is trusted or current.             |
-| Service API            | Whether Gateway or Auth Broker implements the required contract. | Whether the image was reviewed and published as a release.            |
-| Schema version         | Which exact JSON surface shape is in use.                        | Compatibility of another surface with the same number.                |
-| CLI build identity     | Which source, resolver, and service APIs the executable selects. | The current branch name or a release that was not built.              |
-| Documentation commit   | Which repository snapshot supports this page.                    | A later state of `main`.                                              |
+| Identity type        | What it answers                                                  | What it does not answer                                    |
+| -------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| Tool version         | Which Go, OPA, mitmproxy, or other build input is selected.      | Which local image bytes Docker currently has.              |
+| OCI tag              | Which registry channel or human selector is requested.           | Immutability. A tag can move.                              |
+| OCI digest           | Which content-addressed manifest is selected.                    | Whether it satisfies the API required by this source.      |
+| Runtime API          | Whether a work image declares the supported Workspace interface. | Whether every package in the image is trusted or current.  |
+| Service API          | Whether Gateway or Auth Broker implements the required contract. | Whether the image was reviewed and published as a release. |
+| Schema version       | Which exact JSON surface shape is in use.                        | Compatibility of another surface with the same number.     |
+| CLI build identity   | Which source, resolver, and service APIs the executable selects. | The current branch name or a release that was not built.   |
+| Documentation commit | Which repository snapshot supports this page.                    | A later state of `main`.                                   |
 
 ## Repository sources
 
