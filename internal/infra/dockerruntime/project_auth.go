@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -266,9 +267,10 @@ func (r *Runtime) reconcileProjectAuthFiles(
 	next := projectAuthRegistry{
 		SchemaVersion: projectAuthRegistrySchema,
 		ProjectID:     instance.ID,
-		Providers:     append([]projectAuthProviderBinding(nil), providers...),
+		Providers:     make([]projectAuthProviderBinding, len(providers)),
 		Files:         make([]projectAuthRegistryEntry, 0, len(desired)),
 	}
+	copy(next.Providers, providers)
 	for _, file := range desired {
 		next.Files = append(next.Files, projectAuthRegistryEntry{Path: file.Path, Digest: file.Digest})
 	}
@@ -298,8 +300,17 @@ func (r *Runtime) readProjectAuthRegistry(projectID string) (projectAuthRegistry
 	if err := decodeStrictJSON(data, &registry); err != nil {
 		return projectAuthRegistry{}, fmt.Errorf("decode Workspace authentication file ownership: %w", err)
 	}
-	if registry.SchemaVersion != projectAuthRegistrySchema || registry.ProjectID != projectID || registry.Providers == nil || registry.Files == nil {
+	if registry.SchemaVersion != projectAuthRegistrySchema || registry.ProjectID != projectID || registry.Files == nil {
 		return projectAuthRegistry{}, fmt.Errorf("Workspace authentication file ownership is invalid")
+	}
+	if registry.Providers == nil {
+		if !isRecoverableEmptyProviderRegistry(data, registry) {
+			return projectAuthRegistry{}, fmt.Errorf("Workspace authentication file ownership is invalid")
+		}
+		registry.Providers = []projectAuthProviderBinding{}
+		if err := writeAtomicJSON(registryPath, registry); err != nil {
+			return projectAuthRegistry{}, fmt.Errorf("rewrite Workspace authentication file ownership: %w", err)
+		}
 	}
 	providers := make(map[string]struct{}, len(registry.Providers))
 	for _, provider := range registry.Providers {
@@ -322,6 +333,24 @@ func (r *Runtime) readProjectAuthRegistry(projectID string) (projectAuthRegistry
 		seen[entry.Path] = struct{}{}
 	}
 	return registry, nil
+}
+
+func isRecoverableEmptyProviderRegistry(data []byte, registry projectAuthRegistry) bool {
+	if registry.Providers != nil || registry.Files == nil || len(registry.Files) != 0 {
+		return false
+	}
+	var raw struct {
+		SchemaVersion json.RawMessage `json:"schema_version"`
+		ProjectID     json.RawMessage `json:"project_id"`
+		Providers     json.RawMessage `json:"providers"`
+		Files         json.RawMessage `json:"files"`
+	}
+	if err := decodeStrictJSON(data, &raw); err != nil ||
+		raw.SchemaVersion == nil || raw.ProjectID == nil || raw.Providers == nil || raw.Files == nil {
+		return false
+	}
+	return bytes.Equal(bytes.TrimSpace(raw.Providers), []byte("null")) &&
+		bytes.Equal(bytes.TrimSpace(raw.Files), []byte("[]"))
 }
 
 func validAuthRevision(value string) bool {
