@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "current",
+      "aggregate_state": "ready",
+      "coverage": "exhaustive",
+      "configured_providers": 1,
+      "exact_actions": 0,
+      "external_processing_count": 0
+    },
+    {
+      "name": "configured_zero_workspace",
+      "aggregate_state": "not_applicable",
+      "coverage": "exhaustive",
+      "configured_providers": 1,
+      "exact_actions": 0,
+      "external_processing_count": 0
+    },
+    {
+      "name": "missing",
+      "aggregate_state": "workspace_reentry_required",
+      "coverage": "exhaustive",
+      "configured_providers": 1,
+      "exact_actions": 1,
+      "external_processing_count": 0
+    },
+    {
+      "name": "stale",
+      "aggregate_state": "workspace_reentry_required",
+      "coverage": "exhaustive",
+      "configured_providers": 1,
+      "exact_actions": 1,
+      "external_processing_count": 0
+    },
+    {
+      "name": "enumeration_unavailable",
+      "aggregate_state": "unavailable",
+      "coverage": "unavailable",
+      "configured_providers": 0,
+      "exact_actions": 0,
+      "external_processing_count": 0
+    },
+    {
+      "name": "broker_locked_enumerable",
+      "aggregate_state": "unavailable",
+      "coverage": "exhaustive",
+      "configured_providers": 0,
+      "exact_actions": 0,
+      "external_processing_count": 0
+    },
+    {
+      "name": "mixed_unresolved",
+      "aggregate_state": "unresolved",
+      "coverage": "exhaustive",
+      "configured_providers": 1,
+      "exact_actions": 0,
+      "external_processing_count": 0
+    },
+    {
+      "name": "login_changed",
+      "aggregate_state": "workspace_reentry_required",
+      "coverage": "exhaustive",
+      "configured_providers": 1,
+      "exact_actions": 1,
+      "external_processing_count": 0
+    },
+    {
+      "name": "logout_changed",
+      "aggregate_state": "workspace_reentry_required",
+      "coverage": "exhaustive",
+      "configured_providers": 0,
+      "exact_actions": 1,
+      "external_processing_count": 0
+    },
+    {
+      "name": "logout_no_change",
+      "aggregate_state": "not_applicable",
+      "coverage": "not_applicable",
+      "configured_providers": 0,
+      "exact_actions": 0,
+      "external_processing_count": 0
+    }
+  ],
+  "negative_inference_canaries": [
+    "configured does not imply workspace_reentry_required",
+    "unavailable does not imply not_configured",
+    "locked does not imply workspace enumeration failed",
+    "missing and stale are distinct provider projection facts",
+    "changed is required before a login or logout receipt claims mutation",
+    "no_change does not imply removal or revocation",
+    "labels and row order do not define project or Context authority"
+  ]
+}

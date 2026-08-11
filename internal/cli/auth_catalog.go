@@ -50,7 +50,7 @@ func authLoginSpec() CommandSpec {
 			},
 			FixedTarget: fixedAuthCatalogTarget(),
 			Errors: authMutationErrors("auth login",
-				declaredCommandError(fault.KindUnsupported, "provider_login_unsupported", false, "help auth import", "Import one credential through protected stdin instead."),
+				declaredCommandError(fault.KindUnsupported, "provider_login_unsupported", false, "auth status", "Inspect the installed providers and their declared acquisition modes."),
 				declaredCommandError(fault.KindInvalidInput, "auth_login_tty_required", false, "help auth login", "Run trusted-host provider login from an interactive terminal."),
 				declaredCommandError(fault.KindUnavailable, "github_cli_unavailable", false, "auth login", "Install the reviewed GitHub CLI on the trusted host and retry."),
 				declaredCommandError(fault.KindRejected, "github_login_cancelled", false, "auth login", "Retry the trusted-host GitHub login when ready."),
@@ -137,11 +137,11 @@ func authLogoutSpec() CommandSpec {
 		Args: "<provider> [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
-			Outcome:      "Remove one Context-owned provider credential and revoke its Workspace handles without contacting the provider",
-			Inputs:       []CommandInput{authProviderInput("Configured provider credential to remove."), executionContextInput(), formatInput()},
+			Outcome:      "Confirm whether one Context-owned provider credential changed: remove and revoke it when present, or report no_change when already absent, without contacting the provider",
+			Inputs:       []CommandInput{authProviderInput("Installed provider whose Context credential should be removed if present."), executionContextInput(), formatInput()},
 			Output:       authResultOutput(),
 			Prerequisites: []string{
-				"The selected Context and provider credential exist.",
+				"The selected Context and provider manifest exist; the credential may already be absent.",
 				"The shared Auth Broker is already running, ready, and unlocked.",
 			},
 			FixedTarget: fixedAuthCatalogTarget(),
@@ -188,10 +188,11 @@ func authResultOutput() CommandOutput {
 			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for the encrypted Context vault.", Enum: []string{"macos_keychain", "xdg_file"}},
 			{Name: "broker_state", Type: OutputFieldTypeString, Description: "Observed locked, ready, or unavailable Auth Broker state.", Enum: []string{"locked", "ready", "unavailable"}},
 			{Name: "credential_revision", Type: OutputFieldTypeString, Description: "Opaque secret-free credential revision, or null when no credential is configured.", Nullable: true},
-			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Explicit activation state and guidance that credential ownership is Context-wide, each permanently bound project receives a distinct handle, and existing sessions must leave and re-enter.", Fields: workspaceActivationOutputFields()},
+			{Name: "change", Type: OutputFieldTypeString, Description: "Confirmed mutation outcome: changed, or no_change only for an already-absent logout.", Enum: []string{"changed", "no_change"}},
+			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Context-scoped Workspace projection observations; exact re-entry actions appear only for stale or missing projections.", Fields: workspaceActivationOutputFields()},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 3,
+		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 4,
 	}
 }
 
@@ -213,17 +214,40 @@ func authStatusOutput() CommandOutput {
 					{Name: "credential_revision", Type: OutputFieldTypeString, Description: "Secret-free credential revision, or null.", Nullable: true},
 				},
 			}},
-			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "When any provider is configured, guidance that credential ownership is Context-wide, each permanently bound project receives a distinct handle, and existing sessions must leave and re-enter.", Fields: workspaceActivationOutputFields()},
+			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Context-scoped Workspace projection observations with explicit coverage; configured provider state alone does not imply re-entry.", Fields: workspaceActivationOutputFields()},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 3,
+		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 4,
 	}
 }
 
 func workspaceActivationOutputFields() []OutputField {
 	return []OutputField{
-		{Name: "state", Type: OutputFieldTypeString, Description: "Workspace projection activation state.", Enum: []string{"not_applicable", "ready", "workspace_reentry_required"}},
-		{Name: "guidance", Type: OutputFieldTypeString, Description: "Exact activation guidance; empty only when no re-entry is required."},
+		{Name: "state", Type: OutputFieldTypeString, Description: "Aggregate Workspace projection activation state.", Enum: []string{"not_applicable", "ready", "workspace_reentry_required", "unavailable", "unresolved"}},
+		{Name: "coverage", Type: OutputFieldTypeString, Description: "Whether eligible Workspace enumeration is exhaustive, unavailable, or not applicable.", Enum: []string{"not_applicable", "exhaustive", "unavailable"}},
+		{Name: "context", Type: OutputFieldTypeString, Description: "Context display name bound to the observation; empty only when coverage is not_applicable."},
+		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context identity bound to the observation; empty only when coverage is not_applicable."},
+		{Name: "workspaces", Type: OutputFieldTypeArray, Description: "Eligible logical Workspace observations for the exact Context when coverage is exhaustive.", SemanticScope: "Every project whose authoritative binding targets the selected Context.", Items: &OutputField{
+			Type: OutputFieldTypeObject, Description: "One project-identified Workspace activation observation.", Fields: []OutputField{
+				{Name: "project_id", Type: OutputFieldTypeString, Description: "Stable logical Workspace identity."},
+				{Name: "root", Type: OutputFieldTypeString, Description: "Separately validated canonical working directory for this observation."},
+				{Name: "context", Type: OutputFieldTypeString, Description: "Context display name bound to this row."},
+				{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context identity bound to this row."},
+				{Name: "scope_state", Type: OutputFieldTypeString, Description: "Whether all row authority facts were readable.", Enum: []string{"complete", "incomplete"}},
+				{Name: "state", Type: OutputFieldTypeString, Description: "Workspace activation state derived from provider projections.", Enum: []string{"not_applicable", "ready", "workspace_reentry_required", "unavailable", "unresolved"}},
+				{Name: "providers", Type: OutputFieldTypeArray, Description: "Provider projection observations for this Workspace.", SemanticScope: "Installed providers plus any safely observed stale registry provider IDs.", Items: &OutputField{
+					Type: OutputFieldTypeObject, Description: "One provider projection observation.", Fields: []OutputField{
+						{Name: "provider", Type: OutputFieldTypeString, Description: "Provider ID."},
+						{Name: "state", Type: OutputFieldTypeString, Description: "Projection freshness.", Enum: []string{"not_applicable", "current", "missing", "stale", "unavailable"}},
+					},
+				}},
+				{Name: "next_action", Type: OutputFieldTypeObject, Description: "Exact re-entry action for this row, otherwise null.", Nullable: true, Fields: []OutputField{
+					{Name: "working_directory", Type: OutputFieldTypeString, Description: "Canonical directory from which to run argv."},
+					{Name: "argv", Type: OutputFieldTypeArray, Description: "Exact argument vector, including executable and bound Context.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One argv element."}},
+				}},
+			},
+		}},
+		{Name: "guidance", Type: OutputFieldTypeString, Description: "Stable guidance emitted only for an aggregate re-entry-required state."},
 	}
 }
 

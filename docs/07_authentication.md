@@ -31,11 +31,13 @@ tobari auth logout <provider> [--context NAME] [--format text|json]
 `--context` selects an existing Context; omission uses the current/default
 Context without changing it. Login, import, and logout are command-bound
 fixed-target writes to the installation's Context-scoped credential catalog.
-Status is read-only and returns the complete installed provider collection for
-one Context. Every JSON result uses envelope `auth` and schema version 1.
+Status is read-only and returns the complete installed provider collection plus
+bounded, explicitly covered Workspace projection observations for one Context.
+Every JSON result uses envelope `auth` and schema version 4.
 Outputs contain stable Context identity, provider state, a secret-free account
 label when available, an opaque credential revision, root-key storage backend,
-broker state, and explicit Workspace activation guidance. They never contain a
+broker state, mutation `changed|no_change`, and explicit Workspace projection
+state. They never contain a
 root key, vault bytes, raw credential, or Workspace handle.
 
 Provider and tool are separate selection axes. A **credential provider** is the
@@ -216,7 +218,7 @@ XDG roots; macOS Keychain storage has no filesystem path.
 
 | Surface or state | Schema/version | Canonical path, endpoint, or value |
 |---|---|---|
-| Public `auth` JSON result | envelope `auth`, schema `1` | `storage_backend` is exactly `macos_keychain` or `xdg_file` |
+| Public `auth` JSON result | envelope `auth`, schema `4` | `storage_backend` is exactly `macos_keychain` or `xdg_file`; Workspace activation coverage and mutation change state are explicit |
 | Public cluster status | schema `4` | `root_key_backend` is `macos_keychain`, `xdg_file`, or diagnostic `unavailable`; always-present `credential_companion_state` is secret-free `ready`, `prepared`, `absent`, or `unavailable` |
 | Public Context report | schema `6` | Complete shell and Git identity policy plus secret-free broker/provider state; no vault path/content, root key, primary secret, or handle |
 | Owner provider manifest | `tobari.auth-provider.v1`; `schema_version: 1` | `${XDG_CONFIG_HOME:-$HOME/.config}/tobari/auth/providers/*.json` |
@@ -582,8 +584,18 @@ commands.
 | `credential_refresh_outcome_unknown` (HTTP 409) | Do not let the caller automatically replay the request. After the original request settles, run `auth status`. If `broker_state=ready` and the affected AWS or Datadog provider is `configured`, Gateway made no upstream attempt and the user may explicitly retry the task. If it is `not_configured`, the encrypted record is durably barred across Broker restart: re-login or logout that provider, then leave and re-enter the Workspace before retrying. Reconcile `locked` or `unavailable` status first. |
 | `broker_signing_request_invalid` (HTTP 403) | The AWS request used an unsupported or ambiguous signing form. Use a standard bounded SigV4 header request to a reviewed AWS HTTPS authority; do not retry as presigned, SigV4a, streaming/event, custom-endpoint, or over-limit traffic. |
 
-The public result's `workspace_activation.state` is
-`workspace_reentry_required` after every successful login, import, or logout.
+The public result separates Context provider configuration from each eligible
+Workspace projection. Its aggregate `workspace_activation.state` is
+`not_applicable`, `ready`, `workspace_reentry_required`, `unavailable`, or
+`unresolved`, with `not_applicable|exhaustive|unavailable` coverage. Exhaustive
+rows identify the logical project, separately validated canonical root, exact
+Context, provider projection states, and a working-directory-plus-argv action
+only when every relevant fact justifies re-entry. An already absent logout is
+`change=no_change` with no removal, revocation, or re-entry claim.
+One result accepts at most 1,024 Workspace rows, 64 provider rows per Workspace,
+and 1,024 exact Broker `binding_status` checks in total. Infrastructure
+preflights project and registry collections before those calls; exceeding a
+bound yields `coverage=unavailable` without continuing Broker observation.
 `auth status` reports `locked`, `ready`, or `unavailable` without turning an
 absent cluster or Broker into a command fault, and
 uses explicit `configured`, `not_configured`, or `unavailable` provider state;

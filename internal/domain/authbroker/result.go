@@ -3,6 +3,7 @@ package authbroker
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -16,14 +17,20 @@ const (
 	TaskStatus = "auth.status"
 	TaskLogout = "auth.logout"
 
-	// ContextAuthActivationGuidance is the stable public explanation of
-	// credential ownership, project-bound handle isolation, and the activation
-	// boundary for already-running sessions.
-	ContextAuthActivationGuidance = "Credential ownership is Context-wide; each permanently bound project receives a distinct handle; existing sessions must leave and re-enter to receive the current authentication revision."
-	ContextAuthRemovalGuidance    = "Credential removal is Context-wide; handles for every permanently bound project are invalidated; existing sessions must leave and re-enter to remove the stale authentication projection."
+	// ContextAuthReentryGuidance is emitted only when authoritative project
+	// projection evidence identifies at least one exact Workspace that needs
+	// reconciliation.
+	ContextAuthReentryGuidance = "One or more Workspace authentication projections are stale or missing. Run each listed action from its exact working directory."
 
 	CredentialCatalogTargetKind = "auth-credentials"
 	CredentialCatalogTargetID   = "active-context-auth-credentials"
+
+	// Workspace activation output is bounded independently from host discovery
+	// so an adapter cannot turn a semantic result into unbounded CLI output.
+	MaxWorkspaceActivationItems         = 1024
+	MaxWorkspaceActivationProviders     = maxProviders
+	MaxWorkspaceActivationBindingChecks = 1024
+	MaxWorkspaceActivationRootBytes     = 4096
 )
 
 var (
@@ -71,40 +78,364 @@ const (
 	WorkspaceActivationNotApplicable   WorkspaceActivationState = "not_applicable"
 	WorkspaceActivationReady           WorkspaceActivationState = "ready"
 	WorkspaceActivationReentryRequired WorkspaceActivationState = "workspace_reentry_required"
+	WorkspaceActivationUnavailable     WorkspaceActivationState = "unavailable"
+	WorkspaceActivationUnresolved      WorkspaceActivationState = "unresolved"
 )
 
 func (s WorkspaceActivationState) Validate() error {
 	switch s {
-	case WorkspaceActivationNotApplicable, WorkspaceActivationReady, WorkspaceActivationReentryRequired:
+	case WorkspaceActivationNotApplicable, WorkspaceActivationReady, WorkspaceActivationReentryRequired,
+		WorkspaceActivationUnavailable, WorkspaceActivationUnresolved:
 		return nil
 	default:
 		return fmt.Errorf("Workspace activation state is invalid: %q", s)
 	}
 }
 
-// WorkspaceActivation gives bounded, secret-free guidance about when a changed
-// credential projection can affect Workspace processes. It never claims that
-// an already-running process environment was mutated.
+type WorkspaceActivationCoverage string
+
+const (
+	WorkspaceActivationCoverageNotApplicable WorkspaceActivationCoverage = "not_applicable"
+	WorkspaceActivationCoverageExhaustive    WorkspaceActivationCoverage = "exhaustive"
+	WorkspaceActivationCoverageUnavailable   WorkspaceActivationCoverage = "unavailable"
+)
+
+func (c WorkspaceActivationCoverage) Validate() error {
+	switch c {
+	case WorkspaceActivationCoverageNotApplicable, WorkspaceActivationCoverageExhaustive,
+		WorkspaceActivationCoverageUnavailable:
+		return nil
+	default:
+		return fmt.Errorf("Workspace activation coverage is invalid: %q", c)
+	}
+}
+
+type WorkspaceProviderProjectionState string
+
+const (
+	WorkspaceProviderProjectionNotApplicable WorkspaceProviderProjectionState = "not_applicable"
+	WorkspaceProviderProjectionCurrent       WorkspaceProviderProjectionState = "current"
+	WorkspaceProviderProjectionMissing       WorkspaceProviderProjectionState = "missing"
+	WorkspaceProviderProjectionStale         WorkspaceProviderProjectionState = "stale"
+	WorkspaceProviderProjectionUnavailable   WorkspaceProviderProjectionState = "unavailable"
+)
+
+func (s WorkspaceProviderProjectionState) Validate() error {
+	switch s {
+	case WorkspaceProviderProjectionNotApplicable, WorkspaceProviderProjectionCurrent,
+		WorkspaceProviderProjectionMissing, WorkspaceProviderProjectionStale,
+		WorkspaceProviderProjectionUnavailable:
+		return nil
+	default:
+		return fmt.Errorf("Workspace provider projection state is invalid: %q", s)
+	}
+}
+
+// WorkspaceProviderActivation is one provider projection observation within
+// an exact Context/project scope. It never carries a handle or binding digest.
+type WorkspaceProviderActivation struct {
+	Provider string                           `json:"provider"`
+	State    WorkspaceProviderProjectionState `json:"state"`
+}
+
+func (a WorkspaceProviderActivation) Validate() error {
+	if err := ValidateProviderID(a.Provider); err != nil {
+		return err
+	}
+	return a.State.Validate()
+}
+
+// WorkspaceActivationAction is complete only together with its working
+// directory. The Context flag prevents a later current-Context change from
+// retargeting the action.
+type WorkspaceActivationAction struct {
+	WorkingDirectory string   `json:"working_directory"`
+	Argv             []string `json:"argv"`
+}
+
+type WorkspaceActivationScopeState string
+
+const (
+	WorkspaceActivationScopeComplete   WorkspaceActivationScopeState = "complete"
+	WorkspaceActivationScopeIncomplete WorkspaceActivationScopeState = "incomplete"
+)
+
+func (s WorkspaceActivationScopeState) Validate() error {
+	switch s {
+	case WorkspaceActivationScopeComplete, WorkspaceActivationScopeIncomplete:
+		return nil
+	default:
+		return fmt.Errorf("Workspace activation scope state is invalid: %q", s)
+	}
+}
+
+// WorkspaceActivationItem owns one exact logical Workspace observation.
+// ProjectID is identity; Root is a separately validated working-directory
+// fact and is never inferred from presentation order or labels.
+type WorkspaceActivationItem struct {
+	ProjectID  string                        `json:"project_id"`
+	Root       string                        `json:"root"`
+	Context    string                        `json:"context"`
+	ContextID  string                        `json:"context_id"`
+	ScopeState WorkspaceActivationScopeState `json:"scope_state"`
+	State      WorkspaceActivationState      `json:"state"`
+	Providers  []WorkspaceProviderActivation `json:"providers"`
+	NextAction *WorkspaceActivationAction    `json:"next_action"`
+}
+
+func NewWorkspaceActivationItem(
+	projectID, root, contextName, contextID string,
+	providers []WorkspaceProviderActivation,
+	unresolved bool,
+) (WorkspaceActivationItem, error) {
+	item := WorkspaceActivationItem{
+		ProjectID: projectID, Root: root, Context: contextName, ContextID: contextID,
+		ScopeState: WorkspaceActivationScopeComplete,
+		Providers:  append(make([]WorkspaceProviderActivation, 0, len(providers)), providers...),
+	}
+	sort.Slice(item.Providers, func(left, right int) bool {
+		return item.Providers[left].Provider < item.Providers[right].Provider
+	})
+	counts := map[WorkspaceProviderProjectionState]int{}
+	for _, provider := range item.Providers {
+		counts[provider.State]++
+	}
+	item.State = summarizeWorkspaceProviderStates(counts)
+	if unresolved {
+		item.ScopeState = WorkspaceActivationScopeIncomplete
+		item.State = WorkspaceActivationUnresolved
+	}
+	if item.State == WorkspaceActivationReentryRequired {
+		item.NextAction = &WorkspaceActivationAction{
+			WorkingDirectory: root,
+			Argv:             []string{"tobari", "--context", contextName},
+		}
+	}
+	if err := item.Validate(); err != nil {
+		return WorkspaceActivationItem{}, err
+	}
+	return item, nil
+}
+
+func (i WorkspaceActivationItem) Validate() error {
+	if err := tobari.ValidateProjectID(i.ProjectID); err != nil {
+		return err
+	}
+	if err := tobari.ValidateCanonicalRoot(i.Root); err != nil {
+		return err
+	}
+	if !utf8.ValidString(i.Root) || len(i.Root) > MaxWorkspaceActivationRootBytes {
+		return fmt.Errorf("Workspace activation root exceeds its output bound")
+	}
+	if !contextNamePattern.MatchString(i.Context) || !contextIDPattern.MatchString(i.ContextID) {
+		return fmt.Errorf("Workspace activation Context binding is invalid")
+	}
+	if err := i.State.Validate(); err != nil {
+		return err
+	}
+	if err := i.ScopeState.Validate(); err != nil {
+		return err
+	}
+	if i.Providers == nil {
+		return fmt.Errorf("Workspace provider activation collection is absent")
+	}
+	if len(i.Providers) > MaxWorkspaceActivationProviders {
+		return fmt.Errorf("Workspace provider activation collection exceeds %d items", MaxWorkspaceActivationProviders)
+	}
+	seen := make(map[string]struct{}, len(i.Providers))
+	counts := map[WorkspaceProviderProjectionState]int{}
+	for index, provider := range i.Providers {
+		if err := provider.Validate(); err != nil {
+			return fmt.Errorf("Workspace provider activation %d: %w", index, err)
+		}
+		if _, duplicate := seen[provider.Provider]; duplicate {
+			return fmt.Errorf("Workspace provider activation %q is duplicated", provider.Provider)
+		}
+		if index > 0 && i.Providers[index-1].Provider >= provider.Provider {
+			return fmt.Errorf("Workspace provider activation collection is not in provider order")
+		}
+		seen[provider.Provider] = struct{}{}
+		counts[provider.State]++
+	}
+	want := summarizeWorkspaceProviderStates(counts)
+	if i.State != want && !(i.State == WorkspaceActivationUnresolved &&
+		(i.ScopeState == WorkspaceActivationScopeIncomplete || counts[WorkspaceProviderProjectionUnavailable] > 0)) {
+		return fmt.Errorf("Workspace activation state %q does not match provider observations", i.State)
+	}
+	if i.ScopeState == WorkspaceActivationScopeIncomplete && i.State != WorkspaceActivationUnresolved {
+		return fmt.Errorf("incomplete Workspace scope must remain unresolved")
+	}
+	if i.State == WorkspaceActivationReentryRequired {
+		if i.NextAction == nil || i.NextAction.WorkingDirectory != i.Root ||
+			len(i.NextAction.Argv) != 3 || i.NextAction.Argv[0] != "tobari" ||
+			i.NextAction.Argv[1] != "--context" || i.NextAction.Argv[2] != i.Context {
+			return fmt.Errorf("Workspace re-entry action does not bind its exact root and Context")
+		}
+	} else if i.NextAction != nil {
+		return fmt.Errorf("Workspace activation state %q cannot declare a next action", i.State)
+	}
+	return nil
+}
+
+func summarizeWorkspaceProviderStates(counts map[WorkspaceProviderProjectionState]int) WorkspaceActivationState {
+	reentry := counts[WorkspaceProviderProjectionMissing]+counts[WorkspaceProviderProjectionStale] > 0
+	unavailable := counts[WorkspaceProviderProjectionUnavailable] > 0
+	if reentry && unavailable {
+		return WorkspaceActivationUnresolved
+	}
+	if reentry {
+		return WorkspaceActivationReentryRequired
+	}
+	if unavailable {
+		return WorkspaceActivationUnavailable
+	}
+	if counts[WorkspaceProviderProjectionCurrent] > 0 {
+		return WorkspaceActivationReady
+	}
+	return WorkspaceActivationNotApplicable
+}
+
+// WorkspaceActivation gives a bounded, secret-free, Context-scoped collection
+// of project projection observations. It never claims that a running process
+// environment or file was changed.
 type WorkspaceActivation struct {
-	State    WorkspaceActivationState `json:"state"`
-	Guidance string                   `json:"guidance"`
+	State      WorkspaceActivationState    `json:"state"`
+	Coverage   WorkspaceActivationCoverage `json:"coverage"`
+	Context    string                      `json:"context"`
+	ContextID  string                      `json:"context_id"`
+	Workspaces []WorkspaceActivationItem   `json:"workspaces"`
+	Guidance   string                      `json:"guidance"`
+}
+
+func NotApplicableWorkspaceActivation() WorkspaceActivation {
+	return WorkspaceActivation{
+		State: WorkspaceActivationNotApplicable, Coverage: WorkspaceActivationCoverageNotApplicable,
+		Workspaces: []WorkspaceActivationItem{},
+	}
+}
+
+func UnavailableWorkspaceActivation(contextName, contextID string) WorkspaceActivation {
+	return WorkspaceActivation{
+		State: WorkspaceActivationUnavailable, Coverage: WorkspaceActivationCoverageUnavailable,
+		Context: contextName, ContextID: contextID, Workspaces: []WorkspaceActivationItem{},
+	}
+}
+
+func NewWorkspaceActivation(
+	contextName, contextID string, workspaces []WorkspaceActivationItem,
+) (WorkspaceActivation, error) {
+	activation := WorkspaceActivation{
+		Coverage: WorkspaceActivationCoverageExhaustive, Context: contextName, ContextID: contextID,
+		Workspaces: append(make([]WorkspaceActivationItem, 0, len(workspaces)), workspaces...),
+	}
+	sort.Slice(activation.Workspaces, func(left, right int) bool {
+		return activation.Workspaces[left].ProjectID < activation.Workspaces[right].ProjectID
+	})
+	counts := map[WorkspaceActivationState]int{}
+	for _, workspace := range activation.Workspaces {
+		counts[workspace.State]++
+	}
+	activation.State = summarizeWorkspaceStates(counts)
+	if activation.State == WorkspaceActivationReentryRequired {
+		activation.Guidance = ContextAuthReentryGuidance
+	}
+	if err := activation.Validate(); err != nil {
+		return WorkspaceActivation{}, err
+	}
+	return activation, nil
 }
 
 func (a WorkspaceActivation) Validate() error {
 	if err := a.State.Validate(); err != nil {
 		return err
 	}
-	if a.State == WorkspaceActivationReentryRequired {
-		if a.Guidance != ContextAuthActivationGuidance &&
-			a.Guidance != ContextAuthRemovalGuidance {
-			return fmt.Errorf("Workspace activation guidance does not declare the Context credential activation contract")
+	if err := a.Coverage.Validate(); err != nil {
+		return err
+	}
+	if a.Workspaces == nil {
+		return fmt.Errorf("Workspace activation collection is absent")
+	}
+	if len(a.Workspaces) > MaxWorkspaceActivationItems {
+		return fmt.Errorf("Workspace activation collection exceeds %d items", MaxWorkspaceActivationItems)
+	}
+	if a.Coverage == WorkspaceActivationCoverageNotApplicable {
+		if a.State != WorkspaceActivationNotApplicable || len(a.Workspaces) != 0 || a.Guidance != "" {
+			return fmt.Errorf("not-applicable Workspace activation cannot claim observations or guidance")
 		}
 		return nil
 	}
-	if a.Guidance != "" {
+	if !contextNamePattern.MatchString(a.Context) || !contextIDPattern.MatchString(a.ContextID) {
+		return fmt.Errorf("Workspace activation scope is invalid")
+	}
+	if a.Coverage == WorkspaceActivationCoverageUnavailable {
+		if a.State != WorkspaceActivationUnavailable || len(a.Workspaces) != 0 || a.Guidance != "" {
+			return fmt.Errorf("unavailable Workspace activation coverage cannot claim scoped observations")
+		}
+		return nil
+	}
+	seen := make(map[string]struct{}, len(a.Workspaces))
+	counts := map[WorkspaceActivationState]int{}
+	for index, workspace := range a.Workspaces {
+		if err := workspace.Validate(); err != nil {
+			return fmt.Errorf("Workspace activation %d: %w", index, err)
+		}
+		if workspace.Context != a.Context || workspace.ContextID != a.ContextID {
+			return fmt.Errorf("Workspace activation escapes its Context scope")
+		}
+		if _, duplicate := seen[workspace.ProjectID]; duplicate {
+			return fmt.Errorf("Workspace activation project %q is duplicated", workspace.ProjectID)
+		}
+		if index > 0 && a.Workspaces[index-1].ProjectID >= workspace.ProjectID {
+			return fmt.Errorf("Workspace activation collection is not in project order")
+		}
+		seen[workspace.ProjectID] = struct{}{}
+		counts[workspace.State]++
+	}
+	want := summarizeWorkspaceStates(counts)
+	if a.State != want {
+		return fmt.Errorf("Workspace activation summary %q does not match scoped rows", a.State)
+	}
+	if a.State == WorkspaceActivationReentryRequired {
+		if a.Guidance != ContextAuthReentryGuidance {
+			return fmt.Errorf("Workspace activation guidance is not the exact re-entry contract")
+		}
+	} else if a.Guidance != "" {
 		return fmt.Errorf("Workspace activation guidance must be empty for state %q", a.State)
 	}
 	return nil
+}
+
+func summarizeWorkspaceStates(counts map[WorkspaceActivationState]int) WorkspaceActivationState {
+	if counts[WorkspaceActivationUnresolved] > 0 ||
+		(counts[WorkspaceActivationReentryRequired] > 0 && counts[WorkspaceActivationUnavailable] > 0) {
+		return WorkspaceActivationUnresolved
+	}
+	if counts[WorkspaceActivationReentryRequired] > 0 {
+		return WorkspaceActivationReentryRequired
+	}
+	if counts[WorkspaceActivationUnavailable] > 0 {
+		return WorkspaceActivationUnavailable
+	}
+	if counts[WorkspaceActivationReady] > 0 {
+		return WorkspaceActivationReady
+	}
+	return WorkspaceActivationNotApplicable
+}
+
+type MutationChange string
+
+const (
+	MutationChangeChanged  MutationChange = "changed"
+	MutationChangeNoChange MutationChange = "no_change"
+)
+
+func (c MutationChange) Validate() error {
+	switch c {
+	case MutationChangeChanged, MutationChangeNoChange:
+		return nil
+	default:
+		return fmt.Errorf("auth mutation change state is invalid: %q", c)
+	}
 }
 
 // Result is the secret-free result shared by login, stdin import, status, and
@@ -121,6 +452,7 @@ type Result struct {
 	StorageBackend      StorageBackend                 `json:"storage_backend"`
 	BrokerState         BrokerState                    `json:"broker_state"`
 	CredentialRevision  string                         `json:"credential_revision"`
+	Change              MutationChange                 `json:"change"`
 	WorkspaceActivation WorkspaceActivation            `json:"workspace_activation"`
 }
 
@@ -179,15 +511,23 @@ func (r Result) Validate() error {
 	if err := r.WorkspaceActivation.Validate(); err != nil {
 		return err
 	}
-	if r.WorkspaceActivation.State != WorkspaceActivationReentryRequired {
-		return fmt.Errorf("successful auth mutation result must require Workspace re-entry")
+	if err := r.Change.Validate(); err != nil {
+		return err
 	}
-	expectedGuidance := ContextAuthActivationGuidance
-	if !r.Configured {
-		expectedGuidance = ContextAuthRemovalGuidance
+	if r.Task != TaskLogout && r.Change != MutationChangeChanged {
+		return fmt.Errorf("successful auth login/import must confirm a changed credential")
 	}
-	if r.WorkspaceActivation.Guidance != expectedGuidance {
-		return fmt.Errorf("auth mutation Workspace guidance does not match its configured state")
+	if r.Change == MutationChangeNoChange {
+		if r.Task != TaskLogout || r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageNotApplicable {
+			return fmt.Errorf("only no-op logout may report no change")
+		}
+	} else if r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageExhaustive &&
+		r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageUnavailable {
+		return fmt.Errorf("changed auth mutation must report exhaustive or explicitly unavailable Context Workspace activation")
+	}
+	if r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageNotApplicable &&
+		(r.WorkspaceActivation.Context != r.Context || r.WorkspaceActivation.ContextID != r.ContextID) {
+		return fmt.Errorf("auth mutation Workspace scope does not match its Context")
 	}
 	return nil
 }
@@ -295,7 +635,6 @@ func (r StatusResult) Validate() error {
 		return fmt.Errorf("auth status providers collection is absent")
 	}
 	seen := make(map[string]struct{}, len(r.Providers))
-	configured := false
 	for index, provider := range r.Providers {
 		if err := provider.Validate(); err != nil {
 			return fmt.Errorf("auth status provider %d: %w", index, err)
@@ -307,19 +646,18 @@ func (r StatusResult) Validate() error {
 		if r.BrokerState == BrokerStateLocked && provider.State != ProviderCredentialUnavailable {
 			return fmt.Errorf("locked auth broker requires provider %q state to be unavailable", provider.Provider)
 		}
-		configured = configured || provider.Configured
 	}
 	if err := r.WorkspaceActivation.Validate(); err != nil {
 		return err
 	}
-	if configured && r.WorkspaceActivation.State != WorkspaceActivationReentryRequired {
-		return fmt.Errorf("configured auth status must declare Workspace re-entry guidance")
-	}
-	if configured && r.WorkspaceActivation.Guidance != ContextAuthActivationGuidance {
-		return fmt.Errorf("configured auth status must declare Context-wide activation guidance")
-	}
-	if !configured && r.WorkspaceActivation.State == WorkspaceActivationReentryRequired {
-		return fmt.Errorf("unconfigured auth status cannot require Workspace re-entry")
+	if r.ContextState == tobari.ContextObservationPersisted {
+		if (r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageExhaustive &&
+			r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageUnavailable) ||
+			r.WorkspaceActivation.Context != r.Context || r.WorkspaceActivation.ContextID != r.ContextID {
+			return fmt.Errorf("auth status Workspace activation does not preserve its Context scope")
+		}
+	} else if r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageNotApplicable {
+		return fmt.Errorf("non-persisted auth status cannot claim Workspace activation coverage")
 	}
 	return nil
 }

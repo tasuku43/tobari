@@ -225,7 +225,7 @@ func TestAuthImportDeclaresRequiredStdinWithoutArgvOrEnvironmentSecret(t *testin
 func TestAuthCommandsPublishOneSecretFreeSchema(t *testing.T) {
 	wantMutationFields := []string{
 		"provider", "context", "context_state", "context_id", "configured", "account_label",
-		"storage_backend", "broker_state", "credential_revision", "workspace_activation",
+		"storage_backend", "broker_state", "credential_revision", "change", "workspace_activation",
 	}
 	for _, path := range []string{"auth login", "auth import", "auth logout"} {
 		spec, found := DefaultCatalog().Lookup(path)
@@ -237,7 +237,7 @@ func TestAuthCommandsPublishOneSecretFreeSchema(t *testing.T) {
 			gotFields = append(gotFields, field.Name)
 		}
 		if !reflect.DeepEqual(gotFields, wantMutationFields) || spec.Agent.Output.JSONEnvelope != "auth" ||
-			spec.Agent.Output.JSONSchemaVersion != 3 || spec.Agent.Output.CollectionCoverage != CollectionCoverageNotApplicable {
+			spec.Agent.Output.JSONSchemaVersion != 4 || spec.Agent.Output.CollectionCoverage != CollectionCoverageNotApplicable {
 			t.Fatalf("%s output = %+v", path, spec.Agent.Output)
 		}
 		for _, forbidden := range []string{"credential", "secret", "token", "handle", "vault", "root_key"} {
@@ -259,7 +259,35 @@ func TestAuthCommandsPublishOneSecretFreeSchema(t *testing.T) {
 	}
 	wantStatusFields := []string{"context", "context_state", "context_id", "storage_backend", "broker_state", "providers", "workspace_activation"}
 	if !reflect.DeepEqual(gotStatusFields, wantStatusFields) || status.Agent.Output.JSONEnvelope != "auth" ||
-		status.Agent.Output.JSONSchemaVersion != 3 || status.Agent.Output.CollectionCoverage != CollectionCoverageExhaustive {
+		status.Agent.Output.JSONSchemaVersion != 4 || status.Agent.Output.CollectionCoverage != CollectionCoverageExhaustive {
 		t.Fatalf("auth status output = %+v", status.Agent.Output)
+	}
+}
+
+func TestAuthLoginUnsupportedProviderRecoveryUsesInstalledProviderDiscovery(t *testing.T) {
+	spec, found := DefaultCatalog().Lookup("auth login")
+	if !found {
+		t.Fatal("catalog lacks auth login")
+	}
+	for _, declared := range spec.Agent.Errors {
+		if declared.Code != "provider_login_unsupported" {
+			continue
+		}
+		if len(declared.NextActions) != 1 || declared.NextActions[0].Command != "auth status" {
+			t.Fatalf("provider_login_unsupported recovery = %+v", declared.NextActions)
+		}
+		return
+	}
+	t.Fatal("auth login lacks provider_login_unsupported")
+}
+
+func TestAuthLogoutContractAllowsConfirmedNoChange(t *testing.T) {
+	spec, found := DefaultCatalog().Lookup("auth logout")
+	if !found {
+		t.Fatal("catalog lacks auth logout")
+	}
+	if !strings.Contains(spec.Agent.Outcome, "no_change") ||
+		strings.Contains(strings.Join(spec.Agent.Prerequisites, " "), "credential exist") {
+		t.Fatalf("auth logout contract still assumes a credential mutation: outcome=%q prerequisites=%v", spec.Agent.Outcome, spec.Agent.Prerequisites)
 	}
 }

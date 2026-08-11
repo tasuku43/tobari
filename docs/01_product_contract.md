@@ -221,8 +221,8 @@ The public commands are:
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
 | `auth login [--provider PROVIDER] [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; provider-option omission opens a terminal selector over installed reviewed login providers, each current built-in displays its sole supported Workspace client tool as automatically selected, AWS method omission preserves the fixed IAM Identity Center device flow, `console` selects fixed cross-device AWS CLI local-development login, and Datadog selects fixed default-organization US1 pup OAuth |
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
-| `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection and broker state for one Context without reading secrets |
-| `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles without contacting the provider |
+| `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection plus bounded Context-scoped Workspace projection freshness and coverage without reading secrets |
+| `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles when present, or report confirmed `no_change` when already absent, without contacting the provider |
 
 For the CWD lifecycle commands `tobari`, `status`, and `delete`, one non-empty
 invocation Context may appear before or after the command path: for example,
@@ -461,7 +461,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Policy review | `policy_review` | 5 |
 | Policy rules | `policy_rules` | 3 |
 | Policy compactions | `policy_compactions` | 3 |
-| Authentication result and status | `auth` | 3 |
+| Authentication result and status | `auth` | 4 |
 | Workspace list | `tobari` | 2 |
 | Workspace status | `status` | 4 |
 <!-- public-cli-json-schemas:end -->
@@ -940,8 +940,12 @@ atomically removes that record and its handles without contacting the provider.
 One credential is Context/provider-owned, every permanently bound project is
 eligible for a distinct handle only on its next matching Workspace entry, and
 no mutation rewrites a running session. Confirmed results are secret-free and
-direct the user to leave and re-enter existing Workspaces. Logout revokes all
-old handles immediately; next entry removes its declared environment projection
+distinguish `changed` from no-op logout. They list an exact Context-bound
+working directory and argv only for a Workspace whose current projection is
+authoritatively missing or stale; current, unavailable, unresolved,
+zero-Workspace, and no-change results do not invent a re-entry action. Logout
+revokes all old handles immediately when its receipt is `changed`; next entry
+removes its declared environment projection
 by recreation and removes only unchanged Tobari-owned complete files. `auth
 status` is read-only and reports locked or unavailable Broker state as provider
 availability uncertainty rather than inferring absence from an unreadable vault.
@@ -963,10 +967,10 @@ preserving its stable ID, runtime recipe, and exact shell overrides while
 adding no Git identity. Context report schema advanced from 5 to 6 for that
 projection, from 6 to 7 for nullable absent credential facts, and now to 8 for
 explicit Context persistence state and nullable pre-authority identity/stores.
-Context list advances to schema 4, auth result/status to schema 3, and Workspace
+Context list advances to schema 4, auth result/status to schema 4, and Workspace
 status to schema 4 for the same no-fake-authority boundary.
 Command names, resource labels, state schema, OPA input version, audit schema,
-Gateway decision schema, policy data and policy output schemas, auth JSON schema 2, provider/projection schemas 1 and
+Gateway decision schema, policy data and policy output schemas, auth JSON schema 4, provider/projection schemas 1 and
 2, broker protocol schema 1, private companion epoch/frame schema 1, vault
 envelope schema 1 and encrypted payload
 schema 2, the `tobari-h1_` handle prefix, root-key backend identifiers, Unix

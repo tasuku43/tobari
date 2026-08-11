@@ -76,8 +76,9 @@ explicit `cluster up` to activate a new validated all-Context projection.
 Authentication has one similarly explicit host/Workspace handoff. `auth
 login`, `auth import`, and `auth logout` mutate only the selected Context's
 encrypted broker record and revoke prior handles; they never grant policy or
-rewrite a running process. Their structured result says
-`workspace_reentry_required`. Credential ownership is Context-wide: every
+rewrite a running process. Their structured result distinguishes `changed`
+from no-op logout and reports Workspace re-entry only for exact missing or
+stale projection rows. Credential ownership is Context-wide: every
 project permanently bound to the Context is eligible, but each receives a
 distinct current handle only on its next matching root entry. That entry
 reconciles only the changed work container while preserving logical identity
@@ -266,7 +267,9 @@ rules exist. The transcript must prove:
 - `auth status` returns one explicit Context identity, root-key storage backend,
   locked/ready broker state, a non-null exhaustive provider collection, and
   `configured`, `not_configured`, or `unavailable` per-provider state. It
-  exposes no handle, vault path/content, root key, or primary secret.
+  separately reports Workspace activation coverage and current, missing, stale,
+  unavailable, or unresolved projection state. It exposes no handle, vault
+  path/content, root key, or primary secret.
 - Auth mutations validate the Context, provider, fixed target, and impact before
   acquisition/vault I/O. Import rejects terminal stdin before reading. It reads
   one bounded primary secret from non-terminal stdin only after public
@@ -281,7 +284,9 @@ rules exist. The transcript must prove:
   presents only reviewed login providers before mutation. The selected provider
   ID and the resolved Context returned by that snapshot pass into login, so a
   concurrent current/default change cannot retarget the choice. An explicit `--provider` performs no status read
-  or selector interaction; `--method` without `--provider`, redirected
+  or selector interaction. Configured selector rows are marked and warn that a
+  successful selection rotates the Context grant and revokes prior handles;
+  `--method` without `--provider`, redirected
   omission, cancellation, and an installed collection with no reviewed login
   provider make zero login mutation calls.
 - Built-in GitHub login uses one verified host GitHub CLI with fixed argv and a
@@ -577,6 +582,8 @@ gh api user --jq .login >/dev/null
 exit
 tobari auth logout github --context default --format json
 (cd /absolute/test/root && tobari) # reconcile the revoked projection
+tobari auth status --context default --format json
+tobari auth logout github --context default --format json # confirmed no_change
 ```
 
 The reviewer verifies the login uses the ordinary GitHub.com web flow, opens
@@ -587,9 +594,13 @@ is removed. Status shows exactly one secret-free
 account label/revision, `GH_TOKEN` has the
 `tobari-h1_` handle shape, and the no-print equality test proves `gh auth token
 --hostname github.com` returns that exact projected handle rather than the
-primary credential. The allowed API call succeeds only after OPA allow, logout returns
-`workspace_reentry_required`, and the prior handle receives
-`credential_handle_invalid`. The reviewer also scans Gateway, OPA, and Auth
+primary credential. The allowed API call succeeds only after OPA allow. Logout
+returns `change=changed` and an exact re-entry action only for the stale
+Workspace row, and the prior handle receives
+`credential_handle_invalid`. Status after successful re-entry reports that
+Workspace projection `ready`; the second logout reports `change=no_change`,
+leaves before/after status semantically equal, and claims no removal,
+revocation, or re-entry. The reviewer also scans Gateway, OPA, and Auth
 Broker logs for a private canary supplied only for this disposable test.
 
 Do not save tokens, device codes, handles, root keys, vaults, host `gh` config, raw

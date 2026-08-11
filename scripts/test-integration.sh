@@ -600,6 +600,32 @@ cat >"$config_directory/auth/providers/$synthetic_provider.json" <<'JSON'
 }
 JSON
 chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
+synthetic_noop_provider=synthetic-noop
+cat >"$config_directory/auth/providers/$synthetic_noop_provider.json" <<'JSON'
+{
+  "schema_version": 1,
+  "id": "synthetic-noop",
+  "display_name": "Synthetic No-op Provider",
+  "acquisition": {"mode": "stdin_import"},
+  "credential": {"kind": "primary_secret"},
+  "workspace_projections": [
+    {"kind": "env", "name": "SYNTHETIC_NOOP_TOKEN", "template": "${HANDLE}"}
+  ],
+  "header_bindings": [
+    {
+      "target": {"scheme": "https", "host": "noop.synthetic.example", "port": 443},
+      "source": {"header": "x-synthetic-noop-auth", "formats": ["raw"]},
+      "destination": {
+        "header": "authorization",
+        "format": "bearer",
+        "secret_field": "primary_secret"
+      },
+      "secret_headers": ["authorization", "x-synthetic-noop-auth"]
+    }
+  ]
+}
+JSON
+chmod 0600 "$config_directory/auth/providers/$synthetic_noop_provider.json"
 
 if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then
   [[ -x $binary ]] || fail "TOBARI_INTEGRATION_BINARY is not executable: $binary"
@@ -691,11 +717,11 @@ running_context_use=$(run_tobari context use --name restricted --format json)
 assert_contains "$running_context_use" '"cluster":"default_updated"' "running current Context change"
 [[ $(docker inspect --format '{{.Id}}' tobari-gateway) == "$gateway_before_use" ]] || fail "context use recreated Gateway"
 [[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_use" ]] || fail "context use recreated OPA"
-opa_context_mounts=$(docker inspect --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' tobari-opa)
-if [[ $opa_context_mounts != *"$test_root/state/tobari/cluster-projections/"*"/policy => /policy"* ]]; then
-  printf 'selected OPA policy mounts:\n%s\n' "$opa_context_mounts" >&2
-  fail "OPA policy mount did not point to the aggregate projection"
-fi
+opa_policy_mount=$(docker inspect --format \
+  '{{range .Mounts}}{{if eq .Destination "/bundle"}}{{.Type}}|{{.Name}}|{{.Destination}}|{{.RW}}{{end}}{{end}}' \
+  tobari-opa)
+[[ $opa_policy_mount == 'volume|tobari-policy-bundle|/bundle|false' ]] ||
+  fail "OPA policy bundle mount is not the owned read-only volume: $opa_policy_mount"
 gateway_context_mounts=$(docker inspect --format '{{range .Mounts}}{{println .Source "=>" .Destination}}{{end}}' tobari-gateway)
 if [[ $gateway_context_mounts != *"$test_root/state/tobari/cluster-projections/"*"/credentials.json => /run/tobari/config/credentials.json"* ]]; then
   printf 'selected Gateway mounts:\n%s\n' "$gateway_context_mounts" >&2
@@ -836,6 +862,50 @@ enter_bash_tobari_at "$work_root"
 [[ $work_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
   fail "list did not return the project's stable ID"
 [[ $work_id != "$restricted_id" && $work_id != "$other_id" && $restricted_id != "$other_id" ]] || fail "Context-bound Tobari received duplicate stable IDs"
+
+# Re-entry reconciles the exact project-bound projection. Status must derive
+# current/Ready from authoritative registry and Broker binding facts rather
+# than from Context-wide provider configuration alone.
+enter_tobari_at "$work_root"
+ready_auth_status_before_noop=$(run_tobari auth status --context default --format json)
+READY_AUTH_STATUS_DOCUMENT="$ready_auth_status_before_noop" python3 - "$work_id" <<'PY'
+import json
+import os
+import sys
+
+project_id = sys.argv[1]
+document = json.loads(os.environ["READY_AUTH_STATUS_DOCUMENT"])
+auth = document["auth"]
+activation = auth["workspace_activation"]
+if document.get("schema_version") != 4 or activation.get("coverage") != "exhaustive" or activation.get("state") != "ready":
+    raise SystemExit(f"auth status did not report schema-4 exhaustive Ready: {document!r}")
+workspace = next((item for item in activation.get("workspaces", []) if item.get("project_id") == project_id), None)
+if workspace is None or workspace.get("state") != "ready" or workspace.get("next_action") is not None:
+    raise SystemExit(f"auth status did not report the re-entered Workspace Ready: {workspace!r}")
+providers = {item.get("provider"): item.get("state") for item in workspace.get("providers", [])}
+if providers.get("synthetic-ci") != "current":
+    raise SystemExit(f"auth status did not report the synthetic projection current: {providers!r}")
+PY
+
+# An installed but never-configured synthetic provider is the deterministic
+# no-op target. The receipt cannot claim a mutation or Workspace action, and
+# read-only status is byte-for-byte identical before and after.
+synthetic_noop_logout=$(run_tobari auth logout "$synthetic_noop_provider" --context default --format json)
+SYNTHETIC_NOOP_LOGOUT_DOCUMENT="$synthetic_noop_logout" python3 <<'PY'
+import json
+import os
+
+document = json.loads(os.environ["SYNTHETIC_NOOP_LOGOUT_DOCUMENT"])
+auth = document["auth"]
+activation = auth["workspace_activation"]
+if document.get("schema_version") != 4 or auth.get("provider") != "synthetic-noop" or auth.get("change") != "no_change":
+    raise SystemExit(f"absent-provider logout did not report schema-4 no_change: {document!r}")
+if activation.get("state") != "not_applicable" or activation.get("coverage") != "not_applicable" or activation.get("workspaces") != []:
+    raise SystemExit(f"no-op logout invented Workspace activation: {activation!r}")
+PY
+ready_auth_status_after_noop=$(run_tobari auth status --context default --format json)
+[[ $ready_auth_status_after_noop == "$ready_auth_status_before_noop" ]] ||
+  fail "no-op logout changed the before/after auth status document"
 
 python3 - "$config_directory/principal-registry/principals.json" "$work_id" "$restricted_id" "$other_id" <<'PY'
 import json
@@ -1089,8 +1159,10 @@ broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
 default_broker_candidate_id=$(candidate_id_for_effect \
   "$work_id" api.synthetic.example GET /brokered-default <<<"$broker_candidates")
 default_broker_allow=$(run_tobari policy allow --id "$default_broker_candidate_id")
-assert_contains "$default_broker_allow" 'applied: true' \
+assert_contains "$default_broker_allow" 'Policy rule updated' \
   "default Context brokered policy approval"
+assert_contains "$default_broker_allow" 'api.synthetic.example:443 GET /brokered-default' \
+  "default Context brokered policy approval target"
 # SYNTHETIC_TOKEN expands inside the Workspace.
 # shellcheck disable=SC2016
 default_broker_response=$(run_project sh -c \
@@ -1150,8 +1222,10 @@ broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
 restricted_broker_candidate_id=$(candidate_id_for_effect \
   "$restricted_id" api.synthetic.example GET /brokered-restricted <<<"$broker_candidates")
 restricted_broker_allow=$(run_tobari policy allow --id "$restricted_broker_candidate_id")
-assert_contains "$restricted_broker_allow" 'applied: true' \
+assert_contains "$restricted_broker_allow" 'Policy rule updated' \
   "restricted Context brokered policy approval"
+assert_contains "$restricted_broker_allow" 'api.synthetic.example:443 GET /brokered-restricted' \
+  "restricted Context brokered policy approval target"
 # SYNTHETIC_TOKEN expands inside the Workspace.
 # shellcheck disable=SC2016
 restricted_broker_response=$(run_restricted_project sh -c \
@@ -1194,8 +1268,10 @@ synthetic_aws_candidate_id=$(candidate_id_for_effect \
   "$work_id" sts.us-east-1.amazonaws.com GET /synthetic-aws-refresh-sign \
   <<<"$broker_candidates")
 synthetic_aws_allow=$(run_tobari policy allow --id "$synthetic_aws_candidate_id")
-assert_contains "$synthetic_aws_allow" 'applied: true' \
+assert_contains "$synthetic_aws_allow" 'Policy rule updated' \
   "synthetic AWS policy approval"
+assert_contains "$synthetic_aws_allow" 'sts.us-east-1.amazonaws.com:443 GET /synthetic-aws-refresh-sign' \
+  "synthetic AWS policy approval target"
 synthetic_aws_response=$(run_project curl -fsS \
   -H "Authorization: $synthetic_aws_placeholder" \
   -H 'X-Amz-Date: 20260809T120000Z' \
@@ -1537,8 +1613,9 @@ assert_contains "$candidates_json" \
 	"\"deny_command\":\"tobari policy deny --id $deny_candidate_id\"" \
 	"policy candidate exact rejection"
 tail_output=$(run_tobari policy tail --tail 500)
+assert_contains "$tail_output" "Policy candidates" "human policy tail"
 assert_contains "$tail_output" \
-	"allow_command=tobari policy allow --id $allow_candidate_id" \
+	"tobari policy allow --id $allow_candidate_id" \
 	"human policy tail"
 review_output=$(run_tobari policy review --tail 500)
 assert_contains "$review_output" "restricted" "cross-Context permission Inbox"
@@ -1559,17 +1636,15 @@ assert_contains "$review_json" \
 
 opa_before_exact_policy=$(docker inspect --format '{{.Id}}' tobari-opa)
 allow_output=$(run_tobari policy allow --id "$allow_candidate_id")
-assert_contains "$allow_output" "context: default" "exact policy approval"
-assert_contains "$allow_output" 'match: exact' "exact policy approval"
-assert_contains "$allow_output" 'path: /review-allow' "exact policy approval"
-assert_contains "$allow_output" 'applied: true' "exact policy approval"
+assert_contains "$allow_output" "Policy rule updated" "exact policy approval"
+assert_contains "$allow_output" 'mock-upstream:8080 PUT /review-allow' "exact policy approval target"
 
 body_allow_output=$(run_tobari policy allow --id "$body_candidate_id")
-assert_contains "$body_allow_output" 'path: /review-body' "body-independent policy approval"
-assert_contains "$body_allow_output" 'applied: true' "body-independent policy approval"
+assert_contains "$body_allow_output" 'Policy rule updated' "body-independent policy approval"
+assert_contains "$body_allow_output" 'mock-upstream:8080 PUT /review-body' "body-independent policy approval target"
 patch_deny_output=$(run_tobari policy deny --id "$patch_candidate_id")
-assert_contains "$patch_deny_output" 'path: /review-patch' "body-bearing PATCH policy review"
-assert_contains "$patch_deny_output" 'applied: true' "body-bearing PATCH policy review"
+assert_contains "$patch_deny_output" 'Permission denied' "body-bearing PATCH policy review"
+assert_contains "$patch_deny_output" 'mock-upstream:8080 PATCH /review-patch' "body-bearing PATCH policy review target"
 [[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_exact_policy" ]] ||
   fail "routine exact policy mutations recreated OPA"
 body_applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
@@ -1585,7 +1660,8 @@ restricted_after_allow=$(run_restricted_project curl -sS -o /dev/null -w '%{http
   -X PUT http://mock-upstream:8080/review-allow)
 [[ $restricted_after_allow == 403 ]] || fail "default Context learned Allow crossed into restricted with status $restricted_after_allow"
 restricted_deny_output=$(run_tobari policy deny --id "$restricted_allow_candidate_id")
-assert_contains "$restricted_deny_output" "path: /review-allow" "restricted exact Deny target"
+assert_contains "$restricted_deny_output" "Permission denied" "restricted exact Deny"
+assert_contains "$restricted_deny_output" "mock-upstream:8080 PUT /review-allow" "restricted exact Deny target"
 restricted_rules=$(run_tobari policy rules --format json)
 restricted_deny_rule_id=$(python3 -c '
 import json,sys
@@ -1618,9 +1694,12 @@ assert_contains "$policy_rules_json" \
   "policy decision reset action"
 
 reset_allow_output=$(run_tobari policy reset --id "$allow_rule_id")
-assert_contains "$reset_allow_output" "target_id: $allow_rule_id" "learned Allow reset"
-assert_contains "$reset_allow_output" 'decision: allow' "learned Allow reset"
-assert_contains "$reset_allow_output" 'applied: true' "learned Allow reset"
+assert_contains "$reset_allow_output" 'Policy decision reset' "learned Allow reset"
+assert_contains "$reset_allow_output" "$allow_rule_id" "learned Allow reset target"
+assert_contains "$reset_allow_output" 'Removed' "learned Allow reset decision"
+assert_contains "$reset_allow_output" 'allow' "learned Allow reset decision"
+assert_contains "$reset_allow_output" 'Default deny' "learned Allow reset outcome"
+assert_contains "$reset_allow_output" 'yes' "learned Allow reset outcome"
 reset_allow_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-allow)
 [[ $reset_allow_status == 403 ]] || fail "reset Allow did not return the request to default deny"
@@ -1628,15 +1707,16 @@ review_after_allow_reset=$(run_tobari policy review --tail 1000 --format json)
 assert_contains "$review_after_allow_reset" "\"id\":\"$allow_candidate_id\"" \
   "reset Allow re-review queue"
 allow_output=$(run_tobari policy allow --id "$allow_candidate_id")
-assert_contains "$allow_output" 'applied: true' "re-allow after reset"
+assert_contains "$allow_output" 'Policy rule updated' "re-allow after reset"
 reallowed_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-allow)
 [[ $reallowed_status == 200 ]] || fail "re-review could not restore the exact Allow"
 
 deny_output=$(run_tobari policy deny --id "$deny_candidate_id")
-assert_contains "$deny_output" "context: default" "exact policy rejection"
-assert_contains "$deny_output" 'path: /review-deny' "exact policy rejection"
-assert_contains "$deny_output" 'applied: true' "exact policy rejection"
+assert_contains "$deny_output" 'Permission denied' "exact policy rejection"
+assert_contains "$deny_output" 'mock-upstream:8080 PUT /review-deny' "exact policy rejection target"
+assert_contains "$deny_output" 'Applied' "exact policy rejection outcome"
+assert_contains "$deny_output" 'yes' "exact policy rejection outcome"
 rejected_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-deny)
 [[ $rejected_status == 403 ]] || fail "exact policy rejection changed the denied request to $rejected_status"
@@ -1653,8 +1733,12 @@ print(next(item["id"] for item in json.load(sys.stdin)["policy_rules"]
   <<<"$policy_rules_json")
 [[ $deny_rule_id == pdr_* ]] || fail "policy rules did not emit the learned Deny ID"
 reset_deny_output=$(run_tobari policy reset --id "$deny_rule_id")
-assert_contains "$reset_deny_output" "target_id: $deny_rule_id" "learned Deny reset"
-assert_contains "$reset_deny_output" 'decision: deny' "learned Deny reset"
+assert_contains "$reset_deny_output" 'Policy decision reset' "learned Deny reset"
+assert_contains "$reset_deny_output" "$deny_rule_id" "learned Deny reset target"
+assert_contains "$reset_deny_output" 'Removed' "learned Deny reset decision"
+assert_contains "$reset_deny_output" 'deny' "learned Deny reset decision"
+assert_contains "$reset_deny_output" 'Default deny' "learned Deny reset outcome"
+assert_contains "$reset_deny_output" 'yes' "learned Deny reset outcome"
 reset_deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review-deny)
 [[ $reset_deny_status == 403 ]] || fail "reset Deny weakened default denial"
@@ -1662,7 +1746,7 @@ review_after_deny_reset=$(run_tobari policy review --tail 1000 --format json)
 assert_contains "$review_after_deny_reset" "\"id\":\"$deny_candidate_id\"" \
   "reset Deny re-review queue"
 deny_output=$(run_tobari policy deny --id "$deny_candidate_id")
-assert_contains "$deny_output" 'applied: true' "re-deny after reset"
+assert_contains "$deny_output" 'Permission denied' "re-deny after reset"
 
 reject_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/rejected)
@@ -1678,7 +1762,8 @@ assert_contains "$reject_candidates_json" \
   "\"deny_command\":\"tobari policy deny --id $reject_candidate_id\"" \
   "policy review JSON rejection action"
 deny_output=$(run_tobari policy deny --id "$reject_candidate_id")
-assert_contains "$deny_output" 'applied: true' "exact policy rejection"
+assert_contains "$deny_output" 'Permission denied' "exact policy rejection"
+assert_contains "$deny_output" 'mock-upstream:8080 PUT /rejected' "exact policy rejection target"
 rejected_after_deny=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/rejected)
 [[ $rejected_after_deny == 403 ]] || fail "exact policy rejection changed the denied request to $rejected_after_deny"
@@ -1772,7 +1857,9 @@ for item_path in one two three; do
   item_candidate_id=$(candidate_id_for_effect \
     "$work_id" mock-upstream PUT "/review/items/$item_path" <<<"$candidates_json")
   item_allow_output=$(run_tobari policy allow --id "$item_candidate_id")
-  assert_contains "$item_allow_output" "path: /review/items/$item_path" \
+  assert_contains "$item_allow_output" "Policy rule updated" \
+    "exact compaction source approval"
+  assert_contains "$item_allow_output" "mock-upstream:8080 PUT /review/items/$item_path" \
     "exact compaction source approval"
 done
 
@@ -1792,10 +1879,13 @@ assert_contains "$compactions_json" \
   "compaction boundary"
 
 compact_output=$(run_tobari policy compact --id "$compaction_id")
-assert_contains "$compact_output" 'match: prefix' "policy compaction"
-assert_contains "$compact_output" 'path: /review/items/' "policy compaction"
-assert_contains "$compact_output" 'source_rule_count: 3' "policy compaction"
-assert_contains "$compact_output" 'applied: true' "policy compaction"
+assert_contains "$compact_output" 'Policy rule updated' "policy compaction"
+assert_contains "$compact_output" 'prefix' "policy compaction match"
+assert_contains "$compact_output" 'mock-upstream:8080 PUT /review/items/' "policy compaction target"
+assert_contains "$compact_output" 'Source rules' "policy compaction evidence"
+assert_contains "$compact_output" '3' "policy compaction evidence"
+assert_contains "$compact_output" 'Applied' "policy compaction outcome"
+assert_contains "$compact_output" 'yes' "policy compaction outcome"
 
 compacted_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review/items/four)
@@ -1826,6 +1916,7 @@ final_mock_logs=$(docker logs "$mock_name" 2>&1)
 final_auth_mock_logs=$(docker logs "$auth_mock_name" 2>&1)
 diagnostic_surface=$(printf '%s\n' \
   "$synthetic_aws_login" "$default_auth_import" "$restricted_auth_import" \
+  "$ready_auth_status_before_noop" "$synthetic_noop_logout" "$ready_auth_status_after_noop" \
   "$final_default_auth_status" "$final_restricted_auth_status" \
   "$final_context_status" "$final_cluster_status" "$final_doctor_status" \
   "$final_gateway_logs" "$final_broker_logs" "$final_opa_logs" \

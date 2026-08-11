@@ -39,6 +39,24 @@
     "license": "MIT"
   },
   {
+    "id": "truthful-auth-state.fixture.v1",
+    "path": "internal/cli/testdata/truthful-auth-state-fixture.json",
+    "sha256": "121c173f118213ceb1bc7546504851659dc50dae89c47be93d2b36448e57ca66",
+    "bytes": 13095,
+    "cases": 10,
+    "provenance": "Repository-authored synthetic typed fixture for Context-scoped provider status, Workspace activation truth, exact re-entry actions, and confirmed auth mutation receipts.",
+    "license": "MIT"
+  },
+  {
+    "id": "truthful-auth-state.answer-key.v1",
+    "path": "internal/cli/testdata/truthful-auth-state-answer-key.json",
+    "sha256": "6434c5947a3c5ca9b2aa3d1de86c0c548c215e080f4d63ffcc1b6d2ab9fd7cc3",
+    "bytes": 2718,
+    "cases": 10,
+    "provenance": "Repository-authored presentation-independent answer key for auth activation state, collection coverage, exact recovery, receipts, and negative-inference canaries.",
+    "license": "MIT"
+  },
+  {
     "id": "resumable-permission-review.fixture.v1",
     "path": "internal/cli/testdata/resumable-permission-review-fixture.json",
     "sha256": "b6c0812da90a3d0b029d3c83e7595ef7063570135048a9c649f39c7aa971f48d",

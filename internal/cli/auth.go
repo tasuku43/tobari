@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"strings"
 
 	"github.com/tasuku43/tobari/internal/app/authcmd"
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
@@ -67,10 +68,10 @@ func (c *CLI) selectAuthLoginProvider(ctx context.Context, contextName string) (
 	if err != nil {
 		return "", "", err
 	}
-	providers := make([]string, 0, len(status.Providers))
+	providers := make([]authbroker.ProviderStatus, 0, len(status.Providers))
 	for _, provider := range status.Providers {
 		if authcmd.SupportsLoginProvider(provider.Provider) {
-			providers = append(providers, provider.Provider)
+			providers = append(providers, provider)
 		}
 	}
 	if len(providers) == 0 {
@@ -79,7 +80,7 @@ func (c *CLI) selectAuthLoginProvider(ctx context.Context, contextName string) (
 			"provider_login_unsupported",
 			"No installed provider supports the reviewed interactive login flow.",
 			false,
-			fault.NextAction{Command: "help auth import", Reason: "Import one credential through protected stdin instead."},
+			fault.NextAction{Command: "auth status", Reason: "Inspect the installed providers and their declared acquisition modes."},
 		)
 	}
 	if c.authLogin == nil {
@@ -96,7 +97,7 @@ func (c *CLI) selectAuthLoginProvider(ctx context.Context, contextName string) (
 		return "", "", err
 	}
 	for _, provider := range providers {
-		if selected == provider {
+		if selected == provider.Provider {
 			return selected, status.Context, nil
 		}
 	}
@@ -230,6 +231,7 @@ type authResultProjection struct {
 	StorageBackend      authbroker.StorageBackend      `json:"storage_backend"`
 	BrokerState         authbroker.BrokerState         `json:"broker_state"`
 	CredentialRevision  *string                        `json:"credential_revision"`
+	Change              authbroker.MutationChange      `json:"change"`
 	WorkspaceActivation authbroker.WorkspaceActivation `json:"workspace_activation"`
 }
 
@@ -283,10 +285,11 @@ func renderAuthResult(result authbroker.Result, format successFormat, color bool
 		ContextState: result.ContextState, Provider: result.Provider, Context: result.Context, ContextID: optionalString(result.ContextID),
 		Configured: result.Configured, AccountLabel: result.AccountLabel,
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
-		CredentialRevision: optionalString(result.CredentialRevision), WorkspaceActivation: result.WorkspaceActivation,
+		CredentialRevision: optionalString(result.CredentialRevision), Change: result.Change,
+		WorkspaceActivation: result.WorkspaceActivation,
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON(authResultCommand(result.Task), authResultDocument{SchemaVersion: 3, Auth: projection})
+		output, err := marshalCommandJSON(authResultCommand(result.Task), authResultDocument{SchemaVersion: 4, Auth: projection})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Authentication output could not be encoded.", false, err)
 		}
@@ -320,7 +323,7 @@ func renderAuthStatus(result authbroker.StatusResult, format successFormat, colo
 		WorkspaceActivation: result.WorkspaceActivation,
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("auth status", authStatusDocument{SchemaVersion: 3, Auth: projection})
+		output, err := marshalCommandJSON("auth status", authStatusDocument{SchemaVersion: 4, Auth: projection})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Authentication status output could not be encoded.", false, err)
 		}
@@ -339,10 +342,13 @@ func authResultCommand(task string) string {
 
 func renderAuthResultText(result authResultProjection, color bool) []byte {
 	output := newHumanOutput(color)
-	if result.Configured {
-		output.heading("✓", "Context credential configured", styleSuccess)
-	} else {
-		output.heading("○", "Context credential not configured", styleMuted)
+	switch {
+	case result.Change == authbroker.MutationChangeNoChange:
+		output.heading("○", "Context credential unchanged", styleMuted)
+	case result.Configured:
+		output.heading("✓", "Context credential changed", styleSuccess)
+	default:
+		output.heading("✓", "Context credential removed", styleSuccess)
 	}
 	output.row("Context", safeExternalText(result.Context), styleText)
 	output.row("Context state", string(result.ContextState), humanStatusToken(string(result.ContextState)))
@@ -365,10 +371,8 @@ func renderAuthResultText(result authResultProjection, color bool) []byte {
 		revision = *result.CredentialRevision
 	}
 	output.row("Revision", revision, styleText)
-	output.row("Workspaces", string(result.WorkspaceActivation.State), humanStatusToken(string(result.WorkspaceActivation.State)))
-	if result.WorkspaceActivation.Guidance != "" {
-		output.row("Guidance", safeExternalText(result.WorkspaceActivation.Guidance), styleText)
-	}
+	output.row("Change", string(result.Change), humanStatusToken(string(result.Change)))
+	renderWorkspaceActivation(output, result.WorkspaceActivation)
 	return output.bytes()
 }
 
@@ -380,10 +384,7 @@ func renderAuthStatusText(result authStatusProjection, color bool) []byte {
 	output.row("Context ID", optionalDisplay(result.ContextID, "not initialized"), styleText)
 	output.row("Storage", string(result.StorageBackend), styleText)
 	output.row("Broker", string(result.BrokerState), humanStatusToken(string(result.BrokerState)))
-	output.row("Workspaces", string(result.WorkspaceActivation.State), humanStatusToken(string(result.WorkspaceActivation.State)))
-	if result.WorkspaceActivation.Guidance != "" {
-		output.row("Guidance", safeExternalText(result.WorkspaceActivation.Guidance), styleText)
-	}
+	renderWorkspaceActivation(output, result.WorkspaceActivation)
 	if len(result.Providers) == 0 {
 		output.empty("No authentication providers installed", "The Context provider collection is explicitly empty.", "", "")
 		return output.bytes()
@@ -404,4 +405,27 @@ func renderAuthStatusText(result authStatusProjection, color bool) []byte {
 		output.row("Revision", revision, styleText)
 	}
 	return output.bytes()
+}
+
+func renderWorkspaceActivation(output *humanOutput, activation authbroker.WorkspaceActivation) {
+	output.row("Workspaces", string(activation.State), humanStatusToken(string(activation.State)))
+	output.row("Workspace coverage", string(activation.Coverage), humanStatusToken(string(activation.Coverage)))
+	if activation.Guidance != "" {
+		output.row("Guidance", safeExternalText(activation.Guidance), styleText)
+	}
+	for _, workspace := range activation.Workspaces {
+		output.section("Workspace: " + safeExternalText(workspace.ProjectID))
+		output.row("Root", safeExternalText(workspace.Root), styleText)
+		output.row("Context", safeExternalText(workspace.Context), styleText)
+		output.row("Context ID", workspace.ContextID, styleText)
+		output.row("Scope", string(workspace.ScopeState), humanStatusToken(string(workspace.ScopeState)))
+		output.row("Activation", string(workspace.State), humanStatusToken(string(workspace.State)))
+		for _, provider := range workspace.Providers {
+			output.row("Projection "+safeExternalText(provider.Provider), string(provider.State), humanStatusToken(string(provider.State)))
+		}
+		if workspace.NextAction != nil {
+			output.row("Working directory", safeExternalText(workspace.NextAction.WorkingDirectory), styleText)
+			output.row("Action", safeExternalText(strings.Join(workspace.NextAction.Argv, " ")), styleText)
+		}
+	}
 }

@@ -455,7 +455,7 @@ The test suite has complementary levels:
   unconfigured resources and always-present
   `credential_companion_state=ready|prepared|absent|unavailable`, Context report
   schema 8, Context list schema 4, Workspace status schema 4, and auth
-  result/status schema 3, including explicit Context persistence state, null
+  result/status schema 4, including explicit Context persistence state, null
   pre-authority IDs/stores, the complete shell
   environment inventory, atomic Git identity policy, explicit empty literal
   values, explicit empty provider collections, and null account labels.
@@ -465,6 +465,16 @@ The test suite has complementary levels:
   preserve empty collections, explicit null, false, zero, unavailable states,
   nested arrays, structured recovery, and a routine-success external-processing
   count of zero.
+- Auth truth-table tests freeze current, missing, stale, unavailable,
+  unresolved, zero-Workspace, configured-with-current-projection, changed, and
+  no-change states independently of presentation. Infrastructure tests prove
+  exact Context/project/revision/binding correlation, deterministic bounded
+  collections, zero Broker calls after a collection/call-policy bound is
+  exceeded, and preservation of a confirmed receipt across post-success
+  cancellation. CLI tests pin configured-provider rotation warning, exact
+  working-directory plus argv actions only for justified rows, neutral
+  selector cancellation, and absence of removal/revocation/re-entry claims for
+  no-op logout.
 - Adversarial output tests keep TSV/JSON records and stdout/stderr ownership intact across controls, Unicode format/line separators, existing backslashes, and printable prompt-like data while preserving opaque IDs exactly.
 - Catalog tests scan every public command for completeness and unique paths.
 - Catalog syntax tests reject command/namespace prefix collisions,

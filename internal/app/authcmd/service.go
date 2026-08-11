@@ -43,10 +43,10 @@ func MutationImpact() operation.Impact {
 type RuntimePort interface {
 	IsInputTerminal(io.Reader) bool
 	IsTerminal(io.Writer) bool
-	LoginAuth(context.Context, string, string, string, io.Reader, io.Writer) (authbroker.Result, error)
-	ImportAuth(context.Context, string, string, io.Reader) (authbroker.Result, error)
-	AuthStatus(context.Context, string) (authbroker.StatusResult, error)
-	LogoutAuth(context.Context, string, string) (authbroker.Result, error)
+	LoginAuth(context.Context, string, string, string, io.Reader, io.Writer) (authbroker.MutationObservation, error)
+	ImportAuth(context.Context, string, string, io.Reader) (authbroker.MutationObservation, error)
+	AuthStatus(context.Context, string) (authbroker.StatusObservation, error)
+	LogoutAuth(context.Context, string, string) (authbroker.MutationObservation, error)
 }
 
 type ownedPolicy struct{}
@@ -118,7 +118,7 @@ func (s *Service) Login(
 			"provider_login_unsupported",
 			"The selected provider does not support a built-in login helper.",
 			false,
-			fault.NextAction{Command: "help auth import", Reason: "Import one credential through protected stdin instead."},
+			fault.NextAction{Command: "auth status", Reason: "Inspect the installed providers and their declared acquisition modes."},
 		)
 	}
 	loginMethod, err := normalizeLoginMethod(provider, method)
@@ -132,7 +132,11 @@ func (s *Service) Login(
 		if err := s.ValidateLoginTerminal(input, errOut); err != nil {
 			return authbroker.Result{}, err
 		}
-		return s.runtime.LoginAuth(actionContext, contextName, provider, string(loginMethod), input, errOut)
+		observed, err := s.runtime.LoginAuth(actionContext, contextName, provider, string(loginMethod), input, errOut)
+		if err != nil {
+			return authbroker.Result{}, err
+		}
+		return authbroker.NewResult(authbroker.TaskLogin, contextName, provider, observed)
 	})
 }
 
@@ -202,7 +206,11 @@ func (s *Service) Import(
 			return authbroker.Result{}, err
 		}
 		defer clear(secret)
-		return s.runtime.ImportAuth(actionContext, contextName, provider, bytes.NewReader(secret))
+		observed, err := s.runtime.ImportAuth(actionContext, contextName, provider, bytes.NewReader(secret))
+		if err != nil {
+			return authbroker.Result{}, err
+		}
+		return authbroker.NewResult(authbroker.TaskImport, contextName, provider, observed)
 	})
 }
 
@@ -213,7 +221,7 @@ func (s *Service) Status(ctx context.Context, contextName string) (authbroker.St
 	if err := s.requireRuntime(); err != nil {
 		return authbroker.StatusResult{}, err
 	}
-	result, err := s.runtime.AuthStatus(ctx, contextName)
+	observed, err := s.runtime.AuthStatus(ctx, contextName)
 	if err != nil {
 		if public, ok := fault.PublicCopy(err); ok {
 			return authbroker.StatusResult{}, public
@@ -227,7 +235,8 @@ func (s *Service) Status(ctx context.Context, contextName string) (authbroker.St
 			fault.NextAction{Command: "doctor", Reason: "Inspect the Auth Broker and Context credential stores."},
 		)
 	}
-	if err := validateStatusResult(result, contextName); err != nil {
+	result, err := authbroker.NewStatusResult(contextName, observed)
+	if err != nil {
 		return authbroker.StatusResult{}, invalidResult(err)
 	}
 	return result, nil
@@ -256,7 +265,11 @@ func (s *Service) Logout(
 		return authbroker.Result{}, err
 	}
 	return s.invokeMutation(ctx, intent, "auth logout", authbroker.TaskLogout, contextName, provider, func(actionContext context.Context) (authbroker.Result, error) {
-		return s.runtime.LogoutAuth(actionContext, contextName, provider)
+		observed, err := s.runtime.LogoutAuth(actionContext, contextName, provider)
+		if err != nil {
+			return authbroker.Result{}, err
+		}
+		return authbroker.NewResult(authbroker.TaskLogout, contextName, provider, observed)
 	})
 }
 

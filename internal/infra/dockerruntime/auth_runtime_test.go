@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 )
 
@@ -101,22 +103,218 @@ func TestTerminalDetectionRejectsNonTTYCharacterDevice(t *testing.T) {
 	}
 }
 
-func TestBuildAuthResultDeclaresContextCredentialActivationContract(t *testing.T) {
-	result, err := buildAuthResult(
+func TestBuildAuthResultPreservesConfirmedChangeAfterObservationCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runtime := &Runtime{configDirectory: t.TempDir(), stateDirectory: t.TempDir(), runner: &brokerProtocolRunner{}}
+	observed, err := runtime.buildAuthMutationObservation(
+		ctx,
 		authbroker.TaskImport,
 		"default",
 		"018bcfe5-687b-7000-8000-000000000099",
 		"github",
 		brokerControlResponse{Revision: strings.Repeat("a", 64)},
 		true,
+		true,
+		authbroker.StorageBackendXDGFile,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.WorkspaceActivation.State != authbroker.WorkspaceActivationReentryRequired ||
-		result.WorkspaceActivation.Guidance != authbroker.ContextAuthActivationGuidance {
+	result, err := authbroker.NewResult(authbroker.TaskImport, "default", "github", observed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Change != authbroker.MutationChangeChanged ||
+		result.WorkspaceActivation.Coverage != authbroker.WorkspaceActivationCoverageUnavailable ||
+		result.WorkspaceActivation.Guidance != "" || len(result.WorkspaceActivation.Workspaces) != 0 {
 		t.Fatalf("Workspace activation = %+v", result.WorkspaceActivation)
 	}
+}
+
+func TestBuildAuthResultReportsNoOpLogoutWithoutPostSuccessObservation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runtime := &Runtime{configDirectory: t.TempDir(), stateDirectory: t.TempDir(), runner: &brokerProtocolRunner{}}
+	observed, err := runtime.buildAuthMutationObservation(
+		ctx, authbroker.TaskLogout, "default", "018bcfe5-687b-7000-8000-000000000099", "github",
+		brokerControlResponse{}, false, false, authbroker.StorageBackendXDGFile,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := authbroker.NewResult(authbroker.TaskLogout, "default", "github", observed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Change != authbroker.MutationChangeNoChange || result.Configured ||
+		result.WorkspaceActivation.Coverage != authbroker.WorkspaceActivationCoverageNotApplicable ||
+		result.WorkspaceActivation.Guidance != "" || len(result.WorkspaceActivation.Workspaces) != 0 {
+		t.Fatalf("no-op logout result = %+v", result)
+	}
+}
+
+func derivedWorkspaceActivation(
+	t *testing.T,
+	contextName, contextID string,
+	statuses []authbroker.ProviderStatus,
+	observed authbroker.WorkspaceObservation,
+) authbroker.WorkspaceActivation {
+	t.Helper()
+	result, err := authbroker.NewStatusResult(contextName, authbroker.StatusObservation{
+		ContextState: tobari.ContextObservationPersisted, Context: contextName, ContextID: contextID,
+		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
+		Providers: statuses, Workspaces: observed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result.WorkspaceActivation
+}
+
+func TestObserveWorkspaceActivationUsesExactRegistryAndBrokerBindingState(t *testing.T) {
+	tests := []struct {
+		name         string
+		registry     string
+		bindingState string
+		status       authbroker.ProviderStatus
+		want         authbroker.WorkspaceProviderProjectionState
+		wantSummary  authbroker.WorkspaceActivationState
+		wantAction   bool
+	}{
+		{name: "current", registry: "matching", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionCurrent, wantSummary: authbroker.WorkspaceActivationReady},
+		{name: "broker stale", registry: "matching", bindingState: "stale", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionStale, wantSummary: authbroker.WorkspaceActivationReentryRequired, wantAction: true},
+		{name: "missing registry", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionMissing, wantSummary: authbroker.WorkspaceActivationReentryRequired, wantAction: true},
+		{name: "stale revision", registry: "stale", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionStale, wantSummary: authbroker.WorkspaceActivationReentryRequired, wantAction: true},
+		{name: "provider unavailable", registry: "matching", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialUnavailable}, want: authbroker.WorkspaceProviderProjectionUnavailable, wantSummary: authbroker.WorkspaceActivationUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &authDoctorRunner{bindingState: test.bindingState}
+			fixture := newAuthDoctorFixture(t, runner)
+			switch test.registry {
+			case "matching":
+				fixture.writeRegistry(t, authDoctorRevision, fixture.digest)
+			case "stale":
+				fixture.writeRegistry(t, "revision_old", fixture.digest)
+			}
+			projection, err := fixture.runtime.loadAuthProviders()
+			if err != nil {
+				t.Fatal(err)
+			}
+			statuses := []authbroker.ProviderStatus{test.status}
+			observed := fixture.runtime.observeWorkspaceActivation(
+				context.Background(), fixture.project.ContextID, statuses, projection,
+			)
+			activation := derivedWorkspaceActivation(t, "default", fixture.project.ContextID, statuses, observed)
+			if activation.Coverage != authbroker.WorkspaceActivationCoverageExhaustive ||
+				activation.State != test.wantSummary || len(activation.Workspaces) != 1 ||
+				len(activation.Workspaces[0].Providers) != 1 || activation.Workspaces[0].Providers[0].State != test.want ||
+				(activation.Workspaces[0].NextAction != nil) != test.wantAction {
+				t.Fatalf("activation = %+v", activation)
+			}
+			if test.wantAction && (activation.Workspaces[0].NextAction.WorkingDirectory != fixture.project.Root ||
+				!reflect.DeepEqual(activation.Workspaces[0].NextAction.Argv, []string{"tobari", "--context", "default"})) {
+				t.Fatalf("re-entry action = %+v", activation.Workspaces[0].NextAction)
+			}
+		})
+	}
+}
+
+func TestObserveWorkspaceActivationDistinguishesZeroEligibleFromEnumerationFailure(t *testing.T) {
+	runtime := newProjectStateRuntime(t)
+	contextID := "018bcfe5-687b-7000-8000-000000000099"
+	observed := runtime.observeWorkspaceActivation(
+		context.Background(), contextID,
+		[]authbroker.ProviderStatus{}, authbroker.Projection{Providers: []authbroker.Provider{}},
+	)
+	activation := derivedWorkspaceActivation(t, "default", contextID, []authbroker.ProviderStatus{}, observed)
+	if activation.Coverage != authbroker.WorkspaceActivationCoverageExhaustive ||
+		activation.State != authbroker.WorkspaceActivationNotApplicable || len(activation.Workspaces) != 0 {
+		t.Fatalf("zero eligible activation = %+v", activation)
+	}
+
+	fixture := newAuthDoctorFixture(t, &authDoctorRunner{})
+	if err := fixture.runtime.removeProjectRootIndex(fixture.project.Root); err != nil {
+		t.Fatal(err)
+	}
+	observed = fixture.runtime.observeWorkspaceActivation(
+		context.Background(), fixture.project.ContextID,
+		[]authbroker.ProviderStatus{}, authbroker.Projection{Providers: []authbroker.Provider{}},
+	)
+	if observed.Coverage != authbroker.WorkspaceActivationCoverageUnavailable {
+		t.Fatalf("enumeration observation = %+v", observed)
+	}
+	activation = derivedWorkspaceActivation(t, "default", fixture.project.ContextID, []authbroker.ProviderStatus{}, observed)
+	if activation.Coverage != authbroker.WorkspaceActivationCoverageUnavailable ||
+		activation.State != authbroker.WorkspaceActivationUnavailable || len(activation.Workspaces) != 0 {
+		t.Fatalf("enumeration failure activation = %+v", activation)
+	}
+}
+
+func TestObserveWorkspaceActivationMixedProviderUncertaintyDoesNotOfferAction(t *testing.T) {
+	fixture := newAuthDoctorFixture(t, &authDoctorRunner{})
+	projection, err := fixture.runtime.loadAuthProviders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	statuses := []authbroker.ProviderStatus{
+		{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: authDoctorRevision},
+		{Provider: "aws", State: authbroker.ProviderCredentialUnavailable},
+	}
+	observed := fixture.runtime.observeWorkspaceActivation(
+		context.Background(), fixture.project.ContextID, statuses, projection,
+	)
+	activation := derivedWorkspaceActivation(t, "default", fixture.project.ContextID, statuses, observed)
+	if activation.State != authbroker.WorkspaceActivationUnresolved || len(activation.Workspaces) != 1 ||
+		activation.Workspaces[0].NextAction != nil {
+		t.Fatalf("mixed activation = %+v", activation)
+	}
+}
+
+func TestObserveWorkspaceActivationStopsBeforeBrokerCallsWhenProviderBoundsAreExceeded(t *testing.T) {
+	t.Run("status collection", func(t *testing.T) {
+		runner := &authDoctorRunner{}
+		fixture := newAuthDoctorFixture(t, runner)
+		statuses := make([]authbroker.ProviderStatus, authbroker.MaxWorkspaceActivationProviders+1)
+		for index := range statuses {
+			statuses[index] = authbroker.ProviderStatus{
+				Provider: fmt.Sprintf("provider-%03d", index), State: authbroker.ProviderCredentialUnavailable,
+			}
+		}
+		observed := fixture.runtime.observeWorkspaceActivation(
+			context.Background(), fixture.project.ContextID, statuses,
+			authbroker.Projection{Providers: []authbroker.Provider{}},
+		)
+		if observed.Coverage != authbroker.WorkspaceActivationCoverageUnavailable || len(runner.controlCalls) != 0 {
+			t.Fatalf("oversized status observation/calls = %+v/%v", observed, runner.controlCalls)
+		}
+	})
+
+	t.Run("registry collection", func(t *testing.T) {
+		runner := &authDoctorRunner{}
+		fixture := newAuthDoctorFixture(t, runner)
+		providers := make([]projectAuthProviderBinding, authbroker.MaxWorkspaceActivationProviders+1)
+		for index := range providers {
+			providers[index] = projectAuthProviderBinding{
+				Provider: fmt.Sprintf("provider-%03d", index), Revision: "revision_1",
+				BindingDigest: "sha256:" + strings.Repeat("a", 64),
+			}
+		}
+		if err := writeAtomicJSON(fixture.runtime.projectAuthRegistryPath(fixture.project.ID), projectAuthRegistry{
+			SchemaVersion: projectAuthRegistrySchema, ProjectID: fixture.project.ID,
+			Providers: providers, Files: []projectAuthRegistryEntry{},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		observed := fixture.runtime.observeWorkspaceActivation(
+			context.Background(), fixture.project.ContextID,
+			[]authbroker.ProviderStatus{}, authbroker.Projection{Providers: []authbroker.Provider{}},
+		)
+		if observed.Coverage != authbroker.WorkspaceActivationCoverageUnavailable || len(runner.controlCalls) != 0 {
+			t.Fatalf("oversized registry observation/calls = %+v/%v", observed, runner.controlCalls)
+		}
+	})
 }
 
 func TestSupportsOnlyReviewedBuiltinAuthHelpers(t *testing.T) {

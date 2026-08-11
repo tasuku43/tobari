@@ -5,10 +5,11 @@ import (
 	"io"
 
 	"github.com/tasuku43/tobari/internal/app/authcmd"
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 )
 
 type authLoginProviderSelector interface {
-	Select(context.Context, string, []string, io.Reader, io.Writer) (string, error)
+	Select(context.Context, string, []authbroker.ProviderStatus, io.Reader, io.Writer) (string, error)
 }
 
 type terminalAuthLoginProviderSelector struct {
@@ -26,7 +27,7 @@ func newAuthLoginProviderSelectorWithStyle(enabled bool) *terminalAuthLoginProvi
 }
 
 func (s *terminalAuthLoginProviderSelector) Select(
-	ctx context.Context, contextName string, providers []string, in io.Reader, out io.Writer,
+	ctx context.Context, contextName string, providers []authbroker.ProviderStatus, in io.Reader, out io.Writer,
 ) (string, error) {
 	options := make([]configurationWizardOption, 0, len(providers))
 	for _, provider := range providers {
@@ -35,7 +36,7 @@ func (s *terminalAuthLoginProviderSelector) Select(
 	index, err := s.wizard.choose(ctx, in, out, configurationWizardMenu{
 		title:       "Tobari · Provider login",
 		contextName: contextName,
-		current:     "Choose a provider first. Its sole current Workspace client tool is selected automatically.",
+		current:     "Choose a provider first. Configured rows will rotate the grant and revoke its previous Workspace handles after successful login.",
 		prompt:      "Choose a provider",
 		options:     options,
 	})
@@ -45,21 +46,28 @@ func (s *terminalAuthLoginProviderSelector) Select(
 	return options[index].value, nil
 }
 
-func authLoginProviderOption(provider string) configurationWizardOption {
+func authLoginProviderOption(status authbroker.ProviderStatus) configurationWizardOption {
+	provider := status.Provider
+	var option configurationWizardOption
 	switch provider {
 	case authcmd.BuiltinGitHubProviderID:
-		return configurationWizardOption{
+		option = configurationWizardOption{
 			label: "GitHub", description: "Tool: GitHub CLI (gh), selected automatically. Login: reviewed device flow.", value: provider,
 		}
 	case authcmd.BuiltinAWSProviderID:
-		return configurationWizardOption{
+		option = configurationWizardOption{
 			label: "AWS", description: "Tool: AWS CLI (aws), selected automatically. Login: IAM Identity Center by default.", value: provider,
 		}
 	case authcmd.BuiltinDatadogProviderID:
-		return configurationWizardOption{
+		option = configurationWizardOption{
 			label: "Datadog", description: "Tool: pup, selected automatically. Login: reviewed US1 OAuth flow.", value: provider,
 		}
 	default:
-		return configurationWizardOption{label: safeExternalText(provider), value: provider}
+		option = configurationWizardOption{label: safeExternalText(provider), value: provider}
 	}
+	if status.State == authbroker.ProviderCredentialConfigured {
+		option.label += " (configured)"
+		option.description += " Selecting it rotates the Context grant and revokes previous Workspace handles after login succeeds."
+	}
+	return option
 }

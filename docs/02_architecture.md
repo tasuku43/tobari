@@ -820,6 +820,15 @@ GitHub, AWS, or pup host driver leaves the previous Context credential unchanged
 `mutation_output_write_failed` result is non-retryable and directs the user to
 `auth status` before another auth mutation. Confirmed login/import/logout output
 is finalized before late cancellation can imply that replay is safe.
+After a confirmed Auth Broker mutation, projection observation is advisory:
+bounded registry, project, or binding-status failures become explicit
+`unavailable` activation coverage and cannot turn confirmed `changed` or
+`no_change` into replay permission. Infrastructure returns bounded, secret-free
+observation facts only. `authcmd` and the Auth Broker domain validate request
+Context, logical project, and credential-revision correlation, then derive
+activation state, exact re-entry actions, and mutation-change semantics.
+Presentation never derives freshness from provider labels, process existence,
+or row order.
 
 ## Architecture enforcement
 

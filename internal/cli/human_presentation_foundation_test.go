@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -463,7 +464,10 @@ func TestRawSelectorsDoNotRedrawDuringIdlePollsAndRestoreTerminal(t *testing.T) 
 			run: func(input *idlePollThenInput, output *bytes.Buffer) error {
 				selector := newAuthLoginProviderSelectorWithStyle(false)
 				selector.wizard.mode = &selectorModeFake{}
-				_, err := selector.Select(context.Background(), "default", []string{"github", "aws"}, input, output)
+				_, err := selector.Select(context.Background(), "default", []authbroker.ProviderStatus{
+					{Provider: "github", State: authbroker.ProviderCredentialNotConfigured},
+					{Provider: "aws", State: authbroker.ProviderCredentialNotConfigured},
+				}, input, output)
 				return err
 			},
 		},

@@ -654,8 +654,14 @@ credential belongs to one Context/provider, and every permanently bound project
 is eligible for a distinct handle only on its next matching Workspace entry.
 Replacement and logout atomically revoke prior handles. No auth mutation
 rewrites a running Workspace process, calls policy, grants a network permission,
-or makes logout a claim of remote provider revocation. Confirmed output
-therefore requires Workspace re-entry. Logout's next entry omits the environment
+or makes logout a claim of remote provider revocation. Confirmed output never
+assumes Workspace re-entry from provider configuration. Only an exhaustive,
+exact Context/project registry and Broker binding comparison may mark a
+Workspace `ready` or attach its validated root plus Context-bound re-entry argv
+to `missing` or `stale`. Unreadable enumeration, registry, or binding state
+remains `unavailable` or `unresolved` and carries no action. A `no_change`
+logout claims no removal, revocation, or projection change. Logout's next entry
+after a confirmed change omits the environment
 projection and deletes only unchanged Tobari-owned complete files. The
 non-retryable `auth_mutation_outcome_unknown`,
 `unclassified_mutation_outcome`, and `mutation_output_write_failed` faults all

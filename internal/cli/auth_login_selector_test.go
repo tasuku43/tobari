@@ -5,6 +5,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 )
 
 func TestAuthLoginProviderSelectorUsesNumberedFallback(t *testing.T) {
@@ -13,7 +15,11 @@ func TestAuthLoginProviderSelectorUsesNumberedFallback(t *testing.T) {
 	output := &bytes.Buffer{}
 
 	provider, err := selector.Select(
-		context.Background(), "default", []string{"aws", "datadog", "github"},
+		context.Background(), "default", []authbroker.ProviderStatus{
+			{Provider: "aws", State: authbroker.ProviderCredentialNotConfigured},
+			{Provider: "datadog", State: authbroker.ProviderCredentialNotConfigured},
+			{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: "revision:1"},
+		},
 		strings.NewReader("2\n"), output,
 	)
 	if err != nil {
@@ -26,6 +32,7 @@ func TestAuthLoginProviderSelectorUsesNumberedFallback(t *testing.T) {
 		"Tobari · Provider login", "Context: default", "Choose a provider first", "Choose a provider",
 		"GitHub CLI (gh), selected automatically", "AWS CLI (aws), selected automatically",
 		"Tool: pup, selected automatically", "IAM Identity Center", "reviewed device flow", "reviewed US1 OAuth flow",
+		"GitHub (configured)", "rotates the Context grant", "revokes previous Workspace handles",
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("selector output = %q, want %q", output.String(), want)
@@ -40,7 +47,9 @@ func TestAuthLoginProviderSelectorCancellation(t *testing.T) {
 	selector := newAuthLoginProviderSelectorWithStyle(false)
 	selector.wizard.mode = nil
 	_, err := selector.Select(
-		context.Background(), "default", []string{"github"}, strings.NewReader("q\n"), &bytes.Buffer{},
+		context.Background(), "default", []authbroker.ProviderStatus{{
+			Provider: "github", State: authbroker.ProviderCredentialNotConfigured,
+		}}, strings.NewReader("q\n"), &bytes.Buffer{},
 	)
 	if err != context.Canceled {
 		t.Fatalf("Select() error = %v, want context.Canceled", err)

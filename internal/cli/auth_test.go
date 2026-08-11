@@ -18,8 +18,8 @@ import (
 )
 
 type authCLIRuntime struct {
-	result             authbroker.Result
-	statusResult       authbroker.StatusResult
+	result             authbroker.MutationObservation
+	statusResult       authbroker.StatusObservation
 	err                error
 	secret             []byte
 	contextName        string
@@ -38,16 +38,16 @@ type authLoginSelectorFake struct {
 	provider    string
 	err         error
 	contextName string
-	providers   []string
+	providers   []authbroker.ProviderStatus
 	calls       int
 }
 
 func (s *authLoginSelectorFake) Select(
-	_ context.Context, contextName string, providers []string, _ io.Reader, _ io.Writer,
+	_ context.Context, contextName string, providers []authbroker.ProviderStatus, _ io.Reader, _ io.Writer,
 ) (string, error) {
 	s.calls++
 	s.contextName = contextName
-	s.providers = append([]string{}, providers...)
+	s.providers = append([]authbroker.ProviderStatus{}, providers...)
 	return s.provider, s.err
 }
 
@@ -79,26 +79,26 @@ func (r *authCountingReader) Read(data []byte) (int, error) {
 
 func (r *authCLIRuntime) LoginAuth(
 	_ context.Context, contextName, provider, method string, _ io.Reader, _ io.Writer,
-) (authbroker.Result, error) {
+) (authbroker.MutationObservation, error) {
 	r.loginCalls++
 	r.contextName, r.provider, r.method = contextName, provider, method
 	return r.result, r.err
 }
 
-func (r *authCLIRuntime) ImportAuth(_ context.Context, contextName, provider string, input io.Reader) (authbroker.Result, error) {
+func (r *authCLIRuntime) ImportAuth(_ context.Context, contextName, provider string, input io.Reader) (authbroker.MutationObservation, error) {
 	r.importCalls++
 	r.contextName, r.provider = contextName, provider
 	r.secret, _ = io.ReadAll(input)
 	return r.result, r.err
 }
 
-func (r *authCLIRuntime) AuthStatus(_ context.Context, contextName string) (authbroker.StatusResult, error) {
+func (r *authCLIRuntime) AuthStatus(_ context.Context, contextName string) (authbroker.StatusObservation, error) {
 	r.statusCalls++
 	r.contextName = contextName
 	return r.statusResult, r.err
 }
 
-func (r *authCLIRuntime) LogoutAuth(_ context.Context, contextName, provider string) (authbroker.Result, error) {
+func (r *authCLIRuntime) LogoutAuth(_ context.Context, contextName, provider string) (authbroker.MutationObservation, error) {
 	r.contextName, r.provider = contextName, provider
 	return r.result, r.err
 }
@@ -109,17 +109,21 @@ func authCLIResult(task string) authbroker.Result {
 
 func authCLIResultForProvider(task, provider string) authbroker.Result {
 	label := "octocat"
+	activation, err := authbroker.NewWorkspaceActivation(
+		"default", "018bcfe5-687b-7000-8000-000000000099", []authbroker.WorkspaceActivationItem{},
+	)
+	if err != nil {
+		panic(err)
+	}
 	return authbroker.Result{
 		ContextState: tobari.ContextObservationPersisted,
 		Task:         task, Provider: provider, Context: "default",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: true,
 		AccountLabel: &label, StorageBackend: authbroker.StorageBackendXDGFile,
-		BrokerState:        authbroker.BrokerStateReady,
-		CredentialRevision: strings.Repeat("b", 64),
-		WorkspaceActivation: authbroker.WorkspaceActivation{
-			State:    authbroker.WorkspaceActivationReentryRequired,
-			Guidance: authbroker.ContextAuthActivationGuidance,
-		},
+		BrokerState:         authbroker.BrokerStateReady,
+		CredentialRevision:  strings.Repeat("b", 64),
+		Change:              authbroker.MutationChangeChanged,
+		WorkspaceActivation: activation,
 	}
 }
 
@@ -133,12 +137,11 @@ func authCLIStatusResult(configured bool) authbroker.StatusResult {
 		revision = strings.Repeat("d", 64)
 		state = authbroker.ProviderCredentialConfigured
 	}
-	activation := authbroker.WorkspaceActivation{State: authbroker.WorkspaceActivationNotApplicable}
-	if configured {
-		activation = authbroker.WorkspaceActivation{
-			State:    authbroker.WorkspaceActivationReentryRequired,
-			Guidance: authbroker.ContextAuthActivationGuidance,
-		}
+	activation, err := authbroker.NewWorkspaceActivation(
+		"default", "018bcfe5-687b-7000-8000-000000000099", []authbroker.WorkspaceActivationItem{},
+	)
+	if err != nil {
+		panic(err)
 	}
 	return authbroker.StatusResult{
 		Task: authbroker.TaskStatus, ContextState: tobari.ContextObservationPersisted, Context: "default",
@@ -153,14 +156,40 @@ func authCLIStatusResult(configured bool) authbroker.StatusResult {
 }
 
 func authCLILogoutResult() authbroker.Result {
+	activation, err := authbroker.NewWorkspaceActivation(
+		"default", "018bcfe5-687b-7000-8000-000000000099", []authbroker.WorkspaceActivationItem{},
+	)
+	if err != nil {
+		panic(err)
+	}
 	return authbroker.Result{
 		ContextState: tobari.ContextObservationPersisted,
 		Task:         authbroker.TaskLogout, Provider: authcmd.BuiltinGitHubProviderID, Context: "default",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: false,
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
-		WorkspaceActivation: authbroker.WorkspaceActivation{
-			State:    authbroker.WorkspaceActivationReentryRequired,
-			Guidance: authbroker.ContextAuthRemovalGuidance,
+		Change: authbroker.MutationChangeChanged, WorkspaceActivation: activation,
+	}
+}
+
+func authCLIMutationObservation(result authbroker.Result) authbroker.MutationObservation {
+	return authbroker.MutationObservation{
+		ContextState: result.ContextState, Provider: result.Provider, Context: result.Context, ContextID: result.ContextID,
+		Configured: result.Configured, AccountLabel: result.AccountLabel, StorageBackend: result.StorageBackend,
+		BrokerState: result.BrokerState, CredentialRevision: result.CredentialRevision,
+		Changed: result.Change == authbroker.MutationChangeChanged, Providers: []authbroker.ProviderStatus{},
+		Workspaces: authbroker.WorkspaceObservation{
+			Coverage: result.WorkspaceActivation.Coverage, Workspaces: []authbroker.WorkspaceProjectionObservation{},
+		},
+	}
+}
+
+func authCLIStatusObservation(result authbroker.StatusResult) authbroker.StatusObservation {
+	return authbroker.StatusObservation{
+		ContextState: result.ContextState, Context: result.Context, ContextID: result.ContextID,
+		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
+		Providers: append([]authbroker.ProviderStatus{}, result.Providers...),
+		Workspaces: authbroker.WorkspaceObservation{
+			Coverage: result.WorkspaceActivation.Coverage, Workspaces: []authbroker.WorkspaceProjectionObservation{},
 		},
 	}
 }
@@ -171,7 +200,7 @@ func TestSyntheticAuthStatusJSONHasNoContextAuthority(t *testing.T) {
 		Task: authbroker.TaskStatus, ContextState: tobari.ContextObservationSyntheticDefault,
 		Context: tobari.DefaultContextName, StorageBackend: authbroker.StorageBackendXDGFile,
 		BrokerState: authbroker.BrokerStateUnavailable, Providers: []authbroker.ProviderStatus{},
-		WorkspaceActivation: authbroker.WorkspaceActivation{State: authbroker.WorkspaceActivationNotApplicable},
+		WorkspaceActivation: authbroker.NotApplicableWorkspaceActivation(),
 	}
 	encoded, err := renderAuthStatus(result, successFormatJSON, false)
 	if err != nil {
@@ -181,7 +210,7 @@ func TestSyntheticAuthStatusJSONHasNoContextAuthority(t *testing.T) {
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 3 || document.Auth.ContextState != tobari.ContextObservationSyntheticDefault || document.Auth.ContextID != nil {
+	if document.SchemaVersion != 4 || document.Auth.ContextState != tobari.ContextObservationSyntheticDefault || document.Auth.ContextID != nil {
 		t.Fatalf("synthetic auth status claims Context authority: %+v", document)
 	}
 }
@@ -196,7 +225,7 @@ func newAuthCLI(input io.Reader, runtime *authCLIRuntime) (*CLI, *bytes.Buffer, 
 
 func TestAuthImportReadsSecretOnlyFromStdinAndEmitsSecretFreeJSON(t *testing.T) {
 	const secret = "synthetic-secret-canary"
-	runtime := &authCLIRuntime{result: authCLIResult(authbroker.TaskImport)}
+	runtime := &authCLIRuntime{result: authCLIMutationObservation(authCLIResult(authbroker.TaskImport))}
 	command, stdout, stderr := newAuthCLI(strings.NewReader(secret), runtime)
 
 	if code := runCLI(command, []string{"auth", "import", "github", "--format=json"}); code != ExitOK {
@@ -214,7 +243,7 @@ func TestAuthImportReadsSecretOnlyFromStdinAndEmitsSecretFreeJSON(t *testing.T) 
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if string(document["schema_version"]) != "3" {
+	if string(document["schema_version"]) != "4" {
 		t.Fatalf("schema_version = %s", document["schema_version"])
 	}
 	var auth map[string]json.RawMessage
@@ -227,7 +256,7 @@ func TestAuthImportReadsSecretOnlyFromStdinAndEmitsSecretFreeJSON(t *testing.T) 
 	}
 	sort.Strings(gotFields)
 	wantFields := []string{
-		"account_label", "broker_state", "configured", "context", "context_id", "context_state",
+		"account_label", "broker_state", "change", "configured", "context", "context_id", "context_state",
 		"credential_revision", "provider", "storage_backend", "workspace_activation",
 	}
 	if !reflect.DeepEqual(gotFields, wantFields) {
@@ -236,7 +265,7 @@ func TestAuthImportReadsSecretOnlyFromStdinAndEmitsSecretFreeJSON(t *testing.T) 
 }
 
 func TestAuthImportRejectsInteractiveTerminalBeforeReadOrRuntimeMutation(t *testing.T) {
-	runtime := &authCLIRuntime{result: authCLIResult(authbroker.TaskImport), inputTerminal: true}
+	runtime := &authCLIRuntime{result: authCLIMutationObservation(authCLIResult(authbroker.TaskImport)), inputTerminal: true}
 	input := &authCountingReader{reader: strings.NewReader("synthetic-secret-canary")}
 	command, stdout, stderr := newAuthCLI(input, runtime)
 
@@ -271,7 +300,7 @@ func TestAuthLoginAndLogoutDispatchThroughFixedMutationHandlers(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			login := strings.Contains(test.name, "login")
-			runtime := &authCLIRuntime{result: test.result, inputTerminal: login, errorTerminal: login}
+			runtime := &authCLIRuntime{result: authCLIMutationObservation(test.result), inputTerminal: login, errorTerminal: login}
 			command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
 			if code := runCLI(command, test.args); code != ExitOK {
 				t.Fatalf("%s code = %d, stderr = %q", test.name, code, stderr.String())
@@ -287,6 +316,9 @@ func TestAuthLoginAndLogoutDispatchThroughFixedMutationHandlers(t *testing.T) {
 func TestAuthLoginOmittedProviderSelectsInstalledReviewedProviderBeforeMutation(t *testing.T) {
 	status := authCLIStatusResult(false)
 	status.Context = "snapshot-context"
+	status.WorkspaceActivation, _ = authbroker.NewWorkspaceActivation(
+		status.Context, status.ContextID, []authbroker.WorkspaceActivationItem{},
+	)
 	status.Providers = []authbroker.ProviderStatus{
 		{Provider: authcmd.BuiltinAWSProviderID, State: authbroker.ProviderCredentialNotConfigured},
 		{Provider: "chatwork", State: authbroker.ProviderCredentialNotConfigured},
@@ -295,9 +327,19 @@ func TestAuthLoginOmittedProviderSelectsInstalledReviewedProviderBeforeMutation(
 	}
 	result := authCLIResultForProvider(authbroker.TaskLogin, authcmd.BuiltinDatadogProviderID)
 	result.Context = status.Context
+	var activationErr error
+	result.WorkspaceActivation, activationErr = authbroker.NewWorkspaceActivation(
+		status.Context, result.ContextID, []authbroker.WorkspaceActivationItem{},
+	)
+	if activationErr != nil {
+		t.Fatal(activationErr)
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("result fixture is invalid: %v", err)
+	}
 	runtime := &authCLIRuntime{
-		result:       result,
-		statusResult: status, inputTerminal: true, errorTerminal: true,
+		result:       authCLIMutationObservation(result),
+		statusResult: authCLIStatusObservation(status), inputTerminal: true, errorTerminal: true,
 	}
 	selector := &authLoginSelectorFake{provider: authcmd.BuiltinDatadogProviderID}
 	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
@@ -308,7 +350,9 @@ func TestAuthLoginOmittedProviderSelectsInstalledReviewedProviderBeforeMutation(
 	}
 	if runtime.statusCalls != 1 || runtime.loginCalls != 1 || runtime.provider != authcmd.BuiltinDatadogProviderID ||
 		runtime.contextName != status.Context || runtime.method != "" || selector.calls != 1 || selector.contextName != status.Context ||
-		!reflect.DeepEqual(selector.providers, []string{"aws", "datadog", "github"}) {
+		!reflect.DeepEqual(selector.providers, []authbroker.ProviderStatus{
+			status.Providers[0], status.Providers[2], status.Providers[3],
+		}) {
 		t.Fatalf(
 			"status/login/provider/context/method/selector = %d/%d/%q/%q/%q/%d/%q/%v",
 			runtime.statusCalls, runtime.loginCalls, runtime.provider, runtime.contextName, runtime.method,
@@ -322,7 +366,7 @@ func TestAuthLoginOmittedProviderSelectsInstalledReviewedProviderBeforeMutation(
 
 func TestAuthLoginExplicitProviderSkipsStatusAndSelector(t *testing.T) {
 	runtime := &authCLIRuntime{
-		result: authCLIResult(authbroker.TaskLogin), inputTerminal: true, errorTerminal: true,
+		result: authCLIMutationObservation(authCLIResult(authbroker.TaskLogin)), inputTerminal: true, errorTerminal: true,
 	}
 	selector := &authLoginSelectorFake{provider: authcmd.BuiltinDatadogProviderID}
 	command, _, stderr := newAuthCLI(strings.NewReader(""), runtime)
@@ -341,7 +385,7 @@ func TestAuthLoginExplicitProviderSkipsStatusAndSelector(t *testing.T) {
 
 func TestAuthLoginOmittedProviderRejectsRedirectedTerminalBeforeStatusOrMutation(t *testing.T) {
 	runtime := &authCLIRuntime{
-		statusResult: authCLIStatusResult(false), inputTerminal: true, errorTerminal: false,
+		statusResult: authCLIStatusObservation(authCLIStatusResult(false)), inputTerminal: true, errorTerminal: false,
 	}
 	selector := &authLoginSelectorFake{provider: authcmd.BuiltinGitHubProviderID}
 	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
@@ -363,7 +407,7 @@ func TestAuthLoginOmittedProviderRejectsRedirectedTerminalBeforeStatusOrMutation
 
 func TestAuthLoginOmittedProviderCancellationPerformsNoMutation(t *testing.T) {
 	runtime := &authCLIRuntime{
-		statusResult: authCLIStatusResult(false), inputTerminal: true, errorTerminal: true,
+		statusResult: authCLIStatusObservation(authCLIStatusResult(false)), inputTerminal: true, errorTerminal: true,
 	}
 	selector := &authLoginSelectorFake{err: context.Canceled}
 	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
@@ -378,14 +422,15 @@ func TestAuthLoginOmittedProviderCancellationPerformsNoMutation(t *testing.T) {
 			runtime.statusCalls, runtime.loginCalls, selector.calls, stdout.String(),
 		)
 	}
-	if !humanOutputHasRow(stderr.String(), "Code", "operation_canceled") {
+	if !strings.Contains(stderr.String(), "· Canceled") || strings.Contains(stderr.String(), "Command failed") ||
+		!humanOutputHasRow(stderr.String(), "Code", "operation_canceled") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
 func TestAuthLoginOmittedProviderRejectsSelectionOutsideSnapshotBeforeMutation(t *testing.T) {
 	runtime := &authCLIRuntime{
-		statusResult: authCLIStatusResult(false), inputTerminal: true, errorTerminal: true,
+		statusResult: authCLIStatusObservation(authCLIStatusResult(false)), inputTerminal: true, errorTerminal: true,
 	}
 	selector := &authLoginSelectorFake{provider: "chatwork"}
 	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
@@ -410,7 +455,7 @@ func TestAuthLoginOmittedProviderRejectsCollectionWithoutReviewedLoginProvider(t
 	status.Providers = []authbroker.ProviderStatus{{
 		Provider: "chatwork", State: authbroker.ProviderCredentialNotConfigured,
 	}}
-	runtime := &authCLIRuntime{statusResult: status, inputTerminal: true, errorTerminal: true}
+	runtime := &authCLIRuntime{statusResult: authCLIStatusObservation(status), inputTerminal: true, errorTerminal: true}
 	selector := &authLoginSelectorFake{provider: "chatwork"}
 	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
 	command.authLogin = selector
@@ -432,7 +477,7 @@ func TestAuthLoginOmittedProviderRejectsCollectionWithoutReviewedLoginProvider(t
 func TestAuthLoginRejectsRedirectedTerminalBeforeRuntimeMutation(t *testing.T) {
 	t.Parallel()
 	runtime := &authCLIRuntime{
-		result: authCLIResult(authbroker.TaskLogin), inputTerminal: true, errorTerminal: false,
+		result: authCLIMutationObservation(authCLIResult(authbroker.TaskLogin)), inputTerminal: true, errorTerminal: false,
 	}
 	command, stdout, stderr := newAuthCLI(strings.NewReader(""), runtime)
 	if code := runCLI(command, []string{"auth", "login", "--provider=github"}); code != ExitUsage {
@@ -451,7 +496,7 @@ func TestAuthLoginRejectsRedirectedTerminalBeforeRuntimeMutation(t *testing.T) {
 }
 
 func TestAuthImportRejectsCredentialInArgvBeforeReadingStdin(t *testing.T) {
-	runtime := &authCLIRuntime{result: authCLIResult(authbroker.TaskImport)}
+	runtime := &authCLIRuntime{result: authCLIMutationObservation(authCLIResult(authbroker.TaskImport))}
 	command, stdout, stderr := newAuthCLI(strings.NewReader("stdin-secret"), runtime)
 
 	if code := runCLI(command, []string{"auth", "import", "github", "argv-secret"}); code != ExitUsage {
@@ -463,7 +508,7 @@ func TestAuthImportRejectsCredentialInArgvBeforeReadingStdin(t *testing.T) {
 }
 
 func TestAuthImportRejectsExplicitEmptyContextBeforeReadingStdin(t *testing.T) {
-	runtime := &authCLIRuntime{result: authCLIResult(authbroker.TaskImport)}
+	runtime := &authCLIRuntime{result: authCLIMutationObservation(authCLIResult(authbroker.TaskImport))}
 	command, stdout, stderr := newAuthCLI(authPanicReader{}, runtime)
 
 	if code := runCLI(command, []string{"auth", "import", "github", "--context="}); code != ExitUsage {
@@ -496,7 +541,7 @@ func TestAuthImportErrorOutputStripsCredentialAndPrivateCause(t *testing.T) {
 }
 
 func TestAuthStatusUsesExplicitCommandContextOverRootDefault(t *testing.T) {
-	runtime := &authCLIRuntime{statusResult: authCLIStatusResult(true)}
+	runtime := &authCLIRuntime{statusResult: authCLIStatusObservation(authCLIStatusResult(true))}
 	command, _, stderr := newAuthCLI(strings.NewReader(""), runtime)
 
 	if code := runCLI(command, []string{"--context", "fallback", "auth", "status", "--context", "default", "--format=json"}); code != ExitOK {
@@ -513,7 +558,7 @@ func TestAuthHumanOutputContainsOnlySecretFreeResultFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Context credential configured", "default", "github", "octocat", "ready"} {
+	for _, want := range []string{"Context credential changed", "default", "github", "octocat", "ready"} {
 		if !strings.Contains(string(output), want) {
 			t.Fatalf("text output = %q, want %q", output, want)
 		}
@@ -525,36 +570,93 @@ func TestAuthHumanOutputContainsOnlySecretFreeResultFields(t *testing.T) {
 	}
 }
 
-func TestAuthMutationAndConfiguredStatusOutputsDeclareActivationContract(t *testing.T) {
-	for _, task := range []string{authbroker.TaskLogin, authbroker.TaskImport, authbroker.TaskLogout} {
-		result := authCLIResult(task)
-		if task == authbroker.TaskLogout {
-			result = authCLILogoutResult()
-		}
-		for _, format := range []successFormat{successFormatText, successFormatJSON} {
-			output, err := renderAuthResult(result, format, false)
-			if err != nil {
-				t.Fatalf("renderAuthResult(%s, %s): %v", task, format, err)
-			}
-			expectedGuidance := authbroker.ContextAuthActivationGuidance
-			if task == authbroker.TaskLogout {
-				expectedGuidance = authbroker.ContextAuthRemovalGuidance
-			}
-			if !strings.Contains(string(output), expectedGuidance) {
-				t.Fatalf("%s %s output lacks activation contract: %s", task, format, output)
-			}
+func TestAuthNoOpLogoutReceiptClaimsOnlyNoChange(t *testing.T) {
+	result := authCLILogoutResult()
+	result.Change = authbroker.MutationChangeNoChange
+	result.WorkspaceActivation = authbroker.NotApplicableWorkspaceActivation()
+
+	textOutput, err := renderAuthResult(result, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := strings.ToLower(string(textOutput))
+	if !strings.Contains(visible, "context credential unchanged") || !strings.Contains(visible, "no_change") {
+		t.Fatalf("no-op text = %q", textOutput)
+	}
+	for _, falseClaim := range []string{"credential removed", "revok", "re-entry", "workspace_reentry_required"} {
+		if strings.Contains(visible, falseClaim) {
+			t.Fatalf("no-op text claims %q: %s", falseClaim, textOutput)
 		}
 	}
 
+	jsonOutput, err := renderAuthResult(result, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document authResultDocument
+	if err := json.Unmarshal(jsonOutput, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != 4 || document.Auth.Change != authbroker.MutationChangeNoChange ||
+		document.Auth.WorkspaceActivation.Coverage != authbroker.WorkspaceActivationCoverageNotApplicable ||
+		len(document.Auth.WorkspaceActivation.Workspaces) != 0 {
+		t.Fatalf("no-op JSON = %+v", document)
+	}
+}
+
+func TestAuthStatusRendersCurrentProjectionWithoutReentryInference(t *testing.T) {
+	item, err := authbroker.NewWorkspaceActivationItem(
+		"01912345-6789-7abc-8def-0123456789ab", "/workspace/project", "default",
+		"018bcfe5-687b-7000-8000-000000000099",
+		[]authbroker.WorkspaceProviderActivation{{Provider: "github", State: authbroker.WorkspaceProviderProjectionCurrent}}, false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	status := authCLIStatusResult(true)
-	for _, format := range []successFormat{successFormatText, successFormatJSON} {
-		output, err := renderAuthStatus(status, format, false)
-		if err != nil {
-			t.Fatalf("renderAuthStatus(%s): %v", format, err)
-		}
-		if !strings.Contains(string(output), authbroker.ContextAuthActivationGuidance) {
-			t.Fatalf("configured status %s lacks activation contract: %s", format, output)
-		}
+	status.WorkspaceActivation, err = authbroker.NewWorkspaceActivation(status.Context, status.ContextID, []authbroker.WorkspaceActivationItem{item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := renderAuthStatus(status, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := string(output)
+	if !humanOutputHasRow(visible, "Workspaces", "ready") || !humanOutputHasRow(visible, "Projection github", "current") ||
+		strings.Contains(visible, "Guidance") || strings.Contains(visible, "Action") || strings.Contains(visible, "re-entry") {
+		t.Fatalf("current status text = %q", output)
+	}
+}
+
+func TestAuthStatusRendersExactActionOnlyForStaleProjection(t *testing.T) {
+	item, err := authbroker.NewWorkspaceActivationItem(
+		"01912345-6789-7abc-8def-0123456789ab", "/workspace/project", "default",
+		"018bcfe5-687b-7000-8000-000000000099",
+		[]authbroker.WorkspaceProviderActivation{{Provider: "github", State: authbroker.WorkspaceProviderProjectionStale}}, false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := authCLIStatusResult(true)
+	status.WorkspaceActivation, err = authbroker.NewWorkspaceActivation(status.Context, status.ContextID, []authbroker.WorkspaceActivationItem{item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := renderAuthStatus(status, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document authStatusDocument
+	if err := json.Unmarshal(output, &document); err != nil {
+		t.Fatal(err)
+	}
+	workspaces := document.Auth.WorkspaceActivation.Workspaces
+	wantArgv := []string{"tobari", "--context", "default"}
+	if len(workspaces) != 1 || workspaces[0].NextAction == nil ||
+		workspaces[0].NextAction.WorkingDirectory != "/workspace/project" ||
+		!reflect.DeepEqual(workspaces[0].NextAction.Argv, wantArgv) {
+		t.Fatalf("stale status JSON = %+v", document)
 	}
 }
 

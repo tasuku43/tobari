@@ -7,7 +7,7 @@ dockerfile=authbroker/Dockerfile
 test "$(grep -c '^ARG MITMPROXY_IMAGE$' "$dockerfile")" -eq 1
 test "$(grep -c '^USER 1000:1000$' "$dockerfile")" -eq 1
 test "$(grep -c '^ENTRYPOINT \["/opt/tobari/entrypoint.sh"\]$' "$dockerfile")" -eq 1
-test "$(grep -c 'io\.tobari\.auth-broker-api="2"' "$dockerfile")" -eq 1
+test "$(grep -c 'io\.tobari\.auth-broker-api="3"' "$dockerfile")" -eq 1
 test "$(grep -c 'io\.tobari\.auth-broker-role="credential-resolution"' "$dockerfile")" -eq 1
 test "$(grep -c '^EXPOSE' "$dockerfile")" -eq 0
 grep -q '/run/tobari-auth/runtime' "$dockerfile"

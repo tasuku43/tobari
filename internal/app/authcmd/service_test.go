@@ -15,8 +15,8 @@ import (
 )
 
 type authRuntimeFake struct {
-	result             authbroker.Result
-	statusResult       authbroker.StatusResult
+	result             authbroker.MutationObservation
+	statusResult       authbroker.StatusObservation
 	err                error
 	inputTerminal      bool
 	inputTerminalCalls int
@@ -44,26 +44,26 @@ func (f *authRuntimeFake) IsTerminal(io.Writer) bool {
 
 func (f *authRuntimeFake) LoginAuth(
 	_ context.Context, contextName, provider, method string, _ io.Reader, _ io.Writer,
-) (authbroker.Result, error) {
+) (authbroker.MutationObservation, error) {
 	f.loginCalls++
 	f.contextName, f.provider, f.method = contextName, provider, method
 	return f.result, f.err
 }
 
-func (f *authRuntimeFake) ImportAuth(_ context.Context, contextName, provider string, input io.Reader) (authbroker.Result, error) {
+func (f *authRuntimeFake) ImportAuth(_ context.Context, contextName, provider string, input io.Reader) (authbroker.MutationObservation, error) {
 	f.importCalls++
 	f.contextName, f.provider = contextName, provider
 	f.secret, _ = io.ReadAll(input)
 	return f.result, f.err
 }
 
-func (f *authRuntimeFake) AuthStatus(_ context.Context, contextName string) (authbroker.StatusResult, error) {
+func (f *authRuntimeFake) AuthStatus(_ context.Context, contextName string) (authbroker.StatusObservation, error) {
 	f.statusCalls++
 	f.contextName = contextName
 	return f.statusResult, f.err
 }
 
-func (f *authRuntimeFake) LogoutAuth(_ context.Context, contextName, provider string) (authbroker.Result, error) {
+func (f *authRuntimeFake) LogoutAuth(_ context.Context, contextName, provider string) (authbroker.MutationObservation, error) {
 	f.logoutCalls++
 	f.contextName, f.provider = contextName, provider
 	return f.result, f.err
@@ -94,34 +94,43 @@ func validAuthResult(task string) authbroker.Result {
 
 func validAuthResultForProvider(task, provider string) authbroker.Result {
 	label := "octocat"
+	activation, err := authbroker.NewWorkspaceActivation(
+		"default", "018bcfe5-687b-7000-8000-000000000099", []authbroker.WorkspaceActivationItem{},
+	)
+	if err != nil {
+		panic(err)
+	}
 	return authbroker.Result{
 		ContextState: tobari.ContextObservationPersisted,
 		Task:         task, Provider: provider, Context: "default",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: true,
 		AccountLabel: &label, StorageBackend: authbroker.StorageBackendXDGFile,
-		BrokerState:        authbroker.BrokerStateReady,
-		CredentialRevision: strings.Repeat("a", 64),
-		WorkspaceActivation: authbroker.WorkspaceActivation{
-			State:    authbroker.WorkspaceActivationReentryRequired,
-			Guidance: authbroker.ContextAuthActivationGuidance,
-		},
+		BrokerState:         authbroker.BrokerStateReady,
+		CredentialRevision:  strings.Repeat("a", 64),
+		Change:              authbroker.MutationChangeChanged,
+		WorkspaceActivation: activation,
 	}
 }
 
 func unconfiguredAuthResult(task, provider string) authbroker.Result {
-	activation := authbroker.WorkspaceActivation{State: authbroker.WorkspaceActivationNotApplicable}
+	activation := authbroker.NotApplicableWorkspaceActivation()
+	change := authbroker.MutationChangeNoChange
 	if task == authbroker.TaskLogout {
-		activation = authbroker.WorkspaceActivation{
-			State:    authbroker.WorkspaceActivationReentryRequired,
-			Guidance: authbroker.ContextAuthRemovalGuidance,
+		var err error
+		activation, err = authbroker.NewWorkspaceActivation(
+			"default", "018bcfe5-687b-7000-8000-000000000099", []authbroker.WorkspaceActivationItem{},
+		)
+		if err != nil {
+			panic(err)
 		}
+		change = authbroker.MutationChangeChanged
 	}
 	return authbroker.Result{
 		ContextState: tobari.ContextObservationPersisted,
 		Task:         task, Provider: provider, Context: "default",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: false,
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
-		WorkspaceActivation: activation,
+		Change: change, WorkspaceActivation: activation,
 	}
 }
 
@@ -135,12 +144,11 @@ func authStatusResult(contextName string, configured bool) authbroker.StatusResu
 		revision = strings.Repeat("c", 64)
 		state = authbroker.ProviderCredentialConfigured
 	}
-	activation := authbroker.WorkspaceActivation{State: authbroker.WorkspaceActivationNotApplicable}
-	if configured {
-		activation = authbroker.WorkspaceActivation{
-			State:    authbroker.WorkspaceActivationReentryRequired,
-			Guidance: authbroker.ContextAuthActivationGuidance,
-		}
+	activation, err := authbroker.NewWorkspaceActivation(
+		contextName, "018bcfe5-687b-7000-8000-000000000099", []authbroker.WorkspaceActivationItem{},
+	)
+	if err != nil {
+		panic(err)
 	}
 	return authbroker.StatusResult{
 		Task: authbroker.TaskStatus, ContextState: tobari.ContextObservationPersisted, Context: contextName,
@@ -151,6 +159,28 @@ func authStatusResult(contextName string, configured bool) authbroker.StatusResu
 			AccountLabel: label, CredentialRevision: revision,
 		}},
 		WorkspaceActivation: activation,
+	}
+}
+
+func mutationObservation(result authbroker.Result) authbroker.MutationObservation {
+	coverage := result.WorkspaceActivation.Coverage
+	return authbroker.MutationObservation{
+		ContextState: result.ContextState, Provider: result.Provider, Context: result.Context, ContextID: result.ContextID,
+		Configured: result.Configured, AccountLabel: result.AccountLabel, StorageBackend: result.StorageBackend,
+		BrokerState: result.BrokerState, CredentialRevision: result.CredentialRevision,
+		Changed: result.Change == authbroker.MutationChangeChanged, Providers: []authbroker.ProviderStatus{},
+		Workspaces: authbroker.WorkspaceObservation{Coverage: coverage, Workspaces: []authbroker.WorkspaceProjectionObservation{}},
+	}
+}
+
+func statusObservation(result authbroker.StatusResult) authbroker.StatusObservation {
+	return authbroker.StatusObservation{
+		ContextState: result.ContextState, Context: result.Context, ContextID: result.ContextID,
+		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
+		Providers: append([]authbroker.ProviderStatus{}, result.Providers...),
+		Workspaces: authbroker.WorkspaceObservation{
+			Coverage: result.WorkspaceActivation.Coverage, Workspaces: []authbroker.WorkspaceProjectionObservation{},
+		},
 	}
 }
 
@@ -166,7 +196,7 @@ func authIntent(command string) operation.Intent {
 }
 
 func TestImportValidatesIntentBeforeReadingStdinOrCallingRuntime(t *testing.T) {
-	fake := &authRuntimeFake{result: validAuthResult(authbroker.TaskImport)}
+	fake := &authRuntimeFake{result: mutationObservation(validAuthResult(authbroker.TaskImport))}
 	service := New(fake)
 	intent := authIntent("auth import")
 	intent.Target.ID = "wrong-target"
@@ -182,7 +212,7 @@ func TestImportValidatesIntentBeforeReadingStdinOrCallingRuntime(t *testing.T) {
 }
 
 func TestImportRejectsAlteredCompleteImpactBeforeReadingStdin(t *testing.T) {
-	fake := &authRuntimeFake{result: validAuthResult(authbroker.TaskImport)}
+	fake := &authRuntimeFake{result: mutationObservation(validAuthResult(authbroker.TaskImport))}
 	service := New(fake)
 	intent := authIntent("auth import")
 	intent.Impact.Destructive = operation.DeclarationNo
@@ -198,7 +228,7 @@ func TestImportRejectsAlteredCompleteImpactBeforeReadingStdin(t *testing.T) {
 }
 
 func TestImportCancellationBeforeActionReadsNoStdin(t *testing.T) {
-	fake := &authRuntimeFake{result: validAuthResult(authbroker.TaskImport)}
+	fake := &authRuntimeFake{result: mutationObservation(validAuthResult(authbroker.TaskImport))}
 	service := New(fake)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -214,7 +244,7 @@ func TestImportCancellationBeforeActionReadsNoStdin(t *testing.T) {
 }
 
 func TestImportBoundsAndForwardsCredentialOnlyAfterValidation(t *testing.T) {
-	fake := &authRuntimeFake{result: validAuthResult(authbroker.TaskImport)}
+	fake := &authRuntimeFake{result: mutationObservation(validAuthResult(authbroker.TaskImport))}
 	service := New(fake)
 	const secret = "synthetic-private-token"
 
@@ -232,7 +262,7 @@ func TestImportBoundsAndForwardsCredentialOnlyAfterValidation(t *testing.T) {
 }
 
 func TestImportRejectsInteractiveTerminalBeforeReadOrRuntimeMutation(t *testing.T) {
-	fake := &authRuntimeFake{result: validAuthResult(authbroker.TaskImport), inputTerminal: true}
+	fake := &authRuntimeFake{result: mutationObservation(validAuthResult(authbroker.TaskImport)), inputTerminal: true}
 	service := New(fake)
 	input := &countingReader{reader: strings.NewReader("synthetic-private-token")}
 
@@ -255,7 +285,7 @@ func TestImportRejectsInteractiveTerminalBeforeReadOrRuntimeMutation(t *testing.
 }
 
 func TestImportRejectsOversizedCredentialBeforeRuntime(t *testing.T) {
-	fake := &authRuntimeFake{result: validAuthResult(authbroker.TaskImport)}
+	fake := &authRuntimeFake{result: mutationObservation(validAuthResult(authbroker.TaskImport))}
 	service := New(fake)
 	input := &countingReader{reader: bytes.NewReader(bytes.Repeat([]byte{'x'}, authbroker.MaxPrimarySecretBytes+128))}
 
@@ -305,7 +335,7 @@ func TestImportPreservesTypedBrokerFaultWithoutPrivateCause(t *testing.T) {
 }
 
 func TestLoginRejectsUnsupportedHelperBeforeRuntime(t *testing.T) {
-	fake := &authRuntimeFake{result: validAuthResult(authbroker.TaskLogin)}
+	fake := &authRuntimeFake{result: mutationObservation(validAuthResult(authbroker.TaskLogin))}
 	service := New(fake)
 	_, err := service.Login(
 		context.Background(), authIntent("auth login"), "default", "example", "", strings.NewReader(""), io.Discard,
@@ -323,7 +353,7 @@ func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
 	for _, provider := range []string{BuiltinGitHubProviderID, BuiltinAWSProviderID, BuiltinDatadogProviderID} {
 		t.Run(provider, func(t *testing.T) {
 			fake := &authRuntimeFake{
-				result:        validAuthResultForProvider(authbroker.TaskLogin, provider),
+				result:        mutationObservation(validAuthResultForProvider(authbroker.TaskLogin, provider)),
 				inputTerminal: true,
 				errorTerminal: true,
 			}
@@ -350,7 +380,7 @@ func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
 
 func TestLoginSelectsConsoleAndRejectsMethodForGitHubBeforeRuntime(t *testing.T) {
 	fake := &authRuntimeFake{
-		result:        validAuthResultForProvider(authbroker.TaskLogin, BuiltinAWSProviderID),
+		result:        mutationObservation(validAuthResultForProvider(authbroker.TaskLogin, BuiltinAWSProviderID)),
 		inputTerminal: true, errorTerminal: true,
 	}
 	_, err := New(fake).Login(
@@ -388,7 +418,7 @@ func TestLoginRequiresInputAndErrorTerminalsBeforeRuntime(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			fake := &authRuntimeFake{
-				result: validAuthResult(authbroker.TaskLogin), inputTerminal: test.inputTerminal, errorTerminal: test.errorTerminal,
+				result: mutationObservation(validAuthResult(authbroker.TaskLogin)), inputTerminal: test.inputTerminal, errorTerminal: test.errorTerminal,
 			}
 			_, err := New(fake).Login(
 				context.Background(), authIntent("auth login"), "default", BuiltinGitHubProviderID, "",
@@ -445,7 +475,7 @@ func TestLoginAndLogoutUseOneFixedMutationBoundary(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			login := test.name == "login"
-			fake := &authRuntimeFake{result: test.result, inputTerminal: login, errorTerminal: login}
+			fake := &authRuntimeFake{result: mutationObservation(test.result), inputTerminal: login, errorTerminal: login}
 			result, err := test.call(New(fake), authIntent(test.command))
 			if err != nil {
 				t.Fatalf("%s error = %v", test.name, err)
@@ -458,7 +488,7 @@ func TestLoginAndLogoutUseOneFixedMutationBoundary(t *testing.T) {
 }
 
 func TestStatusRejectsResultForAnotherRequestedContext(t *testing.T) {
-	fake := &authRuntimeFake{statusResult: authStatusResult("default", true)}
+	fake := &authRuntimeFake{statusResult: statusObservation(authStatusResult("default", true))}
 	service := New(fake)
 	_, err := service.Status(context.Background(), "restricted")
 	public, ok := fault.PublicCopy(err)
@@ -471,7 +501,7 @@ func TestStatusRejectsResultForAnotherRequestedContext(t *testing.T) {
 }
 
 func TestStatusPreservesExplicitUnconfiguredState(t *testing.T) {
-	fake := &authRuntimeFake{statusResult: authStatusResult("default", false)}
+	fake := &authRuntimeFake{statusResult: statusObservation(authStatusResult("default", false))}
 	result, err := New(fake).Status(context.Background(), "default")
 	if err != nil {
 		t.Fatal(err)
@@ -487,7 +517,7 @@ func TestStatusPreservesUnavailableProviderStateWhenBrokerIsLocked(t *testing.T)
 	status := authStatusResult("default", false)
 	status.BrokerState = authbroker.BrokerStateLocked
 	status.Providers[0].State = authbroker.ProviderCredentialUnavailable
-	fake := &authRuntimeFake{statusResult: status}
+	fake := &authRuntimeFake{statusResult: statusObservation(status)}
 	result, err := New(fake).Status(context.Background(), "default")
 	if err != nil {
 		t.Fatal(err)
@@ -502,7 +532,7 @@ func TestStatusPreservesUnavailableProviderStateWhenBrokerIsAbsent(t *testing.T)
 	status := authStatusResult("default", false)
 	status.BrokerState = authbroker.BrokerStateUnavailable
 	status.Providers[0].State = authbroker.ProviderCredentialUnavailable
-	fake := &authRuntimeFake{statusResult: status}
+	fake := &authRuntimeFake{statusResult: statusObservation(status)}
 	result, err := New(fake).Status(context.Background(), "default")
 	if err != nil {
 		t.Fatal(err)
