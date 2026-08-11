@@ -67,12 +67,15 @@ test.describe("task-first documentation flow", () => {
 
     await expect(
       page.getByRole("heading", {
-        name: "Quickstart verifies policy control; it does not install a coding agent",
+        name: "Add your coding agent to the minimal base runtime",
       }),
     ).toBeVisible();
-    await expect(page.locator(".runtime-flow > li")).toHaveCount(5);
-    await expect(page.locator(".runtime-steps > li")).toHaveCount(5);
+    await expect(page.locator(".runtime-flow > ol > li")).toHaveCount(5);
+    await expect(page.locator(".runtime-steps > ol > li")).toHaveCount(4);
     await expect(page.locator(".learning-badge-step")).toHaveText("3 / 11");
+    await expect(
+      page.getByRole("link", { name: /Set up tool authentication/ }),
+    ).toHaveAttribute("href", /\/start\/authentication-setup\/$/);
   });
 
   test("learning pages show current position and the next learning goal", async ({
