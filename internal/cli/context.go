@@ -604,6 +604,11 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari`", " from a project directory.")
 	case tobari.TaskContextUse:
 		switch result.Cluster {
+		case tobari.ContextClusterStatusDefaultUpdated:
+			writeStyledCommandLine(
+				&output, color, "Next:", "run ", "`tobari`",
+				" from a project directory to create or enter a Workspace using the new default Context.",
+			)
 		case tobari.ContextClusterStatusReconciled, tobari.ContextClusterStatusAlreadyReady:
 			writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari`", " from a project directory.")
 		case tobari.ContextClusterStatusNotConfigured, tobari.ContextClusterStatusNotRunning:

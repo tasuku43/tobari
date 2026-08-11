@@ -205,6 +205,26 @@ func TestContextUseReportsReconciliationStatusAndParsesBeforeMutation(t *testing
 	}
 }
 
+func TestContextUseDefaultUpdatedContinuesThroughOmittedDefault(t *testing.T) {
+	t.Parallel()
+	report := contextCLIReport(
+		tobari.TaskContextUse, "review", true,
+		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided,
+	)
+	report.Cluster = tobari.ContextClusterStatusDefaultUpdated
+	output, err := renderContextReport(report, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), "Next: run `tobari` from a project directory to create or enter a Workspace using the new default Context.") ||
+		strings.Contains(string(output), "--context review") {
+		t.Fatalf("default-updated continuation does not use omitted Context selection: %q", output)
+	}
+	if routed := assertPublicNextArgvRoutes(t, []string{ProgramName}); routed.Path != "tobari" {
+		t.Fatalf("default-updated continuation routes to %q, want root entry", routed.Path)
+	}
+}
+
 func contextCLIReport(task, name string, active bool, image string, mode tobari.ContextPolicyMode) tobari.ContextReport {
 	authentication := tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
 	if task == tobari.TaskContextShow {
