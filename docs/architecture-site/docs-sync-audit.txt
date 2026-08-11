@@ -1,8 +1,0 @@
-target_source=3a9acc9c264d3e4efca2cd9aafabc9a122b183b8
-Residual audit after manual synchronization; every entry requires review before finalization.
-old-version-command	docs/architecture-site/src/content/docs/ja/reference/component-versions.mdx:110	tobari version</code> は通常何を表示しますか？ </summary> `dev` です。ビルド時に値を渡した場合だけ、ソースコミットも表示します。リリースビルドでは、検証済みのリリース識別情報を埋め込みます。 </details> <details> <summary> 固定されたイメージダイジェストは、そのイ
-old-context-schema	docs/architecture-site/src/content/docs/ja/reference/configuration-and-state.mdx:37	Context マニフェストのスキーマ 4**。安定した Context ID、エージェントプロファイル、選択中のイメージ、ポリシーモード、限定的なシェル設定、任意のランタイムビルド情報を保持 | | `contexts/<name>/runtime/Dockerfile` | `runtime init` が作成
-old-context-schema	docs/architecture-site/src/content/docs/ja/reference/configuration-and-state.mdx:46	Context レポートのスキーマ 6**を出力します。これは各タスクが所有する、 秘密情報を除いた公開用データです。バージョンは、永続化した Context マニフェストとは独立して 変更できます。 ## 永続するランタイム状態 | 状態ルートからの相対パス | 契約と寿命
-old-context-schema	docs/architecture-site/src/content/docs/ja/reference/json-schemas.mdx:70	Context マニフェスト | スキーマ 4 | | ルートインデックス／Workspace インスタンス | スキーマ 2 | | 共有クラスター状態 | スキーマ 3
-old-version-command	docs/architecture-site/src/content/docs/reference/component-versions.mdx:182	tobari version` normally report?</summary> `dev`, with an optional source commit only when the build supplied it. Release builds inject the validated release identity. </details>
-old-context-schema	docs/architecture-site/src/content/docs/reference/json-schemas.mdx:210	Context schema 4 and public Context report schema 8 are both correct because they govern different documents. Exact readers and tests, not a shared number, define compatibility. #
