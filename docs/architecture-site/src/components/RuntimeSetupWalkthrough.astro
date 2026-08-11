@@ -20,7 +20,10 @@ const flow = [
   {
     from: t("Context recipe", "Context のレシピ"),
     to: t("Host Docker build", "ホストの Docker ビルド"),
-    title: t("Install the agent and toolchain", "エージェントと開発ツールを追加する"),
+    title: t(
+      "Install the agent and toolchain",
+      "エージェントと開発ツールを追加する",
+    ),
     detail: t(
       "Edit the generated Dockerfile on the host, then run runtime build. Only the Context runtime directory is sent as build context.",
       "生成された Dockerfile をホストで編集し、runtime build を実行します。ビルドコンテキストには Context の runtime ディレクトリだけを渡します。",
@@ -61,7 +64,10 @@ const flow = [
 
 const steps = [
   {
-    title: t("Confirm which Context will own the runtime", "ランタイムを管理する Context を確認する"),
+    title: t(
+      "Confirm which Context will own the runtime",
+      "ランタイムを管理する Context を確認する",
+    ),
     location: t("Trusted host", "信頼するホスト"),
     command: `tobari context show`,
     expected: t(
@@ -74,7 +80,10 @@ const steps = [
     ),
   },
   {
-    title: t("Create the managed Dockerfile once", "管理対象の Dockerfile を一度だけ作る"),
+    title: t(
+      "Create the managed Dockerfile once",
+      "管理対象の Dockerfile を一度だけ作る",
+    ),
     location: t("Trusted host", "信頼するホスト"),
     command: `tobari runtime init\ntobari context show`,
     expected: t(
@@ -87,8 +96,14 @@ const steps = [
     ),
   },
   {
-    title: t("Add the agent and the tools it actually needs", "エージェントと必要な開発ツールを追加する"),
-    location: t("Edit the reported Dockerfile on the trusted host", "信頼するホストで、表示された Dockerfile を編集"),
+    title: t(
+      "Add the agent and the tools it actually needs",
+      "エージェントと必要な開発ツールを追加する",
+    ),
+    location: t(
+      "Edit the reported Dockerfile on the trusted host",
+      "信頼するホストで、表示された Dockerfile を編集",
+    ),
     command: t(
       `<editor> <dockerfile-path-shown-by-context-show>`,
       `<エディタ> <context-show-に表示された-Dockerfile-のパス>`,
@@ -103,7 +118,10 @@ const steps = [
     ),
   },
   {
-    title: t("Build, validate, and select the image", "イメージをビルドし、検査して採用する"),
+    title: t(
+      "Build, validate, and select the image",
+      "イメージをビルドし、検査して採用する",
+    ),
     location: t("Trusted host", "信頼するホスト"),
     command: `tobari runtime build\ntobari context show`,
     expected: t(
@@ -116,7 +134,10 @@ const steps = [
     ),
   },
   {
-    title: t("Enter a real project and verify the executable", "実際のプロジェクトへ入り、実行ファイルを確認する"),
+    title: t(
+      "Enter a real project and verify the executable",
+      "実際のプロジェクトへ入り、実行ファイルを確認する",
+    ),
     location: t("Trusted host → Workspace", "信頼するホスト → Workspace"),
     command: t(
       `cd /path/to/your/project\ntobari\n\n# Inside the Workspace\ncommand -v <agent-command>\n<agent-command> --version`,
@@ -169,46 +190,82 @@ const limits = t(
 <div class="runtime-setup">
   <section class="runtime-intro">
     <p class="runtime-eyebrow">
-      {t("Required before real project work", "実際のプロジェクトで使う前に必要")}
+      {
+        t(
+          "Required before real project work",
+          "実際のプロジェクトで使う前に必要",
+        )
+      }
     </p>
     <h2>
-      {t(
-        "Quickstart verifies policy control; it does not install a coding agent",
-        "クイックスタートで確認するのは通信制御です。コーディングエージェントは入りません",
-      )}
+      {
+        t(
+          "Quickstart verifies policy control; it does not install a coding agent",
+          "クイックスタートで確認するのは通信制御です。コーディングエージェントは入りません",
+        )
+      }
     </h2>
     <p>
-      {t(
-        "The standard base runtime is intentionally minimal. Quickstart uses its curl command directly so you can verify denial, review, allow, and retry without choosing an agent. Before using Tobari on a real repository, build a Context-owned runtime that contains your agent and project toolchain.",
-        "標準ベースランタイムは意図的に最小限です。クイックスタートは、その中の curl を直接使い、エージェントを選ばずに拒否、レビュー、許可、再実行を確認します。実際のリポジトリで使う前に、エージェントとプロジェクトの開発ツールを含む、Context 管理のランタイムをビルドしてください。",
-      )}
+      {
+        t(
+          "The standard base runtime is intentionally minimal. Quickstart uses its curl command directly so you can verify denial, review, allow, and retry without choosing an agent. Before using Tobari on a real repository, build a Context-owned runtime that contains your agent and project toolchain.",
+          "標準ベースランタイムは意図的に最小限です。クイックスタートは、その中の curl を直接使い、エージェントを選ばずに拒否、レビュー、許可、再実行を確認します。実際のリポジトリで使う前に、エージェントとプロジェクトの開発ツールを含む、Context 管理のランタイムをビルドしてください。",
+        )
+      }
     </p>
     <aside class="runtime-required">
       <strong>{t("Practical completion condition", "実用開始の条件")}</strong>
       <span>
-        {t(
-          "Do not treat Quickstart completion as agent setup. You are ready for real work only after the intended agent command succeeds inside the Workspace.",
-          "クイックスタート完了を、エージェント導入完了とは扱わないでください。Workspace 内で利用予定のエージェントコマンドを実行できた時点で、実作業へ進めます。",
-        )}
+        {
+          t(
+            "Do not treat Quickstart completion as agent setup. You are ready for real work only after the intended agent command succeeds inside the Workspace.",
+            "クイックスタート完了を、エージェント導入完了とは扱わないでください。Workspace 内で利用予定のエージェントコマンドを実行できた時点で、実作業へ進めます。",
+          )
+        }
       </span>
     </aside>
   </section>
 
   <section class="runtime-section">
-    <p class="runtime-eyebrow">{t("One controlled build path", "ランタイムを採用する流れ")}</p>
-    <h2>{t("Follow the image from recipe to Workspace", "レシピから Workspace までを番号順に追う")}</h2>
-    <p class="runtime-section-intro">
-      {t(
-        "The recipe belongs to a Context. A build candidate becomes active only after compatibility validation, and Workspaces observe it on their next entry.",
-        "レシピは Context に属します。ビルドした候補は互換性検査に成功した場合だけ有効になり、Workspace は次の入室時にその選択を反映します。",
-      )}
+    <p class="runtime-eyebrow">
+      {t("One controlled build path", "ランタイムを採用する流れ")}
     </p>
-    <ol class="runtime-flow" aria-label={t("Custom runtime setup flow", "カスタムランタイムの導入フロー")}>
+    <h2>
+      {
+        t(
+          "Follow the image from recipe to Workspace",
+          "レシピから Workspace までを番号順に追う",
+        )
+      }
+    </h2>
+    <p class="runtime-section-intro">
+      {
+        t(
+          "The recipe belongs to a Context. A build candidate becomes active only after compatibility validation, and Workspaces observe it on their next entry.",
+          "レシピは Context に属します。ビルドした候補は互換性検査に成功した場合だけ有効になり、Workspace は次の入室時にその選択を反映します。",
+        )
+      }
+    </p>
+    <ol
+      class="runtime-flow"
+      aria-label={t(
+        "Custom runtime setup flow",
+        "カスタムランタイムの導入フロー",
+      )}
+    >
       {
         flow.map((item, index) => (
           <li class={`runtime-flow-${item.kind}`}>
-            <span class="runtime-flow-number">{String(index + 1).padStart(2, "0")}</span>
-            <p class="runtime-route"><strong>{item.from}</strong><b aria-hidden="true">→</b><strong>{item.to}</strong></p>
+            <span class="runtime-flow-number">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <p class="runtime-route">
+              <>
+                <strong>{item.from}</strong>
+                <b aria-hidden="true">→</b>
+                <strong>{item.to}</strong>
+              </>
+            </p>
             <h3>{item.title}</h3>
             <p>{item.detail}</p>
           </li>
@@ -216,29 +273,56 @@ const limits = t(
       }
     </ol>
     <p class="runtime-failure">
-      <strong>{t("If build or validation fails:", "ビルドまたは検査に失敗した場合:")}</strong>{" "}
-      {t(
-        "promotion stops before the Context selection changes. Inspect the build output and context show; the previous runtime remains authoritative.",
-        "Context の選択情報を変える前に処理が止まります。ビルド出力と context show を確認してください。それまでのランタイムが引き続き有効です。",
-      )}
+      <strong
+        >{
+          t("If build or validation fails:", "ビルドまたは検査に失敗した場合:")
+        }</strong
+      >{" "}
+      {
+        t(
+          "promotion stops before the Context selection changes. Inspect the build output and context show; the previous runtime remains authoritative.",
+          "Context の選択情報を変える前に処理が止まります。ビルド出力と context show を確認してください。それまでのランタイムが引き続き有効です。",
+        )
+      }
     </p>
   </section>
 
   <section class="runtime-section">
-    <p class="runtime-eyebrow">{t("Do this once per tooling profile", "ツール構成ごとに一度行う")}</p>
-    <h2>{t("Build the runtime in five steps", "五つの手順でランタイムを用意する")}</h2>
+    <p class="runtime-eyebrow">
+      {t("Do this once per tooling profile", "ツール構成ごとに一度行う")}
+    </p>
+    <h2>
+      {t("Build the runtime in five steps", "五つの手順でランタイムを用意する")}
+    </h2>
     <ol class="runtime-steps">
       {
         steps.map((step, index) => (
           <li>
             <header>
               <span>{String(index + 1).padStart(2, "0")}</span>
-              <div><p>{step.location}</p><h3>{step.title}</h3></div>
+              <div>
+                <>
+                  <p>{step.location}</p>
+                  <h3>{step.title}</h3>
+                </>
+              </div>
             </header>
-            <pre><code>{step.command}</code></pre>
+            <pre>
+              <code>{step.command}</code>
+            </pre>
             <dl>
-              <div><dt>{t("Expected result", "期待する結果")}</dt><dd>{step.expected}</dd></div>
-              <div><dt>{t("Important", "重要")}</dt><dd>{step.note}</dd></div>
+              <div>
+                <>
+                  <dt>{t("Expected result", "期待する結果")}</dt>
+                  <dd>{step.expected}</dd>
+                </>
+              </div>
+              <div>
+                <>
+                  <dt>{t("Important", "重要")}</dt>
+                  <dd>{step.note}</dd>
+                </>
+              </div>
             </dl>
           </li>
         ))
@@ -247,26 +331,46 @@ const limits = t(
   </section>
 
   <section class="runtime-section runtime-recipe">
-    <p class="runtime-eyebrow">{t("Dockerfile pattern", "Dockerfile の基本形")}</p>
-    <h2>{t("Extend the generated base; do not replace its contract", "生成されたベースを拡張し、契約は置き換えない")}</h2>
+    <p class="runtime-eyebrow">
+      {t("Dockerfile pattern", "Dockerfile の基本形")}
+    </p>
+    <h2>
+      {
+        t(
+          "Extend the generated base; do not replace its contract",
+          "生成されたベースを拡張し、契約は置き換えない",
+        )
+      }
+    </h2>
     <p>
-      {t(
-        "The generated file already contains FROM, USER root, and the final USER tobari. Insert the installation commands between the two USER lines. This example represents an npm-distributed agent; use the official installation method for the agent you actually choose.",
-        "生成ファイルには FROM、USER root、最後の USER tobari がすでにあります。二つの USER 行の間へインストール処理を追加します。次は npm で配布されるエージェントの例です。実際には、利用するエージェントの公式な導入方法を使ってください。",
-      )}
+      {
+        t(
+          "The generated file already contains FROM, USER root, and the final USER tobari. Insert the installation commands between the two USER lines. This example represents an npm-distributed agent; use the official installation method for the agent you actually choose.",
+          "生成ファイルには FROM、USER root、最後の USER tobari がすでにあります。二つの USER 行の間へインストール処理を追加します。次は npm で配布されるエージェントの例です。実際には、利用するエージェントの公式な導入方法を使ってください。",
+        )
+      }
     </p>
     <pre><code>{dockerfileExample}</code></pre>
     <p class="runtime-caption">
-      {t(
-        "The placeholders are intentional: Tobari does not prescribe one coding agent. Replace them with a reviewed package name and version, then verify the installed command inside the Workspace.",
-        "プレースホルダーは意図的です。Tobari は特定のコーディングエージェントを指定しません。確認済みのパッケージ名とバージョンへ置き換え、Workspace 内で実行コマンドを検証してください。",
-      )}
+      {
+        t(
+          "The placeholders are intentional: Tobari does not prescribe one coding agent. Replace them with a reviewed package name and version, then verify the installed command inside the Workspace.",
+          "プレースホルダーは意図的です。Tobari は特定のコーディングエージェントを指定しません。確認済みのパッケージ名とバージョンへ置き換え、Workspace 内で実行コマンドを検証してください。",
+        )
+      }
     </p>
   </section>
 
   <section class="runtime-section runtime-two-column">
     <div>
-      <h2>{t("Include what the agent needs", "エージェントが必要とするものを入れる")}</h2>
+      <h2>
+        {
+          t(
+            "Include what the agent needs",
+            "エージェントが必要とするものを入れる",
+          )
+        }
+      </h2>
       <ul>{installChecklist.map((item) => <li>{item}</li>)}</ul>
     </div>
     <div class="runtime-limits">
@@ -276,77 +380,341 @@ const limits = t(
   </section>
 
   <section class="runtime-section runtime-next">
-    <h2>{t("After the agent command works", "エージェントの実行を確認した後")}</h2>
+    <h2>
+      {t("After the agent command works", "エージェントの実行を確認した後")}
+    </h2>
     <p>
-      {t(
-        "Configure authentication only for providers you need, then allow outbound effects as they are observed. Runtime contents, service authentication, and network authorization remain three separate concerns.",
-        "必要なプロバイダーだけ認証を設定し、外部通信は観測された通信条件ごとに許可します。ランタイムに入れるツール、外部サービスの認証、ネットワーク通信の許可は、それぞれ別に管理します。",
-      )}
+      {
+        t(
+          "Configure authentication only for providers you need, then allow outbound effects as they are observed. Runtime contents, service authentication, and network authorization remain three separate concerns.",
+          "必要なプロバイダーだけ認証を設定し、外部通信は観測された通信条件ごとに許可します。ランタイムに入れるツール、外部サービスの認証、ネットワーク通信の許可は、それぞれ別に管理します。",
+        )
+      }
     </p>
-    <nav aria-label={t("Next runtime documentation", "ランタイム導入後に読むページ")}>
-      <a href={withBase("/guides/authentication/")}>{t("Configure authentication", "認証を設定する")} →</a>
-      <a href={withBase("/start/first-denial/")}>{t("Review denied communication", "拒否された通信をレビューする")} →</a>
-      <a href={withBase("/guides/runtime-customization/")}>{t("Read detailed runtime behavior", "ランタイムの詳細動作を読む")} →</a>
-      <a href={withBase("/reference/runtime-image-contract/")}>{t("Open the exact image contract", "正確なイメージ契約を確認する")} →</a>
+    <nav
+      aria-label={t(
+        "Next runtime documentation",
+        "ランタイム導入後に読むページ",
+      )}
+    >
+      <a href={withBase("/guides/authentication/")}
+        >{t("Configure authentication", "認証を設定する")} →</a
+      >
+      <a href={withBase("/start/first-denial/")}
+        >{t("Review denied communication", "拒否された通信をレビューする")} →</a
+      >
+      <a href={withBase("/guides/runtime-customization/")}
+        >{t("Read detailed runtime behavior", "ランタイムの詳細動作を読む")} →</a
+      >
+      <a href={withBase("/reference/runtime-image-contract/")}
+        >{t("Open the exact image contract", "正確なイメージ契約を確認する")} →</a
+      >
     </nav>
   </section>
 
   <details class="runtime-evidence">
-    <summary>{t("Implementation and contract references", "実装と契約を確認する")}</summary>
+    <summary
+      >{
+        t("Implementation and contract references", "実装と契約を確認する")
+      }</summary
+    >
     <ul>
-      <li><a href={evidenceHref("internal/infra/dockerruntime/context_runtime.go")}>{t("Context runtime initialization, build, validation, and promotion", "Context ランタイムの初期化、ビルド、検査、採用")}</a></li>
-      <li><a href={evidenceHref("internal/infra/dockerruntime/project_runtime.go")}>{t("Workspace runtime reconciliation", "Workspace ランタイムの調整")}</a></li>
-      <li><a href={evidenceHref("internal/cli/runtime_catalog.go")}>{t("runtime init and runtime build command contracts", "runtime init と runtime build のコマンド契約")}</a></li>
-      <li><a href={evidenceHref("runtimes/base/Dockerfile")}>{t("Official base runtime", "公式ベースランタイム")}</a></li>
-      <li><a href={evidenceHref("tools/runtimecheck/main.go")}>{t("Runtime compatibility checker", "ランタイム互換性検査")}</a></li>
+      <li>
+        <a
+          href={evidenceHref("internal/infra/dockerruntime/context_runtime.go")}
+          >{
+            t(
+              "Context runtime initialization, build, validation, and promotion",
+              "Context ランタイムの初期化、ビルド、検査、採用",
+            )
+          }</a
+        >
+      </li>
+      <li>
+        <a
+          href={evidenceHref("internal/infra/dockerruntime/project_runtime.go")}
+          >{
+            t("Workspace runtime reconciliation", "Workspace ランタイムの調整")
+          }</a
+        >
+      </li>
+      <li>
+        <a href={evidenceHref("internal/cli/runtime_catalog.go")}
+          >{
+            t(
+              "runtime init and runtime build command contracts",
+              "runtime init と runtime build のコマンド契約",
+            )
+          }</a
+        >
+      </li>
+      <li>
+        <a href={evidenceHref("runtimes/base/Dockerfile")}
+          >{t("Official base runtime", "公式ベースランタイム")}</a
+        >
+      </li>
+      <li>
+        <a href={evidenceHref("tools/runtimecheck/main.go")}
+          >{t("Runtime compatibility checker", "ランタイム互換性検査")}</a
+        >
+      </li>
     </ul>
   </details>
 </div>
 
 <style>
-  .runtime-setup { display: grid; gap: 2.5rem; }
-  .runtime-intro, .runtime-section { min-width: 0; }
-  .runtime-eyebrow { margin: 0 0 0.45rem; color: var(--sl-color-text-accent); font-size: var(--sl-text-sm); font-weight: 760; letter-spacing: 0.045em; text-transform: uppercase; }
-  .runtime-intro h2, .runtime-section > h2 { margin: 0; max-width: 28ch; font-size: clamp(1.55rem, 3.5vw, 2.35rem); line-height: 1.18; }
-  .runtime-intro > p:not(.runtime-eyebrow), .runtime-section-intro { max-width: 72ch; color: var(--sl-color-gray-2); font-size: var(--sl-text-lg); }
-  .runtime-required, .runtime-failure { display: grid; gap: 0.35rem; margin-top: 1.25rem; padding: 1rem 1.1rem; border-inline-start: 0.28rem solid var(--sl-color-orange); background: color-mix(in srgb, var(--sl-color-orange-low) 65%, transparent); }
-  .runtime-flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.75rem; margin: 1.4rem 0 0; padding: 0; list-style: none; }
-  .runtime-flow li { position: relative; min-width: 0; padding: 1rem; border: 1px solid var(--sl-color-gray-5); background: var(--sl-color-bg-nav); }
-  .runtime-flow li:not(:last-child)::after { content: "→"; position: absolute; inset-block-start: 1rem; inset-inline-end: -0.68rem; z-index: 2; display: grid; width: 1.3rem; height: 1.3rem; place-items: center; border-radius: 50%; background: var(--sl-color-bg); color: var(--sl-color-text-accent); font-weight: 800; }
-  .runtime-flow-number { display: inline-grid; width: 2rem; height: 2rem; place-items: center; border-radius: 50%; background: var(--sl-color-accent-low); color: var(--sl-color-white); font-size: var(--sl-text-xs); font-weight: 800; }
-  .runtime-route { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin: 0.75rem 0 0.4rem; font-size: var(--sl-text-xs); }
-  .runtime-route b { color: var(--sl-color-text-accent); }
-  .runtime-flow h3 { margin: 0.45rem 0; font-size: var(--sl-text-lg); line-height: 1.25; }
-  .runtime-flow li > p:last-child { margin: 0; color: var(--sl-color-gray-2); font-size: var(--sl-text-sm); }
-  .runtime-flow-allowed { border-block-start: 0.22rem solid var(--sl-color-green) !important; }
-  .runtime-flow-diagnostic { border-block-start: 0.22rem solid var(--sl-color-blue) !important; }
-  .runtime-flow-control { border-block-start: 0.22rem solid var(--sl-color-purple) !important; }
-  .runtime-flow-trusted { border-block-start: 0.22rem solid var(--sl-color-orange) !important; }
-  .runtime-flow-network { border-block-start: 0.22rem solid var(--sl-color-text-accent) !important; }
-  .runtime-steps { display: grid; gap: 1rem; margin: 1.4rem 0 0; padding: 0; list-style: none; }
-  .runtime-steps > li { padding: 1.1rem; border: 1px solid var(--sl-color-gray-5); background: var(--sl-color-bg-nav); }
-  .runtime-steps header { display: flex; align-items: flex-start; gap: 0.8rem; }
-  .runtime-steps header > span { display: grid; flex: 0 0 auto; width: 2.25rem; height: 2.25rem; place-items: center; border: 1px solid var(--sl-color-accent); border-radius: 50%; color: var(--sl-color-text-accent); font-weight: 800; }
-  .runtime-steps header p { margin: 0; color: var(--sl-color-gray-3); font-size: var(--sl-text-sm); }
-  .runtime-steps h3 { margin: 0.15rem 0 0; }
-  .runtime-steps pre, .runtime-recipe pre { margin: 1rem 0; overflow: auto; }
-  .runtime-steps dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin: 0; }
-  .runtime-steps dl div { padding: 0.75rem; background: var(--sl-color-bg); }
-  .runtime-steps dt { color: var(--sl-color-gray-3); font-size: var(--sl-text-xs); font-weight: 760; text-transform: uppercase; }
-  .runtime-steps dd { margin: 0.25rem 0 0; }
-  .runtime-caption { color: var(--sl-color-gray-3); font-size: var(--sl-text-sm); }
-  .runtime-two-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-  .runtime-two-column > div { padding: 1.1rem; border: 1px solid var(--sl-color-gray-5); }
-  .runtime-two-column h2 { margin-top: 0; font-size: var(--sl-text-xl); }
-  .runtime-two-column ul { margin-bottom: 0; }
-  .runtime-limits { border-inline-start: 0.25rem solid var(--sl-color-orange) !important; }
-  .runtime-next nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.65rem; margin-top: 1rem; }
-  .runtime-next a { padding: 0.85rem 0.95rem; border: 1px solid var(--sl-color-gray-5); text-decoration: none; }
-  .runtime-next a:hover { border-color: var(--sl-color-accent); }
-  .runtime-evidence { border: 1px solid var(--sl-color-gray-5); }
-  .runtime-evidence summary { padding: 0.85rem 1rem; cursor: pointer; font-weight: 720; }
-  .runtime-evidence ul { padding: 0 2rem 1rem; }
-  @media (max-width: 72rem) { .runtime-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); } .runtime-flow li::after { display: none !important; } }
-  @media (max-width: 44rem) { .runtime-flow, .runtime-two-column, .runtime-next nav, .runtime-steps dl { grid-template-columns: 1fr; } .runtime-intro h2, .runtime-section > h2 { max-width: none; } }
-  @media print { .runtime-flow, .runtime-two-column, .runtime-next nav, .runtime-steps dl { grid-template-columns: 1fr; } .runtime-flow li::after { display: none !important; } }
+  .runtime-setup {
+    display: grid;
+    gap: 2.5rem;
+  }
+  .runtime-intro,
+  .runtime-section {
+    min-width: 0;
+  }
+  .runtime-eyebrow {
+    margin: 0 0 0.45rem;
+    color: var(--sl-color-text-accent);
+    font-size: var(--sl-text-sm);
+    font-weight: 760;
+    letter-spacing: 0.045em;
+    text-transform: uppercase;
+  }
+  .runtime-intro h2,
+  .runtime-section > h2 {
+    margin: 0;
+    max-width: 28ch;
+    font-size: clamp(1.55rem, 3.5vw, 2.35rem);
+    line-height: 1.18;
+  }
+  .runtime-intro > p:not(.runtime-eyebrow),
+  .runtime-section-intro {
+    max-width: 72ch;
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-lg);
+  }
+  .runtime-required,
+  .runtime-failure {
+    display: grid;
+    gap: 0.35rem;
+    margin-top: 1.25rem;
+    padding: 1rem 1.1rem;
+    border-inline-start: 0.28rem solid var(--sl-color-orange);
+    background: color-mix(in srgb, var(--sl-color-orange-low) 65%, transparent);
+  }
+  .runtime-flow {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 1.4rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .runtime-flow li {
+    position: relative;
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-bg-nav);
+  }
+  .runtime-flow li:not(:last-child)::after {
+    content: "→";
+    position: absolute;
+    inset-block-start: 1rem;
+    inset-inline-end: -0.68rem;
+    z-index: 2;
+    display: grid;
+    width: 1.3rem;
+    height: 1.3rem;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--sl-color-bg);
+    color: var(--sl-color-text-accent);
+    font-weight: 800;
+  }
+  .runtime-flow-number {
+    display: inline-grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-white);
+    font-size: var(--sl-text-xs);
+    font-weight: 800;
+  }
+  .runtime-route {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.75rem 0 0.4rem;
+    font-size: var(--sl-text-xs);
+  }
+  .runtime-route b {
+    color: var(--sl-color-text-accent);
+  }
+  .runtime-flow h3 {
+    margin: 0.45rem 0;
+    font-size: var(--sl-text-lg);
+    line-height: 1.25;
+  }
+  .runtime-flow li > p:last-child {
+    margin: 0;
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
+  }
+  .runtime-flow-allowed {
+    border-block-start: 0.22rem solid var(--sl-color-green) !important;
+  }
+  .runtime-flow-diagnostic {
+    border-block-start: 0.22rem solid var(--sl-color-blue) !important;
+  }
+  .runtime-flow-control {
+    border-block-start: 0.22rem solid var(--sl-color-purple) !important;
+  }
+  .runtime-flow-trusted {
+    border-block-start: 0.22rem solid var(--sl-color-orange) !important;
+  }
+  .runtime-flow-network {
+    border-block-start: 0.22rem solid var(--sl-color-text-accent) !important;
+  }
+  .runtime-steps {
+    display: grid;
+    gap: 1rem;
+    margin: 1.4rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .runtime-steps > li {
+    padding: 1.1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-bg-nav);
+  }
+  .runtime-steps header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+  }
+  .runtime-steps header > span {
+    display: grid;
+    flex: 0 0 auto;
+    width: 2.25rem;
+    height: 2.25rem;
+    place-items: center;
+    border: 1px solid var(--sl-color-accent);
+    border-radius: 50%;
+    color: var(--sl-color-text-accent);
+    font-weight: 800;
+  }
+  .runtime-steps header p {
+    margin: 0;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+  }
+  .runtime-steps h3 {
+    margin: 0.15rem 0 0;
+  }
+  .runtime-steps pre,
+  .runtime-recipe pre {
+    margin: 1rem 0;
+    overflow: auto;
+  }
+  .runtime-steps dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+  }
+  .runtime-steps dl div {
+    padding: 0.75rem;
+    background: var(--sl-color-bg);
+  }
+  .runtime-steps dt {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    font-weight: 760;
+    text-transform: uppercase;
+  }
+  .runtime-steps dd {
+    margin: 0.25rem 0 0;
+  }
+  .runtime-caption {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+  }
+  .runtime-two-column {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  .runtime-two-column > div {
+    padding: 1.1rem;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .runtime-two-column h2 {
+    margin-top: 0;
+    font-size: var(--sl-text-xl);
+  }
+  .runtime-two-column ul {
+    margin-bottom: 0;
+  }
+  .runtime-limits {
+    border-inline-start: 0.25rem solid var(--sl-color-orange) !important;
+  }
+  .runtime-next nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin-top: 1rem;
+  }
+  .runtime-next a {
+    padding: 0.85rem 0.95rem;
+    border: 1px solid var(--sl-color-gray-5);
+    text-decoration: none;
+  }
+  .runtime-next a:hover {
+    border-color: var(--sl-color-accent);
+  }
+  .runtime-evidence {
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .runtime-evidence summary {
+    padding: 0.85rem 1rem;
+    cursor: pointer;
+    font-weight: 720;
+  }
+  .runtime-evidence ul {
+    padding: 0 2rem 1rem;
+  }
+  @media (max-width: 72rem) {
+    .runtime-flow {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .runtime-flow li::after {
+      display: none !important;
+    }
+  }
+  @media (max-width: 44rem) {
+    .runtime-flow,
+    .runtime-two-column,
+    .runtime-next nav,
+    .runtime-steps dl {
+      grid-template-columns: 1fr;
+    }
+    .runtime-intro h2,
+    .runtime-section > h2 {
+      max-width: none;
+    }
+  }
+  @media print {
+    .runtime-flow,
+    .runtime-two-column,
+    .runtime-next nav,
+    .runtime-steps dl {
+      grid-template-columns: 1fr;
+    }
+    .runtime-flow li::after {
+      display: none !important;
+    }
+  }
 </style>
