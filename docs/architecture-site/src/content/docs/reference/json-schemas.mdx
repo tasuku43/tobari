@@ -82,17 +82,17 @@ summarizes its state.
 
 ## Gateway, OPA, audit, and Broker contracts
 
-| Boundary                             | Current contract | Important rule                                                                                                                   |
-| ------------------------------------ | ---------------: | -------------------------------------------------------------------------------------------------------------------------------- |
-| Gateway credential configuration     |         Schema 2 | Contains managed projection metadata, not policy authority.                                                                      |
-| Gateway → OPA decision input         |         Schema 5 | Host-derived principal and normalized HTTP attributes; no ordinary body or client secret header.                                 |
-| Guided/Advanced source policy        |  Source schema 4 | Legacy source schema 3 is accepted only for migration; aggregate output is runtime schema 5.                                     |
-| Gateway audit line                   |         Schema 2 | Bounded, secret-free decision evidence.                                                                                          |
-| Learnable-denial navigation response |         Schema 1 | Fixed host-review guidance; no candidate ID, query, body, or secret.                                                             |
-| Broker control protocol              |         Schema 1 | Bounded newline-delimited JSON on the host control socket.                                                                       |
+| Boundary                             | Current contract | Important rule                                                                                                                    |
+| ------------------------------------ | ---------------: | --------------------------------------------------------------------------------------------------------------------------------- |
+| Gateway credential configuration     |         Schema 2 | Contains managed projection metadata, not policy authority.                                                                       |
+| Gateway → OPA decision input         |         Schema 5 | Host-derived principal and normalized HTTP attributes; no ordinary body or client secret header.                                  |
+| Guided/Advanced source policy        |  Source schema 4 | Legacy source schema 3 is accepted only for migration; aggregate output is runtime schema 5.                                      |
+| Gateway audit line                   |         Schema 2 | Bounded, secret-free decision evidence.                                                                                           |
+| Learnable-denial navigation response |         Schema 1 | Fixed host-review guidance; no candidate ID, query, body, or secret.                                                              |
+| Broker control protocol              |         Schema 1 | Bounded newline-delimited JSON on the host control socket.                                                                        |
 | Broker runtime protocol              |         Schema 1 | Non-secret introspection followed, after allow, by a declared static resolve, Datadog/OpenAI token action, or AWS signing result. |
-| Private host companion frames        |         Schema 1 | Authenticated, direction-bound, strictly sequenced frames for the compiled AWS operation.                                        |
-| Workspace Broker handle              | Handle version 1 | Opaque `tobari-h1_…` bytes; never decode them into authority.                                                                    |
+| Private host companion frames        |         Schema 1 | Authenticated, direction-bound, strictly sequenced frames for the compiled AWS operation.                                         |
+| Workspace Broker handle              | Handle version 1 | Opaque `tobari-h1_…` bytes; never decode them into authority.                                                                     |
 
 OPA returns a decision. Gateway owns the external connection and fails closed
 when the decision is unavailable or malformed.
