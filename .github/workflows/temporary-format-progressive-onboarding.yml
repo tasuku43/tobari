@@ -1,0 +1,48 @@
+name: Temporary progressive onboarding formatter
+
+on:
+  push:
+    branches:
+      - agent/progressive-context-disclosure
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: ${{ github.event.head_commit.message != 'docs: format progressive onboarding' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: docs/architecture-site/package-lock.json
+
+      - name: Select repository-pinned npm
+        run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
+
+      - name: Install documentation dependencies
+        working-directory: docs/architecture-site
+        run: npm ci
+
+      - name: Format documentation files
+        working-directory: docs/architecture-site
+        run: npm run format:write
+
+      - name: Commit formatted files
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          rm -f .github/workflows/temporary-format-progressive-onboarding.yml
+          git add -A
+          git commit -m "docs: format progressive onboarding"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
