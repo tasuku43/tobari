@@ -6,9 +6,9 @@ description: リポジトリの正本から生成した、ツール、イメー�
 import ComponentVersions from "../../../../components/ComponentVersions.astro";
 import componentVersions from "../../../../generated/component-versions.json";
 
-このページには、ドキュメントが参照する製品コミットで宣言された、ツール、イメージ、ランタイム API、CLI、スキーマ、ソースの識別情報を掲載します。表はリポジトリが管理するバージョン情報から生成し、同じ値を本文へ手作業で複製していません。
+このページには、ドキュメントが参照する製品コミットで宣言された、ツール、イメージ、ランタイム API、CLI、スキーマ、ソースの識別情報を掲載します。表はリポジトリが管理する正本から生成し、同じ値を本文へ手作業で複製していません。
 
-ソフトウェアバージョン、OCI セレクター、不変なダイジェスト、ランタイム API バージョン、JSON スキーマバージョン、ソースコミットは、それぞれ別の契約を識別します。以下の説明から、各行がどの種類の識別情報を示すか確認できます。
+ソフトウェアバージョン、OCI タグ、不変なダイジェスト、ランタイム API、JSON スキーマ、ソースコミット、実行ファイルのビルド識別情報は、それぞれ別の問いに答えます。公開サイトとローカル環境を比較するときは、これらを混同しないでください。
 
 ## 生成されたバージョンと識別情報
 
@@ -16,15 +16,16 @@ import componentVersions from "../../../../generated/component-versions.json";
 
 ## 識別情報の読み方
 
-| 種類                     | 確認できること                                                        | 確認できないこと                                             |
-| ------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------ |
-| ツールバージョン         | ビルド入力として選んだ Go、OPA、mitmproxy など                        | ローカルの Docker が現在保持するイメージの内容               |
-| OCI タグ                 | 要求するレジストリチャンネル、または人が指定する選択子                | 不変性。タグは更新できる                                     |
-| OCI ダイジェスト         | 選択する、内容アドレス方式のマニフェスト                              | ローカルランタイムが Tobari の互換インターフェースを満たすか |
-| ランタイム API           | 作業用イメージがサポート対象の Workspace インターフェースを宣言するか | イメージ内のすべてのパッケージが信頼でき、最新か             |
-| スキーマバージョン       | 使用中の JSON 形式の正確な形                                          | 同じ番号を使う別の形式との互換性                             |
-| CLI バージョンとコミット | 実行ファイルに埋め込まれたリリースとソースの識別情報                  | 現在のブランチ名や、ビルドされていないリリース               |
-| ドキュメントのコミット   | このページを支えるリポジトリの時点                                    | その後に更新された `main` の状態                             |
+| 種類                   | 確認できること                                                        | 確認できないこと                                             |
+| ---------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| ツールバージョン       | ビルド入力として選んだ Go、OPA、mitmproxy など                        | ローカルの Docker が現在保持するイメージの内容               |
+| OCI タグ               | 要求するレジストリチャンネル、または人が指定する選択子                | 不変性。タグは更新できる                                     |
+| OCI ダイジェスト       | 選択する、内容アドレス方式のマニフェスト                              | このソースが要求する API を満たすか                          |
+| ランタイム API         | 作業用イメージがサポート対象の Workspace インターフェースを宣言するか | イメージ内のすべてのパッケージが信頼でき、最新か             |
+| サービス API           | Gateway または Auth Broker が必要な契約を実装するか                    | リリース成果物としてレビュー、公開されたか                   |
+| スキーマバージョン     | 使用中の JSON 形式の正確な形                                          | 同じ番号を使う別の形式との互換性                             |
+| CLI ビルド識別情報     | 実行ファイルが選ぶソース、リゾルバー、サービス API                    | 現在のブランチ名や、ビルドされていないリリース               |
+| ドキュメントのコミット | このページを支えるリポジトリの時点                                    | その後に更新された `main` の状態                             |
 
 ## リポジトリ内の正本
 
@@ -35,9 +36,9 @@ import componentVersions from "../../../../generated/component-versions.json";
 - `runtimes/base/` 以下にあるランタイムメタデータの正本
 - 各 Go パッケージが公開するランタイム API とスキーマの定数
 - 公開 JSON 出力のスキーマバージョンを定める CLI Catalog
-- 公開 CLI バージョンをソースビルドまたはリリースへ埋め込む契約
+- CLI のビルド識別情報をソースビルドまたはリリースへ埋め込む契約
 
-生成結果は、正本とのずれを検査します。正本の値を変更してリファレンスを再生成しなければ、サイト検査は失敗します。製品バージョンの入力は、コミット済みのソースから読み取ります。コミットしていない途中の実験が、公開する識別情報の根拠へ紛れ込むことはありません。
+生成結果は正本とのずれを検査します。値を変更してリファレンスを再生成しなければ、サイト検査は失敗します。
 
 ## タグとダイジェストは同じではない
 
@@ -47,37 +48,44 @@ import componentVersions from "../../../../generated/component-versions.json";
   <code>{componentVersions.runtime.default_selector}</code>
 </pre>
 
-これは更新可能な開発用タグです。デフォルトの取得元を指定するためには使えますが、不変な根拠にはなりません。Tobari が Context 管理のランタイムをビルドするときは、完成したローカルイメージを検査し、そのダイジェストを別に保存します。
+これは更新可能な開発用タグです。取得元のチャンネルは選べますが、不変な根拠にはなりません。Tobari が Context 管理のランタイムをビルドするときは、完成したローカルイメージを検査し、解決後のダイジェストを別に保存します。
 
-OPA、mitmproxy／Gateway、Auth Broker、ベースイメージの共有基盤設定には、`versions.env` で宣言した値を使います。ダイジェストがある場合、それが不変なイメージ識別情報です。隣にある人向けのタグやバージョンは説明用です。
-
-Gateway と Auth Broker には、ソースツリーの正本と、バイト単位で一致を検査する埋め込みソースもあります。ソースと埋め込み内容の一致は、ベースイメージのダイジェストとは別に検査します。レビュー済みのビルドには、両方の一致が必要です。
+共有基盤には `versions.env` で宣言した値を使います。ダイジェストがある場合、それがレジストリ上の不変な内容を識別します。隣にあるタグや人向けのバージョンは説明用です。Gateway と Auth Broker では、ソースの正本と埋め込みスナップショットの一致も別に検査します。
 
 ## 現在のサービス API 互換性
 
-生成表が示す Gateway API 4 と Auth Broker API 3 は、現在のソースが要求するインターフェースです。一方、表の Gateway/Auth Broker ダイジェストは、`versions.env` が選ぶ過去の API 3 / API 2 公開成果物です。これは同じ種類の値ではありません。
+生成表が示す **Gateway API 4** と **Auth Broker API 3** は、現在のソースが要求するインターフェースです。一方、`versions.env` が選ぶ Gateway と Auth Broker のダイジェストは、過去の API 3 と API 2 の公開成果物です。必要 API と選択したイメージ識別情報は別の契約です。
 
-通常のバイナリは、この不一致を起動前に拒否します。現在のソースを動かす場合は `task build:dev` で開発用イメージを作り、`bin/tobari-dev version --format json` で `development` リゾルバーと互換性を確認してください。開発用イメージは、公開リリースの正本ではありません。
-
-## CLI のバージョン表示
-
-ソースからのビルドは `dev` を表示します。ビルドフラグでコミットを渡した場合は、そのコミットも表示します。リリース処理は、検証済みのリリース番号とソースコミットを埋め込みます。このページが報告するのは、ソースとビルドメタデータが実際に宣言する値です。Git ブランチ、タグのようなディレクトリ名、ドキュメントのバージョンからリリース番号を組み立てません。
-
-実行中のバイナリを調べるには、次のコマンドを使います。
+通常のバイナリは、この不一致を起動前に拒否します。現在のソースを動かす場合は、リポジトリが管理する開発用イメージと CLI をビルドします。
 
 ```console
-tobari version --format json
+task build:dev
+bin/tobari-dev version --format json
 ```
 
-ソースへのリンクをローカル動作の根拠として使う前に、この結果と、ページ下部にあるドキュメントの生成元情報を比較してください。
+結果には `development` リゾルバー、必要 API、選択中 API、組み合わせの互換性が表示されます。開発用イメージは公開成果物の正本ではありません。将来のリリースでは、必要 API を実装するレビュー済みの不変なインデックスを選ぶ必要があります。
+
+## CLI のビルド識別情報
+
+`version --format json` は、実際に動かしている実行ファイルを確認するための機械可読な正本です。次を含みます。
+
+- CLI バージョンとソースコミット
+- リゾルバーチャンネルと、開発ソースかどうか
+- Gateway の必要 API と選択中 API
+- Auth Broker の必要 API と選択中 API
+- 組み合わせ全体の互換性
+- 復旧に必要な場合の、正確な開発用ビルドコマンドとバイナリ
+
+ソースビルドの人向けバージョン表示が `dev` でも、その値だけではランタイム互換性を判断できません。リンク先のソースをローカル動作の根拠として扱う前に、完全なビルド識別情報とページ下部の生成元情報を比較してください。
 
 ## 障害と制限
 
 - 正本の値がない、または形式が不正な場合、生成に失敗します。検証できていない値を `unknown` として表示しません。
-- ダイジェストが確認するのは、選択した内容の識別情報です。ライセンスへの適合、ランタイムの正常性、ポリシーの正しさ、脆弱性がないことまでは証明しません。
+- ダイジェストが確認するのは選択した内容の識別情報です。ライセンスへの適合、ランタイムの正常性、ポリシーの正しさ、脆弱性がないことまでは証明しません。
 - 宣言されたバージョンだけでは、ローカルの Docker キャッシュにイメージがあることを証明できません。起動前検査で必要なイメージを解決し、内容を調べます。
-- ランタイムセレクターはビルドごとに変わる可能性があります。再現可能な根拠には、解決後のダイジェストを保存する必要があります。
-- スキーマバージョンの意味は、対象となる形式ごとに異なります。製品のリリース番号として比較しないでください。
+- ランタイムセレクターは移動できます。再現可能な根拠には、解決後のダイジェストが必要です。
+- スキーマ番号の意味は対象となる形式ごとに異なり、製品のリリース番号ではありません。
+- 互換する開発用の組み合わせはインターフェース互換性を示しますが、リリース公開や独立したレビューまでは示しません。
 
 ## 根拠
 
@@ -85,41 +93,35 @@ tobari version --format json
 - 埋め込みコンポーネントの識別情報：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/runtimeassets/assets/versions.env`}><code>versions.env</code></a>
 - ベースランタイムのメタデータ：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/runtimes/base/runtime.json`}><code>runtime.json</code></a>
 - 生成処理：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_BUILD_COMMIT__}/tools/sitegen/main.go`}><code>tools/sitegen/main.go</code></a>
-- ランタイム API 定数：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/tobari.go`}><code>internal/domain/tobari/tobari.go</code></a>
-- CLI バージョンの正本：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/version.go`}><code>internal/cli/version.go</code></a>
-- 正本と埋め込み内容のずれを調べるテスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/runtimeassets/assets_test.go`}>ランタイムアセットのテスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/gateway_image_test.go`}>Gateway イメージのテスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/authbroker_image_test.go`}>Auth Broker イメージのテスト</a>
+- ランタイムとサービス API の定数：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/tobari.go`}><code>internal/domain/tobari/tobari.go</code></a>
+- CLI ビルド識別情報の表示：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/version.go`}><code>internal/cli/version.go</code></a>
+- 正本とイメージの検査：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/runtimeassets/assets_test.go`}>ランタイムアセットのテスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/gateway_image_test.go`}>Gateway イメージのテスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/authbroker_image_test.go`}>Auth Broker イメージのテスト</a>
 
 ## まとめ
 
-バージョンは互換性や名前付きリリースを表します。タグは更新可能な配布経路を選びます。ダイジェストは不変な OCI コンテンツを識別します。生成した表はこれらを区別し、すべての値をこのドキュメントが参照するコミットへ結び付けます。
+バージョンは名前付きのソフトウェアやインターフェースを表します。タグは更新可能な配布経路を選び、ダイジェストは不変な OCI コンテンツを識別します。ビルド識別情報は、個別の実行ファイルが使うリゾルバーとサービス API を示します。生成表はこれらを分け、ソースが所有する値をこのドキュメントの時点へ結び付けます。
 
 ## 理解を確認する
 
-`runtime:latest` を不変な識別情報として扱うのは誤りです。
-
 <details>
-  <summary>
-    OPA のソフトウェアバージョンで Gateway イメージを識別できますか？
-  </summary>
-  いいえ。別のコンポーネントであり、識別情報も別です。生成した表は、それぞれの正本から値を取得します。
+  <summary>OPA のソフトウェアバージョンで Gateway イメージを識別できますか？</summary>
+
+いいえ。別のコンポーネントであり、識別情報も別です。生成した表は、それぞれの正本から値を取得します。
+
 </details>
 
 <details>
-  <summary>
-    ソースからビルドした <code>tobari version --format json</code>{" "}
-    では何を確認できますか？
-  </summary>
-  `dev`
-  です。ビルド時に値を渡した場合だけ、ソースコミットも表示します。リリースビルドでは、検証済みのリリース識別情報を埋め込みます。
+  <summary><code>tobari version --format json</code> では何を確認できますか？</summary>
+
+CLI とソース、選択したリゾルバー、Gateway／Auth Broker の必要 API と選択中 API、互換性、必要な場合の正確な開発用復旧コマンドを確認できます。
+
 </details>
 
 <details>
-  <summary>
-    固定されたイメージダイジェストは、そのイメージが Workspace
-    用ランタイムと互換だと証明しますか？
-  </summary>
-  いいえ。Tobari はランタイム API
-  ラベル、寿命管理の機能、ユーザー、エントリーポイントを別に検査します。
+  <summary>固定されたイメージダイジェストは、そのイメージが現在のソースと互換だと証明しますか？</summary>
+
+いいえ。Tobari は宣言された API と、ほかのランタイムまたはサービス契約を別に検査します。現在固定されている過去の Gateway／Auth Broker イメージは不変ですが、このソースが必要とする API を実装していません。
+
 </details>
 
 次へ：[用語集](../glossary/)。
