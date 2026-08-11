@@ -37,7 +37,7 @@ route, not another route. With Gateway unavailable, HTTP traffic fails.
 **Preconditions.** The host lifecycle created a unique Workspace network binding and the principal registry remains intact.
 
 **Enforcement point.** Gateway looks up the kernel-observed Workspace source
-endpoint in the host-owned schema-3 principal registry and puts that
+endpoint in the host-owned schema-1 principal registry and puts that
 Context/project identity into OPA input. Self-declared headers are ignored for
 authority.
 

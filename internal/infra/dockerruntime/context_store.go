@@ -20,12 +20,11 @@ const (
 	maxActiveContextDocumentBytes    = 16 * 1024
 	maxJSONEncodedByteExpansion      = 6
 	contextGitIdentityValueCount     = 2
-	maxContextStoreFileSize          = 8 * 1024 * 1024
 )
 
 // encoding/json can expand one input byte to a six-byte escape. Reserve that
-// worst case for every bounded shell and Git identity scalar, then retain the
-// former 16 KiB allowance for the manifest's bounded identity/runtime fields,
+// worst case for every bounded shell and Git identity scalar, plus the fixed
+// 16 KiB allowance for the manifest's bounded identity/runtime fields,
 // JSON structure, and indentation. The inventory length is derived from the
 // domain so adding an allowlisted shell variable cannot silently invalidate an
 // otherwise valid manifest.
@@ -82,20 +81,11 @@ func (r *Runtime) contextPaths(name string) tobari.ContextStorePaths {
 	}
 }
 
-func (r *Runtime) legacyContextStorePaths() tobari.ContextStorePaths {
-	return tobari.ContextStorePaths{
-		PolicyDirectory:     filepath.Join(r.configDirectory, "policy"),
-		CredentialConfig:    filepath.Join(r.configDirectory, "credentials.json"),
-		CredentialDirectory: filepath.Join(r.configDirectory, "credentials"),
-	}
-}
-
 // diagnosticContextStores resolves the stores to inspect without initializing
-// the Context catalog. Doctor is observational, so a missing active marker
-// deliberately keeps the legacy paths until cluster up performs migration.
+// the Context catalog.
 func (r *Runtime) diagnosticContextStores() (tobari.ContextStorePaths, error) {
 	if _, err := os.Lstat(r.activeContextPath()); errors.Is(err, os.ErrNotExist) {
-		return r.legacyContextStorePaths(), nil
+		return r.contextPaths(tobari.DefaultContextName), nil
 	} else if err != nil {
 		return tobari.ContextStorePaths{}, fmt.Errorf("inspect active Context: %w", err)
 	}
@@ -119,13 +109,7 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 		return fmt.Errorf("prepare Context directory: %w", err)
 	}
 	image := r.defaultRuntimeImage()
-	if _, err := os.Lstat(r.contextManifestPath(tobari.DefaultContextName)); errors.Is(err, os.ErrNotExist) {
-		if configured, err := r.configuredDefaultImage(); err != nil {
-			return err
-		} else {
-			image = configured
-		}
-	} else if err != nil {
+	if _, err := os.Lstat(r.contextManifestPath(tobari.DefaultContextName)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect default Context manifest: %w", err)
 	}
 	defaultID := ""
@@ -158,10 +142,7 @@ func (r *Runtime) initializeContextStoreUnlocked(defaultManifest tobari.ContextM
 	if err := r.ensurePrivateDirectory(r.contextsDirectory()); err != nil {
 		return fmt.Errorf("prepare Context directory: %w", err)
 	}
-	if err := r.ensureContext(defaultManifest, true); err != nil {
-		return err
-	}
-	if err := r.upgradeLegacyContextManifests(); err != nil {
+	if err := r.ensureContext(defaultManifest); err != nil {
 		return err
 	}
 	if _, err := os.Lstat(r.activeContextPath()); errors.Is(err, os.ErrNotExist) {
@@ -205,7 +186,7 @@ func (r *Runtime) withContextStoreLock(action func() error) error {
 	return action()
 }
 
-func (r *Runtime) ensureContext(manifest tobari.ContextManifest, migrateLegacy bool) error {
+func (r *Runtime) ensureContext(manifest tobari.ContextManifest) error {
 	if err := manifest.Validate(); err != nil {
 		return err
 	}
@@ -218,11 +199,6 @@ func (r *Runtime) ensureContext(manifest tobari.ContextManifest, migrateLegacy b
 	}
 	if err := r.ensurePrivateDirectory(r.contextCredentialDirectory(manifest.Name)); err != nil {
 		return fmt.Errorf("prepare Context %q credentials: %w", manifest.Name, err)
-	}
-	if migrateLegacy && manifest.Name == tobari.DefaultContextName {
-		if err := r.migrateLegacyDefaultStores(); err != nil {
-			return err
-		}
 	}
 	policyFiles := []string{"data.json"}
 	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
@@ -247,91 +223,6 @@ func (r *Runtime) ensureContext(manifest tobari.ContextManifest, migrateLegacy b
 		return fmt.Errorf("inspect Context manifest: %w", err)
 	}
 	return nil
-}
-
-func (r *Runtime) migrateLegacyDefaultStores() error {
-	legacyPolicy := filepath.Join(r.configDirectory, "policy")
-	// Guided Contexts own policy data, not executable Rego. Preserve only the
-	// learned/boundary data when migrating the former singleton store.
-	if err := r.copyLegacyPolicyDataIfPresent(
-		legacyPolicy,
-		filepath.Join(legacyPolicy, "data.json"),
-		filepath.Join(r.contextPolicyDirectory(tobari.DefaultContextName), "data.json"),
-	); err != nil {
-		return fmt.Errorf("migrate legacy policy: %w", err)
-	}
-	legacyCredentials := filepath.Join(r.configDirectory, "credentials")
-	if err := r.copyStoreFilesIfPresent(legacyCredentials, r.contextCredentialDirectory(tobari.DefaultContextName)); err != nil {
-		return fmt.Errorf("migrate legacy credentials: %w", err)
-	}
-	legacyConfig := filepath.Join(r.configDirectory, "credentials.json")
-	if err := r.copyFileIfPresent(legacyConfig, r.contextCredentialConfig(tobari.DefaultContextName)); err != nil {
-		return fmt.Errorf("migrate legacy credential metadata: %w", err)
-	}
-	return nil
-}
-
-func (r *Runtime) copyLegacyPolicyDataIfPresent(sourceDirectory, source, destination string) error {
-	info, err := os.Lstat(sourceDirectory)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("legacy policy store must be an owner-only directory")
-	}
-	return r.copyFileIfPresent(source, destination)
-}
-
-func (r *Runtime) copyStoreFilesIfPresent(source, destination string) error {
-	info, err := os.Lstat(source)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("legacy store must be an owner-only directory")
-	}
-	entries, err := os.ReadDir(source)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			return fmt.Errorf("legacy store contains an unsafe entry")
-		}
-		if err := r.copyFileIfPresent(filepath.Join(source, entry.Name()), filepath.Join(destination, entry.Name())); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (r *Runtime) copyFileIfPresent(source, destination string) error {
-	info, err := os.Lstat(source)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() > maxContextStoreFileSize {
-		return fmt.Errorf("legacy file %s is unsafe", filepath.Base(source))
-	}
-	if _, err := os.Lstat(destination); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	data, err := os.ReadFile(source) // #nosec G304 -- source is an exact legacy store child.
-	if err != nil {
-		return err
-	}
-	return initializeBytes(destination, data, 0o600)
 }
 
 func (r *Runtime) readContextManifestRaw(name string) (tobari.ContextManifest, error) {
@@ -363,11 +254,6 @@ func (r *Runtime) readContextManifestRaw(name string) (tobari.ContextManifest, e
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return tobari.ContextManifest{}, fmt.Errorf("Context manifest contains trailing data")
 	}
-	// Context manifests written before runtime image selection was promoted
-	// into the bundle inherit the resolver's default base runtime.
-	if manifest.Image == "" || manifest.Image == tobari.BuiltinImageSelector {
-		manifest.Image = r.defaultRuntimeImage()
-	}
 	if err := manifest.Validate(); err != nil {
 		return tobari.ContextManifest{}, err
 	}
@@ -378,56 +264,7 @@ func (r *Runtime) readContextManifestRaw(name string) (tobari.ContextManifest, e
 }
 
 func (r *Runtime) readContextManifest(name string) (tobari.ContextManifest, error) {
-	manifest, err := r.readContextManifestRaw(name)
-	if err != nil {
-		return tobari.ContextManifest{}, err
-	}
-	if manifest.SchemaVersion != tobari.ContextSchemaVersion {
-		return tobari.ContextManifest{}, fmt.Errorf("Context manifest %q requires identity migration", name)
-	}
-	return manifest, nil
-}
-
-// upgradeLegacyContextManifests adds a stable host-issued identity before any
-// Context can become a project or policy authority. Existing names and stores
-// are preserved, and each manifest is replaced atomically.
-func (r *Runtime) upgradeLegacyContextManifests() error {
-	entries, err := os.ReadDir(r.contextsDirectory())
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		manifest, err := r.readContextManifestRaw(entry.Name())
-		if err != nil {
-			return err
-		}
-		if manifest.SchemaVersion == tobari.ContextSchemaVersion {
-			continue
-		}
-		previousSchemaVersion := manifest.SchemaVersion
-		if manifest.ID == "" {
-			id, err := tobari.NewProductionContextID()
-			if err != nil {
-				return err
-			}
-			manifest.ID = id
-		}
-		manifest.SchemaVersion = tobari.ContextSchemaVersion
-		if previousSchemaVersion != tobari.LegacyContextSchemaVersion4 {
-			manifest.ShellEnvironment = tobari.InitialContextShellEnvironment()
-		}
-		manifest.GitIdentity = nil
-		if err := manifest.Validate(); err != nil {
-			return err
-		}
-		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
-			return fmt.Errorf("upgrade Context manifest %q: %w", manifest.Name, err)
-		}
-	}
-	return nil
+	return r.readContextManifestRaw(name)
 }
 
 func (r *Runtime) readActiveContext() (string, error) {
@@ -498,9 +335,8 @@ func (r *Runtime) observeActiveContextName() (string, error) {
 	return name, err
 }
 
-// observeContext never initializes the Context catalog or commits a legacy
-// migration. A synthetic default is display state only and carries no stable
-// authority manifest.
+// observeContext never initializes the Context catalog. A synthetic default is
+// display state only and carries no stable authority manifest.
 func (r *Runtime) observeContext(name string) (observedContext, error) {
 	explicit := name != ""
 	if !explicit {
@@ -515,15 +351,11 @@ func (r *Runtime) observeContext(name string) (observedContext, error) {
 		if explicit || name != tobari.DefaultContextName {
 			return observedContext{}, err
 		}
-		image, imageErr := r.configuredDefaultImage()
-		if imageErr != nil {
-			return observedContext{}, imageErr
-		}
 		return observedContext{
 			state: tobari.ContextObservationSyntheticDefault,
 			manifest: tobari.ContextManifest{
 				SchemaVersion: tobari.ContextSchemaVersion, Name: tobari.DefaultContextName,
-				AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: tobari.ContextPolicyModeGuided,
+				AgentProfile: tobari.DefaultProfile, Image: r.defaultRuntimeImage(), PolicyMode: tobari.ContextPolicyModeGuided,
 				ShellEnvironment: tobari.InitialContextShellEnvironment(),
 			},
 		}, nil
@@ -531,12 +363,7 @@ func (r *Runtime) observeContext(name string) (observedContext, error) {
 	if err != nil {
 		return observedContext{}, err
 	}
-	state := tobari.ContextObservationLegacyUnmigrated
-	if manifest.SchemaVersion == tobari.ContextSchemaVersion ||
-		((manifest.SchemaVersion == tobari.LegacyContextSchemaVersion3 || manifest.SchemaVersion == tobari.LegacyContextSchemaVersion4) && manifest.ID != "") {
-		state = tobari.ContextObservationPersisted
-	}
-	return observedContext{state: state, manifest: manifest}, nil
+	return observedContext{state: tobari.ContextObservationPersisted, manifest: manifest}, nil
 }
 
 // ObserveContext exposes only a validated stable manifest as authority.
@@ -630,12 +457,6 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 	}
 	entries, err := os.ReadDir(r.contextsDirectory())
 	if errors.Is(err, os.ErrNotExist) {
-		// A legacy installation-wide config may still select the display image.
-		// Validate it so unsafe or corrupt stored input does not become a clean
-		// synthetic first-use observation.
-		if _, imageErr := r.configuredDefaultImage(); imageErr != nil {
-			return tobari.ContextListResult{}, imageErr
-		}
 		result := tobari.ContextListResult{
 			Task: tobari.TaskContextList, ContextState: tobari.ContextObservationSyntheticDefault,
 			Active: tobari.DefaultContextName, Items: []tobari.ContextSummary{},
@@ -661,14 +482,8 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 		if err != nil {
 			return tobari.ContextListResult{}, err
 		}
-		state := tobari.ContextObservationLegacyUnmigrated
-		id := ""
-		if manifest.SchemaVersion == tobari.ContextSchemaVersion ||
-			((manifest.SchemaVersion == tobari.LegacyContextSchemaVersion3 || manifest.SchemaVersion == tobari.LegacyContextSchemaVersion4) && manifest.ID != "") {
-			state, id = tobari.ContextObservationPersisted, manifest.ID
-		}
 		items = append(items, tobari.ContextSummary{
-			ID: id, Name: manifest.Name, ContextState: state, Active: manifest.Name == active,
+			ID: manifest.ID, Name: manifest.Name, ContextState: tobari.ContextObservationPersisted, Active: manifest.Name == active,
 			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
 			RuntimeStatus: runtimeReport.Status,
 		})
@@ -849,7 +664,7 @@ func (r *Runtime) CreateContext(ctx context.Context, name string, image string, 
 			if err := r.ensureContextStoreUnlocked(); err != nil {
 				return err
 			}
-			if err := r.ensureContext(manifest, false); err != nil {
+			if err := r.ensureContext(manifest); err != nil {
 				return err
 			}
 		}
@@ -877,8 +692,8 @@ func (r *Runtime) UseContext(ctx context.Context, name string) (tobari.ContextRe
 	return r.UseContextWithProgress(ctx, name, nil)
 }
 
-// UseContextWithProgress retains the progress-aware port for compatibility;
-// default selection never reconciles or starts the shared cluster.
+// UseContextWithProgress keeps default selection independent from cluster
+// reconciliation while satisfying the progress-aware application port.
 func (r *Runtime) UseContextWithProgress(
 	ctx context.Context, name string, progress tobari.ClusterUpProgressSink,
 ) (tobari.ContextReport, error) {

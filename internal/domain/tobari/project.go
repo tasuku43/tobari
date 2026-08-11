@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	ProjectStateSchemaVersion       = 2
-	LegacyProjectStateSchemaVersion = 1
-	DefaultProfile                  = "default"
+	ProjectStateSchemaVersion = 1
+	DefaultProfile            = "default"
 
 	TaskEnter       = "tobari.enter"
 	TaskStatus      = "tobari.status"
@@ -102,8 +101,8 @@ func (s ProjectStatus) Validate() error {
 	if err := s.ContextState.Validate(); err != nil {
 		return err
 	}
-	if s.ContextState == ContextObservationSyntheticDefault || s.ContextState == ContextObservationLegacyUnmigrated {
-		if s.Exists || s.ContextID != "" || (s.ContextState == ContextObservationSyntheticDefault && s.ContextName != DefaultContextName) {
+	if s.ContextState == ContextObservationSyntheticDefault {
+		if s.Exists || s.ContextID != "" || s.ContextName != DefaultContextName {
 			return fmt.Errorf("non-persisted project status claims persisted authority")
 		}
 	} else {

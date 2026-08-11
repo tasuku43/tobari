@@ -5,8 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -169,13 +166,6 @@ func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, r
 		credentialHost:    newOSHostCredentialAcquirer(),
 		hostLoginProfiles: osHostLoginProfileReader{},
 	}, nil
-}
-
-// ResolveRoot resolves symlinks and requires an existing directory. It is kept
-// broad for diagnostics and legacy internal utilities; CWD-owned project
-// lifecycle uses ResolveProjectRoot below.
-func (r *Runtime) ResolveRoot(ctx context.Context, value string) (string, error) {
-	return r.resolveCanonicalRoot(ctx, value)
 }
 
 // ResolveProjectRoot resolves a project root and rejects host-management paths
@@ -345,51 +335,7 @@ func (r *Runtime) ResolveImageSelector(ctx context.Context, explicit string) (st
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("inspect active Context: %w", err)
 	}
-	return r.configuredDefaultImage()
-}
-
-func (r *Runtime) configuredDefaultImage() (string, error) {
-	path := filepath.Join(r.configDirectory, "config.json")
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return r.defaultRuntimeImage(), nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("inspect config.json: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return "", fmt.Errorf("config.json must be a regular owner-only file")
-	}
-	data, err := os.ReadFile(path) // #nosec G304 -- fixed config.json child.
-	if err != nil {
-		return "", fmt.Errorf("read config.json: %w", err)
-	}
-	if len(data) > 64*1024 {
-		return "", fmt.Errorf("config.json exceeds 64 KiB")
-	}
-	var document struct {
-		Version      string `json:"version"`
-		DefaultImage string `json:"default_image"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&document); err != nil {
-		return "", fmt.Errorf("decode config.json: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return "", fmt.Errorf("config.json contains trailing data")
-	}
-	if document.Version != "v1" {
-		return "", fmt.Errorf("config.json version must be v1")
-	}
-	if err := tobari.ValidateImageSelector(document.DefaultImage); err != nil {
-		return "", fmt.Errorf("config.json default_image: %w", err)
-	}
-	if document.DefaultImage == tobari.BuiltinImageSelector {
-		return r.defaultRuntimeImage(), nil
-	}
-	return document.DefaultImage, nil
+	return r.defaultRuntimeImage(), nil
 }
 
 // ClusterUp materializes assets and reconciles the shared Gateway, OPA, and
@@ -433,15 +379,6 @@ func (r *Runtime) clusterUpWithProgressMode(
 			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
 		})
 		return tobari.State{}, err
-	}
-	if exists && len(existing.Tobari) != 0 {
-		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
-			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
-		})
-		return tobari.State{}, fault.New(
-			fault.KindRejected, "legacy_named_state",
-			"the shared state contains legacy named Tobari records; remove them with the older binary before continuing", false,
-		)
 	}
 	authBrokerSelection, err := r.selectAuthBrokerImage(ctx)
 	if err != nil {
@@ -794,18 +731,11 @@ func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 	if err := r.ensureProjectPrincipalRegistry(ctx); err != nil {
 		return tobari.State{}, fmt.Errorf("validate project principal registry: %w", err)
 	}
-	if err := initializeBytes(
-		filepath.Join(r.configDirectory, "config.json"),
-		[]byte("{\n  \"version\": \"v1\",\n  \"default_image\": \""+r.defaultRuntimeImage()+"\"\n}\n"), 0o600,
-	); err != nil {
-		return tobari.State{}, err
-	}
 	state := tobari.State{
-		SchemaVersion: 4, RuntimeDirectory: runtimeDirectory,
+		SchemaVersion: 1, RuntimeDirectory: runtimeDirectory,
 		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,
 		PolicyDirectory: projection.PolicyDirectory, CredentialConfig: projection.CredentialConfig,
 		CredentialDir: projection.CredentialDirectory, AssetVersion: version,
-		Tobari: []tobari.Instance{},
 	}
 	if err := state.Validate(); err != nil {
 		return tobari.State{}, err
@@ -896,7 +826,7 @@ func (r *Runtime) withClusterLock(action func() error) error {
 	return action()
 }
 
-// LoadState returns absence separately from corrupt or legacy state.
+// LoadState returns absence separately from corrupt state.
 func (r *Runtime) LoadState(ctx context.Context) (tobari.State, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.State{}, false, err
@@ -918,32 +848,6 @@ func (r *Runtime) LoadState(ctx context.Context) (tobari.State, bool, error) {
 	if err != nil {
 		return tobari.State{}, false, err
 	}
-	var header struct {
-		SchemaVersion int `json:"schema_version"`
-	}
-	if err := json.Unmarshal(data, &header); err != nil {
-		return tobari.State{}, false, fmt.Errorf("decode Tobari state header: %w", err)
-	}
-	if header.SchemaVersion == 1 {
-		return tobari.State{}, false, fault.New(
-			fault.KindRejected, "legacy_state",
-			"schema-1 singleton state must be removed with the older Tobari binary before upgrade", false,
-		)
-	}
-	if header.SchemaVersion == 2 {
-		state, err := r.migrateLegacyClusterState(ctx, data)
-		if err != nil {
-			return tobari.State{}, false, err
-		}
-		return state, true, nil
-	}
-	if header.SchemaVersion == 3 {
-		state, err := r.migrateExplicitProxyState(data)
-		if err != nil {
-			return tobari.State{}, false, err
-		}
-		return state, true, nil
-	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var state tobari.State
@@ -960,233 +864,7 @@ func (r *Runtime) LoadState(ctx context.Context) (tobari.State, bool, error) {
 	return state, true, nil
 }
 
-type legacyClusterState struct {
-	SchemaVersion    int               `json:"schema_version"`
-	RuntimeDirectory string            `json:"runtime_directory"`
-	ContextName      string            `json:"context_name,omitempty"`
-	AgentProfile     string            `json:"agent_profile,omitempty"`
-	PolicyDirectory  string            `json:"policy_directory"`
-	CredentialConfig string            `json:"credential_config"`
-	CredentialDir    string            `json:"credential_directory"`
-	AssetVersion     string            `json:"asset_version"`
-	ProxyEndpoint    string            `json:"proxy_endpoint"`
-	RecentError      string            `json:"recent_error"`
-	Tobari           []tobari.Instance `json:"tobari"`
-}
-
-type explicitProxyState struct {
-	SchemaVersion     int               `json:"schema_version"`
-	RuntimeDirectory  string            `json:"runtime_directory"`
-	ContextName       string            `json:"context_name,omitempty"`
-	AgentProfile      string            `json:"agent_profile,omitempty"`
-	AggregateRevision string            `json:"aggregate_revision,omitempty"`
-	ContextCount      int               `json:"context_count,omitempty"`
-	PolicyDirectory   string            `json:"policy_directory"`
-	CredentialConfig  string            `json:"credential_config"`
-	CredentialDir     string            `json:"credential_directory"`
-	AssetVersion      string            `json:"asset_version"`
-	ProxyEndpoint     string            `json:"proxy_endpoint"`
-	RecentError       string            `json:"recent_error"`
-	Tobari            []tobari.Instance `json:"tobari"`
-}
-
-func (r *Runtime) migrateExplicitProxyState(data []byte) (tobari.State, error) {
-	var legacy explicitProxyState
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&legacy); err != nil {
-		return tobari.State{}, fmt.Errorf("decode explicit-proxy Tobari state: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return tobari.State{}, fmt.Errorf("explicit-proxy Tobari state contains trailing data")
-	}
-	if legacy.SchemaVersion != 3 || legacy.ProxyEndpoint != "http://gateway:8080" {
-		return tobari.State{}, fmt.Errorf("explicit-proxy Tobari state contract is invalid")
-	}
-	state := tobari.State{
-		SchemaVersion: 4, RuntimeDirectory: legacy.RuntimeDirectory,
-		ContextName: legacy.ContextName, AgentProfile: legacy.AgentProfile,
-		AggregateRevision: legacy.AggregateRevision, ContextCount: legacy.ContextCount,
-		PolicyDirectory: legacy.PolicyDirectory, CredentialConfig: legacy.CredentialConfig,
-		CredentialDir: legacy.CredentialDir, AssetVersion: legacy.AssetVersion,
-		RecentError: legacy.RecentError, Tobari: append([]tobari.Instance{}, legacy.Tobari...),
-	}
-	if err := state.Validate(); err != nil {
-		return tobari.State{}, err
-	}
-	if err := r.writeState(state); err != nil {
-		return tobari.State{}, fmt.Errorf("persist state without retired explicit proxy: %w", err)
-	}
-	return state, nil
-}
-
-func (r *Runtime) migrateLegacyClusterState(ctx context.Context, data []byte) (tobari.State, error) {
-	if err := r.requireNoInterruptedClusterReconcile(ctx); err != nil {
-		return tobari.State{}, fault.Wrap(
-			fault.KindRejected, "ambiguous_context_migration",
-			"legacy Context authority cannot be migrated while a cluster reconcile is incomplete", false, err,
-			fault.NextAction{Command: "cluster up", Reason: "Complete or diagnose the interrupted cluster reconcile."},
-		)
-	}
-	var legacy legacyClusterState
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&legacy); err != nil {
-		return tobari.State{}, fmt.Errorf("decode legacy Tobari state: %w", err)
-	}
-	if legacy.SchemaVersion != 2 || legacy.ProxyEndpoint != "http://gateway:8080" || len(legacy.Tobari) != 0 {
-		return tobari.State{}, fault.New(
-			fault.KindRejected, "ambiguous_context_migration",
-			"legacy shared state cannot be assigned to a Context safely", false,
-			fault.NextAction{Command: "doctor", Reason: "Inspect legacy state before retrying migration."},
-		)
-	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.State{}, err
-	}
-	current, err := r.readActiveContext()
-	if err != nil {
-		return tobari.State{}, err
-	}
-	legacyContext := legacy.ContextName
-	if legacyContext == "" {
-		legacyContext = tobari.DefaultContextName
-	}
-	if current != legacyContext {
-		return tobari.State{}, fault.New(
-			fault.KindRejected, "ambiguous_context_migration",
-			"legacy cluster Context and current Context disagree; no Tobari binding was guessed", false,
-			fault.NextAction{Command: "context list", Reason: "Inspect the conflicting Context markers."},
-			fault.NextAction{Command: "doctor", Reason: "Repair the legacy state before retrying."},
-		)
-	}
-	manifest, paths, err := r.resolveContext(current)
-	if err != nil {
-		return tobari.State{}, fault.Wrap(fault.KindRejected, "context_unavailable", "legacy Context is unavailable", false, err)
-	}
-	legacyPaths := r.legacyContextStorePaths()
-	validStore := func(actual, migrated, old string) bool { return actual == migrated || actual == old }
-	if !validStore(legacy.PolicyDirectory, paths.PolicyDirectory, legacyPaths.PolicyDirectory) ||
-		!validStore(legacy.CredentialConfig, paths.CredentialConfig, legacyPaths.CredentialConfig) ||
-		!validStore(legacy.CredentialDir, paths.CredentialDirectory, legacyPaths.CredentialDirectory) {
-		return tobari.State{}, fault.New(
-			fault.KindRejected, "ambiguous_context_migration",
-			"legacy cluster stores do not match the verified current Context", false,
-			fault.NextAction{Command: "doctor", Reason: "Repair legacy policy and credential paths."},
-		)
-	}
-	if err := r.migrateLegacyProjects(ctx, manifest); err != nil {
-		return tobari.State{}, err
-	}
-	projection, err := r.buildAggregateProjection(ctx)
-	if err != nil {
-		return tobari.State{}, fault.Wrap(
-			fault.KindRejected, "aggregate_policy_invalid",
-			"legacy Context policy could not form a valid aggregate projection", false, err,
-			fault.NextAction{Command: "doctor", Reason: "Repair the verified legacy Context policy before migration."},
-		)
-	}
-	state := tobari.State{
-		SchemaVersion: 4, RuntimeDirectory: legacy.RuntimeDirectory,
-		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,
-		PolicyDirectory: projection.PolicyDirectory, CredentialConfig: projection.CredentialConfig,
-		CredentialDir: projection.CredentialDirectory, AssetVersion: legacy.AssetVersion,
-		RecentError: legacy.RecentError, Tobari: []tobari.Instance{},
-	}
-	if err := state.Validate(); err != nil {
-		return tobari.State{}, err
-	}
-	if err := r.writeState(state); err != nil {
-		return tobari.State{}, fmt.Errorf("persist migrated multi-Context state: %w", err)
-	}
-	return state, nil
-}
-
 // Attach creates one exact container, internal network, and persistent home.
-func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root, imageSelector string) (tobari.State, error) {
-	if err := state.Validate(); err != nil {
-		return tobari.State{}, err
-	}
-	if err := tobari.ValidateName(name); err != nil {
-		return tobari.State{}, err
-	}
-	if err := tobari.ValidateImageSelector(imageSelector); err != nil {
-		return tobari.State{}, err
-	}
-	if resolved, err := r.ResolveRoot(ctx, root); err != nil || resolved != root {
-		return tobari.State{}, fmt.Errorf("root must be a canonical existing directory")
-	}
-	digest := sha256.Sum256([]byte("tobari:" + name))
-	id := "tbr_" + hex.EncodeToString(digest[:16])
-	instance := tobari.Instance{
-		ID: id, Name: name, Root: root, Container: "tobari-" + name,
-		Network: "tobari-" + name + "-net", HomeVolume: "tobari-" + name + "-home",
-		Image: imageSelector,
-	}
-	if err := instance.Validate(); err != nil {
-		return tobari.State{}, err
-	}
-	image := imageSelector
-	image = r.resolveBuiltinImageSelector(image)
-	if err := r.validateCompatibleImage(ctx, image); err != nil {
-		return tobari.State{}, err
-	}
-	labels := []string{
-		"--label", ownerLabel + "=" + ownerValue,
-		"--label", componentLabel + "=tobari",
-		"--label", tobariIDLabel + "=" + instance.ID,
-	}
-	networkArgs := append([]string{"network", "create", "--internal"}, labels...)
-	networkArgs = append(networkArgs, instance.Network)
-	if output, err := r.runner.Output(ctx, networkArgs, os.Environ()); err != nil {
-		return tobari.State{}, fmt.Errorf("create Tobari network: %w: %s", err, boundedDiagnostic(output))
-	}
-	volumeArgs := append([]string{"volume", "create"}, labels...)
-	volumeArgs = append(volumeArgs, instance.HomeVolume)
-	if output, err := r.runner.Output(ctx, volumeArgs, os.Environ()); err != nil {
-		return tobari.State{}, fmt.Errorf("create Tobari home: %w: %s", err, boundedDiagnostic(output))
-	}
-	if err := r.verifyOwnedTobari(ctx, "volume", instance.HomeVolume, instance.ID); err != nil {
-		return tobari.State{}, err
-	}
-	if err := r.ensureGatewayNetwork(ctx, instance.Network); err != nil {
-		return tobari.State{}, err
-	}
-	uid, gid := currentIDs()
-	args := []string{
-		"create", "--name", instance.Container, "--hostname", instance.Name,
-		"--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-		"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
-		"--tmpfs", "/tmp:size=512m,mode=1777", "--tmpfs", "/run:size=16m,mode=1777",
-		"--env", "HOME=/var/lib/tobari",
-		"--env", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
-		"--env", "REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem",
-		"--env", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
-		"--mount", "type=bind,src=" + instance.Root + ",dst=/workspace",
-		"--mount", "type=volume,src=" + instance.HomeVolume + ",dst=/var/lib/tobari",
-		"--mount", "type=volume,src=tobari-public-ca,dst=/run/tobari/ca-public,readonly",
-		"--workdir", "/workspace", "--network", instance.Network,
-		"--health-cmd", "test -f /tmp/tobari-ready", "--health-interval", "2s",
-		"--health-timeout", "2s", "--health-retries", "30",
-	}
-	args = append(args, projectResourceDockerArgs()...)
-	args = append(args, labels...)
-	args = append(args, image)
-	args = append(args, projectLifetimeCommand()...)
-	if output, err := r.runner.Output(ctx, args, os.Environ()); err != nil {
-		return tobari.State{}, fmt.Errorf("create Tobari container: %w: %s", err, boundedDiagnostic(output))
-	}
-	if output, err := r.runner.Output(ctx, []string{"start", instance.Container}, os.Environ()); err != nil {
-		return tobari.State{}, fmt.Errorf("start Tobari container: %w: %s", err, boundedDiagnostic(output))
-	}
-	state.Tobari = append(state.Tobari, instance)
-	sort.Slice(state.Tobari, func(i, j int) bool { return state.Tobari[i].Name < state.Tobari[j].Name })
-	if err := r.writeState(state); err != nil {
-		return tobari.State{}, fmt.Errorf("persist attached Tobari: %w", err)
-	}
-	return state, nil
-}
 
 func (r *Runtime) validateCompatibleImage(ctx context.Context, image string) error {
 	output, err := r.runner.Output(
@@ -1451,79 +1129,6 @@ func (r *Runtime) inspectContainer(ctx context.Context, component, container str
 	return status, nil
 }
 
-// InspectTobari observes each exact state-owned container.
-func (r *Runtime) InspectTobari(ctx context.Context, state tobari.State) ([]tobari.ItemStatus, error) {
-	if err := state.Validate(); err != nil {
-		return nil, err
-	}
-	items := make([]tobari.ItemStatus, 0, len(state.Tobari))
-	for _, instance := range state.Tobari {
-		component, err := r.inspectContainer(ctx, instance.Name, instance.Container)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, tobari.ItemStatus{
-			ID: instance.ID, Name: instance.Name, Root: instance.Root,
-			Image:     instance.ImageSelector(),
-			Running:   component.State == "running" && (component.Health == "healthy" || component.Health == "none"),
-			Container: instance.Container,
-		})
-	}
-	return items, nil
-}
-
-// Exec invokes Docker with exact argv and preserves the child exit code.
-func (r *Runtime) Exec(
-	ctx context.Context, instance tobari.Instance, request tobari.ExecRequest,
-	in io.Reader, out, errOut io.Writer,
-) (int, error) {
-	if err := instance.Validate(); err != nil {
-		return 0, err
-	}
-	if err := request.Validate(); err != nil {
-		return 0, err
-	}
-	cwd := request.HostCWD
-	if cwd == "" {
-		cwd = instance.Root
-	}
-	resolved, err := r.ResolveRoot(ctx, cwd)
-	if err != nil {
-		return 0, err
-	}
-	containerCWD, err := tobari.MapHostCWD(instance.Root, resolved)
-	if err != nil {
-		if request.CWDExplicit {
-			return 0, err
-		}
-		containerCWD = "/workspace"
-	}
-	args := []string{"exec", "-i"}
-	if request.TTY {
-		args = append(args, "-t")
-	}
-	uid, gid := currentIDs()
-	args = append(
-		args, "--user", strconv.Itoa(uid)+":"+strconv.Itoa(gid),
-		"--workdir", containerCWD, instance.Container,
-	)
-	args = append(args, request.Command...)
-	err = r.runner.Run(ctx, args, os.Environ(), in, out, errOut)
-	if err == nil {
-		return 0, nil
-	}
-	var exitError *exec.ExitError
-	if errors.As(err, &exitError) {
-		return exitError.ExitCode(), nil
-	}
-	type exitCoder interface{ ExitCode() int }
-	var coded exitCoder
-	if errors.As(err, &coded) {
-		return coded.ExitCode(), nil
-	}
-	return 0, err
-}
-
 func (r *Runtime) ClusterLogs(ctx context.Context, state tobari.State, request tobari.LogRequest) ([]byte, error) {
 	if err := state.Validate(); err != nil {
 		return nil, err
@@ -1555,81 +1160,10 @@ func (r *Runtime) ClusterLogs(ctx context.Context, state tobari.State, request t
 	return output.Bytes(), nil
 }
 
-func (r *Runtime) TobariLogs(ctx context.Context, instance tobari.Instance, request tobari.LogRequest) ([]byte, error) {
-	if err := instance.Validate(); err != nil {
-		return nil, err
-	}
-	if err := request.ValidateTobari(); err != nil {
-		return nil, err
-	}
-	data, err := r.runner.Output(
-		ctx, []string{"logs", "--tail", strconv.Itoa(request.Tail), instance.Container}, os.Environ(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("read Tobari logs: %w", err)
-	}
-	if len(data) > maxLogBytes {
-		return nil, fmt.Errorf("log output exceeds %d bytes", maxLogBytes)
-	}
-	return data, nil
-}
-
-// Detach removes one exact container and network, preserving home by default.
-func (r *Runtime) Detach(
-	ctx context.Context, state tobari.State, instance tobari.Instance, purge bool,
-) (tobari.State, error) {
-	if err := state.Validate(); err != nil {
-		return tobari.State{}, err
-	}
-	stored, found := state.Find(instance.ID)
-	if !found || stored != instance {
-		return tobari.State{}, fmt.Errorf("Tobari target does not match persisted state")
-	}
-	if err := r.verifyOwnedTobari(ctx, "container", instance.Container, instance.ID); err != nil {
-		return tobari.State{}, err
-	}
-	if output, err := r.runner.Output(ctx, []string{"rm", "-f", instance.Container}, os.Environ()); err != nil {
-		return tobari.State{}, fmt.Errorf("remove Tobari container: %w: %s", err, boundedDiagnostic(output))
-	}
-	if output, err := r.runner.Output(
-		ctx, []string{"network", "disconnect", instance.Network, gatewayContainer}, os.Environ(),
-	); err != nil {
-		return tobari.State{}, fmt.Errorf("disconnect Gateway from Tobari network: %w: %s", err, boundedDiagnostic(output))
-	}
-	if err := r.verifyOwnedTobari(ctx, "network", instance.Network, instance.ID); err != nil {
-		return tobari.State{}, err
-	}
-	if output, err := r.runner.Output(ctx, []string{"network", "rm", instance.Network}, os.Environ()); err != nil {
-		return tobari.State{}, fmt.Errorf("remove Tobari network: %w: %s", err, boundedDiagnostic(output))
-	}
-	if purge {
-		if err := r.verifyOwnedTobari(ctx, "volume", instance.HomeVolume, instance.ID); err != nil {
-			return tobari.State{}, err
-		}
-		if output, err := r.runner.Output(ctx, []string{"volume", "rm", instance.HomeVolume}, os.Environ()); err != nil {
-			return tobari.State{}, fmt.Errorf("remove Tobari home: %w: %s", err, boundedDiagnostic(output))
-		}
-	}
-	remaining := make([]tobari.Instance, 0, len(state.Tobari)-1)
-	for _, candidate := range state.Tobari {
-		if candidate.ID != instance.ID {
-			remaining = append(remaining, candidate)
-		}
-	}
-	state.Tobari = remaining
-	if err := r.writeState(state); err != nil {
-		return tobari.State{}, fmt.Errorf("persist detached Tobari: %w", err)
-	}
-	return state, nil
-}
-
 // ClusterDown removes exact shared resources after application-level emptiness validation.
 func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge bool) error {
 	if err := state.Validate(); err != nil {
 		return err
-	}
-	if len(state.Tobari) != 0 {
-		return fmt.Errorf("cluster contains attached Tobari")
 	}
 	if err := r.startClusterReconcile(clusterOperationDown); err != nil {
 		return fmt.Errorf("start cluster reconcile journal: %w", err)
@@ -1885,26 +1419,30 @@ func (r *Runtime) checkCredentialConfigAt(path string) (string, doctor.CheckStat
 		}
 		return "", doctor.CheckStatusPass
 	}
-	var header struct {
-		Version string `json:"version"`
-	}
-	if err := json.Unmarshal(data, &header); err != nil {
+	var shape map[string]json.RawMessage
+	if err := json.Unmarshal(data, &shape); err != nil {
 		return "credentials.json is not valid JSON", doctor.CheckStatusFail
 	}
-	switch header.Version {
-	case "v1":
+	var version string
+	if raw, ok := shape["version"]; !ok || json.Unmarshal(raw, &version) != nil || version != "v1" {
+		return "credentials.json must use schema V1", doctor.CheckStatusFail
+	}
+	_, hasProfiles := shape["profiles"]
+	_, hasContexts := shape["contexts"]
+	switch {
+	case hasProfiles && !hasContexts:
 		var document struct {
 			Version  string                       `json:"version"`
 			Profiles map[string]credentialProfile `json:"profiles"`
 		}
-		if err := decodeStrictJSON(data, &document); err != nil || document.Profiles == nil {
-			return "credentials.json does not match schema v1", doctor.CheckStatusFail
+		if err := decodeStrictJSON(data, &document); err != nil || document.Version != "v1" || document.Profiles == nil {
+			return "credentials.json does not match Context credential schema V1", doctor.CheckStatusFail
 		}
 		if detail, status := validateProfiles(document.Profiles, ""); status != doctor.CheckStatusPass {
 			return detail, status
 		}
-		return "credential profile metadata matches schema v1", doctor.CheckStatusPass
-	case "v2":
+		return "credential profile metadata matches Context credential schema V1", doctor.CheckStatusPass
+	case hasContexts && !hasProfiles:
 		var document struct {
 			Version  string `json:"version"`
 			Contexts map[string]struct {
@@ -1913,8 +1451,8 @@ func (r *Runtime) checkCredentialConfigAt(path string) (string, doctor.CheckStat
 				GraphQLEndpoints []tobari.GraphQLEndpoint     `json:"graphql_endpoints"`
 			} `json:"contexts"`
 		}
-		if err := decodeStrictJSON(data, &document); err != nil || document.Contexts == nil {
-			return "credentials.json does not match aggregate schema v2", doctor.CheckStatusFail
+		if err := decodeStrictJSON(data, &document); err != nil || document.Version != "v1" || document.Contexts == nil {
+			return "credentials.json does not match aggregate credential schema V1", doctor.CheckStatusFail
 		}
 		for contextID, projected := range document.Contexts {
 			if err := tobari.ValidateContextID(contextID); err != nil || tobari.ValidateName(projected.Name) != nil || projected.Profiles == nil {
@@ -1934,9 +1472,9 @@ func (r *Runtime) checkCredentialConfigAt(path string) (string, doctor.CheckStat
 				return detail, status
 			}
 		}
-		return "credential profile metadata matches aggregate schema v2", doctor.CheckStatusPass
+		return "credential profile metadata matches aggregate credential schema V1", doctor.CheckStatusPass
 	default:
-		return "credentials.json has an unsupported schema", doctor.CheckStatusFail
+		return "credentials.json does not match a current credential schema", doctor.CheckStatusFail
 	}
 }
 

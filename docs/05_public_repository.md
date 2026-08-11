@@ -127,7 +127,7 @@ Before each public release, verify:
 - checksums and any provenance or signatures are present and verified;
 - archives contain only intended files;
 - installation instructions work in a clean environment;
-- release notes disclose compatibility, security, and migration impact;
+- release notes disclose contract and security impact;
 - no artifact, Formula, URL, log, or metadata contains a forbidden identifier.
 
 For an official OCI image publication, also verify the canonical image source,
@@ -155,20 +155,13 @@ validation is cache-only and has no package-write permission; only the
 main-push job may publish moving `latest`/`main` and immutable
 `sha-<commit>` development identities. Routine CLI startup must use a reviewed
 manifest digest rather than those moving tags.
-The reviewed Gateway API-3 index was built from source revision
-`328196221c5be2861b67ec51339d0184b04c6b31`; the compatible Auth Broker API-2
-index was built from source revision
-`a3fedb66ad5a72c19d6721f3f8da49852882ced8`. Both are anonymously retrievable
-for Linux amd64/arm64 and expose the reviewed API/role labels, non-root
-`1000:1000` user, entrypoint, source, revision, and license metadata. Routine
-startup pins Gateway
-`sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
-and Auth Broker
-`sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`
-in `versions.env`; moving tags are not runtime authority. An unpublished
-marker, invented digest, wrong repository, or moving identity remains a
-public-boundary failure. A documented historical API-label/pin mismatch may
-remain in public source only while the release gate rejects it mechanically.
+All Tobari-owned component APIs are V1. The official Gateway and Auth Broker V1
+indexes have not yet been published and reviewed, so development source records
+the paired `unpublished` marker in `versions.env`. Public and release profiles
+reject that marker; it is not runtime authority. Publication requires reviewed
+immutable Linux amd64/arm64 manifest digests, API/role labels, non-root
+`1000:1000` users, entrypoints, source revisions, license metadata, and
+anonymous retrieval for both components.
 
 Source-build identity may contain only the deterministic public fields above.
 Artifact and repository scans reject local absolute paths, usernames, branch
@@ -176,20 +169,14 @@ names, dirty content, credentials, or invented digest authority; the literal
 `unknown` commit remains visibly incompatible rather than becoming a release
 identity.
 
-Those digests are historical publication evidence only. The current source
-contract requires Gateway API label 4 and Auth Broker API label 3 for the
-closed OpenAI Codex and Anthropic Claude credential plans. The published
-Gateway API-3/Auth Broker API-2 pins predate that contract and are incompatible
-with this source revision; normal standard startup must reject them rather
-than silently disabling or misinterpreting the new plans. Contributors may use
-the explicit `task build:dev` development images and `bin/tobari-dev`, but
-must separately build the applicable local agent runtime. Those local images
-are not release authority. New immutable multi-architecture
-digests require the complete image, license, confidentiality, synthetic, and
-manual live-login review before `versions.env` may advance.
-`GATEWAY_IMAGE_API` and `AUTH_BROKER_IMAGE_API` advance atomically with those
-digests; `task release:check` must fail while either differs from the canonical
-source Dockerfile label.
+Contributors may use the explicit `task build:dev` development images and
+`bin/tobari-dev`, but must separately build the applicable local agent runtime.
+Those local images are not release authority. New immutable V1
+multi-architecture digests require the complete image, license,
+confidentiality, synthetic, and manual live-login review before `versions.env`
+may replace both markers atomically. `task release:check` fails unless both API
+authorities equal the canonical source Dockerfile labels and both image
+references are reviewed immutable digests.
 
 See [Release](06_release.md) for the artifact workflow.
 

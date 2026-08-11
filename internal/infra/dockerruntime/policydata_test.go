@@ -19,8 +19,7 @@ import (
 
 func learnedRuleFixture(t *testing.T, path string) tobari.LearnedPolicyRule {
 	t.Helper()
-	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{
-		Timestamp:   "2026-07-30T10:41:11Z",
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
 		RequestID:   "7185da2688d7469aae9cd9068e920b0b",
 		ContextID:   "01912345-6789-7abc-8def-0123456789ad",
 		ContextName: "default",
@@ -46,8 +45,7 @@ func learnedRuleFixture(t *testing.T, path string) tobari.LearnedPolicyRule {
 
 func deniedRuleFixture(t *testing.T, path string) tobari.PolicyDenyRule {
 	t.Helper()
-	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{
-		Timestamp:   "2026-07-30T10:41:11Z",
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
 		RequestID:   "8185da2688d7469aae9cd9068e920b0b",
 		ContextID:   "01912345-6789-7abc-8def-0123456789ad",
 		ContextName: "default",
@@ -91,7 +89,7 @@ func writePolicyFixture(t *testing.T, state tobari.State, data string) {
 	}
 }
 
-const minimalPolicyDataFixture = `{"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}
+const minimalPolicyDataFixture = `{"tobari":{"schema_version":1,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}
 `
 
 func TestPolicyDataValidatesDeclaredGraphQLEndpoints(t *testing.T) {
@@ -102,7 +100,7 @@ func TestPolicyDataValidatesDeclaredGraphQLEndpoints(t *testing.T) {
 		endpoints string
 		wantError bool
 	}{
-		{name: "absent remains legacy HTTP", endpoints: ""},
+		{name: "absent means ordinary HTTP only", endpoints: ""},
 		{name: "empty declaration", endpoints: `,"graphql_endpoints":[]`},
 		{name: "exact endpoint", endpoints: `,"graphql_endpoints":[` + validEndpoint + `]`},
 		{name: "duplicate", endpoints: `,"graphql_endpoints":[` + validEndpoint + `,` + validEndpoint + `]`, wantError: true},
@@ -113,7 +111,7 @@ func TestPolicyDataValidatesDeclaredGraphQLEndpoints(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			state := tobari.State{PolicyDirectory: filepath.Join(t.TempDir(), "policy")}
-			fixture := `{"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[]` + test.endpoints + `,"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}`
+			fixture := `{"tobari":{"schema_version":1,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[]` + test.endpoints + `,"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}`
 			writePolicyFixture(t, state, fixture)
 			file, err := readPolicyData(state.PolicyDirectory)
 			if test.wantError {
@@ -147,8 +145,7 @@ func (concurrentPolicyRunner) Output(_ context.Context, args, _ []string) ([]byt
 
 func contextRuleFixture(t *testing.T, manifest tobari.ContextManifest, projectID, path string) tobari.LearnedPolicyRule {
 	t.Helper()
-	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{
-		Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("a", 32),
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("a", 32),
 		ContextID: manifest.ID, ContextName: manifest.Name,
 		ProjectID: projectID, ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: path,
@@ -166,8 +163,7 @@ func contextRuleFixture(t *testing.T, manifest tobari.ContextManifest, projectID
 
 func contextDenyFixture(t *testing.T, manifest tobari.ContextManifest, projectID, path string) tobari.PolicyDenyRule {
 	t.Helper()
-	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{
-		Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("b", 32),
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("b", 32),
 		ContextID: manifest.ID, ContextName: manifest.Name,
 		ProjectID: projectID, ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: path,
@@ -472,7 +468,7 @@ func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testi
 	writePolicyFixture(t, state, `{
   "host_owned": {"keep": true},
   "tobari": {
-    "schema_version": 2,
+    "schema_version":1,
     "boundary": {
       "ports": {"https": [443], "http": [8080]},
       "authorities": [],
@@ -582,7 +578,7 @@ func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) 
 	state := runtimeState(root)
 	writePolicyFixture(t, state, `{
   "tobari": {
-    "schema_version": 2,
+    "schema_version":1,
     "boundary": {
       "ports": {"https": [443], "http": [8080]},
       "authorities": [],
@@ -703,7 +699,7 @@ func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 	root := t.TempDir()
 	state := runtimeState(root)
 	dataPath := filepath.Join(state.PolicyDirectory, "data.json")
-	writePolicyFixture(t, state, `{"host_owned":{"revision":1},"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}`+"\n")
+	writePolicyFixture(t, state, `{"host_owned":{"revision":1},"tobari":{"schema_version":1,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}`+"\n")
 	runner := &recordingRunner{}
 	runner.onOutput = func(call int) {
 		if call != 1 {
@@ -711,7 +707,7 @@ func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 		}
 		if err := os.WriteFile(
 			dataPath,
-			[]byte(`{"host_owned":{"revision":2},"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}`+"\n"),
+			[]byte(`{"host_owned":{"revision":2},"tobari":{"schema_version":1,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_denies":[]}}}`+"\n"),
 			0o600,
 		); err != nil {
 			t.Fatal(err)
@@ -736,11 +732,11 @@ func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 func TestManagedPolicyDataRejectsAmbiguousOrUnsafeHostFiles(t *testing.T) {
 	t.Parallel()
 	tests := map[string]func(*testing.T, tobari.State){
-		"legacy flat shape": func(t *testing.T, state tobari.State) {
+		"unsupported flat shape": func(t *testing.T, state tobari.State) {
 			writePolicyFixture(t, state, `{"tobari":{"allowed_hosts":["api.github.com"],"learned_allow_rules":[]}}`)
 		},
 		"duplicate key": func(t *testing.T, state tobari.State) {
-			writePolicyFixture(t, state, `{"tobari":{"schema_version":2,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_allows":[],"learned_denies":[]}}}`)
+			writePolicyFixture(t, state, `{"tobari":{"schema_version":1,"boundary":{"ports":{"https":[443],"http":[8080]},"authorities":[],"methods":{"read":["GET"],"write":[]}},"credentials":{},"rules":{"baseline_denies":[],"learned_allows":[],"learned_allows":[],"learned_denies":[]}}}`)
 		},
 		"data symlink": func(t *testing.T, state tobari.State) {
 			writePolicyFixture(t, state, minimalPolicyDataFixture)

@@ -173,30 +173,6 @@ class VaultTests(unittest.TestCase):
         with self.assertRaisesRegex(VaultError, "vault_version_unsupported"):
             self.store.load(CONTEXT_A, KEY)
 
-    def test_schema_one_payload_is_strictly_migrated_on_read(self) -> None:
-        record = new_record(CANARY)
-        del record["credential_kind"]
-        legacy = {"schema_version": 1, "providers": {"github": record}}
-        self.store.save(CONTEXT_A, KEY, empty_payload())
-        path = self.root / CONTEXT_A / "vault.enc"
-        envelope = json.loads(path.read_text(encoding="utf-8"))
-        nonce = os.urandom(12)
-        envelope["nonce"] = vault_module._b64encode(nonce)
-        envelope["ciphertext"] = vault_module._b64encode(
-            AESGCM(KEY).encrypt(
-                nonce,
-                json.dumps(legacy, separators=(",", ":"), sort_keys=True).encode(),
-                vault_module._associated_data(CONTEXT_A),
-            )
-        )
-        write_document(path, envelope)
-        loaded = self.store.load(CONTEXT_A, KEY)
-        self.assertEqual(loaded["schema_version"], 2)
-        self.assertEqual(
-            loaded["providers"]["github"]["credential_kind"],
-            "static_primary_secret",
-        )
-
     def test_atomic_failure_preserves_prior_valid_vault(self) -> None:
         original = self.payload(b"first-value")
         replacement = self.payload(b"second-value")

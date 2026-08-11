@@ -31,7 +31,7 @@ func authLoginSpec() CommandSpec {
 				{
 					Name: "--method", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "AWS login method. Omission selects identity-center for backward compatibility; console selects AWS CLI console-based local-development login. The flag requires an explicit provider and is invalid for other providers.",
+					Description:   "AWS login method. Omission selects identity-center; console selects AWS CLI console-based local-development login. The flag requires an explicit provider and is invalid for other providers.",
 					AllowedValues: []string{string(authcmd.LoginMethodIdentityCenter), string(authcmd.LoginMethodConsole)},
 					Requires:      []string{"--provider"},
 				},
@@ -200,7 +200,7 @@ func authResultOutput() CommandOutput {
 			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Context-scoped Workspace projection observations; exact re-entry actions appear only for stale or missing projections.", Fields: workspaceActivationOutputFields()},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 4,
+		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
 	}
 }
 
@@ -209,7 +209,7 @@ func authStatusOutput() CommandOutput {
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "context", Type: OutputFieldTypeString, Description: "Context display name selected by this task; it is not authority."},
-			{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority, a display-only synthetic default, or legacy state awaiting migration.", Enum: []string{"persisted", "synthetic_default", "legacy_unmigrated"}},
+			{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
 			{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Context authority identity, or null before authority is persisted.", Nullable: true},
 			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for encrypted Context vaults.", Enum: []string{"macos_keychain", "xdg_file"}},
 			{Name: "broker_state", Type: OutputFieldTypeString, Description: "Observed locked, ready, or unavailable Auth Broker state.", Enum: []string{"locked", "ready", "unavailable"}},
@@ -217,7 +217,6 @@ func authStatusOutput() CommandOutput {
 				Type: OutputFieldTypeObject, Description: "One installed provider status.", Fields: []OutputField{
 					{Name: "provider", Type: OutputFieldTypeString, Description: "Installed provider ID."},
 					{Name: "state", Type: OutputFieldTypeString, Description: "Provider credential state.", Enum: []string{"configured", "not_configured", "unavailable"}},
-					{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Compatibility projection matching state=\"configured\"."},
 					{Name: "account_label", Type: OutputFieldTypeString, Description: "Secret-free account label, or null.", Nullable: true},
 					{Name: "credential_revision", Type: OutputFieldTypeString, Description: "Secret-free credential revision, or null.", Nullable: true},
 				},
@@ -225,7 +224,7 @@ func authStatusOutput() CommandOutput {
 			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Context-scoped Workspace projection observations with explicit coverage; configured provider state alone does not imply re-entry.", Fields: workspaceActivationOutputFields()},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 4,
+		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
 	}
 }
 

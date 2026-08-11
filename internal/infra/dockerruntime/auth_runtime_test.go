@@ -182,10 +182,10 @@ func TestObserveWorkspaceActivationUsesExactRegistryAndBrokerBindingState(t *tes
 		wantSummary  authbroker.WorkspaceActivationState
 		wantAction   bool
 	}{
-		{name: "current", registry: "matching", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionCurrent, wantSummary: authbroker.WorkspaceActivationReady},
-		{name: "broker stale", registry: "matching", bindingState: "stale", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionStale, wantSummary: authbroker.WorkspaceActivationReentryRequired, wantAction: true},
-		{name: "missing registry", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionMissing, wantSummary: authbroker.WorkspaceActivationReentryRequired, wantAction: true},
-		{name: "stale revision", registry: "stale", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionStale, wantSummary: authbroker.WorkspaceActivationReentryRequired, wantAction: true},
+		{name: "current", registry: "matching", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionCurrent, wantSummary: authbroker.WorkspaceActivationReady},
+		{name: "broker stale", registry: "matching", bindingState: "stale", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionStale, wantSummary: authbroker.WorkspaceActivationReentryRequired, wantAction: true},
+		{name: "missing registry", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionMissing, wantSummary: authbroker.WorkspaceActivationReentryRequired, wantAction: true},
+		{name: "stale revision", registry: "stale", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialConfigured, CredentialRevision: authDoctorRevision}, want: authbroker.WorkspaceProviderProjectionStale, wantSummary: authbroker.WorkspaceActivationReentryRequired, wantAction: true},
 		{name: "provider unavailable", registry: "matching", status: authbroker.ProviderStatus{Provider: "github", State: authbroker.ProviderCredentialUnavailable}, want: authbroker.WorkspaceProviderProjectionUnavailable, wantSummary: authbroker.WorkspaceActivationUnavailable},
 	}
 	for _, test := range tests {
@@ -259,7 +259,7 @@ func TestObserveWorkspaceActivationMixedProviderUncertaintyDoesNotOfferAction(t 
 		t.Fatal(err)
 	}
 	statuses := []authbroker.ProviderStatus{
-		{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: authDoctorRevision},
+		{Provider: "github", State: authbroker.ProviderCredentialConfigured, CredentialRevision: authDoctorRevision},
 		{Provider: "aws", State: authbroker.ProviderCredentialUnavailable},
 	}
 	observed := fixture.runtime.observeWorkspaceActivation(

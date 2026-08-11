@@ -551,12 +551,11 @@ func (s ProviderCredentialState) Validate() error {
 
 // ProviderStatus is one provider entry in the exhaustive Context-scoped auth
 // status result. Configuration metadata is secret-free and cannot carry a
-// primary secret or project-bound handle. Configured is retained as an explicit
-// compatibility projection and is meaningful only with the accompanying State.
+// primary secret or project-bound handle. State is the sole configuration
+// authority.
 type ProviderStatus struct {
 	Provider           string                  `json:"provider"`
 	State              ProviderCredentialState `json:"state"`
-	Configured         bool                    `json:"configured"`
 	AccountLabel       *string                 `json:"account_label"`
 	CredentialRevision string                  `json:"credential_revision"`
 }
@@ -569,16 +568,10 @@ func (s ProviderStatus) Validate() error {
 		return err
 	}
 	if s.State == ProviderCredentialConfigured {
-		if !s.Configured {
-			return fmt.Errorf("configured provider state requires configured=true")
-		}
 		if !revisionPattern.MatchString(s.CredentialRevision) {
 			return fmt.Errorf("configured provider status credential revision is invalid")
 		}
 	} else {
-		if s.Configured {
-			return fmt.Errorf("provider state %q requires configured=false", s.State)
-		}
 		if s.CredentialRevision != "" {
 			return fmt.Errorf("provider state %q cannot declare a credential revision", s.State)
 		}
@@ -617,9 +610,8 @@ func (r StatusResult) Validate() error {
 	if err := r.ContextState.Validate(); err != nil {
 		return err
 	}
-	if r.ContextState == tobari.ContextObservationSyntheticDefault || r.ContextState == tobari.ContextObservationLegacyUnmigrated {
-		if (r.ContextState == tobari.ContextObservationSyntheticDefault && r.Context != tobari.DefaultContextName) ||
-			r.ContextID != "" || r.BrokerState != BrokerStateUnavailable {
+	if r.ContextState == tobari.ContextObservationSyntheticDefault {
+		if r.Context != tobari.DefaultContextName || r.ContextID != "" || r.BrokerState != BrokerStateUnavailable {
 			return fmt.Errorf("non-persisted auth status claims persisted Context authority")
 		}
 	} else if !contextIDPattern.MatchString(r.ContextID) {

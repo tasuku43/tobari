@@ -22,14 +22,14 @@ func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *t
 			PolicyMode:    tobari.ContextPolicyModeAdvanced,
 			Image:         tobari.BuiltinImageSelector,
 		},
-		rego: []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 4; data.tobari.schema_version == 2 }\n"),
+		rego: []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 1; data.tobari.schema_version == 1 }\n"),
 	}
 	transformed, err := transformContextRego(item)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(transformed, []byte("package tobari.contexts.c0191234567897abc8def0123456789ad.http")) ||
-		!bytes.Contains(transformed, []byte("input.schema_version == 5")) ||
+		!bytes.Contains(transformed, []byte("input.schema_version == 1")) ||
 		!bytes.Contains(transformed, []byte("data.tobari_contexts[input.principal.context_id]")) {
 		t.Fatalf("advanced Context policy was not safely namespaced:\n%s", transformed)
 	}
@@ -84,28 +84,6 @@ func TestCredentialProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) 
 	}
 }
 
-func TestAdvancedPolicyMigratesPreviousSourceInputSchema(t *testing.T) {
-	item := aggregateContext{
-		manifest: tobari.ContextManifest{
-			SchemaVersion: tobari.ContextSchemaVersion,
-			ID:            "01912345-6789-7abc-8def-0123456789ad",
-			Name:          "restricted",
-			AgentProfile:  tobari.DefaultProfile,
-			PolicyMode:    tobari.ContextPolicyModeAdvanced,
-			Image:         tobari.BuiltinImageSelector,
-		},
-		rego: []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 3; data.tobari.schema_version == 2 }\n"),
-	}
-	transformed, err := transformContextRego(item)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(transformed, []byte("input.schema_version == 3")) ||
-		!bytes.Contains(transformed, []byte("input.schema_version == 5")) {
-		t.Fatalf("previous Context input schema was not migrated:\n%s", transformed)
-	}
-}
-
 func TestAggregateRejectsUnsupportedOrAmbiguousSourceInputSchema(t *testing.T) {
 	t.Parallel()
 	manifest := tobari.ContextManifest{
@@ -118,7 +96,7 @@ func TestAggregateRejectsUnsupportedOrAmbiguousSourceInputSchema(t *testing.T) {
 	}
 	for _, source := range []string{
 		"package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 2 }\n",
-		"package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 3; input.schema_version == 4 }\n",
+		"package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 1; input.schema_version == 2 }\n",
 	} {
 		if _, err := transformContextRego(aggregateContext{manifest: manifest, rego: []byte(source)}); err == nil {
 			t.Fatalf("unsupported policy source was accepted:\n%s", source)
@@ -162,7 +140,7 @@ func TestGuidedAggregateUsesCanonicalEvaluatorInsteadOfContextRego(t *testing.T)
 		t.Fatal(err)
 	}
 	if bytes.Contains(projected, []byte("input.schema_version == 2")) ||
-		!bytes.Contains(projected, []byte("input.schema_version == 5")) ||
+		!bytes.Contains(projected, []byte("input.schema_version == 1")) ||
 		!bytes.Contains(projected, []byte("broker_provider")) {
 		t.Fatalf("guided aggregate did not use the current evaluator:\n%s", projected)
 	}

@@ -204,8 +204,8 @@ disabled, so neither path is direct egress.
 ## Thesis 3: Authentication handling is pluggable and real credentials stay outside Workspaces
 
 Tobari does not inherit host authentication material. Tool-native login inside
-one Tobari home remains the universal default, and the retained static
-`managed` adapter remains compatible. The supported Auth Broker route adds one
+one Tobari home remains the universal default, and the static `managed`
+adapter remains a bounded supported route. The supported Auth Broker route adds one
 Context-owned credential acquired on the trusted host and stores it in an
 authenticated encrypted vault. Each eligible Workspace receives only a
 distinct random handle bound to its stable Context, project, provider,
@@ -234,10 +234,12 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   memory. Cluster reconciliation unlocks it with key bytes transferred through
   stdin. Context vaults are keyed by stable Context ID and bind their version
   and Context ID as authenticated data.
-- Valid schema-v1 static providers remain supported and normalize into the
-  schema-v2 projection. Schema v2 adds only typed, reviewed built-in credential
-  plans; owner manifests still contain no secrets, executable shell, refresh
-  logic, or signer and remain single-secret protected-stdin imports.
+- All Tobari-owned schemas and component APIs are V1 before first publication.
+  Readers accept exactly V1 and reject every other version; there is no legacy
+  migration or compatibility path. Owner manifests and the normalized
+  projection share that version while reviewed built-ins use typed closed
+  plans within it. Owner manifests still contain no secrets, executable shell,
+  refresh logic, or signer and remain single-secret protected-stdin imports.
 - Provider-native executables do not enter the Auth Broker image. Reviewed
   GitHub, AWS, Datadog pup, Codex, and Claude acquisition drivers execute fixed
   argv against verified host CLI identities in private temporary homes with
@@ -245,7 +247,7 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   GitHub driver is API-authentication-only, opens exactly the fixed device page
   or leaves the same manual URL, and configures no Git protocol or credential
   helper.
-  AWS selection is explicit: the backward-compatible `identity-center` method
+  AWS selection is explicit: the `identity-center` method
   uses the fixed device flow, while `console` uses AWS CLI 2.32-or-newer's
   cross-device local-development login. Console mode opens only the strict
   region-bound AWS authorization URL emitted by that fixed process and leaves
@@ -409,8 +411,8 @@ directory.
 - Root-index and instance-state tests prove canonical path resolution, ordered
   ancestor-candidate selection, explicit nested-root creation, stable IDs,
   one-Workspace-per-canonical-root enforcement, atomic state updates, journal
-  recovery at multi-file boundaries, and explicit handling of corrupt or legacy
-  state.
+  recovery at multi-file boundaries, and fail-closed handling of corrupt or
+  unsupported-version state.
 - State and Docker labels identify the one installation-owned cluster and each
   exact logical Tobari resource.
 - Lifecycle integration tests create multiple roots, prove network separation,
@@ -579,8 +581,7 @@ administration project.
   indentation never create policy identity.
   Redirected and
   machine-readable `policy review` remains read-only. `policy candidates`
-  remains the machine discovery surface, and `policy tail` remains a
-  compatibility projection. `policy rules` is the exhaustive inventory of
+  remains the machine discovery surface. `policy rules` is the exhaustive inventory of
   current CLI-owned learned decisions; `policy reset --id` removes exactly one
   Allow or exact Deny and returns that effect to default deny. The discovery
   queue turns only learnable retained denials into unique exact
@@ -649,7 +650,7 @@ host derives that binding for Gateway and OPA from its network principal.
 The installation runs one shared Gateway, one shared OPA, and one shared locked
 Auth Broker for every Context.
 The current Context is only the default when a host invocation omits a Context;
-changing it cannot migrate or mutate existing Tobari or shared enforcement.
+changing it cannot retarget or mutate existing Tobari or shared enforcement.
 Tool-native authentication state remains below each Workspace home and is not a
 Context secret. A brokered credential is owned once by the stable Context and
 enables every permanently bound Workspace to receive a different project-bound
@@ -670,9 +671,8 @@ a handle selects authority without the trusted principal and OPA allow.
   staged row through one atomic Apply; Git presents its complete source choice
   and uses the same stage/Apply vocabulary. Partial, redirected, and JSON
   wizard attempts fail before mutation. `config shell` retains only `PS1`, `TERM`,
-  `COLORTERM`, and `NO_COLOR`; new Contexts and Contexts migrated from schemas
-  1–3 inherit exported `PS1`, while schema-4 migration preserves its existing
-  shell policy. An absent export retains Tobari's built-in prompt. `config git`
+  `COLORTERM`, and `NO_COLOR`; a V1 Context inherits exported `PS1` by default.
+  An absent export retains Tobari's built-in prompt. `config git`
   owns one atomic `user.name`/`user.email` fallback and defaults to no
   projection so personal identity is opt-in. Git inheritance reads only those
   two host-global values for the stable Workspace root. No credential,
@@ -713,10 +713,10 @@ a handle selects authority without the trusted principal and OPA allow.
   terminal cancellation and explicit-empty Context rejection with zero
   mutation, binding of Apply to the Context shown across concurrent default
   changes, one atomic multi-row shell write, fixed shell and Git inventories,
-  schema migration, bounded host Git
+  exact V1 persistence, bounded host Git
   calls with an exact child-environment allowlist, lower-precedence read-only
   projection, and exclusion of authentication and executable Git settings.
-- Infrastructure tests prove legacy default migration, owner-only separate
+- Infrastructure tests prove exact V1 initialization, owner-only separate
   stores, permanent Tobari bindings, aggregate read-only OPA mounts, and
   selected agent-profile digests.
 - Runtime tests prove the recipe build context excludes policy and credential

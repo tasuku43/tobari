@@ -7,6 +7,8 @@
 - Scope: Product, architecture, security, authentication, and harness
 - Supersedes: None
 - Superseded by: ADR 0018 supersedes the single-active-Context and deferred-routing parts
+- Revised by: ADR 0027 removes retained pre-public migration and compatibility
+  clauses and resets the current Context contract to exact V1
 
 ## Context
 

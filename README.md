@@ -137,9 +137,9 @@ needs an exact approval; `POST /graphql` alone cannot authorize unrelated
 operations. Query documents, variables, arguments, and response bodies are not
 retained in policy, audit, or CLI output. By default, tool authentication prerequisites belong to that tool
 and its per-Tobari home. The supported brokered route recognizes only a strict
-provider-declared handle at an exact HTTPS authority/header binding, and the
-retained Gateway managed adapter remains available for the earlier static
-profile-injection design.
+provider-declared handle at an exact HTTPS authority/header binding. The
+static Gateway `managed` adapter is also a bounded current route for explicit
+profile injection.
 
 ## Requirements
 
@@ -163,19 +163,13 @@ and standard Linux Docker Engine use the same Docker CLI adapter.
 Container bases are pinned by immutable digest in
 [`versions.env`](internal/infra/runtimeassets/assets/versions.env).
 
-Gateway and Auth Broker are published as Linux amd64/arm64 OCI indexes and
-selected by reviewed immutable manifest digests. Moving `main` and `latest`
-tags are development publication channels only. Contributors can exercise the
-complete local source path with `task build:dev` and `bin/tobari-dev` without
-changing the official digest authority.
-
-The current source contract is Gateway API 5 and Auth Broker API 3. The
-reviewed immutable pins in `versions.env` are historical Gateway API-3/Auth
-Broker API-2 publications that predate the Codex and Claude broker plans and
-are incompatible with this source revision. Standard startup must reject those
-old pins. Until new immutable reviewed indexes are published, use the explicit
-`task build:dev` and `bin/tobari-dev` path for this source; development images
-are not release authority.
+Gateway and Auth Broker canonical sources both declare API V1. Official Linux
+amd64/arm64 V1 indexes have not yet been published and reviewed, so
+`versions.env` records paired `unpublished` markers. Moving `main` and `latest`
+tags and local builds are development channels only. Contributors exercise the
+complete source path with `task build:dev` and `bin/tobari-dev`; public and
+release gates remain blocked until reviewed immutable V1 digests replace both
+markers atomically.
 
 Inspect the binary before any cluster mutation:
 
@@ -258,7 +252,7 @@ directory. Do not use the filesystem root, your home directory, or a Tobari
 configuration/state directory as a project root.
 
 This canonical source revision deliberately blocks the ordinary release binary
-until compatible reviewed Gateway API-5/Auth Broker API-3 image pins exist.
+until reviewed Gateway/Auth Broker API-V1 image pins exist.
 For the source walkthrough, build the development images and bind the command
 name to the absolute development binary in the same host shell. A future
 compatible released binary skips these first three setup lines.
@@ -281,10 +275,9 @@ start the cluster. If a published image is unavailable, inspect
 the host with `tobari doctor` and retry `tobari cluster up`; `doctor` is a
 diagnostic recovery command, not a prerequisite for the normal path.
 The command binding above keeps every later `tobari` example on the same
-development binary. The normal binary continues to use the historical reviewed
-published digests; in this source revision it rejects their API-3/API-2 labels
-because the source requires Gateway API 5 and Auth Broker API 3. The release
-gate rejects publication while that parity mismatch remains.
+development binary. The normal binary has no official component image authority
+while the paired V1 markers are `unpublished`; the release gate rejects
+publication until reviewed immutable digests replace them.
 
 ### 2. Observe a denied request inside Tobari
 
@@ -620,11 +613,6 @@ Detached session + Workspace exists -> tobari delete -> Workspace absent
 `list` shows the stable ID only as diagnostic information, not as a routine
 action input.
 
-The former named lifecycle commands (`attach`, `lower`, `enter`, `lift`, and
-their named shell/exec forms) are rejected with a replacement message; they do
-not create a second lifecycle model. Legacy named state is not guessed or
-automatically migrated.
-
 The base runtime bundles the existing common work-tool baseline: Git, GitHub
 CLI, AWS CLI, curl, jq, Python, and SSH. The agent variants add exact Claude
 Code 2.1.220 or Codex 0.146.0 and their agent-specific dependencies.
@@ -694,7 +682,7 @@ the Chatwork commands the agent may see, and press Enter to save. The selection
 survives detach and re-entry; `CWK_API_TOKEN` remains an opaque Broker handle,
 not a Chatwork token.
 
-### Explicit image compatibility path
+### Explicit runtime image API selection
 
 The default Context starts from the published Tobari runtime base image. This
 is a bootstrap runtime: it is useful for first entry, but ongoing work normally
@@ -762,7 +750,7 @@ prompt. Shell presentation selects host inheritance, an independent literal,
 or the built-in default per variable:
 
 ```sh
-# PS1 inheritance is the default for new Contexts and schema 1–3 migrations.
+# PS1 inheritance is the default for new V1 Contexts.
 export PS1='\[\e[33m\]\u@\h:\w\$ \[\e[0m\]'
 tobari config shell --variable PS1 --source inherit
 
@@ -780,8 +768,7 @@ host shell files. Changes apply to the next `tobari` shell session; existing
 sessions are unchanged. Literal values are stored in the owner-only Context
 manifest, so do not use them for secrets.
 
-Git identity is one atomic fallback pair and is opt-in for every new or
-migrated Context:
+Git identity is one atomic fallback pair and is opt-in for every new Context:
 
 ```sh
 # Resolve only host-global user.name and user.email for each Workspace root.
@@ -929,7 +916,6 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari cluster down [--purge]` | Remove an empty cluster while preserving Auth Broker vaults/root key; purge additionally removes shared CA and active policy-bundle state |
 | `tobari policy review [--tail N] [--format text\|json]` | Installation-wide Permission Inbox: stage exact decisions for one Context on a TTY, then apply the reviewed set once; read-only when redirected |
 | `tobari policy candidates [--tail N] [--format text\|json]` | Discover Context/project-scoped pending exact decisions and opaque IDs |
-| `tobari policy tail [--tail N]` | Compatibility view of the bounded queue with exact allow and deny commands |
 | `tobari policy allow --id ID` | Test, store, and activate one exact observed permission |
 | `tobari policy deny --id ID` | Test, store, and activate one exact Context/project-bound rejection |
 | `tobari policy rules [--format text\|json]` | List current decisions across all Contexts; on a TTY, reset one explicitly |
@@ -956,12 +942,12 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
 | `tobari version [--format text\|json]` | Print deterministic source and runtime resolver identity |
 
-`cluster status --format json` is schema 4 and always includes
+`cluster status --format json` is schema 1 and always includes
 `credential_companion_state` as `ready`, `prepared`, `absent`, or `unavailable`;
 it describes the private
 host process/channel, not a fourth Compose service or credential value.
 
-`cluster status`, `cluster denials`, `policy candidates`, `policy tail`,
+`cluster status`, `cluster denials`, `policy candidates`,
 `policy compactions`, `status`, `list`, and `doctor` are observational and
 never reconcile Docker or create/delete runtime resources. They may clear an
 exact durable journal before selecting logical state. Runtime recovery belongs
@@ -980,7 +966,7 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
   auth/
     providers/*.json      # optional owner-only stdin-import provider manifests
   contexts/
-    active.json           # compatibility-named current/default Context marker
+    active.json           # current/default Context marker
     <name>/
       context.json        # stable Context ID, agent profile, runtime, policy, shell settings
       runtime/
@@ -1008,15 +994,10 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/tobari/
   profiles/default/       # shared read-only agent profile
 ```
 
-On first use of legacy single-active-Context state, Tobari preserves each
-project ID, canonical root, and home only when the legacy current marker,
-cluster paths, Context source, instance state, and root index consistently name
-one valid Context. It then permanently binds that Tobari to the Context's stable
-ID and rewrites the pair-derived index. Conflicting markers, interrupted
-reconcile journals, missing/broken Contexts, unsafe credentials, or incomplete
-project state fail closed with a recovery diagnosis. Historical Context-less
-denials and learned data are not guessed into an actionable permission; repeat
-the denied request to obtain correctly scoped evidence.
+All persisted Tobari-owned state uses exact schema V1. Unsupported-version,
+conflicting, interrupted, unsafe, or incomplete state fails closed with a
+recovery diagnosis. Before first publication there is no state migration;
+development state from another snapshot must be removed and recreated.
 
 OPA sees one read-only, content-addressed cluster projection generated from all
 Context policy sources. The fixed `tobari.http/decision` router selects a
@@ -1058,9 +1039,8 @@ deny-by-default, distinguishes HTTPS from explicitly allowed test-only HTTP,
 restricts methods and paths, and validates credential profile or non-secret
 broker-provider metadata without selecting a real credential. Guided Contexts
 store only `data.json`; one current Tobari-owned evaluator is projected for all
-of them. Advanced Context source targets input schema 4; aggregate generation
-also accepts legacy source schema 3 and rewrites either to Gateway runtime
-schema 5 before activation. A brokered request requires an exact learned allow,
+of them. Advanced Context source and Gateway runtime input both require exact
+schema 1 before activation. A brokered request requires an exact learned allow,
 even when the same host and method exist in the static boundary.
 
 ### Grow and compact learned policy
@@ -1269,24 +1249,12 @@ remains valid; expiry requires `auth login --provider aws` again with the intend
 Temporary role credentials return only to Auth Broker for one standard SigV4
 header set and are never stored or projected. AWS CLI in the Workspace receives
 the same opaque handle in its three credential variables, not real AWS keys.
-The reviewed Gateway API-3 index built from source revision
-`328196221c5be2861b67ec51339d0184b04c6b31` and Auth Broker API-2 index built
-from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8` are anonymously
-retrievable for Linux amd64/arm64. Their platform configurations carry the
-reviewed API/role labels, fixed `1000:1000` non-root user, and entrypoint.
-Routine startup selects the immutable manifest digests recorded in
-[`versions.env`](internal/infra/runtimeassets/assets/versions.env): Gateway
-`sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
-and Auth Broker
-`sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`;
-moving tags remain development conveniences. These selected images include
-the earlier AWS Identity Center path but predate AWS console login and the
-Datadog request path, as well as the OpenAI and Anthropic plans now present in
-canonical source and tests. They are historical publication evidence and are
-incompatible with the current Gateway API-5/Auth Broker API-3 source contract.
-Standard startup must reject them. The new plans are available through
-`task build:dev` and `bin/tobari-dev` only until reviewed immutable pins
-advance; that development path is not release evidence.
+The canonical Gateway and Auth Broker sources both declare API V1. Official
+immutable Linux amd64/arm64 V1 indexes are not yet published and reviewed, so
+[`versions.env`](internal/infra/runtimeassets/assets/versions.env) records
+paired `unpublished` markers. The complete plans are available through
+`task build:dev` and `bin/tobari-dev` until reviewed immutable V1 pins replace
+both markers; that development path is not release evidence.
 The real credential is encrypted at
 `auth/contexts/<context-id>/vault.enc`. macOS stores the installation root key
 in Keychain service `io.tobari.auth-root.v1`; Linux uses owner-only XDG state
@@ -1371,9 +1339,8 @@ provider operations, or a built-in override.
 
 The built-in protected-stdin provider supports cwk at exact
 `api.chatwork.com:443` through `CWK_API_TOKEN`; import it with
-`tobari auth import chatwork`, then re-enter the Workspace. Datadog is no
-longer a new-import path: use `tobari auth login --provider datadog`. Existing encrypted
-legacy Datadog imports remain readable for compatibility.
+`tobari auth import chatwork`, then re-enter the Workspace. Datadog uses
+`tobari auth login --provider datadog` and exact V1 encrypted state.
 
 The repository also includes bounded owner-manifest examples for kubectl and
 TWG. The Kubernetes example creates one complete CA-verified kubeconfig for one
@@ -1392,8 +1359,8 @@ replacement
 would make unrelated URL/body/cookie/header bytes ambiguous, so v1 rejects
 both.
 
-The retained `managed` adapter is the third path. Trusted runtime configuration
-may select the earlier static `credentials.json` plus owner-only
+The static `managed` adapter is the third path. Trusted runtime configuration
+may select the V1 `credentials.json` plus owner-only
 `credentials/` profile design. Gateway checks the trusted Context, project,
 and exact host before OPA and immediately before post-allow injection. The
 default passthrough path never loads those files. There is no implicit fallback
@@ -1557,9 +1524,9 @@ Common failures:
   configuration/state directories on paths shared with the Docker VM, then
   rerun `tobari doctor` from the project directory and `tobari cluster up`.
 
-Schema-1 singleton state from older pre-v1 builds is intentionally not guessed
-or migrated. Remove it with the matching older binary before starting a
-schema-2 cluster.
+Only exact V1 state is accepted. Development state from another snapshot must
+be removed and recreated; Tobari provides no migration or older-binary cleanup
+path before first publication.
 
 ## Development and tests
 

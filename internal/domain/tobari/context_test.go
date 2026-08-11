@@ -178,9 +178,9 @@ func TestContextManifestPersistsOnlyNonDefaultGitIdentityOverrides(t *testing.T)
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("inherited Git identity override rejected: %v", err)
 	}
-	manifest.SchemaVersion = LegacyContextSchemaVersion4
+	manifest.SchemaVersion = ContextSchemaVersion + 1
 	if err := manifest.Validate(); err == nil {
-		t.Fatal("schema-4 Context manifest accepted a Git identity field")
+		t.Fatal("unsupported Context manifest schema accepted")
 	}
 }
 
@@ -344,7 +344,7 @@ func TestContextListAllowsOnlyExplicitSyntheticDefaultWithoutAuthority(t *testin
 func TestContextListRequiresTopLevelStateToMatchActiveItem(t *testing.T) {
 	t.Parallel()
 	result := ContextListResult{
-		Task: TaskContextList, ContextState: ContextObservationLegacyUnmigrated,
+		Task: TaskContextList, ContextState: ContextObservationSyntheticDefault,
 		Active: DefaultContextName,
 		Items: []ContextSummary{{
 			ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultContextName,

@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	truthfulAuthStateFixtureSHA256 = "121c173f118213ceb1bc7546504851659dc50dae89c47be93d2b36448e57ca66"
+	truthfulAuthStateFixtureSHA256 = "3ef78e3f295b088969a64ff8609b05ccfecad331f520b422a4a21f51d52941cb"
 	truthfulAuthStateAnswerSHA256  = "6434c5947a3c5ca9b2aa3d1de86c0c548c215e080f4d63ffcc1b6d2ab9fd7cc3"
 )
 
@@ -89,10 +89,10 @@ func TestTruthfulAuthStateTypedCorpusClosesInterpretationBoundaries(t *testing.T
 				revision = *provider.CredentialRevision
 			}
 			providers = append(providers, authbroker.ProviderStatus{
-				Provider: provider.Provider, State: provider.State, Configured: provider.Configured,
+				Provider: provider.Provider, State: provider.State,
 				AccountLabel: provider.AccountLabel, CredentialRevision: revision,
 			})
-			if provider.Configured {
+			if provider.State == authbroker.ProviderCredentialConfigured {
 				configured++
 			}
 		}

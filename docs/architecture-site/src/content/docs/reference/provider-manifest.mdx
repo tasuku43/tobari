@@ -1,6 +1,6 @@
 ---
 title: Provider manifest
-description: Owner manifest schema 1, reviewed built-in schema 2 plans, normalized projection, exact bindings, and limits on provider authority.
+description: Owner and reviewed built-in schema 1 plans, normalized projection, exact bindings, and limits on provider authority.
 ---
 
 import providerManifest from "../../../generated/provider-manifest-example.json";
@@ -10,8 +10,8 @@ strict Go parser. It declares a credential acquisition mode, Workspace handle
 projection, and one or more exact HTTPS header transformations. It is not an
 executable adapter, and installing one does not grant network permission.
 
-This reference covers owner manifest schema 1, reviewed built-in schema 2
-plans, and the normalized projection consumed by Gateway. The parser, domain
+This reference covers owner and reviewed built-in schema 1 plans and the
+normalized projection consumed by Gateway. The parser, domain
 validation, collection normalization, and canonical synthetic fixture are the
 source of truth. Read [Credentials](/how-it-works/credentials/) first for the
 request sequence in which this contract is used.
@@ -19,11 +19,10 @@ request sequence in which this contract is used.
 ## Important terminology
 
 Owner-controlled documents use `tobari.auth-provider.v1` with
-`schema_version: 1`. Reviewed built-ins may use the same static contract or the
-closed `tobari.auth-provider.v2` contract. The normalized collection consumed
-by Gateway is always projection schema 2. This repository enforces both source
-shapes with a strict Go parser, domain validation, collection normalization,
-and fixtures. **It does not publish a formal JSON Schema document for the
+`schema_version: 1`. Reviewed built-ins use the same version with closed typed
+plans. The normalized collection consumed by Gateway is projection schema 1.
+This repository enforces the exact source shape with a strict Go parser, domain
+validation, collection normalization, and fixtures. **It does not publish a formal JSON Schema document for the
 manifest.** Do not describe the fixture ledger as a JSON Schema validator.
 
 Provider is not the Workspace client Tool. Provider identifies the external
@@ -45,7 +44,7 @@ They cannot replace a built-in provider ID and may use only `stdin_import`.
 Reviewed host login drivers currently exist for GitHub, AWS, and Datadog. Their
 fixed executables and behavior are compiled infrastructure, not manifest
 extensions. User manifests cannot add another executable helper or select
-schema 2.
+a non-V1 schema.
 
 ## The complete v1 responsibilities
 
@@ -82,9 +81,9 @@ non-secret broker introspection, and asks OPA about the ordinary HTTP effect.
 Only after allow does Gateway resolve the secret once and write it to the
 declared destination header. A deny performs no secret resolution.
 
-## Reviewed built-in schema-2 plans
+## Reviewed built-in schema-1 plans
 
-Schema 2 is not a general extension mechanism. It adds typed fields consumed
+The built-in V1 contract is not a general extension mechanism. It adds typed fields consumed
 only by reviewed built-ins:
 
 | Built-in  | Credential kind         | Workspace placeholder                                               | Exact post-policy behavior                                                                                                                                                                  |
@@ -97,7 +96,7 @@ driver runs on the trusted host and commits a static credential; it does not
 run inside the Broker image.
 
 An owner file cannot declare `aws_sigv4`, an OAuth session, a refresh endpoint,
-a host driver, a companion operation, or any other schema-2 behavior. Adding a
+a host driver, a companion operation, or any other built-in behavior. Adding a
 built-in would require a reviewed product, architecture, security, and test
 change; editing JSON is insufficient.
 
@@ -218,7 +217,7 @@ does not contact the provider.
 
 An owner provider manifest is strict, declarative, non-secret schema-1 data. It
 maps a project-bound handle position to an exact HTTPS destination header.
-Reviewed schema-2 plans are compiled built-ins, not owner extensions. Neither
+Reviewed schema-1 plans are compiled built-ins, not owner extensions. Neither
 form executes manifest-supplied code or grants the HTTP effect.
 
 ## Check your understanding

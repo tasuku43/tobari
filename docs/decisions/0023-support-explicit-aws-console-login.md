@@ -2,6 +2,9 @@
 
 Status: Accepted
 
+Revised by: ADR 0027 places both explicit AWS driver states inside exact V1
+with a required driver discriminator.
+
 ## Context
 
 Tobari already supports one AWS IAM Identity Center role through a fixed host

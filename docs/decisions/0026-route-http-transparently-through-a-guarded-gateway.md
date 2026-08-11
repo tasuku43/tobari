@@ -6,6 +6,8 @@
 - Scope: Product, architecture, security, harness, public boundary, and release
 - Supersedes: ADR 0005
 - Superseded by: None
+- Revised by: ADR 0027 resets the principal, cluster, OPA, audit, and Gateway
+  API contracts to exact V1 and removes their migrations
 
 ## Context
 

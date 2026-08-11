@@ -3,8 +3,6 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -321,19 +319,11 @@ func (r *gatewayNetworkRunner) Output(_ context.Context, args, _ []string) ([]by
 
 func runtimeState(root string) tobari.State {
 	return tobari.State{
-		SchemaVersion: 4, RuntimeDirectory: filepath.Join(root, "runtime"),
+		SchemaVersion: 1, RuntimeDirectory: filepath.Join(root, "runtime"),
 		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
 		PolicyDirectory:  filepath.Join(root, "policy"),
 		CredentialConfig: filepath.Join(root, "credentials.json"),
 		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
-		Tobari: []tobari.Instance{},
-	}
-}
-
-func runtimeInstance(root string) tobari.Instance {
-	return tobari.Instance{
-		ID: "tbr_0123456789abcdef0123456789abcdef", Name: "work", Root: root,
-		Container: "tobari-work", Network: "tobari-work-net", HomeVolume: "tobari-work-home",
 	}
 }
 
@@ -376,7 +366,7 @@ func TestResolveProjectRootRejectsProtectedManagementPaths(t *testing.T) {
 	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	projectRoot, err = runtime.ResolveRoot(context.Background(), projectRoot)
+	projectRoot, err = runtime.ResolveProjectRoot(context.Background(), projectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,44 +458,6 @@ func TestDoctorRejectsProtectedProspectiveRootsAfterSymlinkResolution(t *testing
 	}
 }
 
-func TestDoctorValidatesExistingPolicySourceWithoutCreatingDockerResource(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	runner := &policyProbeRunner{}
-	runtime, err := newRuntime(
-		filepath.Join(root, "config"), filepath.Join(root, "state"), runner,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	policyDirectory := filepath.Join(runtime.configDirectory, "policy")
-	if err := os.MkdirAll(policyDirectory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	report, err := runRuntimeDoctor(context.Background(), runtime, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, check := range report.Checks {
-		if check.Name != "policy" {
-			continue
-		}
-		if check.Status != doctor.CheckStatusPass {
-			t.Fatalf("policy check = %+v, want pass", check)
-		}
-		if !strings.Contains(check.Detail, "source structures are valid") || !strings.Contains(check.Detail, "cluster up") {
-			t.Fatalf("policy detail = %q, want bounded host-source claim", check.Detail)
-		}
-		for _, call := range runner.outputs {
-			if len(call.args) > 0 && call.args[0] == "run" {
-				t.Fatalf("doctor created a policy-test container: %v", call.args)
-			}
-		}
-		return
-	}
-	t.Fatal("doctor report did not contain a policy check")
-}
-
 func TestDoctorDiagnosesUnsafeLearnedPolicyData(t *testing.T) {
 	root := t.TempDir()
 	binDir := filepath.Join(root, "bin")
@@ -550,11 +502,11 @@ func TestDoctorDiagnosesUnsafeLearnedPolicyData(t *testing.T) {
 	t.Fatal("doctor report did not contain a policy_data check")
 }
 
-func TestLoadStateRejectsLegacyAndTrailingDocuments(t *testing.T) {
+func TestLoadStateRejectsIncompleteAndTrailingDocuments(t *testing.T) {
 	t.Parallel()
 	for name, data := range map[string][]byte{
-		"legacy":   []byte(`{"schema_version":1}`),
-		"trailing": append(mustJSON(t, runtimeState(t.TempDir())), []byte("\n{}\n")...),
+		"incomplete": []byte(`{"schema_version":1}`),
+		"trailing":   append(mustJSON(t, runtimeState(t.TempDir())), []byte("\n{}\n")...),
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
@@ -572,173 +524,6 @@ func TestLoadStateRejectsLegacyAndTrailingDocuments(t *testing.T) {
 	}
 }
 
-func TestLoadStateMigratesAndRetiresExplicitProxyState(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	current := runtimeState(root)
-	legacy := explicitProxyState{
-		SchemaVersion: 3, RuntimeDirectory: current.RuntimeDirectory,
-		AggregateRevision: current.AggregateRevision, ContextCount: current.ContextCount,
-		PolicyDirectory: current.PolicyDirectory, CredentialConfig: current.CredentialConfig,
-		CredentialDir: current.CredentialDir, AssetVersion: current.AssetVersion,
-		ProxyEndpoint: "http://gateway:8080", RecentError: current.RecentError,
-		Tobari: append([]tobari.Instance{}, current.Tobari...),
-	}
-	if err := os.MkdirAll(filepath.Dir(runtime.statePath()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeAtomicJSON(runtime.statePath(), legacy); err != nil {
-		t.Fatal(err)
-	}
-	migrated, exists, err := runtime.LoadState(context.Background())
-	if err != nil || !exists || migrated.SchemaVersion != 4 {
-		t.Fatalf("LoadState() = %+v, exists=%t, error=%v", migrated, exists, err)
-	}
-	encoded, err := os.ReadFile(runtime.statePath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(encoded, []byte("proxy_endpoint")) || bytes.Contains(encoded, []byte("gateway:8080")) {
-		t.Fatalf("migrated state retained explicit proxy contract: %s", encoded)
-	}
-}
-
-func TestLoadStateRejectsInvalidExplicitProxyMigration(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	current := runtimeState(root)
-	legacy := explicitProxyState{
-		SchemaVersion: 3, RuntimeDirectory: current.RuntimeDirectory,
-		AggregateRevision: current.AggregateRevision, ContextCount: current.ContextCount,
-		PolicyDirectory: current.PolicyDirectory, CredentialConfig: current.CredentialConfig,
-		CredentialDir: current.CredentialDir, AssetVersion: current.AssetVersion,
-		ProxyEndpoint: "http://other:8080", Tobari: []tobari.Instance{},
-	}
-	if err := os.MkdirAll(filepath.Dir(runtime.statePath()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeAtomicJSON(runtime.statePath(), legacy); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := runtime.LoadState(context.Background()); err == nil {
-		t.Fatal("invalid explicit-proxy state was migrated")
-	}
-}
-
-func TestLoadStateMigratesVerifiedSingleContextProjects(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	if err := runtime.ensureContextStore(); err != nil {
-		t.Fatal(err)
-	}
-	contexts, err := runtime.ListContexts(context.Background())
-	if err != nil || len(contexts.Items) != 1 {
-		t.Fatalf("ListContexts() = %+v, error=%v", contexts, err)
-	}
-	manifest, paths, err := runtime.resolveContext("default")
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectRoot := filepath.Join(root, "project")
-	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	projectRoot, err = runtime.ResolveRoot(context.Background(), projectRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projectID := "01912345-6789-7abc-8def-0123456789ab"
-	if err := os.MkdirAll(filepath.Join(runtime.instancesDirectory(), projectID, "home"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	legacyInstance := legacyProjectInstance{
-		SchemaVersion: tobari.LegacyProjectStateSchemaVersion, ID: projectID, Root: projectRoot,
-		Profile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, Runtime: tobari.ProjectRuntime{},
-	}
-	if err := writeAtomicJSON(filepath.Join(runtime.instancesDirectory(), projectID, "state.json"), legacyInstance); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(runtime.rootsDirectory(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	digest := sha256.Sum256([]byte(projectRoot))
-	legacyIndexPath := filepath.Join(runtime.rootsDirectory(), hex.EncodeToString(digest[:])+".json")
-	if err := writeAtomicJSON(legacyIndexPath, legacyRootIndex{SchemaVersion: 1, Root: projectRoot, InstanceID: projectID}); err != nil {
-		t.Fatal(err)
-	}
-	base := runtimeState(root)
-	legacy := legacyClusterState{
-		SchemaVersion: 2, RuntimeDirectory: base.RuntimeDirectory, ContextName: manifest.Name,
-		AgentProfile: manifest.AgentProfile, PolicyDirectory: paths.PolicyDirectory,
-		CredentialConfig: paths.CredentialConfig, CredentialDir: paths.CredentialDirectory,
-		AssetVersion: base.AssetVersion, ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
-	}
-	if err := os.MkdirAll(filepath.Dir(runtime.statePath()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeAtomicJSON(runtime.statePath(), legacy); err != nil {
-		t.Fatal(err)
-	}
-	migrated, exists, err := runtime.LoadState(context.Background())
-	if err != nil || !exists || migrated.SchemaVersion != 4 || migrated.ContextCount != 1 {
-		t.Fatalf("LoadState() = %+v, exists=%t, error=%v", migrated, exists, err)
-	}
-	projects, listErr := runtime.ListProjects(context.Background())
-	if listErr != nil || len(projects) != 1 {
-		t.Fatalf("ListProjects() after migration = %+v, error=%v", projects, listErr)
-	}
-	if projects[0].ContextID != manifest.ID {
-		t.Fatalf("migrated Context ID = %q, want %q", projects[0].ContextID, manifest.ID)
-	}
-	project, found, err := runtime.ResolveProjectInContext(context.Background(), projectRoot, "default")
-	if err != nil || !found || project.ID != projectID || project.ContextID != manifest.ID || project.Root != projectRoot {
-		t.Fatalf("migrated project = %+v, found=%t, error=%v", project, found, err)
-	}
-	if _, err := os.Lstat(legacyIndexPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy root index remains: %v", err)
-	}
-}
-
-func TestLoadStateRejectsConflictingLegacyContextEvidence(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runtime.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runtime.UseContext(context.Background(), "restricted"); err != nil {
-		t.Fatal(err)
-	}
-	_, paths, err := runtime.resolveContext("default")
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := runtimeState(root)
-	legacy := legacyClusterState{
-		SchemaVersion: 2, RuntimeDirectory: base.RuntimeDirectory, ContextName: "default",
-		AgentProfile: tobari.DefaultProfile, PolicyDirectory: paths.PolicyDirectory,
-		CredentialConfig: paths.CredentialConfig, CredentialDir: paths.CredentialDirectory,
-		AssetVersion: base.AssetVersion, ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
-	}
-	if err := os.MkdirAll(filepath.Dir(runtime.statePath()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeAtomicJSON(runtime.statePath(), legacy); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err = runtime.LoadState(context.Background())
-	public, ok := fault.PublicCopy(err)
-	if !ok || public.Code != "ambiguous_context_migration" {
-		t.Fatalf("LoadState() error = %v", err)
-	}
-}
-
 func mustJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	data, err := json.Marshal(value)
@@ -746,32 +531,6 @@ func mustJSON(t *testing.T, value any) []byte {
 		t.Fatal(err)
 	}
 	return data
-}
-
-func TestExecMapsCWDAndPreservesExactArgv(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	root, _ = filepath.EvalSymlinks(root)
-	subdirectory := filepath.Join(root, "repository")
-	if err := os.Mkdir(subdirectory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	runner := &recordingRunner{}
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	instance := runtimeInstance(root)
-	code, err := runtime.Exec(
-		context.Background(), instance,
-		tobari.ExecRequest{HostCWD: subdirectory, CWDExplicit: true, Command: []string{"printf", "%s", "a value"}},
-		bytes.NewReader(nil), io.Discard, io.Discard,
-	)
-	uid, gid := currentIDs()
-	want := []string{
-		"exec", "-i", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid), "--workdir", "/workspace/repository",
-		"tobari-work", "printf", "%s", "a value",
-	}
-	if err != nil || code != 0 || len(runner.runs) != 1 || !slices.Equal(runner.runs[0].args, want) {
-		t.Fatalf("Exec() code=%d err=%v calls=%v want=%v", code, err, runner.runs, want)
-	}
 }
 
 func TestPolicyValidationUsesReadOnlyMountAndPolicyOwner(t *testing.T) {
@@ -825,7 +584,7 @@ func TestClusterDownPurgesMissingVolumesIdempotently(t *testing.T) {
 	}
 }
 
-func TestPrepareStateUsesAggregateProjectionAndEmptyLegacyCollection(t *testing.T) {
+func TestPrepareStateUsesAggregateProjection(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
@@ -833,13 +592,12 @@ func TestPrepareStateUsesAggregateProjectionAndEmptyLegacyCollection(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.SchemaVersion != 4 || state.ContextCount != 1 || state.AggregateRevision == "" || state.Tobari == nil || len(state.Tobari) != 0 {
+	if state.SchemaVersion != 1 || state.ContextCount != 1 || state.AggregateRevision == "" {
 		t.Fatalf("state = %+v", state)
 	}
 	for path, want := range map[string]os.FileMode{
 		state.PolicyDirectory: 0o700, filepath.Join(state.PolicyDirectory, "router.rego"): 0o600,
 		state.CredentialDir: 0o700, state.CredentialConfig: 0o600,
-		filepath.Join(root, "config", "config.json"): 0o600,
 	} {
 		info, err := os.Stat(path)
 		if err != nil || info.Mode().Perm() != want {
@@ -907,29 +665,6 @@ func TestEnsurePrivateDirectoryTightensExistingDirectory(t *testing.T) {
 	info, err := os.Stat(directory)
 	if err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("directory mode = %v, %v; want 0700", info.Mode().Perm(), err)
-	}
-}
-
-func TestCredentialPermissionsRejectSymlinkedDirectory(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	config := filepath.Join(root, "config")
-	if err := os.MkdirAll(config, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	outside := filepath.Join(root, "outside-credentials")
-	if err := os.Mkdir(outside, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(config, "credentials")); err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.checkCredentialPermissions(); err == nil {
-		t.Fatal("checkCredentialPermissions() accepted a symlinked credentials directory")
 	}
 }
 
@@ -1014,38 +749,6 @@ func TestInterruptedClusterReconcilePublishesExplicitRecoveryActions(t *testing.
 	}
 }
 
-func TestResolveImageSelectorUsesExplicitThenXDGDefaultThenBuiltin(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	config := filepath.Join(root, "config")
-	runtime, _ := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
-	got, err := runtime.ResolveImageSelector(context.Background(), "")
-	if err != nil || got != tobari.OfficialRuntimeBase {
-		t.Fatalf("missing config resolved %q, %v", got, err)
-	}
-	got, err = runtime.ResolveImageSelector(context.Background(), tobari.BuiltinImageSelector)
-	if err != nil || got != tobari.OfficialRuntimeBase {
-		t.Fatalf("builtin selector resolved %q, %v", got, err)
-	}
-	if err := os.MkdirAll(config, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(config, "config.json"),
-		[]byte("{\"version\":\"v1\",\"default_image\":\"workbench:dev\"}\n"), 0o600,
-	); err != nil {
-		t.Fatal(err)
-	}
-	got, err = runtime.ResolveImageSelector(context.Background(), "")
-	if err != nil || got != "workbench:dev" {
-		t.Fatalf("configured default resolved %q, %v", got, err)
-	}
-	got, err = runtime.ResolveImageSelector(context.Background(), "explicit:dev")
-	if err != nil || got != "explicit:dev" {
-		t.Fatalf("explicit selector resolved %q, %v", got, err)
-	}
-}
-
 func TestResolveImageSelectorUsesInjectedResolverForBuiltin(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -1058,51 +761,6 @@ func TestResolveImageSelectorUsesInjectedResolverForBuiltin(t *testing.T) {
 	got, err = runtime.ResolveImageSelector(context.Background(), "")
 	if err != nil || got != "tobari-runtime:dev" {
 		t.Fatalf("missing config resolved %q, %v", got, err)
-	}
-}
-
-func TestResolveImageSelectorRejectsUnsafeOrMalformedConfig(t *testing.T) {
-	t.Parallel()
-	for name, test := range map[string]struct {
-		data []byte
-		mode os.FileMode
-	}{
-		"unknown field": {data: []byte(`{"version":"v1","default_image":"builtin","extra":true}`), mode: 0o600},
-		"invalid image": {data: []byte(`{"version":"v1","default_image":"--pull=always"}`), mode: 0o600},
-		"unsafe mode":   {data: []byte(`{"version":"v1","default_image":"builtin"}`), mode: 0o644},
-	} {
-		t.Run(name, func(t *testing.T) {
-			root := t.TempDir()
-			config := filepath.Join(root, "config")
-			if err := os.MkdirAll(config, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(config, "config.json"), test.data, test.mode); err != nil {
-				t.Fatal(err)
-			}
-			runtime, _ := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
-			if _, err := runtime.ResolveImageSelector(context.Background(), ""); err == nil {
-				t.Fatal("invalid config was accepted")
-			}
-		})
-	}
-}
-
-func TestCredentialConfigValidationRejectsPathEscape(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	config := filepath.Join(root, "config")
-	if err := os.MkdirAll(config, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	data := []byte(`{"version":"v1","profiles":{"escaped":{"type":"bearer","hosts":["api.example.com"],"secret_file":"/run/tobari/credentials/../credentials.json"}}}`)
-	if err := os.WriteFile(filepath.Join(config, "credentials.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runtime, _ := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
-	_, status := runtime.checkCredentialConfig()
-	if status != doctor.CheckStatusFail {
-		t.Fatalf("status = %q", status)
 	}
 }
 
@@ -1159,22 +817,6 @@ func TestPrepareActiveContextImageDoesNotPullInjectedLocalRuntime(t *testing.T) 
 	}
 	if len(runner.outputs) != 1 || runner.outputs[0].args[len(runner.outputs[0].args)-1] != "tobari-runtime:dev" {
 		t.Fatalf("runtime image inspect calls = %v", runner.outputs)
-	}
-}
-
-func TestAttachRejectsMissingImageBeforeCreatingResources(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	root, _ = filepath.EvalSymlinks(root)
-	runner := &recordingRunner{outputErr: errors.New("No such image")}
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	_, err := runtime.Attach(context.Background(), runtimeState(root), "work", root, "workbench:dev")
-	if err == nil {
-		t.Fatal("missing image was accepted")
-	}
-	if len(runner.outputs) != 1 || len(runner.outputs[0].args) < 2 ||
-		runner.outputs[0].args[0] != "image" || runner.outputs[0].args[1] != "inspect" {
-		t.Fatalf("Docker calls = %v", runner.outputs)
 	}
 }
 

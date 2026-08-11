@@ -10,7 +10,7 @@ trap cleanup EXIT
 fake_brew=$PWD/scripts/testdata/fake-brew.sh
 formula=$test_root/tobari.rb
 printf '%s\n' 'class Tobari < Formula' 'end' >"$formula"
-legacy_tap=tobari-ci/audit
+preexisting_tap=tobari-ci/audit
 
 run_case() {
   expected=$1
@@ -23,7 +23,7 @@ run_case() {
   set +e
   FAKE_BREW_LOG=$log \
     FAKE_BREW_ROOT=$case_root \
-    FAKE_BREW_EXISTING_TAP=$legacy_tap \
+    FAKE_BREW_EXISTING_TAP=$preexisting_tap \
     FAKE_BREW_AUDIT_FAIL=$audit_failure \
     BREW_COMMAND=$fake_brew \
     AUDIT_FORMULA_BINARY=tobari \
@@ -39,12 +39,12 @@ run_case() {
     echo "audit-formula failure fixture unexpectedly succeeded" >&2
     exit 1
   fi
-  if grep -Fxq "untap $legacy_tap" "$log"; then
+  if grep -Fxq "untap $preexisting_tap" "$log"; then
     echo "audit-formula removed a pre-existing user tap" >&2
     exit 1
   fi
   created_tap=$(awk '$1 == "tap-new" && $2 == "--no-git" { print $3 }' "$log")
-  if [[ -z $created_tap || $created_tap == "$legacy_tap" ]]; then
+  if [[ -z $created_tap || $created_tap == "$preexisting_tap" ]]; then
     echo "audit-formula did not create a unique owned tap" >&2
     exit 1
   fi

@@ -28,7 +28,7 @@ For each logical Workspace, host-side lifecycle code:
 3. connects Gateway to that network;
 4. inspects the Workspace and Gateway IP addresses on that exact network;
 5. validates that both endpoints are distinct, canonical, and unique; and
-6. atomically writes a schema 3 binding to the owner-only principal registry.
+6. atomically writes a schema 1 binding to the owner-only principal registry.
 
 Each binding contains project ID, Context ID, Context name, canonical root,
 network name, Workspace source IP, and Gateway endpoint IP. Project, network,
@@ -54,7 +54,7 @@ This detail matters. The value is not:
 - a credential profile/provider name; or
 - a URL parameter.
 
-After lookup, Gateway places the registry-derived `context_id` and `project_id` in schema 5 OPA input. The fixed OPA router selects policy by Context ID; learned rules also require the project ID.
+After lookup, Gateway places the registry-derived `context_id` and `project_id` in schema 1 OPA input. The fixed OPA router selects policy by Context ID; learned rules also require the project ID.
 
 ## Concrete forgery attempt
 

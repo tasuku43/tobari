@@ -1,15 +1,15 @@
 ---
 title: JSON Schema
-description: 公開 JSON エンベロープ、永続文書、内部プロトコル、厳密なパーサー、互換性の境界を説明します。
+description: 公開 JSON エンベロープ、永続文書、内部プロトコル、厳密な V1 パーサーを説明します。
 ---
 
-このリファレンスでは、Tobari がバージョンを付けて管理する JSON の公開面と、互換性の
-境界を一覧にします。公開 CLI レポート、永続化するマニフェスト、Gateway のポリシー入力、
+このリファレンスでは、Tobari の V1 JSON 公開面と厳密な境界を一覧にします。公開 CLI
+レポート、永続化するマニフェスト、Gateway のポリシー入力、
 監査行、Broker のソケットフレームは、関連するオブジェクトを記述していても別の契約です。
 
-各バージョンは一つの公開面に属します。「Context のスキーマは 5」という記述だけでは、
-保存設定、公開出力、その他の名前付き契約のどれを指すか分かりません。それぞれの
-公開面では、それを担当するパーサー、Catalog の項目、プロトコルの実装が正本です。
+各スキーマは一つの公開面に属します。初回公開前の Tobari 所有の公開面はすべて V1
+です。それぞれの公開面では、担当するパーサー、Catalog の項目、プロトコルの実装が
+正本です。
 
 ## 「スキーマ」が必ずしも JSON Schema を意味しない
 
@@ -21,8 +21,8 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 
 公開 CLI 出力では、Catalog が JSON エンベロープとスキーマバージョンを宣言します。契約
 テストはレンダラーを実行し、生成した `schema_version` を Catalog と比較します。
-永続化文書と内部文書では、担当する Domain または Infrastructure の読み取り処理が検証と
-互換性を定義します。
+永続化文書と内部文書では、担当する Domain または Infrastructure の読み取り処理が厳密な
+検証を定義します。
 
 ## 公開 CLI JSON
 
@@ -31,20 +31,20 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 | 対象                                                                 | エンベロープ         | 現在のスキーマ |
 | -------------------------------------------------------------------- | -------------------- | -------------: |
 | 構造化エラー                                                         | `error`              |              1 |
-| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`）   | `commands`           |              9 |
+| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`）   | `commands`           |              1 |
 | バージョン                                                           | `build_identity`     |              1 |
-| doctor レポート                                                      | `report`             |              2 |
-| Context 一覧                                                         | `contexts`           |              4 |
-| Context レポート（`context show`、create/use/config/runtime の結果） | `context`            |              8 |
-| クラスター状態                                                       | `cluster`            |              6 |
-| クラスターの拒否                                                     | `denials`            |              4 |
-| ポリシー候補                                                         | `policy_candidates`  |              5 |
-| ポリシーレビュー                                                     | `policy_review`      |              5 |
-| ポリシー規則                                                         | `policy_rules`       |              3 |
-| ポリシー圧縮                                                         | `policy_compactions` |              3 |
-| 認証結果と状態                                                       | `auth`               |              4 |
-| Workspace の一覧                                                     | `tobari`             |              2 |
-| Workspace の状態                                                     | `status`             |              4 |
+| doctor レポート                                                      | `report`             |              1 |
+| Context 一覧                                                         | `contexts`           |              1 |
+| Context レポート（`context show`、create/use/config/runtime の結果） | `context`            |              1 |
+| クラスター状態                                                       | `cluster`            |              1 |
+| クラスターの拒否                                                     | `denials`            |              1 |
+| ポリシー候補                                                         | `policy_candidates`  |              1 |
+| ポリシーレビュー                                                     | `policy_review`      |              1 |
+| ポリシー規則                                                         | `policy_rules`       |              1 |
+| ポリシー圧縮                                                         | `policy_compactions` |              1 |
+| 認証結果と状態                                                       | `auth`               |              1 |
+| Workspace の一覧                                                     | `tobari`             |              1 |
+| Workspace の状態                                                     | `status`             |              1 |
 
 {/* public-cli-json-schemas:end */}
 
@@ -52,18 +52,18 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 [CLI リファレンス](../cli/)で生成します。オブジェクトの名前が同じでも、別のエンベロープの
 フィールドを推測してはいけません。
 
-### Context のバージョン境界
+### Context の契約境界
 
-重要な区別です。
+どちらも V1 ですが、契約は別です。
 
 ```text
 Host configuration
   contexts/<name>/context.json
-  Context manifest schema 4
+  Context manifest schema 1
 
 CLI presentation
-  {"schema_version": 8, "context": ...}
-  public Context report schema 8
+  {"schema_version": 1, "context": ...}
+  public Context report schema 1
 ```
 
 レポートには、タスクが管理するランタイム、クラスター、完全なシェル設定、秘密情報を
@@ -74,16 +74,16 @@ CLI presentation
 
 | 状態                                           | 現在の契約                   |
 | ---------------------------------------------- | ---------------------------- |
-| Context マニフェスト                           | スキーマ 4                   |
-| ルートインデックス／Workspace インスタンス     | スキーマ 2                   |
-| 共有クラスター状態                             | スキーマ 3                   |
-| プロジェクトプリンシパル登録簿                 | スキーマ 2                   |
-| ガイド付きポリシーのデータ                     | `tobari.schema_version` 2    |
+| Context マニフェスト                           | スキーマ 1                   |
+| ルートインデックス／Workspace インスタンス     | スキーマ 1                   |
+| 共有クラスター状態                             | スキーマ 1                   |
+| プロジェクトプリンシパル登録簿                 | スキーマ 1                   |
+| ガイド付きポリシーのデータ                     | `tobari.schema_version` 1    |
 | 集約ポリシー投影のマーカー                     | スキーマ 1                   |
 | 所有者のプロバイダーマニフェスト               | スキーマ 1                   |
-| レビュー済みの組み込みプロバイダーマニフェスト | スキーマ 1 または 2          |
-| 正規化済みプロバイダー投影                     | スキーマ 2                   |
-| 暗号化した Context 保管庫                      | エンベロープ 1、ペイロード 2 |
+| レビュー済みの組み込みプロバイダーマニフェスト | スキーマ 1                   |
+| 正規化済みプロバイダー投影                     | スキーマ 1                   |
+| 暗号化した Context 保管庫                      | エンベロープ 1、ペイロード 1 |
 | Workspace 認証ファイル登録簿                   | スキーマ 1                   |
 | ベースランタイムメタデータ                     | スキーマ 1                   |
 
@@ -92,24 +92,22 @@ CLI presentation
 を同じように扱うとは限りません。プロバイダー文書、プリンシパルの状態、Broker フレーム、
 重要なランタイム状態では、明示的な fail-closed 検証を使います。
 
-過去バージョンとの互換性も公開面ごとに異なります。Context の保存処理は以前のマニフェスト
-バージョンから明示的に更新します。一方、過去の単一状態は古い Tobari で
-後片付けが必要になる場合があります。将来のバージョンを自動的に受け入れることは
-ありません。
+初回公開前の移行処理や互換読み取りはありません。V1 以外はすべて未対応として拒否し、
+開発中の状態は削除して作り直します。
 
 ## Gateway、OPA、監査、Auth Broker の契約
 
-| 境界                                            |                                                現在の契約 | 重要な内容規則                                                                                                       |
-| ----------------------------------------------- | --------------------------------------------------------: | -------------------------------------------------------------------------------------------------------------------- |
-| Gateway の認証設定                              |                                                スキーマ 2 | Context を認識する managed 方式の投影。パスとメタデータは含むが、ポリシー権限は含まない                              |
-| Gateway → OPA の判断入力                        |                                                スキーマ 5 | ホストから導出したプリンシパルと、正規化した HTTP 属性。本文とクライアントの秘密ヘッダーは含まない                   |
-| Guided/Advanced のソースポリシー入力            | ソーススキーマ 4。移行用に旧ソーススキーマ 3 も受け付ける | 集約生成処理が、全体検証の前にランタイム入力スキーマ 5 へ変換                                                        |
-| Gateway の監査行                                |                                                スキーマ 2 | 秘密情報を含まない、正規化済みの判断根拠                                                                             |
-| 学習可能な拒否に対する Gateway の案内レスポンス |                                                スキーマ 1 | 固定したホストレビュー案内。候補 ID、クエリー、本文、秘密情報は含まない                                              |
-| Broker 制御プロトコル                           |                                                スキーマ 1 | ホスト制御用 Unix ソケット上の、上限付き改行区切り JSON                                                              |
-| Broker ランタイムプロトコル                     |                                                スキーマ 1 | 照会は秘密情報を含まない。許可後の固定認証情報解決、Datadog トークン処理、AWS 署名応答は Gateway Unix ソケットを使用 |
-| 非公開ホストコンパニオンのフレーム              |                                                スキーマ 1 | 認証済みで通信方向に結び付き、厳密に順序付けたフレームが、コンパイル済みのポリシー許可後 AWS 操作だけを運ぶ          |
-| Workspace の Auth Broker ハンドル               |                                      ハンドルバージョン 1 | 不透明な `tobari-h1_…`。権限を得るためにデコードしない                                                               |
+| 境界                                            |           現在の契約 | 重要な内容規則                                                                                                       |
+| ----------------------------------------------- | -------------------: | -------------------------------------------------------------------------------------------------------------------- |
+| Gateway の認証設定                              |           スキーマ 1 | Context を認識する managed 方式の投影。パスとメタデータは含むが、ポリシー権限は含まない                              |
+| Gateway → OPA の判断入力                        |           スキーマ 1 | ホストから導出したプリンシパルと、正規化した HTTP 属性。本文とクライアントの秘密ヘッダーは含まない                   |
+| Guided/Advanced のソースポリシー入力            |           スキーマ 1 | 集約生成処理が、アクティベーション前に厳密な V1 ソースを検証                                                         |
+| Gateway の監査行                                |           スキーマ 1 | 秘密情報を含まない、正規化済みの判断根拠                                                                             |
+| 学習可能な拒否に対する Gateway の案内レスポンス |           スキーマ 1 | 固定したホストレビュー案内。候補 ID、クエリー、本文、秘密情報は含まない                                              |
+| Broker 制御プロトコル                           |           スキーマ 1 | ホスト制御用 Unix ソケット上の、上限付き改行区切り JSON                                                              |
+| Broker ランタイムプロトコル                     |           スキーマ 1 | 照会は秘密情報を含まない。許可後の固定認証情報解決、Datadog トークン処理、AWS 署名応答は Gateway Unix ソケットを使用 |
+| 非公開ホストコンパニオンのフレーム              |           スキーマ 1 | 認証済みで通信方向に結び付き、厳密に順序付けたフレームが、コンパイル済みのポリシー許可後 AWS 操作だけを運ぶ          |
+| Workspace の Auth Broker ハンドル               | ハンドルバージョン 1 | 不透明な `tobari-h1_…`。権限を得るためにデコードしない                                                               |
 
 OPA の出力は Gateway が受け取る判断結果です。OPA 自身は接続先へ接続しません。
 不正な、または利用できないポリシー応答は、接続先へ接続する前に安全側に倒して拒否します。
@@ -118,7 +116,7 @@ OPA の出力は Gateway が受け取る判断結果です。OPA 自身は接続
 解錠と認証情報のインポートでは、制御フレームの後に、宣言済みの長さ制限を持つ
 生のペイロードを運びます。秘密情報を含むそのバイト列は JSON メタデータではありません。
 
-## 読み取り側の互換性規則
+## 読み取り側の厳密な V1 規則
 
 - 完全一致のエンベロープと `schema_version` で動作を選ぶ
 - 未知のバージョンは未対応として扱い、既知の最新形式へ黙って変換しない
@@ -130,7 +128,7 @@ OPA の出力は Gateway が受け取る判断結果です。OPA 自身は接続
 
 ## 障害と制限
 
-スキーマの不一致は契約または互換性の失敗です。推測して続行してはいけません。
+スキーマの不一致は契約違反です。推測して続行してはいけません。
 候補の検証に失敗した場合、既知の正しいポリシーとランタイム選択を保持します。不正な
 Broker フレームと、形式が Tobari に見える不正なハンドルは安全側に倒して拒否します。公開
 エラーでは、URL、レスポンス本文、認証情報を含む可能性がある接続先由来の文字列を
@@ -143,7 +141,7 @@ Broker フレームと、形式が Tobari に見える不正なハンドルは�
 ## 根拠
 
 - 公開出力の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>Catalog の出力スキーマ</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/output_schema_contract_test.go`}>レンダラー整合テスト</a>
-- Context の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>マニフェストスキーマ 4</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}>レポートスキーマ 8</a>
+- Context の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>マニフェストスキーマ 1</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}>レポートスキーマ 1</a>
 - Gateway の入力と監査：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}>Gateway addon の正本</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}>Gateway 契約テスト</a>
 - ポリシーの正本と変換：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/aggregate.go`}>集約した投影</a>
 - Auth Broker プロトコル：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/protocol.py`}>プロトコルパーサー</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_broker.py`}>否定系テスト</a>
@@ -151,9 +149,9 @@ Broker フレームと、形式が Tobari に見える不正なハンドルは�
 
 ## まとめ
 
-スキーマバージョンは境界ごとに独立しています。保存する Context スキーマ 4 と公開 Context
-レポートスキーマ 8 は別の文書を規定するため、どちらも正しい値です。互換性を定義するのは
-共有する番号ではなく、対象に対応した読み取り処理とテストです。
+初回公開前の Tobari 所有の公開面はすべて V1 ですが、契約の識別は境界ごとに独立して
+います。別の文書を規定するのは、共有する番号ではなく、対象に対応した読み取り処理と
+テストです。
 
 ## 理解を確認する
 
@@ -168,13 +166,9 @@ Broker フレームと、形式が Tobari に見える不正なハンドルは�
 </details>
 
 <details>
-  <summary>
-    ソース入力スキーマ 4 用の高度なポリシーをランタイム OPA 入力スキーマ 5
-    へそのまま送れますか？
-  </summary>
-  いいえ。集約生成処理がサポート対象のソース契約を検証し、Context
-  ごとに分離されたランタイムスキーマ 5
-  の投影へ変換します。そのうえで、候補全体を有効化前にテストします。
+  <summary>Advanced ポリシーで V1 以外のスキーマを使えますか？</summary>
+  いいえ。集約生成処理はソースとランタイム入力の両方に厳密な V1
+  を要求し、Context ごとに分離した候補全体を有効化前にテストします。
 </details>
 
 <details>

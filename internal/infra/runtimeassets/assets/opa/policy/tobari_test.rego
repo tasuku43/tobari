@@ -3,7 +3,7 @@ package tobari.http
 import rego.v1
 
 base_input := {
-	"schema_version": 4,
+	"schema_version": 1,
 	"principal": {
 		"cluster": "default",
 		"context_id": "01912345-6789-7abc-8def-0123456789ad",
@@ -177,6 +177,7 @@ learned_exact_fixture := {
 	"project_id": "01912345-6789-7abc-8def-0123456789ab",
 	"host": "api.github.com",
 	"port": 443,
+	"protocol": "http",
 	"method": "PUT",
 	"path": "/http-review",
 	"examples": ["/http-review"],
@@ -190,6 +191,7 @@ learned_prefix_fixture := {
 	"project_id": "01912345-6789-7abc-8def-0123456789ab",
 	"host": "mock-upstream",
 	"port": 8080,
+	"protocol": "http",
 	"method": "PUT",
 	"path": "/review/items/",
 	"examples": [
@@ -508,6 +510,7 @@ test_explicit_deny_wins_over_learned_allow if {
 		"project_id": base_input.principal.project_id,
 		"host": "api.github.com",
 		"port": 443,
+		"protocol": "http",
 		"method": "GET",
 		"path": "/user",
 		"source_candidates": ["pcy_0123456789abcdef0123456789abcdef"],

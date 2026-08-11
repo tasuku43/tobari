@@ -155,7 +155,7 @@ scopes policy and broker handles.
 
 ### principal registry
 
-The host-owned schema-3 mapping from exact Workspace source endpoint, Gateway
+The host-owned schema-1 mapping from exact Workspace source endpoint, Gateway
 endpoint, and dedicated network to Context/project identity. Gateway receives
 only this directory read-only.
 Caller-supplied `X-Tobari-*` text cannot replace the mapping.
@@ -260,10 +260,10 @@ Workspace home. Gateway removes authentication and cookie values from OPA
 input and audit, then forwards them unchanged only after policy allow. The
 Workspace can read these tool-owned secrets.
 
-### retained managed adapter
+### static managed adapter
 
-The earlier Context/project-scoped Gateway adapter that reads reviewed
-host-side credential profile configuration. It remains a separate explicit
+The bounded Context/project-scoped Gateway adapter that reads reviewed
+host-side credential profile configuration. It is a separate explicit
 path and does not silently combine with brokered or passthrough behavior.
 
 ### Auth Broker
@@ -315,7 +315,7 @@ used for interactive login or Datadog refresh.
 
 ### Datadog OAuth refresh
 
-The compiled schema-2 post-policy action owned by Auth Broker. When the stored
+The compiled schema-1 post-policy action owned by Auth Broker. When the stored
 access token enters its five-minute refresh window, Broker performs one
 same-record strict exchange at the exact proxy-free, no-redirect Datadog US1
 token endpoint and commits refreshed state before returning a request-local
@@ -329,7 +329,7 @@ Replacement or logout revokes handles for the prior revision.
 ### encrypted Context vault
 
 One schema-1 AES-256-GCM envelope bound by authenticated data to its stable
-Context ID. Its encrypted schema-2 payload contains typed credential records,
+Context ID. Its encrypted schema-1 payload contains typed credential records,
 revisions, durable operation barriers, and raw handles. Encryption protects the
 container/Workspace boundary under the documented root-key preconditions; it
 does not protect against compromise of the host user and key backend.
@@ -344,19 +344,19 @@ Linux or a fixed macOS Keychain item. `cluster down --purge` preserves it.
 A strict non-secret data document declaring acquisition mode, Workspace handle
 projection, exact HTTPS binding, and redaction. Owner manifests are schema 1
 and `stdin_import` only. Reviewed built-ins may use schema 1 or the closed
-schema-2 AWS/Datadog plan vocabulary. A manifest is not executable code, does
+schema-1 AWS/Datadog plan vocabulary. A manifest is not executable code, does
 not declare method/path policy, and does not grant communication permission.
 
 ## State and public contracts
 
 ### root index
 
-A durable schema-2 record mapping one canonical root and stable Context ID to
+A durable schema-1 record mapping one canonical root and stable Context ID to
 one Workspace ID. Nearest-root selection filters by Context before selecting.
 
 ### Workspace instance state
 
-The durable schema-2 logical record for one Workspace, including its permanent
+The durable schema-1 logical record for one Workspace, including its permanent
 Context binding and diagnostic runtime identifiers.
 
 ### aggregate policy projection
@@ -404,7 +404,7 @@ becoming a second editable implementation.
 | `exit` and `delete`                      | Exit ends a child session; delete removes the logical Workspace and home.                                 |
 | `cluster down --purge` and `auth logout` | Purge removes shared runtime and CA volumes; logout removes one local credential and handles.             |
 | tag and digest                           | A tag can move; a digest identifies immutable OCI content.                                                |
-| manifest schema and report schema        | Stored Context manifest is schema 4; public Context report is schema 6.                                   |
+| manifest schema and report schema        | Stored Context manifest and public Context report are distinct schema-1 contracts.                        |
 
 ## Failure and limits
 

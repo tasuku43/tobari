@@ -15,10 +15,8 @@ import (
 
 // RuntimePort is the narrow Docker/filesystem boundary required by Tobari tasks.
 type RuntimePort interface {
-	ResolveRoot(context.Context, string) (string, error)
 	CurrentDirectory(context.Context) (string, error)
 	IsTerminal(io.Writer) bool
-	ResolveImageSelector(context.Context, string) (string, error)
 	ValidateClusterBuildIdentity(context.Context) error
 	ClusterUp(context.Context) (tobari.State, error)
 	LoadState(context.Context) (tobari.State, bool, error)
@@ -45,28 +43,16 @@ type policyDecisionSetRuntimePort interface {
 	) (tobari.PolicyActivationReceipt, error)
 }
 
-// clusterUpProgressRuntimePort is an optional extension of RuntimePort. The
-// base port remains available to non-interactive callers and older fakes;
-// production runtimes use it to keep human progress outside application
+// clusterUpProgressRuntimePort is an optional extension of RuntimePort.
+// Production runtimes use it to keep human progress outside application
 // policy and Docker output.
 type clusterUpProgressRuntimePort interface {
 	ClusterUpWithProgress(context.Context, tobari.ClusterUpProgressSink) (tobari.State, error)
 }
 
-// legacyNamedRuntimePort is deliberately outside RuntimePort. The old
-// name-bound container lifecycle remains only as a migration diagnostic and
-// cannot become an authority for the CWD-owned public commands.
-type legacyNamedRuntimePort interface {
-	Attach(context.Context, tobari.State, string, string, string) (tobari.State, error)
-	InspectTobari(context.Context, tobari.State) ([]tobari.ItemStatus, error)
-	Exec(context.Context, tobari.Instance, tobari.ExecRequest, io.Reader, io.Writer, io.Writer) (int, error)
-	TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error)
-	Detach(context.Context, tobari.State, tobari.Instance, bool) (tobari.State, error)
-}
-
 // ProjectRuntimePort is the CWD-owned lifecycle boundary. It is separate from
-// RuntimePort so the shared-cluster and policy use cases can be migrated
-// without making their test doubles implement unrelated project operations.
+// RuntimePort so shared-cluster and policy test doubles do not implement
+// unrelated project operations.
 type ProjectRuntimePort interface {
 	ResolveProject(context.Context, string) (tobari.ProjectInstance, bool, error)
 	CreateProject(context.Context, string) (tobari.ProjectInstance, error)
@@ -106,7 +92,7 @@ type WorkspaceSelector interface {
 
 // lifecycleRuntimePort serializes shared-cluster and CWD-owned project
 // lifecycle operations. It is intentionally separate from the broader
-// RuntimePort so observation and legacy compatibility ports cannot acquire a
+// RuntimePort so observation ports cannot acquire a
 // lock they do not need.
 type lifecycleRuntimePort interface {
 	WithLifecycleLock(context.Context, func(context.Context) error) error
@@ -130,13 +116,12 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 		}
 	case operation.EffectWrite:
 		validCluster := intent.Target.Kind == tobari.ClusterTargetKind && intent.Target.ID == tobari.ClusterTargetID
-		validTobari := intent.Target.Kind == tobari.TargetKind && intent.Target.ID != ""
 		validPolicyCandidate := intent.Target.Kind == tobari.PolicyCandidateKind && intent.Target.ID != ""
 		validPolicyRule := intent.Target.Kind == tobari.PolicyRuleKind && intent.Target.ID != ""
 		validPolicyCompaction := intent.Target.Kind == tobari.PolicyCompactionKind && intent.Target.ID != ""
 		validPolicyDecisionSet := intent.Target.Kind == tobari.PolicyDecisionSetKind &&
 			intent.Target.ID == tobari.PolicyDecisionSetID
-		if !validCluster && !validTobari && !validPolicyCandidate && !validPolicyRule && !validPolicyCompaction && !validPolicyDecisionSet && !validCurrentDirectory {
+		if !validCluster && !validPolicyCandidate && !validPolicyRule && !validPolicyCompaction && !validPolicyDecisionSet && !validCurrentDirectory {
 			return fault.New(fault.KindRejected, "mutation_rejected", "mutation target is not owned by Tobari", false)
 		}
 	default:
@@ -227,20 +212,6 @@ func (s *Service) withLifecycleLock(ctx context.Context, action func(context.Con
 		)
 	}
 	return lifecycle.WithLifecycleLock(ctx, action)
-}
-
-func (s *Service) legacyNamedRuntime() (legacyNamedRuntimePort, error) {
-	if err := s.requireRuntime(); err != nil {
-		return nil, err
-	}
-	legacy, ok := s.runtime.(legacyNamedRuntimePort)
-	if !ok || portcheck.IsNil(legacy) {
-		return nil, fault.New(
-			fault.KindRejected, "legacy_named_lifecycle",
-			"named Tobari lifecycle is retired; run tobari from the project directory", false,
-		)
-	}
-	return legacy, nil
 }
 
 func (s *Service) validateProjectIntent(intent operation.Intent, effect operation.Effect) error {
@@ -968,167 +939,10 @@ func (s *Service) ClusterStatus(ctx context.Context) (tobari.ClusterStatus, erro
 }
 
 // Attach creates one named Tobari within the shared cluster.
-func (s *Service) Attach(
-	ctx context.Context, intent operation.Intent, name, root, image string,
-) (tobari.Instance, error) {
-	legacy, err := s.legacyNamedRuntime()
-	if err != nil {
-		return tobari.Instance{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return tobari.Instance{}, err
-	}
-	if err := tobari.ValidateName(name); err != nil {
-		return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_name", "Tobari name is invalid", false, err)
-	}
-	if image != "" {
-		if err := tobari.ValidateImageSelector(image); err != nil {
-			return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_image", "Tobari image selector is invalid", false, err)
-		}
-	}
-	resolved, err := s.runtime.ResolveRoot(ctx, root)
-	if err != nil {
-		if contextErr := ctx.Err(); contextErr != nil {
-			return tobari.Instance{}, contextErr
-		}
-		return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "Tobari root is invalid", false, err)
-	}
-	image, err = s.runtime.ResolveImageSelector(ctx, image)
-	if err != nil {
-		if contextErr := ctx.Err(); contextErr != nil {
-			return tobari.Instance{}, contextErr
-		}
-		if _, structured := fault.PublicCopy(err); structured {
-			return tobari.Instance{}, err
-		}
-		return tobari.Instance{}, fault.Wrap(fault.KindRejected, "invalid_image_config", "default Tobari image configuration is invalid", false, err)
-	}
-	if err := tobari.ValidateImageSelector(image); err != nil {
-		return tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_image", "Tobari image selector is invalid", false, err)
-	}
-	state, exists, err := s.runtime.LoadState(ctx)
-	if err != nil {
-		return tobari.Instance{}, fault.Wrap(fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err)
-	}
-	if !exists {
-		return tobari.Instance{}, fault.New(fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false)
-	}
-	for _, existing := range state.Tobari {
-		if existing.Name == name {
-			if existing.Root == resolved {
-				if existing.ImageSelector() == image {
-					existing.Image = existing.ImageSelector()
-					return existing, nil
-				}
-				return tobari.Instance{}, fault.New(fault.KindInvalidInput, "image_conflict", "Tobari name and root are already attached with another image", false)
-			}
-			return tobari.Instance{}, fault.New(fault.KindInvalidInput, "name_conflict", "Tobari name is already attached to another root", false)
-		}
-		if existing.Root == resolved {
-			return tobari.Instance{}, fault.New(fault.KindInvalidInput, "root_conflict", "root is already attached to another Tobari", false)
-		}
-	}
-	request := execution.Request{
-		Intent: intent, ExpectedCommand: "attach", ExpectedEffect: operation.EffectCreate,
-		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
-	}
-	var updated tobari.State
-	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		created, actionErr := legacy.Attach(actionContext, state, name, resolved, image)
-		updated = created
-		if actionErr == nil {
-			return nil
-		}
-		if _, structured := fault.PublicCopy(actionErr); structured {
-			return actionErr
-		}
-		return fault.Wrap(
-			fault.KindUnavailable, "attach_failed",
-			"Tobari attachment did not complete; inspect list before retrying", false, actionErr,
-			fault.NextAction{Command: "list", Reason: "Reconcile partial Docker state before another attachment."},
-		)
-	})
-	if err != nil {
-		return tobari.Instance{}, err
-	}
-	for _, instance := range updated.Tobari {
-		if instance.Name == name {
-			return instance, nil
-		}
-	}
-	return tobari.Instance{}, fault.New(fault.KindContract, "invalid_attach_contract", "attached Tobari is absent from confirmed state", false)
-}
 
 // List returns every configured Tobari in the exact local scope.
-func (s *Service) List(ctx context.Context) (tobari.ListResult, error) {
-	legacy, err := s.legacyNamedRuntime()
-	if err != nil {
-		return tobari.ListResult{}, err
-	}
-	state, exists, err := s.runtime.LoadState(ctx)
-	if err != nil {
-		return tobari.ListResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err)
-	}
-	result := tobari.ListResult{Task: tobari.TaskList, Items: []tobari.ItemStatus{}}
-	if exists {
-		result.Items, err = legacy.InspectTobari(ctx, state)
-		if err != nil {
-			return tobari.ListResult{}, fault.Wrap(fault.KindInternal, "list_failed", "Tobari list could not be observed", false, err)
-		}
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.ListResult{}, fault.Wrap(fault.KindContract, "invalid_list_contract", "Tobari list is invalid", false, err)
-	}
-	return result, nil
-}
-
-func (s *Service) loadInstance(ctx context.Context, id string) (tobari.State, tobari.Instance, error) {
-	if err := tobari.ValidateID(id); err != nil {
-		return tobari.State{}, tobari.Instance{}, fault.Wrap(fault.KindInvalidInput, "invalid_tobari_id", "Tobari ID is invalid", false, err)
-	}
-	state, exists, err := s.runtime.LoadState(ctx)
-	if err != nil {
-		return tobari.State{}, tobari.Instance{}, fault.Wrap(fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err)
-	}
-	if !exists {
-		return tobari.State{}, tobari.Instance{}, fault.New(fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false)
-	}
-	instance, found := state.Find(id)
-	if !found {
-		return tobari.State{}, tobari.Instance{}, fault.New(fault.KindInvalidInput, "tobari_not_found", "Tobari ID is not configured", false)
-	}
-	return state, instance, nil
-}
 
 // Exec runs exact argv inside one opaque-ID-bound Tobari.
-func (s *Service) Exec(
-	ctx context.Context, id string, request tobari.ExecRequest,
-	in io.Reader, out, errOut io.Writer,
-) (int, error) {
-	legacy, err := s.legacyNamedRuntime()
-	if err != nil {
-		return 0, err
-	}
-	if err := request.Validate(); err != nil {
-		return 0, fault.Wrap(fault.KindInvalidInput, "invalid_exec_request", "Tobari command is invalid", false, err)
-	}
-	_, instance, err := s.loadInstance(ctx, id)
-	if err != nil {
-		return 0, err
-	}
-	if request.HostCWD == "" && request.Interactive {
-		current, currentErr := s.runtime.CurrentDirectory(ctx)
-		if currentErr == nil {
-			request.HostCWD = current
-		}
-	}
-	request.TTY = request.TTY && s.runtime.IsTerminal(out)
-	code, err := legacy.Exec(ctx, instance, request, in, out, errOut)
-	if err != nil {
-		return 0, fault.Wrap(fault.KindInternal, "exec_failed", "Tobari command could not be started", false, err)
-	}
-	return code, nil
-}
 
 // ClusterLogs returns a bounded shared log window.
 func (s *Service) ClusterLogs(ctx context.Context, request tobari.LogRequest) ([]byte, error) {
@@ -1246,13 +1060,6 @@ func (s *Service) PolicyCandidates(
 	ctx context.Context, tail int,
 ) (tobari.PolicyCandidateReport, error) {
 	return s.policyCandidates(ctx, tail, tobari.TaskPolicyCandidates)
-}
-
-// PolicyTail returns the same queue with a distinct human-review task identity.
-func (s *Service) PolicyTail(
-	ctx context.Context, tail int,
-) (tobari.PolicyCandidateReport, error) {
-	return s.policyCandidates(ctx, tail, tobari.TaskPolicyTail)
 }
 
 // PolicyReview discovers the bounded exact-permission queue for a human host
@@ -1836,60 +1643,6 @@ func (s *Service) CompactPolicy(
 	return result, nil
 }
 
-// TobariLogs returns a bounded log window for one exact Tobari.
-func (s *Service) TobariLogs(ctx context.Context, id string, tail int) ([]byte, error) {
-	legacy, err := s.legacyNamedRuntime()
-	if err != nil {
-		return nil, err
-	}
-	request := tobari.LogRequest{Component: "tobari", Tail: tail}
-	if err := request.ValidateTobari(); err != nil {
-		return nil, fault.Wrap(fault.KindInvalidInput, "invalid_log_request", "Tobari log request is invalid", false, err)
-	}
-	_, instance, err := s.loadInstance(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	output, err := legacy.TobariLogs(ctx, instance, request)
-	if err != nil {
-		return nil, fault.Wrap(fault.KindInternal, "logs_failed", "Tobari logs could not be read", false, err)
-	}
-	return output, nil
-}
-
-// Detach removes one exact referenced Tobari.
-func (s *Service) Detach(ctx context.Context, intent operation.Intent, id string, purge bool) error {
-	legacy, err := s.legacyNamedRuntime()
-	if err != nil {
-		return err
-	}
-	state, instance, err := s.loadInstance(ctx, id)
-	if err != nil {
-		return err
-	}
-	if intent.Target.ID != id {
-		return fault.New(fault.KindContract, "invalid_mutation_contract", "detach target does not match the consumed Tobari ID", false)
-	}
-	request := execution.Request{
-		Intent: intent, ExpectedCommand: "detach", ExpectedEffect: operation.EffectWrite,
-		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
-	}
-	return s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		_, actionErr := legacy.Detach(actionContext, state, instance, purge)
-		if actionErr == nil {
-			return nil
-		}
-		if _, structured := fault.PublicCopy(actionErr); structured {
-			return actionErr
-		}
-		return fault.Wrap(
-			fault.KindUnavailable, "detach_failed",
-			"Tobari detachment did not complete; inspect list before retrying", false, actionErr,
-			fault.NextAction{Command: "list", Reason: "Reconcile remaining Docker state before another detachment."},
-		)
-	})
-}
-
 // ClusterDown removes shared resources only after every logical Workspace is deleted.
 func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purge bool) (tobari.ClusterStatus, error) {
 	if err := s.requireRuntime(); err != nil {
@@ -1922,12 +1675,6 @@ func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purg
 		}
 		if !exists {
 			return nil
-		}
-		if len(state.Tobari) != 0 {
-			return fault.New(
-				fault.KindRejected, "legacy_named_state",
-				"the shared state contains legacy named Tobari records; remove them with the older binary before continuing", false,
-			)
 		}
 		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
 			actionErr := s.runtime.ClusterDown(actionContext, state, purge)

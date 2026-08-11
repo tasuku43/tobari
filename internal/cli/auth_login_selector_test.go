@@ -19,7 +19,7 @@ func TestAuthLoginProviderSelectorUsesNumberedFallback(t *testing.T) {
 			{Provider: "anthropic", State: authbroker.ProviderCredentialNotConfigured},
 			{Provider: "aws", State: authbroker.ProviderCredentialNotConfigured},
 			{Provider: "datadog", State: authbroker.ProviderCredentialNotConfigured},
-			{Provider: "github", State: authbroker.ProviderCredentialConfigured, Configured: true, CredentialRevision: "revision:1"},
+			{Provider: "github", State: authbroker.ProviderCredentialConfigured, CredentialRevision: "revision:1"},
 			{Provider: "openai", State: authbroker.ProviderCredentialNotConfigured},
 		},
 		strings.NewReader("3\n"), output,

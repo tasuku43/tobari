@@ -545,8 +545,7 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 			if statusErr != nil {
 				return authbroker.StatusObservation{}, classifyBrokerError(statusErr, "auth status")
 			}
-			status.Configured = response.State == "ready"
-			if status.Configured {
+			if response.State == "ready" {
 				status.State = authbroker.ProviderCredentialConfigured
 				status.CredentialRevision = response.Revision
 				status.AccountLabel, err = validatedAccountLabel(response.AccountLabel)
@@ -648,7 +647,6 @@ func (r *Runtime) buildAuthMutationObservation(
 						status.State = authbroker.ProviderCredentialNotConfigured
 					case "ready":
 						status.State = authbroker.ProviderCredentialConfigured
-						status.Configured = true
 						status.CredentialRevision = observed.Revision
 					}
 				}

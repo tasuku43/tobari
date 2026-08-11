@@ -8,6 +8,8 @@
 - Superseded by: None
 - Revised by: ADR 0026 replaces the Gateway-local-address principal mechanism;
   shared Context/project enforcement remains accepted
+- Revised by: ADR 0027 resets all pre-public schemas to exact V1 and removes
+  migration and compatibility paths
 
 ## Context
 

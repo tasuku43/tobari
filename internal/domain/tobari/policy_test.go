@@ -1,7 +1,6 @@
 package tobari
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -17,8 +16,7 @@ const (
 )
 
 func validPolicyDenial() PolicyDenial {
-	return PolicyDenial{
-		Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	return PolicyDenial{PolicyProtocolIdentity: PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: policyContextA, ContextName: "default",
 		ProjectID: policyProjectA, ProjectRoot: "/workspace/project-a",
 		Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
@@ -72,7 +70,6 @@ func TestPolicyDenialRejectsInterpretationSensitiveFields(t *testing.T) {
 func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 	t.Parallel()
 	valid := []PolicyProtocolIdentity{
-		{},
 		{Protocol: PolicyProtocolHTTP},
 		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "_viewer"},
 		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue"},
@@ -82,11 +79,8 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 			t.Fatalf("valid policy protocol identity %+v was rejected: %v", identity, err)
 		}
 	}
-	if got := (PolicyProtocolIdentity{}).EffectiveProtocol(); got != PolicyProtocolHTTP {
-		t.Fatalf("absent protocol resolved to %q, want %q", got, PolicyProtocolHTTP)
-	}
-
 	invalid := []PolicyProtocolIdentity{
+		{},
 		{Protocol: "grpc"},
 		{Protocol: PolicyProtocolHTTP, GraphQLOperationType: GraphQLOperationQuery},
 		{Protocol: PolicyProtocolHTTP, GraphQLRootField: "viewer"},
@@ -153,49 +147,6 @@ func TestGraphQLEndpointValidationAndExactMatch(t *testing.T) {
 	}
 }
 
-func TestHTTPProtocolIdentityRetainsLegacyOpaqueIDs(t *testing.T) {
-	t.Parallel()
-	legacyDenial := validPolicyDenial()
-	explicitHTTPDenial := legacyDenial
-	explicitHTTPDenial.Protocol = PolicyProtocolHTTP
-
-	legacyCandidate, err := NewPolicyCandidate(legacyDenial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	explicitHTTPCandidate, err := NewPolicyCandidate(explicitHTTPDenial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if legacyCandidate.ID != explicitHTTPCandidate.ID {
-		t.Fatalf("explicit HTTP changed candidate ID: legacy=%s explicit=%s", legacyCandidate.ID, explicitHTTPCandidate.ID)
-	}
-
-	legacyAllow, err := NewExactLearnedPolicyRule(legacyCandidate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	explicitHTTPAllow, err := NewExactLearnedPolicyRule(explicitHTTPCandidate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if legacyAllow.ID != explicitHTTPAllow.ID {
-		t.Fatalf("explicit HTTP changed allow rule ID: legacy=%s explicit=%s", legacyAllow.ID, explicitHTTPAllow.ID)
-	}
-
-	legacyDeny, err := NewExactPolicyDenyRule(legacyCandidate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	explicitHTTPDeny, err := NewExactPolicyDenyRule(explicitHTTPCandidate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if legacyDeny.ID != explicitHTTPDeny.ID {
-		t.Fatalf("explicit HTTP changed deny rule ID: legacy=%s explicit=%s", legacyDeny.ID, explicitHTTPDeny.ID)
-	}
-}
-
 func TestGraphQLIdentityBindsCandidatesRulesAndMatching(t *testing.T) {
 	t.Parallel()
 	denial := validPolicyDenial()
@@ -213,7 +164,7 @@ func TestGraphQLIdentityBindsCandidatesRulesAndMatching(t *testing.T) {
 	}
 
 	httpDenial := denial
-	httpDenial.PolicyProtocolIdentity = PolicyProtocolIdentity{}
+	httpDenial.PolicyProtocolIdentity = PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP}
 	httpCandidate, err := NewPolicyCandidate(httpDenial)
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +199,7 @@ func TestGraphQLIdentityBindsCandidatesRulesAndMatching(t *testing.T) {
 	}
 	if allow.Matches(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) ||
 		deny.Matches(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) {
-		t.Fatal("GraphQL rules matched the legacy HTTP coordinate")
+		t.Fatal("GraphQL rules matched an ordinary HTTP coordinate")
 	}
 	if allow.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, queryDenial.PolicyProtocolIdentity) ||
 		deny.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, otherRootDenial.PolicyProtocolIdentity) {
@@ -291,7 +242,7 @@ func TestPolicyCandidateAggregationKeepsGraphQLCoordinatesDistinct(t *testing.T)
 	http := update
 	http.Timestamp = "2026-07-30T10:44:11Z"
 	http.RequestID = "a185da2688d7469aae9cd9068e920b0b"
-	http.PolicyProtocolIdentity = PolicyProtocolIdentity{}
+	http.PolicyProtocolIdentity = PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP}
 
 	items, err := PolicyCandidates([]PolicyDenial{update, repeated, deleteIssue, http}, []LearnedPolicyRule{})
 	if err != nil {
@@ -400,33 +351,6 @@ func TestPolicyCandidatesDeduplicateLatestEffectAndHideCoveredRules(t *testing.T
 	original, _ := NewPolicyCandidate(first)
 	if original.ID != want.ID || original.ObservedAt == want.ObservedAt {
 		t.Fatalf("repeated exact effect did not retain a stable ID with latest evidence: original=%+v latest=%+v", original, want)
-	}
-}
-
-func TestPolicyCandidateLegacyObservationCountDefaultsToOne(t *testing.T) {
-	t.Parallel()
-	candidate, err := NewPolicyCandidate(validPolicyDenial())
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidate.ObservationCount = 0
-	encoded, err := json.Marshal(candidate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded PolicyCandidate
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if err := decoded.Validate(); err != nil {
-		t.Fatalf("legacy candidate was rejected: %v", err)
-	}
-	if got := decoded.EffectiveObservationCount(); got != 1 {
-		t.Fatalf("legacy observation count = %d, want 1", got)
-	}
-	candidate.ObservationCount = -1
-	if err := candidate.Validate(); err == nil {
-		t.Fatal("negative observation count was accepted")
 	}
 }
 

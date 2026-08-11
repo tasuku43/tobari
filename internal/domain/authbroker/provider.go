@@ -12,18 +12,16 @@ import (
 )
 
 const (
-	LegacyProviderSchemaVersion = 1
-	ProviderSchemaVersion       = 2
-	LegacyProviderSchemaID      = "tobari.auth-provider.v1"
-	ProviderSchemaID            = "tobari.auth-provider.v2"
-	MaxProviderDocumentBytes    = 64 * 1024
-	MaxPrimarySecretBytes       = 32 * 1024
-	MaxTemplateBytes            = 32 * 1024
-	maxProviders                = 64
-	maxProjections              = 32
-	maxBindings                 = 64
-	maxSigningBindings          = 8
-	maxSecretHeaders            = 32
+	ProviderSchemaVersion    = 1
+	ProviderSchemaID         = "tobari.auth-provider.v1"
+	MaxProviderDocumentBytes = 64 * 1024
+	MaxPrimarySecretBytes    = 32 * 1024
+	MaxTemplateBytes         = 32 * 1024
+	maxProviders             = 64
+	maxProjections           = 32
+	maxBindings              = 64
+	maxSigningBindings       = 8
+	maxSecretHeaders         = 32
 )
 
 var (
@@ -52,9 +50,8 @@ func (m AcquisitionMode) Validate() error {
 type CredentialKind string
 
 const (
-	// CredentialPrimarySecret is the schema-v1 static credential spelling. It
-	// remains valid only so owner manifests and existing built-ins keep their
-	// exact public contract.
+	// CredentialPrimarySecret is the static credential plan used by protected
+	// stdin imports and reviewed static built-ins.
 	CredentialPrimarySecret           CredentialKind = "primary_secret"
 	CredentialAWSSSOSession           CredentialKind = "aws_sso_session"
 	CredentialDatadogOAuthSession     CredentialKind = "datadog_oauth_session"      // #nosec G101 -- public credential-kind discriminator, not a credential.
@@ -217,7 +214,7 @@ type SigningBinding struct {
 	AWSSigV4 *AWSSigV4Binding   `json:"aws_sigv4,omitempty"`
 }
 
-// Provider is a parsed schema-v1 or schema-v2 provider manifest. It contains
+// Provider is a parsed schema-v1 provider manifest. It contains
 // no real credential, root key, or project-bound handle.
 type Provider struct {
 	SchemaVersion        int                   `json:"schema_version"`
@@ -243,11 +240,8 @@ func (p Provider) Validate() error {
 }
 
 func validateProvider(p Provider) error {
-	if p.SchemaVersion != LegacyProviderSchemaVersion && p.SchemaVersion != ProviderSchemaVersion {
-		return fmt.Errorf(
-			"provider %q schema_version must be %d or %d",
-			p.ID, LegacyProviderSchemaVersion, ProviderSchemaVersion,
-		)
+	if p.SchemaVersion != ProviderSchemaVersion {
+		return fmt.Errorf("provider %q schema_version must be %d", p.ID, ProviderSchemaVersion)
 	}
 	if err := ValidateProviderID(p.ID); err != nil {
 		return err
@@ -337,61 +331,53 @@ func validateProvider(p Provider) error {
 }
 
 func validateCredentialPlan(p Provider) error {
-	switch p.SchemaVersion {
-	case LegacyProviderSchemaVersion:
-		if p.Credential.Kind != CredentialPrimarySecret {
-			return fmt.Errorf("schema-v1 provider credential kind must be %q", CredentialPrimarySecret)
-		}
+	switch p.Credential.Kind {
+	case CredentialPrimarySecret:
 		if len(p.SigningBindings) != 0 {
-			return fmt.Errorf("schema-v1 provider cannot declare signing bindings")
+			return fmt.Errorf("primary_secret provider cannot declare signing bindings")
 		}
-	case ProviderSchemaVersion:
-		switch p.Credential.Kind {
-		case CredentialAWSSSOSession:
-			if p.ID != "aws" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "aws-sso" {
-				return fmt.Errorf("aws_sso_session is reserved for the reviewed aws/aws-sso built-in plan")
-			}
-			if len(p.HeaderBindings) != 0 || len(p.SigningBindings) != 1 ||
-				p.SigningBindings[0].Kind != SigningBindingAWSSigV4 {
-				return fmt.Errorf("aws_sso_session must declare exactly one aws_sigv4 signing binding and no header binding")
-			}
-		case CredentialDatadogOAuthSession:
-			if p.ID != "datadog" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "pup-oauth" {
-				return fmt.Errorf("datadog_oauth_session is reserved for the reviewed datadog/pup-oauth built-in plan")
-			}
-			if len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
-				return fmt.Errorf("datadog_oauth_session must declare exactly one header binding and no signing binding")
-			}
-			binding := p.HeaderBindings[0]
-			if binding.Target != (BindingTarget{Scheme: "https", Host: "api.datadoghq.com", Port: 443}) ||
-				binding.Source.Header != "authorization" || len(binding.Source.Formats) != 1 ||
-				binding.Source.Formats[0] != SourceFormatBearer ||
-				binding.Destination.Header != "authorization" ||
-				binding.Destination.Format != DestinationFormatBearer ||
-				binding.Destination.SecretField != CredentialDatadogOAuthSession ||
-				len(binding.SecretHeaders) != 1 || binding.SecretHeaders[0] != "authorization" {
-				return fmt.Errorf("datadog_oauth_session binding does not match the reviewed Datadog US1 bearer contract")
-			}
-		case CredentialOpenAICodexOAuthSession:
-			if p.ID != "openai" || p.DisplayName != "OpenAI account for Codex" ||
-				p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "codex-chatgpt-oauth" {
-				return fmt.Errorf("openai_codex_oauth_session is reserved for the reviewed openai/codex-chatgpt-oauth built-in plan")
-			}
-			if len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
-				return fmt.Errorf("openai_codex_oauth_session must declare exactly one header binding and no signing binding")
-			}
-			binding := p.HeaderBindings[0]
-			if binding.Target != (BindingTarget{Scheme: "https", Host: "chatgpt.com", Port: 443}) ||
-				binding.Source.Header != "authorization" || len(binding.Source.Formats) != 1 ||
-				binding.Source.Formats[0] != SourceFormatBearer ||
-				binding.Destination.Header != "authorization" ||
-				binding.Destination.Format != DestinationFormatBearer ||
-				binding.Destination.SecretField != CredentialOpenAICodexOAuthSession ||
-				strings.Join(binding.SecretHeaders, ",") != "authorization,chatgpt-account-id,x-openai-fedramp" {
-				return fmt.Errorf("openai_codex_oauth_session binding does not match the reviewed Codex ChatGPT contract")
-			}
-		default:
-			return fmt.Errorf("schema-v2 provider credential kind is invalid")
+	case CredentialAWSSSOSession:
+		if p.ID != "aws" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "aws-sso" {
+			return fmt.Errorf("aws_sso_session is reserved for the reviewed aws/aws-sso built-in plan")
+		}
+		if len(p.HeaderBindings) != 0 || len(p.SigningBindings) != 1 ||
+			p.SigningBindings[0].Kind != SigningBindingAWSSigV4 {
+			return fmt.Errorf("aws_sso_session must declare exactly one aws_sigv4 signing binding and no header binding")
+		}
+	case CredentialDatadogOAuthSession:
+		if p.ID != "datadog" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "pup-oauth" {
+			return fmt.Errorf("datadog_oauth_session is reserved for the reviewed datadog/pup-oauth built-in plan")
+		}
+		if len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
+			return fmt.Errorf("datadog_oauth_session must declare exactly one header binding and no signing binding")
+		}
+		binding := p.HeaderBindings[0]
+		if binding.Target != (BindingTarget{Scheme: "https", Host: "api.datadoghq.com", Port: 443}) ||
+			binding.Source.Header != "authorization" || len(binding.Source.Formats) != 1 ||
+			binding.Source.Formats[0] != SourceFormatBearer ||
+			binding.Destination.Header != "authorization" ||
+			binding.Destination.Format != DestinationFormatBearer ||
+			binding.Destination.SecretField != CredentialDatadogOAuthSession ||
+			len(binding.SecretHeaders) != 1 || binding.SecretHeaders[0] != "authorization" {
+			return fmt.Errorf("datadog_oauth_session binding does not match the reviewed Datadog US1 bearer contract")
+		}
+	case CredentialOpenAICodexOAuthSession:
+		if p.ID != "openai" || p.DisplayName != "OpenAI account for Codex" ||
+			p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "codex-chatgpt-oauth" {
+			return fmt.Errorf("openai_codex_oauth_session is reserved for the reviewed openai/codex-chatgpt-oauth built-in plan")
+		}
+		if len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
+			return fmt.Errorf("openai_codex_oauth_session must declare exactly one header binding and no signing binding")
+		}
+		binding := p.HeaderBindings[0]
+		if binding.Target != (BindingTarget{Scheme: "https", Host: "chatgpt.com", Port: 443}) ||
+			binding.Source.Header != "authorization" || len(binding.Source.Formats) != 1 ||
+			binding.Source.Formats[0] != SourceFormatBearer ||
+			binding.Destination.Header != "authorization" ||
+			binding.Destination.Format != DestinationFormatBearer ||
+			binding.Destination.SecretField != CredentialOpenAICodexOAuthSession ||
+			strings.Join(binding.SecretHeaders, ",") != "authorization,chatgpt-account-id,x-openai-fedramp" {
+			return fmt.Errorf("openai_codex_oauth_session binding does not match the reviewed Codex ChatGPT contract")
 		}
 	}
 	return nil
@@ -412,12 +398,12 @@ func validateOpenAICodexWorkspaceProjection(projections []WorkspaceProjection) e
 }
 
 func validateAnthropicClaudePlan(p Provider) error {
-	if p.SchemaVersion != LegacyProviderSchemaVersion || p.ID != "anthropic" ||
+	if p.SchemaVersion != ProviderSchemaVersion || p.ID != "anthropic" ||
 		p.DisplayName != "Anthropic account for Claude Code" ||
 		p.Acquisition != (Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "claude-setup-token"}) ||
 		p.Credential.Kind != CredentialPrimarySecret || len(p.WorkspaceProjections) != 1 ||
 		len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
-		return fmt.Errorf("Claude setup-token must use the reviewed schema-v1 Anthropic built-in plan")
+		return fmt.Errorf("Claude setup-token must use the reviewed Anthropic built-in plan")
 	}
 	projection := p.WorkspaceProjections[0]
 	if projection.Kind != WorkspaceProjectionEnvironment || projection.Name != "CLAUDE_CODE_OAUTH_TOKEN" ||

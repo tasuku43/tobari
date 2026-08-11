@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -241,7 +242,8 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 		if component.Identity != want {
 			t.Errorf("%s identity = %q, want HEAD %s %q", componentName, component.Identity, authorityName, want)
 		}
-		if !digestPattern.MatchString(component.Identity) {
+		ownedWithheld := (componentName == "Gateway" || componentName == "Auth Broker") && component.Identity == "unpublished"
+		if !ownedWithheld && !digestPattern.MatchString(component.Identity) {
 			t.Errorf("%s identity %q is not immutable", componentName, component.Identity)
 		}
 	}
@@ -268,9 +270,13 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 	wantProviderSchema := captureIntForTest(
 		t, providerSource, `(?m)^\s*ProviderSchemaVersion\s*=\s*([0-9]+)`,
 	)
-	wantOwnerProviderSchema := captureIntForTest(
-		t, providerSource, `(?m)^\s*LegacyProviderSchemaVersion\s*=\s*([0-9]+)`,
-	)
+	wantOwnerProviderSchema := wantProviderSchema
+	if match := regexp.MustCompile(`(?m)^\s*LegacyProviderSchemaVersion\s*=\s*([0-9]+)`).FindSubmatch(providerSource); len(match) == 2 {
+		wantOwnerProviderSchema, err = strconv.Atoi(string(match[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	catalogSource := committedForTest(t, root, "internal/cli/runtime_catalog.go")
 	wantContextReportSchema, err := contextReportSchemaVersion(catalogSource)
 	if err != nil {

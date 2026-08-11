@@ -410,8 +410,7 @@ func runPolicyRulesJSONChild(t *testing.T) string {
 }
 
 func newPolicyReviewPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake, string) {
-	denial := tobari.PolicyDenial{
-		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
@@ -431,8 +430,7 @@ func newPolicyReviewPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake,
 }
 
 func newPolicyRulesPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake, string) {
-	denial := tobari.PolicyDenial{
-		Timestamp: "2026-08-02T10:00:00Z", RequestID: "8185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "8185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",

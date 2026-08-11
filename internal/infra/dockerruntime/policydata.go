@@ -24,7 +24,7 @@ const (
 	maxPolicyDataBytes    = 1024 * 1024
 	maxPolicyPreflight    = 4 * 1024 * 1024
 	maxPolicyFiles        = 128
-	policySchemaVersion   = 2
+	policySchemaVersion   = 1
 	policyRulesDataName   = "rules"
 	learnedPolicyDataName = "learned_allows"
 	learnedDenyDataName   = "learned_denies"

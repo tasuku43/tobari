@@ -246,17 +246,6 @@ func TestRemovedSampleNamespaceIsUnknown(t *testing.T) {
 	}
 }
 
-func TestRetiredLifecycleCommandExplainsCWDReplacement(t *testing.T) {
-	command, stdout, stderr := newTestCLI(passingInspector("unused"))
-	if code := runCLI(command, []string{"attach", "--name", "old"}); code != ExitUsage {
-		t.Fatalf("Run(attach) code = %d, want %d", code, ExitUsage)
-	}
-	if stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "retired_command") ||
-		!strings.Contains(stderr.String(), "Run `tobari` from the project directory") {
-		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
-	}
-}
-
 func TestHumanRootRecoveryActionIsExecutable(t *testing.T) {
 	command, stdout, stderr := newTestCLI(passingInspector("unused"))
 	ctx := withCommandPath(context.Background(), "delete")
@@ -288,13 +277,13 @@ func TestVersionOutputContract(t *testing.T) {
 	if code := runCLI(command, []string{"version"}); code != ExitOK {
 		t.Fatalf("Run(version) code = %d, stderr = %q", code, stderr.String())
 	}
-	want := "! Tobari build\n" +
+	want := "✓ Tobari build\n" +
 		"  Version        v1.2.3\n" +
 		"  Commit         0123456789abcdef0123456789abcdef01234567\n" +
 		"  Resolver       published\n" +
-		"  Gateway API    required 5, selected 3\n" +
-		"  Auth Broker API required 3, selected 2\n" +
-		"  Compatibility  incompatible or incomplete\n"
+		"  Gateway API    required 1, selected 1\n" +
+		"  Auth Broker API required 1, selected 1\n" +
+		"  Compatibility  compatible\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("version output = %q, want %q", got, want)
 	}
@@ -302,7 +291,7 @@ func TestVersionOutputContract(t *testing.T) {
 	if code := runCLI(command, []string{"version", "--format", "json"}); code != ExitOK {
 		t.Fatalf("Run(version --format json) code = %d, stderr = %q", code, stderr.String())
 	}
-	wantJSON := "{\"schema_version\":1,\"build_identity\":{\"version\":\"v1.2.3\",\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"resolver_channel\":\"published\",\"development_source\":false,\"gateway_required_api\":5,\"gateway_selected_api\":3,\"auth_broker_required_api\":3,\"auth_broker_selected_api\":2,\"compatible\":false,\"development_build_command\":\"\",\"development_binary\":\"\"}}\n"
+	wantJSON := "{\"schema_version\":1,\"build_identity\":{\"version\":\"v1.2.3\",\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"resolver_channel\":\"published\",\"development_source\":false,\"gateway_required_api\":1,\"gateway_selected_api\":1,\"auth_broker_required_api\":1,\"auth_broker_selected_api\":1,\"compatible\":true,\"development_build_command\":\"\",\"development_binary\":\"\"}}\n"
 	if got := stdout.String(); got != wantJSON {
 		t.Fatalf("version JSON = %q, want %q", got, wantJSON)
 	}
@@ -382,7 +371,7 @@ func TestDoctorJSONPreservesBlockedAndRecoveryFacts(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("decode doctor JSON: %v, output = %q", err, stdout.String())
 	}
-	if document.SchemaVersion != 2 || len(document.Report) != len(doctor.CheckInventory()) {
+	if document.SchemaVersion != 1 || len(document.Report) != len(doctor.CheckInventory()) {
 		t.Fatalf("doctor document header = %+v", document)
 	}
 	root := document.Report[0]
@@ -887,7 +876,7 @@ func TestDoctorJSONSnapshotEscapesExternalCategoryC(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("JSON output: %v, output = %q", err, stdout.String())
 	}
-	if document.SchemaVersion != 2 || len(document.Report) != len(doctor.CheckInventory()) ||
+	if document.SchemaVersion != 1 || len(document.Report) != len(doctor.CheckInventory()) ||
 		document.Report[0].Check != "docker_cli" || document.Report[0].Detail != "line\\nESC:\\u001B bidi:\\u202E" ||
 		document.Report[0].BlockedBy != nil || document.Report[0].Recovery != nil {
 		t.Fatalf("JSON document = %+v", document)

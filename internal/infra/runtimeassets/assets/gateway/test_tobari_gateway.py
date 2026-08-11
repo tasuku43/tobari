@@ -41,7 +41,7 @@ class GatewayTests(unittest.TestCase):
         self.real_token = "real-token-canary"
         self.provider_projection = self.github_provider_projection()
         self.config = {
-            "version": "v2",
+            "version": "v1",
             "contexts": {
                 self.context_a: {"name": "default", "graphql_endpoints": [], "profiles": {
                     "example": {
@@ -62,7 +62,7 @@ class GatewayTests(unittest.TestCase):
         with open(self.principal_path, "w", encoding="utf-8") as handle:
             json.dump(
                 {
-                    "schema_version": 3,
+                    "schema_version": 1,
                     "bindings": [
                         {
                             "project_id": self.project_a,
@@ -314,7 +314,7 @@ class GatewayTests(unittest.TestCase):
     @staticmethod
     def datadog_oauth_provider_projection():
         provider = {
-            "schema_version": 2,
+            "schema_version": 1,
             "id": "datadog",
             "display_name": "Datadog access token for pup",
             "acquisition": {"mode": "builtin_helper", "helper": "pup-oauth"},
@@ -341,7 +341,7 @@ class GatewayTests(unittest.TestCase):
             "secret_headers": ["authorization"],
         }
         return {
-            "schema_version": 2,
+            "schema_version": 1,
             "providers": [provider],
             "environment": [
                 {"provider_id": "datadog", "name": "DD_ACCESS_TOKEN", "template": "${HANDLE}"},
@@ -362,7 +362,7 @@ class GatewayTests(unittest.TestCase):
             '"last_refresh":"1970-01-01T00:00:00Z"}'
         )
         provider = {
-            "schema_version": 2,
+            "schema_version": 1,
             "id": "openai",
             "display_name": "OpenAI account for Codex",
             "acquisition": {
@@ -417,7 +417,7 @@ class GatewayTests(unittest.TestCase):
             ],
         }
         return {
-            "schema_version": 2,
+            "schema_version": 1,
             "providers": [provider],
             "environment": [],
             "complete_files": [
@@ -451,7 +451,7 @@ class GatewayTests(unittest.TestCase):
             "secret_headers": ["authorization", "x-amz-security-token"],
         }
         provider = {
-            "schema_version": 2,
+            "schema_version": 1,
             "id": "aws",
             "display_name": "AWS IAM Identity Center",
             "acquisition": {"mode": "builtin_helper", "helper": "aws-sso"},
@@ -471,7 +471,7 @@ class GatewayTests(unittest.TestCase):
             "aws_sigv4": signing_plan,
         }
         return {
-            "schema_version": 2,
+            "schema_version": 1,
             "providers": [provider],
             "environment": [
                 {"provider_id": "aws", "name": "AWS_ACCESS_KEY_ID", "template": "${HANDLE}"},
@@ -723,7 +723,7 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(document["principal"]["project_id"], self.project_a)
         self.assertNotIn("session", document["principal"])
         request = document["request"]
-        self.assertEqual(document["schema_version"], 5)
+        self.assertEqual(document["schema_version"], 1)
         self.assertEqual(
             document["authorization"],
             {"requested_profile": None, "broker_provider": None},
@@ -821,7 +821,7 @@ class GatewayTests(unittest.TestCase):
             [record["graphql_root_field"] for record in records],
             ["repository", "viewer"],
         )
-        self.assertTrue(all(record["schema_version"] == 3 for record in records))
+        self.assertTrue(all(record["schema_version"] == 1 for record in records))
         combined = output.getvalue() + flow.response.content.decode()
         self.assertNotIn("raw-audit-canary", combined)
         self.assertNotIn("query Private", combined)
@@ -2202,7 +2202,7 @@ class GatewayTests(unittest.TestCase):
             ],
         )
 
-    def test_broker_enabled_gateway_retains_passthrough_for_non_handle_auth(self):
+    def test_broker_enabled_gateway_uses_passthrough_for_non_handle_auth(self):
         flow = self.flow("https://api.github.com/user", "GET")
         flow.request.headers["authorization"] = "Bearer workspace-owned-token"
         addon = self.broker_gateway(
@@ -2222,7 +2222,7 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(flow.request.headers["authorization"], "Bearer workspace-owned-token")
         self.assertIsNone(captured["authorization"]["broker_provider"])
 
-    def test_broker_enabled_gateway_retains_managed_profile_fallback(self):
+    def test_broker_enabled_gateway_uses_managed_profile_when_marker_absent(self):
         flow = self.flow()
         flow.request.headers["x-tobari-credential-profile"] = "example"
         addon = self.managed_gateway()
@@ -2584,7 +2584,7 @@ class GatewayTests(unittest.TestCase):
         self.assertNotIn("example-token", rendered)
         self.assertNotIn('{"example":true}', rendered)
         audit = json.loads(rendered)
-        self.assertEqual(audit["schema_version"], 2)
+        self.assertEqual(audit["schema_version"], 1)
         self.assertEqual(audit["cluster"], "default")
         self.assertNotIn("realm", audit)
         self.assertEqual(audit["decision"], "deny")

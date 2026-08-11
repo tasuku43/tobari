@@ -14,12 +14,8 @@ import (
 )
 
 const (
-	ContextSchemaVersion        = 5
-	LegacyContextSchemaVersion  = 1
-	LegacyContextSchemaVersion2 = 2
-	LegacyContextSchemaVersion3 = 3
-	LegacyContextSchemaVersion4 = 4
-	DefaultContextName          = "default"
+	ContextSchemaVersion = 1
+	DefaultContextName   = "default"
 
 	TaskContextList   = "context.list"
 	TaskContextShow   = "context.show"
@@ -46,20 +42,18 @@ const (
 	MaxContextGitIdentityValueBytes = 4096
 )
 
-// ContextObservationState distinguishes durable Context authority from
-// display-only first-use defaults and stored manifests that still require an
-// authorized migration. Only Persisted may supply authority to a mutation.
+// ContextObservationState distinguishes durable Context authority from a
+// display-only first-use default. Only Persisted may supply authority to a mutation.
 type ContextObservationState string
 
 const (
 	ContextObservationPersisted        ContextObservationState = "persisted"
 	ContextObservationSyntheticDefault ContextObservationState = "synthetic_default"
-	ContextObservationLegacyUnmigrated ContextObservationState = "legacy_unmigrated"
 )
 
 func (s ContextObservationState) Validate() error {
 	switch s {
-	case ContextObservationPersisted, ContextObservationSyntheticDefault, ContextObservationLegacyUnmigrated:
+	case ContextObservationPersisted, ContextObservationSyntheticDefault:
 		return nil
 	default:
 		return fmt.Errorf("Context observation state is invalid: %q", s)
@@ -67,8 +61,7 @@ func (s ContextObservationState) Validate() error {
 }
 
 // ContextObservation carries authority only when State is persisted. Display
-// names for fresh or legacy state cannot be passed to a mutation as a stable
-// Context binding.
+// names for fresh state cannot be passed to a mutation as a stable Context binding.
 type ContextObservation struct {
 	State    ContextObservationState
 	Name     string
@@ -605,29 +598,11 @@ type ContextManifest struct {
 }
 
 func (m ContextManifest) Validate() error {
-	if m.SchemaVersion != ContextSchemaVersion && m.SchemaVersion != LegacyContextSchemaVersion &&
-		m.SchemaVersion != LegacyContextSchemaVersion2 && m.SchemaVersion != LegacyContextSchemaVersion3 &&
-		m.SchemaVersion != LegacyContextSchemaVersion4 {
-		return fmt.Errorf(
-			"context schema version must be %d, %d, %d, %d, or %d",
-			LegacyContextSchemaVersion, LegacyContextSchemaVersion2, LegacyContextSchemaVersion3,
-			LegacyContextSchemaVersion4, ContextSchemaVersion,
-		)
+	if m.SchemaVersion != ContextSchemaVersion {
+		return fmt.Errorf("context schema version must be %d", ContextSchemaVersion)
 	}
-	if m.SchemaVersion == ContextSchemaVersion || m.SchemaVersion == LegacyContextSchemaVersion4 ||
-		m.SchemaVersion == LegacyContextSchemaVersion3 {
-		if err := ValidateContextID(m.ID); err != nil {
-			return err
-		}
-	} else if m.ID != "" {
-		return fmt.Errorf("legacy Context manifest cannot contain a Context ID")
-	}
-	if m.SchemaVersion != ContextSchemaVersion && m.SchemaVersion != LegacyContextSchemaVersion4 &&
-		len(m.ShellEnvironment) != 0 {
-		return fmt.Errorf("legacy Context manifest cannot contain shell environment settings")
-	}
-	if m.SchemaVersion != ContextSchemaVersion && m.GitIdentity != nil {
-		return fmt.Errorf("legacy Context manifest cannot contain a Git identity setting")
+	if err := ValidateContextID(m.ID); err != nil {
+		return err
 	}
 	if err := ValidateName(m.Name); err != nil {
 		return fmt.Errorf("context name: %w", err)
@@ -710,6 +685,9 @@ func (s ContextSummary) Validate() error {
 	if s.ContextState == ContextObservationSyntheticDefault {
 		return fmt.Errorf("synthetic default is not a configured Context item")
 	}
+	if s.ContextState != ContextObservationPersisted {
+		return fmt.Errorf("configured Context item must be persisted")
+	}
 	manifest := ContextManifest{
 		SchemaVersion: ContextSchemaVersion,
 		ID:            s.ID,
@@ -718,17 +696,7 @@ func (s ContextSummary) Validate() error {
 		Image:         s.Image,
 		PolicyMode:    s.PolicyMode,
 	}
-	if s.ContextState == ContextObservationLegacyUnmigrated {
-		if s.ID != "" {
-			return fmt.Errorf("legacy unmigrated Context cannot claim a stable ID")
-		}
-		if err := ValidateName(s.Name); err != nil {
-			return err
-		}
-		if s.AgentProfile == "" || s.Image == "" || s.PolicyMode.Validate() != nil {
-			return fmt.Errorf("legacy unmigrated Context display metadata is invalid")
-		}
-	} else if err := manifest.Validate(); err != nil {
+	if err := manifest.Validate(); err != nil {
 		return err
 	}
 	if s.RuntimeStatus != "" {
@@ -909,19 +877,6 @@ func (r ContextReport) Validate() error {
 		}
 		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil {
 			return fmt.Errorf("synthetic default Context display metadata is invalid")
-		}
-	} else if r.ContextState == ContextObservationLegacyUnmigrated {
-		if r.Task != TaskContextShow || r.ID != "" {
-			return fmt.Errorf("legacy unmigrated Context report claims stable authority")
-		}
-		if err := ValidateName(r.Name); err != nil {
-			return err
-		}
-		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil {
-			return fmt.Errorf("legacy unmigrated Context display metadata is invalid")
-		}
-		if err := r.Stores.Validate(); err != nil {
-			return err
 		}
 	} else {
 		manifest := ContextManifest{

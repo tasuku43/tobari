@@ -155,7 +155,7 @@ func authStatusResult(contextName string, configured bool) authbroker.StatusResu
 		ContextID:      "018bcfe5-687b-7000-8000-000000000099",
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		Providers: []authbroker.ProviderStatus{{
-			Provider: BuiltinGitHubProviderID, State: state, Configured: configured,
+			Provider: BuiltinGitHubProviderID, State: state,
 			AccountLabel: label, CredentialRevision: revision,
 		}},
 		WorkspaceActivation: activation,
@@ -547,7 +547,7 @@ func TestStatusPreservesExplicitUnconfiguredState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Providers) != 1 || result.Providers[0].State != authbroker.ProviderCredentialNotConfigured ||
-		result.Providers[0].Configured || result.Providers[0].AccountLabel != nil ||
+		result.Providers[0].AccountLabel != nil ||
 		result.Providers[0].CredentialRevision != "" || result.WorkspaceActivation.State != authbroker.WorkspaceActivationNotApplicable {
 		t.Fatalf("unconfigured status = %+v", result)
 	}
@@ -563,7 +563,7 @@ func TestStatusPreservesUnavailableProviderStateWhenBrokerIsLocked(t *testing.T)
 		t.Fatal(err)
 	}
 	if result.BrokerState != authbroker.BrokerStateLocked ||
-		result.Providers[0].State != authbroker.ProviderCredentialUnavailable || result.Providers[0].Configured {
+		result.Providers[0].State != authbroker.ProviderCredentialUnavailable {
 		t.Fatalf("locked status = %+v", result)
 	}
 }
@@ -578,7 +578,7 @@ func TestStatusPreservesUnavailableProviderStateWhenBrokerIsAbsent(t *testing.T)
 		t.Fatal(err)
 	}
 	if result.BrokerState != authbroker.BrokerStateUnavailable ||
-		result.Providers[0].State != authbroker.ProviderCredentialUnavailable || result.Providers[0].Configured {
+		result.Providers[0].State != authbroker.ProviderCredentialUnavailable {
 		t.Fatalf("unavailable status = %+v", result)
 	}
 }

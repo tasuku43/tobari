@@ -24,33 +24,21 @@ type fakeRuntime struct {
 	clusterReady        *bool
 	inspectErr          error
 	buildIdentityErr    error
-	attachCalls         int
-	detachCalls         int
 	learnedCalls        int
 	denyCalls           int
 	decisionSetCalls    int
 	decisionSetRevision string
 	activationReceipt   tobari.PolicyActivationReceipt
-	execSeen            tobari.Instance
 	denials             []tobari.PolicyDenial
 	rules               []tobari.LearnedPolicyRule
 	denyRules           []tobari.PolicyDenyRule
 }
 
-func (f *fakeRuntime) ResolveRoot(_ context.Context, root string) (string, error) { return root, nil }
 func (f *fakeRuntime) CurrentDirectory(context.Context) (string, error) {
-	if len(f.state.Tobari) == 0 {
-		return "/", nil
-	}
-	return f.state.Tobari[0].Root, nil
+	return filepath.Join(filepath.Dir(f.state.RuntimeDirectory), "work"), nil
 }
 func (f *fakeRuntime) IsTerminal(io.Writer) bool { return false }
-func (f *fakeRuntime) ResolveImageSelector(_ context.Context, image string) (string, error) {
-	if image == "" {
-		return tobari.BuiltinImageSelector, nil
-	}
-	return image, nil
-}
+
 func (f *fakeRuntime) ValidateClusterBuildIdentity(context.Context) error {
 	return f.buildIdentityErr
 }
@@ -89,7 +77,7 @@ func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.Clus
 	}
 	return tobari.ClusterStatus{
 		Configured: true, Running: running,
-		Policy: f.state.PolicyDirectory, TobariCount: len(f.state.Tobari),
+		Policy: f.state.PolicyDirectory, TobariCount: 0,
 		ContextCount: f.state.ContextCount, PolicyRevision: f.state.AggregateRevision,
 		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
@@ -164,30 +152,7 @@ func TestClusterUpWithProgressMarksStatusFailure(t *testing.T) {
 		t.Fatalf("err=%v events=%+v", err, events)
 	}
 }
-func (f *fakeRuntime) Attach(_ context.Context, state tobari.State, name, root, image string) (tobari.State, error) {
-	f.attachCalls++
-	state.Tobari = append(state.Tobari, tobari.Instance{
-		ID: "tbr_abcdef0123456789abcdef0123456789", Name: name, Root: root,
-		Container: "tobari-" + name, Network: "tobari-" + name + "-net",
-		HomeVolume: "tobari-" + name + "-home", Image: image,
-	})
-	f.state = state
-	return state, nil
-}
-func (f *fakeRuntime) InspectTobari(_ context.Context, state tobari.State) ([]tobari.ItemStatus, error) {
-	items := make([]tobari.ItemStatus, 0, len(state.Tobari))
-	for _, instance := range state.Tobari {
-		items = append(items, tobari.ItemStatus{
-			ID: instance.ID, Name: instance.Name, Root: instance.Root,
-			Image: instance.ImageSelector(), Running: true, Container: instance.Container,
-		})
-	}
-	return items, nil
-}
-func (f *fakeRuntime) Exec(_ context.Context, instance tobari.Instance, _ tobari.ExecRequest, _ io.Reader, _ io.Writer, _ io.Writer) (int, error) {
-	f.execSeen = instance
-	return 23, nil
-}
+
 func (f *fakeRuntime) ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error) {
 	return []byte("cluster\n"), nil
 }
@@ -250,15 +215,7 @@ func (f *fakeRuntime) policyActivationReceipt() tobari.PolicyActivationReceipt {
 	}
 	return f.activationReceipt
 }
-func (f *fakeRuntime) TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error) {
-	return []byte("tobari\n"), nil
-}
-func (f *fakeRuntime) Detach(_ context.Context, state tobari.State, instance tobari.Instance, _ bool) (tobari.State, error) {
-	f.detachCalls++
-	state.Tobari = []tobari.Instance{}
-	f.state = state
-	return state, nil
-}
+
 func (f *fakeRuntime) ClusterDown(context.Context, tobari.State, bool) error { return nil }
 func (f *fakeRuntime) WithLifecycleLock(ctx context.Context, action func(context.Context) error) error {
 	return action(ctx)
@@ -400,18 +357,12 @@ func (f *workspaceSelectorFake) Select(_ context.Context, selection tobari.Proje
 }
 
 func testState(root string) tobari.State {
-	instance := tobari.Instance{
-		ID: "tbr_0123456789abcdef0123456789abcdef", Name: "work",
-		Root: filepath.Join(root, "work"), Container: "tobari-work",
-		Network: "tobari-work-net", HomeVolume: "tobari-work-home",
-	}
 	return tobari.State{
-		SchemaVersion: 4, RuntimeDirectory: filepath.Join(root, "runtime"),
+		SchemaVersion: 1, RuntimeDirectory: filepath.Join(root, "runtime"),
 		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
 		PolicyDirectory:  filepath.Join(root, "policy"),
 		CredentialConfig: filepath.Join(root, "credentials.json"),
 		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
-		Tobari: []tobari.Instance{instance},
 	}
 }
 
@@ -896,57 +847,6 @@ func policyLearningIntent(command, kind, id string) operation.Intent {
 	}
 }
 
-func TestAttachRejectsInvalidNameBeforeRuntime(t *testing.T) {
-	t.Parallel()
-	runtime := &fakeRuntime{state: testState(t.TempDir())}
-	_, err := New(runtime).Attach(
-		context.Background(), createIntent("attach"), "../bad", "/tmp/root",
-		tobari.BuiltinImageSelector,
-	)
-	if err == nil || runtime.attachCalls != 0 {
-		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
-	}
-}
-
-func TestAttachCanceledBeforeRuntime(t *testing.T) {
-	t.Parallel()
-	runtime := &fakeRuntime{state: testState(t.TempDir())}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := New(runtime).Attach(
-		ctx, createIntent("attach"), "work", "/tmp/root", "",
-	)
-	if err == nil || runtime.attachCalls != 0 {
-		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
-	}
-}
-
-func TestAttachRejectsImageChangeForExistingNameAndRoot(t *testing.T) {
-	t.Parallel()
-	runtime := &fakeRuntime{state: testState(t.TempDir())}
-	existing := runtime.state.Tobari[0]
-	_, err := New(runtime).Attach(
-		context.Background(), createIntent("attach"), existing.Name, existing.Root, "workbench:dev",
-	)
-	if err == nil || runtime.attachCalls != 0 {
-		t.Fatalf("Attach() error = %v, calls = %d", err, runtime.attachCalls)
-	}
-}
-
-func TestExecUsesOpaqueIDWithoutNameDiscovery(t *testing.T) {
-	t.Parallel()
-	runtime := &fakeRuntime{state: testState(t.TempDir())}
-	instance := runtime.state.Tobari[0]
-	code, err := New(runtime).Exec(
-		context.Background(), instance.ID,
-		tobari.ExecRequest{Command: []string{"sh", "-c", "exit 23"}},
-		bytes.NewReader(nil), io.Discard, io.Discard,
-	)
-	if err != nil || code != 23 || runtime.execSeen.ID != instance.ID {
-		t.Fatalf("Exec() code=%d err=%v seen=%+v", code, err, runtime.execSeen)
-	}
-}
-
 func TestClusterDenialsReturnsPolicyAndEmptyBoundedScope(t *testing.T) {
 	t.Parallel()
 	runtime := &fakeRuntime{state: testState(t.TempDir())}
@@ -990,13 +890,6 @@ func TestPolicyCandidatesProduceExactOpaqueReferenceAndTailTask(t *testing.T) {
 	if err := tobari.ValidatePolicyCandidateID(result.Items[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	tail, err := New(runtime).PolicyTail(context.Background(), 75)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tail.Task != tobari.TaskPolicyTail || tail.Items[0].ID != result.Items[0].ID {
-		t.Fatalf("tail = %+v, candidates = %+v", tail, result)
-	}
 	review, err := New(runtime).PolicyReview(context.Background(), 75)
 	if err != nil {
 		t.Fatal(err)
@@ -1020,8 +913,7 @@ func TestServiceInteractiveRequiresTerminalStreams(t *testing.T) {
 }
 
 func validServiceDenial() tobari.PolicyDenial {
-	return tobari.PolicyDenial{
-		Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	return tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "GET", Path: "/api/v1/items/one",
@@ -1348,42 +1240,6 @@ func TestPolicyCompactionRoundTripUsesCurrentOpaqueReference(t *testing.T) {
 	}
 	if runtime.learnedCalls != 1 {
 		t.Fatalf("stale compaction caused mutation: %d", runtime.learnedCalls)
-	}
-}
-
-func TestDetachRequiresIntentIDToMatchConsumedReference(t *testing.T) {
-	t.Parallel()
-	runtime := &fakeRuntime{state: testState(t.TempDir())}
-	instance := runtime.state.Tobari[0]
-	intent := operation.Intent{
-		Command: "detach", Effect: operation.EffectWrite,
-		Target: operation.TargetRef{Kind: tobari.TargetKind, ID: "tbr_abcdef0123456789abcdef0123456789"},
-		Impact: operation.Impact{
-			Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
-			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationYes,
-		},
-	}
-	if err := New(runtime).Detach(context.Background(), intent, instance.ID, false); err == nil {
-		t.Fatal("mismatched target was accepted")
-	}
-	if runtime.detachCalls != 0 {
-		t.Fatalf("detach calls = %d", runtime.detachCalls)
-	}
-}
-
-func TestClusterDownRejectsNonEmptyClusterBeforeMutation(t *testing.T) {
-	t.Parallel()
-	runtime := &fakeRuntime{state: testState(t.TempDir())}
-	intent := operation.Intent{
-		Command: "cluster down", Effect: operation.EffectWrite,
-		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
-		Impact: operation.Impact{
-			Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
-			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationYes,
-		},
-	}
-	if _, err := New(runtime).ClusterDown(context.Background(), intent, false); err == nil {
-		t.Fatal("non-empty cluster was removed")
 	}
 }
 

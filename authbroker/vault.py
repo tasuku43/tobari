@@ -35,8 +35,7 @@ DRIVER_REVISION_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 TASK_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 MAX_VAULT_BYTES = 1024 * 1024
 MAX_DRIVER_STATE_BYTES = 32 * 1024
-PAYLOAD_SCHEMA_VERSION = 2
-LEGACY_PAYLOAD_SCHEMA_VERSION = 1
+PAYLOAD_SCHEMA_VERSION = 1
 STATIC_CREDENTIAL_KIND = "static_primary_secret"
 AWS_SSO_CREDENTIAL_KIND = "aws_sso_session"
 DATADOG_OAUTH_CREDENTIAL_KIND = "datadog_oauth_session"
@@ -498,44 +497,12 @@ def _validate_v2_record(provider: str, record: Any) -> None:
     _validate_handles(provider, handles, credential_kind)
 
 
-def _migrate_v1_payload(document: dict[str, Any]) -> dict[str, Any]:
-    providers = document.get("providers")
-    if not isinstance(providers, dict) or len(providers) > 64:
-        raise VaultError("vault_invalid")
-    migrated: dict[str, Any] = {
-        "schema_version": PAYLOAD_SCHEMA_VERSION,
-        "providers": {},
-    }
-    for provider, record in providers.items():
-        validate_provider_id(provider)
-        if not isinstance(record, dict) or set(record) != {
-            "record_id",
-            "revision",
-            "account_label",
-            "secret",
-            "handles",
-        }:
-            raise VaultError("vault_invalid")
-        _, handles = _validate_common_record(record)
-        secret = decode_secret(record.get("secret"))
-        if not secret or len(secret) > 32 * 1024:
-            raise VaultError("vault_invalid")
-        _validate_handles(provider, handles, STATIC_CREDENTIAL_KIND)
-        migrated["providers"][provider] = {
-            "credential_kind": STATIC_CREDENTIAL_KIND,
-            **record,
-        }
-    return migrated
-
-
 def validate_payload(document: dict[str, Any]) -> dict[str, Any]:
     if set(document) != {"schema_version", "providers"}:
         raise VaultError("vault_invalid")
     version = document.get("schema_version")
     if isinstance(version, bool):
         raise VaultError("vault_version_unsupported")
-    if version == LEGACY_PAYLOAD_SCHEMA_VERSION:
-        return _migrate_v1_payload(document)
     if version != PAYLOAD_SCHEMA_VERSION:
         raise VaultError("vault_version_unsupported")
     providers = document.get("providers")

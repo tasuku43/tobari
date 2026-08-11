@@ -151,7 +151,7 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 	}
 
 	anthropic := providers[BuiltinAnthropicProviderID]
-	if anthropic.SchemaVersion != authbroker.LegacyProviderSchemaVersion ||
+	if anthropic.SchemaVersion != authbroker.ProviderSchemaVersion ||
 		anthropic.DisplayName != "Anthropic account for Claude Code" ||
 		anthropic.Acquisition != (authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "claude-setup-token"}) ||
 		anthropic.Credential.Kind != authbroker.CredentialPrimarySecret || len(anthropic.WorkspaceProjections) != 1 ||

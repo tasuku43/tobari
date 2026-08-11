@@ -48,7 +48,7 @@ func (r *Runtime) validateResolverCompatibility() error {
 	return fault.New(
 		fault.KindContract, "runtime_image_api_mismatch",
 		fmt.Sprintf(
-			"The published resolver selects Gateway API %d and Auth Broker API %d, but this source requires Gateway API %d and Auth Broker API %d. The historical immutable pins remain valid release records but cannot start this source revision.",
+			"The resolver selects Gateway API %d and Auth Broker API %d, but this source requires Gateway API %d and Auth Broker API %d.",
 			identity.Gateway.SelectedAPI, identity.AuthBroker.SelectedAPI,
 			identity.Gateway.RequiredAPI, identity.AuthBroker.RequiredAPI,
 		), false,

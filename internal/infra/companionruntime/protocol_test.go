@@ -427,7 +427,8 @@ func (d *cancellationRefreshDriver) Refresh(
 }
 
 type stateDocument struct {
-	SchemaVersion int `json:"schema_version"`
+	SchemaVersion int    `json:"schema_version"`
+	Driver        string `json:"driver"`
 	Profile       struct {
 		Name               string `json:"name"`
 		SSOSession         string `json:"sso_session"`
@@ -461,7 +462,7 @@ func testCredentialState(t *testing.T) ([]byte, credentialhost.State) {
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(contents)
-	document := stateDocument{SchemaVersion: 1}
+	document := stateDocument{SchemaVersion: 1, Driver: credentialhost.SSODriverID}
 	document.Profile.Name = "tobari"
 	document.Profile.SSOSession = "tobari"
 	document.Profile.StartURL = "https://example.awsapps.com/start"

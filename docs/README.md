@@ -28,7 +28,7 @@ The short purpose of each document is:
 | [`04_harness.md`](04_harness.md) | Executable checks, E2E evidence, and completion gates |
 | [`05_public_repository.md`](05_public_repository.md) | Public-boundary, license, and publication review |
 | [`06_release.md`](06_release.md) | CLI and OCI image release boundaries and required gates |
-| [`07_authentication.md`](07_authentication.md) | Tool-native authentication, retained managed mode, and deferred experiments |
+| [`07_authentication.md`](07_authentication.md) | Tool-native authentication, static managed mode, and deferred experiments |
 | [`08_external_api_contracts.md`](08_external_api_contracts.md) | Gateway and OPA protocol contracts |
 | [`09_agent_readiness_validation.md`](09_agent_readiness_validation.md) | New-user and coding-agent readiness scenarios |
 

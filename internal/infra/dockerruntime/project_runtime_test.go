@@ -943,11 +943,10 @@ func TestEnsureProjectContainerRecreatesOnSpecDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := tobari.State{
-		SchemaVersion: 4, RuntimeDirectory: filepath.Join(t.TempDir(), "runtime"),
+		SchemaVersion: 1, RuntimeDirectory: filepath.Join(t.TempDir(), "runtime"),
 		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
 		PolicyDirectory: filepath.Join(t.TempDir(), "policy"), CredentialConfig: filepath.Join(t.TempDir(), "credentials.json"),
 		CredentialDir: filepath.Join(t.TempDir(), "credentials"), AssetVersion: "asset",
-		Tobari: []tobari.Instance{},
 	}
 	if err := runtime.ensureProjectContainer(context.Background(), state, instance, "/profile", "tobari-project", "tobari-network", "172.29.0.2", "tobari-image", "sha256:desired"); err != nil {
 		t.Fatalf("ensureProjectContainer() error = %v", err)
@@ -1027,9 +1026,9 @@ func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
 		}
 	}
 	joined := strings.Join(create, " ")
-	for _, retired := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy", "gateway:8080"} {
-		if strings.Contains(joined, retired) {
-			t.Errorf("project create args retained explicit proxy value %q: %v", retired, create)
+	for _, prohibited := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy", "gateway:8080"} {
+		if strings.Contains(joined, prohibited) {
+			t.Errorf("project create args contain prohibited proxy value %q: %v", prohibited, create)
 		}
 	}
 }

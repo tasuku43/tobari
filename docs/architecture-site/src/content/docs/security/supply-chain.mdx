@@ -36,13 +36,11 @@ reviewed, and its immutable digest is updated in `versions.env`. The generated
 [Component versions](/reference/component-versions/) table is the authority for
 the artifacts this source snapshot actually selects.
 
-At this snapshot, the selected Gateway/Auth Broker pair includes the earlier
-AWS Identity Center companion and SigV4 path but predates AWS console login and
-the Datadog post-policy request path now present in canonical source and tests.
-Those newer paths are not standard-cluster capabilities until the immutable
-pins advance. This distinction
-is intentional: a successful source test does not silently replace runtime
-bytes.
+At this snapshot, canonical Gateway/Auth Broker source is the complete paired
+V1 authority. It remains a contributor snapshot rather than a publishable
+standard-cluster artifact until reviewed immutable V1 indexes replace the
+explicit unpublished marker. A successful source test does not silently
+publish runtime bytes.
 
 ## Build and release controls
 

@@ -68,6 +68,7 @@ type State struct {
 
 type statePayload struct {
 	SchemaVersion int              `json:"schema_version"`
+	Driver        string           `json:"driver"`
 	Profile       stateProfile     `json:"profile"`
 	Executable    stateExecutable  `json:"aws_executable"`
 	Cache         []stateCacheFile `json:"sso_cache"`
@@ -117,13 +118,20 @@ func DecodeState(encoded []byte) (State, error) {
 		return State{}, ErrInvalidState
 	}
 	var version struct {
-		SchemaVersion int `json:"schema_version"`
+		SchemaVersion int    `json:"schema_version"`
+		Driver        string `json:"driver"`
 	}
 	if err := json.Unmarshal(encoded, &version); err != nil {
 		return State{}, ErrInvalidState
 	}
-	if version.SchemaVersion == consoleStateSchemaVersion {
+	if version.SchemaVersion != 1 {
+		return State{}, ErrInvalidState
+	}
+	if version.Driver == ConsoleDriverID {
 		return decodeConsoleState(encoded)
+	}
+	if version.Driver != SSODriverID {
+		return State{}, ErrInvalidState
 	}
 	var payload statePayload
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
@@ -206,6 +214,7 @@ func (s *State) Clear() {
 func newState(profile ProfileConfig, executablePath, executableDigest string, cache []stateCacheFile) (State, error) {
 	payload := statePayload{
 		SchemaVersion: stateSchemaVersion,
+		Driver:        SSODriverID,
 		Profile: stateProfile{
 			Name:               fixedProfileName,
 			SSOSession:         fixedSSOSessionName,
@@ -226,7 +235,7 @@ func newState(profile ProfileConfig, executablePath, executableDigest string, ca
 }
 
 func validateStatePayload(payload statePayload) error {
-	if payload.SchemaVersion != stateSchemaVersion ||
+	if payload.SchemaVersion != stateSchemaVersion || payload.Driver != SSODriverID ||
 		payload.Profile.Name != fixedProfileName ||
 		payload.Profile.SSOSession != fixedSSOSessionName ||
 		payload.Profile.Output != fixedOutputFormat ||

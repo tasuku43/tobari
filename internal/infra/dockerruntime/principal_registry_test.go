@@ -149,62 +149,6 @@ func TestProjectPrincipalRegistryUpdateIsAtomicAndProjectBound(t *testing.T) {
 	}
 }
 
-func TestProjectPrincipalRegistryUsesDedicatedDirectoryAndMigratesLegacyFile(t *testing.T) {
-	root := t.TempDir()
-	config := filepath.Join(root, "config")
-	if err := os.MkdirAll(config, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.principalRegistryPath() == filepath.Join(config, "principals.json") {
-		t.Fatal("principal registry still uses the single-file mount path")
-	}
-	projectRoot := filepath.Join(root, "project")
-	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	project, err := runtime.CreateProject(context.Background(), projectRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, network, err := tobari.ProjectResourceNames(project.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy := legacyProjectPrincipalRegistry{
-		SchemaVersion: 1,
-		Bindings: []legacyProjectPrincipalBinding{{
-			ProjectID: project.ID, GatewayIP: "172.29.0.2", Network: network,
-		}},
-	}
-	legacyData, err := json.MarshalIndent(legacy, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyPath := filepath.Join(config, "principals.json")
-	if err := os.WriteFile(legacyPath, append(legacyData, '\n'), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := runtime.ensureProjectPrincipalRegistry(context.Background()); err != nil {
-		t.Fatalf("ensureProjectPrincipalRegistry() error = %v", err)
-	}
-	data, err := os.ReadFile(runtime.principalRegistryPath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var migrated projectPrincipalRegistry
-	if err := json.Unmarshal(data, &migrated); err != nil {
-		t.Fatal(err)
-	}
-	if migrated.SchemaVersion != projectPrincipalRegistrySchema || len(migrated.Bindings) != 0 {
-		t.Fatalf("migrated registry = %+v", migrated)
-	}
-}
-
 func TestProjectPrincipalRegistryRejectsStaleOrMalformedState(t *testing.T) {
 	tests := map[string]projectPrincipalRegistry{
 		"wrong schema": {SchemaVersion: projectPrincipalRegistrySchema + 1},

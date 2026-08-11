@@ -48,7 +48,7 @@ The AWS host driver registry is closed over two explicit acquisition methods.
 `identity-center` retains schema-1 `aws_cli_sso` state and its fixed device
 flow. `console` requires AWS CLI 2.32 or newer, uses fixed cross-device
 `aws login --remote`, opens only its validated region-bound authorization URL
-through the host browser boundary with terminal fallback, and stores distinct schema-2
+through the host browser boundary with terminal fallback, and stores distinct schema-1
 `aws_cli_console_login` state. Broker accepts either ID as opaque encrypted
 state; the companion decodes it, requires exact driver/state agreement, and
 uses the shared fixed credential-export boundary after policy allow.
@@ -132,7 +132,7 @@ path remains catalog-owned, effect-declared, and failure-before-side-effect
 where applicable.
 
 `cluster up`, `cluster status`, `cluster denials`, `policy candidates`,
-`policy review`, `policy tail`, `policy allow`, `policy deny`, `policy rules`,
+`policy review`, `policy allow`, `policy deny`, `policy rules`,
 `policy reset`, `auth login`, `auth import`, `auth status`, and `auth logout`
 remain valid
 internal seams today. They are not permission to expose Docker, OPA, or opaque
@@ -147,8 +147,7 @@ allow` and `policy deny` remain machine and recovery actions. `policy rules` is 
 on a TTY it composes selection, detail inspection, explicit reset confirmation,
 and `policy reset` for one current decision, while redirected and
 machine-readable inventory remains read-only. `policy candidates` is the
-machine discovery surface and `policy tail` is a compatibility projection. The
-catalog declares this
+machine discovery surface. The catalog declares this
 composition while preserving discover/act separation: the act still consumes
 exactly one validated opaque reference or one declared fixed target.
 
@@ -186,9 +185,9 @@ the stored Context ID and uses that Context's runtime image and agent profile.
 Context and project stores expose separate observation and ensure/mutation
 paths. Observation never initializes directories, manifests, active markers,
 credentials, policy, or lock files. A missing omitted Context becomes a typed
-display-only synthetic default; legacy state is projected without migration;
-only a validated create/write path may re-read under its mutation lock and
-atomically initialize or migrate it. Project observation opens an existing
+display-only synthetic default. Persisted state must match the exact V1
+contract; only a validated create/write path may re-read under its mutation
+lock and atomically initialize it. Project observation opens an existing
 lock when present and otherwise remains lockless. A pre-existing validated
 project journal is the narrow exception: observation acquires the recovery
 lock, completes bounded cleanup, and then reads the remaining logical state.
@@ -205,12 +204,12 @@ starts exactly one private same-binary host companion. Companion health is
 part of readiness; no companion is exposed through the public Catalog. Policy
 mutations serialize this same all-Context activation and preserve the previous
 known-good revision on any failure.
-Cluster status schema 6 projects all three component states plus
+Cluster status schema 1 projects all three component states plus
 `auth_provider_projection`, `auth_broker_state`, `root_key_backend`, and
 always-present secret-free `credential_companion_state`
 (`ready|prepared|absent|unavailable`). The companion field is host-process/
 channel readiness, not a fourth Compose service
-or credential state. Context report schema 8 exposes explicit Context
+or credential state. Context report schema 1 exposes explicit Context
 persistence state, nullable pre-authority ID/stores, the complete Context
 shell-environment and Git identity policies, plus broker and installed-provider state without
 returning a vault path/content, root key, primary secret, or handle. Public Linux backend values are `xdg_file`; the
@@ -299,10 +298,9 @@ verified Gateway and Auth Broker images by digest and the
 official runtime base image through the runtime image resolver. The normal
 resolver uses published images only; the contributor `tobari_dev` resolver
 selects local development tags built by `task build:dev`. The runtime adapter
-creates or reconciles each logical Tobari from its bound Context image, or an
-exact configured local image on the legacy named path, and connects Gateway to
+creates or reconciles each logical Tobari from its bound Context image and connects Gateway to
 its dedicated network. After it has reconciled the Workspace guard, it records
-the exact owned Workspace and Gateway endpoints in the schema-3 principal
+the exact owned Workspace and Gateway endpoints in the schema-1 principal
 registry. Before project container creation, the runtime issues
 configured provider handles and renders only manifest-declared environment or
 complete-file projections. A public-only CA volume is mounted read-only into
@@ -329,16 +327,11 @@ Routine startup uses the reviewed multi-architecture digest in `versions.env`;
 the moving tags never select runtime authority. The contributor resolver uses
 `tobari-auth-broker:dev` for explicit local source validation.
 
-The transparent-routing source advances the Gateway image contract from
-`io.tobari.gateway-api=4` to `5`; the Codex/Claude broker source advanced the
-Auth Broker image contract from `io.tobari.auth-broker-api=2` to `3`. The Go
-preflight expects those newer
-labels for this source tree, while the contributor resolver supplies the local
-matching images. The already published immutable `versions.env` selections are
-still Gateway API 3 and Auth Broker API 2; they remain historical runtime facts
-and do not implement the new supplemental-header and dynamic OAuth protocol.
-A routine published resolver cannot claim this capability until reviewed
-immutable multi-architecture pins advance.
+Both canonical sources declare component API V1. Official immutable V1 Gateway
+and Auth Broker indexes have not yet been published and reviewed, so the paired
+`versions.env` authorities are `unpublished`. Contributor builds supply local
+matching images; public and release gates reject the marker until reviewed
+multi-architecture V1 digests replace both authorities atomically.
 
 Compose mounts owner-only host state
 `auth/contexts` at `/var/lib/tobari-auth/contexts` and `auth/runtime` at
@@ -437,9 +430,8 @@ replace with the persistent home bind. Their workflows do not publish agent
 tags until redistribution and license review is complete.
 
 The root resolver obtains the desired image from the stored Context identity's
-strict manifest on each runtime reconciliation. Before the default Context exists, the
-owner-only XDG `config.json` `default_image` seeds that manifest; absence falls
-back to `builtin`. The resolved selector, rather than the source of the
+strict manifest on each runtime reconciliation. A new Context selects
+`builtin`. The resolved selector, rather than the source of the
 default, is persisted on the logical Tobari only as the last successful
 runtime-container image. Project metadata is not consulted for runtime
 selection.
@@ -575,7 +567,7 @@ an attached exec rejects ordinary deletion and `--force` skips only that guard.
 It then removes only its XDG home and records. Container
 or network loss is reconciled by the root operation; it never deletes logical
 state. Cluster status and reconcile derive project counts and network joins
-from the indexed CWD-owned records rather than the legacy named collection.
+from the indexed CWD-owned records.
 Status and list expose an `incomplete` runtime diagnostic when an indexed root
 has lost its instance record; root entry refuses to rebuild that record and
 delete remains the exact cleanup path.
@@ -620,7 +612,7 @@ including required/optional, nullable, enum, opaque-reference kind, and
 semantic-scope facts. Object and field counts are bounded. The JSON renderer
 validates its exact top-level envelope, schema version, nested keys, types,
 enums, and nullability against that declaration before writing stdout; missing
-and extra keys fail closed. Scoped agent-help schema 9 publishes the same
+and extra keys fail closed. Scoped agent-help schema 1 publishes the same
 recursive declaration and exact success/error argv forms, including global
 flag placement. Root help remains an index.
 
@@ -655,7 +647,7 @@ finite DAG schedules each infrastructure observation once its declared direct
 prerequisites pass, continues independent branches, and creates typed blocked
 rows for unready dependents. Infrastructure returns only pass, warning, or
 failure observations; application code owns recovery and validates the fixed
-complete order. Doctor JSON schema 2 and the text/TSV renderers project those
+complete order. Doctor JSON schema 1 and the text/TSV renderers project those
 same facts. It fails the command with `diagnostic_failed` when any check fails,
 and treats warnings alone as healthy. It observes rather than repairs: policy
 checks validate bounded host source structure and do not start an OPA test
@@ -760,7 +752,7 @@ broker or OPA I/O and is never forwarded on failure. Broker
 introspection returns no secret; policy denial performs no resolution or
 companion call. The
 default passthrough adapter never loads or injects managed credentials; the
-retained managed adapter performs Context/project/host validation and
+static managed adapter performs Context/project/host validation and
 injection at the same post-allow boundary. The addon never retries.
 
 Denied audit records are also the policy-development feedback interface. A
@@ -803,9 +795,7 @@ and exact Denies. `policy reset --id` removes exactly one such decision through
 the same preflight, atomic-write, and OPA activation boundary, leaving the
 matching effect at default deny so the retained denial can enter `policy review`
 again. It never edits baseline policy, grants permission, or retries a request.
-`policy tail`
-is a compatibility projection over the same bounded task result. Raw `cluster
-logs` remains the component-debugging interface.
+Raw `cluster logs` remains the component-debugging interface.
 
 `policy allow` resolves one exact candidate reference against retained
 validated audit state without decoding it. Infrastructure reads the bounded,
@@ -813,11 +803,11 @@ owner-only `data.json`, preserves non-owned members, appends one deterministic
 exact learned rule, tests a private complete policy copy, atomically replaces
 the data file, and calls the existing OPA activation boundary.
 
-Each authoritative Context policy data source is schema 2. Guided Contexts
+Each authoritative Context policy data source is schema 1. Guided Contexts
 contribute only that data; aggregate generation loads the current shared Rego
 evaluator and tests from Tobari's embedded runtime assets. Advanced Context
-source targets input schema 4, may retain source schema 3 for compatibility,
-is rewritten to Gateway runtime input schema 5, and rejects any other shape. The aggregate
+source and Gateway runtime input both use exact schema 1 and reject any other
+shape. The aggregate
 projection is schema 1 and stores those sources below
 `tobari_contexts[context_id]`; the Tobari-owned router is the only
 `tobari.http` decision entrypoint. `boundary.authorities` and

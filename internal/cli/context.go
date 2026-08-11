@@ -426,7 +426,7 @@ func contextReportJSONDocument(result tobari.ContextReport) contextReportDocumen
 		}
 	}
 	return contextReportDocument{
-		SchemaVersion: 8,
+		SchemaVersion: 1,
 		Context: contextReportJSONProjection{
 			Task: result.Task, ContextState: result.ContextState, ID: optionalString(result.ID), Name: result.Name, Active: result.Active,
 			AgentProfile: result.AgentProfile, Image: result.Image, PolicyMode: result.PolicyMode,
@@ -461,7 +461,7 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		return nil, fault.Wrap(fault.KindContract, "invalid_context_list", "Context list is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		document := contextListDocument{SchemaVersion: 4}
+		document := contextListDocument{SchemaVersion: 1}
 		document.Contexts.ContextState = result.ContextState
 		document.Contexts.Active = result.Active
 		document.Contexts.Items = make([]contextSummaryJSONProjection, 0, len(result.Items))

@@ -278,7 +278,7 @@ func validStatusObservation() StatusObservation {
 		ContextState: tobari.ContextObservationPersisted, Context: "default", ContextID: testContextID,
 		StorageBackend: StorageBackendXDGFile, BrokerState: BrokerStateReady,
 		Providers: []ProviderStatus{{
-			Provider: "github", State: ProviderCredentialConfigured, Configured: true, CredentialRevision: "revision:1",
+			Provider: "github", State: ProviderCredentialConfigured, CredentialRevision: "revision:1",
 		}},
 		Workspaces: WorkspaceObservation{
 			Coverage: WorkspaceActivationCoverageExhaustive,

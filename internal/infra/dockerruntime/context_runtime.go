@@ -194,15 +194,11 @@ func (r *Runtime) nonPersistedContextReport(observed observedContext, active str
 	if manifest.GitIdentity != nil {
 		gitIdentity = *manifest.GitIdentity
 	}
-	stores := tobari.ContextStorePaths{}
-	if observed.state == tobari.ContextObservationLegacyUnmigrated {
-		stores = r.contextPaths(manifest.Name)
-	}
 	result := tobari.ContextReport{
 		Task: tobari.TaskContextShow, ContextState: observed.state, Name: manifest.Name,
 		Active: manifest.Name == active, AgentProfile: manifest.AgentProfile, Image: manifest.Image,
 		PolicyMode: manifest.PolicyMode, ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,
-		Stores: stores, Runtime: runtimeReport, Cluster: tobari.ContextClusterStatusNotApplicable,
+		Stores: tobari.ContextStorePaths{}, Runtime: runtimeReport, Cluster: tobari.ContextClusterStatusNotApplicable,
 		Authentication: tobari.ContextAuthentication{
 			BrokerState: tobari.ContextAuthBrokerUnavailable, Providers: []tobari.ContextAuthProvider{},
 		},

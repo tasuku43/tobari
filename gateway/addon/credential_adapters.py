@@ -126,7 +126,7 @@ class _ManagedRequest:
 
 
 class ManagedCredentialAdapter:
-    """The retained Gateway-managed profile binding/injection implementation."""
+    """The bounded static Gateway profile binding/injection implementation."""
 
     name = "managed"
 

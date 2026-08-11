@@ -678,9 +678,7 @@ if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
   docker tag "$custom_base_image" tobari-runtime:dev
   created_dev_runtime_tag=true
 fi
-printf '{"version":"v1","default_image":"%s"}\n' "$custom_image" \
-  >"$config_directory/config.json"
-chmod 0600 "$config_directory/config.json"
+run_tobari context create --name default --image "$custom_image" --format json >/dev/null
 unconfigured_context_use=$(run_tobari context use --name default --format json)
 assert_contains "$unconfigured_context_use" '"cluster":"already_ready"' "unconfigured current Context selection"
 start_cluster >/dev/null
@@ -693,10 +691,10 @@ assert_component_resource_bounds tobari-auth-broker 1000000000 536870912 128
 [[ $(docker ps -a --filter name='^/tobari-gateway$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Gateway"
 [[ $(docker ps -a --filter name='^/tobari-opa$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one OPA"
 [[ $(docker ps -a --filter name='^/tobari-auth-broker$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Auth Broker"
-[[ $(docker inspect --format '{{index .Config.Labels "io.tobari.gateway-api"}}' tobari-gateway) == 5 ]] ||
-  fail "Gateway did not expose image API 5"
-[[ $(docker inspect --format '{{index .Config.Labels "io.tobari.auth-broker-api"}}' tobari-auth-broker) == 3 ]] ||
-  fail "Auth Broker did not expose image API 3"
+[[ $(docker inspect --format '{{index .Config.Labels "io.tobari.gateway-api"}}' tobari-gateway) == 1 ]] ||
+  fail "Gateway did not expose image API 1"
+[[ $(docker inspect --format '{{index .Config.Labels "io.tobari.auth-broker-api"}}' tobari-auth-broker) == 1 ]] ||
+  fail "Auth Broker did not expose image API 1"
 [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' tobari-auth-broker) == true ]] ||
   fail "Auth Broker root filesystem is writable"
 [[ $(docker inspect --format '{{join .HostConfig.CapDrop ","}}' tobari-auth-broker) == ALL ]] ||
@@ -794,6 +792,7 @@ import json,sys
 path,digest=sys.argv[1:]
 state = {
     "schema_version": 1,
+    "driver": "aws_cli_sso",
     "profile": {
         "name": "tobari",
         "sso_session": "tobari",
@@ -964,8 +963,8 @@ project_id = sys.argv[1]
 document = json.loads(os.environ["READY_AUTH_STATUS_DOCUMENT"])
 auth = document["auth"]
 activation = auth["workspace_activation"]
-if document.get("schema_version") != 4 or activation.get("coverage") != "exhaustive" or activation.get("state") != "ready":
-    raise SystemExit(f"auth status did not report schema-4 exhaustive Ready: {document!r}")
+if document.get("schema_version") != 1 or activation.get("coverage") != "exhaustive" or activation.get("state") != "ready":
+    raise SystemExit(f"auth status did not report schema-1 exhaustive Ready: {document!r}")
 workspace = next((item for item in activation.get("workspaces", []) if item.get("project_id") == project_id), None)
 if workspace is None or workspace.get("state") != "ready" or workspace.get("next_action") is not None:
     raise SystemExit(f"auth status did not report the re-entered Workspace Ready: {workspace!r}")
@@ -985,8 +984,8 @@ import os
 document = json.loads(os.environ["SYNTHETIC_NOOP_LOGOUT_DOCUMENT"])
 auth = document["auth"]
 activation = auth["workspace_activation"]
-if document.get("schema_version") != 4 or auth.get("provider") != "synthetic-noop" or auth.get("change") != "no_change":
-    raise SystemExit(f"absent-provider logout did not report schema-4 no_change: {document!r}")
+if document.get("schema_version") != 1 or auth.get("provider") != "synthetic-noop" or auth.get("change") != "no_change":
+    raise SystemExit(f"absent-provider logout did not report schema-1 no_change: {document!r}")
 if activation.get("state") != "not_applicable" or activation.get("coverage") != "not_applicable" or activation.get("workspaces") != []:
     raise SystemExit(f"no-op logout invented Workspace activation: {activation!r}")
 PY
@@ -1001,7 +1000,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     document = json.load(handle)
 bindings = document.get("bindings", [])
-if document.get("schema_version") != 3 or len(bindings) != 3:
+if document.get("schema_version") != 1 or len(bindings) != 3:
     raise SystemExit(f"unexpected project principal registry: {document!r}")
 ids = {item["project_id"] for item in bindings}
 if ids != set(sys.argv[2:]):
@@ -1075,9 +1074,9 @@ assert_resource_bounds "$work_container"
 assert_resource_bounds "$restricted_container"
 assert_resource_bounds "$other_container"
 [[ $(run_project printenv HOME) == /var/lib/tobari ]] || fail "project HOME is not /var/lib/tobari"
-for retired_proxy_variable in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy; do
-  if run_project printenv "$retired_proxy_variable" >/dev/null 2>&1; then
-    fail "Workspace retained retired proxy variable $retired_proxy_variable"
+for prohibited_proxy_variable in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy; do
+  if run_project printenv "$prohibited_proxy_variable" >/dev/null 2>&1; then
+    fail "Workspace received prohibited proxy variable $prohibited_proxy_variable"
   fi
 done
 [[ $(run_project sh -c 'command -v gh') == /usr/local/bin/gh ]] || fail "GitHub CLI disappeared behind the project mount"
@@ -1173,7 +1172,8 @@ container_before_profile_change=$(docker inspect --format '{{.Id}}' "$work_conta
 printf 'shared skill\n' >"$profile_skill"
 printf '{"shared":true,"theme":"dark"}\n' >"$profile_settings"
 mkdir -p "$work_root/.claude"
-printf '{"theme":"light","local":true}\n' >"$work_home/.claude/settings.json"
+printf '{"theme":"light","local":true}\n' >"$work_home/.claude/settings.local.json"
+chmod 0600 "$work_home/.claude/settings.local.json"
 printf 'project-local\n' >"$work_root/.claude/project.md"
 enter_tobari_at "$work_root"
 container_after_profile_change=$(docker inspect --format '{{.Id}}' "$work_container")
@@ -1889,11 +1889,6 @@ assert_contains "$candidates_json" \
 assert_contains "$candidates_json" \
 	"\"deny_command\":\"tobari policy deny --id $deny_candidate_id\"" \
 	"policy candidate exact rejection"
-tail_output=$(run_tobari policy tail --tail 500)
-assert_contains "$tail_output" "Policy candidates" "human policy tail"
-assert_contains "$tail_output" \
-	"tobari policy allow --id $allow_candidate_id" \
-	"human policy tail"
 review_output=$(run_tobari policy review --tail 500)
 assert_contains "$review_output" "restricted" "cross-Context permission Inbox"
 assert_contains "$review_output" "$work_root" "same-root permission Inbox"
@@ -2171,11 +2166,6 @@ outside_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X PUT http://mock-upstream:8080/review/items-outside-tobari-canary)
 [[ $outside_status == 403 ]] || fail "compacted prefix crossed its tested directory boundary"
 
-policy_help=$(run_tobari help policy)
-if [[ $policy_help == *"policy apply"* ]]; then
-  fail "retired policy apply command remains in public policy help"
-fi
-
 final_default_auth_status=$(run_tobari auth status --context default --format json)
 final_restricted_auth_status=$(run_tobari auth status --context restricted --format json)
 final_context_status=$(run_tobari context show --format json)
@@ -2185,7 +2175,7 @@ import json
 import os
 
 document = json.loads(os.environ["CLUSTER_STATUS_DOCUMENT"])
-if document.get("schema_version") != 6 or "proxy" in document.get("cluster", {}):
+if document.get("schema_version") != 1 or "proxy" in document.get("cluster", {}):
     raise SystemExit(f"cluster status retained explicit proxy contract: {document!r}")
 PY
 assert_contains "$final_cluster_status" '"auth_broker_state":"ready"' \

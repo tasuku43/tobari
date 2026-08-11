@@ -7,8 +7,8 @@ authentication state:
   inside its own Workspace home;
 - the Auth Broker stores one host-acquired credential per Context/provider and
   gives each eligible Workspace only a project-bound opaque handle; and
-- the retained `managed` Gateway adapter supports the earlier static
-  profile/file compatibility contract.
+- the `managed` Gateway adapter supports its strict static profile/file
+  contract.
 
 There is no implicit fallback between these paths. Fallback is selected only
 when the request contains no Tobari broker-handle marker in any inspected URL
@@ -33,7 +33,7 @@ Context without changing it. Login, import, and logout are command-bound
 fixed-target writes to the installation's Context-scoped credential catalog.
 Status is read-only and returns the complete installed provider collection plus
 bounded, explicitly covered Workspace projection observations for one Context.
-Every JSON result uses envelope `auth` and schema version 4.
+Every JSON result uses envelope `auth` and schema version 1.
 Outputs contain stable Context identity, provider state, a secret-free account
 label when available, an opaque credential revision, root-key storage backend,
 broker state, mutation `changed|no_change`, and explicit Workspace projection
@@ -65,8 +65,8 @@ selection. A supplied provider skips this read and selector.
 `--method` requires an explicitly supplied `--provider` and remains AWS-only.
 Redirected omission fails before provider discovery, terminal input, or login
 mutation.
-The pre-v1 positional provider form is not retained as an alias: use
-`--provider` for deterministic invocation or omit it for terminal selection.
+Use `--provider` for deterministic invocation or omit it for terminal
+selection.
 
 The provider executable must resolve through `PATH` from `/bin`, `/usr/bin`,
 `/usr/local`, `/opt/homebrew`, `/opt/local`, `/nix/store`, or `/snap`.
@@ -207,12 +207,12 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/contexts/<context-id>/vault.en
 
 The vault keeps a schema-1 AES-256-GCM envelope with a random 12-byte nonce and
 authenticated data that binds the envelope schema and stable Context ID. Its
-encrypted schema-2 payload stores a static primary secret, opaque schema-1 AWS
+encrypted schema-1 payload stores a static primary secret, opaque schema-1 AWS
 host-driver state, strict schema-1 Datadog OAuth-session state, or strict
 schema-1 Codex OAuth state in an `openai_codex_oauth_session` record. Anthropic
 setup tokens use the static record form with fixed secret-free account label
-`claude-user-inference`. Strict valid schema-1 static payloads are migrated on
-read. The file
+`claude-user-inference`. Every persisted record must match the exact V1
+contract. The file
 is written through an owner/mode/symlink-checked atomic fsync-and-rename
 boundary. A provider has at most one active typed credential in one Context.
 Credential and handle
@@ -233,18 +233,18 @@ remove one Context/provider credential and revoke its handles.
 
 ## Canonical schemas, paths, and backend identifiers
 
-The following identifiers are compatibility contracts. Paths use the effective
+The following identifiers are exact V1 contracts. Paths use the effective
 XDG roots; macOS Keychain storage has no filesystem path.
 
 | Surface or state | Schema/version | Canonical path, endpoint, or value |
 |---|---|---|
-| Public `auth` JSON result | envelope `auth`, schema `4` | `storage_backend` is exactly `macos_keychain` or `xdg_file`; Workspace activation coverage and mutation change state are explicit |
-| Public cluster status | schema `4` | `root_key_backend` is `macos_keychain`, `xdg_file`, or diagnostic `unavailable`; always-present `credential_companion_state` is secret-free `ready`, `prepared`, `absent`, or `unavailable` |
-| Public Context report | schema `6` | Complete shell and Git identity policy plus secret-free broker/provider state; no vault path/content, root key, primary secret, or handle |
+| Public `auth` JSON result | envelope `auth`, schema `1` | `storage_backend` is exactly `macos_keychain` or `xdg_file`; Workspace activation coverage and mutation change state are explicit |
+| Public cluster status | schema `1` | `root_key_backend` is `macos_keychain`, `xdg_file`, or diagnostic `unavailable`; always-present `credential_companion_state` is secret-free `ready`, `prepared`, `absent`, or `unavailable` |
+| Public Context report | schema `1` | Complete shell and Git identity policy plus secret-free broker/provider state; no vault path/content, root key, primary secret, or handle |
 | Owner provider manifest | `tobari.auth-provider.v1`; `schema_version: 1` | `${XDG_CONFIG_HOME:-$HOME/.config}/tobari/auth/providers/*.json` |
-| Reviewed built-in provider manifest | `schema_version: 1|2` | Embedded; schema 2 is reserved for typed built-in AWS signing, Datadog OAuth-session, and OpenAI Codex OAuth-session plans |
-| Normalized provider projection | schema `2` (schema `1` remains readable) | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/projection/providers.json` |
-| Encrypted Context vault | envelope schema `1`; payload schema `2` with strict static schema-1 migration and typed AWS, Datadog, and OpenAI records | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/contexts/<context-id>/vault.enc` |
+| Reviewed built-in provider manifest | `schema_version: 1` | Embedded typed built-in AWS signing, Datadog OAuth-session, OpenAI Codex OAuth-session, and static plans |
+| Normalized provider projection | schema `1` | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/projection/providers.json` |
+| Encrypted Context vault | envelope schema `1`; payload schema `1` with typed static, AWS, Datadog, and OpenAI records | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/contexts/<context-id>/vault.enc` |
 | Linux installation root key | raw 32 bytes | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/keys/root.key` |
 | macOS installation root key | raw 32-byte generic password | Keychain service `io.tobari.auth-root.v1`, account `tobari` |
 | Project authentication registry | schema `1` | `${XDG_STATE_HOME:-$HOME/.local/state}/tobari/auth/projects/<project-id>.json` |
@@ -266,8 +266,8 @@ a permitted public `auth.storage_backend` or successful cluster
 ## Provider manifest boundary
 
 Owner-controlled providers use the strict schema-1 static parser. Reviewed
-built-ins may remain schema 1 or use schema 2 for one typed credential/signing
-plan. A static manifest declares:
+built-ins use the same schema version with one typed credential/signing plan. A
+static manifest declares:
 
 - a stable provider ID and secret-free display name;
 - `builtin_helper` or `stdin_import` acquisition;
@@ -324,9 +324,9 @@ shows every v1 responsibility and the exact field spelling:
 
 Unknown and duplicate fields are errors. An unsupported `schema_version`
 fails the whole provider collection before activation; Tobari does not guess
-or partially load a manifest. Owner files cannot select schema 2, a helper, a
-refresh flow, or a signer. New behavioral plans require a reviewed built-in,
-an accepted compatibility/security decision, and executable negative tests.
+or partially load a manifest. Owner files cannot select a helper, a refresh
+flow, or a signer. New behavioral plans require a reviewed built-in, an
+accepted product/security decision, and executable negative tests.
 
 Reviewed built-in driver names are data only after the binary selects one
 closed compiled implementation. A manifest, Context, repository, request, or
@@ -380,7 +380,7 @@ and negative tests before it could share or extend the provider credential.
 Display names, environment variables, or adjacency in a manifest are not
 authority to infer such a relationship.
 
-The schema-2 Datadog plan invokes only fixed
+The schema-1 Datadog plan invokes only fixed
 `pup --no-agent auth login --site datadoghq.com` on the trusted host with
 `DD_TOKEN_STORAGE=file`, a private temporary home/configuration directory, and
 the ordinary pup scope set. It accepts one strict default US1 organization
@@ -394,7 +394,7 @@ disabled. It atomically commits the replacement encrypted session at the same
 credential revision. A durable encrypted barrier prevents replay after any
 unknown refresh outcome; recovery is explicit Datadog re-login or logout.
 
-The schema-2 OpenAI plan invokes exact Codex 0.146.0 on the trusted host with
+The schema-1 OpenAI plan invokes exact Codex 0.146.0 on the trusted host with
 fixed argv `login`, `--device-auth`, `-c`,
 `cli_auth_credentials_store="file"`, `-c`, and
 `check_for_update_on_startup=false`. It isolates `HOME` and
@@ -438,8 +438,8 @@ estimate, not a provider-issued server-expiry guarantee. The supported client
 outcome is first-party inference and local MCP; Remote Control and claude.ai
 connectors are outside this plan.
 
-The built-in schema-2 `aws` provider retains compatibility helper ID `aws-sso`
-for its closed refreshable AWS CLI session plan. Public method selection maps to
+The built-in schema-1 `aws` provider uses helper ID `aws-sso` for its closed
+refreshable AWS CLI session plan. Public method selection maps to
 strict `aws_cli_sso` or `aws_cli_console_login` state; manifests cannot select
 either driver. The provider projects the same
 handle into `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
@@ -482,7 +482,7 @@ This capability does not add those four tools to the public base or any
 provider CLI to Auth Broker. Binary placement and broker authority are
 separate. Chatwork, one bounded Kubernetes bearer configuration, and the
 bounded delegated TWG authority use project-bound static handles with no
-automatic-refresh claim. Datadog uses the reviewed schema-2 pup OAuth-session
+automatic-refresh claim. Datadog uses the reviewed schema-1 pup OAuth-session
 plan above; general TWG remains unsupported.
 
 The exact normalized GitHub fields are:
@@ -556,7 +556,7 @@ For a request that contains a Tobari-looking handle, Gateway follows this
 order:
 
 1. Derive stable Context/project identity from the kernel-observed Workspace
-   source endpoint and the owner-only schema-3 principal registry.
+   source endpoint and the owner-only schema-1 principal registry.
 2. Reject a Tobari handle marker in the URL, cookie, header name, unsupported
    header value, or ambiguous header syntax. Otherwise strictly match exactly
    one static header binding (including Anthropic), the built-in AWS
@@ -570,7 +570,7 @@ order:
    transformation; OpenAI introspection binds exact `chatgpt.com:443`, bearer
    transformation, and credential-sensitive routing headers. Introspection
    returns only the revision and normalized non-secret metadata.
-4. For ordinary HTTP, send body-free OPA input schema 5. At an exact
+4. For ordinary HTTP, send body-free OPA input schema 1. At an exact
    trusted-host-declared GraphQL endpoint, first buffer and parse the bounded
    request, then send only operation type and sorted canonical root fields;
    document text and variables never enter OPA. The authorization object
@@ -624,8 +624,8 @@ position continues through the selected fallback adapter:
   from OPA/audit and forwards original client authentication only after allow.
 - `managed` validates one static profile against the trusted Context, project,
   and normalized host, then reads and injects its Gateway-only secret after
-  allow. Existing `credentials.json` and `credentials/` inputs remain reserved
-  for this compatibility path.
+  allow. Its `credentials.json` and `credentials/` inputs are reserved for this
+  adapter.
 
 ## Failure and recovery
 
@@ -726,7 +726,7 @@ delegated-token example has no login or refresh and covers only requests that
 remain on exact `api.atlassian.com:443`; it is not a complete TWG authority
 contract. General TWG login, automatic refresh, and its other authorities are
 unsupported. A tool may still implement its native flow inside its Workspace home,
-and advanced static users may retain the managed adapter.
+and static deployments may explicitly select the managed adapter.
 
 ## Verification
 
@@ -780,21 +780,13 @@ and advanced static users may retain the managed adapter.
   Broker proof. Credential values, SSO state, role credentials, signed headers,
   device or authorization codes, Codex `auth.json`, Claude setup tokens, OAuth
   token sets, vaults, handles, and raw authenticated transcripts are never
-  committed as evidence. The reviewed Gateway API-3 index built from source
-  revision `328196221c5be2861b67ec51339d0184b04c6b31` and Auth Broker API-2 index
-  built from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8` are
-  anonymously retrievable for Linux amd64/arm64 and pinned as Gateway
-  `sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
-  and Auth Broker
-  `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`;
-  their inspected configurations use the historical API-3/API-2 labels,
-  reviewed roles/entrypoints, and non-root `1000:1000` users. These selected
-  images predate and are incompatible with the current Gateway API-5/Auth
-  Broker API-3 source contract, including the OpenAI and Anthropic plans;
-  standard startup must reject them. Contributors use `task build:dev` and
-  `bin/tobari-dev`, plus the separately built applicable agent runtime, for
-  explicit source validation until new immutable reviewed indexes advance
-  `versions.env`. A development image or moving tag is not
+  committed as evidence. The canonical Gateway and Auth Broker sources both
+  declare API V1. Official immutable V1 indexes are not yet published and
+  reviewed, so `versions.env` records the paired `unpublished` marker.
+  Contributors use `task build:dev` and `bin/tobari-dev`, plus the separately
+  built applicable agent runtime, for explicit source validation until new
+  immutable reviewed Linux amd64/arm64 indexes replace both markers. A
+  development image or moving tag is not
   release authority. Codex and Claude runtime variants remain local/CI-only
   pending redistribution and image-layer license review. Live trusted-host
   provider scenarios remain a separate pre-tag release check.

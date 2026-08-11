@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-const consoleStateSchemaVersion = 2
+const consoleStateSchemaVersion = 1
 
 var (
 	consoleCacheNamePattern = regexp.MustCompile(`^[0-9a-f]{64}\.json$`)
@@ -28,6 +28,7 @@ type ConsoleProfileConfig struct {
 
 type consoleStatePayload struct {
 	SchemaVersion int                 `json:"schema_version"`
+	Driver        string              `json:"driver"`
 	Profile       consoleStateProfile `json:"profile"`
 	Executable    stateExecutable     `json:"aws_executable"`
 	Cache         []stateCacheFile    `json:"login_cache"`
@@ -122,6 +123,7 @@ func newConsoleState(
 ) (State, error) {
 	payload := consoleStatePayload{
 		SchemaVersion: consoleStateSchemaVersion,
+		Driver:        ConsoleDriverID,
 		Profile: consoleStateProfile{
 			Name: fixedProfileName, Region: profile.Region, Output: fixedOutputFormat,
 			LoginSession: loginSession, AccountID: accountID,
@@ -136,7 +138,7 @@ func newConsoleState(
 }
 
 func validateConsoleStatePayload(payload consoleStatePayload) error {
-	if payload.SchemaVersion != consoleStateSchemaVersion ||
+	if payload.SchemaVersion != consoleStateSchemaVersion || payload.Driver != ConsoleDriverID ||
 		payload.Profile.Name != fixedProfileName || payload.Profile.Output != fixedOutputFormat ||
 		validateConsoleProfile(ConsoleProfileConfig{Region: payload.Profile.Region}) != nil {
 		return ErrInvalidState

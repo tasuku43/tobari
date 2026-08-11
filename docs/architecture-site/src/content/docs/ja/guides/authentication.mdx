@@ -22,13 +22,11 @@ Tobari では、外部サービスへの認証と HTTP 通信の許可を別々�
 どの方式でも OPA の許可が必要です。「リクエストへ認証情報を付けられること」と「その HTTP 通信が許可されること」は別の権限です。
 
 <aside class="warning">
-  <strong>標準クラスターが使う成果物:</strong> ソースとテストには、AWS
-  コンソールログインと Datadog
-  の認証情報取得・更新経路があります。ただし、現在固定されている Gateway と Auth
-  Broker のイメージは、それらより前の AWS Identity Center 成果物です。Datadog
-  または AWS コンソールログインを使う前に、
-  <a href="../../reference/component-versions/">コンポーネントのバージョン</a>
-  で、標準クラスターが選ぶダイジェストを確認してください。
+  <strong>成果物の状態:</strong> Gateway と Auth Broker の正本ソースは一組の V1
+  スナップショットですが、レビュー済みの不変な V1
+  イメージ索引はまだ公開されていません。
+  開発者ビルドはこのソースを使い、公開／リリースゲートは索引のレビューと固定が終わるまで
+  失敗します。
 </aside>
 
 ## ツール自身で認証する
@@ -169,7 +167,7 @@ Auth Broker は、静的または更新可能な認証状態を Workspace と OP
 
 - [認証を規定する契約](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/07_authentication.md)
 - [認証 Catalog の仕様](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/auth_catalog.go)
-- [スキーマ 1／2 のプロバイダードメイン](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/authbroker/provider.go)
+- [V1 プロバイダードメイン](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/authbroker/provider.go)
 - [Auth Broker の実装と保管庫のテスト](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker)
 - [Gateway における認証情報処理順のテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
 - [信頼するホスト側の認証情報ドライバー](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/credentialhost)

@@ -325,21 +325,12 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 	candidateStyled, _ := renderPolicyCandidatesWithColor(candidates, "tobari policy allow", successFormatText, true)
 	denialPlain, _ := renderClusterDenialsWithColor(denials, "tobari policy review", successFormatText, false)
 	denialStyled, _ := renderClusterDenialsWithColor(denials, "tobari policy review", successFormatText, true)
-	listPlain, err := renderTobariListWithColor(tobari.ListResult{Task: tobari.TaskList, Items: []tobari.ItemStatus{}}, successFormatText, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	listStyled, err := renderTobariListWithColor(tobari.ListResult{Task: tobari.TaskList, Items: []tobari.ItemStatus{}}, successFormatText, true)
-	if err != nil {
-		t.Fatal(err)
-	}
 	cases := []emptyCase{
 		{name: "policy candidates", plain: candidatePlain, styled: candidateStyled, required: []string{"No policy candidates", policyDirectory, "200 Gateway lines"}},
 		{name: "policy review", plain: renderPolicyReviewHuman(review, "tobari policy allow", "tobari policy deny", false), styled: renderPolicyReviewHuman(review, "tobari policy allow", "tobari policy deny", true), required: []string{"No pending network permissions", policyDirectory, "200 Gateway lines"}},
 		{name: "policy rules", plain: renderPolicyRulesHuman(rules, "tobari policy reset", false), styled: renderPolicyRulesHuman(rules, "tobari policy reset", true), required: []string{"No learned policy decisions", policyDirectory}},
 		{name: "policy compactions", plain: renderPolicyCompactionsHuman(compactions, "tobari policy compact", false), styled: renderPolicyCompactionsHuman(compactions, "tobari policy compact", true), required: []string{"No policy compactions", policyDirectory}},
 		{name: "cluster denials", plain: denialPlain, styled: denialStyled, required: []string{"No policy denials", policyDirectory, "200 Gateway lines"}},
-		{name: "attached Tobari", plain: listPlain, styled: listStyled, required: []string{"No Tobari attached", "shared cluster"}},
 		{name: "Workspaces", plain: projectPlain, styled: projectStyled, required: []string{"No Workspaces", "No Workspace state is configured"}},
 		{name: "auth providers", plain: renderAuthStatusText(authStatusProjection{Context: "toolbox", ContextID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, false), styled: renderAuthStatusText(authStatusProjection{Context: "toolbox", ContextID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, true), required: []string{"No authentication providers installed", "toolbox", "explicitly empty"}},
 	}
@@ -362,7 +353,7 @@ func TestCatalogWideHumanPresentationIsDeclared(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
 	commands := catalog.Commands()
-	if got, want := len(commands), 33; got != want {
+	if got, want := len(commands), 32; got != want {
 		t.Fatalf("catalog command count = %d, want %d; update the human presentation inventory", got, want)
 	}
 	for _, command := range commands {
@@ -528,8 +519,7 @@ func TestBareNamespacesAndUnknownSuggestionsComeOnlyFromCatalog(t *testing.T) {
 }
 
 func TestPreActionPolicyCancellationIsNeutralExit11WithZeroAction(t *testing.T) {
-	denial := tobari.PolicyDenial{
-		Timestamp: "2026-08-11T00:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-11T00:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/example",
 		Host: "api.example.com", Port: 443, Method: "GET", Path: "/v1/example",

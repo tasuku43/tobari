@@ -16,7 +16,6 @@ func runtimeCommandSpecs() []CommandSpec {
 		policyCandidatesSpec(),
 		policyReviewSpec(),
 		policyApplyReviewedSpec(),
-		policyTailSpec(),
 		policyRulesSpec(),
 		policyAllowSpec(),
 		policyDenySpec(),
@@ -162,12 +161,12 @@ func contextListSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "active", Type: OutputFieldTypeString, Description: "Name of the host-selected current Context used when Context is omitted."},
-					{Name: "context_state", Type: OutputFieldTypeString, Description: "Whether the selected/default Context is persisted authority, a display-only synthetic default, or legacy state awaiting migration.", Enum: []string{"persisted", "synthetic_default", "legacy_unmigrated"}},
+					{Name: "context_state", Type: OutputFieldTypeString, Description: "Whether the selected/default Context is persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
 					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with current-default state, stable ID, image, agent profile, policy mode, and runtime status.", SemanticScope: "All locally configured Contexts at one observation.", Items: &OutputField{
 						Type: OutputFieldTypeObject, Description: "One configured Context.", Fields: []OutputField{
-							{Name: "id", Type: OutputFieldTypeString, Description: "Stable Context authority identity, or null for an unmigrated legacy Context.", Nullable: true},
+							{Name: "id", Type: OutputFieldTypeString, Description: "Stable Context authority identity, or null for the display-only synthetic default.", Nullable: true},
 							{Name: "name", Type: OutputFieldTypeString, Description: "Human Context name."},
-							{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority or legacy state awaiting migration.", Enum: []string{"persisted", "legacy_unmigrated"}},
+							{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
 							{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the current default."},
 							{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only agent profile reference."},
 							{Name: "image", Type: OutputFieldTypeString, Description: "Selected compatible runtime image."},
@@ -177,7 +176,7 @@ func contextListSpec() CommandSpec {
 					}},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "contexts", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 4,
+				JSONEnvelope: "contexts", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("context list", true,
@@ -363,7 +362,7 @@ func statusSpec() CommandSpec {
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
-					{Name: "context_state", Type: OutputFieldTypeString, Description: "Whether the selected/default Context is persisted authority, a display-only synthetic default, or legacy state awaiting migration.", Enum: []string{"persisted", "synthetic_default", "legacy_unmigrated"}},
+					{Name: "context_state", Type: OutputFieldTypeString, Description: "Whether the selected/default Context is persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
 					{Name: "exists", Type: OutputFieldTypeBoolean, Description: "Whether logical Tobari state exists for the current directory."},
 					{Name: "root", Type: OutputFieldTypeString, Description: "Nearest canonical project root when one exists."},
 					{Name: "id", Type: OutputFieldTypeString, Description: "Diagnostic stable logical ID when one exists."},
@@ -375,7 +374,7 @@ func statusSpec() CommandSpec {
 					{Name: "next_argv", Type: OutputFieldTypeArray, Description: "Exact argv that re-enters the persisted Context-bound lifecycle target, or uses omission-based selection when the Context is only a synthetic default.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One exact argv token."}},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-				JSONEnvelope: "status", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 4,
+				JSONEnvelope: "status", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("status", true,
@@ -460,8 +459,6 @@ func clusterUpSpec() CommandSpec {
 			FixedTarget: fixedClusterTarget(),
 			Errors: mutationCommandErrors("cluster up", "cluster status",
 				declaredCommandError(fault.KindRejected, "policy_test_failed", false, "doctor", "Correct the policy or ensure its XDG directory is accessible to the Docker Engine before startup."),
-				declaredCommandError(fault.KindRejected, "legacy_named_state", false, "doctor", "Remove legacy named state with the older binary before continuing."),
-				declaredCommandError(fault.KindRejected, "legacy_state", false, "doctor", "Remove schema-1 state with the older binary."),
 				declaredCommandError(fault.KindInternal, "status_failed", false, "cluster status", "Reconcile the confirmed startup."),
 				declaredCommandErrorWithActions(fault.KindUnavailable, "cluster_reconcile_interrupted", false,
 					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster."},
@@ -513,7 +510,7 @@ func clusterStatusSpec() CommandSpec {
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
-					{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether schema-4 aggregate cluster state exists."},
+					{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether schema-1 aggregate cluster state exists."},
 					{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether Gateway, OPA, and the unlocked Auth Broker are healthy."},
 					{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical host XDG policy directory, or null when unconfigured.", Nullable: true},
 					{Name: "tobari_count", Type: OutputFieldTypeInteger, Description: "Number of attached Tobari."},
@@ -536,7 +533,7 @@ func clusterStatusSpec() CommandSpec {
 					{Name: "recent_error", Type: OutputFieldTypeString, Description: "Bounded recent runtime error, or null.", Nullable: true},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "cluster", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 6,
+				JSONEnvelope: "cluster", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("cluster status", true,
@@ -580,7 +577,7 @@ func clusterDenialsSpec() CommandSpec {
 					{Name: "review_command", Type: OutputFieldTypeString, Description: "Exact command that opens the pending permission review queue."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "denials", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 4,
+				JSONEnvelope: "denials", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{"The cluster has been created."},
 			Errors: append(readCommandErrors("cluster denials", true,
@@ -640,33 +637,12 @@ func policyCandidatesSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "policy_candidates", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 5,
+				JSONEnvelope: "policy_candidates", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy candidates", true),
 		},
 		handler: runPolicyCandidates,
-	}
-}
-
-func policyTailSpec() CommandSpec {
-	return CommandSpec{
-		Path: "policy tail", Summary: "Review pending exact policy rules",
-		Args:   "[--tail <lines>]",
-		Effect: operation.EffectRead, Role: RoleDiscover,
-		Agent: AgentContract{
-			CapabilityID: "policy.learning",
-			Outcome:      "Review the bounded pending policy queue, including optional GraphQL operation/root coordinates, with exact approval commands",
-			Inputs:       []CommandInput{denialTailInput()},
-			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-				Fields:   policyCandidateOutputFields(),
-				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-			},
-			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
-			Errors:        policyCandidateReadErrors("policy tail", true),
-		},
-		handler: runPolicyTail,
 	}
 }
 
@@ -682,7 +658,7 @@ func policyReviewSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
-				JSONEnvelope: "policy_review", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 5,
+				JSONEnvelope: "policy_review", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
 			Errors:        policyCandidateReadErrors("policy review", true),
@@ -780,7 +756,7 @@ func policyRulesSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyRuleOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "policy_rules", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 3,
+				JSONEnvelope: "policy_rules", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{"Every configured Context has a validated policy source and the shared aggregate is current."},
 			Errors:        policyRuleReadErrors("policy rules", true),
@@ -803,10 +779,10 @@ func policyAllowSpec() CommandSpec {
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
 			Outcome:      "Test, record, and activate one exact retained host, port, method, path, and optional GraphQL operation/root permission",
-			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCandidateKind, "policy candidates, policy review, or policy tail")},
+			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCandidateKind, "policy candidates or policy review")},
 			Output:       policyLearningChangeOutput(),
 			Prerequisites: []string{
-				"The ID was emitted by policy candidates, policy review, or policy tail and remains in retained Gateway logs.",
+				"The ID was emitted by policy candidates or policy review and remains in retained Gateway logs.",
 			},
 			Errors: policyMutationCommandErrors("policy allow", "policy candidates",
 				declaredCommandError(fault.KindInvalidInput, "invalid_policy_candidate_id", false, "policy candidates", "Use a candidate ID unchanged."),
@@ -843,10 +819,10 @@ func policyDenySpec() CommandSpec {
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
 			Outcome:      "Test, record, and activate one exact project-bound denial for a retained host, port, method, path, and optional GraphQL operation/root coordinate",
-			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCandidateKind, "policy candidates, policy review, or policy tail")},
+			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCandidateKind, "policy candidates or policy review")},
 			Output:       policyDenyChangeOutput(),
 			Prerequisites: []string{
-				"The ID was emitted by policy candidates, policy review, or policy tail and remains an actionable pending candidate.",
+				"The ID was emitted by policy candidates or policy review and remains an actionable pending candidate.",
 			},
 			Errors: policyMutationCommandErrors("policy deny", "policy review",
 				declaredCommandError(fault.KindInvalidInput, "invalid_policy_candidate_id", false, "policy review", "Use a candidate ID unchanged."),
@@ -940,7 +916,7 @@ func policyCompactionsSpec() CommandSpec {
 					{Name: "compact_command", Type: OutputFieldTypeString, Description: "Exact reference-bound compaction command."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "policy_compactions", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 3,
+				JSONEnvelope: "policy_compactions", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{"At least three exact learned rules share one sufficiently deep directory."},
 			Errors: append(readCommandErrors("policy compactions", true,
@@ -1008,7 +984,6 @@ func clusterDownSpec() CommandSpec {
 			FixedTarget: fixedClusterTarget(),
 			Errors: mutationCommandErrors("cluster down", "cluster status",
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindRejected, "legacy_named_state", false, "doctor", "Remove legacy named state with the older binary before continuing."),
 				declaredCommandError(fault.KindRejected, "cluster_not_empty", false, "list", "Delete every listed logical Workspace from its project directory."),
 				declaredCommandErrorWithActions(fault.KindUnavailable, "cluster_reconcile_interrupted", false,
 					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster."},
@@ -1025,69 +1000,6 @@ func clusterDownSpec() CommandSpec {
 			},
 		},
 		handler: runClusterDown,
-	}
-}
-
-func attachSpec() CommandSpec {
-	return CommandSpec{
-		Path: "attach", Summary: "Attach one named Tobari to a root",
-		Args: "--name <name> --root <path> [--image <image>]", Effect: operation.EffectCreate, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Create one named isolated container with a dedicated network and persistent home",
-			Inputs: []CommandInput{
-				{
-					Name: "--name", Source: InputSourceFlag, Required: true,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description: "Unique portable display name matching [a-z][a-z0-9-]{0,62}.", AllowedValues: []string{},
-				},
-				{
-					Name: "--root", Source: InputSourceFlag, Required: true,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description: "Existing host directory mounted read-write at /workspace.", AllowedValues: []string{},
-				},
-				{
-					Name: "--image", Source: InputSourceFlag, Required: false,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description: "Locally available compatible OCI image or builtin; omission uses the selected Tobari's bound Context image.", AllowedValues: []string{},
-				},
-			},
-			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-				Fields: []OutputField{
-					{Name: "name", Type: OutputFieldTypeString, Description: "Attached display name."},
-					{Name: "root", Type: OutputFieldTypeString, Description: "Canonical attached host root."},
-					{Name: "image", Type: OutputFieldTypeString, Description: "Selected image selector."},
-				},
-				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-			},
-			Prerequisites: []string{"The shared cluster is running.", "The root is shared with the Docker Engine VM when applicable."},
-			FixedTarget:   fixedClusterTarget(),
-			Errors: mutationCommandErrors("attach", "list",
-				declaredCommandError(fault.KindInvalidInput, "invalid_name", false, "help attach", "Choose a portable unique name."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Validate the intended root."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_image", false, "help attach", "Choose builtin or a portable OCI image reference."),
-				declaredCommandError(fault.KindRejected, "invalid_image_config", false, "context show", "Inspect the selected or bound Context image configuration."),
-				declaredCommandError(fault.KindInvalidInput, "name_conflict", false, "list", "Choose another name or detach the existing Tobari."),
-				declaredCommandError(fault.KindInvalidInput, "root_conflict", false, "list", "Use the existing Tobari or detach it."),
-				declaredCommandError(fault.KindInvalidInput, "image_conflict", false, "list", "Use the existing image or detach the Tobari."),
-				declaredCommandError(fault.KindUnavailable, "image_not_found", false, "help attach", "Build or pull the selected image explicitly."),
-				declaredCommandError(fault.KindRejected, "incompatible_image", false, "help attach", "Extend the documented Tobari runtime base."),
-				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the shared cluster."),
-				declaredCommandError(fault.KindUnavailable, "attach_failed", false, "list", "Reconcile partial Docker state."),
-				declaredCommandError(fault.KindContract, "invalid_attach_contract", false, "list", "Inspect confirmed local state."),
-				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
-			Mutation: &MutationContract{
-				TargetKind: tobari.ClusterTargetKind, TargetInputs: []string{},
-				Impact: operation.Impact{
-					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
-					AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo,
-				},
-			},
-		},
-		handler: runAttach,
 	}
 }
 
@@ -1109,7 +1021,7 @@ func listSpec() CommandSpec {
 					{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority identity permanently bound to the Workspace."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "tobari", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 2,
+				JSONEnvelope: "tobari", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("list", true,
@@ -1122,107 +1034,6 @@ func listSpec() CommandSpec {
 			),
 		},
 		handler: runList,
-	}
-}
-
-func shellSpec() CommandSpec {
-	return CommandSpec{
-		Path: "shell", Summary: "Open a shell in one Tobari",
-		Args: "--id <id>", Effect: operation.EffectRead, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID:  "tobari.execute",
-			Outcome:       "Enter one exact referenced Tobari at the host-relative current directory",
-			Inputs:        []CommandInput{idInput()},
-			Output:        noOutput(),
-			Prerequisites: []string{"The selected Tobari is running.", "An interactive terminal is attached."},
-			Errors:        execErrors("shell"),
-		},
-		handler: runTobariShell,
-	}
-}
-
-func execSpec() CommandSpec {
-	return CommandSpec{
-		Path: "exec", Summary: "Run exact argv in one Tobari",
-		Args: "--id <id> [--cwd <path>] <command>", Effect: operation.EffectRead, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID: "tobari.execute",
-			Outcome:      "Run an arbitrary command in one exact Tobari and preserve its exit status",
-			Inputs: []CommandInput{
-				idInput(),
-				{
-					Name: "--cwd", Source: InputSourceFlag, Required: false,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description: "Existing host directory inside the selected root.", AllowedValues: []string{},
-				},
-				{
-					Name: "command", Source: InputSourceArgument, Required: true,
-					ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable,
-					Description: "Exact argv after the positional-only marker; values are not interpreted.", AllowedValues: []string{},
-				},
-			},
-			Output: noOutput(), Prerequisites: []string{"The selected Tobari is running."},
-			Errors: execErrors("exec"),
-		},
-		handler: runTobariExec,
-	}
-}
-
-func logsSpec() CommandSpec {
-	return CommandSpec{
-		Path: "logs", Summary: "Read logs from one Tobari",
-		Args: "--id <id> [--tail <lines>]", Effect: operation.EffectRead, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID:  "tobari.logs",
-			Outcome:       "Read a bounded log window from one exact referenced Tobari",
-			Inputs:        []CommandInput{idInput(), tailInput()},
-			Output:        logOutput(),
-			Prerequisites: []string{"The selected Tobari container has been created."},
-			Errors: readCommandErrors("logs", true,
-				declaredCommandError(fault.KindInvalidInput, "invalid_tobari_id", false, "list", "Use an ID from list unchanged."),
-				declaredCommandError(fault.KindInvalidInput, "tobari_not_found", false, "list", "Select a configured Tobari."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_log_request", false, "help logs", "Select a valid line bound."),
-				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
-				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindInternal, "logs_failed", false, "list", "Inspect the selected Tobari."),
-				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
-		},
-		handler: runTobariLogs,
-	}
-}
-
-func detachSpec() CommandSpec {
-	return CommandSpec{
-		Path: "detach", Summary: "Detach one exact Tobari",
-		Args: "--id <id> [--purge]", Effect: operation.EffectWrite, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Remove one exact container and network while preserving its home unless purge is explicit",
-			Inputs:       []CommandInput{idInput(), purgeInput("Also remove the selected Tobari home volume.")},
-			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-				Fields:   []OutputField{{Name: "detached", Type: OutputFieldTypeBoolean, Description: "Whether the exact target is detached."}},
-				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-			},
-			Prerequisites: []string{"The ID was emitted by list."},
-			Errors: mutationCommandErrors("detach", "list",
-				declaredCommandError(fault.KindInvalidInput, "invalid_tobari_id", false, "list", "Use an ID from list unchanged."),
-				declaredCommandError(fault.KindInvalidInput, "tobari_not_found", false, "list", "Select a configured Tobari."),
-				declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
-				declaredCommandError(fault.KindUnavailable, "detach_failed", false, "list", "Reconcile remaining Docker state."),
-				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
-			Mutation: &MutationContract{
-				TargetKind: tobari.TargetKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id",
-				Impact: operation.Impact{
-					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
-					AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationYes,
-				},
-			},
-		},
-		handler: runDetach,
 	}
 }
 
@@ -1331,7 +1142,7 @@ func contextReportOutput() CommandOutput {
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "task", Type: OutputFieldTypeString, Description: "Declared Context task identity for this report."},
-			{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority, a display-only synthetic default, or legacy state awaiting migration.", Enum: []string{"persisted", "synthetic_default", "legacy_unmigrated"}},
+			{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
 			{Name: "id", Type: OutputFieldTypeString, Description: "Stable host-issued Context identity, or null before authority is persisted.", Nullable: true},
 			{Name: "name", Type: OutputFieldTypeString, Description: "Named Context identifier."},
 			{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the current/default selection for omitted Context input."},
@@ -1379,7 +1190,7 @@ func contextReportOutput() CommandOutput {
 			}},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "context", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 8,
+		JSONEnvelope: "context", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
 	}
 }
 
@@ -1424,15 +1235,6 @@ func projectEnterErrors() []CommandError {
 		declaredCommandError(fault.KindRejected, "auth_projection_file_modified", false, "doctor", "Inspect the modified Tobari-owned Workspace authentication file."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 	)
-}
-
-func idInput() CommandInput {
-	return CommandInput{
-		Name: "--id", Source: InputSourceFlag, Required: true,
-		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description: "Opaque Tobari ID emitted by list; pass unchanged.", AllowedValues: []string{},
-		ReferenceKind: tobari.ReferenceKind,
-	}
 }
 
 func policyReferenceInput(kind, producer string) CommandInput {
@@ -1484,7 +1286,7 @@ func policyCandidateOutputFields() []OutputField {
 	return []OutputField{
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque exact policy-candidate reference.", ReferenceKind: tobari.PolicyCandidateKind},
 		{Name: "observed_at", Type: OutputFieldTypeString, Description: "Latest matching Gateway denial timestamp."},
-		{Name: "observation_count", Type: OutputFieldTypeInteger, Description: "Matching retained denial observations; legacy candidates without this field mean one."},
+		{Name: "observation_count", Type: OutputFieldTypeInteger, Description: "Matching retained denial observations."},
 		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority established by Gateway network identity."},
 		{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable Context name."},
 		{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal for the denied request."},
@@ -1658,18 +1460,6 @@ func logOutput() CommandOutput {
 		Fields:   []OutputField{{Name: "line", Type: OutputFieldTypeString, Description: "One visibly escaped component log line."}},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageBoundedWindow,
 	}
-}
-
-func execErrors(path string) []CommandError {
-	return readCommandErrors(path, false,
-		declaredCommandError(fault.KindInvalidInput, "invalid_tobari_id", false, "list", "Use an ID from list unchanged."),
-		declaredCommandError(fault.KindInvalidInput, "tobari_not_found", false, "list", "Select a configured Tobari."),
-		declaredCommandError(fault.KindInvalidInput, "invalid_exec_request", false, "help "+path, "Pass a valid command."),
-		declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster up", "Start the cluster."),
-		declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-		declaredCommandError(fault.KindInternal, "exec_failed", false, "list", "Inspect the selected Tobari."),
-		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-	)
 }
 
 func readCommandErrors(path string, hasOutput bool, extra ...CommandError) []CommandError {

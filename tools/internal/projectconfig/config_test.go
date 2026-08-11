@@ -35,7 +35,7 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func TestLoadExplainsLegacyProfileMigrationWithoutInferringState(t *testing.T) {
+func TestLoadRejectsUnsupportedSchemaWithoutInferringState(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".harness"), 0o755); err != nil {
 		t.Fatal(err)
@@ -45,10 +45,8 @@ func TestLoadExplainsLegacyProfileMigrationWithoutInferringState(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Load(root)
-	if err == nil || !strings.Contains(err.Error(), "requires explicit migration") ||
-		!strings.Contains(err.Error(), "remove the obsolete profile field") ||
-		!strings.Contains(err.Error(), "no repository state is inferred") {
-		t.Fatalf("legacy migration error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "schema_version = 2, want 1") {
+		t.Fatalf("unsupported schema error = %v", err)
 	}
 }
 

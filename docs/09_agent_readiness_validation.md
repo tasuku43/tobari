@@ -60,9 +60,8 @@ The current human-path evidence supports keeping the Permission Inbox,
 CWD-owned entry, explicit cleanup, and Context runtime commands. The first
 PTY replay removed `doctor` from the happy path and confirmed that TTY review
 already closes the allow/deny decision; JSON review plus `policy allow --id`
-remains the redirected or machine path. Context configuration evidence does
-justify replacing the pre-v1.0 `context shell configure` path with the common
-`config` namespace; it does not merge runtime or authentication workflows into
+remains the redirected or machine path. Context configuration uses the common
+`config` namespace without merging runtime or authentication workflows into
 that boundary. The valid recovery path after an allowed
 permission is `tobari` re-entry; there is no `tobari retry` command. Runtime
 builds apply through the current Context, and only Workspaces bound to it pick
@@ -169,13 +168,12 @@ task integration:test # required reproducible synthetic Auth Broker proof
 "$TOBARI_BIN" cluster down --purge
 ```
 
-Run an ordinary released scenario with its mutually compatible official binary
-and reviewed Gateway/Auth Broker manifest digests only after `task
-release:check` accepts their API parity. This source revision expects
-Gateway API 5 and Auth Broker API 3, while the historical pins remain API 3 and
-API 2 and must be rejected by standard startup; therefore the canonical source
-transcript above deliberately uses `bin/tobari-dev`. Build the applicable agent
-runtime separately. Development-image success is not official-image evidence.
+Run an ordinary released scenario with its official binary and reviewed
+Gateway/Auth Broker V1 manifest digests only after `task release:check` accepts
+their API parity. Official immutable V1 indexes are not yet published, so the
+canonical source transcript above deliberately uses `bin/tobari-dev`. Build the
+applicable agent runtime separately. Development-image success is not
+official-image evidence.
 The required scenario delegates synthetic credential, handle, broker, and
 Gateway manipulation to `task integration:test`; the surrounding manual CLI
 transcript does not reproduce those synthetic operations.
@@ -187,7 +185,7 @@ compaction command may validly return an empty collection until enough exact
 rules exist. The transcript must prove:
 
 - Root agent help is a compact outcome/capability index.
-- Exact scoped help schema 9 supplies recursive inputs/outputs, prerequisites,
+- Exact scoped help schema 1 supplies recursive inputs/outputs, prerequisites,
   effects, references, failures, recovery commands, global flag placement, and
   directly executable success/error argv forms. One exact scoped-help call is
   sufficient for a known command; routine success requires zero source reads,
@@ -232,12 +230,12 @@ rules exist. The transcript must prove:
   healthy. It may inspect provider manifests, root-key/vault safety, broker
   state, and project bindings, but it does not initialize or repair policy,
   start/reconcile/unlock the cluster, create/replace a key, or mutate auth state.
-- Cluster status schema 6 names all three shared components and explicitly
+- Cluster status schema 1 names all three shared components and explicitly
   reports auth provider-projection integrity, broker state, root-key backend,
   and always-present
   `credential_companion_state=ready|prepared|absent|unavailable`. The latter is
   host-process/channel readiness, not a fourth Compose service or credential
-  state. Context report schema 7 carries complete shell-environment and Git
+  state. Context report schema 1 carries complete shell-environment and Git
   identity policies plus matching secret-free authentication state; agents do not
   infer either from labels or filesystem paths. Public backend
   values are exactly `macos_keychain|xdg_file`, plus cluster diagnostic
@@ -248,9 +246,8 @@ rules exist. The transcript must prove:
   containing Workspaces nearest-first and requires an explicit reuse/create
   choice.
 - Omitted Context selection resolves from the current default, then runtime
-  image selection resolves from the Tobari's permanent Context binding; the
-  legacy XDG default seeds the default Context and then `builtin` is used,
-  without requiring source inspection.
+  image selection resolves from the Tobari's permanent Context binding; a new
+  Context uses `builtin` without requiring source inspection.
 - `runtime init` creates one owner-only current-Context Dockerfile and does not
   overwrite it or change the selected image.
 - `runtime build` uses only that recipe directory, validates the runtime
@@ -325,14 +322,14 @@ rules exist. The transcript must prove:
   environment projection and only unchanged Tobari-owned complete files. Agents
   never decode or reconstruct a handle.
 - Gateway removes a valid handle, introspects only its non-secret exact
-  binding, sends schema-5 OPA input, performs zero companion/secret-use/signing operations
+  binding, sends schema-1 OPA input, performs zero companion/secret-use/signing operations
   on deny, and resolves or signs the same revision exactly once after allow.
   Fallback occurs only
   when no Tobari handle marker exists in any inspected URL/header position;
   copied, malformed, misplaced, ambiguous, stale, revoked, or binding-mismatched
   markers fail as `credential_handle_invalid` without fallback or forwarding.
 - OpenAI Workspace reconciliation creates only the exact Codex-0.146.0
-  `.codex/auth.json` compatibility projection with the handle in
+  `.codex/auth.json` client projection with the handle in
   `tokens.access_token`; it projects no OAuth token or account ID and performs
   no Workspace-side refresh. Gateway strips caller OpenAI account/FedRAMP
   routing headers before OPA and injects only the Broker-owned validated
@@ -352,7 +349,7 @@ rules exist. The transcript must prove:
   Workspace or Docker I/O. Resolution binds one stable Context ID before the
   nearest canonical ancestor is selected, so same-root Contexts remain
   distinct and deletion never guesses another Context.
-- Status schema 3 reports selected Context ID/name even when no Workspace
+- Status schema 1 reports selected Context ID/name even when no Workspace
   exists, explicit attachment observation when it does, and exact
   Context-preserving next argv. One scoped-help request plus one status
   invocation requires zero source inspection, joins, or external
@@ -398,8 +395,8 @@ The Docker integration test supplies the executable loop:
    fixed review navigation, and aggregate into one body-free exact candidate;
    a body-bearing PATCH is also reviewable.
 4. `cluster denials` exposes the rejected dimensions, trusted XDG policy path,
-   and exact review command. `policy review`, `policy candidates`, and
-   `policy tail` expose the same pending exact proposals and opaque references;
+   and exact review command. `policy review` and `policy candidates` expose the
+   same pending exact proposals and opaque references;
    redirected review does not mutate policy.
 5. Interactive review stages several same-Context decisions and activates one
    complete revisioned bundle on final Apply. The OPA container ID remains
@@ -453,7 +450,7 @@ calls.
 - The default passthrough adapter forwards a client-authenticated request only
   after allow, while its value is absent from mounts, logs, OPA input, and CLI
   output.
-- The retained managed adapter is covered by exact Context/project/host binding,
+- The static managed adapter is covered by exact Context/project/host binding,
   same profile-name cross-Context rejection, and post-allow injection tests.
 - A configured broker provider gives same-Context projects distinct handles;
   neither Workspace can read the primary secret or use the other's handle.
@@ -474,7 +471,7 @@ calls.
   only the additional shared CA and active policy-bundle volumes.
 - Identical effects may be allowed in one Context and denied in another;
   learning, exact deny, reset, and compaction never cross that boundary.
-- Changing current Context does not migrate existing Tobari, and restart
+- Changing current Context does not retarget existing Tobari, and restart
   restores their durable Context bindings.
 - Concurrent processes share one selected Tobari.
 - Repeated root reconciliation does not grow owned resources.
@@ -568,7 +565,7 @@ At minimum, exercise:
   channel inheritance, blind replay, stale vault update, or secret-bearing log;
 - an unowned, modified, or symlinked Workspace authentication file before any
   overwrite or removal;
-- malformed or legacy state;
+- malformed or unsupported-version state;
 - invalid Rego before cluster reconciliation;
 - invalid Rego before policy activation and stable OPA container identity after
   a valid hot bundle activation;
@@ -832,26 +829,13 @@ custom endpoints, or every AWS service.
 
 ## Evidence
 
-Historical released-image evidence consists of an anonymously retrievable
-Gateway API-3 index built from source revision
-`328196221c5be2861b67ec51339d0184b04c6b31` and Auth Broker API-2 index built
-from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8`, each for Linux
-amd64/arm64 with reviewed API/role labels, non-root `1000:1000` users, and
-entrypoints. Routine startup pins Gateway
-`sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
-and Auth Broker
-`sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`
-in `versions.env`. This historical image evidence does not replace the manual
-trusted-host scenarios or release gates below.
-
-Those indexes remain historical API-3/API-2 publication evidence. They predate
-and are incompatible with the current Gateway API-5/Auth Broker API-3 source
-contract, including the OpenAI and Anthropic plans, so standard startup from
-this source must reject them. `task build:dev` and `bin/tobari-dev` provide the
-shared-component local validation path; build the applicable agent runtime
-separately. These remain the explicit path until new immutable reviewed indexes
-are published and `versions.env` advances; development images are not official
-image evidence. Codex and Claude runtime images likewise remain local/CI-only
+The canonical Gateway and Auth Broker sources both declare API V1. Official
+immutable V1 indexes are not yet published and reviewed, so `versions.env`
+records paired `unpublished` markers. `task build:dev` and `bin/tobari-dev`
+provide the shared-component local validation path; build the applicable agent
+runtime separately. These remain the explicit path until reviewed immutable
+Linux amd64/arm64 indexes replace both markers; development images are not
+official image evidence. Codex and Claude runtime images likewise remain local/CI-only
 pending redistribution and image-layer license review.
 
 ```sh

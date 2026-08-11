@@ -6,6 +6,8 @@
 - Scope: Product, architecture, security, authentication, external I/O, harness, public boundary, and release
 - Supersedes: [ADR 0007: Exclude provider adapters from the MVP](0007-exclude-provider-adapters-from-the-mvp.md)
 - Superseded by: [ADR 0020: Add reviewed broker credential plans and post-policy AWS signing](0020-broker-reviewed-credential-plans.md)
+- Revised by: ADR 0027 resets all retained broker contracts to exact V1 and
+  removes migration and compatibility paths
 
 ## Context
 

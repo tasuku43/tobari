@@ -220,7 +220,7 @@ func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
 	if !found {
 		t.Fatal("default catalog lacks cluster status")
 	}
-	if status.Agent.Output.JSONSchemaVersion != 6 {
+	if status.Agent.Output.JSONSchemaVersion != 1 {
 		t.Fatalf("cluster status schema version = %d, want 6", status.Agent.Output.JSONSchemaVersion)
 	}
 	fieldNames := make([]string, 0, len(status.Agent.Output.Fields))
@@ -259,7 +259,7 @@ func TestDoctorCatalogDeclaresRecursiveSchemaV2Contract(t *testing.T) {
 	for _, field := range spec.Agent.Output.Fields {
 		gotNames = append(gotNames, field.Name)
 	}
-	if spec.Agent.Output.JSONSchemaVersion != 2 || !reflect.DeepEqual(gotNames, wantNames) {
+	if spec.Agent.Output.JSONSchemaVersion != 1 || !reflect.DeepEqual(gotNames, wantNames) {
 		t.Fatalf("doctor output = version %d fields %v", spec.Agent.Output.JSONSchemaVersion, gotNames)
 	}
 	check := spec.Agent.Output.Fields[0]

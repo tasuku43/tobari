@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -109,13 +108,7 @@ func runClusterDenials(
 func runPolicyCandidates(
 	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
 ) int {
-	return runPolicyCandidateQueue(ctx, c, command, inputs, false)
-}
-
-func runPolicyTail(
-	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
-) int {
-	return runPolicyCandidateQueue(ctx, c, command, inputs, true)
+	return runPolicyCandidateQueue(ctx, c, command, inputs)
 }
 
 func runPolicyReview(
@@ -375,33 +368,22 @@ func policyRuleContainsID(result tobari.PolicyRuleReport, id string) bool {
 }
 
 func runPolicyCandidateQueue(
-	ctx context.Context, c *CLI, command CommandSpec, inputs ParsedInputs, tailView bool,
+	ctx context.Context, c *CLI, command CommandSpec, inputs ParsedInputs,
 ) int {
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
 	tail, _ := inputs.Integer("--tail")
-	var (
-		result tobari.PolicyCandidateReport
-		err    error
-	)
-	if tailView {
-		result, err = c.tobari.PolicyTail(ctx, int(tail))
-	} else {
-		result, err = c.tobari.PolicyCandidates(ctx, int(tail))
-	}
+	result, err := c.tobari.PolicyCandidates(ctx, int(tail))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	format := successFormatText
-	if !tailView {
-		format, err = parseSuccessFormat(inputs.One("--format"))
-		if err != nil {
-			return c.failUsage(
-				ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(),
-				"help "+command.Path, "Correct the command arguments.",
-			)
-		}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(
+			ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(),
+			"help "+command.Path, "Correct the command arguments.",
+		)
 	}
 	allow, found := c.catalog.Lookup("policy allow")
 	if !found {
@@ -742,25 +724,6 @@ func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operat
 	return c.emitMutationResult(ctx, command, renderProjectDeleteWithColor(result, humanStyleAllowed(ctx, c, c.Out)))
 }
 
-func runAttach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
-	if c.tobari == nil {
-		return c.fail(ctx, missingRuntimeFault())
-	}
-	intent := operation.Intent{
-		Command: command.Path, Effect: command.Effect,
-		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ParentID: tobari.ClusterTargetID},
-		Impact: command.Agent.Mutation.Impact,
-	}
-	instance, err := c.tobari.Attach(
-		ctx, intent, inputs.One("--name"), inputs.One("--root"),
-		inputs.One("--image"),
-	)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	return c.emitMutationResult(ctx, command, renderAttachResult(instance, humanStyleAllowed(ctx, c, c.Out)))
-}
-
 func runList(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
@@ -778,68 +741,6 @@ func runList(ctx context.Context, c *CLI, command CommandSpec, _ operation.Inten
 		return c.fail(ctx, err)
 	}
 	return c.emitResult(ctx, output)
-}
-
-func runTobariShell(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
-	if c.tobari == nil {
-		return c.fail(ctx, missingRuntimeFault())
-	}
-	code, err := c.tobari.Exec(
-		ctx, inputs.One("--id"),
-		tobari.ExecRequest{Command: []string{"/bin/bash"}, Interactive: true, TTY: true},
-		c.In, c.Out, c.Err,
-	)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	return code
-}
-
-func runTobariExec(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
-	if c.tobari == nil {
-		return c.fail(ctx, missingRuntimeFault())
-	}
-	code, err := c.tobari.Exec(
-		ctx, inputs.One("--id"),
-		tobari.ExecRequest{
-			HostCWD: inputs.One("--cwd"), Command: inputs.Values("command"),
-			CWDExplicit: inputs.One("--cwd") != "", Interactive: true, TTY: true,
-		},
-		c.In, c.Out, c.Err,
-	)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	return code
-}
-
-func runTobariLogs(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
-	if c.tobari == nil {
-		return c.fail(ctx, missingRuntimeFault())
-	}
-	tail, _ := inputs.Integer("--tail")
-	output, err := c.tobari.TobariLogs(ctx, inputs.One("--id"), int(tail))
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	return c.emitResult(ctx, renderSafeLogs(output, humanStyleAllowed(ctx, c, c.Out)))
-}
-
-func runDetach(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
-	if c.tobari == nil {
-		return c.fail(ctx, missingRuntimeFault())
-	}
-	id := inputs.One("--id")
-	purge, _ := inputs.Boolean("--purge")
-	intent := operation.Intent{
-		Command: command.Path, Effect: command.Effect,
-		Target: operation.TargetRef{Kind: tobari.TargetKind, ID: id},
-		Impact: command.Agent.Mutation.Impact,
-	}
-	if err := c.tobari.Detach(ctx, intent, id, purge); err != nil {
-		return c.fail(ctx, err)
-	}
-	return c.emitMutationResult(ctx, command, renderDetachedResult(humanStyleAllowed(ctx, c, c.Out)))
 }
 
 type clusterStatusDocument struct {
@@ -957,7 +858,7 @@ func renderPolicyCandidatesWithColor(
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
 		output, err := marshalCommandJSON("policy candidates", policyCandidatesDocument{
-			SchemaVersion: 5, PolicyCandidates: items,
+			SchemaVersion: 1, PolicyCandidates: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -1070,7 +971,7 @@ func renderPolicyReviewWithCommands(
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
 		output, err := marshalCommandJSON("policy review", policyReviewDocument{
-			SchemaVersion: 5, PolicyReview: items,
+			SchemaVersion: 1, PolicyReview: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -1175,7 +1076,7 @@ func renderPolicyRulesWithCommands(
 ) ([]byte, error) {
 	items := policyRuleOutputs(result, resetCommand)
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("policy rules", policyRulesDocument{SchemaVersion: 3, PolicyRules: items})
+		output, err := marshalCommandJSON("policy rules", policyRulesDocument{SchemaVersion: 1, PolicyRules: items})
 		if err != nil {
 			return nil, fault.Wrap(
 				fault.KindContract, "output_encoding_failed",
@@ -1350,7 +1251,7 @@ func renderPolicyCompactionsWithColor(
 	}
 	if format == successFormatJSON {
 		output, err := marshalCommandJSON("policy compactions", policyCompactionsDocument{
-			SchemaVersion: 3, PolicyCompactions: items,
+			SchemaVersion: 1, PolicyCompactions: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
@@ -1496,7 +1397,7 @@ func renderClusterDenialsWithReviewCommand(
 			})
 		}
 		output, err := marshalCommandJSON("cluster denials", clusterDenialsDocument{
-			SchemaVersion: 4,
+			SchemaVersion: 1,
 			Denials: clusterDenialsOutput{
 				Policy: safeExternalText(result.PolicyDirectory), WindowLines: result.WindowLines,
 				Items: items, ReviewCommand: reviewCommand,
@@ -1593,7 +1494,7 @@ func renderClusterStatus(status tobari.ClusterStatus, format successFormat, colo
 	}
 	if format == successFormatJSON {
 		document := clusterStatusDocument{
-			SchemaVersion: 6,
+			SchemaVersion: 1,
 			Cluster: clusterStatusOutput{
 				Configured: status.Configured, Running: status.Running,
 				Policy:      optionalExternalText(status.Policy),
@@ -1762,60 +1663,6 @@ func renderClusterRecentError(output *bytes.Buffer, recentError string, color bo
 	)
 }
 
-type tobariListDocument struct {
-	SchemaVersion int                 `json:"schema_version"`
-	Tobari        []tobari.ItemStatus `json:"tobari"`
-}
-
-func renderTobariList(result tobari.ListResult, format successFormat) ([]byte, error) {
-	return renderTobariListWithColor(result, format, false)
-}
-
-func renderTobariListWithColor(result tobari.ListResult, format successFormat, color bool) ([]byte, error) {
-	if format == successFormatJSON {
-		items := append([]tobari.ItemStatus{}, result.Items...)
-		for index := range items {
-			items[index].Name = safeExternalText(items[index].Name)
-			items[index].Root = safeExternalText(items[index].Root)
-			items[index].Image = safeExternalText(items[index].Image)
-			items[index].Container = safeExternalText(items[index].Container)
-		}
-		output, err := json.Marshal(tobariListDocument{SchemaVersion: 2, Tobari: items})
-		if err != nil {
-			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Tobari list JSON could not be encoded", false, err)
-		}
-		return append(output, '\n'), nil
-	}
-	if format == successFormatText {
-		if len(result.Items) == 0 {
-			output := newHumanOutput(color)
-			output.empty("No Tobari attached", "The shared cluster has no attached Tobari.", "tobari", "Create or enter a Tobari from the current project directory.")
-			return output.bytes(), nil
-		}
-		output := newHumanOutput(color)
-		output.heading("✓", fmt.Sprintf("Tobari (%d)", len(result.Items)), styleSuccess)
-		for index, item := range result.Items {
-			output.section(fmt.Sprintf("Tobari %d", index+1))
-			output.row("Name", safeExternalText(item.Name), styleText)
-			output.row("ID", item.ID, styleText)
-			output.row("Root", safeExternalText(item.Root), styleText)
-			output.row("Image", safeExternalText(item.Image), styleText)
-			output.row("Container", safeExternalText(item.Container), styleText)
-			output.row("Running", humanBool(item.Running), humanOutcomeBoolToken(item.Running))
-		}
-		return output.bytes(), nil
-	}
-	var output bytes.Buffer
-	for _, item := range result.Items {
-		fmt.Fprintf(
-			&output, "id=%s\tname=%s\troot=%s\timage=%s\trunning=%t\tcontainer=%s\n",
-			item.ID, escapeTSVCell(item.Name), escapeTSVCell(item.Root), escapeTSVCell(item.Image),
-			item.Running, escapeTSVCell(item.Container),
-		)
-	}
-	return semanticTextBytes(color, output.Bytes()), nil
-}
-
 type projectStatusOutput struct {
 	ContextState tobari.ContextObservationState `json:"context_state"`
 	Exists       bool                           `json:"exists"`
@@ -1858,7 +1705,7 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 		nextRecovery = strings.Join(value.NextArgv[1:], " ")
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("status", projectStatusDocument{SchemaVersion: 4, Status: value})
+		output, err := marshalCommandJSON("status", projectStatusDocument{SchemaVersion: 1, Status: value})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project status JSON could not be encoded", false, err)
 		}
@@ -1938,7 +1785,7 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 		})
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("list", projectListDocument{SchemaVersion: 2, Tobari: items})
+		output, err := marshalCommandJSON("list", projectListDocument{SchemaVersion: 1, Tobari: items})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project list JSON could not be encoded", false, err)
 		}
@@ -1992,24 +1839,6 @@ func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool)
 	if result.Deleted {
 		output.next("tobari", "Create or enter a Tobari from this project directory.")
 	}
-	return output.bytes()
-}
-
-func renderAttachResult(instance tobari.Instance, color bool) []byte {
-	output := newHumanOutput(color)
-	output.heading("✓", "Tobari attached", styleSuccess)
-	output.row("Name", safeExternalText(instance.Name), styleText)
-	output.row("Root", safeExternalText(instance.Root), styleText)
-	output.row("Image", safeExternalText(instance.Image), styleText)
-	output.next("list", "Review configured Tobari projects.")
-	return output.bytes()
-}
-
-func renderDetachedResult(color bool) []byte {
-	output := newHumanOutput(color)
-	output.heading("✓", "Tobari detached", styleSuccess)
-	output.row("Detached", "yes", styleSuccess)
-	output.next("list", "Review the remaining configured Tobari projects.")
 	return output.bytes()
 }
 

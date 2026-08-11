@@ -148,7 +148,7 @@ func authCLIStatusResult(configured bool) authbroker.StatusResult {
 		ContextID:      "018bcfe5-687b-7000-8000-000000000099",
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		Providers: []authbroker.ProviderStatus{{
-			Provider: authcmd.BuiltinGitHubProviderID, State: state, Configured: configured,
+			Provider: authcmd.BuiltinGitHubProviderID, State: state,
 			AccountLabel: label, CredentialRevision: revision,
 		}},
 		WorkspaceActivation: activation,
@@ -210,7 +210,7 @@ func TestSyntheticAuthStatusJSONHasNoContextAuthority(t *testing.T) {
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 4 || document.Auth.ContextState != tobari.ContextObservationSyntheticDefault || document.Auth.ContextID != nil {
+	if document.SchemaVersion != 1 || document.Auth.ContextState != tobari.ContextObservationSyntheticDefault || document.Auth.ContextID != nil {
 		t.Fatalf("synthetic auth status claims Context authority: %+v", document)
 	}
 }
@@ -243,7 +243,7 @@ func TestAuthImportReadsSecretOnlyFromStdinAndEmitsSecretFreeJSON(t *testing.T) 
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if string(document["schema_version"]) != "4" {
+	if string(document["schema_version"]) != "1" {
 		t.Fatalf("schema_version = %s", document["schema_version"])
 	}
 	var auth map[string]json.RawMessage
@@ -601,7 +601,7 @@ func TestAuthNoOpLogoutReceiptClaimsOnlyNoChange(t *testing.T) {
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 4 || document.Auth.Change != authbroker.MutationChangeNoChange ||
+	if document.SchemaVersion != 1 || document.Auth.Change != authbroker.MutationChangeNoChange ||
 		document.Auth.WorkspaceActivation.Coverage != authbroker.WorkspaceActivationCoverageNotApplicable ||
 		len(document.Auth.WorkspaceActivation.Workspaces) != 0 {
 		t.Fatalf("no-op JSON = %+v", document)
@@ -679,7 +679,6 @@ func TestAuthJSONPreservesUnconfiguredNullAndEmptyState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(document.Auth.Providers) != 1 || document.Auth.Providers[0].State != authbroker.ProviderCredentialNotConfigured ||
-		document.Auth.Providers[0].Configured ||
 		document.Auth.Providers[0].AccountLabel != nil || document.Auth.Providers[0].CredentialRevision != "" {
 		t.Fatalf("unconfigured JSON = %s", output)
 	}

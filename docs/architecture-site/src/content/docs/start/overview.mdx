@@ -70,16 +70,15 @@ client that rejects Tobari's CA fails instead of bypassing Gateway.
 **Implemented now:** reusable Context-bound Workspaces, dedicated internal
 project networks, Gateway/OPA mediation, exact denial review, guided and
 advanced policy modes, Context runtime recipes, tool-native authentication,
-the retained managed adapter, strict schema-1 static Broker providers, and
-reviewed built-in GitHub, AWS, and Datadog acquisition. The built-in schema-2
+the static managed adapter, strict schema-1 static Broker providers, and
+reviewed built-in GitHub, AWS, and Datadog acquisition. The built-in schema-1
 plans provide bounded AWS SigV4 through a private host companion and fixed
 Datadog US1 OAuth refresh inside Broker.
 
-The source tree and tests contain both schema-2 plans. The immutable Gateway
-and Auth Broker digests currently selected by `versions.env` include the
-earlier AWS Identity Center path but predate AWS console login and the Datadog
-request path. Those newer paths are therefore implemented in source but are
-not active in the standard cluster until the pins are reviewed and advanced.
+The source tree and tests contain both schema-1 plans. Official immutable
+Gateway and Auth Broker V1 indexes are not yet published and reviewed, so
+`versions.env` records paired `unpublished` markers. Use the explicit
+development-image path until reviewed immutable V1 digests replace them.
 [Component versions](/reference/component-versions/) reports the
 selected artifacts; [Supply chain](/security/supply-chain/) explains why source
 and runtime identity are separate claims.

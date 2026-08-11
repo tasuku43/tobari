@@ -97,7 +97,7 @@ func NormalizeProviders(providers []Provider) (Projection, error) {
 	sort.Slice(normalized, func(a, b int) bool { return normalized[a].ID < normalized[b].ID })
 
 	projection := Projection{
-		SchemaVersion:   ProviderSchemaVersion,
+		SchemaVersion:   1,
 		Providers:       normalized,
 		Environment:     []EnvironmentProjection{},
 		CompleteFiles:   []CompleteFileProjection{},

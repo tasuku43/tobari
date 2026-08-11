@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 )
 
-// ParseProvider parses one bounded schema-v1 or schema-v2 provider document.
+// ParseProvider parses one bounded schema-v1 provider document.
 // It rejects duplicate object keys before decoding because encoding/json
 // otherwise keeps the last value, making a reviewed manifest ambiguous.
 func ParseProvider(data []byte) (Provider, error) {
@@ -52,10 +52,7 @@ func validateProviderJSONKeys(data []byte) error {
 	}
 	allowedProviderKeys := []string{
 		"schema_version", "id", "display_name", "acquisition", "credential",
-		"workspace_projections", "header_bindings",
-	}
-	if schemaVersion == ProviderSchemaVersion {
-		allowedProviderKeys = append(allowedProviderKeys, "signing_bindings")
+		"workspace_projections", "header_bindings", "signing_bindings",
 	}
 	if err := rejectUnknownKeys("provider", root, allowedProviderKeys...); err != nil {
 		return err
@@ -94,10 +91,8 @@ func validateProviderJSONKeys(data []byte) error {
 			return err
 		}
 	}
-	if schemaVersion == ProviderSchemaVersion {
-		if err := validateSigningBindingJSONKeys(root["signing_bindings"]); err != nil {
-			return err
-		}
+	if err := validateSigningBindingJSONKeys(root["signing_bindings"]); err != nil {
+		return err
 	}
 	return nil
 }

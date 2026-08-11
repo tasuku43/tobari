@@ -36,8 +36,8 @@ requested_profile := input.authorization.requested_profile
 broker_provider := input.authorization.broker_provider
 
 candidate_eligible if {
-	input.schema_version == 4
-	data.tobari.schema_version == 2
+	input.schema_version == 1
+	data.tobari.schema_version == 1
 	input.principal.cluster == "default"
 	project_principal_valid
 	transport_port_allowed
@@ -378,7 +378,7 @@ graphql_name_valid(value) if {
 }
 
 http_rule_protocol_valid(rule) if {
-	object.get(rule, "protocol", "http") == "http"
+	rule.protocol == "http"
 	not object_has_key(rule, "graphql_operation_type")
 	not object_has_key(rule, "graphql_root_field")
 }

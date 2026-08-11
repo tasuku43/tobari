@@ -16,13 +16,13 @@ credential boundaries that produce this record.
 
 ## What enters the decision view
 
-Gateway builds schema-5 input with the trusted principal and normalized HTTP information: scheme, normalized host, fixed port, method, raw and decoded path, multi-valued query, redacted headers, and non-secret authorization metadata. The request body is absent.
+Gateway builds schema-1 input with the trusted principal and normalized HTTP information: scheme, normalized host, fixed port, method, raw and decoded path, multi-valued query, redacted headers, and non-secret authorization metadata. The request body is absent.
 
 Configured/recognized secret headers and broker handles are removed or redacted. The implementation should not be described as an oracle that recognizes every secret-looking string. If a user puts confidential data in a URL path, query, or unclassified header, that value may be part of decision metadata or diagnostics.
 
 ## What retained denial evidence contains
 
-Learnable denials use a bounded schema-2 JSON audit record with Context/project identity, host, port, method, path, decision/reason, request ID, timestamp, duration, and secret-free classification metadata. Policy discovery reads bounded Docker logs and groups candidates by the exact rule dimensions.
+Learnable denials use a bounded schema-1 JSON audit record with Context/project identity, host, port, method, path, decision/reason, request ID, timestamp, duration, and secret-free classification metadata. Policy discovery reads bounded Docker logs and groups candidates by the exact rule dimensions.
 
 The body does not split candidates. Query and safe headers can appear in OPA input but do not become current learned exact-rule identity. Review references are SHA-256-derived opaque values; users act on the unchanged reference rather than list order or decoded provider notation.
 

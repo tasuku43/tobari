@@ -40,7 +40,7 @@ func TestOwnerExamplesLoadThroughOwnerManifestBoundary(t *testing.T) {
 		if _, tracked := want[provider.ID]; !tracked {
 			continue
 		}
-		if provider.SchemaVersion != authbroker.LegacyProviderSchemaVersion ||
+		if provider.SchemaVersion != authbroker.ProviderSchemaVersion ||
 			provider.Acquisition.Mode != authbroker.AcquisitionStdinImport {
 			t.Fatalf("loaded owner provider %q crossed the non-behavioral boundary: %#v", provider.ID, provider)
 		}

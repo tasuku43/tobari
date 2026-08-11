@@ -585,9 +585,15 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
-	ownerProviderSchema, err := requiredInt(providerSource, `(?m)^\s*LegacyProviderSchemaVersion\s*=\s*([0-9]+)`, "owner provider manifest schema")
-	if err != nil {
-		return componentVersionDocument{}, err
+	ownerProviderSchema := providerSchema
+	// Public evidence is intentionally derived from its pinned commit. Some
+	// historical commits declared a separate owner-manifest authority, so report
+	// that committed fact without making it a reader in the current product.
+	if match := regexp.MustCompile(`(?m)^\s*LegacyProviderSchemaVersion\s*=\s*([0-9]+)`).FindSubmatch(providerSource); len(match) == 2 {
+		ownerProviderSchema, err = strconv.Atoi(string(match[1]))
+		if err != nil {
+			return componentVersionDocument{}, fmt.Errorf("parse committed owner provider manifest schema: %w", err)
+		}
 	}
 	gatewaySource, err := committedFile(root, sourceRef, "gateway/addon/tobari_gateway.py")
 	if err != nil {
@@ -669,14 +675,22 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 	if err := json.Unmarshal(runtimeMetadata, &metadata); err != nil {
 		return componentVersionDocument{}, fmt.Errorf("decode runtime metadata: %w", err)
 	}
+	gatewayVersion := "digest identity"
+	authBrokerVersion := "digest identity"
+	if values["GATEWAY_IMAGE"] == "unpublished" {
+		gatewayVersion = "unpublished V1 snapshot"
+	}
+	if values["AUTH_BROKER_IMAGE"] == "unpublished" {
+		authBrokerVersion = "unpublished V1 snapshot"
+	}
 	return componentVersionDocument{
 		GeneratedFrom: "committed repository authorities and executable CLI help at " + sourceRef,
 		Components: []componentVersion{
 			{Component: "Go", Version: goVersion, Identity: "go " + goVersion, Authority: "go.mod"},
 			{Component: "OPA", Version: values["OPA_VERSION"], Identity: values["OPA_IMAGE"], Authority: "internal/infra/runtimeassets/assets/versions.env", Note: "Version is declared; runtime identity is the immutable digest."},
 			{Component: "mitmproxy", Version: values["MITMPROXY_VERSION"], Identity: values["MITMPROXY_IMAGE"], Authority: "internal/infra/runtimeassets/assets/versions.env", Note: "Version is declared; build base identity is the immutable digest."},
-			{Component: "Gateway", Version: "digest identity", Identity: values["GATEWAY_IMAGE"], Authority: "internal/infra/runtimeassets/assets/versions.env"},
-			{Component: "Auth Broker", Version: "digest identity", Identity: values["AUTH_BROKER_IMAGE"], Authority: "internal/infra/runtimeassets/assets/versions.env"},
+			{Component: "Gateway", Version: gatewayVersion, Identity: values["GATEWAY_IMAGE"], Authority: "internal/infra/runtimeassets/assets/versions.env"},
+			{Component: "Auth Broker", Version: authBrokerVersion, Identity: values["AUTH_BROKER_IMAGE"], Authority: "internal/infra/runtimeassets/assets/versions.env"},
 			{Component: "Base runtime build image", Version: values["DEBIAN_VERSION"], Identity: values["DEBIAN_IMAGE"], Authority: "internal/infra/runtimeassets/assets/versions.env"},
 			{Component: "Tobari CLI", Version: "dev unless release-injected", Identity: "documentation commit supplies source identity", Authority: "cmd/tobari/main.go and scripts/package-release.sh", Note: "The repository does not invent a release version for ordinary builds."},
 		},

@@ -486,16 +486,16 @@ func TestClaudeSetupOutputParserAppliesPinnedInkEraseAndCursorRedraw(t *testing.
 
 func TestClaudeSetupOutputParserFailsClosedOnUnknownTerminalFraming(t *testing.T) {
 	tests := map[string][]byte{
-		"unknown OSC":       []byte("visible\x1b]8;;https://example.com\a"),
-		"unknown CSI":       []byte("visible\x1b[?999h"),
-		"alternate screen":  []byte("visible\x1b[?1049h"),
-		"device query":      []byte("visible\x1b[6n"),
-		"legacy escape":     []byte("visible\x1b7"),
-		"bare control":      []byte("visible\a"),
-		"tab":               []byte("visible\t"),
-		"invalid UTF-8":     {0xff},
-		"unfinished escape": []byte("visible\x1b["),
-		"bidi format":       []byte("visible\u202e"),
+		"unknown OSC":        []byte("visible\x1b]8;;https://example.com\a"),
+		"unknown CSI":        []byte("visible\x1b[?999h"),
+		"alternate screen":   []byte("visible\x1b[?1049h"),
+		"device query":       []byte("visible\x1b[6n"),
+		"cursor-save escape": []byte("visible\x1b7"),
+		"bare control":       []byte("visible\a"),
+		"tab":                []byte("visible\t"),
+		"invalid UTF-8":      {0xff},
+		"unfinished escape":  []byte("visible\x1b["),
+		"bidi format":        []byte("visible\u202e"),
 	}
 	for name, output := range tests {
 		t.Run(name, func(t *testing.T) {

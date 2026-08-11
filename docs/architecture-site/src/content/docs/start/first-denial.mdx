@@ -14,7 +14,7 @@ This page follows the denial through host review and deliberate retry. Complete 
 
 ## The denial, in time order
 
-1. Gateway derives the Context/project principal from the kernel-observed Workspace source endpoint and the host-owned schema-3 principal registry.
+1. Gateway derives the Context/project principal from the kernel-observed Workspace source endpoint and the host-owned schema-1 principal registry.
 2. It constructs a normalized, body-free policy input and asks OPA once.
 3. OPA returns deny for an effect not covered by an allow rule.
 4. Gateway does not resolve a brokered secret, perform DNS for the destination, or create an upstream connection.

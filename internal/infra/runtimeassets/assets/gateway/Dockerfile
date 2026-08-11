@@ -1,7 +1,7 @@
 ARG MITMPROXY_IMAGE
 FROM ${MITMPROXY_IMAGE}
 
-LABEL io.tobari.gateway-api="5" \
+LABEL io.tobari.gateway-api="1" \
       io.tobari.gateway-role="enforcement"
 
 ARG IPROUTE2_VERSION=6.15.0-1

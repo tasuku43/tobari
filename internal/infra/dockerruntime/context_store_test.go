@@ -40,7 +40,7 @@ func (r *contextSwitchRunner) Output(_ context.Context, args, _ []string) ([]byt
 		if err != nil {
 			return nil, err
 		}
-		return []byte(fmt.Sprintf(`{"RepoDigests":[%q],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"5","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`, versions["GATEWAY_IMAGE"])), nil
+		return []byte(fmt.Sprintf(`{"RepoDigests":[%q],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"1","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`, versions["GATEWAY_IMAGE"])), nil
 	}
 	if len(args) > 0 && args[0] == "version" {
 		return []byte(`{"Os":"linux","Arch":"arm64"}`), nil
@@ -262,47 +262,6 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 	}
 	if len(runner.runs) != 0 {
 		t.Fatalf("duplicate Context create made Docker calls: %+v", runner.runs)
-	}
-}
-
-func TestLegacyContextObservationDoesNotMigrateUntilMutation(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	runtime, err := newRuntimeWithData(
-		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &contextSwitchRunner{},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(runtime.contextDirectory(tobari.DefaultContextName), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	legacy := tobari.ContextManifest{
-		SchemaVersion: tobari.LegacyContextSchemaVersion2, Name: tobari.DefaultContextName,
-		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided,
-	}
-	if err := writeAtomicJSON(runtime.contextManifestPath(legacy.Name), legacy); err != nil {
-		t.Fatal(err)
-	}
-	before := snapshotOwnedTree(t, root)
-	listed, err := runtime.ListContexts(context.Background())
-	if err != nil || listed.ContextState != tobari.ContextObservationLegacyUnmigrated || len(listed.Items) != 1 ||
-		listed.Items[0].ContextState != tobari.ContextObservationLegacyUnmigrated || listed.Items[0].ID != "" {
-		t.Fatalf("legacy ListContexts() = %+v, %v", listed, err)
-	}
-	shown, err := runtime.ShowContext(context.Background(), "")
-	if err != nil || shown.ContextState != tobari.ContextObservationLegacyUnmigrated || shown.ID != "" {
-		t.Fatalf("legacy ShowContext() = %+v, %v", shown, err)
-	}
-	if after := snapshotOwnedTree(t, root); !reflect.DeepEqual(after, before) {
-		t.Fatalf("legacy reads committed migration\nbefore=%v\nafter=%v", before, after)
-	}
-	if _, err := runtime.CreateContext(context.Background(), "tools", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
-		t.Fatalf("authorized mutation failed: %v", err)
-	}
-	migrated, err := runtime.readContextManifest(tobari.DefaultContextName)
-	if err != nil || migrated.SchemaVersion != tobari.ContextSchemaVersion || migrated.ID == "" {
-		t.Fatalf("first mutation did not migrate legacy Context: %+v, %v", migrated, err)
 	}
 }
 
@@ -628,18 +587,18 @@ func TestContextManifestRoundTripsEveryMaximumSchemaFiveProjectionValue(t *testi
 		t.Fatal(err)
 	}
 	if info.Size() <= maxContextManifestFixedJSONBytes || info.Size() > maxContextManifestBytes {
-		t.Fatalf("maximum schema-5 manifest size = %d, bound = %d", info.Size(), maxContextManifestBytes)
+		t.Fatalf("maximum schema-1 manifest size = %d, bound = %d", info.Size(), maxContextManifestBytes)
 	}
 	manifest, err := runtime.readContextManifest("project-tools")
 	if err != nil {
-		t.Fatalf("read maximum schema-5 manifest: %v", err)
+		t.Fatalf("read maximum schema-1 manifest: %v", err)
 	}
 	if len(manifest.ShellEnvironment) != len(tobari.ContextShellEnvironmentVariables()) ||
 		manifest.GitIdentity == nil || manifest.GitIdentity.Name == nil || manifest.GitIdentity.Email == nil ||
 		len(*manifest.GitIdentity.Name) != tobari.MaxContextGitIdentityValueBytes ||
 		len(*manifest.GitIdentity.Email) != tobari.MaxContextGitIdentityValueBytes {
 		t.Fatalf(
-			"maximum schema-5 manifest did not round-trip: shell=%d git-present=%t",
+			"maximum schema-1 manifest did not round-trip: shell=%d git-present=%t",
 			len(manifest.ShellEnvironment), manifest.GitIdentity != nil,
 		)
 	}
@@ -660,258 +619,5 @@ func TestActiveContextDocumentRetainsIndependentSizeBound(t *testing.T) {
 	}
 	if _, err := runtime.readActiveContext(); err == nil {
 		t.Fatal("oversized active Context document was accepted")
-	}
-}
-
-func TestContextSchemaThreeMigrationPreservesIdentityAndEnablesPS1Inheritance(t *testing.T) {
-	t.Parallel()
-	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
-	manifest, err := runtime.readContextManifest("project-tools")
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantID := manifest.ID
-	manifest.SchemaVersion = tobari.LegacyContextSchemaVersion3
-	manifest.ShellEnvironment = nil
-	if err := writeAtomicJSON(runtime.contextManifestPath(manifest.Name), manifest); err != nil {
-		t.Fatal(err)
-	}
-	shown, err := runtime.ShowContext(context.Background(), "project-tools")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if raw, err := runtime.readContextManifestRaw("project-tools"); err != nil || raw.SchemaVersion != tobari.LegacyContextSchemaVersion3 {
-		t.Fatalf("read committed schema migration: %+v, %v", raw, err)
-	}
-	if err := runtime.ensureContextStore(); err != nil {
-		t.Fatal(err)
-	}
-	upgraded, err := runtime.readContextManifest("project-tools")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if upgraded.SchemaVersion != tobari.ContextSchemaVersion || upgraded.ID != wantID ||
-		len(upgraded.ShellEnvironment) != 1 || upgraded.ShellEnvironment[0].Variable != "PS1" ||
-		upgraded.ShellEnvironment[0].Source != tobari.ContextShellEnvironmentInherit {
-		t.Fatalf("upgraded Context = %+v", upgraded)
-	}
-	if len(shown.ShellEnvironment) != len(tobari.ContextShellEnvironmentVariables()) {
-		t.Fatalf("shown shell environment = %+v", shown.ShellEnvironment)
-	}
-}
-
-func TestContextSchemaFourMigrationPreservesIdentityRuntimeAndShellOverrides(t *testing.T) {
-	t.Parallel()
-	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
-	manifest, err := runtime.readContextManifest("project-tools")
-	if err != nil {
-		t.Fatal(err)
-	}
-	empty := ""
-	manifest.SchemaVersion = tobari.LegacyContextSchemaVersion4
-	manifest.Runtime = &tobari.ContextRuntimeRecipe{
-		Kind: tobari.ContextRuntimeKindDockerfile, File: tobari.ContextRuntimeRecipeFile,
-		BaseReference: tobari.OfficialRuntimeBase,
-	}
-	manifest.ShellEnvironment = []tobari.ContextShellEnvironmentSetting{{
-		Variable: "PS1", Source: tobari.ContextShellEnvironmentLiteral, Value: &empty,
-	}}
-	wantID := manifest.ID
-	wantRuntime := *manifest.Runtime
-	wantShell := manifest.ShellEnvironment
-	if err := writeAtomicJSON(runtime.contextManifestPath(manifest.Name), manifest); err != nil {
-		t.Fatal(err)
-	}
-
-	shown, err := runtime.ShowContext(context.Background(), "project-tools")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if raw, err := runtime.readContextManifestRaw("project-tools"); err != nil || raw.SchemaVersion != tobari.LegacyContextSchemaVersion4 {
-		t.Fatalf("read committed schema migration: %+v, %v", raw, err)
-	}
-	if err := runtime.ensureContextStore(); err != nil {
-		t.Fatal(err)
-	}
-	upgraded, err := runtime.readContextManifest("project-tools")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if upgraded.SchemaVersion != tobari.ContextSchemaVersion || upgraded.ID != wantID ||
-		upgraded.Runtime == nil || !reflect.DeepEqual(*upgraded.Runtime, wantRuntime) ||
-		!reflect.DeepEqual(upgraded.ShellEnvironment, wantShell) || upgraded.GitIdentity != nil {
-		t.Fatalf("upgraded schema-4 Context = %+v", upgraded)
-	}
-	if len(shown.ShellEnvironment) != len(tobari.ContextShellEnvironmentVariables()) ||
-		shown.ShellEnvironment[2].Value == nil || *shown.ShellEnvironment[2].Value != "" ||
-		shown.GitIdentity.Source != tobari.ContextGitIdentityDefault {
-		t.Fatalf("shown migrated Context = %+v", shown)
-	}
-}
-
-func TestContextStoreMigratesLegacyStoresAndPersistsRuntimeImage(t *testing.T) {
-	root := t.TempDir()
-	config := filepath.Join(root, "config")
-	if err := os.MkdirAll(filepath.Join(config, "policy"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(config, "credentials"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(config, "config.json"), []byte(`{"version":"v1","default_image":"legacy-runtime:dev"}
-`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	legacyPolicy := []byte("package tobari\n\nallow := false\n")
-	if err := os.WriteFile(filepath.Join(config, "policy", "tobari.rego"), legacyPolicy, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	legacyPolicyData, err := runtimeassets.Read("opa/policy/data.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(config, "policy", "data.json"), legacyPolicyData, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	legacyCredentials := []byte(`{"version":"v1","profiles":{}}`)
-	if err := os.WriteFile(filepath.Join(config, "credentials.json"), legacyCredentials, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(config, "credentials", "legacy-token"), []byte("synthetic-secret"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	runtime, err := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.ensureContextStore(); err != nil {
-		t.Fatalf("ensureContextStore() error = %v", err)
-	}
-	contexts, err := runtime.ListContexts(context.Background())
-	if err != nil {
-		t.Fatalf("ListContexts() error = %v", err)
-	}
-	if contexts.Active != tobari.DefaultContextName || len(contexts.Items) != 1 || contexts.Items[0].Image != "legacy-runtime:dev" {
-		t.Fatalf("initial Contexts = %+v", contexts)
-	}
-
-	defaultPolicyDirectory := filepath.Join(config, "contexts", "default", "policy")
-	data, err := os.ReadFile(filepath.Join(defaultPolicyDirectory, "data.json"))
-	if err != nil || string(data) != string(legacyPolicyData) {
-		t.Fatalf("migrated policy data = %q, error = %v", data, err)
-	}
-	for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
-		if _, err := os.Stat(filepath.Join(defaultPolicyDirectory, name)); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("guided Context owns %s: %v", name, err)
-		}
-	}
-	migratedCredentials, err := os.ReadFile(filepath.Join(config, "contexts", "default", "credentials", "legacy-token"))
-	if err != nil || string(migratedCredentials) != "synthetic-secret" {
-		t.Fatalf("migrated credential = %q, error = %v", migratedCredentials, err)
-	}
-	if _, err := os.Stat(filepath.Join(config, "policy", "tobari.rego")); err != nil {
-		t.Fatalf("legacy policy was removed: %v", err)
-	}
-
-	created, err := runtime.CreateContext(context.Background(), "project-tools", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced)
-	if err != nil {
-		t.Fatalf("CreateContext() error = %v", err)
-	}
-	if created.Image != tobari.OfficialRuntimeBase || created.PolicyMode != tobari.ContextPolicyModeAdvanced {
-		t.Fatalf("created Context = %+v", created)
-	}
-	for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
-		if _, err := os.Stat(filepath.Join(config, "contexts", "project-tools", "policy", name)); err != nil {
-			t.Fatalf("advanced Context is missing %s: %v", name, err)
-		}
-	}
-	if _, err := runtime.UseContext(context.Background(), "project-tools"); err != nil {
-		t.Fatalf("UseContext() error = %v", err)
-	}
-	shown, err := runtime.ShowContext(context.Background(), "")
-	if err != nil {
-		t.Fatalf("ShowContext() error = %v", err)
-	}
-	if !shown.Active || shown.Name != "project-tools" || shown.Image != tobari.OfficialRuntimeBase {
-		t.Fatalf("active Context = %+v", shown)
-	}
-	manifestData, err := os.ReadFile(filepath.Join(config, "contexts", "project-tools", "context.json"))
-	if err != nil || strings.Contains(string(manifestData), "synthetic-secret") {
-		t.Fatalf("manifest contains credential material or could not be read: %q, %v", manifestData, err)
-	}
-	for _, path := range []string{
-		filepath.Join(config, "contexts", "project-tools"),
-		filepath.Join(config, "contexts", "project-tools", "policy"),
-		filepath.Join(config, "contexts", "project-tools", "credentials"),
-		filepath.Join(config, "contexts", "project-tools", "context.json"),
-		filepath.Join(config, "contexts", "active.json"),
-	} {
-		info, statErr := os.Stat(path)
-		if statErr != nil {
-			t.Fatal(statErr)
-		}
-		if info.Mode().Perm()&0o077 != 0 {
-			t.Fatalf("Context path %s is not owner-only: %o", path, info.Mode().Perm())
-		}
-	}
-}
-
-func TestLegacyGuidedPolicyDataMigrationRejectsSymlinkDirectory(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	config := filepath.Join(root, "config")
-	target := filepath.Join(root, "policy-target")
-	if err := os.MkdirAll(config, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(target, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(target, filepath.Join(config, "policy")); err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.ensureContextStore(); err == nil ||
-		!strings.Contains(err.Error(), "legacy policy store must be an owner-only directory") {
-		t.Fatalf("unsafe legacy policy directory was accepted: %v", err)
-	}
-}
-
-func TestContextImageBecomesProjectDefaultAndOutlivesLegacyConfig(t *testing.T) {
-	root := t.TempDir()
-	config := filepath.Join(root, "config")
-	if err := os.MkdirAll(config, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(config, "config.json"), []byte(`{"version":"v1","default_image":"initial:dev"}
-`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runtime.UseContext(context.Background(), tobari.DefaultContextName); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(config, "config.json"), []byte(`{"version":"v1","default_image":"--invalid"}
-`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	shown, err := runtime.ShowContext(context.Background(), "")
-	if err != nil || shown.Image != "initial:dev" {
-		t.Fatalf("Context after legacy config change = %+v, error = %v", shown, err)
-	}
-
-	image, err := runtime.resolveContextImage(context.Background())
-	if err != nil || image != "initial:dev" {
-		t.Fatalf("resolveContextImage() = %q, error = %v", image, err)
 	}
 }

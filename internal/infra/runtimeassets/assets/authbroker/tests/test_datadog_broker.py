@@ -55,7 +55,7 @@ def state_bytes(*, issued_at: int, access: str = "dummy-access-token") -> bytes:
     ).encode("ascii")
 
 
-def binding(*, legacy: bool = False) -> dict[str, object]:
+def binding() -> dict[str, object]:
     return {
         "provider_id": "datadog",
         "target": {"scheme": "https", "host": "api.datadoghq.com", "port": 443},
@@ -63,7 +63,7 @@ def binding(*, legacy: bool = False) -> dict[str, object]:
         "destination": {
             "header": "authorization",
             "format": "bearer",
-            "secret_field": "primary_secret" if legacy else "datadog_oauth_session",
+            "secret_field": "datadog_oauth_session",
         },
         "secret_headers": ["authorization"],
     }
@@ -248,26 +248,6 @@ class DatadogBrokerTests(unittest.TestCase):
         self.assertFalse(worker.is_alive())
         self.assertEqual([str(error) for error in errors], ["handle_revoked"])
         self.assertEqual(state.status(CONTEXT, "datadog")["state"], "not_configured")
-
-    def test_legacy_imported_datadog_secret_remains_resolvable(self) -> None:
-        state = self.state()
-        self.store.save(
-            CONTEXT,
-            KEY,
-            {
-                "schema_version": 2,
-                "providers": {"datadog": new_record(b"legacy-access-token")},
-            },
-        )
-        issued = state.issue_handle(CONTEXT, PROJECT, "datadog", [binding(legacy=True)])
-        resolved = state.resolve(
-            issued["handle"], CONTEXT, PROJECT, "datadog", issued["revision"],
-            binding(legacy=True)["target"], "authorization", "bearer",
-        )
-        self.assertEqual(
-            base64.urlsafe_b64decode(resolved["secret"]["value"] + "=="),
-            b"legacy-access-token",
-        )
 
 
 if __name__ == "__main__":

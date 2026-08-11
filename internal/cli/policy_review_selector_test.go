@@ -16,18 +16,16 @@ func testPolicyReviewReport() tobari.PolicyCandidateReport {
 		PolicyDirectory: "/tmp/config/tobari/policy",
 		WindowLines:     100,
 		Items: []tobari.PolicyCandidate{
-			{
-				ID:         "pcy_0123456789abcdef0123456789abcdef",
+			{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
 				ObservedAt: "2026-08-02T10:00:00Z", ObservationCount: 3,
 				ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 				ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 				Host: "api.github.com", Port: 443, Method: "POST", Path: "/repos/example/issues",
 				Reason: "request did not match an allow rule", StatusCode: 403,
 			},
-			{
-				ID:         "pcy_abcdef0123456789abcdef0123456789",
-				ObservedAt: "2026-08-02T10:01:00Z",
-				ContextID:  "01912345-6789-7abc-8def-0123456789ae", ContextName: "restricted",
+			{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_abcdef0123456789abcdef0123456789",
+				ObservedAt: "2026-08-02T10:01:00Z", ObservationCount: 1,
+				ContextID: "01912345-6789-7abc-8def-0123456789ae", ContextName: "restricted",
 				ProjectID: "01912345-6789-7abc-8def-0123456789ac", ProjectRoot: "/workspace/project",
 				Host: "registry.npmjs.org", Port: 443, Method: "GET", Path: "/package/example",
 				Reason: "request did not match an allow rule", StatusCode: 403,

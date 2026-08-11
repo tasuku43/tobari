@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -30,9 +29,6 @@ type policyReviewRuntimeFake struct {
 	denialsByRead [][]tobari.PolicyDenial
 }
 
-func (f *policyReviewRuntimeFake) ResolveRoot(_ context.Context, root string) (string, error) {
-	return filepath.Clean(root), nil
-}
 func (f *policyReviewRuntimeFake) CurrentDirectory(context.Context) (string, error) {
 	return "/tmp/project", nil
 }
@@ -166,11 +162,6 @@ func policyReviewActivationReceipt(state tobari.State) tobari.PolicyActivationRe
 func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
-	for _, path := range []string{"attach", "shell", "exec", "logs", "detach"} {
-		if _, found := catalog.Lookup(path); found {
-			t.Fatalf("retired command %q is still public", path)
-		}
-	}
 	for _, path := range []string{"tobari", "delete"} {
 		command, found := catalog.Lookup(path)
 		if !found || command.Role != RoleAct || command.Agent.FixedTarget == nil ||
@@ -180,7 +171,7 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 		}
 	}
 
-	for _, path := range []string{"policy candidates", "policy review", "policy tail"} {
+	for _, path := range []string{"policy candidates", "policy review"} {
 		command, found := catalog.Lookup(path)
 		want := []ProducedRef{{Kind: tobari.PolicyCandidateKind, Field: "id"}}
 		if !found || command.Role != RoleDiscover || !reflect.DeepEqual(command.ProducedRefs(), want) {
@@ -247,10 +238,10 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 func TestPolicyCatalogPublishesGraphQLIdentityContracts(t *testing.T) {
 	t.Parallel()
 	wantVersions := map[string]int{
-		"cluster denials":   4,
-		"policy candidates": 5,
-		"policy review":     5,
-		"policy rules":      3,
+		"cluster denials":   1,
+		"policy candidates": 1,
+		"policy review":     1,
+		"policy rules":      1,
 	}
 	for path, version := range wantVersions {
 		spec, found := DefaultCatalog().Lookup(path)
@@ -285,9 +276,6 @@ func TestPolicyCatalogPublishesGraphQLIdentityContracts(t *testing.T) {
 func TestDefaultCatalogDoesNotPublishDevContainerRuntimeSelection(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
-	if _, found := catalog.Lookup("attach"); found {
-		t.Fatal("retired named attach command is still public")
-	}
 	for _, command := range catalog.Commands() {
 		if strings.Contains(strings.ToLower(command.Usage()), "devcontainer") {
 			t.Fatalf("public command %q still exposes Dev Container input: %q", command.Path, command.Usage())
@@ -297,8 +285,7 @@ func TestDefaultCatalogDoesNotPublishDevContainerRuntimeSelection(t *testing.T) 
 
 func TestPolicyReviewTTYStagesExactAllowAndAppliesOnce(t *testing.T) {
 	t.Parallel()
-	denial := tobari.PolicyDenial{
-		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
@@ -336,8 +323,7 @@ func TestPolicyReviewTTYStagesExactAllowAndAppliesOnce(t *testing.T) {
 
 func TestPolicyReviewTTYAppliesSeveralDecisionsWithOneRuntimeCall(t *testing.T) {
 	t.Parallel()
-	first := tobari.PolicyDenial{
-		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
@@ -371,8 +357,7 @@ func TestPolicyReviewTTYAppliesSeveralDecisionsWithOneRuntimeCall(t *testing.T) 
 
 func TestPolicyReviewTTYRefreshReconcilesStagedDecisionsByCandidateID(t *testing.T) {
 	t.Parallel()
-	first := tobari.PolicyDenial{
-		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
@@ -408,8 +393,7 @@ func TestPolicyReviewTTYRefreshReconcilesStagedDecisionsByCandidateID(t *testing
 
 func TestPolicyReviewTTYRefreshDoesNotTransferStageToDifferentCandidateWithMatchingLabels(t *testing.T) {
 	t.Parallel()
-	original := tobari.PolicyDenial{
-		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	original := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
@@ -440,8 +424,7 @@ func TestPolicyReviewTTYRefreshDoesNotTransferStageToDifferentCandidateWithMatch
 
 func TestPolicyReviewTTYKeepsOneContextPerStagedApply(t *testing.T) {
 	t.Parallel()
-	first := tobari.PolicyDenial{
-		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
@@ -474,8 +457,7 @@ func TestPolicyReviewTTYKeepsOneContextPerStagedApply(t *testing.T) {
 
 func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 	t.Parallel()
-	denial := tobari.PolicyDenial{
-		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
@@ -504,8 +486,7 @@ func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 
 func TestPolicyRulesTTYResetsDecisionAndRefreshesInventory(t *testing.T) {
 	t.Parallel()
-	denial := tobari.PolicyDenial{
-		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
@@ -543,8 +524,7 @@ func TestPolicyRulesTTYResetsDecisionAndRefreshesInventory(t *testing.T) {
 
 func TestPolicyRulesJSONIsReadOnlyAndMatchesCatalog(t *testing.T) {
 	t.Parallel()
-	denial := tobari.PolicyDenial{
-		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
@@ -742,8 +722,7 @@ func TestPendingPolicyNotificationStaysOnHostAndOmitsProjectIdentity(t *testing.
 	t.Parallel()
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
-		Items: []tobari.PolicyCandidate{{
-			ID: "pcy_0123456789abcdef0123456789abcdef", ObservedAt: "2026-07-30T10:41:11Z",
+		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef", ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 			Method: "POST", Path: "/token", Reason: "request did not match an allow rule", StatusCode: 403,
@@ -768,8 +747,7 @@ func TestPendingPolicyNotificationProjectsHostileEvidence(t *testing.T) {
 	t.Parallel()
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10,
-		Items: []tobari.PolicyCandidate{{
-			ID: "pcy_0123456789abcdef0123456789abcdef", Host: "api.example.com\nSYSTEM",
+		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef", ObservationCount: 1, Host: "api.example.com\nSYSTEM",
 			Port: 443, Method: "POST\x1b", Path: "/token\u2028", StatusCode: 403,
 		}},
 	}
@@ -798,8 +776,7 @@ func TestPolicyReviewAllowRendererExplainsExactActivation(t *testing.T) {
 	t.Parallel()
 	change := tobari.PolicyLearningChange{
 		Task: tobari.TaskPolicyAllow,
-		Rule: tobari.LearnedPolicyRule{
-			Match: tobari.PolicyMatchExact, Host: "api.example.com", Port: 443,
+		Rule: tobari.LearnedPolicyRule{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Match: tobari.PolicyMatchExact, Host: "api.example.com", Port: 443,
 			Method: "POST", Path: "/repos/example/issues",
 		},
 	}
@@ -816,79 +793,6 @@ func TestPolicyReviewAllowRendererExplainsExactActivation(t *testing.T) {
 	humanOutput := string(renderPolicyLearningChangeWithColor(change, true))
 	if !strings.Contains(humanOutput, "current running Workspace") || strings.Contains(humanOutput, "Re-enter") {
 		t.Fatalf("allow recovery output is not same-session guidance: %q", humanOutput)
-	}
-}
-
-func TestTobariListRendererPreservesOpaqueIDAndEmptyScope(t *testing.T) {
-	t.Parallel()
-	id := "tbr_0123456789abcdef0123456789abcdef"
-	result := tobari.ListResult{
-		Task: tobari.TaskList,
-		Items: []tobari.ItemStatus{{
-			ID: id, Name: "work", Root: "/tmp/work", Image: "workbench:dev",
-			Running: true, Container: "tobari-work",
-		}},
-	}
-	output, err := renderTobariList(result, successFormatJSON)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document tobariListDocument
-	if err := json.Unmarshal(output, &document); err != nil {
-		t.Fatal(err)
-	}
-	if len(document.Tobari) != 1 || document.Tobari[0].ID != id {
-		t.Fatalf("list output = %+v", document)
-	}
-	empty, err := renderTobariList(
-		tobari.ListResult{Task: tobari.TaskList, Items: []tobari.ItemStatus{}},
-		successFormatJSON,
-	)
-	if err != nil || string(empty) != "{\"schema_version\":2,\"tobari\":[]}\n" {
-		t.Fatalf("empty list = %q, error = %v", empty, err)
-	}
-}
-
-func TestTobariListRendererMatchesCatalogFields(t *testing.T) {
-	t.Parallel()
-	result := tobari.ProjectListResult{
-		Task: tobari.TaskProjectList, CurrentID: "01912345-6789-7abc-8def-0123456789ab",
-		Items: []tobari.ProjectListItem{{
-			Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
-			Home: "/tmp/state/home", ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default", Runtime: tobari.RuntimeDiagnosticReady,
-		}},
-	}
-	output, err := renderProjectList(result, successFormatJSON)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document map[string]json.RawMessage
-	if err := json.Unmarshal(output, &document); err != nil {
-		t.Fatal(err)
-	}
-	var items []map[string]json.RawMessage
-	if err := json.Unmarshal(document["tobari"], &items); err != nil || len(items) != 1 {
-		t.Fatalf("list items = %v, error = %v", items, err)
-	}
-	gotFields := make([]string, 0, len(items[0]))
-	for field := range items[0] {
-		gotFields = append(gotFields, field)
-	}
-	spec, found := DefaultCatalog().Lookup("list")
-	if !found {
-		t.Fatal("list command is absent from the catalog")
-	}
-	wantFields := make([]string, 0, len(spec.Agent.Output.Fields))
-	for _, field := range spec.Agent.Output.Fields {
-		wantFields = append(wantFields, field.Name)
-	}
-	sort.Strings(gotFields)
-	sort.Strings(wantFields)
-	if !reflect.DeepEqual(gotFields, wantFields) {
-		t.Fatalf("list JSON fields = %v, catalog = %v", gotFields, wantFields)
-	}
-	if strings.Contains(string(output), "current") {
-		t.Fatalf("list JSON leaked presentation-only selection metadata: %q", output)
 	}
 }
 
@@ -926,7 +830,7 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndTextValues(t *testing.T) 
 		}
 	}
 	if strings.Contains(value, "Project 1") || strings.Contains(value, "current") {
-		t.Fatalf("workspace list output retained retired labels: %q", value)
+		t.Fatalf("workspace list output contains unexpected labels: %q", value)
 	}
 	for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
 		if strings.Contains(value, applyStyleToken(true, token, "01912345-6789-7abc-8def-0123456789ab")) {
@@ -957,7 +861,7 @@ func TestProjectDeleteHumanRendererPreservesPlainInformationUnion(t *testing.T) 
 		"Context ID": result.ContextID, "Diagnostic ID": result.ID, "Diagnostic home": result.Home,
 	} {
 		if !humanOutputHasRow(output, label, want) {
-			t.Fatalf("delete output lost legacy plain fact %s=%q: %q", label, want, output)
+			t.Fatalf("delete output lost required plain fact %s=%q: %q", label, want, output)
 		}
 	}
 	if strings.Contains(output, applyStyleToken(true, styleAccent, "Tobari deleted")) ||
@@ -1132,7 +1036,7 @@ func TestSyntheticProjectStatusJSONHasNoContextAuthority(t *testing.T) {
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 4 || document.Status.ContextState != tobari.ContextObservationSyntheticDefault ||
+	if document.SchemaVersion != 1 || document.Status.ContextState != tobari.ContextObservationSyntheticDefault ||
 		document.Status.ContextID != nil || document.Status.Exists {
 		t.Fatalf("synthetic lifecycle status claims Context authority: %+v", document)
 	}
@@ -1355,11 +1259,11 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 6 {
+	if document.SchemaVersion != 1 {
 		t.Fatalf("schema version = %d, want 6", document.SchemaVersion)
 	}
 	if _, retained := document.Cluster["proxy"]; retained {
-		t.Fatalf("cluster output retained retired proxy field: %s", output)
+		t.Fatalf("cluster output contains prohibited proxy field: %s", output)
 	}
 	for key, want := range map[string]string{
 		"auth_provider_projection":   `"valid"`,
@@ -1386,8 +1290,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	result := tobari.DenialReport{
 		Task: tobari.TaskClusterDenials, PolicyDirectory: "/tmp/config/tobari/policy",
 		WindowLines: 100,
-		Items: []tobari.PolicyDenial{{
-			Timestamp: "2026-07-30T10:41:11Z",
+		Items: []tobari.PolicyDenial{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
 			RequestID: "7185da2688d7469aae9cd9068e920b0b",
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
@@ -1416,7 +1319,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 4 || len(document.Denials.Items) != 1 ||
+	if document.SchemaVersion != 1 || len(document.Denials.Items) != 1 ||
 		document.Denials.ReviewCommand != "tobari policy review" ||
 		!document.Denials.Items[0].Learnable ||
 		document.Denials.Items[0].ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
@@ -1474,8 +1377,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/config/tobari/policy",
 		WindowLines: 200,
-		Items: []tobari.PolicyCandidate{{
-			ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
+		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
@@ -1491,7 +1393,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 5 || len(document.PolicyCandidates) != 1 {
+	if document.SchemaVersion != 1 || len(document.PolicyCandidates) != 1 {
 		t.Fatalf("candidate output = %+v", document)
 	}
 	item := document.PolicyCandidates[0]
@@ -1521,8 +1423,7 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 	id := "pcy_0123456789abcdef0123456789abcdef"
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
-		Items: []tobari.PolicyCandidate{{
-			ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
+		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
@@ -1553,8 +1454,7 @@ func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
 	id := "pcy_0123456789abcdef0123456789abcdef"
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
-		Items: []tobari.PolicyCandidate{{
-			ID: id, ObservedAt: "2026-07-30T10:41:11Z",
+		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
@@ -1571,7 +1471,7 @@ func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 5 || len(document.PolicyReview) != 1 {
+	if document.SchemaVersion != 1 || len(document.PolicyReview) != 1 {
 		t.Fatalf("review output = %+v", document)
 	}
 	item := document.PolicyReview[0]
@@ -1625,7 +1525,7 @@ func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
 	if err := json.Unmarshal(denialJSON, &denialDocument); err != nil {
 		t.Fatal(err)
 	}
-	if denialDocument.SchemaVersion != 4 || len(denialDocument.Denials.Items) != 1 {
+	if denialDocument.SchemaVersion != 1 || len(denialDocument.Denials.Items) != 1 {
 		t.Fatalf("GraphQL denial document = %+v", denialDocument)
 	}
 	assertGraphQLPolicyOutput(t, denialDocument.Denials.Items[0].Protocol,
@@ -1642,7 +1542,7 @@ func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
 	if err := json.Unmarshal(candidateJSON, &candidateDocument); err != nil {
 		t.Fatal(err)
 	}
-	if candidateDocument.SchemaVersion != 5 || len(candidateDocument.PolicyCandidates) != 1 {
+	if candidateDocument.SchemaVersion != 1 || len(candidateDocument.PolicyCandidates) != 1 {
 		t.Fatalf("GraphQL candidate document = %+v", candidateDocument)
 	}
 	assertGraphQLPolicyOutput(t, candidateDocument.PolicyCandidates[0].Protocol,
@@ -1676,7 +1576,7 @@ func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
 	if err := json.Unmarshal(ruleJSON, &ruleDocument); err != nil {
 		t.Fatal(err)
 	}
-	if ruleDocument.SchemaVersion != 3 || len(ruleDocument.PolicyRules) != 1 {
+	if ruleDocument.SchemaVersion != 1 || len(ruleDocument.PolicyRules) != 1 {
 		t.Fatalf("GraphQL rule document = %+v", ruleDocument)
 	}
 	assertGraphQLPolicyOutput(t, ruleDocument.PolicyRules[0].Protocol,
@@ -1701,16 +1601,6 @@ func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
 		}
 	}
 
-	httpCandidate := candidate
-	httpCandidate.PolicyProtocolIdentity = tobari.PolicyProtocolIdentity{}
-	if got, want := policyReviewCandidateRequest(httpCandidate), "api.example.com:443 POST /graphql"; got != want {
-		t.Fatalf("legacy HTTP review request = %q, want %q", got, want)
-	}
-	httpRule := rule
-	httpRule.PolicyProtocolIdentity = tobari.PolicyProtocolIdentity{}
-	if got, want := policyRuleRequest(httpRule), "api.example.com:443 POST /graphql"; got != want {
-		t.Fatalf("legacy HTTP rule request = %q, want %q", got, want)
-	}
 }
 
 func assertGraphQLPolicyOutput(t *testing.T, protocol, operationType, rootField string) {
@@ -1722,10 +1612,9 @@ func assertGraphQLPolicyOutput(t *testing.T, protocol, operationType, rootField 
 
 func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 	t.Parallel()
-	candidate := tobari.PolicyCandidate{
-		ID:         "pcy_0123456789abcdef0123456789abcdef",
-		ObservedAt: "2026-07-30T10:41:11Z",
-		ContextID:  "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+	candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
+		ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
 		Reason: "request did not match an allow rule", StatusCode: 403,
@@ -1758,10 +1647,9 @@ func TestPolicyCompactionRendererShowsEvidenceAndExactAction(t *testing.T) {
 	for index, path := range []string{
 		"/api/v1/items/one", "/api/v1/items/two", "/api/v1/items/three",
 	} {
-		candidate := tobari.PolicyCandidate{
-			ID:         "pcy_" + strings.Repeat(string(rune('1'+index)), 32),
-			ObservedAt: "2026-07-30T10:41:11Z",
-			ContextID:  "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_" + strings.Repeat(string(rune('1'+index)), 32),
+			ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
+			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "mock-upstream", Port: 8080, Method: "POST", Path: path,
 			Reason: "request did not match an allow rule", StatusCode: 403,
@@ -1788,7 +1676,7 @@ func TestPolicyCompactionRendererShowsEvidenceAndExactAction(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 3 || len(document.PolicyCompactions) != 1 {
+	if document.SchemaVersion != 1 || len(document.PolicyCompactions) != 1 {
 		t.Fatalf("compaction output = %+v", document)
 	}
 	item := document.PolicyCompactions[0]
@@ -1808,10 +1696,9 @@ func TestPolicyCompactionRendererShowsEvidenceAndExactAction(t *testing.T) {
 
 func TestPolicyLearningMutationRendererReportsStoredScope(t *testing.T) {
 	t.Parallel()
-	candidate := tobari.PolicyCandidate{
-		ID:         "pcy_0123456789abcdef0123456789abcdef",
-		ObservedAt: "2026-07-30T10:41:11Z",
-		ContextID:  "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+	candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
+		ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 		Reason: "request did not match an allow rule", StatusCode: 403,
@@ -1861,14 +1748,5 @@ func assertJSONItemFieldsMatchCatalog(
 	sort.Strings(wantFields)
 	if !reflect.DeepEqual(gotFields, wantFields) {
 		t.Fatalf("JSON fields = %v, catalog = %v", gotFields, wantFields)
-	}
-}
-
-func TestRetiredNamedCommandsAreUnknown(t *testing.T) {
-	t.Parallel()
-	for _, path := range []string{"attach", "lower", "enter", "lift"} {
-		if _, found := DefaultCatalog().Lookup(path); found {
-			t.Fatalf("retired command %q is still public", path)
-		}
 	}
 }

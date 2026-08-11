@@ -46,7 +46,7 @@ At this point, request bytes are untrusted. A project-looking header is not a pr
 ### 2. Establish Context and project identity
 
 Gateway reads the kernel-observed Workspace source endpoint and looks it up in
-the host-owned schema-3 principal registry. The result supplies stable
+the host-owned schema-1 principal registry. The result supplies stable
 `context_id` and `project_id`. Missing, unknown, stale, unsafe, or ambiguous
 bindings stop here, before OPA.
 
@@ -55,14 +55,14 @@ bindings stop here, before OPA.
 The selected credential adapter prepares the request before policy:
 
 - **tool-native passthrough:** credential and cookie values are excluded from OPA input but retained for possible forwarding after allow;
-- **retained managed adapter:** a non-secret requested profile is validated against Context, project, and host, while its secret remains unread;
+- **static managed adapter:** a non-secret requested profile is validated against Context, project, and host, while its secret remains unread;
 - **Auth Broker:** an exactly recognized handle is removed from the forwardable request and introspected for non-secret binding metadata.
 
 An invalid Tobari-looking handle fails here. It does not become passthrough traffic.
 
 ### 4. Build one normalized, body-free decision
 
-Gateway posts schema 5 input to one fixed OPA endpoint. It includes:
+Gateway posts schema 1 input to one fixed OPA endpoint. It includes:
 
 - registry-derived cluster, Context ID, and project ID;
 - normalized scheme, lowercase host without a trailing dot, and port;
@@ -107,7 +107,7 @@ There is no automatic application request retry. Redirects become new requests a
 
 ### 7. Record the outcome
 
-Denials are logged immediately. An allowed request is logged after response or connection error. Audit schema 2 contains bounded identity, authority, method, redacted path, decision, reason, non-secret profile/provider metadata, status, and timing. It does not contain query, headers, body, handle, or primary credential.
+Denials are logged immediately. An allowed request is logged after response or connection error. Audit schema 1 contains bounded identity, authority, method, redacted path, decision, reason, non-secret profile/provider metadata, status, and timing. It does not contain query, headers, body, handle, or primary credential.
 
 ## Concrete example: two different bodies
 

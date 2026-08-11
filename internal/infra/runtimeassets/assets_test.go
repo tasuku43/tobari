@@ -187,7 +187,7 @@ func TestGatewayDockerfileDeclaresStableContractAndHostIndependentRuntime(t *tes
 	}
 	spec := string(data)
 	for _, required := range []string{
-		`io.tobari.gateway-api="5"`,
+		`io.tobari.gateway-api="1"`,
 		`io.tobari.gateway-role="enforcement"`,
 		"USER 1000:1000",
 		"chmod 0777",
@@ -203,16 +203,20 @@ func TestGatewayDockerfileDeclaresStableContractAndHostIndependentRuntime(t *tes
 	}
 }
 
-func TestPublishedVersionsAreDigestPinned(t *testing.T) {
+func TestRuntimeVersionsKeepThirdPartyImagesPinnedAndOwnedImagesWithheldTogether(t *testing.T) {
 	t.Parallel()
 	versions, err := Versions()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "AUTH_BROKER_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
+	for _, key := range []string{"MITMPROXY_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
 		if value := versions[key]; validateImmutableImageReference(value) != nil {
 			t.Fatalf("%s is not digest pinned: %q", key, value)
 		}
+	}
+	if versions["GATEWAY_IMAGE"] != "unpublished" || versions["AUTH_BROKER_IMAGE"] != "unpublished" ||
+		versions["GATEWAY_IMAGE_API"] != "1" || versions["AUTH_BROKER_IMAGE_API"] != "1" {
+		t.Fatalf("Tobari-owned image snapshot = %#v", versions)
 	}
 }
 

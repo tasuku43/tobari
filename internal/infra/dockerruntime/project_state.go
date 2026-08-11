@@ -15,51 +15,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const maxProjectStateBytes = 128 * 1024
 
-type legacyProjectInstance struct {
-	SchemaVersion int                   `json:"schema_version"`
-	ID            string                `json:"id"`
-	Root          string                `json:"root"`
-	Profile       string                `json:"profile"`
-	Image         string                `json:"image"`
-	Runtime       tobari.ProjectRuntime `json:"runtime"`
-}
-
-type legacyRootIndex struct {
-	SchemaVersion int    `json:"schema_version"`
-	Root          string `json:"root"`
-	InstanceID    string `json:"instance_id"`
-}
-
-func readSchemaVersionHeader(path string, maximum int) (int, error) {
-	data, err := readOwnerPolicyFile(path, maximum)
-	if err != nil {
-		return 0, err
-	}
-	if err := validateNoDuplicateJSONKeys(data); err != nil {
-		return 0, err
-	}
-	var header struct {
-		SchemaVersion int `json:"schema_version"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	if err := decoder.Decode(&header); err != nil {
-		return 0, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return 0, fmt.Errorf("JSON contains trailing data")
-	}
-	return header.SchemaVersion, nil
-}
-
 const (
-	projectJournalSchema = 2
+	projectJournalSchema = 1
 	projectOpCreate      = "create"
 	projectOpDelete      = "delete"
 	projectPhaseStarted  = "started"
@@ -472,132 +434,6 @@ func (r *Runtime) clearProjectJournal() error {
 		return err
 	}
 	return syncDirectory(r.stateDirectory)
-}
-
-func (r *Runtime) migrateLegacyProjects(ctx context.Context, manifest tobari.ContextManifest) error {
-	if err := manifest.Validate(); err != nil {
-		return err
-	}
-	return r.withProjectLock(ctx, func() error {
-		if _, exists, err := r.readProjectJournal(); err != nil || exists {
-			return faultLegacyProjectMigration("an interrupted project journal is present", err)
-		}
-		entries, err := os.ReadDir(r.rootsDirectory())
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		legacyIndexes := make([]struct {
-			path  string
-			index legacyRootIndex
-		}, 0)
-		indexedIDs := map[string]struct{}{}
-		for _, entry := range entries {
-			if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || filepath.Ext(entry.Name()) != ".json" {
-				return faultLegacyProjectMigration("the root index directory contains an unsafe entry", nil)
-			}
-			path := filepath.Join(r.rootsDirectory(), entry.Name())
-			schemaVersion, err := readSchemaVersionHeader(path, maxProjectStateBytes)
-			if err != nil {
-				return faultLegacyProjectMigration("a root index is unreadable", err)
-			}
-			switch schemaVersion {
-			case tobari.ProjectStateSchemaVersion:
-				var index tobari.RootIndex
-				if err := readStrictJSON(path, &index); err != nil || index.Validate() != nil {
-					return faultLegacyProjectMigration("a migrated root index is invalid", err)
-				}
-				indexedIDs[index.InstanceID] = struct{}{}
-			case tobari.LegacyProjectStateSchemaVersion:
-				var index legacyRootIndex
-				if err := readStrictJSON(path, &index); err != nil || index.SchemaVersion != tobari.LegacyProjectStateSchemaVersion ||
-					tobari.ValidateCanonicalRoot(index.Root) != nil || tobari.ValidateProjectID(index.InstanceID) != nil {
-					return faultLegacyProjectMigration("a legacy root index is incomplete", err)
-				}
-				digest := sha256.Sum256([]byte(index.Root))
-				if entry.Name() != hex.EncodeToString(digest[:])+".json" {
-					return faultLegacyProjectMigration("a legacy root index name does not bind its canonical root", nil)
-				}
-				legacyIndexes = append(legacyIndexes, struct {
-					path  string
-					index legacyRootIndex
-				}{path: path, index: index})
-				indexedIDs[index.InstanceID] = struct{}{}
-			default:
-				return faultLegacyProjectMigration("a root index has an unsupported schema", nil)
-			}
-		}
-		instanceEntries, err := os.ReadDir(r.instancesDirectory())
-		if errors.Is(err, os.ErrNotExist) {
-			instanceEntries = nil
-		} else if err != nil {
-			return err
-		}
-		for _, entry := range instanceEntries {
-			if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-				return faultLegacyProjectMigration("the instance directory contains an unsafe entry", nil)
-			}
-			if _, ok := indexedIDs[entry.Name()]; !ok {
-				return faultLegacyProjectMigration("an instance has no complete root index", nil)
-			}
-		}
-		for _, item := range legacyIndexes {
-			statePath, err := r.projectStatePath(item.index.InstanceID)
-			if err != nil {
-				return err
-			}
-			schemaVersion, err := readSchemaVersionHeader(statePath, maxProjectStateBytes)
-			if err != nil {
-				return faultLegacyProjectMigration("a legacy instance state is missing or unreadable", err)
-			}
-			var instance tobari.ProjectInstance
-			switch schemaVersion {
-			case tobari.LegacyProjectStateSchemaVersion:
-				var legacy legacyProjectInstance
-				if err := readStrictJSON(statePath, &legacy); err != nil {
-					return faultLegacyProjectMigration("a legacy instance state is invalid", err)
-				}
-				instance = tobari.ProjectInstance{
-					SchemaVersion: tobari.ProjectStateSchemaVersion, ID: legacy.ID, Root: legacy.Root,
-					ContextID: manifest.ID, ContextName: manifest.Name, Profile: legacy.Profile,
-					Image: legacy.Image, Runtime: legacy.Runtime,
-				}
-			case tobari.ProjectStateSchemaVersion:
-				if err := readStrictJSON(statePath, &instance); err != nil {
-					return faultLegacyProjectMigration("a partially migrated instance is invalid", err)
-				}
-			default:
-				return faultLegacyProjectMigration("an instance has an unsupported schema", nil)
-			}
-			if err := instance.Validate(); err != nil || instance.ID != item.index.InstanceID || instance.Root != item.index.Root ||
-				instance.ContextID != manifest.ID || instance.ContextName != manifest.Name {
-				return faultLegacyProjectMigration("legacy root and instance state disagree", err)
-			}
-			if err := r.writeProjectInstance(instance); err != nil {
-				return err
-			}
-			if err := r.writeRootIndex(tobari.RootIndex{
-				SchemaVersion: tobari.ProjectStateSchemaVersion, Root: instance.Root, InstanceID: instance.ID,
-				ContextID: instance.ContextID, ContextName: instance.ContextName,
-			}); err != nil {
-				return err
-			}
-			if err := os.Remove(item.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-		}
-		return syncDirectoryIfPresent(r.rootsDirectory())
-	})
-}
-
-func faultLegacyProjectMigration(reason string, cause error) error {
-	return fault.Wrap(
-		fault.KindRejected, "ambiguous_context_migration",
-		"legacy Tobari state was not assigned to a Context: "+reason, false, cause,
-		fault.NextAction{Command: "doctor", Reason: "Repair the incomplete legacy state before retrying."},
-	)
 }
 
 func (r *Runtime) reconcileProjectJournal() error {

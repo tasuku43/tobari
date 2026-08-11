@@ -5,6 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, authentication, external I/O, harness, public boundary, and release
 - Extends: [ADR 0020: Add a host credential companion for renewable brokered credentials](0020-broker-reviewed-credential-plans.md)
+- Revised by: ADR 0027 places the Datadog plan inside exact V1
 
 ## Context
 

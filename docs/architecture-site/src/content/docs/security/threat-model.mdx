@@ -52,7 +52,7 @@ fail open.
 ### Claim another project
 
 Gateway ignores request-supplied project authority. It resolves the
-kernel-observed Workspace source endpoint in the host-created schema-3
+kernel-observed Workspace source endpoint in the host-created schema-1
 principal registry. Result: forged headers cannot switch principal;
 missing/ambiguous state is denied before OPA.
 
@@ -76,7 +76,7 @@ Workspace has neither broker control mount nor vault/root-key path. Broker runs 
 
 Owner manifests are strict schema 1 and can request only protected stdin
 import. They cannot select an executable, shell command, helper, refresh URL,
-signing plan, or schema 2. Reviewed GitHub, AWS, and Datadog login uses fixed,
+signing plan, or a non-V1 schema. Reviewed GitHub, AWS, and Datadog login uses fixed,
 identity-checked trusted-host drivers with sanitized environments and checked
 private-home cleanup. Result: provider JSON is data, not an executable adapter.
 

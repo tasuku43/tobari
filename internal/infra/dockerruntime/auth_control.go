@@ -400,7 +400,7 @@ func classifyBrokerError(err error, _ string) error {
 		case "vault_version_unsupported":
 			return fault.New(
 				fault.KindUnsupported, "auth_vault_version_unsupported", "The encrypted Context vault version is unsupported.", false,
-				fault.NextAction{Command: "doctor", Reason: "Inspect the installed Tobari version and vault migration path."},
+				fault.NextAction{Command: "doctor", Reason: "Inspect the installed Tobari version and vault contract."},
 			)
 		case "credential_not_found":
 			return fault.New(
@@ -464,7 +464,7 @@ func (r *Runtime) addAuthDiagnostics(
 	if providerErr != nil {
 		add("auth_provider_manifests", doctor.CheckStatusFail, "credential-provider manifests are invalid or unsafe")
 	} else {
-		add("auth_provider_manifests", doctor.CheckStatusPass, fmt.Sprintf("%d credential-provider manifests normalize to projection schema v2", len(projection.Providers)))
+		add("auth_provider_manifests", doctor.CheckStatusPass, fmt.Sprintf("%d credential-provider manifests normalize to projection schema V1", len(projection.Providers)))
 	}
 
 	vaultsExist, vaultErr := rootkey.EncryptedStateExists(r.stateDirectory)

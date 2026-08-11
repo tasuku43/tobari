@@ -90,7 +90,9 @@ func Read(name string) ([]byte, error) {
 	return append([]byte(nil), data...), nil
 }
 
-// Versions parses the immutable image references used by the compose runtime.
+// Versions parses the image authorities used by the compose runtime. Tobari-
+// owned images may both be marked unpublished in a source-only snapshot;
+// publication gates require reviewed immutable references.
 func Versions() (map[string]string, error) {
 	data, err := Read("versions.env")
 	if err != nil {
@@ -110,11 +112,18 @@ func Versions() (map[string]string, error) {
 		}
 		values[key] = value
 	}
+	ownedUnpublished := values["GATEWAY_IMAGE"] == "unpublished" && values["AUTH_BROKER_IMAGE"] == "unpublished"
+	if (values["GATEWAY_IMAGE"] == "unpublished") != (values["AUTH_BROKER_IMAGE"] == "unpublished") {
+		return nil, fmt.Errorf("embedded versions.env must publish or withhold both Tobari-owned images together")
+	}
 	for _, required := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "GATEWAY_IMAGE_API", "AUTH_BROKER_IMAGE", "AUTH_BROKER_IMAGE_API", "OPA_IMAGE", "DEBIAN_IMAGE"} {
 		if values[required] == "" {
 			return nil, fmt.Errorf("embedded versions.env is missing %s", required)
 		}
 		if required == "GATEWAY_IMAGE_API" || required == "AUTH_BROKER_IMAGE_API" {
+			continue
+		}
+		if ownedUnpublished && (required == "GATEWAY_IMAGE" || required == "AUTH_BROKER_IMAGE") {
 			continue
 		}
 		if err := validateImmutableImageReference(values[required]); err != nil {

@@ -25,9 +25,8 @@ const (
 	LoginMethodConsole         LoginMethod = "console"
 )
 
-// LoginMethod selects one reviewed AWS CLI acquisition plan. The empty value
-// is accepted only at the public boundary and normalizes to identity-center for
-// AWS so the pre-existing command remains backward compatible.
+// LoginMethod selects one reviewed AWS CLI acquisition plan. The public
+// omission default is identity-center for AWS.
 type LoginMethod string
 
 // MutationImpact is the application-owned generic impact contract shared by

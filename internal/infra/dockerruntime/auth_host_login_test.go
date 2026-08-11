@@ -529,7 +529,7 @@ func TestHostAWSLoginPromptsFourFieldsAndCommitsOpaqueState(t *testing.T) {
 }
 
 func TestHostAWSConsoleLoginCommitsDistinctDriverState(t *testing.T) {
-	state := []byte(`{"schema_version":2,"opaque":"console-cache-canary"}`)
+	state := []byte(`{"schema_version":1,"opaque":"console-cache-canary"}`)
 	resolver := &fakeHostCLIResolver{path: "/usr/local/bin/aws"}
 	acquirer := &fakeHostCredentialAcquirer{awsPayload: hostCredentialPayload{
 		secret: state, accountLabel: "123456789012", driverID: awsConsoleDriverID,
@@ -556,7 +556,7 @@ func TestHostAWSConsoleLoginCommitsDistinctDriverState(t *testing.T) {
 		"--driver-id", awsConsoleDriverID, "--driver-revision", strings.Repeat("d", 64),
 	}
 	if len(runner.args) < len(wantTail) || !reflect.DeepEqual(runner.args[len(runner.args)-len(wantTail):], wantTail) ||
-		string(runner.input) != `{"schema_version":2,"opaque":"console-cache-canary"}` {
+		string(runner.input) != `{"schema_version":1,"opaque":"console-cache-canary"}` {
 		t.Fatalf("console broker argv/state = %#v/%q", runner.args, runner.input)
 	}
 	if !strings.Contains(visible.String(), "signin.aws.amazon.com") {

@@ -89,7 +89,7 @@ func renderDoctorReport(report doctor.Report, format successFormat) ([]byte, err
 
 func renderDoctorReportWithColor(report doctor.Report, format successFormat, color bool) ([]byte, error) {
 	if format == successFormatJSON {
-		document := doctorJSONDocument{SchemaVersion: 2, Report: make([]doctorJSONCheck, 0, len(report.Checks))}
+		document := doctorJSONDocument{SchemaVersion: 1, Report: make([]doctorJSONCheck, 0, len(report.Checks))}
 		for _, check := range report.Checks {
 			var blockedBy *string
 			if check.BlockedBy != nil {

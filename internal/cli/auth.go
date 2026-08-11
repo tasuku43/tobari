@@ -253,7 +253,6 @@ type authStatusProjection struct {
 type authProviderStatusProjection struct {
 	Provider           string                             `json:"provider"`
 	State              authbroker.ProviderCredentialState `json:"state"`
-	Configured         bool                               `json:"configured"`
 	AccountLabel       *string                            `json:"account_label"`
 	CredentialRevision *string                            `json:"credential_revision"`
 }
@@ -289,7 +288,7 @@ func renderAuthResult(result authbroker.Result, format successFormat, color bool
 		WorkspaceActivation: result.WorkspaceActivation,
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON(authResultCommand(result.Task), authResultDocument{SchemaVersion: 4, Auth: projection})
+		output, err := marshalCommandJSON(authResultCommand(result.Task), authResultDocument{SchemaVersion: 1, Auth: projection})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Authentication output could not be encoded.", false, err)
 		}
@@ -312,7 +311,7 @@ func renderAuthStatus(result authbroker.StatusResult, format successFormat, colo
 	providers := make([]authProviderStatusProjection, 0, len(result.Providers))
 	for _, provider := range result.Providers {
 		providers = append(providers, authProviderStatusProjection{
-			Provider: provider.Provider, State: provider.State, Configured: provider.Configured,
+			Provider: provider.Provider, State: provider.State,
 			AccountLabel: provider.AccountLabel, CredentialRevision: optionalString(provider.CredentialRevision),
 		})
 	}
@@ -323,7 +322,7 @@ func renderAuthStatus(result authbroker.StatusResult, format successFormat, colo
 		WorkspaceActivation: result.WorkspaceActivation,
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("auth status", authStatusDocument{SchemaVersion: 4, Auth: projection})
+		output, err := marshalCommandJSON("auth status", authStatusDocument{SchemaVersion: 1, Auth: projection})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Authentication status output could not be encoded.", false, err)
 		}
@@ -392,7 +391,6 @@ func renderAuthStatusText(result authStatusProjection, color bool) []byte {
 	for _, provider := range result.Providers {
 		output.section("Provider: " + safeExternalText(provider.Provider))
 		output.row("State", string(provider.State), humanStatusToken(string(provider.State)))
-		output.row("Configured", humanBool(provider.Configured), humanOutcomeBoolToken(provider.Configured))
 		account := "not available"
 		if provider.AccountLabel != nil {
 			account = safeExternalText(*provider.AccountLabel)

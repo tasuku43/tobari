@@ -13,7 +13,6 @@
           {
             "provider": "github",
             "state": "configured",
-            "configured": true,
             "account_label": "synthetic-account",
             "credential_revision": "revision:1"
           }
@@ -56,7 +55,6 @@
           {
             "provider": "github",
             "state": "configured",
-            "configured": true,
             "account_label": "synthetic-account",
             "credential_revision": "revision:1"
           }
@@ -83,7 +81,6 @@
           {
             "provider": "github",
             "state": "configured",
-            "configured": true,
             "account_label": "synthetic-account",
             "credential_revision": "revision:1"
           }
@@ -133,7 +130,6 @@
           {
             "provider": "github",
             "state": "configured",
-            "configured": true,
             "account_label": "synthetic-account",
             "credential_revision": "revision:2"
           }
@@ -183,7 +179,6 @@
           {
             "provider": "github",
             "state": "unavailable",
-            "configured": false,
             "account_label": null,
             "credential_revision": null
           }
@@ -210,7 +205,6 @@
           {
             "provider": "github",
             "state": "unavailable",
-            "configured": false,
             "account_label": null,
             "credential_revision": null
           }
@@ -253,14 +247,12 @@
           {
             "provider": "aws",
             "state": "unavailable",
-            "configured": false,
             "account_label": null,
             "credential_revision": null
           },
           {
             "provider": "github",
             "state": "configured",
-            "configured": true,
             "account_label": "synthetic-account",
             "credential_revision": "revision:2"
           }

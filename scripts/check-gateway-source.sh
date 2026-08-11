@@ -6,7 +6,7 @@ source_dir=gateway
 snapshot_dir=internal/infra/runtimeassets/assets/gateway
 dockerfile=$source_dir/Dockerfile
 
-test "$(grep -c 'io\.tobari\.gateway-api=\"5\"' "$dockerfile")" -eq 1
+test "$(grep -c 'io\.tobari\.gateway-api=\"1\"' "$dockerfile")" -eq 1
 test "$(grep -c 'io\.tobari\.gateway-role=\"enforcement\"' "$dockerfile")" -eq 1
 test "$(grep -c 'IPROUTE2_VERSION=6\.15\.0-1' "$dockerfile")" -eq 1
 test "$(grep -c 'NFTABLES_VERSION=1\.1\.3-1' "$dockerfile")" -eq 1

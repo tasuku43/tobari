@@ -16,7 +16,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-const projectPrincipalRegistrySchema = 3
+const projectPrincipalRegistrySchema = 1
 
 var projectPrincipalNetworkPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
@@ -36,31 +36,6 @@ type projectPrincipalBinding struct {
 type projectPrincipalRegistry struct {
 	SchemaVersion int                       `json:"schema_version"`
 	Bindings      []projectPrincipalBinding `json:"bindings"`
-}
-
-type legacyProjectPrincipalBinding struct {
-	ProjectID string `json:"project_id"`
-	GatewayIP string `json:"gateway_ip"`
-	Network   string `json:"network"`
-}
-
-type legacyProjectPrincipalRegistry struct {
-	SchemaVersion int                             `json:"schema_version"`
-	Bindings      []legacyProjectPrincipalBinding `json:"bindings"`
-}
-
-type legacyProjectPrincipalBindingV2 struct {
-	ProjectID   string `json:"project_id"`
-	ContextID   string `json:"context_id"`
-	ContextName string `json:"context"`
-	ProjectRoot string `json:"project_root"`
-	GatewayIP   string `json:"gateway_ip"`
-	Network     string `json:"network"`
-}
-
-type legacyProjectPrincipalRegistryV2 struct {
-	SchemaVersion int                               `json:"schema_version"`
-	Bindings      []legacyProjectPrincipalBindingV2 `json:"bindings"`
 }
 
 func (r projectPrincipalRegistry) Validate() error {
@@ -137,10 +112,6 @@ func (r *Runtime) principalRegistryDirectory() string {
 	return filepath.Join(r.configDirectory, "principal-registry")
 }
 
-func (r *Runtime) legacyPrincipalRegistryPath() string {
-	return filepath.Join(r.configDirectory, "principals.json")
-}
-
 func emptyProjectPrincipalRegistry() projectPrincipalRegistry {
 	return projectPrincipalRegistry{
 		SchemaVersion: projectPrincipalRegistrySchema,
@@ -160,106 +131,22 @@ func (r *Runtime) readProjectPrincipalRegistry() (projectPrincipalRegistry, erro
 }
 
 func (r *Runtime) ensureProjectPrincipalRegistry(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := r.ensurePrivateDirectory(r.principalRegistryDirectory()); err != nil {
 		return fmt.Errorf("prepare principal registry directory: %w", err)
 	}
 	path := r.principalRegistryPath()
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		legacyPath := r.legacyPrincipalRegistryPath()
-		if _, legacyErr := os.Lstat(legacyPath); legacyErr == nil {
-			if err := r.migrateLegacyPrincipalRegistry(ctx, legacyPath, path); err != nil {
-				return err
-			}
-		} else if errors.Is(legacyErr, os.ErrNotExist) {
-			if err := initializeBytes(path, mustJSONBytes(emptyProjectPrincipalRegistry()), 0o600); err != nil {
-				return err
-			}
-		} else {
-			return fmt.Errorf("inspect legacy project principal registry: %w", legacyErr)
+		if err := initializeBytes(path, mustJSONBytes(emptyProjectPrincipalRegistry()), 0o600); err != nil {
+			return err
 		}
 	} else if err != nil {
 		return fmt.Errorf("inspect principal registry: %w", err)
 	}
-	if _, err := r.readProjectPrincipalRegistry(); err != nil {
-		if schemaVersion, headerErr := readSchemaVersionHeader(path, 256*1024); headerErr == nil && (schemaVersion == 1 || schemaVersion == 2) {
-			if migrateErr := r.migrateIncompletePrincipalRegistry(ctx, path, path, schemaVersion); migrateErr != nil {
-				return migrateErr
-			}
-			_, err = r.readProjectPrincipalRegistry()
-		}
-		return err
-	}
-	return nil
-}
-
-func (r *Runtime) migrateLegacyPrincipalRegistry(ctx context.Context, source, destination string) error {
-	var legacy legacyProjectPrincipalRegistry
-	if err := readStrictJSON(source, &legacy); err != nil {
-		return fmt.Errorf("read legacy project principal registry: %w", err)
-	}
-	if legacy.SchemaVersion != 1 || legacy.Bindings == nil {
-		return fmt.Errorf("legacy project principal registry is invalid")
-	}
-	projects, err := r.ListProjects(ctx)
-	if err != nil {
-		return fmt.Errorf("resolve legacy principal Context binding: %w", err)
-	}
-	byID := make(map[string]tobari.ProjectInstance, len(projects))
-	for _, project := range projects {
-		byID[project.ID] = project
-	}
-	for _, binding := range legacy.Bindings {
-		project, ok := byID[binding.ProjectID]
-		if !ok {
-			return fmt.Errorf("legacy principal has no complete Tobari binding")
-		}
-		_, expectedNetwork, err := tobari.ProjectResourceNames(project.ID)
-		if err != nil || expectedNetwork != binding.Network {
-			return fmt.Errorf("legacy principal network does not match its Tobari")
-		}
-	}
-	registry := emptyProjectPrincipalRegistry()
-	if err := writeAtomicJSON(destination, registry); err != nil {
-		return fmt.Errorf("migrate project principal registry: %w", err)
-	}
-	return nil
-}
-
-func (r *Runtime) migrateIncompletePrincipalRegistry(
-	ctx context.Context, source, destination string, schemaVersion int,
-) error {
-	if schemaVersion == 1 {
-		return r.migrateLegacyPrincipalRegistry(ctx, source, destination)
-	}
-	var legacy legacyProjectPrincipalRegistryV2
-	if err := readStrictJSON(source, &legacy); err != nil {
-		return fmt.Errorf("read legacy project principal registry: %w", err)
-	}
-	if legacy.SchemaVersion != 2 || legacy.Bindings == nil {
-		return fmt.Errorf("legacy project principal registry is invalid")
-	}
-	projects, err := r.ListProjects(ctx)
-	if err != nil {
-		return fmt.Errorf("resolve legacy principal Context binding: %w", err)
-	}
-	byID := make(map[string]tobari.ProjectInstance, len(projects))
-	for _, project := range projects {
-		byID[project.ID] = project
-	}
-	for _, binding := range legacy.Bindings {
-		project, ok := byID[binding.ProjectID]
-		if !ok || project.ContextID != binding.ContextID || project.ContextName != binding.ContextName || project.Root != binding.ProjectRoot {
-			return fmt.Errorf("legacy principal has no complete Tobari binding")
-		}
-		_, expectedNetwork, resourceErr := tobari.ProjectResourceNames(project.ID)
-		if resourceErr != nil || expectedNetwork != binding.Network || net.ParseIP(binding.GatewayIP) == nil {
-			return fmt.Errorf("legacy principal network does not match its Tobari")
-		}
-	}
-	if err := writeAtomicJSON(destination, emptyProjectPrincipalRegistry()); err != nil {
-		return fmt.Errorf("migrate project principal registry: %w", err)
-	}
-	return nil
+	_, err := r.readProjectPrincipalRegistry()
+	return err
 }
 
 func mustJSONBytes(value any) []byte {

@@ -20,7 +20,7 @@ func TestMachineOutputInterpretationFixtureHasReviewedAnswerKey(t *testing.T) {
 		t.Fatalf("unconfigured fixture facts = %+v", cluster)
 	}
 	if _, retained := cluster["proxy"]; retained {
-		t.Fatalf("unconfigured fixture retained retired proxy field: %+v", cluster)
+		t.Fatalf("unconfigured fixture contains prohibited proxy field: %+v", cluster)
 	}
 	facts := answer["facts"].(map[string]any)
 	for name, value := range facts {
@@ -232,7 +232,7 @@ func TestExactAgentHelpDeclaresExecutableMachineInvocations(t *testing.T) {
 	}
 	text := string(output)
 	for _, want := range []string{
-		`"schema_version":9`,
+		`"schema_version":1`,
 		`"success_json":"tobari status --format=json"`,
 		`"error_json":"tobari --error-format=json status --format=json"`,
 		`"global_flag_position":"before_command"`,

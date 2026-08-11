@@ -87,13 +87,8 @@ func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
 		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("Gateway denial line %d contains trailing data", lineNumber+1)
 		}
-		validSchema := record.SchemaVersion == 2 || record.SchemaVersion == 3
-		if !validSchema || record.Cluster != ownerValue || record.Decision != "deny" || record.DurationMS < 0 {
+		if record.SchemaVersion != 1 || record.Cluster != ownerValue || record.Decision != "deny" || record.DurationMS < 0 {
 			return nil, fmt.Errorf("Gateway denial line %d violates the audit contract", lineNumber+1)
-		}
-		if (record.SchemaVersion == 2 && record.Protocol != "") ||
-			(record.SchemaVersion == 3 && record.Protocol != tobari.PolicyProtocolGraphQL) {
-			return nil, fmt.Errorf("Gateway denial line %d violates the audit protocol contract", lineNumber+1)
 		}
 		item := tobari.PolicyDenial{
 			PolicyProtocolIdentity: record.PolicyProtocolIdentity,

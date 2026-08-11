@@ -19,7 +19,7 @@ func TestKubernetesBearerExampleIsOneExactNonExecutableBinding(t *testing.T) {
 		t.Fatalf("parse Kubernetes provider example: %v", err)
 	}
 
-	if provider.SchemaVersion != authbroker.LegacyProviderSchemaVersion ||
+	if provider.SchemaVersion != authbroker.ProviderSchemaVersion ||
 		provider.Acquisition.Mode != authbroker.AcquisitionStdinImport ||
 		provider.Credential.Kind != authbroker.CredentialPrimarySecret {
 		t.Fatalf("Kubernetes example must remain an owner schema-v1 stdin-import provider: %#v", provider)

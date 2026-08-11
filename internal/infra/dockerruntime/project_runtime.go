@@ -1062,27 +1062,7 @@ func (r *Runtime) ensureProjectAgentState(id, profile string) error {
 		return err
 	}
 	if !localFound {
-		// Older Tobari versions used settings.json for both local input and
-		// generated effective settings. Preserve only values that differ from
-		// the shared source as local overrides, then keep the effective file
-		// generated from the current shared source on every reconciliation.
-		legacy, legacyFound, legacyErr := readProjectSettings(settingsPath, "per-project agent settings")
-		if legacyErr != nil {
-			return legacyErr
-		}
-		if legacyFound {
-			for key, value := range legacy {
-				shared, sharedFound := base[key]
-				if !sharedFound || !bytes.Equal(shared, value) {
-					local[key] = value
-				}
-			}
-			if len(local) != 0 {
-				if err := writeAtomicJSON(localPath, local); err != nil {
-					return fmt.Errorf("persist migrated local agent settings: %w", err)
-				}
-			}
-		}
+		local = map[string]json.RawMessage{}
 	}
 	for key, value := range local {
 		base[key] = value

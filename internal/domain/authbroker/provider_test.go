@@ -10,7 +10,7 @@ import (
 
 func syntheticProvider() Provider {
 	return Provider{
-		SchemaVersion: LegacyProviderSchemaVersion,
+		SchemaVersion: ProviderSchemaVersion,
 		ID:            "example-token",
 		DisplayName:   "Example API",
 		Acquisition:   Acquisition{Mode: AcquisitionStdinImport},
@@ -84,7 +84,7 @@ func syntheticOpenAICodexProvider() Provider {
 
 func syntheticAnthropicClaudeProvider() Provider {
 	return Provider{
-		SchemaVersion: LegacyProviderSchemaVersion,
+		SchemaVersion: ProviderSchemaVersion,
 		ID:            "anthropic",
 		DisplayName:   "Anthropic account for Claude Code",
 		Acquisition:   Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "claude-setup-token"},
@@ -142,7 +142,7 @@ func TestParseProviderRejectsDuplicateUnknownAndTrailingJSON(t *testing.T) {
 	}
 }
 
-func TestParseProviderV2RejectsUnknownBehavioralPlanFields(t *testing.T) {
+func TestParseProviderRejectsUnknownBehavioralPlanFields(t *testing.T) {
 	valid := providerJSON(t, syntheticAWSProvider())
 	if _, err := ParseProvider(valid); err != nil {
 		t.Fatalf("ParseProvider(valid AWS): %v", err)
@@ -164,7 +164,6 @@ func TestParseProviderV2RejectsUnknownBehavioralPlanFields(t *testing.T) {
 			valid, []byte(`"authorization_header":"authorization"`),
 			[]byte(`"authorization_header":"authorization","algorithm":"AWS4-HMAC-SHA256"`), 1,
 		),
-		"schema-v1 behavioral field": bytes.Replace(valid, []byte(`"schema_version":2`), []byte(`"schema_version":1`), 1),
 	}
 	for name, document := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -175,13 +174,12 @@ func TestParseProviderV2RejectsUnknownBehavioralPlanFields(t *testing.T) {
 	}
 }
 
-func TestProviderV2ValidatesClosedCredentialPlans(t *testing.T) {
+func TestProviderValidatesClosedCredentialPlans(t *testing.T) {
 	cases := map[string]func(*Provider){
-		"legacy kind in v2": func(p *Provider) { p.Credential.Kind = CredentialPrimarySecret },
-		"AWS kind in v1":    func(p *Provider) { p.SchemaVersion = LegacyProviderSchemaVersion },
-		"wrong provider ID": func(p *Provider) { p.ID = "aws-alt" },
-		"wrong helper":      func(p *Provider) { p.Acquisition.Helper = "aws-cli" },
-		"stdin acquisition": func(p *Provider) { p.Acquisition = Acquisition{Mode: AcquisitionStdinImport} },
+		"wrong credential kind": func(p *Provider) { p.Credential.Kind = CredentialPrimarySecret },
+		"wrong provider ID":     func(p *Provider) { p.ID = "aws-alt" },
+		"wrong helper":          func(p *Provider) { p.Acquisition.Helper = "aws-cli" },
+		"stdin acquisition":     func(p *Provider) { p.Acquisition = Acquisition{Mode: AcquisitionStdinImport} },
 		"header binding": func(p *Provider) {
 			p.HeaderBindings = cloneProvider(syntheticProvider()).HeaderBindings
 		},
@@ -226,7 +224,7 @@ func TestProviderV2ValidatesClosedCredentialPlans(t *testing.T) {
 			provider := cloneProvider(syntheticAWSProvider())
 			mutate(&provider)
 			if err := provider.Validate(); err == nil {
-				t.Fatal("Provider.Validate accepted an unreviewed schema-v2 credential plan")
+				t.Fatal("Provider.Validate accepted an unreviewed credential plan")
 			}
 		})
 	}
@@ -266,7 +264,6 @@ func TestOpenAICodexProviderPublishesOnlyTheReviewedOAuthShim(t *testing.T) {
 
 func TestOpenAICodexProviderRejectsUnreviewedPlansAndCredentialProjection(t *testing.T) {
 	cases := map[string]func(*Provider){
-		"legacy schema":     func(p *Provider) { p.SchemaVersion = LegacyProviderSchemaVersion },
 		"impostor provider": func(p *Provider) { p.ID = "openai-alt" },
 		"different display name": func(p *Provider) {
 			p.DisplayName = "OpenAI account"
@@ -345,7 +342,6 @@ func TestAnthropicClaudeProviderPublishesOnlyTheReviewedSetupTokenPlan(t *testin
 
 func TestAnthropicClaudeProviderRejectsImpostorsAndRawSecretChannels(t *testing.T) {
 	cases := map[string]func(*Provider){
-		"behavioral schema":      func(p *Provider) { p.SchemaVersion = ProviderSchemaVersion },
 		"impostor provider":      func(p *Provider) { p.ID = "anthropic-alt" },
 		"different display name": func(p *Provider) { p.DisplayName = "Anthropic account" },
 		"different helper":       func(p *Provider) { p.Acquisition.Helper = "claude-login" },

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	SchemaVersion          = 3
+	SchemaVersion          = 1
 	maximumBinaryNameBytes = 96 // Leaves room for the mandatory Windows .exe suffix under the 100-byte archive-entry limit.
 )
 
@@ -96,9 +96,6 @@ func Write(root string, config Config) error {
 }
 
 func (c Config) Validate() error {
-	if c.SchemaVersion < SchemaVersion {
-		return fmt.Errorf("project config schema_version %d requires explicit migration: remove the obsolete profile field and set schema_version to %d; no repository state is inferred", c.SchemaVersion, SchemaVersion)
-	}
 	if c.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("project config schema_version = %d, want %d", c.SchemaVersion, SchemaVersion)
 	}

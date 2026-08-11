@@ -136,9 +136,9 @@ func TestCreateProjectAllowsExplicitNestedWorkspaceCreation(t *testing.T) {
 	if err := os.MkdirAll(child, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	canonicalChild, err := runtime.ResolveRoot(context.Background(), child)
+	canonicalChild, err := runtime.ResolveProjectRoot(context.Background(), child)
 	if err != nil {
-		t.Fatalf("ResolveRoot(child) error = %v", err)
+		t.Fatalf("ResolveProjectRoot(child) error = %v", err)
 	}
 	parentInstance, _, err := runtime.ResolveOrCreateProject(context.Background(), parent)
 	if err != nil {
@@ -167,9 +167,9 @@ func TestCreateProjectSerializesConcurrentSameRootCreation(t *testing.T) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	canonicalRoot, err := runtime.ResolveRoot(context.Background(), root)
+	canonicalRoot, err := runtime.ResolveProjectRoot(context.Background(), root)
 	if err != nil {
-		t.Fatalf("ResolveRoot() error = %v", err)
+		t.Fatalf("ResolveProjectRoot() error = %v", err)
 	}
 	const callers = 12
 	ids := make(chan string, callers)
@@ -228,9 +228,9 @@ func TestResolveProjectFollowsCanonicalSymlink(t *testing.T) {
 	if _, _, err := runtime.ResolveOrCreateProject(context.Background(), root); err != nil {
 		t.Fatalf("ResolveOrCreateProject() error = %v", err)
 	}
-	canonicalRoot, err := runtime.ResolveRoot(context.Background(), root)
+	canonicalRoot, err := runtime.ResolveProjectRoot(context.Background(), root)
 	if err != nil {
-		t.Fatalf("ResolveRoot() error = %v", err)
+		t.Fatalf("ResolveProjectRoot() error = %v", err)
 	}
 	link := filepath.Join(base, "project-link")
 	if err := os.Symlink(root, link); err != nil {

@@ -132,8 +132,6 @@ func (r *Runtime) observeDoctorContext(ctx context.Context) doctor.Observation {
 	switch observation.State {
 	case tobari.ContextObservationSyntheticDefault:
 		return observed(doctor.CheckStatusPass, "the display-only synthetic default Context is observable")
-	case tobari.ContextObservationLegacyUnmigrated:
-		return observed(doctor.CheckStatusPass, "the legacy Context is observable without migration")
 	default:
 		return observed(doctor.CheckStatusPass, "the persisted current Context is valid")
 	}
@@ -297,7 +295,7 @@ func (r *Runtime) observeDoctorProviderManifests() doctor.Observation {
 	if err != nil {
 		return observed(doctor.CheckStatusFail, "credential-provider manifests are invalid or unsafe")
 	}
-	return observed(doctor.CheckStatusPass, fmt.Sprintf("%d credential-provider manifests normalize to projection schema v2", len(projection.Providers)))
+	return observed(doctor.CheckStatusPass, fmt.Sprintf("%d credential-provider manifests normalize to projection schema v1", len(projection.Providers)))
 }
 
 func (r *Runtime) observeDoctorVaultPaths() doctor.Observation {

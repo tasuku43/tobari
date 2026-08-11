@@ -10,8 +10,8 @@ import (
 const (
 	UnknownCommit = "unknown"
 
-	RequiredGatewayAPI    = 5
-	RequiredAuthBrokerAPI = 3
+	RequiredGatewayAPI    = 1
+	RequiredAuthBrokerAPI = 1
 
 	DevelopmentBuildCommand = "task build:dev"
 	DevelopmentBinary       = "bin/tobari-dev"

@@ -61,52 +61,31 @@ Contributor source development uses
 `tobari-auth-broker:dev` through `task build:dev`; public `cluster up` never
 builds broker source.
 
-## Compatibility
+## Pre-public V1 contract
 
-Before v1.0, breaking changes require release notes but not a deprecation
-window. The stable boundaries are command paths, exit meanings, Docker labels,
-state schema, configuration keys, OPA input/decision schemas, audit fields,
-provider/broker/vault schemas, root-key backend identifiers, handle prefix,
-Unix socket paths, Gateway/Auth Broker image labels, and preservation of each
-Tobari home volume by default. `cluster down` and `cluster down --purge` also
-preserve encrypted Context vaults and the installation root key; purge adds
-only shared CA-volume removal.
-The current source contract uses Gateway image API label 4 and Auth Broker
-image API label 3, Gateway OPA input
-schema 5, cluster status JSON schema 6 (including nullable unconfigured
-resources and always-present
-`credential_companion_state`), Context report JSON schema 7, and auth command
-JSON schema 2. Broker protocols and private companion epoch/frames remain
-schema 1. Owner static provider
-manifests remain schema 1; reviewed built-ins and the normalized projection
-support schema 2. The encrypted vault keeps its schema-1 envelope and migrates
-valid static payloads into encrypted payload schema 2. Release notes must
-identify those changes and the source-schema-4 plus legacy-source-3-to-runtime-5
-projection bridge.
+All Tobari-owned command outputs, persisted state, configuration, OPA input and
+decisions, audits, provider/projection/vault records, private protocols, and
+Gateway/Auth Broker component APIs use V1. Readers accept exactly V1 and reject
+every other version. Before the first public release, development snapshots
+receive no deprecation window, migration, compatibility reader, retired command
+alias, or old-state interpretation; local state must be removed and recreated
+when the contract changes.
+
+The V1 boundaries include command paths, exit meanings, Docker labels,
+configuration keys, root-key backend identifiers, the handle prefix, Unix
+socket paths, and preservation of each Tobari home volume by default. `cluster
+down` and `cluster down --purge` also preserve encrypted Context vaults and the
+installation root key; purge adds only shared CA-volume removal.
 Public auth backend values are exactly `macos_keychain|xdg_file`, while cluster
 status may additionally use `unavailable`. The `linux_xdg_file` string is an
 infrastructure/doctor diagnostic label, not a public JSON enum. The release
 review uses the complete canonical schema/path/backend table in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
 
-The complete public CLI compatibility set is structured error 1, agent help 9,
-version 1, doctor 1, Context list 3, Context report 7, cluster status 5,
-cluster denials 4, policy candidates/review 5, policy rules 3, policy
-compactions 3, auth result/status 2, Workspace list 2, and Workspace status 3.
-The envelope names and exact recursive fields remain catalog-owned.
-
-This pre-v1 contract-closure release corrects earlier documentation that named
-cluster denials 3, policy candidates/review 4, policy rules 2, or Workspace
-status 2 even though the executable contracts had already advanced. Context
-report advances from 6 to 7 and auth result/status advances from 1 to 2 because
-absent credential revisions and account labels now serialize as JSON `null`
-instead of changing their type to the empty-string sentinel. Agent help advances
-from 8 to 9 because scoped help now publishes recursive output facts and exact
-machine invocations. Existing pre-v1 consumers must select by exact envelope and
-schema, treat newly explicit `null` and finite unavailable states according to
-the published field contract. Cluster status advances from 4 to 5 because
-unconfigured resources now serialize as JSON `null`. Consumers must not depend
-on empty-string sentinels or the internal interactive completion path.
+Every public JSON envelope uses schema 1 and exact catalog-owned recursive
+fields. Explicit `null`, empty collections, zero, false, and finite unavailable
+states retain their declared meaning; presentation must not replace them with
+sentinels or infer missing authority.
 
 ## Publication
 
@@ -148,29 +127,13 @@ immutable commit tag, while Claude and Codex variants are local/CI build
 artifacts only. The repository does not claim a public agent image, stable
 support window, SBOM/attestation, or redistribution approval until a new
 release decision accepts those claims. The Gateway and Auth Broker source/image
-checks are implemented. The reviewed Gateway API-3 index was built from source
-revision `328196221c5be2861b67ec51339d0184b04c6b31`; the compatible Auth Broker
-API-2 index was built from source revision
-`a3fedb66ad5a72c19d6721f3f8da49852882ced8`. Anonymous access, Linux
-amd64/arm64 members, API/role metadata, non-root `1000:1000` users,
-entrypoints, source, revision, and license metadata were independently
-inspected. `versions.env` records Gateway
-`sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
-and the historical Auth Broker
-`sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`.
-A moving tag or successful workflow does not make a digest reviewed runtime
-authority by itself.
-
-Those reviewed indexes and pins remain historical API-3/API-2 publication
-facts; they predate and are incompatible with the current Gateway API-5/Auth
-Broker API-3 source contract. Standard startup from this source must reject the
-old pins. `versions.env` records `GATEWAY_IMAGE_API=3` and
-`AUTH_BROKER_IMAGE_API=2` beside those digests; `task release:check` derives
-the canonical Dockerfile APIs and fails until both API authorities and digests
-advance together. The closed OpenAI Codex and Anthropic Claude plans are usable only
-through the explicit `task build:dev` development-image path until maintainers
-publish and independently review new immutable Linux amd64/arm64 indexes and
-advance `versions.env`. Build the applicable runtime separately with the
+checks are implemented, but official immutable V1 indexes have not yet been
+published and reviewed. `versions.env` therefore records paired `unpublished`
+markers with API V1. Development and full gates accept only this paired state;
+`task release:check` and `task public:check` reject it until maintainers publish
+and independently review new immutable Linux amd64/arm64 indexes and replace
+both markers atomically. A moving tag or successful workflow does not make a
+digest reviewed runtime authority by itself. Build the applicable runtime separately with the
 `task runtime:codex:build` or `task runtime:claude:build` command. Moving tags
 and development images are not release authority. Codex and Claude runtime variants
 remain local/CI-only pending their separate redistribution and image-layer
@@ -203,9 +166,9 @@ task integration:test
 ```
 
 `task release:check` also requires the release artifact build identity to be
-complete and compatible. The current API-3/API-2 immutable pins make that gate
-fail intentionally against API-5/API-3 source; version diagnostics explain the
-same state but cannot override it.
+complete and compatible. The paired unpublished V1 image authorities make that
+gate fail intentionally until reviewed immutable V1 indexes exist; version
+diagnostics explain the same state but cannot override it.
 
 Auth Broker and companion changes additionally require the canonical source,
 image, private protocol, host-driver, and topology checks used by `task check`

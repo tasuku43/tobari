@@ -30,8 +30,7 @@ from credential_adapters import (
 )
 
 
-PROVIDER_SCHEMA_VERSION = 2
-LEGACY_PROVIDER_SCHEMA_VERSION = 1
+PROVIDER_SCHEMA_VERSION = 1
 BROKER_SCHEMA_VERSION = 1
 MAX_PROVIDER_PROJECTION_BYTES = 16 * 1024 * 1024
 MAX_BROKER_FRAME_BYTES = 64 * 1024
@@ -288,7 +287,7 @@ def _validate_provider(
         "workspace_projections",
         "header_bindings",
     }
-    if schema_version == PROVIDER_SCHEMA_VERSION and "signing_bindings" in provider:
+    if "signing_bindings" in provider:
         provider_keys.add("signing_bindings")
     provider = _exact_keys(
         provider,
@@ -298,7 +297,7 @@ def _validate_provider(
     provider_id = provider.get("id")
     display_name = provider.get("display_name")
     if (
-        schema_version not in {LEGACY_PROVIDER_SCHEMA_VERSION, PROVIDER_SCHEMA_VERSION}
+        schema_version != PROVIDER_SCHEMA_VERSION
         or isinstance(provider.get("schema_version"), bool)
         or not _valid_provider_id(provider_id)
         or not isinstance(display_name, str)
@@ -323,14 +322,12 @@ def _validate_provider(
         raise BrokerCredentialUnavailable("provider projection is invalid")
     credential = _exact_keys(provider.get("credential"), {"kind"}, "provider credential")
     credential_kind = credential.get("kind")
-    if schema_version == LEGACY_PROVIDER_SCHEMA_VERSION:
-        valid_credential = credential_kind == "primary_secret"
-    else:
-        valid_credential = credential_kind in {
-            "aws_sso_session",
-            "datadog_oauth_session",
-            "openai_codex_oauth_session",
-        }
+    valid_credential = credential_kind in {
+        "primary_secret",
+        "aws_sso_session",
+        "datadog_oauth_session",
+        "openai_codex_oauth_session",
+    }
     if not valid_credential:
         raise BrokerCredentialUnavailable("provider projection is invalid")
 
@@ -427,15 +424,14 @@ def _validate_provider(
             )
     if checked_raw != raw_bindings or checked_raw != sorted(checked_raw, key=_raw_binding_sort_key):
         raise BrokerCredentialUnavailable("provider projection is invalid")
-    if schema_version == LEGACY_PROVIDER_SCHEMA_VERSION and any(
+    if credential_kind == "primary_secret" and any(
         binding["destination"]["secret_field"] != "primary_secret"
         for binding in normalized
     ):
         raise BrokerCredentialUnavailable("provider projection is invalid")
     if provider_id == "anthropic" or acquisition.get("helper") == "claude-setup-token":
         if (
-            schema_version != LEGACY_PROVIDER_SCHEMA_VERSION
-            or provider_id != "anthropic"
+            provider_id != "anthropic"
             or display_name != "Anthropic account for Claude Code"
             or mode != "builtin_helper"
             or acquisition.get("helper") != "claude-setup-token"
@@ -472,26 +468,24 @@ def _validate_provider(
             ]
         ):
             raise BrokerCredentialUnavailable("provider projection is invalid")
-    signing_bindings: list[dict[str, Any]] = []
-    if schema_version == PROVIDER_SCHEMA_VERSION:
-        raw_signing = provider.get("signing_bindings", [])
-        if not isinstance(raw_signing, list) or len(raw_signing) > 8:
+    raw_signing = provider.get("signing_bindings", [])
+    if not isinstance(raw_signing, list) or len(raw_signing) > 8:
+        raise BrokerCredentialUnavailable("provider projection is invalid")
+    signing_bindings = [
+        _validate_aws_signing_binding(item, provider_id) for item in raw_signing
+    ]
+    expected_acquisition_helper = (
+        mode == "builtin_helper" and acquisition.get("helper") == "aws-sso"
+    )
+    if credential_kind == "aws_sso_session":
+        if (
+            provider_id != "aws"
+            or not expected_acquisition_helper
+            or len(signing_bindings) != 1
+            or normalized
+        ):
             raise BrokerCredentialUnavailable("provider projection is invalid")
-        signing_bindings = [
-            _validate_aws_signing_binding(item, provider_id) for item in raw_signing
-        ]
-        expected_acquisition_helper = (
-            mode == "builtin_helper" and acquisition.get("helper") == "aws-sso"
-        )
-        if credential_kind == "aws_sso_session":
-            if (
-                provider_id != "aws"
-                or not expected_acquisition_helper
-                or len(signing_bindings) != 1
-                or normalized
-            ):
-                raise BrokerCredentialUnavailable("provider projection is invalid")
-        elif credential_kind == "datadog_oauth_session":
+    elif credential_kind == "datadog_oauth_session":
             if (
                 provider_id != "datadog"
                 or mode != "builtin_helper"
@@ -511,7 +505,7 @@ def _validate_provider(
                 or complete_files
             ):
                 raise BrokerCredentialUnavailable("provider projection is invalid")
-        elif credential_kind == "openai_codex_oauth_session":
+    elif credential_kind == "openai_codex_oauth_session":
             if (
                 provider_id != "openai"
                 or display_name != "OpenAI account for Codex"
@@ -546,8 +540,8 @@ def _validate_provider(
                 }]
             ):
                 raise BrokerCredentialUnavailable("provider projection is invalid")
-        elif signing_bindings:
-            raise BrokerCredentialUnavailable("provider projection is invalid")
+    elif signing_bindings:
+        raise BrokerCredentialUnavailable("provider projection is invalid")
     if not normalized and not signing_bindings:
         raise BrokerCredentialUnavailable("provider projection is invalid")
     return normalized, signing_bindings, environment, complete_files
@@ -565,17 +559,14 @@ def validate_provider_projection(document: Any) -> dict[str, Any]:
         "header_bindings",
         "secret_headers",
     }
-    if projection_version == PROVIDER_SCHEMA_VERSION:
+    if "signing_bindings" in document:
         projection_keys.add("signing_bindings")
     projection = _exact_keys(
         document,
         projection_keys,
         "provider projection",
     )
-    if projection_version not in {
-        LEGACY_PROVIDER_SCHEMA_VERSION,
-        PROVIDER_SCHEMA_VERSION,
-    } or isinstance(projection_version, bool):
+    if projection_version != PROVIDER_SCHEMA_VERSION or isinstance(projection_version, bool):
         raise BrokerCredentialUnavailable("provider projection version is invalid")
     providers = projection.get("providers")
     if not isinstance(providers, list) or not 1 <= len(providers) <= 64:

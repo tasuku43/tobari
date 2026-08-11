@@ -35,29 +35,22 @@ const (
 	GraphQLOperationMutation = "mutation"
 )
 
-// PolicyProtocolIdentity optionally refines one HTTP effect to exactly one
-// GraphQL root coordinate. An absent protocol is the legacy spelling of HTTP.
+// PolicyProtocolIdentity identifies one HTTP effect or refines it to exactly
+// one GraphQL root coordinate.
 type PolicyProtocolIdentity struct {
-	Protocol             string `json:"protocol,omitempty"`
+	Protocol             string `json:"protocol"`
 	GraphQLOperationType string `json:"graphql_operation_type,omitempty"`
 	GraphQLRootField     string `json:"graphql_root_field,omitempty"`
 }
 
-// EffectiveProtocol preserves legacy HTTP records whose protocol field was
-// absent while giving matching and identifiers one closed protocol value.
+// EffectiveProtocol returns the validated closed protocol value.
 func (i PolicyProtocolIdentity) EffectiveProtocol() string {
-	if i.Protocol == "" {
-		return PolicyProtocolHTTP
-	}
 	return i.Protocol
 }
 
 func (i PolicyProtocolIdentity) Validate() error {
 	switch i.EffectiveProtocol() {
 	case PolicyProtocolHTTP:
-		if i.Protocol != "" && i.Protocol != PolicyProtocolHTTP {
-			return fmt.Errorf("policy protocol is invalid")
-		}
 		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" {
 			return fmt.Errorf("HTTP policy identity cannot contain GraphQL fields")
 		}
@@ -81,8 +74,6 @@ func (i PolicyProtocolIdentity) matches(other PolicyProtocolIdentity) bool {
 }
 
 func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIdentity) []string {
-	// Keep the exact pre-GraphQL material for both absent and explicit HTTP so
-	// existing opaque candidate and rule IDs remain valid.
 	if identity.EffectiveProtocol() == PolicyProtocolHTTP {
 		return material
 	}
@@ -295,7 +286,7 @@ type PolicyCandidate struct {
 	PolicyProtocolIdentity
 	ID                string  `json:"id"`
 	ObservedAt        string  `json:"observed_at"`
-	ObservationCount  int     `json:"observation_count,omitempty"`
+	ObservationCount  int     `json:"observation_count"`
 	ContextID         string  `json:"context_id"`
 	ContextName       string  `json:"context"`
 	ProjectID         string  `json:"project_id"`
@@ -320,7 +311,7 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 	}
 	material := appendPolicyProtocolIdentity(
 		[]string{
-			"tobari-policy-candidate-v2", denial.ContextID, denial.ProjectID, denial.Host, strconv.Itoa(denial.Port), denial.Method, denial.Path,
+			"tobari-policy-candidate-v1", denial.ContextID, denial.ProjectID, denial.Host, strconv.Itoa(denial.Port), denial.Method, denial.Path,
 		},
 		denial.PolicyProtocolIdentity,
 	)
@@ -336,12 +327,8 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 	}, nil
 }
 
-// EffectiveObservationCount keeps candidates decoded from the additive legacy
-// shape meaningful. Newly derived candidates always carry an explicit count.
+// EffectiveObservationCount returns the required retained observation count.
 func (c PolicyCandidate) EffectiveObservationCount() int {
-	if c.ObservationCount == 0 {
-		return 1
-	}
 	return c.ObservationCount
 }
 
@@ -380,7 +367,7 @@ func (c PolicyCandidate) Validate() error {
 	if _, err := time.Parse(time.RFC3339Nano, c.ObservedAt); err != nil {
 		return fmt.Errorf("policy candidate timestamp is invalid")
 	}
-	if c.ObservationCount < 0 {
+	if c.ObservationCount < 1 {
 		return fmt.Errorf("policy candidate observation count is invalid")
 	}
 	if err := validatePolicyScope(c.ContextID, c.ContextName, c.ProjectRoot); err != nil {
@@ -423,7 +410,7 @@ type PolicyCandidateReport struct {
 }
 
 func (r PolicyCandidateReport) Validate() error {
-	if r.Task != TaskPolicyCandidates && r.Task != TaskPolicyTail && r.Task != TaskPolicyReview {
+	if r.Task != TaskPolicyCandidates && r.Task != TaskPolicyReview {
 		return fmt.Errorf("policy candidate report task identity is invalid")
 	}
 	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
@@ -499,7 +486,8 @@ type PolicyDenyRule struct {
 
 func policyDenyRuleID(contextID, projectID, host string, port int, method, path string, sourceCandidates []string) string {
 	return policyDenyRuleIDWithIdentity(
-		contextID, projectID, host, port, method, path, sourceCandidates, PolicyProtocolIdentity{},
+		contextID, projectID, host, port, method, path, sourceCandidates,
+		PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP},
 	)
 }
 
@@ -509,7 +497,7 @@ func policyDenyRuleIDWithIdentity(
 ) string {
 	material := appendPolicyProtocolIdentity(
 		[]string{
-			"tobari-policy-deny-v2", contextID, projectID, host, strconv.Itoa(port), method, path,
+			"tobari-policy-deny-v1", contextID, projectID, host, strconv.Itoa(port), method, path,
 			strings.Join(sourceCandidates, "\x1f"),
 		},
 		identity,
@@ -577,7 +565,10 @@ func (r PolicyDenyRule) Validate() error {
 }
 
 func (r PolicyDenyRule) Matches(contextID, projectID, host string, port int, method, path string) bool {
-	return r.MatchesIdentity(contextID, projectID, host, port, method, path, PolicyProtocolIdentity{})
+	return r.MatchesIdentity(
+		contextID, projectID, host, port, method, path,
+		PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP},
+	)
 }
 
 func (r PolicyDenyRule) MatchesIdentity(
@@ -656,7 +647,7 @@ func learnedRuleID(
 ) string {
 	return learnedRuleIDWithIdentity(
 		match, contextID, projectID, host, port, method, path, examples, sourceCandidates,
-		PolicyProtocolIdentity{},
+		PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP},
 	)
 }
 
@@ -1050,7 +1041,10 @@ func (r PolicyRuleReset) Validate() error {
 }
 
 func (r LearnedPolicyRule) Matches(contextID, projectID, host string, port int, method, path string) bool {
-	return r.MatchesIdentity(contextID, projectID, host, port, method, path, PolicyProtocolIdentity{})
+	return r.MatchesIdentity(
+		contextID, projectID, host, port, method, path,
+		PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP},
+	)
 }
 
 func (r LearnedPolicyRule) MatchesIdentity(
@@ -1199,7 +1193,7 @@ func ValidatePolicyCompactionID(id string) error {
 func compactionID(contextID, projectID, host string, port int, method, prefix string, sourceRuleIDs []string) string {
 	material := strings.Join(
 		[]string{
-			"tobari-policy-compaction-v2", contextID, projectID, host, strconv.Itoa(port), method, prefix,
+			"tobari-policy-compaction-v1", contextID, projectID, host, strconv.Itoa(port), method, prefix,
 			strings.Join(sourceRuleIDs, "\x1f"),
 		},
 		"\x00",
@@ -1417,7 +1411,8 @@ func CompactLearnedPolicyRules(
 	sort.Strings(sourceCandidates)
 	sourceCandidates = uniqueStrings(sourceCandidates)
 	prefixRule := LearnedPolicyRule{
-		Match: PolicyMatchPrefix, ContextID: selected.ContextID, ContextName: selected.ContextName,
+		PolicyProtocolIdentity: PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP},
+		Match:                  PolicyMatchPrefix, ContextID: selected.ContextID, ContextName: selected.ContextName,
 		ProjectID: selected.ProjectID, ProjectRoot: selected.ProjectRoot, Host: selected.Host, Port: selected.Port, Method: selected.Method,
 		Path: selected.PathPrefix, Examples: append([]string{}, selected.Examples...),
 		SourceCandidates: sourceCandidates,

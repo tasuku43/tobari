@@ -35,7 +35,7 @@ Gateway returns `403 policy_denied`. A learnable response names only the trusted
 
 ## 2. Evidence is retained without payload or secrets
 
-Gateway writes bounded schema 2 denial audit into its rotated Docker logs. Candidate discovery reads a bounded tail and accepts only strict validated deny records.
+Gateway writes bounded schema 1 denial audit into its rotated Docker logs. Candidate discovery reads a bounded tail and accepts only strict validated deny records.
 
 Evidence includes Context/project identity, host, port, method, path, reason, timestamp, and non-secret diagnostics. It omits query, headers, body, handle, credential revision, and primary credential. A handle-bearing URL path is replaced as a whole with `/[redacted-auth-handle]`.
 

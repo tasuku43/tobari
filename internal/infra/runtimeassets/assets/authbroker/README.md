@@ -35,8 +35,7 @@ schema and Context ID. Raw project handles are durable only inside this
 authenticated ciphertext; the daemon's live lookup table contains SHA-256
 handle hashes.
 
-The encrypted payload is schema 2. Schema-1 payloads are strictly validated and
-migrated in memory; the next mutation writes schema 2. Static records contain a
+The encrypted payload is schema 1 and every other version is rejected. Static records contain a
 `static_primary_secret`. AWS records instead contain typed
 `aws_sso_session` opaque host-driver state, its fixed driver ID and executable
 revision, and a monotonic state generation. Datadog records contain strict
@@ -183,11 +182,10 @@ after an exact allow for `https://api.anthropic.com:443`; expiry or a provider
 Logout for both providers is local handle/state revocation and does not claim
 remote provider revocation.
 
-The current canonical source image contract is Auth Broker API 3 paired with
-Gateway API 5. The reviewed published Auth Broker API-2 and Gateway API-3 pins
-predate these plans and are incompatible; standard startup must reject them.
-Only explicit development images are usable until new immutable reviewed
-indexes are published. Build the required agent runtime separately with
+The canonical source image contracts are Auth Broker API 1 and Gateway API 1.
+Official immutable V1 indexes are not yet published and reviewed; only explicit
+development images are usable until paired immutable V1 indexes replace the
+`unpublished` authorities. Build the required agent runtime separately with
 `task runtime:codex:build` or `task runtime:claude:build`; those images remain
 local/CI-only pending redistribution and image-layer license review.
 

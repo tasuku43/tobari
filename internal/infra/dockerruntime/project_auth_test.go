@@ -262,7 +262,7 @@ func TestReadProjectAuthRegistryRecoversOnlyKnownEmptyProviderNullDocument(t *te
 			return `{"schema_version":1,"project_id":"project-other","project_id":"` + projectID + `","providers":null,"files":[]}`
 		},
 		"duplicate schema": func(projectID string) string {
-			return `{"schema_version":2,"schema_version":1,"project_id":"` + projectID + `","providers":null,"files":[]}`
+			return `{"schema_version":1,"schema_version":1,"project_id":"` + projectID + `","providers":null,"files":[]}`
 		},
 	} {
 		t.Run(name+" remains rejected", func(t *testing.T) {

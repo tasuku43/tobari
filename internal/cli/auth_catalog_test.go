@@ -105,7 +105,7 @@ func TestAuthLoginCatalogSeparatesProviderToolAndAcquisitionMethod(t *testing.T)
 		if input.Name == "--method" {
 			methodFound = reflect.DeepEqual(input.AllowedValues, []string{"identity-center", "console"}) &&
 				reflect.DeepEqual(input.Requires, []string{"--provider"}) &&
-				strings.Contains(input.Description, "backward compatibility")
+				strings.Contains(input.Description, "Omission selects identity-center")
 		}
 	}
 	if !methodFound {
@@ -217,7 +217,7 @@ func TestAuthLoginMethodRequiresExplicitProvider(t *testing.T) {
 	}
 	if _, err := parseCommandInputs(spec, []string{"github"}); err == nil ||
 		!strings.Contains(err.Error(), `unexpected argument "github"`) {
-		t.Fatalf("legacy positional provider error = %v", err)
+		t.Fatalf("unexpected positional provider error = %v", err)
 	}
 }
 
@@ -293,7 +293,7 @@ func TestAuthCommandsPublishOneSecretFreeSchema(t *testing.T) {
 			gotFields = append(gotFields, field.Name)
 		}
 		if !reflect.DeepEqual(gotFields, wantMutationFields) || spec.Agent.Output.JSONEnvelope != "auth" ||
-			spec.Agent.Output.JSONSchemaVersion != 4 || spec.Agent.Output.CollectionCoverage != CollectionCoverageNotApplicable {
+			spec.Agent.Output.JSONSchemaVersion != 1 || spec.Agent.Output.CollectionCoverage != CollectionCoverageNotApplicable {
 			t.Fatalf("%s output = %+v", path, spec.Agent.Output)
 		}
 		for _, forbidden := range []string{"credential", "secret", "token", "handle", "vault", "root_key"} {
@@ -315,7 +315,7 @@ func TestAuthCommandsPublishOneSecretFreeSchema(t *testing.T) {
 	}
 	wantStatusFields := []string{"context", "context_state", "context_id", "storage_backend", "broker_state", "providers", "workspace_activation"}
 	if !reflect.DeepEqual(gotStatusFields, wantStatusFields) || status.Agent.Output.JSONEnvelope != "auth" ||
-		status.Agent.Output.JSONSchemaVersion != 4 || status.Agent.Output.CollectionCoverage != CollectionCoverageExhaustive {
+		status.Agent.Output.JSONSchemaVersion != 1 || status.Agent.Output.CollectionCoverage != CollectionCoverageExhaustive {
 		t.Fatalf("auth status output = %+v", status.Agent.Output)
 	}
 }

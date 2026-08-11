@@ -18,7 +18,7 @@ func TestTWGDelegatedOAuthExampleIsOneExactStaticBinding(t *testing.T) {
 		t.Fatalf("parse TWG provider example: %v", err)
 	}
 
-	if provider.SchemaVersion != authbroker.LegacyProviderSchemaVersion ||
+	if provider.SchemaVersion != authbroker.ProviderSchemaVersion ||
 		provider.Acquisition.Mode != authbroker.AcquisitionStdinImport ||
 		provider.Credential.Kind != authbroker.CredentialPrimarySecret {
 		t.Fatalf("TWG example must remain an owner schema-v1 stdin-import provider: %#v", provider)

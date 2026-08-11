@@ -1,6 +1,6 @@
 ---
 title: Authentication
-description: Choose tool-native, brokered, or retained managed authentication without confusing credentials with network permission.
+description: Choose tool-native, brokered, or static managed authentication without confusing credentials with network permission.
 ---
 
 import CredentialArchitectureMap from "../../../components/CredentialArchitectureMap.astro";
@@ -13,21 +13,20 @@ This guide compares the three supported paths, shows the reviewed built-in broke
 
 ## Compare the three paths
 
-| Path                     | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                     | Main limit                                                              |
-| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace              |
-| Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Introspects without secret, asks OPA, then resolves, refreshes, or signs after allow | Static exact bindings plus reviewed GitHub, AWS, and Datadog plans only |
-| Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                                               | Validates Context/project/host profile and injects after allow                       | Static reviewed adapter; not a general provider program                 |
+| Path                    | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                     | Main limit                                                              |
+| ----------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| Tool-native passthrough | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace              |
+| Auth Broker             | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Introspects without secret, asks OPA, then resolves, refreshes, or signs after allow | Static exact bindings plus reviewed GitHub, AWS, and Datadog plans only |
+| Static managed adapter  | Owner-only Context host store                                   | No managed primary secret                                               | Validates Context/project/host profile and injects after allow                       | Static reviewed adapter; not a general provider program                 |
 
 No path changes the OPA rule requirement. “The request is authenticated” and “this Context/project/method/path may connect” are different claims.
 
 <aside class="warning">
-  <strong>Artifact status:</strong> the source and tests implement the Datadog
-  acquisition and post-policy refresh path, but the current immutable Gateway
-  and Auth Broker pins predate AWS console login and that request path. The
-  standard cluster selects the earlier AWS Identity Center artifacts today; use
-  [Component versions](/reference/component-versions/) to verify the selected
-  identities before following the Datadog steps.
+  <strong>Artifact status:</strong> canonical Gateway and Auth Broker source is
+  a paired V1 snapshot, but reviewed immutable V1 image indexes have not been
+  published yet. Contributor builds use the source snapshot; public and release
+  gates remain blocked until those indexes are independently reviewed and
+  pinned.
 </aside>
 
 ## Tool-native authentication
@@ -194,7 +193,7 @@ refresh/signing/OAuth beyond the reviewed AWS and Datadog plans.
 
 - [Authentication governing contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/07_authentication.md)
 - [Auth Catalog specifications](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/auth_catalog.go)
-- [Schema-1/2 provider domain](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/authbroker/provider.go)
+- [V1 provider domain](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/authbroker/provider.go)
 - [Auth Broker implementation and vault tests](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker)
 - [Gateway credential-order tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
 - [Trusted-host credential drivers](https://github.com/tasuku43/tobari/tree/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/credentialhost)

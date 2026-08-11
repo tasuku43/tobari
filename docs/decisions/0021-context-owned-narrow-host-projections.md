@@ -6,6 +6,8 @@
 - Scope: Product, CLI, architecture, security, external host I/O, state compatibility, harness, and public boundary
 - Supersedes: None
 - Superseded by: None
+- Revised by: ADR 0027 resets Context persistence and output to exact V1 and
+  removes migration
 
 ## Context
 

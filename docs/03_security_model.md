@@ -137,8 +137,8 @@ the same Workspace exercising an already allowed brokered capability.
 
 The Linux owner-only XDG root-key file does not protect against compromise of
 the host user or complete XDG state tree. It separates the key from encrypted
-vault files, keeps the primary secret out of Workspaces, and provides a future
-migration point. macOS Keychain provides stronger at-rest separation, but a
+vault files and keeps the primary secret out of Workspaces. macOS Keychain
+provides stronger at-rest separation, but a
 compromised trusted host, Tobari CLI, Docker Engine, Gateway, Auth Broker, or
 root-key provider can still exercise or recover the credential.
 
@@ -246,8 +246,8 @@ generated separately from its fixed validated non-secret scalars and never
 changes image contents.
 
 Each Tobari's bound Context runtime image selector is strict, bounded, and stored in
-the owner-only Context manifest. The legacy XDG `config.json` image default is
-used only to seed the default Context during compatibility initialization.
+the owner-only Context manifest. A new Context selects the built-in image until
+its manifest explicitly selects another image.
 Project metadata cannot select or alter the runtime image, so untrusted project
 files cannot introduce a second image or execution-boundary authority. The
 stored project image is diagnostic last-success state rather than an image
@@ -285,13 +285,11 @@ mount, Gateway-visible runtime-socket mount, private control/companion tmpfs,
 and provider projection are distinct paths. The image contains no provider CLI,
 credential, provider configuration, handle, root key, or vault.
 
-The current canonical capability advances `io.tobari.gateway-api` from 4 to 5;
-`io.tobari.auth-broker-api` remains 3. The Gateway label makes guarded
-transparent routing, schema-3 source-principal binding, and policy-before-real-
-resolution fail closed against older components. The API-5/API-3 images are contributor-local
-until reviewed immutable multi-architecture pins advance; the published API-3
-Gateway and API-2 Broker remain separate historical artifacts without this
-capability.
+The canonical Gateway and Auth Broker sources both declare API V1. Their labels
+make guarded transparent routing, schema-1 source-principal binding, and
+policy-before-real-resolution fail closed against any non-V1 component. The
+official immutable V1 images remain unpublished until reviewed
+multi-architecture pins replace the paired development marker.
 
 All resources carry `io.tobari.owner=default`; per-Tobari resources also carry
 the exact stable Tobari ID and a resource role. Destructive lifecycle code
@@ -335,9 +333,8 @@ authorization inputs. Missing, unknown, stale, ambiguous, or mismatched Context
 bindings deny before OPA and upstream I/O.
 Guided Contexts supply no executable Rego: aggregate generation uses the
 current Tobari-owned shared evaluator and tests with each Context's policy
-data. Only Advanced Contexts own Rego source; schema 4 is current, schema 3 is
-the sole compatibility input, both are rewritten to the runtime schema-5
-document, and other input shapes fail before policy activation.
+data. Only Advanced Contexts own Rego source; source and runtime documents use
+exact schema 1, and every other input shape fails before policy activation.
 
 Secret header values, handles, credential revisions, queries, headers, and
 request/response body content are absent from denial audit. GraphQL source,
@@ -411,13 +408,13 @@ authentication and cookie values from OPA input and audit, preserves them until
 policy allow, then forwards them upstream. It strips proxy and Tobari control
 headers and never reads managed credential files.
 
-The retained `managed` adapter uses static bearer or fixed-header secrets
+The static `managed` adapter uses static bearer or fixed-header secrets
 supplied through Context-owned owner-only host files. A generated Gateway-only
 projection keys profiles and secret subdirectories by stable Context ID, so the
 same display profile name may exist in multiple Contexts. Configuration contains
 a profile type, exact allowed hosts, explicit project IDs, and a Context-scoped
 container secret path; it never contains the secret value. The host-owned
-`principal-registry/principals.json` schema 3 registry binds each Context/project
+`principal-registry/principals.json` schema 1 registry binds each Context/project
 pair to one exact owned project network, Workspace source endpoint, and Gateway
 endpoint. Gateway derives the transparent-ingress principal from the
 kernel-observed source endpoint; duplicate, missing, stale, and ambiguous
@@ -439,10 +436,9 @@ value is never returned to Tobari, OPA, CLI output, errors, or audit logs.
 
 The Auth Broker route stores one typed credential record per Context/provider
 in `auth/contexts/<context-id>/vault.enc`. The schema-1 AES-256-GCM envelope
-contains a schema-2 encrypted payload, uses a random 12-byte nonce, and binds
-the envelope schema plus stable Context ID as authenticated data. Strict valid
-schema-1 static payloads are migrated on read. Opaque AWS host-driver state and
-strict Datadog OAuth-session state exist only in the schema-2 encrypted
+contains a schema-1 encrypted payload, uses a random 12-byte nonce, and binds
+the envelope schema plus stable Context ID as authenticated data. Opaque AWS
+host-driver state and strict Datadog OAuth-session state exist only in the schema-1 encrypted
 payload. AWS cache state remains opaque to the host lifecycle and is
 materialized only by the reviewed host driver in a private bounded temporary
 home. Identity Center and console login use distinct strict state schemas and
@@ -466,7 +462,7 @@ as owner-only XDG state `auth/keys/root.key`. A missing key alongside a vault is
 never replaced automatically.
 Public auth results name the Linux backend `xdg_file`, while macOS uses
 `macos_keychain`; cluster status may additionally report `unavailable`.
-Cluster status schema 6 separately reports nullable unconfigured resources and
+Cluster status schema 1 separately reports nullable unconfigured resources and
 always-present secret-free
 `credential_companion_state=ready|prepared|absent|unavailable`; this is
 process/channel readiness,
@@ -572,8 +568,8 @@ those bytes as ordinary payload when the surrounding L7 effect is allowed;
 this grants no broker authority but is outside Tobari's payload-exfiltration
 guarantee. The real primary secret remains unavailable to that Workspace.
 
-Provider manifests contain no secrets or executable paths. Valid schema-1
-static providers normalize into projection schema 2. Provider schema 2 accepts
+Provider manifests contain no secrets or executable paths. Exact schema-1
+static providers normalize into projection schema 1. Provider schema 1 accepts
 bounded handle templates, exact HTTPS/header transformations, and enumerated
 built-in-only credential plans; it rejects target/projection collisions and
 prohibits user manifests from overriding built-ins or selecting a helper,
@@ -623,13 +619,12 @@ OPA authorization, and upstream I/O.
 An `EffectRead` has no first-use initialization authority. Missing XDG state is
 reported as absence or a display-only synthetic default without a Context ID;
 it cannot authorize a Workspace, credential, policy, key, vault, or Docker
-operation. Legacy reads do not migrate, and corrupt or unsafe stored input
+operation. Unsupported-version, corrupt, or unsafe stored input
 fails closed. The only read-side filesystem mutation is bounded cleanup of a
 pre-existing validated mutation journal; that exceptional path may create the
 project recovery lock only to serialize cleanup, but a read never creates the
 journal itself. Fresh and ordinary reads create no lock. First durable
-initialization and migration remain behind a fully validated create/write
-intent.
+initialization remains behind a fully validated create/write intent.
 
 `runtime init` is a host-only create of one owner-only recipe directory.
 `runtime build` is a host-only write against the current Context runtime target;
@@ -700,7 +695,7 @@ CLI-owned prompt hook. Prompt contents may still exercise Bash prompt
 expansion inside the untrusted Workspace; they gain no host authority or
 Gateway permission.
 
-Git owns only an atomic `user.name`/`user.email` fallback. New and migrated
+Git owns only an atomic `user.name`/`user.email` fallback. New
 Contexts project none. Inherit uses no shell and gives Git an exact environment
 allowlist: validated `HOME`, optional `XDG_CONFIG_HOME`, fixed `LC_ALL`, and
 three fixed `GIT_*` controls. It drops ambient `PATH`, loader controls, shell
@@ -932,7 +927,7 @@ reference-bound mutation.
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
 | Broker fallback cannot accept a Tobari-looking handle | Marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
 | Cluster cleanup preserves authentication authority until explicit logout | Down/purge tests proving vault and root-key preservation plus exact logout/revocation tests |
-| Doctor observes but never repairs authentication state | Fixed-DAG dependency fixtures, recording-runner Docker-argv allowlists, legacy/fresh-tree content snapshots, and filesystem canaries for provider, root-key, vault, broker, and project-binding diagnostics |
+| Doctor observes but never repairs authentication state | Fixed-DAG dependency fixtures, recording-runner Docker-argv allowlists, fresh/unsupported-tree content snapshots, and filesystem canaries for provider, root-key, vault, broker, and project-binding diagnostics |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Attached sessions are not removed accidentally | Exact work-container Exec ID observation, guard-before-delete tests, and explicit force-override tests |
 | Each root and XDG home are its Tobari's only host write scopes | Mount-spec and path-containment tests |
@@ -946,7 +941,7 @@ reference-bound mutation.
 | CWD lifecycle actions use exact Tobari identity | Canonical-root, state, and label-validation tests |
 | One canonical root/Context pair has one Workspace | Pair-derived root-index hash naming, locked exact-pair checks, domain duplicate-index validation, same-root/different-Context tests, and concurrent explicit-creation tests |
 | Session exit cannot delete a Workspace | Child exit-status tests, host-stderr summary tests, and logical-state preservation after entry |
-| Gateway cannot accept caller-selected Context or project authority | Owner-only atomic schema-3 registry, exact Workspace-source and Gateway-endpoint binding, duplicate/stale rejection, forged-header/SNI/authority and unknown-principal denial, source-bind/IP_FREEBIND canaries, and multi-Context integration |
+| Gateway cannot accept caller-selected Context or project authority | Owner-only atomic schema-1 registry, exact Workspace-source and Gateway-endpoint binding, duplicate/stale rejection, forged-header/SNI/authority and unknown-principal denial, source-bind/IP_FREEBIND canaries, and multi-Context integration |
 | Managed credentials cannot cross Context/project principals | Context-scoped projections and secret paths, explicit project bindings, pre-OPA Gateway rejection, repeated injection check, same-name cross-Context tests, and integration |
 | Unknown effects fail closed | Domain and catalog validation |
 | Denials support safe policy learning | Typed Context/project/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
@@ -982,23 +977,13 @@ absence, bridge/protocol behavior, and multi-architecture metadata are checked
 for each image's recorded build revision. Pull-request image
 jobs have no package-write permission. GHCR
 moving tags are development conveniences, not a trusted runtime identity;
-routine Gateway and Auth Broker consumption use reviewed immutable digests
-recorded in `versions.env`. A marker or moving tag is not an accepted image
-reference. The reviewed Gateway API-3 index built from source revision
-`328196221c5be2861b67ec51339d0184b04c6b31` and Auth Broker API-2 index built
-from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8` are anonymously
-retrievable for Linux amd64/arm64; their platform metadata fixes the API/role
-labels, `1000:1000` user, and reviewed entrypoint. The pinned Gateway digest is
-`sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
-and the Auth Broker digest is
-`sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`.
-Those selected images implement the earlier AWS Identity Center path. Current
-canonical source and tests also contain AWS console login and the Datadog
-request path plus the Gateway API-5/Auth Broker API-3 Codex and Claude OAuth
-paths, but those changes postdate the selected image revisions. Source and
-selected runtime identity are therefore separate facts until reviewed immutable
-pins advance; source/snapshot equality does not silently replace a running or
-newly reconciled standard cluster image. Likewise, the checked local Claude
+routine Gateway and Auth Broker consumption requires reviewed immutable V1
+digests recorded in `versions.env`. Official V1 indexes have not yet been
+published and reviewed, so development source records a paired `unpublished`
+marker. Development and full gates accept only that exact paired state; public
+and release gates reject it until immutable Linux amd64/arm64 V1 indexes are
+reviewed and both markers are replaced atomically. A moving tag or local image
+is never release authority. Likewise, the checked local Claude
 Code 2.1.220 and Codex 0.146.0 runtime recipes establish integrity and test
 identity only; their agent artifacts remain unpublished while redistribution
 and license review is pending.

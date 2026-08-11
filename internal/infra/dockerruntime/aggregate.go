@@ -21,7 +21,10 @@ import (
 
 const aggregateSchemaVersion = 1
 
-var regoPackagePattern = regexp.MustCompile(`(?m)^package[ \t]+tobari\.http[ \t]*$`)
+var (
+	regoPackagePattern     = regexp.MustCompile(`(?m)^package[ \t]+tobari\.http[ \t]*$`)
+	regoInputSchemaPattern = regexp.MustCompile(`input\.schema_version[ \t]*==[ \t]*([0-9]+)`)
+)
 
 type aggregateProjection struct {
 	Revision            string
@@ -124,20 +127,15 @@ func transformContextRego(item aggregateContext) ([]byte, error) {
 	if bytes.Contains(item.rego, []byte("data.tobari_contexts")) || bytes.Contains(item.rego, []byte("package tobari.system")) || bytes.Contains(item.rego, []byte("package tobari.contexts")) {
 		return nil, fmt.Errorf("Context %q policy crosses the reserved routing namespace", item.manifest.Name)
 	}
-	schema3 := bytes.Contains(item.rego, []byte("input.schema_version == 3"))
-	schema4 := bytes.Contains(item.rego, []byte("input.schema_version == 4"))
-	if schema3 == schema4 {
-		return nil, fmt.Errorf("Context %q policy must target exactly one supported source input schema (3 or 4)", item.manifest.Name)
+	schemaMatches := regoInputSchemaPattern.FindAllSubmatch(item.rego, -1)
+	if len(schemaMatches) != 1 || string(schemaMatches[0][1]) != "1" {
+		return nil, fmt.Errorf("Context %q policy must target source input schema 1", item.manifest.Name)
 	}
 	packageName := "package tobari.contexts." + aggregateNamespace(item.manifest.ID) + ".http"
 	if item.manifest.PolicyMode == tobari.ContextPolicyModeGuided {
 		packageName = "package tobari.system.guided"
 	}
 	transformed := regoPackagePattern.ReplaceAll(item.rego, []byte(packageName))
-	// Source schema 3 is retained as an exact migration input for Contexts
-	// created before Auth Broker metadata extended the Gateway boundary.
-	transformed = bytes.ReplaceAll(transformed, []byte("input.schema_version == 3"), []byte("input.schema_version == 5"))
-	transformed = bytes.ReplaceAll(transformed, []byte("input.schema_version == 4"), []byte("input.schema_version == 5"))
 	transformed = bytes.ReplaceAll(transformed, []byte("data.tobari"), []byte("data.tobari_contexts[input.principal.context_id]"))
 	return transformed, nil
 }
@@ -147,7 +145,7 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	builder.WriteString("package tobari.http\n\nimport rego.v1\n\n")
 	builder.WriteString("default decision := {\"allow\": false, \"reason\": \"unknown or invalid Context authority\", \"credential_profile\": null, \"status_code\": 403, \"learnable\": false}\n\n")
 	builder.WriteString("decision := result if {\n")
-	builder.WriteString("  input.schema_version == 5\n")
+	builder.WriteString("  input.schema_version == 1\n")
 	builder.WriteString("  input.principal.cluster == \"default\"\n")
 	builder.WriteString("  data.tobari_contexts[input.principal.context_id]\n")
 	builder.WriteString("  object.get(input.request, \"graphql\", null) != null\n")
@@ -158,7 +156,7 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 			return nil, err
 		}
 		builder.WriteString("decision := result if {\n")
-		builder.WriteString("  input.schema_version == 5\n")
+		builder.WriteString("  input.schema_version == 1\n")
 		builder.WriteString("  input.principal.cluster == \"default\"\n")
 		builder.WriteString("  input.principal.context_id == \"")
 		builder.WriteString(item.manifest.ID)
@@ -390,7 +388,7 @@ func (r *Runtime) buildAggregateProjection(ctx context.Context) (aggregateProjec
 	if err := writeAtomicJSON(filepath.Join(policyDirectory, "data.json"), dataDocument); err != nil {
 		return aggregateProjection{}, err
 	}
-	credentialDocument := map[string]any{"version": "v2", "contexts": credentialContexts}
+	credentialDocument := map[string]any{"version": "v1", "contexts": credentialContexts}
 	if err := writeAtomicJSON(filepath.Join(temporary, "credentials.json"), credentialDocument); err != nil {
 		return aggregateProjection{}, err
 	}

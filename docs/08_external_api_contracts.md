@@ -15,11 +15,11 @@ no provider-specific policy operation or raw provider API surface.
 ## OPA input
 
 Gateway posts one JSON document to
-`http://opa:8181/v1/data/tobari/http/decision` with schema version `5`:
+`http://opa:8181/v1/data/tobari/http/decision` with schema version `1`:
 
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 1,
   "principal": {
     "cluster": "default",
     "context_id": "01912345-6789-7abc-8def-0123456789ad",
@@ -41,7 +41,7 @@ Gateway posts one JSON document to
 
 `principal.context_id` and `principal.project_id` are required canonical UUIDv7
 values established together from the kernel-observed Workspace source endpoint
-and owner-only schema-3 principal registry. Neither value is copied from a caller header, environment,
+and owner-only schema-1 principal registry. Neither value is copied from a caller header, environment,
 request URL, session field, provider ID, handle, or profile name. OPA uses the
 Context ID at the fixed endpoint to select policy and denies an unknown,
 absent, or mismatched principal without falling back to the current/default
@@ -122,8 +122,8 @@ Anthropic uses this static path only at exact `https://api.anthropic.com:443`:
 the Workspace bearer is a project handle, Broker resolves the stored setup
 token only after allow, and no refresh operation exists.
 
-For the schema-2 Datadog plan, Gateway recognizes only an exact bearer handle
-at `https://api.datadoghq.com:443`, introspects the full declared schema-2
+For the schema-1 Datadog plan, Gateway recognizes only an exact bearer handle
+at `https://api.datadoghq.com:443`, introspects the full declared schema-1
 binding, and obtains OPA allow before sending one same-revision `resolve`.
 Broker then selects an access token with more than five minutes remaining or
 performs one single-flight refresh. Refresh is an exact form POST to
@@ -137,7 +137,7 @@ commit. An unknown outcome disables the credential until Datadog re-login or
 logout. Gateway receives only the selected access token and applies it to the
 declared Authorization header before one upstream attempt.
 
-For the schema-2 OpenAI plan, Gateway recognizes only an exact bearer handle at
+For the schema-1 OpenAI plan, Gateway recognizes only an exact bearer handle at
 `https://chatgpt.com:443`. It removes the bearer and every caller-supplied
 `ChatGPT-Account-ID` or `X-OpenAI-FedRAMP` routing header before introspection,
 OPA, audit, or upstream processing. Deny performs no resolution or refresh.
@@ -158,7 +158,7 @@ injects the Broker-owned `chatgpt-account-id`, and makes one upstream attempt.
 An unknown outcome disables the credential until OpenAI re-login or logout;
 Workspace Codex never performs refresh.
 
-For the schema-2 AWS plan, Gateway accepts only an AWS4-HMAC-SHA256 header whose
+For the schema-1 AWS plan, Gateway accepts only an AWS4-HMAC-SHA256 header whose
 credential and security-token placeholders contain the same project handle,
 whose scope/date/signed-header structure is unambiguous, and whose target is
 HTTPS 443 below commercial-partition `amazonaws.com` with a reviewed commercial
@@ -357,7 +357,7 @@ same-region redirect; any mismatch remains visible text without a browser side
 effect. The terminal URL remains the manual fallback. After success Tobari
 accepts only a single validated `login_session` ARN whose 12-digit account
 matches the stored secret-free label, the same region/output, and bounded
-canonical SHA-256-named JSON cache files. That strict schema-2 state is bound
+canonical SHA-256-named JSON cache files. That strict schema-1 state is bound
 to `aws_cli_console_login`; companion execution rejects either driver ID with
 the other state shape.
 
@@ -453,7 +453,7 @@ guarantee.
 
 ## Gateway audit
 
-Every validated ordinary allow/deny audit record uses `schema_version: 2` and contains
+Every validated ordinary allow/deny audit record uses `schema_version: 1` and contains
 Context name and stable ID, project ID and safe root, cluster, request
 authority, method, redacted path, decision, reason, adapter-dependent credential
 profile name, upstream outcome, and timing. It contains no query or headers.
@@ -463,7 +463,7 @@ URL/header handle rejections are non-learnable and cannot become policy
 candidates. A broker provider may be present only as secret-free authorization
 metadata; a handle, credential revision, primary secret, request body, and raw
 authorization value are excluded. Host-side
-For GraphQL, audit schema 3 emits one record per canonical root with only
+For GraphQL, the same audit schema 1 emits one record per canonical root with only
 `protocol: graphql`, `graphql_operation_type`, and `graphql_root_field` added;
 it never retains the document or variables. Host-side denial, candidate,
 learned-rule, and compaction projections retain the same
@@ -498,26 +498,20 @@ An unsupported or malformed request at a declared GraphQL endpoint returns a
 secret-free local 400 parser code and never reaches OPA or upstream.
 Other Gateway normalization failures remain secret-free 4xx/5xx failures.
 
-## Schema and compatibility
+## Exact V1 contracts
 
-The OPA input schema version `5`, ordinary audit schema version `2`, GraphQL
-audit schema version `3`, decision fields,
-timeouts, attempt count, owner provider schema `1`, built-in/projection schema
-`2`, broker control/runtime schema `1`, private companion epoch/frame schema
-`1`, encrypted vault envelope schema `1` and payload schema `2`, handle prefix
-`tobari-h1_`, and Gateway/Auth Broker image API labels `5` for Gateway and `3`
-for Auth Broker are explicit pre-v1 compatibility boundaries. Valid schema-1 static
-provider projections and vault payloads remain readable through their strict
-compatibility/migration paths. Gateway does not accept former OPA input shapes,
-incomplete decisions, or unknown broker frames.
+OPA input, ordinary and GraphQL audits, decisions, provider manifests and
+projections, broker control/runtime and private companion frames, encrypted
+vault envelope and payload, and Gateway/Auth Broker image APIs all use V1.
+Readers accept exactly V1 and reject every other version, incomplete decision,
+or unknown frame; no migration or compatibility reader exists.
 
-The reviewed immutable Gateway API-3/Auth Broker API-2 digests currently
-recorded in `versions.env` are historical publication facts. They predate and
-are incompatible with this API-5/API-3 source contract, so normal standard
-startup must reject them. The explicit `task build:dev` and `bin/tobari-dev`
-path plus the separately built applicable agent runtime can validate the
-canonical source until new immutable reviewed indexes are published and the
-pins advance; development images are not release authority.
+Official immutable Gateway/Auth Broker V1 indexes are not yet published and
+reviewed, so `versions.env` records the paired `unpublished` marker. The
+explicit `task build:dev` and `bin/tobari-dev` path plus the separately built
+applicable agent runtime validate canonical source until reviewed immutable
+Linux amd64/arm64 indexes replace both markers; development images are not
+release authority.
 Codex and Claude runtime images remain local/CI-only pending redistribution and
 image-layer license review.
 Public auth backend values are exactly `macos_keychain|xdg_file`, and cluster
@@ -526,13 +520,11 @@ status may additionally report `unavailable`; the infrastructure/doctor label
 socket, handle, and backend inventory is in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
 
-The principal registry remains schema version 2. Each Context policy data
-source uses `tobari.schema_version=2`; the optional exact
-`boundary.graphql_endpoints` array is additive, and absence retains legacy
-ordinary HTTP behavior. Aggregate projection schema 1 loads one
+The principal registry uses schema version 1. Each Context policy data source
+uses `tobari.schema_version=1`; `boundary.graphql_endpoints` explicitly
+declares exact GraphQL classification points and absence means none. Aggregate projection schema 1 loads one
 current shared evaluator for every data-only Guided Context. Advanced Rego
-source targets OPA input schema 4, accepts source schema 3 only for
-compatibility, and rewrites either source version to runtime schema 5. It
+source and runtime OPA input use exact schema 1. It
 stores Context data below `tobari_contexts[context_id]` and rejects other
 shapes. Guided Contexts share one system evaluator. GraphQL input always routes
 through that system evaluator, including for an Advanced Context, so older or
@@ -556,7 +548,7 @@ vaults, or raw authenticated output.
 
 ## Policy testing
 
-Pinned OPA tests prove schema-5 rejection of older or incomplete input,
+Pinned OPA tests prove schema-1 rejection of unsupported or incomplete input,
 deny-by-default behavior, structured authority and port boundaries,
 ordinary body-independent decisions, declared-endpoint no-fallback behavior,
 all-root GraphQL authorization, Context/project-bound learned rules, null versus
@@ -567,7 +559,7 @@ allow, same-account OpenAI token selection/refresh and Broker-owned account
 header only after allow, Anthropic static resolution with no refresh, two-stage
 same-revision AWS signing after allow and
 complete-body hashing, zero companion calls on deny, one bounded host export on
-allow, stale refresh rejection, and fallback compatibility. Companion tests
+allow, stale refresh rejection, and fallback behavior. Companion tests
 prove authenticated direction/sequence/replay/frame contracts and no listener
 or host socket mount.
 Fallback tests require marker absence in every inspected URL/header position;
@@ -577,5 +569,5 @@ non-learnable structural handle rejection.
 The automated integration validates the exact Codex `.codex/auth.json`
 projection and exercises its binding with direct synthetic Gateway requests.
 It does not execute Codex to claim client login-status recognition, verbatim
-handle forwarding, or absence of client refresh; those version-pinned
-compatibility observations remain isolated/manual release evidence.
+handle forwarding, or absence of client refresh; those version-pinned client
+observations remain isolated/manual release evidence.

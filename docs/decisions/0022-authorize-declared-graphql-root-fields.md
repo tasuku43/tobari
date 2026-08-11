@@ -6,6 +6,8 @@
 - Scope: Product, architecture, security, harness, and public boundary
 - Supersedes: [ADR 0006: Send generic HTTP input to OPA](0006-send-generic-http-input-to-opa.md)
 - Superseded by: None
+- Revised by: ADR 0027 places GraphQL input, audit, and policy output inside
+  exact V1
 
 ## Context
 

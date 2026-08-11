@@ -213,7 +213,7 @@ func TestAuthDoctorVerifiesMatchingProjectBindingWithExactHostOwnedDimensions(t 
 
 	checks := runAuthDiagnostics(fixture.runtime)
 	providerCheck := requireAuthDiagnostic(t, checks, "auth_provider_manifests", doctor.CheckStatusPass)
-	if providerCheck.Detail != "6 credential-provider manifests normalize to projection schema v2" {
+	if providerCheck.Detail != "6 credential-provider manifests normalize to projection schema V1" {
 		t.Fatalf("provider manifest diagnostic = %q", providerCheck.Detail)
 	}
 	requireAuthDiagnostic(t, checks, "auth_broker", doctor.CheckStatusPass)

@@ -6,6 +6,8 @@
 - Scope: Product, architecture, security, authentication, external I/O, harness, public boundary, and release
 - Supersedes: [ADR 0019: Add a shared locked Auth Broker for Context credentials](0019-shared-locked-auth-broker.md)
 - Superseded by: None
+- Revised by: ADR 0027 places typed built-in plans inside exact V1 and removes
+  payload migration
 
 ## Context
 

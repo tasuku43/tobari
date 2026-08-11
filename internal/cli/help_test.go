@@ -194,7 +194,7 @@ func TestRootAgentHelpIsACompactProjectionOfTheCatalog(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("agent help is not JSON: %v\n%s", err, stdout.String())
 	}
-	if document.SchemaVersion != 9 || agentHelpSchemaVersion != 9 || document.View != "index" || document.Program != ProgramName {
+	if document.SchemaVersion != 1 || agentHelpSchemaVersion != 1 || document.View != "index" || document.Program != ProgramName {
 		t.Fatalf("agent document header = %+v", document)
 	}
 	if document.ScopeRequest.InvocationTemplate != "tobari help <command-or-namespace> --format agent" ||
@@ -238,7 +238,7 @@ func TestScopedAgentHelpIsACompleteProjectionOfEveryCatalogCommand(t *testing.T)
 			if len(document.GlobalInputs) != 1 || document.GlobalInputs[0].Name != "--error-format" ||
 				!reflect.DeepEqual(document.GlobalInputs[0].AllowedValues, []string{"text", "json"}) ||
 				document.ErrorContract.CommandErrorsField != "commands[].contract.errors" || len(document.ErrorContract.ExitCodes) != 12 ||
-				len(document.ErrorContract.GlobalErrors) != 7 || document.ErrorContract.JSONSchemaVersion != 1 {
+				len(document.ErrorContract.GlobalErrors) != 6 || document.ErrorContract.JSONSchemaVersion != 1 {
 				t.Fatalf("global agent contract = %+v / %+v", document.GlobalInputs, document.ErrorContract)
 			}
 			if document.IOContract.SuccessStream != "stdout" || document.IOContract.ErrorStream != "stderr" ||
@@ -341,7 +341,7 @@ func TestAgentHelpRootAndScopedShapeSnapshots(t *testing.T) {
 	for index, command := range scopedCommands {
 		t.Run(fmt.Sprintf("scoped_command_%d", index), func(t *testing.T) {
 			assertJSONKeys(t, command, []string{"args", "consumes_refs", "contract", "effect", "machine_invocations", "path", "produces_refs", "role", "summary", "usage"})
-			if _, legacy := command["next_actions"]; legacy {
+			if _, unexpected := command["next_actions"]; unexpected {
 				t.Fatal("scoped agent help retained command-local reference next_actions")
 			}
 			var contract map[string]json.RawMessage
@@ -373,7 +373,7 @@ func TestAgentHelpRootAndScopedShapeSnapshots(t *testing.T) {
 			assertJSONKeys(t, output, []string{
 				"collection_coverage", "default_format", "delivery", "fields", "formats", "json_envelope", "json_envelope_type", "json_schema_version",
 			})
-			if _, legacy := output["completeness"]; legacy {
+			if _, unexpected := output["completeness"]; unexpected {
 				t.Fatal("scoped agent help retained the ambiguous output completeness field")
 			}
 		})
@@ -703,7 +703,7 @@ type workflowEdge struct {
 	Consumer      agentWorkflowConsumer
 }
 
-type legacyAgentWorkflow struct {
+type pairExpandedAgentWorkflow struct {
 	ReferenceKind string                `json:"reference_kind"`
 	Producer      agentWorkflowProducer `json:"producer"`
 	Consumer      agentWorkflowConsumer `json:"consumer"`
@@ -764,7 +764,7 @@ func TestDerivedScaleScopedAgentHelpFitsWholeResponseBudget(t *testing.T) {
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 9 || len(document.Commands) != len(selected) || len(document.Workflows) != 1 ||
+	if document.SchemaVersion != 1 || len(document.Commands) != len(selected) || len(document.Workflows) != 1 ||
 		len(document.Workflows[0].Producers) != 18 || len(document.Workflows[0].Consumers) != 18 {
 		t.Fatalf("derived-scale grouped document = schema %d commands %d workflows %+v", document.SchemaVersion, len(document.Commands), document.Workflows)
 	}
@@ -772,25 +772,25 @@ func TestDerivedScaleScopedAgentHelpFitsWholeResponseBudget(t *testing.T) {
 		t.Fatalf("derived-scale grouped edges = %d, want %d", len(got), len(want))
 	}
 
-	legacyWorkflows := pairExpandGroupedWorkflows(document.Workflows)
+	pairExpandedWorkflows := pairExpandGroupedWorkflows(document.Workflows)
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &raw); err != nil {
 		t.Fatal(err)
 	}
-	raw["workflows"], err = json.Marshal(legacyWorkflows)
+	raw["workflows"], err = json.Marshal(pairExpandedWorkflows)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyEncoded, err := json.Marshal(raw)
+	pairExpandedEncoded, err := json.Marshal(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyEncoded = append(legacyEncoded, '\n')
-	if len(legacyEncoded) <= maxScopedHelpBytes {
-		t.Fatalf("synthetic corpus no longer exposes Cartesian growth: pair-expanded help = %d bytes, budget = %d", len(legacyEncoded), maxScopedHelpBytes)
+	pairExpandedEncoded = append(pairExpandedEncoded, '\n')
+	if len(pairExpandedEncoded) <= maxScopedHelpBytes {
+		t.Fatalf("synthetic corpus no longer exposes Cartesian growth: pair-expanded help = %d bytes, budget = %d", len(pairExpandedEncoded), maxScopedHelpBytes)
 	}
 	t.Logf("derived-scale scoped help: grouped=%d bytes pair-expanded=%d bytes budget=%d bytes edges=%d",
-		len(encoded), len(legacyEncoded), maxScopedHelpBytes, len(legacyWorkflows))
+		len(encoded), len(pairExpandedEncoded), maxScopedHelpBytes, len(pairExpandedWorkflows))
 }
 
 func derivedScaleHelpCatalog(t *testing.T) Catalog {
@@ -858,12 +858,12 @@ func groupedWorkflowEdges(workflows []agentWorkflow) map[workflowEdge]struct{} {
 	return edges
 }
 
-func pairExpandGroupedWorkflows(workflows []agentWorkflow) []legacyAgentWorkflow {
-	expanded := make([]legacyAgentWorkflow, 0)
+func pairExpandGroupedWorkflows(workflows []agentWorkflow) []pairExpandedAgentWorkflow {
+	expanded := make([]pairExpandedAgentWorkflow, 0)
 	for _, workflow := range workflows {
 		for _, producer := range workflow.Producers {
 			for _, consumer := range workflow.Consumers {
-				expanded = append(expanded, legacyAgentWorkflow{
+				expanded = append(expanded, pairExpandedAgentWorkflow{
 					ReferenceKind: workflow.ReferenceKind,
 					Producer:      producer,
 					Consumer:      consumer,

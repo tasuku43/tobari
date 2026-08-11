@@ -152,11 +152,11 @@ non-learnable and cannot become policy candidates.
   exact learned rule exists.
 - **provider manifest:** strict non-secret data declaring acquisition,
   Workspace handle projections, and exact credential bindings. Owner manifests
-  remain schema v1 static-secret/header plans. Schema v2 is reserved for
-  reviewed built-ins and may name one typed credential/signing plan; it still
+  are V1 static-secret/header plans. Reviewed built-ins use typed closed plans
+  within the same V1 authority; neither form
   declares no executable shell, arbitrary route, HTTP method/path policy, or
   provider operation semantics.
-- **credential profile:** non-secret Gateway configuration for the retained
+- **credential profile:** non-secret Gateway configuration for the static
   managed adapter; it binds a Context-scoped profile name to exact hosts and
   project principals.
 - **Context:** one host-owned logical execution setup with a stable opaque ID
@@ -221,14 +221,13 @@ The public commands are:
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
 | `policy review [--tail N] [--format text|json]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; on a TTY, stage exact allow or deny choices from detail and apply the reviewed set once; redirected and JSON output remain read-only |
 | `policy apply-reviewed` | act, fixed target | write | Catalog-owned completion action for a non-empty typed set staged inside an interactive Permission Inbox; direct invocation is rejected |
-| `policy tail [--tail N]` | discover | read | Review the bounded pending queue with exact allow and deny commands |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
 | `policy reset --id ID` | act, reference bound | write | Remove one learned decision and leave its effect at default deny |
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
-| `context list [--format text|json]` | utility | read | List persisted or unmigrated named Contexts and report the current selection as persisted, legacy-unmigrated, or a display-only synthetic default |
+| `context list [--format text|json]` | utility | read | List persisted named Contexts and report the current selection as persisted or a display-only synthetic default |
 | `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, agent, policy, managed-adapter store references, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
@@ -248,7 +247,7 @@ equivalent. Omission resolves the current Context without changing it;
 duplicate or explicit-empty placement is invalid. After name resolution, the
 stable Context ID is authoritative for the remainder of the operation.
 
-`cluster status --format json` uses output schema 6. Its `cluster` object keeps
+`cluster status --format json` uses output schema 1. Its `cluster` object keeps
 the three shared container components and adds always-present secret-free
 `credential_companion_state`, exactly `ready`, `prepared`, `absent`, or
 `unavailable`. The field reports the resident host process/channel
@@ -416,9 +415,8 @@ undeclared Docker mutation by the CLI.
   explicit empty value. `--value` is invalid for the other sources. The fixed
   inventory is `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`; it excludes
   `PATH`, `HOME`, `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, credential variables,
-  and arbitrary names. New Contexts and Contexts migrated from schemas 1–3
-  select `PS1=inherit`; schema-4 migration preserves its existing shell
-  policy. When the launcher has no exported `PS1`, the built-in `\h:\w\$ `
+  and arbitrary names. A new V1 Context selects `PS1=inherit`. When the
+  launcher has no exported `PS1`, the built-in `\h:\w\$ `
   prompt remains.
   Running sessions are unchanged, and no host startup file is sourced or
   mounted. Literal values are ordinary owner-only configuration and must not
@@ -427,7 +425,7 @@ undeclared Docker mutation by the CLI.
   explicit or current Context. `default` removes Tobari's fallback; `inherit`
   resolves only a complete pair from host-global Git configuration for each
   stable Workspace root during reconciliation; `literal` requires both
-  non-empty `--name` and `--email`. New and migrated Contexts use `default`,
+  non-empty `--name` and `--email`. New Contexts use `default`,
   and an absent or incomplete inherited pair adds no fallback. The projected
   system-scope value is lower precedence than Workspace global and
   repository/worktree configuration. No Git file/path/include directive,
@@ -477,8 +475,7 @@ undeclared Docker mutation by the CLI.
   corresponding redistribution and license review is complete.
 - Project metadata does not select or alter the runtime image. Workspaces use
   their permanently bound Context image when created and again when their runtime container
-  is reconciled by root entry, or an explicitly supplied `--image` for the
-  legacy named lifecycle command; all selected images still pass the same
+  is reconciled by root entry; all selected images still pass the same
   compatibility checks before Docker mutation. If an existing Workspace's
   bound Context image changes, the next matching-Context `tobari` entry preserves the
   Workspace home and root record, recreates only the work container when the
@@ -505,20 +502,20 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Surface | Envelope | Schema |
 | --- | --- | ---: |
 | Structured error | `error` | 1 |
-| Agent help (`view: index` and input-selected `view: scope`) | `commands` | 9 |
+| Agent help (`view: index` and input-selected `view: scope`) | `commands` | 1 |
 | Version | `build_identity` | 1 |
-| Doctor report | `report` | 2 |
-| Context list | `contexts` | 4 |
-| Context report (show/create/use/config/runtime results) | `context` | 8 |
-| Cluster status | `cluster` | 6 |
-| Cluster denials | `denials` | 4 |
-| Policy candidates | `policy_candidates` | 5 |
-| Policy review | `policy_review` | 5 |
-| Policy rules | `policy_rules` | 3 |
-| Policy compactions | `policy_compactions` | 3 |
-| Authentication result and status | `auth` | 4 |
-| Workspace list | `tobari` | 2 |
-| Workspace status | `status` | 4 |
+| Doctor report | `report` | 1 |
+| Context list | `contexts` | 1 |
+| Context report (show/create/use/config/runtime results) | `context` | 1 |
+| Cluster status | `cluster` | 1 |
+| Cluster denials | `denials` | 1 |
+| Policy candidates | `policy_candidates` | 1 |
+| Policy review | `policy_review` | 1 |
+| Policy rules | `policy_rules` | 1 |
+| Policy compactions | `policy_compactions` | 1 |
+| Authentication result and status | `auth` | 1 |
+| Workspace list | `tobari` | 1 |
+| Workspace status | `status` | 1 |
 <!-- public-cli-json-schemas:end -->
 
 Workspace status always reports the selected Context ID/name, logical
@@ -533,9 +530,9 @@ observations use declared finite values and never an empty-string sentinel.
 The infrastructure/doctor label `linux_xdg_file` is not a public
 auth or cluster JSON enum. Their items associate Context name,
 stable Context ID, Tobari ID, safe project root, HTTP effect, observation data
-where applicable, and one opaque mutation reference. Agent help uses the
-catalog schema. Schema 9 adds recursive field declarations and executable
-success/error invocation forms to scoped help; it also keeps internal
+where applicable, and one opaque mutation reference. Agent help uses the V1
+catalog schema, including recursive field declarations and executable
+success/error invocation forms in scoped help; it also keeps internal
 interactive completion commands outside public discovery and help.
 Successful data is stdout;
 failures are stderr.
@@ -594,7 +591,7 @@ explicit confirmation. Refresh preserves choices by candidate ID and drops
 stale IDs rather than matching labels. Confirmed output carries the active OPA
 revision plus each ordered exact Context/project/effect/candidate decision and
 directs the caller to retry in the current running Workspace. The public
-read-only JSON review schema remains version 5 and does not expose this
+read-only JSON review schema remains version 1 and does not expose this
 internal TTY Apply receipt.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
@@ -616,7 +613,7 @@ Next guidance. `NO_COLOR` selects no alternate terse or tabular renderer.
 Markers, words, and layout carry the same status meaning without color.
 `doctor` defaults to this human text
 view; `doctor --format tsv` remains the tab-separated projection for scripts,
-and JSON/agent help remain schema contracts. Doctor JSON schema 2 declares
+and JSON/agent help remain schema contracts. Doctor JSON schema 1 declares
 `check`, `status`, `detail`, nullable `blocked_by`, and nullable `recovery`;
 recovery contains required `action` and `next_command`. TSV flattens those same
 facts without inferring recovery from labels or row order.
@@ -717,9 +714,8 @@ Within that window, candidates aggregate by exact Context identity, project
 principal, host, port, method, normalized path, and optional GraphQL operation
 type/root field. Reason, status, request ID, timestamp, and
 credential-profile evidence do not create a second permission identity. The
-candidate retains the latest matching evidence and reports the number of
-matching retained observations; a missing count in the legacy additive shape
-means one. Concurrent identical audit records therefore project to one pending
+candidate retains the latest matching evidence and reports the required number
+of matching retained observations. Concurrent identical audit records therefore project to one pending
 item without a separate mutable inbox write. A current learned Allow or exact
 Deny remains the resolved history and is never updated by discovery. After an
 explicit reset, retained matching evidence may produce the same stable pending
@@ -735,13 +731,11 @@ Configuration is resolved from
 A declared read observes these paths without creating them. On a fresh
 installation, omitted Context selection may return `synthetic_default` with
 JSON `null` for Context ID and stores; it does not create `contexts/active.json`
-or a manifest. Schema-1/2 Contexts without IDs report `legacy_unmigrated` and
-remain byte-for-byte unchanged until the first authorized create/write
-revalidates and atomically migrates them. Unsafe or corrupt existing state
-fails closed instead of becoming synthetic state.
+or a manifest. Persisted state must use the exact current V1 contract. Missing,
+malformed, or unsupported-version state fails closed instead of becoming
+synthetic state.
 
-- `config.json`: schema-v1 default Tobari image selector;
-- `contexts/<name>/context.json`: host-owned schema-v5 Context manifest with a
+- `contexts/<name>/context.json`: host-owned schema-v1 Context manifest with a
   stable UUIDv7 Context ID, the named agent profile, compatible Tobari runtime
   image selector, guided/advanced policy mode, allowlisted shell-environment
   overrides, and an optional non-default Git identity policy;
@@ -761,22 +755,19 @@ fails closed instead of becoming synthetic state.
 - `auth/providers/*.json`: optional owner-only schema-v1 provider manifests;
   user manifests cannot replace built-ins and may use protected non-terminal stdin import
   only;
-- `contexts/active.json`: compatibility-named owner-only current/default Context
+- `contexts/active.json`: owner-only current/default Context
   selection; missing means `default` and the marker has no enforcement authority;
-- `principal-registry/principals.json`: owner-only host-issued schema-v3
+- `principal-registry/principals.json`: owner-only host-issued schema-v1
   Context/project-to-owned-Workspace-and-Gateway endpoint bindings, maintained by lifecycle reconciliation
   and directory-mounted read-only into Gateway so atomic host updates remain
   visible without exposing credential files;
-- Legacy top-level `policy/`, `credentials.json`, and `credentials/` are read
-  only during the one-time default Context compatibility migration and remain
-  untouched for rollback/diagnosis. The default passthrough adapter does not
-  load managed credential files;
+The default passthrough adapter does not load managed credential files.
 
 Tool authentication state is not cluster configuration. It belongs below the
 selected instance's persistent home and is created by the tool's own login or
 configuration flow. Brokered authentication is separate installation state:
-the normalized schema-v2 provider projection is generated below
-`auth/projection/providers.json`; schema-1-envelope/schema-2-payload Context
+the normalized schema-v1 provider projection is generated below
+`auth/projection/providers.json`; schema-1-envelope/schema-1-payload Context
 vaults are below
 `auth/contexts/<context-id>/vault.enc`; the Linux root key is the owner-only
 `auth/keys/root.key`; runtime sockets are below `auth/runtime`; and schema-v1
@@ -788,20 +779,18 @@ The complete canonical schema/path/backend table is in
 
 Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`:
 `roots/<hash>.json` indexes `(canonical root, stable Context ID)` and
-`instances/<id>/state.json` schema 2 contains one logical instance, its
+`instances/<id>/state.json` schema 1 contains one logical instance, its
 permanent Context binding, and diagnostic runtime identifiers.
 `instances/<id>/home` is the independent writable home for tool-owned state;
 homes are never shared merely because Contexts or roots match.
 Shared read-only agent profiles referenced by Contexts are under
 `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles`.
-Persisted cluster state schema 4 contains the content-addressed aggregate policy revision,
+Persisted cluster state schema 1 contains the content-addressed aggregate policy revision,
 loaded Context count, aggregate projection paths, and Docker resource names or
 identifiers, never one active Context authority or credential contents. The
-loader accepts only the exact prior schema-3 explicit-proxy state, removes its
-fixed retired endpoint, and atomically persists schema 4; no listener or
-environment compatibility path is recreated. The
-owner-only projection contains a schema-v2 Context-aware Gateway credential
-document and Context-ID secret subdirectories plus the non-secret schema-v2
+loader accepts only exact V1 state. The owner-only projection contains a
+schema-v1 Context-aware Gateway credential document and Context-ID secret
+subdirectories plus the non-secret schema-v1
 provider projection. The per-Tobari home may contain tool credentials and
 broker handles by design, but never a brokered primary secret.
 Project and cluster mutation journals are durable recovery markers. An
@@ -816,9 +805,8 @@ bounded fixed-key host-global reads for `user.name` and `user.email`. Neither
 path enumerates its source, and neither copies host credential values or source
 configuration into the runtime.
 
-Image selection uses the selected Tobari's bound Context image selector. The
-legacy `config.json.default_image` seeds the default Context once, and `builtin`
-is used when no legacy setting exists. Project metadata does not override the
+Image selection uses the selected Tobari's bound Context image selector. A
+new Context uses `builtin` until its manifest selects another image. Project metadata does not override the
 Context image; the stored project image is updated only after a successful
 runtime-container reconciliation from the bound Context image.
 
@@ -842,8 +830,7 @@ projection has one fixed `tobari.http/decision` router, Context-ID data
 namespaces, one shared guided evaluator, and isolated Advanced package names.
 Guided Contexts own policy data but no executable Rego source; projection uses
 the current Tobari-owned shared evaluator and tests. Advanced Context source
-targets input schema 4, may retain source schema 3 for compatibility, and is
-rewritten to Gateway runtime input schema 5 before testing and activation.
+and Gateway runtime input both use exact schema 1 before testing and activation.
 Exact policy mutations lock aggregate generation, test the changed Context
 source privately, generate and test the complete all-Context candidate, publish
 it by building a revision-named archive and atomically renaming it inside one
@@ -1021,48 +1008,22 @@ by recreation and removes only unchanged Tobari-owned complete files. `auth
 status` is read-only and reports locked or unavailable Broker state as provider
 availability uncertainty rather than inferring absence from an unreadable vault.
 
-## Compatibility
+## Pre-public V1 boundary
 
-Before v1.0, command details and configuration schema may change with release
-notes. Legacy named state is not guessed or migrated automatically; users clean
-it with the matching older binary before adopting the CWD-owned lifecycle.
-The pre-v1 positional `auth login PROVIDER` form is replaced by
-`auth login --provider PROVIDER` without an alias; omitting `--provider`
-deliberately enters the terminal selector instead of guessing a provider.
-Legacy named lifecycle invocations are rejected explicitly and direct users to
-run `tobari` from the project directory. No compatibility alias recreates the
-old name/root lifecycle.
-The pre-v1.0 `context shell configure` path is replaced by `config shell`
-without an alias. Context manifest schema 4 migrates atomically to schema 5,
-preserving its stable ID, runtime recipe, and exact shell overrides while
-adding no Git identity. Context report schema advanced from 5 to 6 for that
-projection, from 6 to 7 for nullable absent credential facts, and now to 8 for
-explicit Context persistence state and nullable pre-authority identity/stores.
-Context list advances to schema 4, auth result/status to schema 4, and Workspace
-status to schema 4 for the same no-fake-authority boundary.
-Command names, resource labels, state schema, OPA input version, audit schema,
-Gateway decision schema, policy data and policy output schemas, auth JSON schema 4, provider/projection schemas 1 and
-2, broker protocol schema 1, private companion epoch/frame schema 1, vault
-envelope schema 1 and encrypted payload
-schema 2, the `tobari-h1_` handle prefix, root-key backend identifiers, Unix
-socket paths, and Auth Broker image API/role labels remain explicit
-compatibility boundaries. Their canonical values and paths are defined in
-[Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
+All Tobari-owned command outputs, persisted state, OPA input and decisions,
+audits, provider/projection/vault records, private protocols, and component APIs
+use schema/API V1. Readers accept exactly V1 and fail closed on every other
+version. Tobari has not been published, so it provides no migration, retired
+command alias, old state interpretation, or compatibility shim for earlier
+development snapshots. Development state must be removed and recreated when
+the V1 contract changes.
 
-The canonical source capability requires Gateway image API 5 and Auth Broker
-image API 3, advanced respectively from 4 and 2. Gateway API 5 adds the fixed
-namespace guard, transparent HTTP/TLS ingress, synthetic DNS, and schema-3
-source-principal contract. Existing reviewed immutable
-published pins remain Gateway API 3 and Auth Broker API 2 and therefore do not
-silently gain this capability. Until reviewed immutable multi-architecture pins
-advance, brokered Codex/Claude OAuth is a contributor-local flow using the
-`tobari_dev` resolver and locally built images; this distinction preserves the
-historical published image record.
-`cluster up` compares those required and selected API identities before it
-reads or writes cluster state or calls Docker. A published mismatch reports
-the historical pin and current source APIs without advertising repository-only
-commands; a proven development image mismatch reports the exact
-`task build:dev` and `bin/tobari-dev cluster up` recovery.
+The canonical Gateway and Auth Broker source labels are both API V1. Their
+official immutable V1 image indexes have not yet been published and reviewed,
+so `versions.env` records the paired `unpublished` marker. Contributor builds
+use `task build:dev`; public and release gates reject the marker until reviewed
+multi-architecture V1 digests replace it atomically. `cluster up` compares
+required and selected identities before state loading or any Docker call.
 
 ## Unsupported outcomes
 

@@ -8,7 +8,7 @@ Workspaces permanently bound to a canonical project root and one Context; one
 selected read-write root and persistent home per Workspace; and the supported
 Docker topology for mediated HTTP and HTTPS. It covers the default tool-native
 passthrough credential route, the Auth Broker's project-bound opaque-handle
-route, and the retained static `managed` Gateway adapter.
+route, and the bounded static `managed` Gateway adapter.
 
 The model covers strict schema-1 static provider transformations and the
 closed reviewed built-in plans. AWS uses fixed trusted-host CLI login selected only
@@ -38,7 +38,7 @@ Trusted:
   the owner-only principal registry;
 - Auth Broker, the installation root key, encrypted Context vaults, normalized
   provider projection, and owner-controlled provider manifests;
-- host credential storage used by the retained `managed` adapter; and
+- host credential storage used by the static `managed` adapter; and
 - explicit trusted-host choices of project root, Context, policy decision,
   credential acquisition, and credential removal.
 
@@ -71,11 +71,11 @@ an exact live broker binding, and an OPA allow.
 | OPA policy and decision API | Workspace reads, changes, or bypasses policy | Control network and read-only projection | OPA joins only control; Workspaces do not; OPA receives a validated read-only aggregate generated from host-owned Context sources |
 | Auth Broker control and runtime APIs | Workspace acquires or resolves a primary secret directly | Separate Unix sockets and mounts | Broker exposes no TCP listener and joins no Workspace network; host control uses a private control socket and only Gateway mounts the runtime socket |
 | Host credential companion | Workspace or network input turns refresh into host execution, replays a session, or reaches a listener | Private same-binary process plus authenticated reverse exec | No listener or host socket mount; fixed verified Broker container/exec argv; root-key-derived epoch, direction keys, strict sequence/frame/deadline schemas, and only the compiled reviewed AWS refresh operation |
-| Broker-owned Datadog/OpenAI refresh | Workspace input redirects OAuth refresh, uses ambient proxy state, controls OpenAI account routing, or triggers refresh before allow | Fixed schema-2 plans and post-policy Broker boundary | Exact Datadog US1 or OpenAI token endpoint, no redirect or ambient proxy, bounded strict exchange, same-revision per-record single-flight, account continuity for OpenAI, encrypted durable task barriers, and no refresh on OPA denial |
+| Broker-owned Datadog/OpenAI refresh | Workspace input redirects OAuth refresh, uses ambient proxy state, controls OpenAI account routing, or triggers refresh before allow | Fixed schema-1 plans and post-policy Broker boundary | Exact Datadog US1 or OpenAI token endpoint, no redirect or ambient proxy, bounded strict exchange, same-revision per-record single-flight, account continuity for OpenAI, encrypted durable task barriers, and no refresh on OPA denial |
 | Installation root key and encrypted Context vaults | Workspace obtains primary credentials or corrupts credential authority | Host root-key backend, authenticated encryption, and owner-only state | Broker starts locked; the 32-byte key enters through bounded stdin, stays in broker memory, and is never mounted into a Workspace; schema-1 vaults use AES-256-GCM with Context-bound associated data and checked atomic writes |
 | Project-bound broker capability | A copied, stale, or malformed handle resolves a real credential | Gateway recognition, principal registry, and Broker binding | Handle must match Context, project, provider, credential revision, exact HTTPS target, source syntax, destination transformation, and redaction binding; invalid markers fail closed without fallback |
 | Tool-owned authentication | Another Workspace reads or reuses it | Per-Workspace home and network | Tool state remains in that Workspace's exact home; all processes in the same Workspace may read it |
-| Retained managed secrets | Workspace reads or injects them | Gateway-only files and binding checks | Context-scoped owner-only files mount read-only only into Gateway; Context, project, host, and OPA-selected profile are checked before post-allow reading and injection |
+| Static managed secrets | Workspace reads or injects them | Gateway-only files and binding checks | Context-scoped owner-only files mount read-only only into Gateway; Context, project, host, and OPA-selected profile are checked before post-allow reading and injection |
 | Authorization integrity | Request, DNS lookup, or credential reaches upstream before authorization | Gateway request-header hook, synthetic DNS, and lazy upstream connection | Gateway establishes the source-bound principal, normalizes one transparent authority, prepares credential metadata, asks OPA once, applies credentials only after allow, then resolves/pins, creates a separate upstream connection, and enables body streaming |
 | Authority binding | An exact decision is replayed for a different effect | OPA decision and Gateway connection boundary | Learned rules bind Context, project, scheme, exact 1-65535 port, host, method, and raw path; arbitrary valid TCP ports do not collapse schemes or ports; Gateway classifies and pins resolved addresses |
 | GraphQL multiplexing | One coarse `POST /graphql` allow authorizes unrelated roots | Trusted endpoint declaration, bounded parser, and system OPA evaluator | Declared endpoints never fall back to HTTP rules; Gateway sends only query/mutation plus sorted canonical roots, every root needs an exact rule, and Advanced Context input cannot bypass the system GraphQL evaluator |
@@ -167,7 +167,7 @@ as project authority. It removes proxy/Tobari control headers and excludes
 recognized or configured secret header values from OPA input and audit.
 
 In default `passthrough`, tool-owned client authentication is forwarded only
-after allow. In retained `managed`, Gateway strips managed credential positions
+after allow. In static `managed`, Gateway strips managed credential positions
 and may add only an OPA-selected profile whose trusted Context, project, and
 host bindings match; it reads the Gateway-only secret only after allow.
 Ordinary application values can still be sent on an allowed route, and Tobari
@@ -179,7 +179,7 @@ A process writes another project or Context ID into a header, environment
 variable, URL, SNI, session value, or profile name. Gateway ignores those
 claims for caller authority. It observes the Workspace source endpoint on the
 accepted connection and resolves that exact address through the host-owned
-principal registry. The schema-3 registry binds one Context/project pair to
+principal registry. The schema-1 registry binds one Context/project pair to
 one dedicated owned network, exact Workspace endpoint, and exact Gateway
 endpoint. The runtime publishes it only after both endpoints and the Workspace
 guard are verified.
@@ -391,7 +391,7 @@ An old handle string may remain visible to that process, but Broker rejects it.
 
 Logout removes local Tobari credential state; it does not contact the provider
 or guarantee remote revocation. It does not remove tool-native credentials in
-a Workspace home or retained managed-adapter files. `cluster down` and
+a Workspace home or static managed-adapter files. `cluster down` and
 `cluster down --purge` preserve both encrypted Context vaults and the
 installation root key; purge additionally removes shared CA and active
 policy-bundle volumes and is not an authentication reset.

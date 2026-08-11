@@ -94,7 +94,7 @@ def load_project_principals(path: str) -> dict[str, dict[str, str]]:
         document = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise PrincipalError("project principal registry is invalid") from error
-    if not isinstance(document, dict) or document.get("schema_version") != 3:
+    if not isinstance(document, dict) or document.get("schema_version") != 1:
         raise PrincipalError("project principal registry version is invalid")
     bindings = document.get("bindings")
     if not isinstance(bindings, list):
@@ -409,7 +409,7 @@ def build_policy_input(
         requested_profile = request.headers.get(PROFILE_HEADER)
     secret_names = set(DEFAULT_SECRET_HEADERS) | extra_secret_names
     policy_input = {
-        "schema_version": 5,
+        "schema_version": 1,
         "principal": {
             "cluster": cluster,
             "context_id": principal["context_id"],
@@ -505,7 +505,11 @@ def load_credential_config(path: str) -> dict[str, Any]:
         document = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise CredentialError("credential configuration is invalid") from error
-    if not isinstance(document, dict) or document.get("version") != "v2":
+    if (
+        not isinstance(document, dict)
+        or set(document) != {"version", "contexts"}
+        or document.get("version") != "v1"
+    ):
         raise CredentialError("credential configuration version is invalid")
     contexts = document.get("contexts")
     if not isinstance(contexts, dict):
@@ -730,7 +734,7 @@ def _policy_denied(
         },
     }
     if graphql is not None:
-        document["tobari"]["schema_version"] = 2
+        document["tobari"]["schema_version"] = 1
         document["tobari"]["request"]["protocol"] = "graphql"
         document["tobari"]["request"]["graphql_operation_type"] = graphql.operation_type
         document["tobari"]["request"]["graphql_root_fields"] = list(graphql.root_fields)
@@ -739,7 +743,7 @@ def _policy_denied(
 
 
 def _audit(**fields: Any) -> None:
-    fields["schema_version"] = 3 if fields.get("protocol") == "graphql" else 2
+    fields["schema_version"] = 1
     print(json.dumps(fields, separators=(",", ":"), sort_keys=True), flush=True)
 
 
@@ -932,6 +936,7 @@ class TobariGateway:
                 "port": port,
                 "method": flow.request.method.upper(),
                 "path": audit_path,
+                "protocol": "http",
                 "decision": decision_name,
                 "reason": reason,
                 "credential_profile": profile_name,
@@ -1008,6 +1013,7 @@ class TobariGateway:
                     port=port,
                     method=flow.request.method.upper(),
                     path=audit_path,
+                    protocol="http",
                     decision=decision_name,
                     reason=reason,
                     credential_profile=profile_name,
@@ -1044,6 +1050,7 @@ class TobariGateway:
                 "port": port,
                 "method": flow.request.method.upper(),
                 "path": audit_path,
+                "protocol": "http",
                 "decision": "deny",
                 "reason": reason,
                 "credential_profile": profile_name,
@@ -1112,6 +1119,7 @@ class TobariGateway:
                 "port": port,
                 "method": flow.request.method.upper(),
                 "path": audit_path,
+                "protocol": "http",
                 "decision": "allow",
                 "reason": decision.reason,
                 "credential_profile": profile_name,

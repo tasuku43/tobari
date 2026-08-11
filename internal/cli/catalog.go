@@ -602,7 +602,7 @@ func defaultCatalog() Catalog {
 					CollectionCoverage: CollectionCoverageExhaustive,
 					JSONEnvelope:       "report",
 					JSONEnvelopeType:   OutputFieldTypeArray,
-					JSONSchemaVersion:  2,
+					JSONSchemaVersion:  1,
 				},
 				Prerequisites: []string{},
 				Errors: []CommandError{
@@ -658,7 +658,7 @@ func defaultCatalog() Catalog {
 					CollectionCoverage: CollectionCoverageExhaustive,
 					JSONEnvelope:       "commands",
 					JSONEnvelopeType:   OutputFieldTypeArray,
-					JSONSchemaVersion:  9,
+					JSONSchemaVersion:  1,
 				},
 				Prerequisites: []string{},
 				Errors: []CommandError{

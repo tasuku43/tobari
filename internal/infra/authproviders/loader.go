@@ -134,8 +134,8 @@ func loadUserProviders(directory string, builtinIDs map[string]struct{}) ([]auth
 		if _, builtin := builtinIDs[provider.ID]; builtin {
 			return nil, fmt.Errorf("user provider cannot override built-in provider %q", provider.ID)
 		}
-		if provider.SchemaVersion != authbroker.LegacyProviderSchemaVersion {
-			return nil, fmt.Errorf("user provider %q must use non-behavioral schema_version %d", provider.ID, authbroker.LegacyProviderSchemaVersion)
+		if provider.SchemaVersion != authbroker.ProviderSchemaVersion {
+			return nil, fmt.Errorf("user provider %q must use schema_version %d", provider.ID, authbroker.ProviderSchemaVersion)
 		}
 		if provider.Acquisition.Mode != authbroker.AcquisitionStdinImport {
 			return nil, fmt.Errorf("user provider %q must use stdin_import acquisition", provider.ID)

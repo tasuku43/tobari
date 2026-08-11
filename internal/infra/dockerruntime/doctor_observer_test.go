@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -307,77 +306,6 @@ func TestDoctorObserverFreshTreeIsExactlyReadOnly(t *testing.T) {
 	}
 	if len(report.Checks) != len(doctor.CheckInventory()) || len(runner.outputs) != 0 || len(runner.runs) != 0 {
 		t.Fatalf("fresh report/calls = %d/%v/%v", len(report.Checks), runner.outputs, runner.runs)
-	}
-}
-
-func TestDoctorObserverDoesNotMigrateLegacyContext(t *testing.T) {
-	for _, schemaVersion := range []int{tobari.LegacyContextSchemaVersion, tobari.LegacyContextSchemaVersion2} {
-		t.Run(fmt.Sprintf("schema_%d", schemaVersion), func(t *testing.T) {
-			fixtureRoot := t.TempDir()
-			installFakeDocker(t, fixtureRoot)
-			runner := &doctorObserverRunner{}
-			runtime, err := newRuntimeWithData(
-				filepath.Join(fixtureRoot, "config"), filepath.Join(fixtureRoot, "state"),
-				filepath.Join(fixtureRoot, "data"), runner,
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.MkdirAll(runtime.contextDirectory(tobari.DefaultContextName), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			legacy := tobari.ContextManifest{
-				SchemaVersion: schemaVersion, Name: tobari.DefaultContextName,
-				AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-				PolicyMode: tobari.ContextPolicyModeGuided,
-			}
-			if err := writeAtomicJSON(runtime.contextManifestPath(legacy.Name), legacy); err != nil {
-				t.Fatal(err)
-			}
-			if err := writeAtomicJSON(runtime.activeContextPath(), activeContextDocument{Name: legacy.Name}); err != nil {
-				t.Fatal(err)
-			}
-			writePolicyFixture(t, tobari.State{PolicyDirectory: runtime.contextPolicyDirectory(legacy.Name)}, minimalPolicyDataFixture)
-
-			manifestBefore, err := os.ReadFile(runtime.contextManifestPath(legacy.Name))
-			if err != nil {
-				t.Fatal(err)
-			}
-			activeBefore, err := os.ReadFile(runtime.activeContextPath())
-			if err != nil {
-				t.Fatal(err)
-			}
-			policyBefore, err := os.ReadFile(filepath.Join(runtime.contextPolicyDirectory(legacy.Name), "data.json"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			before := doctorTreeSnapshot(t, fixtureRoot)
-			report, err := runRuntimeDoctor(context.Background(), runtime, t.TempDir())
-			if err != nil {
-				t.Fatalf("Run() error = %v", err)
-			}
-			after := doctorTreeSnapshot(t, fixtureRoot)
-			if !reflect.DeepEqual(after, before) {
-				t.Fatalf("legacy doctor changed tree\nbefore=%v\nafter=%v", before, after)
-			}
-			for path, want := range map[string][]byte{
-				runtime.contextManifestPath(legacy.Name):                                manifestBefore,
-				runtime.activeContextPath():                                             activeBefore,
-				filepath.Join(runtime.contextPolicyDirectory(legacy.Name), "data.json"): policyBefore,
-			} {
-				got, err := os.ReadFile(path)
-				if err != nil || !reflect.DeepEqual(got, want) {
-					t.Fatalf("doctor changed %s: error=%v\ngot=%q\nwant=%q", path, err, got, want)
-				}
-			}
-			var persisted tobari.ContextManifest
-			if err := json.Unmarshal(manifestBefore, &persisted); err != nil || persisted.SchemaVersion != schemaVersion || persisted.ID != "" {
-				t.Fatalf("legacy manifest changed authority: %+v, %v", persisted, err)
-			}
-			if check := doctorObserverCheck(t, report, doctor.CheckIDPolicy); check.Status != doctor.CheckStatusPass {
-				t.Fatalf("policy = %+v, want host-only source validation pass", check)
-			}
-		})
 	}
 }
 

@@ -12,7 +12,7 @@ container that happens to execute its processes is replaceable.
 The Context supplies host-owned runtime, policy, agent, and credential
 configuration. One installation shares a cluster of enforcement services, but
 it does not share Workspace identity, home, or project network. This separation
-also means that switching the current Context does not migrate an existing
+also means that switching the current Context does not retarget an existing
 Workspace, and the same project root can have a distinct Workspace under
 another Context. The surrounding network roles are introduced in the [system overview](/how-it-works/system-overview/).
 
@@ -39,7 +39,7 @@ A **Context** is a host-owned execution setup with a stable opaque ID and human 
 - a compatible runtime image;
 - a read-only agent profile;
 - guided or advanced policy sources;
-- retained managed-credential stores; and
+- static managed-credential stores; and
 - provider configuration whose encrypted Broker vault is stored separately.
 
 The manifest itself contains no root key, primary broker secret, or vault content. The **current Context** is only the default used when a command omits `--context`; it is not shared enforcement authority.
@@ -120,7 +120,7 @@ The Workspace is the durable product concept. Context is its permanent host-owne
 You should now be able to explain what changes—and what does not—when Context or runtime state changes.
 
 <details>
-  <summary>Does `context use` migrate existing Workspaces?</summary>
+  <summary>Does `context use` retarget existing Workspaces?</summary>
   No. It changes only the default for later commands that omit an explicit
   Context. Existing Workspaces retain their stored Context ID.
 </details>
