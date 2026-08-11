@@ -41,6 +41,44 @@ text = text.replace(
 )
 english_auth.write_text(text, encoding="utf-8")
 
+# Complete the schema updates that appear in prose tables rather than the
+# generated version projection.
+residual_replacements = {
+    root / "ja" / "reference" / "configuration-and-state.mdx": {
+        "保存用 Context マニフェストのスキーマ 4": "保存用 Context マニフェストのスキーマ 5",
+        "公開 Context レポートのスキーマ 6": "公開 Context レポートのスキーマ 8",
+    },
+    root / "reference" / "json-schemas.mdx": {
+        "| Context manifest                       | Schema 4": "| Context manifest                       | Schema 5",
+        "Context schema 4 and public Context report schema 8": "Context schema 5 and public Context report schema 8",
+    },
+    root / "ja" / "reference" / "json-schemas.mdx": {
+        "| Context マニフェスト                           | スキーマ 4": "| Context マニフェスト                           | スキーマ 5",
+    },
+}
+for path, replacements in residual_replacements.items():
+    value = path.read_text(encoding="utf-8")
+    for old, new in replacements.items():
+        value = value.replace(old, new)
+    path.write_text(value, encoding="utf-8")
+
+# Prefer the structured identity form in the explanatory check at the bottom
+# of the versions page; it includes resolver/API compatibility, not only dev.
+for path, replacements in {
+    root / "reference" / "component-versions.mdx": {
+        "What does <code>tobari version</code> normally report?": "What does <code>tobari version --format json</code> identify?",
+        "`dev`, with an optional source commit only when the build supplied it. Release builds inject the validated release identity.": "The CLI version and source identity, the selected resolver, required and selected service APIs, and whether the pair is compatible. Release builds also carry their validated release identity.",
+    },
+    root / "ja" / "reference" / "component-versions.mdx": {
+        "<code>tobari version</code> は通常何を表示しますか？": "<code>tobari version --format json</code> では何を確認できますか？",
+        "`dev` です。ビルド時に値を渡した場合だけ、ソースコミットも表示します。リリースビルドでは、検証済みのリリース識別情報を埋め込みます。": "CLI とソースの識別情報、選択したリゾルバー、必要 API と選択中 API、組み合わせの互換性を確認できます。リリースビルドには検証済みのリリース識別情報も入ります。",
+    },
+}.items():
+    value = path.read_text(encoding="utf-8")
+    for old, new in replacements.items():
+        value = value.replace(old, new)
+    path.write_text(value, encoding="utf-8")
+
 
 def synchronize_fences(english_path: Path, japanese_path: Path) -> None:
     pattern = re.compile(r"^```[^\n]*\n.*?^```[ \t]*$", re.M | re.S)
