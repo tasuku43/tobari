@@ -108,11 +108,7 @@ export const navigationGroups = [
       "ランタイムの詳細設定",
       "/guides/runtime-customization/",
     ),
-    item(
-      "Authentication details",
-      "認証の詳細",
-      "/guides/authentication/",
-    ),
+    item("Authentication details", "認証の詳細", "/guides/authentication/"),
     item("Policy review", "ポリシーレビュー", "/guides/policy-review/"),
     item("Advanced policy", "高度なポリシー", "/guides/advanced-policy/"),
     item("Colima and Lima", "Colima と Lima", "/guides/colima-and-lima/"),
