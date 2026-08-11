@@ -229,7 +229,7 @@ func contextCreateSpec() CommandSpec {
 			FixedTarget:   fixedContextCatalogTarget(),
 			Errors: mutationCommandErrors("context create", "context list",
 				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help context create", "Correct the Context name, image, or policy mode."),
-				declaredCommandError(fault.KindRejected, "context_exists", false, "context show", "Inspect the existing Context or choose another name."),
+				declaredCommandError(fault.KindRejected, "context_exists", false, "context list", "List existing Contexts before choosing another name."),
 				declaredCommandError(fault.KindRejected, "context_create_failed", false, "context list", "Inspect the partially initialized Context stores."),
 				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context list", "Reconcile the confirmed Context creation."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),

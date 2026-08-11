@@ -14,6 +14,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -749,6 +750,54 @@ func TestContextCreateRendersAbsentClusterAndExecutableClusterUp(t *testing.T) {
 	}
 	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "cluster up" {
 		t.Fatalf("Context create recovery routes to %q", routed.Path)
+	}
+}
+
+func TestContextExistsCatalogRecoveryRoutesToListContainingNonActiveDuplicate(t *testing.T) {
+	t.Parallel()
+	create, found := DefaultCatalog().Lookup("context create")
+	if !found {
+		t.Fatal("context create is absent from the catalog")
+	}
+	var duplicateError *CommandError
+	for index := range create.Agent.Errors {
+		if create.Agent.Errors[index].Code == "context_exists" {
+			duplicateError = &create.Agent.Errors[index]
+			break
+		}
+	}
+	if duplicateError == nil || duplicateError.Kind != fault.KindRejected || duplicateError.Retryable ||
+		len(duplicateError.NextActions) != 1 || duplicateError.NextActions[0].Command != "context list" ||
+		duplicateError.NextActions[0].Reason != "List existing Contexts before choosing another name." {
+		t.Fatalf("context_exists catalog error = %+v", duplicateError)
+	}
+	if routed := assertPublicNextArgvRoutes(t, []string{ProgramName, "context", "list"}); routed.Path != "context list" {
+		t.Fatalf("context_exists recovery routes to %q", routed.Path)
+	}
+
+	result := tobari.ContextListResult{
+		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationPersisted, Active: "default",
+		Items: []tobari.ContextSummary{
+			{
+				ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default",
+				ContextState: tobari.ContextObservationPersisted, Active: true,
+				AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+				PolicyMode: tobari.ContextPolicyModeGuided,
+			},
+			{
+				ID: "018bcfe5-687b-7000-8000-000000000100", Name: "review",
+				ContextState: tobari.ContextObservationPersisted, Active: false,
+				AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+				PolicyMode: tobari.ContextPolicyModeGuided,
+			},
+		},
+	}
+	output, err := renderContextList(result, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), "review") || strings.Contains(string(output), "* review") {
+		t.Fatalf("context list did not expose the non-active duplicate truthfully: %q", output)
 	}
 }
 

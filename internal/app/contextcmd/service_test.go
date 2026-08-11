@@ -593,6 +593,27 @@ func TestCreateRejectsInvalidImageBeforePortCall(t *testing.T) {
 	}
 }
 
+func TestCreateDuplicateRecoversThroughContextList(t *testing.T) {
+	fake := &contextRuntimeFake{createErr: tobari.ErrContextExists}
+	intent := operation.Intent{
+		Command: "context create", Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
+		Impact: contextImpact(),
+	}
+	_, err := New(fake).Create(
+		context.Background(), intent, "review", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided,
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindRejected || public.Code != "context_exists" || public.Retryable ||
+		len(public.NextActions) != 1 || public.NextActions[0].Command != "context list" ||
+		public.NextActions[0].Reason != "List existing Contexts before choosing another name." {
+		t.Fatalf("duplicate Context fault = %#v, ok=%t", public, ok)
+	}
+	if fake.createCalls != 1 || fake.lastName != "review" {
+		t.Fatalf("CreateContext() calls/name = %d/%q, want 1/review", fake.createCalls, fake.lastName)
+	}
+}
+
 func TestUseMapsMissingContextAndDoesNotHidePortError(t *testing.T) {
 	fake := &contextRuntimeFake{useErr: tobari.ErrContextNotFound}
 	service := New(fake)

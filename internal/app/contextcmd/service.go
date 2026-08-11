@@ -354,7 +354,7 @@ func (s *Service) Create(
 		if errors.Is(createErr, tobari.ErrContextExists) {
 			return fault.New(
 				fault.KindRejected, "context_exists", "the named Context already exists", false,
-				fault.NextAction{Command: "context show", Reason: "Inspect the existing Context before choosing another name."},
+				fault.NextAction{Command: "context list", Reason: "List existing Contexts before choosing another name."},
 			)
 		}
 		if createErr != nil {
