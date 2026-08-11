@@ -14,8 +14,8 @@ host
       |       |-- reviewed fixed AWS refresh driver --> provider HTTPS
       |       +-- encrypted reverse docker exec stream
       |                  --> broker-private bridge socket
-      +-- root A (rw) --> Tobari A -- internal net A --+
-      +-- root B (rw) --> Tobari B -- internal net B --+--> tobari-gateway
+      +-- root A (rw) --> Tobari A -- guarded internal net A --+
+      +-- root B (rw) --> Tobari B -- guarded internal net B --+--> tobari-gateway
                                                                |      |      |
 internal control network:                              tobari-opa :8181 | Unix runtime socket
                                                                       tobari-auth-broker
@@ -34,6 +34,15 @@ private Unix socket. Provider CLIs remain on the host and cannot be selected by
 a Workspace, request, or owner manifest. Tobari and control networks
 use Docker's `internal` property; the egress network is the only network with
 an external route.
+
+The host adapter uses a fixed one-shot helper to configure only a verified
+Gateway or Workspace network namespace. The helper receives root plus
+`CAP_NET_ADMIN`, no mounts or secrets, and exits before entry. The Workspace
+guard installs an exact default route through Gateway and rejects unexpected
+on-link, UDP, and IPv6 paths. The Gateway guard redirects project TCP and DNS
+to local listeners, keeps IPv4/IPv6 forwarding disabled, and drops its forward
+chain. Neither resident process retains a network capability, and no host or
+Docker-VM-global firewall state is changed.
 
 The AWS host driver registry is closed over two explicit acquisition methods.
 `identity-center` retains schema-1 `aws_cli_sso` state and its fixed device
@@ -76,11 +85,14 @@ captured token from visible output, and stores it under the fixed
 resolution for `api.anthropic.com:443`; it has no Anthropic refresh operation,
 and Claude remains absent from Broker.
 
-For HTTPS, Tobari connects to the HTTP proxy and sends `CONNECT host:443`.
-Gateway responds, terminates client TLS with the installation CA, evaluates the
-decrypted HTTP request, then creates a separate TLS connection to the upstream.
-This is the explicit HTTPS flow documented by mitmproxy; it is not plaintext
-HTTP from Tobari to the final service.
+For HTTPS, ordinary DNS receives a bounded
+synthetic non-public IPv4 answer and the direct TCP connection is redirected
+to Gateway's local transparent listener. Gateway requires one consistent SNI
+and HTTP authority, terminates client TLS with the installation CA, evaluates
+the same decrypted HTTP request, and only after allow replaces the synthetic
+destination, resolves and pins it, and creates a separate certificate-verified
+TLS connection to the upstream. The path does not send plaintext HTTP over the
+final Internet hop, and synthetic DNS never performs an external lookup.
 
 ## Four-layer dependency direction
 
@@ -193,7 +205,7 @@ starts exactly one private same-binary host companion. Companion health is
 part of readiness; no companion is exposed through the public Catalog. Policy
 mutations serialize this same all-Context activation and preserve the previous
 known-good revision on any failure.
-Cluster status schema 5 projects all three component states plus
+Cluster status schema 6 projects all three component states plus
 `auth_provider_projection`, `auth_broker_state`, `root_key_backend`, and
 always-present secret-free `credential_companion_state`
 (`ready|prepared|absent|unavailable`). The companion field is host-process/
@@ -289,8 +301,9 @@ resolver uses published images only; the contributor `tobari_dev` resolver
 selects local development tags built by `task build:dev`. The runtime adapter
 creates or reconciles each logical Tobari from its bound Context image, or an
 exact configured local image on the legacy named path, and connects Gateway to
-its dedicated network, then records the Gateway interface address in the
-principal registry. Before project container creation, the runtime issues
+its dedicated network. After it has reconciled the Workspace guard, it records
+the exact owned Workspace and Gateway endpoints in the schema-3 principal
+registry. Before project container creation, the runtime issues
 configured provider handles and renders only manifest-declared environment or
 complete-file projections. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
@@ -316,9 +329,10 @@ Routine startup uses the reviewed multi-architecture digest in `versions.env`;
 the moving tags never select runtime authority. The contributor resolver uses
 `tobari-auth-broker:dev` for explicit local source validation.
 
-The Codex/Claude broker source advances the Gateway image contract from
-`io.tobari.gateway-api=3` to `4` and the Auth Broker image contract from
-`io.tobari.auth-broker-api=2` to `3`. The Go preflight expects those newer
+The transparent-routing source advances the Gateway image contract from
+`io.tobari.gateway-api=4` to `5`; the Codex/Claude broker source advanced the
+Auth Broker image contract from `io.tobari.auth-broker-api=2` to `3`. The Go
+preflight expects those newer
 labels for this source tree, while the contributor resolver supplies the local
 matching images. The already published immutable `versions.env` selections are
 still Gateway API 3 and Auth Broker API 2; they remain historical runtime facts
@@ -384,7 +398,7 @@ the explicit `sleep infinity` command after the image. Tobari validates
 compatibility before creating the project home, network, or container. Docker
 create still supplies the invoking numeric UID/GID,
 read-only root filesystem, dropped capabilities, fixed CPU/memory/PID/log
-resource bounds, fixed mounts, proxy environment, internal network, and health
+resource bounds, fixed mounts, guarded internal network, and health
 check.
 
 `images/toolbox` remains an optional custom derivation for Context-specific
@@ -525,9 +539,10 @@ then resolves the selected record's root-scoped Context Git fallback before
 Docker calls, resolves the bound Context image, requires the broker to be
 ready, reconciles the Context's configured project-bound handle projection,
 ensures one exact project network and
-work container, connects Gateway with the `gateway` alias, binds the Gateway
-interface address to the host-issued Context/project principal, waits for project
-readiness, and enters the container. The
+work container, connects Gateway with the `gateway` alias, reconciles and
+verifies both network-namespace guards, binds the exact owned Workspace source
+endpoint plus Gateway endpoint to the host-issued Context/project principal,
+waits for project readiness, and enters the container. The
 logical creation and deletion boundaries use durable journals so an interruption
 between the home, instance, index, runtime, and deletion steps is recoverable
 without treating a partial file set as a second project. Runtime convergence
@@ -537,14 +552,15 @@ the project container; drift recreates only that container and updates the
 stored project image only after success. OPA runs with `--watch --bundle`
 against one read-only Docker-managed bundle volume. Source edits become authority only
 after explicit whole-projection validation and activation. The principal registry is a generic host-issued
-contract: Docker currently supplies the network/address observation, while a
+contract: Docker currently supplies the owned network/endpoints observation, while a
 future stronger runtime may supply the same binding through another adapter.
 Only its dedicated directory is mounted read-only into Gateway; lifecycle
 updates replace the registry file atomically inside that directory so a
 single-file bind mount cannot strand Gateway on an old inode or expose the
 neighboring credential configuration.
 Logical Tobari and Context IDs are not trusted when echoed by a caller; Gateway
-derives both from the local interface address. Exact allow, deny, and compaction
+derives both from the kernel-observed Workspace source endpoint and the exact
+host registry binding. Exact allow, deny, and compaction
 actions provide the deterministic portable activation path: each locks the
 projection, tests the target Context's private source copy and the complete
 all-Context candidate, verifies the exact OPA and bundle-volume ownership
@@ -674,7 +690,10 @@ suggestions, so routing and recovery do not create a second command registry.
 
 ```text
 client request headers
-  -> establish the host-issued Context/project principal at the header hook
+  -> establish the host-issued Context/project principal from the source
+     endpoint at the header hook
+  -> for transparent ingress, require one consistent SNI/HTTP authority and
+     bind it as the requested server address instead of the synthetic target
   -> reject every malformed, misplaced, ambiguous, or binding-mismatched Tobari
      handle marker as credential_handle_invalid
   -> strictly recognize one valid broker handle from provider projection,

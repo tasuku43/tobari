@@ -102,6 +102,9 @@ services:
         condition: service_healthy
     read_only: true
     cap_drop: [ALL]
+    sysctls:
+      net.ipv4.ip_forward: "0"
+      net.ipv6.conf.all.forwarding: "0"
     security_opt:
       - no-new-privileges:true
     tmpfs:
@@ -142,7 +145,7 @@ services:
         - CMD
         - python
         - -c
-        - "import socket,urllib.request;s=socket.create_connection(('127.0.0.1',8080),1);s.close();b=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);b.settimeout(1);b.connect('/run/tobari-auth/runtime/broker.sock');b.close();urllib.request.urlopen('http://opa:8181/health',timeout=1).read()"
+        - "import socket,sys,urllib.request;sys.path.insert(0,'/opt/tobari');import synthetic_dns;s=socket.create_connection(('127.0.0.1',15001),1);s.close();assert synthetic_dns.healthcheck('127.0.0.1',15053);b=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);b.settimeout(1);b.connect('/run/tobari-auth/runtime/broker.sock');b.close();urllib.request.urlopen('http://opa:8181/health',timeout=1).read()"
       interval: 2s
       timeout: 2s
       retries: 30

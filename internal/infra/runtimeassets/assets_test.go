@@ -159,6 +159,26 @@ func TestGatewayEntrypointCapsBufferedHTTPBodies(t *testing.T) {
 	}
 }
 
+func TestGatewayAssetsExposeOnlyTransparentIngress(t *testing.T) {
+	t.Parallel()
+	entrypoint, err := Read("gateway/entrypoint.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entrypointText := string(entrypoint)
+	if !strings.Contains(entrypointText, "--mode transparent@15001") ||
+		strings.Contains(entrypointText, "--mode regular") || strings.Contains(entrypointText, "regular@8080") {
+		t.Fatalf("Gateway entrypoint retained a non-transparent ingress: %s", entrypointText)
+	}
+	guard, err := Read("gateway/network-guard.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(guard), "dport 8080") || strings.Contains(string(guard), "8080,") {
+		t.Fatalf("network guard retained explicit proxy exception: %s", guard)
+	}
+}
+
 func TestGatewayDockerfileDeclaresStableContractAndHostIndependentRuntime(t *testing.T) {
 	t.Parallel()
 	data, err := Read("gateway/Dockerfile")
@@ -167,7 +187,7 @@ func TestGatewayDockerfileDeclaresStableContractAndHostIndependentRuntime(t *tes
 	}
 	spec := string(data)
 	for _, required := range []string{
-		`io.tobari.gateway-api="4"`,
+		`io.tobari.gateway-api="5"`,
 		`io.tobari.gateway-role="enforcement"`,
 		"USER 1000:1000",
 		"chmod 0777",

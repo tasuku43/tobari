@@ -172,7 +172,7 @@ task integration:test # required reproducible synthetic Auth Broker proof
 Run an ordinary released scenario with its mutually compatible official binary
 and reviewed Gateway/Auth Broker manifest digests only after `task
 release:check` accepts their API parity. This source revision expects
-Gateway API 4 and Auth Broker API 3, while the historical pins remain API 3 and
+Gateway API 5 and Auth Broker API 3, while the historical pins remain API 3 and
 API 2 and must be rejected by standard startup; therefore the canonical source
 transcript above deliberately uses `bin/tobari-dev`. Build the applicable agent
 runtime separately. Development-image success is not official-image evidence.
@@ -232,7 +232,7 @@ rules exist. The transcript must prove:
   healthy. It may inspect provider manifests, root-key/vault safety, broker
   state, and project bindings, but it does not initialize or repair policy,
   start/reconcile/unlock the cluster, create/replace a key, or mutate auth state.
-- Cluster status schema 5 names all three shared components and explicitly
+- Cluster status schema 6 names all three shared components and explicitly
   reports auth provider-projection integrity, broker state, root-key backend,
   and always-present
   `credential_companion_state=ready|prepared|absent|unavailable`. The latter is
@@ -437,7 +437,13 @@ calls.
   while edits to their shared mounted host files are mutually visible.
 - Parent/child roots in different Contexts may run concurrently.
 - Neither has direct egress, OPA access, or cross-Tobari reachability.
-- HTTPS is authorized after CONNECT interception and validates the Tobari CA.
+- Gateway and Workspace nftables guards are present, Workspace has one exact
+  default route through its project Gateway, and Gateway IPv4/IPv6 forwarding
+  remains disabled.
+- Proxy-environment-free HTTPS selects the exact source-bound project
+  principal and transparent policy path and validates the Tobari CA.
+- Synthetic non-recursive DNS returns the fixed `198.18.0.10` sink without a
+  pre-policy real-host lookup, including Docker EDNS0 requests.
 - OPA and Gateway outages fail closed.
 - Declared GraphQL endpoints require every canonical query/mutation root,
   never fall back to HTTP-only rules, preserve the original body after allow,
@@ -839,7 +845,7 @@ in `versions.env`. This historical image evidence does not replace the manual
 trusted-host scenarios or release gates below.
 
 Those indexes remain historical API-3/API-2 publication evidence. They predate
-and are incompatible with the current Gateway API-4/Auth Broker API-3 source
+and are incompatible with the current Gateway API-5/Auth Broker API-3 source
 contract, including the OpenAI and Anthropic plans, so standard startup from
 this source must reject them. `task build:dev` and `bin/tobari-dev` provide the
 shared-component local validation path; build the applicable agent runtime

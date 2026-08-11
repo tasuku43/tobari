@@ -82,7 +82,7 @@ Workspace のツールとルートファイルシステムを提供する OCI �
 
 ### Gateway
 
-Workspace の HTTP プロキシ通信を受け取り、必要に応じて Workspace 側の TLS を終端し、
+Workspace から透過的に送られた HTTP 通信を受け取り、必要に応じて Workspace 側の TLS を終端し、
 ホスト発行のプロジェクトプリンシパルを導出するコンポーネントです。判断入力から秘密
 情報を除き、OPA へ一度問い合わせます。許可された場合だけ接続先への別の接続を開き、
 本文をストリーミングします。判断を実施するのは Gateway です。OPA は通信を転送しません。
@@ -108,7 +108,7 @@ ID、ホスト、ポート、HTTP メソッド、パスと、範囲を限定し�
 
 ### TLS 接続 A（TLS connection A）
 
-HTTP `CONNECT` の後に、Workspace から Gateway へ張る HTTPS 接続です。Gateway は
+透過的な検査により、Workspace から Gateway へ張る HTTPS 接続です。Gateway は
 Workspace が信頼する Tobari CA に連なる証明書を提示し、ポリシーに必要な HTTP
 属性を復号します。
 
@@ -144,14 +144,14 @@ Context にホストが発行する、安定した UUIDv7 識別情報です。�
 
 ### プロジェクトプリンシパル（project principal）
 
-Workspace 専用ネットワーク上の完全一致するローカルインターフェースから Gateway が導出する、
+Workspace 専用ネットワーク上でカーネルが観測した完全一致の送信元エンドポイントから Gateway が導出する、
 安定した Context ID とプロジェクト ID の信頼できる組です。ポリシーと Auth Broker の
 ハンドルを使える範囲を決めます。
 
 ### プリンシパル登録簿（principal registry）
 
-Gateway のプロジェクトネットワークインターフェースを、Context とプロジェクトの識別情報
-へ完全一致で対応付ける、ホスト管理のスキーマ 2 対応表です。Gateway にはこの
+Workspace の送信元エンドポイント、Gateway のエンドポイント、専用ネットワークを、Context とプロジェクトの識別情報
+へ完全一致で対応付ける、ホスト管理のスキーマ 3 対応表です。Gateway にはこの
 ディレクトリだけを読み取り専用で渡します。呼び出し元が指定した `X-Tobari-*` の
 文字列は、この対応付けの代わりになりません。
 

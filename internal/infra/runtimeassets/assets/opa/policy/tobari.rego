@@ -69,8 +69,11 @@ request_allowed if {
 }
 
 transport_port_allowed if {
-	ports := data.tobari.boundary.ports[input.request.authority.scheme]
-	input.request.authority.port in ports
+	input.request.authority.scheme in {"http", "https"}
+	is_number(input.request.authority.port)
+	not is_boolean(input.request.authority.port)
+	input.request.authority.port >= 1
+	input.request.authority.port <= 65535
 }
 
 candidate_scheme_allowed if {

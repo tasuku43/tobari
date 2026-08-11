@@ -6,6 +6,8 @@
 - Scope: Product, architecture, security, authentication, migration, and harness
 - Supersedes: The single-active-Context and deferred per-Workspace routing decisions in ADR 0013; the active-Context runtime authority in ADR 0016
 - Superseded by: None
+- Revised by: ADR 0026 replaces the Gateway-local-address principal mechanism;
+  shared Context/project enforcement remains accepted
 
 ## Context
 
@@ -35,10 +37,11 @@ stopped cluster. `tobari --context NAME` chooses the Context for that invocation
 without changing the default.
 
 The installation continues to run exactly one Gateway and one OPA. The
-host-owned principal registry schema 2 binds an exact Gateway local interface
-address and network to `project_id`, `context_id`, Context name, and canonical
-root. Gateway derives both trusted identities from the incoming connection's
-local address. Headers, URLs, environment, session data, profile names, and
+host-owned principal registry schema 3 binds an exact owned Workspace source
+endpoint, Gateway endpoint, and dedicated network to `project_id`,
+`context_id`, Context name, and canonical root. Gateway derives both trusted
+identities from the incoming connection's source endpoint. Headers, URLs, SNI,
+environment, session data, profile names, and
 client project or Context values are never authority. Unknown, stale,
 ambiguous, or inconsistent bindings fail before OPA or upstream I/O.
 
@@ -66,7 +69,7 @@ OPA is not claimed to provide process-level confidentiality between Rego
 modules; the guarantees are validated routing, namespace separation, safe
 activation, and explicit authority scope.
 
-Gateway receives only a schema-2 principal registry and schema-2 credential
+Gateway receives only a schema-3 principal registry and schema-2 credential
 projection plus Context-scoped secret paths. Credential profiles are unique by
 `(context_id, profile name)` and are checked against Context, project, and host
 before a secret is read. OPA receives non-secret metadata only.

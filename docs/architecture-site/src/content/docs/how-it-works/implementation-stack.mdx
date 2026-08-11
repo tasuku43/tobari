@@ -37,7 +37,7 @@ Docker is trusted infrastructure. “Runs in a container” is not itself a secu
 
 ### mitmproxy Gateway and Python addon
 
-Mitmproxy supplies explicit HTTP proxying, CONNECT/TLS interception, streaming hooks, and upstream TLS. Tobari's Python addon adds product-specific principal lookup, credential preparation, body-free OPA input, fail-closed result validation, post-allow credential action, DNS address classification/pinning, and audit.
+Mitmproxy supplies transparent HTTP/TLS interception, streaming hooks, and upstream TLS. Tobari's Python addon adds product-specific principal lookup, credential preparation, body-free OPA input, fail-closed result validation, post-allow credential action, DNS address classification/pinning, and audit.
 
 Python is used here because mitmproxy's reviewed extension boundary is a Python addon. Gateway owns enforcement; it does not embed policy rule interpretation or vault storage.
 
@@ -107,10 +107,10 @@ CI builds multi-architecture OCI images from canonical sources. Normal runtime u
 
 For one allowed HTTPS call:
 
-1. **Go** has already reconciled the Workspace's Docker network, proxy environment, CA, and principal registry.
-2. **Docker** prevents direct egress and routes the proxy connection to Gateway.
+1. **Go** has already reconciled the Workspace's Docker network, exact endpoint registry, CA, DNS setting, and Gateway/Workspace network guards.
+2. **Docker/Linux networking** prevents direct egress and delivers TCP to Gateway's transparent ingress.
 3. **mitmproxy** terminates TLS A and exposes request headers to the addon.
-4. **Python Gateway addon** derives principal and posts schema 5 input.
+4. **Python Gateway addon** derives the source-bound principal, validates one consistent authority, and posts schema 5 input.
 5. **OPA/Rego** returns allow or deny.
 6. For a broker handle, **Python Auth Broker over Unix socket** performs
    non-secret introspection before policy and the declared static, AWS, or

@@ -220,8 +220,8 @@ func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
 	if !found {
 		t.Fatal("default catalog lacks cluster status")
 	}
-	if status.Agent.Output.JSONSchemaVersion != 5 {
-		t.Fatalf("cluster status schema version = %d, want 5", status.Agent.Output.JSONSchemaVersion)
+	if status.Agent.Output.JSONSchemaVersion != 6 {
+		t.Fatalf("cluster status schema version = %d, want 6", status.Agent.Output.JSONSchemaVersion)
 	}
 	fieldNames := make([]string, 0, len(status.Agent.Output.Fields))
 	for _, field := range status.Agent.Output.Fields {

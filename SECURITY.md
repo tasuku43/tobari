@@ -65,7 +65,7 @@ Tobari does not:
 
 - protect a compromised operating system or developer account;
 - isolate files below a selected read-write root from that Tobari's processes;
-- authorize non-HTTP protocols or transparent proxy bypass;
+- authorize non-HTTP protocols or bypass the guarded transparent HTTP path;
 - provide code signing, notarization, or artifact attestation;
 - authorize publication of code copied from another repository;
 - replace independent review for high-impact or regulated systems.

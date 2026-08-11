@@ -10,8 +10,8 @@ import SystemMap from "../../../components/SystemMap.astro";
 Tobari uses network topology as part of its enforcement boundary. In the
 supported topology, each Workspace joins only its own Docker-internal project
 network. Gateway is the only component with both a project-network interface
-and an egress interface, so removing proxy settings does not create another
-route to the public Internet.
+and an egress interface. Ordinary HTTP/HTTPS sockets have only the guarded
+transparent path to the public Internet, which converges at Gateway.
 
 Three network scopes keep work traffic, policy control, and external egress
 separate. Gateway crosses the necessary scopes; OPA and Auth Broker have
@@ -30,7 +30,10 @@ Gateway or OPA failure closes the path. The [five-part mental model](/how-it-wor
 
 Tobari creates one Docker network per logical Workspace with Docker's `internal` property. The work container joins only that network. Gateway is connected to it with the alias `gateway`.
 
-The container receives upper- and lower-case HTTP/HTTPS proxy variables pointing to `http://gateway:8080`, empty `NO_PROXY` values, and the Tobari CA bundle. These settings make supported clients use the intended path, but the network topology is the stronger control: a client that removes the variables still has no Docker-provided external route.
+The container receives the Tobari CA bundle, but no Tobari-managed HTTP proxy
+variables. A closed output policy, a default route through the exact project
+Gateway, and Gateway-backed synthetic DNS deliver ordinary HTTP/TLS to the
+transparent listener. Gateway exposes no separate explicit-proxy listener.
 
 ### One internal control network
 
@@ -80,9 +83,12 @@ The Workspace and upstream are untrusted. The host, Docker execution substrate, 
 
 ## Concrete bypass attempts
 
-### The process unsets the proxy
+### The process opens a direct socket
 
-It can try a direct TCP connection, but its internal project network has no external route. The connection fails. Tobari does not transparently redirect it around the network control.
+Its TCP connection follows the guarded default route to the project Gateway.
+Ordinary HTTP/TLS is redirected to Gateway's transparent listener and receives
+the same authority validation and OPA decision. Unsupported traffic fails;
+none of it is forwarded as general routed TCP.
 
 ### The process calls `opa:8181`
 
@@ -96,7 +102,7 @@ Host file roots are a different boundary: two Workspaces may intentionally mount
 
 ## Failure behavior
 
-- **Gateway unavailable:** the configured proxy cannot accept the connection. Direct egress is still absent.
+- **Gateway unavailable:** transparent ingress cannot accept the connection. Direct egress is still absent.
 - **OPA unavailable, slow, non-200, oversized, malformed, or incomplete:** Gateway returns `503 policy_unavailable`; it does not resolve or connect upstream.
 - **Unknown Context in the aggregate policy:** the fixed OPA router denies; it does not fall back to the current/default Context.
 - **Unsafe dotted-host DNS result:** Gateway rejects non-global addresses and does not silently choose a different authority. This is an upstream/proxy failure, not a stable public JSON fault code.
@@ -119,16 +125,22 @@ Host file roots are a different boundary: two Workspaces may intentionally mount
 
 ## Summary
 
-Proxy variables guide clients; Docker network attachment enforces the supported route. Gateway bridges one project network to policy and egress. OPA decides without egress, and Auth Broker is not exposed to Workspace networking.
+Synthetic DNS, the Workspace output guard, disabled forwarding, and Gateway
+redirect rules enforce the single supported route. Gateway mediates one
+project network to policy and egress. OPA decides
+without egress, and Auth Broker is not exposed to Workspace networking.
 
 ## Check your understanding
 
-You should now be able to explain the difference between a convenient proxy setting and the actual no-direct-egress boundary.
+You should now be able to explain how the transparent route and output guard form the no-direct-egress boundary.
 
 <details>
-  <summary>What happens if a process uses `--noproxy '*'`?</summary>
-  Its direct connection has no external route and fails. The process does not
-  gain an alternate path around Gateway.
+  <summary>
+    What happens if a process connects without proxy configuration?
+  </summary>
+  Its connection reaches Gateway's transparent listener and receives the same
+  policy checks. It does not gain an alternate path around Gateway; non-HTTP
+  traffic fails closed.
 </details>
 
 <details>

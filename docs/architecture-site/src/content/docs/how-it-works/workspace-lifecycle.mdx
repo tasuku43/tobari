@@ -24,7 +24,12 @@ identities used in this lifecycle.
 
 ### Absent → attached
 
-Running `tobari` from the selected directory chooses an existing Workspace or explicitly creates one for the canonical root and Context. Creation durably records identity and home, reconciles the dedicated network and container, registers the Gateway interface principal, waits for readiness, and starts an interactive `docker exec` shell.
+Running `tobari` from the selected directory chooses an existing Workspace or
+explicitly creates one for the canonical root and Context. Creation durably
+records identity and home, reconciles the dedicated network and container,
+installs the fail-closed Gateway/Workspace network guards, registers exact
+Workspace and Gateway endpoints, waits for readiness, and starts an
+interactive `docker exec` shell.
 
 The attached shell is transient process state. It is not the Workspace lifetime process.
 
@@ -58,7 +63,7 @@ Normal deletion rejects an attached Workspace. `delete --force` overrides only t
 Logical state, not Docker inspection, determines existence.
 
 - **Container lost:** next entry creates a compatible replacement and remounts the existing root/home.
-- **Network lost:** next entry recreates the internal network, reconnects Gateway, and writes the new interface binding before readiness.
+- **Network lost:** next entry recreates the internal network, reconnects Gateway, reapplies both guards, and writes the new endpoint binding before readiness.
 - **Context runtime rebuilt:** next entry compares desired runtime identity and recreates only the project container when needed.
 - **Resource/security contract changed:** the desired-spec hash changes and triggers reconciliation.
 - **Root index exists but instance state is missing:** this is `incomplete`, not an invitation to guess. Entry fails; exact deletion cleans it up.

@@ -41,13 +41,14 @@ fi
 cp "$confdir/mitmproxy-ca-cert.pem" "$public_dir/tobari-ca-cert.pem"
 chmod 0644 "$public_dir/tobari-ca-cert.pem"
 
+python3 /opt/tobari/synthetic_dns.py --host 0.0.0.0 --port 15053 &
+
 exec mitmdump \
-  --mode regular \
-  --listen-host 0.0.0.0 \
-  --listen-port 8080 \
+  --mode transparent@15001 \
   --set "confdir=$confdir" \
   --set block_global=false \
   --set connection_strategy=lazy \
+  --set rawtcp=false \
   --set body_size_limit=8m \
   --set flow_detail=0 \
   --set termlog_verbosity=warn \

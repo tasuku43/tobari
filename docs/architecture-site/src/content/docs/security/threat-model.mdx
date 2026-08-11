@@ -30,7 +30,7 @@ Assume code inside a Workspace can:
 
 - Read and modify the selected project and Workspace home.
 - Start processes and coordinate with other processes in that Workspace.
-- Ignore proxy environment variables and attempt direct connections.
+- Open direct sockets and attempt to bypass Gateway.
 - Forge headers, URLs, Context/project-looking IDs, credential-like values, and prompt-like text.
 - Copy a projected broker handle and replay it from another Workspace.
 - Trigger policy denials, race user review, and send different bodies for the same HTTP dimensions.
@@ -40,13 +40,21 @@ The model does not assume the adversary controls the host user, Docker Engine, k
 
 ## Attack paths and mitigations
 
-### Bypass the proxy
+### Bypass Gateway
 
-The Workspace’s only network is Docker-internal. There is no supported external route. Gateway alone joins that network and egress. Result: direct traffic fails; Gateway outage does not fail open.
+The Workspace’s only network is Docker-internal. A closed output policy and
+default route send TCP through its project Gateway; synthetic DNS prevents
+pre-policy real-host resolution. Gateway redirects ordinary HTTP/TLS to its
+transparent listener and drops forwarding. Result: a direct socket does not
+bypass policy, unsupported traffic fails, and Gateway outage does not
+fail open.
 
 ### Claim another project
 
-Gateway ignores request-supplied project authority. It resolves its host-created local interface in the principal registry. Result: forged headers cannot switch principal; missing/ambiguous state is denied before OPA.
+Gateway ignores request-supplied project authority. It resolves the
+kernel-observed Workspace source endpoint in the host-created schema-3
+principal registry. Result: forged headers cannot switch principal;
+missing/ambiguous state is denied before OPA.
 
 ### Smuggle a secret into policy or logs
 

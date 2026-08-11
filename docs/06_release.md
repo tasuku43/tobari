@@ -73,7 +73,7 @@ preserve encrypted Context vaults and the installation root key; purge adds
 only shared CA-volume removal.
 The current source contract uses Gateway image API label 4 and Auth Broker
 image API label 3, Gateway OPA input
-schema 5, cluster status JSON schema 5 (including nullable unconfigured
+schema 5, cluster status JSON schema 6 (including nullable unconfigured
 resources and always-present
 `credential_companion_state`), Context report JSON schema 7, and auth command
 JSON schema 2. Broker protocols and private companion epoch/frames remain
@@ -162,7 +162,7 @@ A moving tag or successful workflow does not make a digest reviewed runtime
 authority by itself.
 
 Those reviewed indexes and pins remain historical API-3/API-2 publication
-facts; they predate and are incompatible with the current Gateway API-4/Auth
+facts; they predate and are incompatible with the current Gateway API-5/Auth
 Broker API-3 source contract. Standard startup from this source must reject the
 old pins. `versions.env` records `GATEWAY_IMAGE_API=3` and
 `AUTH_BROKER_IMAGE_API=2` beside those digests; `task release:check` derives
@@ -204,7 +204,7 @@ task integration:test
 
 `task release:check` also requires the release artifact build identity to be
 complete and compatible. The current API-3/API-2 immutable pins make that gate
-fail intentionally against API-4/API-3 source; version diagnostics explain the
+fail intentionally against API-5/API-3 source; version diagnostics explain the
 same state but cannot override it.
 
 Auth Broker and companion changes additionally require the canonical source,

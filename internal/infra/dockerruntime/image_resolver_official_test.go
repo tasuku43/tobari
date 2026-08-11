@@ -32,7 +32,7 @@ func TestOfficialImageResolverIdentityKeepsHistoricalPinsSeparateFromSource(t *t
 		t.Fatal(err)
 	}
 	if identity.ResolverChannel != buildidentity.ResolverPublished || identity.DevelopmentSource ||
-		identity.Gateway.RequiredAPI != 4 || identity.Gateway.SelectedAPI != 3 ||
+		identity.Gateway.RequiredAPI != 5 || identity.Gateway.SelectedAPI != 3 ||
 		identity.AuthBroker.RequiredAPI != 3 || identity.AuthBroker.SelectedAPI != 2 ||
 		identity.APIsCompatible() {
 		t.Fatalf("official identity = %+v", identity)

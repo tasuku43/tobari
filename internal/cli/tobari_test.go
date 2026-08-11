@@ -1158,7 +1158,7 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 	t.Parallel()
 	status := tobari.ClusterStatus{
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
-		Proxy: "http://gateway:8080", Policy: "/tmp/config/tobari/policy",
+		Policy:         "/tmp/config/tobari/policy",
 		PolicyRevision: strings.Repeat("a", 64), PolicyProjection: "valid",
 		PrincipalRegistry: "valid", CredentialProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
@@ -1178,7 +1178,7 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 			t.Fatalf("status output %q lacks %q", output, expected)
 		}
 	}
-	for _, omitted := range []string{"Configured", "Running", "Proxy"} {
+	for _, omitted := range []string{"Configured", "Running"} {
 		if strings.Contains(output, omitted) {
 			t.Fatalf("ready summary retained redundant detail %q: %q", omitted, output)
 		}
@@ -1210,7 +1210,7 @@ func TestClusterStatusTextUsesSameSummaryForUnconfiguredAndNotReadyStates(t *tes
 			name: "not ready",
 			status: tobari.ClusterStatus{
 				Task: tobari.TaskClusterStatus, Configured: true, Running: false,
-				Proxy: "http://gateway:8080", Policy: "/tmp/config/tobari/policy",
+				Policy: "/tmp/config/tobari/policy",
 				Components: []tobari.ComponentStatus{{
 					Name: "gateway", State: "running", Health: "unhealthy",
 				}}, RecentError: "Gateway healthcheck failed\ninspect logs",
@@ -1320,7 +1320,7 @@ func TestClusterStatusJSONDoesNotContainTerminalColors(t *testing.T) {
 	t.Parallel()
 	status := tobari.ClusterStatus{
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
-		Proxy: "http://127.0.0.1:18080", Policy: "/tmp/config/tobari/policy",
+		Policy:       "/tmp/config/tobari/policy",
 		ContextCount: 1, PolicyRevision: strings.Repeat("a", 64), Components: validClusterComponentStatuses(),
 		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
@@ -1338,7 +1338,7 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 	t.Parallel()
 	status := tobari.ClusterStatus{
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
-		Proxy: "http://gateway:8080", Policy: "/tmp/config/tobari/policy",
+		Policy:      "/tmp/config/tobari/policy",
 		TobariCount: 1, ContextCount: 1, PolicyRevision: strings.Repeat("a", 64),
 		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
@@ -1355,8 +1355,11 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 5 {
-		t.Fatalf("schema version = %d, want 5", document.SchemaVersion)
+	if document.SchemaVersion != 6 {
+		t.Fatalf("schema version = %d, want 6", document.SchemaVersion)
+	}
+	if _, retained := document.Cluster["proxy"]; retained {
+		t.Fatalf("cluster output retained retired proxy field: %s", output)
 	}
 	for key, want := range map[string]string{
 		"auth_provider_projection":   `"valid"`,

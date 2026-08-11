@@ -26,7 +26,7 @@ export interface LocalizedSequenceScenario extends Omit<
 export const sequenceActorLabelsJa: Record<string, string> = {
   "Workspace process": "Workspace のプロセス",
   Gateway: "Gateway（通信の執行）",
-  "Gateway network interface": "Gateway の受信インターフェース",
+  "Workspace source endpoint": "Workspace の送信元エンドポイント",
   OPA: "OPA（ポリシー判断）",
   "OPA runtime": "OPA ランタイム",
   "OPA / Upstream": "OPA／接続先",
@@ -127,13 +127,13 @@ const sequenceScenariosJa: Record<string, ScenarioTranslation> = {
       "通常の HTTP 通信を特定し、OPA に一度だけ許可判断を求めます。本文を接続先へ送るのは、許可された後です。",
     steps: [
       {
-        title: "プロキシリクエストを受け取る",
+        title: "保護済みの HTTP リクエストを受け取る",
         sent: "HTTP メソッド、URL、ヘッダー、ストリーミングされる本文",
         withheld: "リクエストが申告するプロジェクト ID は信頼しない",
         owner: "Gateway（通信の執行）",
         failure: "ポリシー判断や接続先の処理へ進む前に停止します。",
         explanation:
-          "Workspace は専用の内部ネットワークだけへ接続します。設定される HTTP プロキシが Gateway です。",
+          "明示的な互換プロキシと、合成 DNS を使う透過経路は Gateway で合流します。",
       },
       {
         title: "プロジェクトプリンシパルを確立する",
@@ -141,9 +141,9 @@ const sequenceScenariosJa: Record<string, ScenarioTranslation> = {
         withheld: "Workspace が送った識別情報ヘッダー",
         owner: "Gateway（通信の執行）",
         failure:
-          "インターフェースが不明または曖昧なら、通信を許可せず終了します。",
+          "送信元エンドポイントが不明または曖昧なら、通信を許可せず終了します。",
         explanation:
-          "リクエストの自己申告ではなく、Gateway が受信したインターフェースによってプリンシパルが決まります。",
+          "リクエストの自己申告ではなく、カーネルが観測した Workspace の送信元エンドポイントによってプリンシパルが決まります。",
       },
       {
         title: "判断入力を正規化する",

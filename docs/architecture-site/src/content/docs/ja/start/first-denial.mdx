@@ -14,7 +14,7 @@ import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
 ## 拒否を時間順に追う
 
-1. Gateway は、リクエストを受けたネットワークインターフェースと、ホストが管理するプリンシパル登録簿から Context とプロジェクトを特定します。
+1. Gateway は、カーネルが観測した Workspace の送信元エンドポイントと、ホストが管理するスキーマ 3 プリンシパル登録簿から Context とプロジェクトを特定します。
 2. リクエスト本文を含まない形に正規化したポリシー入力を作り、OPA へ一度問い合わせます。
 3. OPA は、一致する許可ルールがない通信を拒否します。
 4. Gateway は Auth Broker が管理する認証情報を解決せず、宛先の DNS 名前解決も、接続先への接続も行いません。

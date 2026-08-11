@@ -121,7 +121,9 @@ brand.
 
 ### Consequences
 
-- Any process that honors the explicit proxy receives the same enforcement.
+- Any process that uses an ordinary HTTP or HTTPS socket receives enforcement
+  through the guarded transparent path; command names and ambient or projected
+  proxy-environment settings do not select policy behavior.
 - Gateway sends generic HTTP attributes and, only for a trusted exact GraphQL
   endpoint, normalized GraphQL operation type and root-field attributes to OPA
   rather than service-specific operations.
@@ -155,13 +157,18 @@ brand.
 
 ## Thesis 2: Network topology is an enforcement mechanism
 
-Each Tobari has exactly one internal Docker network path: the Gateway proxy
-interface. Gateway alone joins every Tobari network plus the shared control and
-egress networks; OPA joins only control.
+Each Tobari has exactly one internal Docker network path: its dedicated Gateway
+interface. Ordinary HTTP/HTTPS sockets follow a guarded default route and
+terminate at the transparent listener. Gateway alone joins every Tobari network plus the shared
+control and egress networks; OPA joins only control. Kernel forwarding remains
+disabled, so neither path is direct egress.
 
 ### Consequences
 
 - Proxy bypass has no route to an external upstream.
+- A non-recursive synthetic DNS listener supplies only the bounded address
+  needed to reach transparent HTTP/TLS inspection. It performs no external
+  lookup before policy allow.
 - Tobari cannot reach OPA, Gateway management interfaces, or another Tobari.
 - Gateway or OPA failure denies outbound traffic.
 - Each work container receives fixed CPU, memory (including total memory plus
@@ -169,15 +176,22 @@ egress networks; OPA joins only control.
   container-log bounds so one untrusted workload cannot consume those shared
   resources without limit. Disk quota and network bandwidth remain separate
   unclaimed controls.
-- Host networking, privileged mode, Docker socket mounts, and added
-  capabilities are forbidden.
+- Host networking, privileged mode, Docker socket mounts, and capabilities in
+  resident Workspace or Gateway processes are forbidden. A fixed short-lived
+  helper may receive only `CAP_NET_ADMIN` while sharing one verified container
+  network namespace; it receives no mounts, secrets, executable selector, or
+  Docker socket and exits before user entry.
 
 ### Mechanical enforcement
 
 - The runtime adapter constructs one labeled internal network per Tobari, a
   shared internal control network, and a separate egress network.
-- Integration tests prove direct egress, direct OPA access, and traffic during
-  Gateway or OPA failure do not succeed.
+- Runtime reconciliation installs and verifies exact Tobari-owned Workspace
+  and Gateway namespace guards before user entry. Gateway forwarding sysctls
+  remain disabled and its forward chain drops unconditionally.
+- Integration tests prove transparent interception without proxy environment,
+  zero pre-policy DNS/upstream calls, source-principal isolation, direct egress,
+  direct OPA access, and traffic during Gateway or OPA failure do not succeed.
 - Runtime specification tests reject privileged mode, host networking, Docker
   socket mounts, broad host-home mounts, and missing fixed resource bounds.
 - Runtime integration inspects CPU, memory, PID, and log limits after creation
@@ -374,7 +388,10 @@ directory.
 - Every process in a Tobari may modify or delete every file below that Tobari's
   mounted root.
 - The host-owned principal registry is the only source of project authority at
-  Gateway; session headers and profile names cannot select a project.
+  Gateway. It binds the exact owned Workspace source endpoint and Gateway
+  endpoint on one dedicated project network to the stable Context/project;
+  session headers, names, SNI, URLs, environment, and profiles cannot select a
+  project.
 - A missing, malformed, ambiguous, or stale principal binding denies before
   policy evaluation and upstream I/O. Network recreation reconciles the
   binding before the project can use the proxy.
@@ -716,7 +733,7 @@ a handle selects authority without the trusted principal and OPA allow.
 ## Deliberate non-goals
 
 MVP does not support multiple clusters, process-level identity, a per-project
-static baseline policy, transparent proxying, non-HTTP protocols, Git SSH,
+static baseline policy, non-HTTP forwarding or policy, recursive DNS, Git SSH,
 provider-specific policy semantics, Git-over-HTTPS credential helpers,
 arbitrary provider OAuth or signing, SigV4a, AWS presigning or streaming,
 multiple provider accounts per Context, approval workflows, general Kubernetes

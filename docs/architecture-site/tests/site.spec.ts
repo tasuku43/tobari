@@ -509,7 +509,7 @@ test("HTTPS diagram follows one request through both TLS connections", async ({
     "Gateway",
   );
   await expect(diagram.locator('[data-node="opa"]')).toContainText("OPA");
-  await expect(diagram).toContainText("CONNECT");
+  await expect(diagram).toContainText("透過入口");
   await expect(diagram).toContainText("TLS");
 });
 

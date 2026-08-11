@@ -54,7 +54,7 @@ It is shared by all Context-bound Workspaces. Shared services do not erase proje
 
 The **runtime image** supplies the OS, tools, entrypoint, and runtime API. The **runtime container** realizes a Workspace at a point in time. Neither defines the Workspace identity.
 
-Tobari creates the container with its own mounts, network, proxy/CA environment, user, security/resource limits, health contract, and explicit `sleep infinity` lifetime command. The image's `CMD` does not determine Workspace lifetime. Drift or loss can recreate the container while preserving the logical Workspace and home.
+Tobari creates the container with its own mounts, guarded network, CA trust environment, user, security/resource limits, health contract, and explicit `sleep infinity` lifetime command. The image's `CMD` does not determine Workspace lifetime. Drift or loss can recreate the container while preserving the logical Workspace and home.
 
 ## Selection from the current directory
 

@@ -84,7 +84,7 @@ exit and work-container recreation, and is removed by Workspace `delete`.
 
 ### Gateway
 
-The component that accepts Workspace HTTP proxy traffic, terminates
+The component that accepts transparently routed Workspace HTTP traffic, terminates
 Workspace-side TLS when needed, derives the host-issued project principal,
 redacts secrets from decision input, asks OPA once, and—only after allow—opens
 the separate upstream connection and streams the body. Gateway enforces the
@@ -112,7 +112,7 @@ and does not split policy candidates.
 
 ### TLS connection A
 
-The HTTPS connection from Workspace to Gateway after an HTTP `CONNECT`.
+The intercepted HTTPS connection from Workspace to Gateway.
 Gateway presents a certificate rooted in Tobari's Workspace-trusted CA and
 decrypts the HTTP attributes needed for policy.
 
@@ -150,13 +150,14 @@ the mutable display name and from the current Context marker.
 ### project principal
 
 The trusted pairing of stable Context ID and project ID derived by Gateway from
-the exact local interface on a dedicated Workspace network. It scopes policy
-and broker handles.
+the exact kernel-observed Workspace source endpoint on a dedicated network. It
+scopes policy and broker handles.
 
 ### principal registry
 
-The host-owned schema-2 mapping from exact Gateway project-network interface to
-Context/project identity. Gateway receives only this directory read-only.
+The host-owned schema-3 mapping from exact Workspace source endpoint, Gateway
+endpoint, and dedicated network to Context/project identity. Gateway receives
+only this directory read-only.
 Caller-supplied `X-Tobari-*` text cannot replace the mapping.
 
 ### dedicated project network

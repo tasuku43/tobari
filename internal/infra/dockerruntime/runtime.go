@@ -491,6 +491,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 				"up", "-d", "--no-build", "--remove-orphans", "--force-recreate", "--wait"},
 			rollbackEnvironment, nil, io.Discard, io.Discard,
 		)
+		_ = r.ensureGatewayNetworkGuard(rollbackContext)
 	}()
 	var environment []string
 	environment, err = r.composeEnvironment(state)
@@ -558,6 +559,10 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if err != nil {
 			recordAttemptError("Cluster startup did not complete; inspect component logs.")
 			return fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
+		}
+		if err := r.ensureGatewayNetworkGuard(ctx); err != nil {
+			recordAttemptError("Gateway network guard did not become ready; inspect Docker kernel support.")
+			return err
 		}
 		rootKey, err := r.unlockAuthBroker(ctx)
 		if err != nil {
@@ -796,11 +801,11 @@ func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 		return tobari.State{}, err
 	}
 	state := tobari.State{
-		SchemaVersion: 3, RuntimeDirectory: runtimeDirectory,
+		SchemaVersion: 4, RuntimeDirectory: runtimeDirectory,
 		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,
 		PolicyDirectory: projection.PolicyDirectory, CredentialConfig: projection.CredentialConfig,
 		CredentialDir: projection.CredentialDirectory, AssetVersion: version,
-		ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
+		Tobari: []tobari.Instance{},
 	}
 	if err := state.Validate(); err != nil {
 		return tobari.State{}, err
@@ -932,6 +937,13 @@ func (r *Runtime) LoadState(ctx context.Context) (tobari.State, bool, error) {
 		}
 		return state, true, nil
 	}
+	if header.SchemaVersion == 3 {
+		state, err := r.migrateExplicitProxyState(data)
+		if err != nil {
+			return tobari.State{}, false, err
+		}
+		return state, true, nil
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var state tobari.State
@@ -962,6 +974,53 @@ type legacyClusterState struct {
 	Tobari           []tobari.Instance `json:"tobari"`
 }
 
+type explicitProxyState struct {
+	SchemaVersion     int               `json:"schema_version"`
+	RuntimeDirectory  string            `json:"runtime_directory"`
+	ContextName       string            `json:"context_name,omitempty"`
+	AgentProfile      string            `json:"agent_profile,omitempty"`
+	AggregateRevision string            `json:"aggregate_revision,omitempty"`
+	ContextCount      int               `json:"context_count,omitempty"`
+	PolicyDirectory   string            `json:"policy_directory"`
+	CredentialConfig  string            `json:"credential_config"`
+	CredentialDir     string            `json:"credential_directory"`
+	AssetVersion      string            `json:"asset_version"`
+	ProxyEndpoint     string            `json:"proxy_endpoint"`
+	RecentError       string            `json:"recent_error"`
+	Tobari            []tobari.Instance `json:"tobari"`
+}
+
+func (r *Runtime) migrateExplicitProxyState(data []byte) (tobari.State, error) {
+	var legacy explicitProxyState
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&legacy); err != nil {
+		return tobari.State{}, fmt.Errorf("decode explicit-proxy Tobari state: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return tobari.State{}, fmt.Errorf("explicit-proxy Tobari state contains trailing data")
+	}
+	if legacy.SchemaVersion != 3 || legacy.ProxyEndpoint != "http://gateway:8080" {
+		return tobari.State{}, fmt.Errorf("explicit-proxy Tobari state contract is invalid")
+	}
+	state := tobari.State{
+		SchemaVersion: 4, RuntimeDirectory: legacy.RuntimeDirectory,
+		ContextName: legacy.ContextName, AgentProfile: legacy.AgentProfile,
+		AggregateRevision: legacy.AggregateRevision, ContextCount: legacy.ContextCount,
+		PolicyDirectory: legacy.PolicyDirectory, CredentialConfig: legacy.CredentialConfig,
+		CredentialDir: legacy.CredentialDir, AssetVersion: legacy.AssetVersion,
+		RecentError: legacy.RecentError, Tobari: append([]tobari.Instance{}, legacy.Tobari...),
+	}
+	if err := state.Validate(); err != nil {
+		return tobari.State{}, err
+	}
+	if err := r.writeState(state); err != nil {
+		return tobari.State{}, fmt.Errorf("persist state without retired explicit proxy: %w", err)
+	}
+	return state, nil
+}
+
 func (r *Runtime) migrateLegacyClusterState(ctx context.Context, data []byte) (tobari.State, error) {
 	if err := r.requireNoInterruptedClusterReconcile(ctx); err != nil {
 		return tobari.State{}, fault.Wrap(
@@ -976,7 +1035,7 @@ func (r *Runtime) migrateLegacyClusterState(ctx context.Context, data []byte) (t
 	if err := decoder.Decode(&legacy); err != nil {
 		return tobari.State{}, fmt.Errorf("decode legacy Tobari state: %w", err)
 	}
-	if legacy.SchemaVersion != 2 || len(legacy.Tobari) != 0 {
+	if legacy.SchemaVersion != 2 || legacy.ProxyEndpoint != "http://gateway:8080" || len(legacy.Tobari) != 0 {
 		return tobari.State{}, fault.New(
 			fault.KindRejected, "ambiguous_context_migration",
 			"legacy shared state cannot be assigned to a Context safely", false,
@@ -1029,11 +1088,11 @@ func (r *Runtime) migrateLegacyClusterState(ctx context.Context, data []byte) (t
 		)
 	}
 	state := tobari.State{
-		SchemaVersion: 3, RuntimeDirectory: legacy.RuntimeDirectory,
+		SchemaVersion: 4, RuntimeDirectory: legacy.RuntimeDirectory,
 		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,
 		PolicyDirectory: projection.PolicyDirectory, CredentialConfig: projection.CredentialConfig,
 		CredentialDir: projection.CredentialDirectory, AssetVersion: legacy.AssetVersion,
-		ProxyEndpoint: legacy.ProxyEndpoint, RecentError: legacy.RecentError, Tobari: []tobari.Instance{},
+		RecentError: legacy.RecentError, Tobari: []tobari.Instance{},
 	}
 	if err := state.Validate(); err != nil {
 		return tobari.State{}, err
@@ -1101,9 +1160,6 @@ func (r *Runtime) Attach(ctx context.Context, state tobari.State, name, root, im
 		"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		"--tmpfs", "/tmp:size=512m,mode=1777", "--tmpfs", "/run:size=16m,mode=1777",
 		"--env", "HOME=/var/lib/tobari",
-		"--env", "HTTP_PROXY=http://gateway:8080", "--env", "HTTPS_PROXY=http://gateway:8080",
-		"--env", "http_proxy=http://gateway:8080", "--env", "https_proxy=http://gateway:8080",
-		"--env", "NO_PROXY=", "--env", "no_proxy=",
 		"--env", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
 		"--env", "REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem",
 		"--env", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
@@ -1272,7 +1328,7 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 		backend = string(selected)
 	}
 	return tobari.ClusterStatus{
-		Configured: true, Running: running, Proxy: state.ProxyEndpoint,
+		Configured: true, Running: running,
 		Policy: state.PolicyDirectory, TobariCount: len(projects), ContextCount: state.ContextCount,
 		PolicyRevision: state.AggregateRevision, PolicyProjection: policyIntegrity,
 		PrincipalRegistry: principalIntegrity, CredentialProjection: credentialIntegrity,

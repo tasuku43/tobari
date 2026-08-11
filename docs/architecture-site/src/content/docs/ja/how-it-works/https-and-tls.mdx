@@ -5,9 +5,7 @@ description: Workspace 側の HTTPS が終端する正確な位置と、別に�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari を通る HTTPS リクエストは、二つの TLS 接続を使います。Workspace は
-明示的な HTTP プロキシへ `CONNECT` を送り、Tobari CA の下で Gateway との
-TLS 接続 A を確立します。Gateway はこの接続を終端し、復号した HTTP 属性を認可に使います。
+Tobari を通る HTTPS リクエストは、二つの TLS 接続を使います。クライアントは通常の HTTPS URL を使い、固定の合成 DNS 応答と Workspace の保護済み経路が TCP 接続を Gateway の透過リスナーへ届けます。クライアントは Tobari CA の下で Gateway との TLS 接続 A を確立します。Gateway はこの接続を終端し、復号した HTTP 属性を認可に使います。
 
 ポリシーがリクエストを許可すると、Gateway は接続先へ別の検証済み TLS 接続 B
 を作ります。最終的な宛先へ平文 HTTP を送るわけではありません。Tobari CA を信頼することと、
@@ -19,25 +17,19 @@ Gateway を迂回せず接続に失敗します。前の
 
 ## HTTPS 通信を順番に追う
 
-### 1. クライアントが HTTP プロキシへ接続する
+### 1. クライアントが Gateway へ到達する
 
-Workspace のクライアントは、Gateway を HTTP/HTTPS プロキシとして使うよう設定されています。HTTPS URL ではプロジェクトネットワークから Gateway へ接続し、次を送ります。
-
-```http
-CONNECT api.example.com:443 HTTP/1.1
-```
-
-これは、その接続先に対するトンネル状の HTTPS 通信をプロキシへ求めるものです。ネットワーク上の許可を与えるものではありません。
+クライアントは通常の HTTPS URL を保ちます。合成 DNS が `198.18.0.10` を返し、既定の TCP 経路がプロジェクトの Gateway を指し、Gateway が透過リスナーへ接続を振り分けます。TLS SNI が最初の HTTPS 接続先を示します。このリスナーへ到達しただけでは、ネットワーク上の許可を得られません。
 
 ### 2. Gateway が TLS 接続 A を確立する
 
-Gateway は `CONNECT` に応答し、Tobari のインストール CA で署名した末端証明書を提示します。Workspace ランタイムは、システム CA 群と公開された Tobari CA から一時的なクライアント用信頼バンドルを作ります。
+Gateway は検査対象の TLS ハンドシェイクを受け取り、Tobari のインストール CA で署名した末端証明書を提示します。Workspace ランタイムは、システム CA 群と公開された Tobari CA から一時的なクライアント用信頼バンドルを作ります。
 
 そのためクライアントは Gateway と **TLS 接続 A** を確立できます。Gateway はこの TLS セッションを終端し、汎用の判断契約に必要な、復号済みの HTTP メソッド、接続先、パス、クエリー、ヘッダーを確認できます。
 
 ### 3. Gateway が復号済み HTTP リクエストの許可を確認する
 
-Gateway は Context とプロジェクトの識別情報を導出し、認証情報を削除または秘匿化します。本文を含まない正規化済み入力を、一度だけ OPA へ送ります。リクエスト本文は、ポリシー上の識別情報を決める要素ではありません。CA を信頼していても、この判断は省略できません。
+Gateway は Context とプロジェクトの識別情報を導出し、透過経路では SNI、HTTP の接続先、元のポートが一致することを要求し、認証情報を削除または秘匿化します。本文を含まない正規化済み入力を、一度だけ OPA へ送ります。リクエスト本文は、ポリシー上の識別情報を決める要素ではありません。CA を信頼していても、この判断は省略できません。
 
 拒否された場合や判断に失敗した場合、そのリクエスト用の TLS 接続 B は作られません。
 
@@ -81,7 +73,7 @@ Workspace 内で `curl https://api.example.com/v1/data` を実行するとしま
 - **OPA による拒否または障害:** Gateway は許可済みの接続先経路を作らず、拒否はローカルで完了します。
 - **DNS またはアドレスの検証に失敗:** 安全でない代替宛先へ TLS B を試しません。
 - **接続先証明書の障害:** TLS B が失敗します。ポリシー規則を拒否へ変えたり、安全でない再試行を行ったりしません。
-- **クライアントがプロキシを無視する:** 専用の内部ネットワークに外部経路がないため、TLS を迂回できません。
+- **クライアントが通常の直接ソケットを開く:** 保護済みの透過経路が Gateway の判断へ到達し、TLS の迂回経路にはなりません。
 
 ## 保証と制限
 
@@ -94,15 +86,14 @@ Workspace 内で `curl https://api.example.com/v1/data` を実行するとしま
 ## 根拠となるソース
 
 - [アーキテクチャ上の HTTPS の流れ](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
-- [HTTPS を検査する設計判断](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0005-use-an-explicit-intercepting-proxy.md)
 - [Gateway の mitmproxy 起動処理](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/entrypoint.sh)
 - [Workspace の CA バンドルを準備する起動処理](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/tobari/entrypoint.sh)
 - [HTTPS スキームと Gateway のテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
-- [HTTPS の検査とプロキシ回避を確認する統合テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+- [HTTPS の検査を確認する統合テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
 
 ## まとめ
 
-`CONNECT` により、クライアントと Gateway の間に TLS A ができます。Gateway は復号済みの HTTP 属性を認可し、許可後にだけ、接続先への検証済み TLS B を別に作ります。CA の信頼、ポリシー上の権限、認証情報を使う権限は、それぞれ別です。
+保護済みの透過入口により、クライアントと Gateway の間に TLS A ができます。Gateway は復号済みの HTTP 属性を認可し、許可後にだけ本物のホストを名前解決して、接続先への検証済み TLS B を別に作ります。CA の信頼、ポリシー上の権限、認証情報を使う権限は、それぞれ別です。
 
 ## 理解を確認する
 

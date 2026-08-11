@@ -693,8 +693,8 @@ assert_component_resource_bounds tobari-auth-broker 1000000000 536870912 128
 [[ $(docker ps -a --filter name='^/tobari-gateway$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Gateway"
 [[ $(docker ps -a --filter name='^/tobari-opa$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one OPA"
 [[ $(docker ps -a --filter name='^/tobari-auth-broker$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Auth Broker"
-[[ $(docker inspect --format '{{index .Config.Labels "io.tobari.gateway-api"}}' tobari-gateway) == 4 ]] ||
-  fail "Gateway did not expose image API 4"
+[[ $(docker inspect --format '{{index .Config.Labels "io.tobari.gateway-api"}}' tobari-gateway) == 5 ]] ||
+  fail "Gateway did not expose image API 5"
 [[ $(docker inspect --format '{{index .Config.Labels "io.tobari.auth-broker-api"}}' tobari-auth-broker) == 3 ]] ||
   fail "Auth Broker did not expose image API 3"
 [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' tobari-auth-broker) == true ]] ||
@@ -1001,7 +1001,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     document = json.load(handle)
 bindings = document.get("bindings", [])
-if document.get("schema_version") != 2 or len(bindings) != 3:
+if document.get("schema_version") != 3 or len(bindings) != 3:
     raise SystemExit(f"unexpected project principal registry: {document!r}")
 ids = {item["project_id"] for item in bindings}
 if ids != set(sys.argv[2:]):
@@ -1009,9 +1009,59 @@ if ids != set(sys.argv[2:]):
 addresses = [item["gateway_ip"] for item in bindings]
 if len(addresses) != len(set(addresses)):
     raise SystemExit("project principal registry reused one Gateway address")
+workspace_addresses = [item["workspace_ip"] for item in bindings]
+if len(workspace_addresses) != len(set(workspace_addresses)):
+    raise SystemExit("project principal registry reused one Workspace address")
+if set(addresses) & set(workspace_addresses):
+    raise SystemExit("project principal registry overlapped Workspace and Gateway endpoints")
 if {item["context"] for item in bindings} != {"default", "restricted"}:
     raise SystemExit(f"registry Context bindings are incomplete: {bindings!r}")
 PY
+
+work_gateway_ip=$(python3 - "$config_directory/principal-registry/principals.json" "$work_id" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    bindings = json.load(handle)["bindings"]
+print(next(item["gateway_ip"] for item in bindings if item["project_id"] == sys.argv[2]))
+PY
+)
+work_workspace_ip=$(python3 - "$config_directory/principal-registry/principals.json" "$work_id" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    bindings = json.load(handle)["bindings"]
+print(next(item["workspace_ip"] for item in bindings if item["project_id"] == sys.argv[2]))
+PY
+)
+[[ $(docker inspect --format "{{(index .NetworkSettings.Networks \"$work_network\").IPAddress}}" "$work_container") == "$work_workspace_ip" ]] ||
+  fail "principal registry Workspace endpoint does not match Docker"
+[[ $(docker inspect --format "{{(index .NetworkSettings.Networks \"$work_network\").IPAddress}}" tobari-gateway) == "$work_gateway_ip" ]] ||
+  fail "principal registry Gateway endpoint does not match Docker"
+[[ $(docker inspect --format '{{json .HostConfig.Dns}}' "$work_container") == "[\"$work_gateway_ip\"]" ]] ||
+  fail "Workspace DNS is not fixed to its Gateway endpoint"
+[[ $(docker inspect --format '{{index .HostConfig.Sysctls "net.ipv4.ip_forward"}}' tobari-gateway) == 0 ]] ||
+  fail "Gateway IPv4 forwarding sysctl is not disabled"
+[[ $(docker inspect --format '{{index .HostConfig.Sysctls "net.ipv6.conf.all.forwarding"}}' tobari-gateway) == 0 ]] ||
+  fail "Gateway IPv6 forwarding sysctl is not disabled"
+gateway_image_id=$(docker inspect --format '{{.Image}}' tobari-gateway)
+gateway_guard_rules=$(docker run --rm --network container:tobari-gateway --user 0:0 --read-only \
+  --cap-drop ALL --cap-add NET_ADMIN --security-opt no-new-privileges:true \
+  --entrypoint nft "$gateway_image_id" list table inet tobari_guard_v1)
+assert_contains "$gateway_guard_rules" "hook forward" "Gateway forward guard"
+assert_contains "$gateway_guard_rules" "policy drop" "Gateway forward guard"
+assert_contains "$gateway_guard_rules" "redirect to :15001" "Gateway transparent redirect"
+[[ $gateway_guard_rules != *"dport 8080"* ]] || fail "Gateway guard retained explicit proxy port"
+workspace_guard_rules=$(docker run --rm --network "container:$work_container" --user 0:0 --read-only \
+  --cap-drop ALL --cap-add NET_ADMIN --security-opt no-new-privileges:true \
+  --entrypoint nft "$gateway_image_id" list table inet tobari_guard_v1)
+assert_contains "$workspace_guard_rules" "hook output" "Workspace output guard"
+assert_contains "$workspace_guard_rules" "policy drop" "Workspace output guard"
+assert_contains "$workspace_guard_rules" "reject with icmpv6 admin-prohibited" "Workspace IPv6 guard"
+[[ $workspace_guard_rules != *"dport 8080"* ]] || fail "Workspace guard retained explicit proxy port"
+workspace_default_route=$(docker run --rm --network "container:$work_container" --read-only \
+  --cap-drop ALL --security-opt no-new-privileges:true --entrypoint ip "$gateway_image_id" -4 route show default)
+assert_contains "$workspace_default_route" "default via $work_gateway_ip" "Workspace guarded default route"
 
 work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$status_from_nested")
 restricted_status=$(run_tobari_at "$work_root" status --context restricted --format json)
@@ -1025,6 +1075,11 @@ assert_resource_bounds "$work_container"
 assert_resource_bounds "$restricted_container"
 assert_resource_bounds "$other_container"
 [[ $(run_project printenv HOME) == /var/lib/tobari ]] || fail "project HOME is not /var/lib/tobari"
+for retired_proxy_variable in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy; do
+  if run_project printenv "$retired_proxy_variable" >/dev/null 2>&1; then
+    fail "Workspace retained retired proxy variable $retired_proxy_variable"
+  fi
+done
 [[ $(run_project sh -c 'command -v gh') == /usr/local/bin/gh ]] || fail "GitHub CLI disappeared behind the project mount"
 [[ $(run_project sh -c 'command -v aws') == /usr/local/bin/aws ]] || fail "AWS CLI disappeared behind the project mount"
 work_auth_handle=$(run_project printenv SYNTHETIC_TOKEN)
@@ -1173,8 +1228,11 @@ assert_contains "$(run_project cat /var/lib/tobari/tool-auth-state)" "$tool_auth
 if run_project test -e "$container_work_root/credentials"; then
   fail "Tobari unexpectedly contains the host credential directory"
 fi
-if run_project getent hosts "$other_container" >/dev/null 2>&1; then
-  fail "one CWD-owned Tobari can resolve another Tobari across dedicated networks"
+other_workspace_ip=$(docker inspect --format "{{(index .NetworkSettings.Networks \"$other_network\").IPAddress}}" "$other_container")
+peer_resolution=$(run_project getent ahostsv4 "$other_container")
+assert_contains "$peer_resolution" "198.18.0.10" "cross-project synthetic DNS isolation"
+if [[ $peer_resolution == *"$other_workspace_ip"* ]]; then
+  fail "one CWD-owned Tobari resolved another Tobari's real endpoint across dedicated networks"
 fi
 
 tobari_image=$(docker inspect --format '{{.Config.Image}}' "$work_container")
@@ -1620,8 +1678,8 @@ docker exec "$work_container" python3 -c '
 import http.client
 import time
 
-connection = http.client.HTTPConnection("gateway", 8080, timeout=10)
-connection.putrequest("POST", "http://mock-upstream:8080/stream-upload", skip_host=True)
+connection = http.client.HTTPConnection("mock-upstream", 8080, timeout=10)
+connection.putrequest("POST", "/stream-upload", skip_host=True)
 connection.putheader("Host", "mock-upstream:8080")
 connection.putheader("Transfer-Encoding", "chunked")
 connection.endheaders()
@@ -2122,6 +2180,14 @@ final_default_auth_status=$(run_tobari auth status --context default --format js
 final_restricted_auth_status=$(run_tobari auth status --context restricted --format json)
 final_context_status=$(run_tobari context show --format json)
 final_cluster_status=$(run_tobari cluster status --format json)
+CLUSTER_STATUS_DOCUMENT="$final_cluster_status" python3 <<'PY'
+import json
+import os
+
+document = json.loads(os.environ["CLUSTER_STATUS_DOCUMENT"])
+if document.get("schema_version") != 6 or "proxy" in document.get("cluster", {}):
+    raise SystemExit(f"cluster status retained explicit proxy contract: {document!r}")
+PY
 assert_contains "$final_cluster_status" '"auth_broker_state":"ready"' \
   "shared Auth Broker readiness status"
 assert_contains "$final_cluster_status" '"credential_companion_state":"ready"' \
@@ -2164,10 +2230,10 @@ https_status=$(run_project curl -fsS -o /dev/null -w '%{http_code}' https://exam
 shell_output=$(printf 'printf shell-ok\\nexit\\n' | run_project_shell)
 assert_contains "$shell_output" "shell-ok" "interactive shell"
 
-if run_project env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
-  curl --noproxy '*' --max-time 3 -fsS https://example.com/ >/dev/null 2>&1; then
-  fail "Tobari reached the Internet without Gateway"
-fi
+transparent_dns=$(run_project getent ahostsv4 transparent.invalid)
+assert_contains "$transparent_dns" "198.18.0.10" "synthetic non-recursive DNS"
+transparent_status=$(run_project curl --max-time 10 -fsS -o /dev/null -w '%{http_code}' https://example.com/)
+[[ $transparent_status == 200 ]] || fail "transparent HTTPS returned $transparent_status instead of 200"
 if run_project curl --noproxy '*' --max-time 3 -fsS \
   http://opa:8181/health >/dev/null 2>&1; then
   fail "Tobari reached the OPA control API"

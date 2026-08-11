@@ -34,7 +34,7 @@ Paths below are relative to the effective XDG configuration/state roots unless n
 | Active policy bundle                          | Revisioned complete OPA bundle in an owner-labeled Docker-managed volume                                                                                                   | Hot-loaded by OPA; removed only by `cluster down --purge`, then rebuilt from policy sources          |
 | Provider manifests                            | Owner-controlled strict schema 1 static declarations plus reviewed built-in schema 1/2 plans                                                                               | Installation/Context configuration; survive cluster teardown                                         |
 | Provider projection                           | Normalized non-secret schema 2 all-provider data for Gateway                                                                                                               | Regenerated from complete valid manifests; partial collection is not activated                       |
-| Principal registry                            | Host-issued Workspace-network interface → Context/project binding                                                                                                          | Reconciled with existing Workspace networks; mounted read-only into Gateway                          |
+| Principal registry                            | Host-issued schema-3 Workspace source + Gateway endpoint + network → Context/project binding                                                                               | Reconciled with existing Workspace networks; mounted read-only into Gateway                          |
 | Encrypted Context vault                       | Envelope schema 1/payload schema 2 authenticated ciphertext containing static secrets, opaque AWS state, Datadog OAuth state, revisions, durable barriers, and raw handles | Survives Workspace deletion and both cluster-down forms; credential entries change on auth mutations |
 | Installation root key                         | Unlocks Context vaults; macOS Keychain or owner-only Linux file                                                                                                            | Survives cluster down/purge; missing key beside a vault fails closed                                 |
 | Gateway CA state                              | Installation CA used for Workspace-side HTTPS interception                                                                                                                 | Survives ordinary cluster down; shared CA volumes are removed by `--purge`                           |
@@ -94,7 +94,7 @@ After a host restart, the Workspace's container and dedicated network are gone, 
 1. `tobari` resolves the durable root/Context record.
 2. It validates the bound Context runtime image.
 3. It recreates the internal network and container.
-4. It connects Gateway and records the new local interface principal.
+4. It connects Gateway, reapplies the Gateway/Workspace guards, and records the new exact endpoint principal.
 5. It reconciles current broker handle projections.
 6. It enters the same logical Workspace with the same project ID and home.
 

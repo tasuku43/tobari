@@ -1,13 +1,13 @@
 ---
 title: Project identity without self-reporting
-description: Understand how a Gateway interface and host-owned registry establish the Context/project principal.
+description: Understand how a Workspace source endpoint and host-owned registry establish the Context/project principal.
 ---
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
 Before Gateway prepares credentials or asks OPA, it identifies the request's
-Context and project. It selects that principal from the local interface on
-which the request arrived and an owner-controlled registry populated by the
+Context and project. It selects that principal from the kernel-observed
+Workspace source endpoint and an owner-controlled registry populated by the
 trusted host.
 
 Caller-supplied project or Context IDs are never authorization inputs. Changing
@@ -26,16 +26,24 @@ For each logical Workspace, host-side lifecycle code:
 1. validates the stable UUIDv7 project ID and permanent Context ID;
 2. creates or verifies the exact owner-labeled dedicated internal network;
 3. connects Gateway to that network;
-4. inspects Gateway's IP address on that exact network; and
-5. atomically writes a schema 2 binding to the owner-only principal registry.
+4. inspects the Workspace and Gateway IP addresses on that exact network;
+5. validates that both endpoints are distinct, canonical, and unique; and
+6. atomically writes a schema 3 binding to the owner-only principal registry.
 
-Each binding contains project ID, Context ID, Context name, canonical root, network name, and Gateway interface IP. Project and address entries must be unique; unsafe loopback, link-local, multicast, or unspecified addresses are rejected.
+Each binding contains project ID, Context ID, Context name, canonical root,
+network name, Workspace source IP, and Gateway endpoint IP. Project, network,
+and address entries must be unique; unsafe loopback, link-local, multicast, or
+unspecified addresses are rejected.
 
 The registry is mounted read-only into Gateway. A Workspace receives neither write access to it nor Docker control that could author the binding.
 
 ## Principal resolution on each request
 
-Gateway observes `flow.client_conn.sockname[0]`: its own local address for the accepted project-network connection. That local address selects one binding.
+Gateway observes `flow.client_conn.peername[0]`: the kernel-reported source
+address for the accepted project-network connection. That Workspace source
+address selects one binding. The registered Gateway endpoint is checked by
+lifecycle reconciliation and prevents endpoint reuse; it is not the request
+principal key.
 
 This detail matters. The value is not:
 
@@ -58,21 +66,27 @@ X-Tobari-Context: review
 Authorization: Bearer example
 ```
 
-The connection still arrives on Gateway's Workspace B interface. Gateway selects B's Context/project binding and strips or redacts control/credential values as required. A rule learned for A does not match B even if host, port, method, and path are identical.
+The connection still has Workspace B's kernel-observed source endpoint.
+Gateway selects B's Context/project binding and strips or redacts
+control/credential values as required. A rule learned for A does not match B
+even if host, port, method, and path are identical.
 
 If the request contains a copied broker handle from A, the result is stricter still: non-secret Broker introspection checks the derived B principal against the handle's Context, project, provider, credential revision, target, and source-header binding. The mismatch becomes `403 credential_handle_invalid` before OPA.
 
 ## Why network identity is used
 
-A Workspace process can modify its request, environment, filesystem, and tool configuration. Any identity located there is attacker-controlled data. The dedicated network gives trusted host lifecycle code a place to establish an interface binding that the Workspace cannot choose per request.
+A Workspace process can modify its request, environment, filesystem, and tool
+configuration. Any identity located there is attacker-controlled data. The
+dedicated network gives trusted host lifecycle code a place to establish an
+exact source-endpoint binding that the Workspace cannot choose per request.
 
 This is a Docker implementation of a more general contract: the runtime supplies a trustworthy connection-to-principal binding. Policy code does not reconstruct identity from names or parsing conventions.
 
 ## Failure behavior
 
 - Registry missing, unreadable, too large, wrong version, malformed, unsafe, duplicate, or ambiguous: Gateway returns `403 project_principal_unavailable`.
-- Incoming local interface not registered: the same 403 occurs before OPA or upstream I/O.
-- Network recreation changes Gateway's interface address: lifecycle must reconcile the registry before the Workspace becomes ready.
+- Incoming Workspace source endpoint not registered: the same 403 occurs before OPA or upstream I/O.
+- Network recreation changes either endpoint: lifecycle must reapply the network guard and reconcile the registry before the Workspace becomes ready.
 - Unknown Context ID at OPA: the aggregate router denies and never falls back to the current/default Context.
 - User changes Context display name/default: stable stored IDs, not names, remain enforcement identity.
 
@@ -96,7 +110,10 @@ The Gateway binding parser validates the exact per-binding shape and required va
 
 ## Summary
 
-The host binds one exact Gateway project-network interface to stable Context/project IDs. Gateway observes that interface on every request. Headers and names can describe a caller, but they cannot grant another principal's authority.
+The host binds one exact Workspace source endpoint, Gateway endpoint, and
+dedicated network to stable Context/project IDs. Gateway observes the source
+endpoint on every request. Headers and names can describe a caller, but they
+cannot grant another principal's authority.
 
 ## Check your understanding
 
@@ -107,8 +124,8 @@ You should now be able to explain why shared Gateway/OPA services do not mean sh
     A process writes another project ID into a header. Which ID reaches OPA as
     principal?
   </summary>
-  The ID selected by Gateway's receiving local interface and the host principal
-  registry. The header is not authority.
+  The ID selected by Gateway's kernel-observed Workspace source endpoint and the
+  host principal registry. The header is not authority.
 </details>
 
 <details>
@@ -124,7 +141,7 @@ You should now be able to explain why shared Gateway/OPA services do not mean sh
     What happens while a recreated network has no valid registry binding?
   </summary>
   Requests fail closed with `project_principal_unavailable`; lifecycle must
-  reconcile the interface binding first.
+  reapply the network guard and reconcile the endpoint binding first.
 </details>
 
 Return to [System overview](/how-it-works/system-overview/) for the network placement. Next, use the principal in [Policy learning](/how-it-works/policy-learning/).

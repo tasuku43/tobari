@@ -43,7 +43,7 @@ const text: Record<string, LocalizedDiagramText> = {
       },
     },
     edges: {
-      "workspace->gateway": "プロキシリクエスト",
+      "workspace->gateway": "保護済みの HTTP/HTTPS リクエスト",
       "gateway->opa": "本文を含まない判断入力一つ",
       "opa->gateway": "許可または拒否",
       "gateway->broker": "秘密を含まない検査。認証情報処理は許可後だけ",
@@ -63,7 +63,7 @@ const text: Record<string, LocalizedDiagramText> = {
       projectnet: {
         label: "プロジェクト専用の内部ネットワーク",
         detail:
-          "Workspace のプロキシ通信を運びます。Docker が提供する外部への経路はありません。",
+          "Workspace の保護済み HTTP/TLS 通信を運びます。Docker が提供する外部への経路はありません。",
       },
       gateway: {
         label: "Gateway",
@@ -202,7 +202,7 @@ const text: Record<string, LocalizedDiagramText> = {
       workspace: {
         label: "Workspace のクライアント",
         detail:
-          "HTTP プロキシを使い、Gateway 側の TLS セッションでは Tobari CA を信頼します。",
+          "通常の HTTPS URL を使い、Gateway 側の TLS セッションでは Tobari CA を信頼します。",
       },
       gateway: {
         label: "Gateway",
@@ -221,7 +221,7 @@ const text: Record<string, LocalizedDiagramText> = {
       },
     },
     edges: {
-      connect: "CONNECT example.com:443 が HTTP プロキシへ届く",
+      connect: "保護済み TCP が Gateway の透過入口へ届く",
       "workspace-tls":
         "Tobari が発行したサーバー証明書で TLS セッション 1 を開始する",
       "policy-query":
@@ -237,7 +237,7 @@ const text: Record<string, LocalizedDiagramText> = {
   "project-principal": {
     title: "プロジェクトプリンシパルの確立",
     description:
-      "ホストが管理する登録情報は、Gateway のネットワークインターフェースを Context ID とプロジェクト ID に結び付けます。リクエストヘッダーを書き換えても、この結び付きは変わりません。",
+      "ホストが管理する登録情報は、Workspace の送信元エンドポイント、Gateway のエンドポイント、専用ネットワークを Context ID とプロジェクト ID に結び付けます。リクエストヘッダーを書き換えても、この結び付きは変わりません。",
     nodes: {
       host: {
         label: "信頼するホストのライフサイクル",
@@ -246,7 +246,7 @@ const text: Record<string, LocalizedDiagramText> = {
       registry: {
         label: "プリンシパル登録情報",
         detail:
-          "ホストが管理する、インターフェース／ネットワークと Context ID／プロジェクト ID の対応記録。",
+          "ホストが管理する、送信元／Gateway エンドポイントとネットワークから Context ID／プロジェクト ID への対応記録。",
       },
       network: {
         label: "Workspace 専用ネットワーク",
@@ -259,8 +259,9 @@ const text: Record<string, LocalizedDiagramText> = {
           "識別情報のように見えるヘッダーを自由に送れますが、その値は信頼されません。",
       },
       gateway: {
-        label: "Gateway の受信インターフェース",
-        detail: "受信インターフェースに対応するプリンシパルを検索します。",
+        label: "Workspace の送信元エンドポイント",
+        detail:
+          "カーネルが観測した接続元アドレスに対応するプリンシパルを検索します。",
       },
       opa: {
         label: "OPA への入力",
@@ -271,7 +272,7 @@ const text: Record<string, LocalizedDiagramText> = {
     edges: {
       "host->registry": "不可分な登録",
       "host->network": "プロジェクト専用の内部ネットワークを作成",
-      "network->gateway": "このプロジェクトを示す受信インターフェースを選択",
+      "network->gateway": "このプロジェクトの正確な送信元エンドポイントを運ぶ",
       "registry->gateway": "プリンシパルを検索",
       "workspace->gateway": "リクエストデータ",
       "workspace->opa": "自己申告した ID は無視",

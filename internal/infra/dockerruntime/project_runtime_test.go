@@ -669,6 +669,8 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 				format = args[3]
 			}
 			switch {
+			case strings.Contains(format, ".IPAM.Config"):
+				return []byte(`[{"Subnet":"172.20.0.0/24"}]`), nil
 			case strings.Contains(format, ownerLabel):
 				return []byte(ownerValue + "\n"), nil
 			case strings.Contains(format, projectIDLabel):
@@ -700,6 +702,9 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 		if len(args) > 2 && strings.Contains(args[2], ".State.Health") {
 			return []byte(`{"state":"running","health":"healthy"}`), nil
 		}
+		if len(args) > 2 && args[2] == "{{.Image}}" && name == gatewayContainer {
+			return []byte("sha256:" + strings.Repeat("b", 64) + "\n"), nil
+		}
 		if len(args) > 2 && strings.Contains(args[2], ".NetworkSettings.Networks") {
 			if name == gatewayContainer {
 				entries := make([]string, 0, len(r.gatewayNetworks))
@@ -707,6 +712,9 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 					entries = append(entries, fmt.Sprintf("%q:{\"IPAddress\":%q}", network, ip))
 				}
 				return []byte("{" + strings.Join(entries, ",") + "}"), nil
+			}
+			for network := range r.gatewayNetworks {
+				return []byte(fmt.Sprintf(`{%q:{"IPAddress":"172.20.0.3"}}`, network)), nil
 			}
 			return []byte(`{}`), nil
 		}
@@ -738,6 +746,12 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 		return []byte("container-id\n"), nil
 	case "start":
 		return nil, nil
+	case "run":
+		mode := args[len(args)-1]
+		if len(args) >= 3 && args[len(args)-3] == "workspace" {
+			mode = "workspace"
+		}
+		return []byte("tobari-network-guard v1 " + mode + "\n"), nil
 	default:
 		return nil, nil
 	}
@@ -929,13 +943,13 @@ func TestEnsureProjectContainerRecreatesOnSpecDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := tobari.State{
-		SchemaVersion: 3, RuntimeDirectory: filepath.Join(t.TempDir(), "runtime"),
+		SchemaVersion: 4, RuntimeDirectory: filepath.Join(t.TempDir(), "runtime"),
 		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
 		PolicyDirectory: filepath.Join(t.TempDir(), "policy"), CredentialConfig: filepath.Join(t.TempDir(), "credentials.json"),
 		CredentialDir: filepath.Join(t.TempDir(), "credentials"), AssetVersion: "asset",
-		ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
+		Tobari: []tobari.Instance{},
 	}
-	if err := runtime.ensureProjectContainer(context.Background(), state, instance, "/profile", "tobari-project", "tobari-network", "tobari-image", "sha256:desired"); err != nil {
+	if err := runtime.ensureProjectContainer(context.Background(), state, instance, "/profile", "tobari-project", "tobari-network", "172.29.0.2", "tobari-image", "sha256:desired"); err != nil {
 		t.Fatalf("ensureProjectContainer() error = %v", err)
 	}
 	var removed, created bool
@@ -981,6 +995,7 @@ func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
 		"/profile",
 		"tobari-project",
 		"tobari-network",
+		"172.29.0.2",
 		"tobari-image",
 		"sha256:desired",
 	); err != nil {
@@ -998,6 +1013,7 @@ func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
 	}
 	for _, want := range [][]string{
 		{"tobari-image", "sleep", "infinity"},
+		{"--network", "tobari-network", "--dns", "172.29.0.2"},
 		{"--cpus", "2.0"},
 		{"--memory", "4g"},
 		{"--memory-swap", "4g"},
@@ -1008,6 +1024,12 @@ func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
 	} {
 		if !containsConsecutiveArgs(create, want...) {
 			t.Errorf("project create args = %v, missing %v", create, want)
+		}
+	}
+	joined := strings.Join(create, " ")
+	for _, retired := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy", "gateway:8080"} {
+		if strings.Contains(joined, retired) {
+			t.Errorf("project create args retained explicit proxy value %q: %v", retired, create)
 		}
 	}
 }

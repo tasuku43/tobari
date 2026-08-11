@@ -71,6 +71,9 @@ func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []str
 }
 
 func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if len(args) > 0 && args[0] == "run" {
+		return []byte("tobari-network-guard v1 gateway\n"), nil
+	}
 	if len(args) >= 2 && args[0] == "network" && args[1] == "connect" {
 		r.networkConnections = append(r.networkConnections, runnerCall{args: append([]string{}, args...)})
 		return []byte{}, nil
@@ -101,6 +104,9 @@ func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([
 		return []byte(`{"Os":"linux","Arch":"arm64"}`), nil
 	}
 	if len(args) >= 3 && args[0] == "inspect" {
+		if args[2] == "{{.Image}}" {
+			return []byte("sha256:" + strings.Repeat("b", 64) + "\n"), nil
+		}
 		if strings.Contains(args[2], `"id"`) {
 			uid, gid := currentIDs()
 			return []byte(fmt.Sprintf(
@@ -315,12 +321,12 @@ func (r *gatewayNetworkRunner) Output(_ context.Context, args, _ []string) ([]by
 
 func runtimeState(root string) tobari.State {
 	return tobari.State{
-		SchemaVersion: 3, RuntimeDirectory: filepath.Join(root, "runtime"),
+		SchemaVersion: 4, RuntimeDirectory: filepath.Join(root, "runtime"),
 		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
 		PolicyDirectory:  filepath.Join(root, "policy"),
 		CredentialConfig: filepath.Join(root, "credentials.json"),
 		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
-		ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
+		Tobari: []tobari.Instance{},
 	}
 }
 
@@ -566,6 +572,61 @@ func TestLoadStateRejectsLegacyAndTrailingDocuments(t *testing.T) {
 	}
 }
 
+func TestLoadStateMigratesAndRetiresExplicitProxyState(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	current := runtimeState(root)
+	legacy := explicitProxyState{
+		SchemaVersion: 3, RuntimeDirectory: current.RuntimeDirectory,
+		AggregateRevision: current.AggregateRevision, ContextCount: current.ContextCount,
+		PolicyDirectory: current.PolicyDirectory, CredentialConfig: current.CredentialConfig,
+		CredentialDir: current.CredentialDir, AssetVersion: current.AssetVersion,
+		ProxyEndpoint: "http://gateway:8080", RecentError: current.RecentError,
+		Tobari: append([]tobari.Instance{}, current.Tobari...),
+	}
+	if err := os.MkdirAll(filepath.Dir(runtime.statePath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomicJSON(runtime.statePath(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	migrated, exists, err := runtime.LoadState(context.Background())
+	if err != nil || !exists || migrated.SchemaVersion != 4 {
+		t.Fatalf("LoadState() = %+v, exists=%t, error=%v", migrated, exists, err)
+	}
+	encoded, err := os.ReadFile(runtime.statePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("proxy_endpoint")) || bytes.Contains(encoded, []byte("gateway:8080")) {
+		t.Fatalf("migrated state retained explicit proxy contract: %s", encoded)
+	}
+}
+
+func TestLoadStateRejectsInvalidExplicitProxyMigration(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	current := runtimeState(root)
+	legacy := explicitProxyState{
+		SchemaVersion: 3, RuntimeDirectory: current.RuntimeDirectory,
+		AggregateRevision: current.AggregateRevision, ContextCount: current.ContextCount,
+		PolicyDirectory: current.PolicyDirectory, CredentialConfig: current.CredentialConfig,
+		CredentialDir: current.CredentialDir, AssetVersion: current.AssetVersion,
+		ProxyEndpoint: "http://other:8080", Tobari: []tobari.Instance{},
+	}
+	if err := os.MkdirAll(filepath.Dir(runtime.statePath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomicJSON(runtime.statePath(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runtime.LoadState(context.Background()); err == nil {
+		t.Fatal("invalid explicit-proxy state was migrated")
+	}
+}
+
 func TestLoadStateMigratesVerifiedSingleContextProjects(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -613,7 +674,7 @@ func TestLoadStateMigratesVerifiedSingleContextProjects(t *testing.T) {
 		SchemaVersion: 2, RuntimeDirectory: base.RuntimeDirectory, ContextName: manifest.Name,
 		AgentProfile: manifest.AgentProfile, PolicyDirectory: paths.PolicyDirectory,
 		CredentialConfig: paths.CredentialConfig, CredentialDir: paths.CredentialDirectory,
-		AssetVersion: base.AssetVersion, ProxyEndpoint: base.ProxyEndpoint, Tobari: []tobari.Instance{},
+		AssetVersion: base.AssetVersion, ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
 	}
 	if err := os.MkdirAll(filepath.Dir(runtime.statePath()), 0o700); err != nil {
 		t.Fatal(err)
@@ -622,7 +683,7 @@ func TestLoadStateMigratesVerifiedSingleContextProjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	migrated, exists, err := runtime.LoadState(context.Background())
-	if err != nil || !exists || migrated.SchemaVersion != 3 || migrated.ContextCount != 1 {
+	if err != nil || !exists || migrated.SchemaVersion != 4 || migrated.ContextCount != 1 {
 		t.Fatalf("LoadState() = %+v, exists=%t, error=%v", migrated, exists, err)
 	}
 	projects, listErr := runtime.ListProjects(context.Background())
@@ -663,7 +724,7 @@ func TestLoadStateRejectsConflictingLegacyContextEvidence(t *testing.T) {
 		SchemaVersion: 2, RuntimeDirectory: base.RuntimeDirectory, ContextName: "default",
 		AgentProfile: tobari.DefaultProfile, PolicyDirectory: paths.PolicyDirectory,
 		CredentialConfig: paths.CredentialConfig, CredentialDir: paths.CredentialDirectory,
-		AssetVersion: base.AssetVersion, ProxyEndpoint: base.ProxyEndpoint, Tobari: []tobari.Instance{},
+		AssetVersion: base.AssetVersion, ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{},
 	}
 	if err := os.MkdirAll(filepath.Dir(runtime.statePath()), 0o700); err != nil {
 		t.Fatal(err)
@@ -772,7 +833,7 @@ func TestPrepareStateUsesAggregateProjectionAndEmptyLegacyCollection(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.SchemaVersion != 3 || state.ContextCount != 1 || state.AggregateRevision == "" || state.Tobari == nil || len(state.Tobari) != 0 {
+	if state.SchemaVersion != 4 || state.ContextCount != 1 || state.AggregateRevision == "" || state.Tobari == nil || len(state.Tobari) != 0 {
 		t.Fatalf("state = %+v", state)
 	}
 	for path, want := range map[string]os.FileMode{

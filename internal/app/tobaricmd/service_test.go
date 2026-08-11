@@ -88,7 +88,7 @@ func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.Clus
 		running = *f.clusterReady
 	}
 	return tobari.ClusterStatus{
-		Configured: true, Running: running, Proxy: f.state.ProxyEndpoint,
+		Configured: true, Running: running,
 		Policy: f.state.PolicyDirectory, TobariCount: len(f.state.Tobari),
 		ContextCount: f.state.ContextCount, PolicyRevision: f.state.AggregateRevision,
 		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
@@ -406,12 +406,12 @@ func testState(root string) tobari.State {
 		Network: "tobari-work-net", HomeVolume: "tobari-work-home",
 	}
 	return tobari.State{
-		SchemaVersion: 3, RuntimeDirectory: filepath.Join(root, "runtime"),
+		SchemaVersion: 4, RuntimeDirectory: filepath.Join(root, "runtime"),
 		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
 		PolicyDirectory:  filepath.Join(root, "policy"),
 		CredentialConfig: filepath.Join(root, "credentials.json"),
 		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
-		ProxyEndpoint: "http://gateway:8080", Tobari: []tobari.Instance{instance},
+		Tobari: []tobari.Instance{instance},
 	}
 }
 

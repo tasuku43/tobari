@@ -20,14 +20,17 @@ The runtime container is only one recoverable implementation detail. Tobari also
 
 </details>
 
-## 2. Ignoring the proxy
+## 2. Opening a direct socket
 
-A program clears `HTTP_PROXY` and connects directly to a public IP. What happens in the supported topology?
+A program connects directly to a public IP. What happens in the supported topology?
 
 <details>
 <summary>Answer</summary>
 
-It fails because the Workspace joins only its dedicated internal project network, which has no Docker-provided external route. Gateway alone joins both the project network and egress. Clearing a variable does not create a route. See [Trust boundaries](../../security/trust-boundaries/).
+It does not gain direct egress. The Workspace output guard sends TCP through
+the project Gateway, whose transparent listener requires a valid HTTP/TLS
+authority and the same OPA decision. A bare public-IP or non-HTTP connection
+fails closed. See [Trust boundaries](../../security/trust-boundaries/).
 
 </details>
 
@@ -60,7 +63,7 @@ An HTTPS client reaches `api.example.com` through Tobari. Where does encryption 
 <details>
 <summary>Answer</summary>
 
-After `CONNECT`, TLS connection A runs between the Workspace client and Gateway and terminates at Gateway using the Tobari CA. After allow, Gateway creates separately verified TLS connection B to the upstream. The final hop is not plaintext HTTP. See [HTTPS and TLS](../../how-it-works/https-and-tls/).
+After transparent interception, TLS connection A runs between the Workspace client and Gateway and terminates at Gateway using the Tobari CA. After allow, Gateway creates separately verified TLS connection B to the upstream. The final hop is not plaintext HTTP. See [HTTPS and TLS](../../how-it-works/https-and-tls/).
 
 </details>
 
@@ -243,7 +246,7 @@ A process copies a valid handle from Workspace A into Workspace B and sends it t
 <details>
 <summary>Answer</summary>
 
-Gateway derives B's principal from the receiving network interface. Broker
+Gateway derives B's principal from the registered Workspace source endpoint. Broker
 introspection requires the handle's Context, project, provider, credential
 revision, exact target, and static or built-in plan binding to match. A's
 project binding does not match B, so the request fails before OPA, any

@@ -74,6 +74,10 @@ class PrincipalError(Exception):
     """The host-owned project principal could not be established."""
 
 
+class AuthorityError(Exception):
+    """Transparent ingress did not provide one safe HTTP authority."""
+
+
 class UpstreamAddressError(Exception):
     """The upstream hostname cannot be bound to a safe resolved address."""
 
@@ -90,22 +94,25 @@ def load_project_principals(path: str) -> dict[str, dict[str, str]]:
         document = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise PrincipalError("project principal registry is invalid") from error
-    if not isinstance(document, dict) or document.get("schema_version") != 2:
+    if not isinstance(document, dict) or document.get("schema_version") != 3:
         raise PrincipalError("project principal registry version is invalid")
     bindings = document.get("bindings")
     if not isinstance(bindings, list):
         raise PrincipalError("project principal bindings are invalid")
     result: dict[str, dict[str, str]] = {}
     projects: set[str] = set()
+    gateway_addresses: set[str] = set()
     for binding in bindings:
         if not isinstance(binding, dict) or set(binding) != {
-            "project_id", "context_id", "context", "project_root", "gateway_ip", "network"
+            "project_id", "context_id", "context", "project_root", "workspace_ip",
+            "gateway_ip", "network"
         }:
             raise PrincipalError("project principal binding shape is invalid")
         project_id = binding.get("project_id")
         context_id = binding.get("context_id")
         context_name = binding.get("context")
         project_root = binding.get("project_root")
+        workspace_ip = binding.get("workspace_ip")
         gateway_ip = binding.get("gateway_ip")
         network = binding.get("network")
         if (
@@ -118,26 +125,41 @@ def load_project_principals(path: str) -> dict[str, dict[str, str]]:
             or re.fullmatch(r"[a-z][a-z0-9-]{0,62}", context_name) is None
             or not isinstance(project_root, str)
             or not project_root.startswith("/")
+            or not isinstance(workspace_ip, str)
             or not isinstance(gateway_ip, str)
             or not isinstance(network, str)
             or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", network) is None
         ):
             raise PrincipalError("project principal binding is invalid")
         try:
-            address = ipaddress.ip_address(gateway_ip)
+            workspace_address = ipaddress.ip_address(workspace_ip)
+            gateway_address = ipaddress.ip_address(gateway_ip)
         except ValueError as error:
             raise PrincipalError("project principal address is invalid") from error
+        for address in (workspace_address, gateway_address):
+            if (
+                address.version != 4
+                or
+                address.is_loopback
+                or address.is_unspecified
+                or address.is_multicast
+                or address.is_link_local
+            ):
+                raise PrincipalError("project principal address is unsafe")
+        canonical_workspace = str(workspace_address)
+        canonical_gateway = str(gateway_address)
+        if canonical_workspace == canonical_gateway:
+            raise PrincipalError("project principal endpoints must be distinct")
         if (
-            address.is_loopback
-            or address.is_unspecified
-            or address.is_multicast
-            or address.is_link_local
+            canonical_workspace in result
+            or canonical_workspace in gateway_addresses
+            or canonical_gateway in result
+            or canonical_gateway in gateway_addresses
         ):
-            raise PrincipalError("project principal address is unsafe")
-        if gateway_ip in result:
             raise PrincipalError("project principal addresses are ambiguous")
         projects.add(project_id)
-        result[gateway_ip] = {
+        gateway_addresses.add(canonical_gateway)
+        result[canonical_workspace] = {
             "project_id": project_id,
             "context_id": context_id,
             "context": context_name,
@@ -150,7 +172,7 @@ def resolve_project_principal(
     flow: http.HTTPFlow, principals: dict[str, dict[str, str]]
 ) -> dict[str, str]:
     client = getattr(flow, "client_conn", None)
-    address = getattr(client, "sockname", None)
+    address = getattr(client, "peername", None)
     if not isinstance(address, (tuple, list)) or not address or not isinstance(address[0], str):
         raise PrincipalError("project principal address is unavailable")
     principal = principals.get(address[0])
@@ -257,6 +279,117 @@ def request_authority(flow: http.HTTPFlow) -> tuple[str, str, int]:
     if scheme == "http" and request.port == 443 and getattr(client, "tls_established", False):
         scheme = "https"
     return scheme, request.host.rstrip(".").lower(), request.port
+
+
+def _canonical_authority(value: str) -> tuple[str, int | None]:
+    if (
+        not value
+        or len(value) > 1024
+        or any(ord(character) < 33 or ord(character) == 127 for character in value)
+        or any(character in value for character in "/\\?#")
+    ):
+        raise AuthorityError("transparent HTTP authority is invalid")
+    try:
+        parsed = urlsplit("//" + value)
+        port = parsed.port
+    except ValueError as error:
+        raise AuthorityError("transparent HTTP authority is invalid") from error
+    if parsed.username is not None or parsed.password is not None or not parsed.hostname:
+        raise AuthorityError("transparent HTTP authority is invalid")
+    host = parsed.hostname.rstrip(".").lower()
+    try:
+        host = str(ipaddress.ip_address(host))
+    except ValueError:
+        if (
+            len(host) > 253
+            or any(
+                not label
+                or len(label) > 63
+                or label.startswith("-")
+                or label.endswith("-")
+                or re.fullmatch(r"[a-z0-9-]+", label) is None
+                for label in host.split(".")
+            )
+        ):
+            raise AuthorityError("transparent HTTP authority is invalid")
+    return host, port
+
+
+def _is_transparent_ingress(flow: http.HTTPFlow) -> bool:
+    client = getattr(flow, "client_conn", None)
+    mode = getattr(client, "proxy_mode", None)
+    return getattr(mode, "type_name", "") == "transparent"
+
+
+def normalize_ingress_authority(flow: http.HTTPFlow) -> tuple[str, str, int]:
+    """Bind transparent traffic to one Host/SNI authority before policy."""
+    if not _is_transparent_ingress(flow):
+        raise AuthorityError("transparent ingress is required")
+
+    client = getattr(flow, "client_conn", None)
+    original = getattr(client, "sockname", None)
+    if (
+        not isinstance(original, (tuple, list))
+        or len(original) < 2
+        or not isinstance(original[0], str)
+        or not isinstance(original[1], int)
+        or isinstance(original[1], bool)
+        or original[1] < 1
+        or original[1] > 65535
+    ):
+        raise AuthorityError("transparent original destination is unavailable")
+    try:
+        original_host = str(ipaddress.ip_address(original[0]))
+    except ValueError as error:
+        raise AuthorityError("transparent original destination is invalid") from error
+
+    host_header = flow.request.host_header
+    if not isinstance(host_header, str):
+        raise AuthorityError("transparent HTTP authority is unavailable")
+    host, declared_port = _canonical_authority(host_header)
+    port = original[1] if declared_port is None else declared_port
+    if port != original[1]:
+        raise AuthorityError("transparent HTTP authority conflicts with destination port")
+
+    tls_established = bool(getattr(client, "tls_established", False))
+    sni = getattr(client, "sni", None)
+    if sni is not None:
+        if not isinstance(sni, str):
+            raise AuthorityError("transparent TLS authority is invalid")
+        sni_host, sni_port = _canonical_authority(sni)
+        if sni_port is not None or sni_host != host:
+            raise AuthorityError("transparent TLS and HTTP authorities conflict")
+    elif tls_established:
+        try:
+            if str(ipaddress.ip_address(host)) != original_host:
+                raise AuthorityError("transparent TLS authority is unavailable")
+        except ValueError as error:
+            raise AuthorityError("transparent TLS authority is unavailable") from error
+
+    scheme = "https" if tls_established else "http"
+    flow.request.scheme = scheme
+    flow.request.host = host
+    flow.request.port = port
+    flow.metadata["tobari_transparent_authority"] = (host, port)
+    return scheme, host, port
+
+
+def commit_upstream_authority(flow: http.HTTPFlow) -> None:
+    """Replace a transparent synthetic destination only after authorization."""
+    authority = flow.metadata.pop("tobari_transparent_authority", None)
+    if authority is None:
+        return
+    if (
+        not isinstance(authority, tuple)
+        or len(authority) != 2
+        or not isinstance(authority[0], str)
+        or not isinstance(authority[1], int)
+    ):
+        raise AuthorityError("transparent upstream authority is invalid")
+    server = getattr(flow, "server_conn", None)
+    if server is None:
+        raise AuthorityError("transparent upstream connection is unavailable")
+    server.address = authority
 
 
 def build_policy_input(
@@ -709,7 +842,7 @@ class TobariGateway:
     def requestheaders(self, flow: http.HTTPFlow) -> None:
         started = time.monotonic()
         request_id = uuid.uuid4().hex
-        scheme, host, port = request_authority(flow)
+        scheme, host, port = "", "", 0
         profile_name: str | None = None
         project_id: str | None = None
         context_id: str | None = None
@@ -720,9 +853,14 @@ class TobariGateway:
         reason = "gateway rejected request"
         learnable = False
         audit_deferred = False
-        request_path = urlsplit(flow.request.url).path or "/"
-        audit_path = redacted_audit_path(flow.request.url)
+        audit_valid = False
+        request_path = "/"
+        audit_path = "/"
         try:
+            scheme, host, port = normalize_ingress_authority(flow)
+            request_path = urlsplit(flow.request.url).path or "/"
+            audit_path = redacted_audit_path(flow.request.url)
+            audit_valid = True
             principal = resolve_project_principal(
                 flow, load_project_principals(self.principal_path)
             )
@@ -808,6 +946,7 @@ class TobariGateway:
                 flow.metadata["tobari_deferred_credential"] = credential_request
                 flow.request.stream = False
             else:
+                commit_upstream_authority(flow)
                 # Authorization is complete before mitmproxy forwards any body bytes.
                 # The body is deliberately opaque to policy and is never retained here.
                 flow.request.stream = True
@@ -843,6 +982,10 @@ class TobariGateway:
             reason = str(error)
             _deny(flow, 403, "project_principal_unavailable")
             upstream_status = 403
+        except AuthorityError as error:
+            reason = str(error)
+            _deny(flow, 400, "request_authority_invalid")
+            upstream_status = 400
         except (RuntimeError, UnicodeError):
             reason = "credential processing failed"
             _deny(flow, 503, "credential_unavailable")
@@ -852,7 +995,7 @@ class TobariGateway:
             _deny(flow, 502, "gateway_error")
             upstream_status = 502
         finally:
-            if decision_name != "allow" and not audit_deferred:
+            if decision_name != "allow" and not audit_deferred and audit_valid:
                 _audit(
                     timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     request_id=request_id,
@@ -956,6 +1099,7 @@ class TobariGateway:
                         "deferred credential contract is unavailable"
                     )
                 apply_body(flow.request)
+            commit_upstream_authority(flow)
             base = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "request_id": request_id,
@@ -989,6 +1133,8 @@ class TobariGateway:
             audit_failure(503, "credential_broker_unavailable", str(error))
         except (CredentialAdapterError, CredentialError) as error:
             audit_failure(503, "credential_unavailable", str(error))
+        except AuthorityError as error:
+            audit_failure(400, "request_authority_invalid", str(error))
         except (RuntimeError, UnicodeError, ValueError):
             audit_failure(503, "credential_unavailable", "credential processing failed")
         except Exception:
@@ -1017,6 +1163,7 @@ class TobariGateway:
                     "deferred credential contract is unavailable"
                 )
             apply_body(flow.request)
+            commit_upstream_authority(flow)
         except BrokerCredentialOutcomeUnknown as error:
             deny(409, "credential_refresh_outcome_unknown", str(error))
         except BrokerCredentialBindingError as error:
@@ -1025,6 +1172,8 @@ class TobariGateway:
             deny(503, "credential_broker_unavailable", str(error))
         except CredentialAdapterError as error:
             deny(503, "credential_unavailable", str(error))
+        except AuthorityError as error:
+            deny(400, "request_authority_invalid", str(error))
         except (RuntimeError, UnicodeError, ValueError):
             deny(503, "credential_unavailable", "credential processing failed")
         except Exception:

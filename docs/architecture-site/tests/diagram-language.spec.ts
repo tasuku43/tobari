@@ -35,7 +35,7 @@ test("concept diagrams put locations and route labels inside the map", async ({
   await expect(tls.locator(".route-label")).toHaveCount(7);
   await expect(tls.locator(".node-region")).toHaveCount(4);
   await expect(tls).toContainText("外部の HTTPS 接続先");
-  await expect(tls).toContainText("CONNECT");
+  await expect(tls).toContainText("透過入口");
 
   await page.goto("ja/how-it-works/system-overview/");
   const trust = page.locator('[data-diagram="trust-boundaries"]');

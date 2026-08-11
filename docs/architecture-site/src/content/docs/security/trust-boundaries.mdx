@@ -35,9 +35,14 @@ The root selection boundary is not a file-integrity sandbox for the selected tre
 
 ## Boundary 2: project authority
 
-The host creates a dedicated project network and writes one principal binding containing stable Context ID, project ID, canonical root, network, and Gateway local address. Gateway selects it from `flow.client_conn.sockname[0]`, its own receiving-side fact.
+The host creates a dedicated project network and writes one schema-3 principal
+binding containing stable Context ID, project ID, canonical root, network,
+Workspace source endpoint, and Gateway endpoint. Gateway selects it from
+`flow.client_conn.peername[0]`, the kernel-observed peer address.
 
-A Workspace can write `X-Project-ID: something-else`; that string remains untrusted request data. It cannot change the Gateway interface or host registry lookup. Unknown and ambiguous bindings fail before OPA.
+A Workspace can write `X-Project-ID: something-else`; that string remains
+untrusted request data. It cannot change its registered source endpoint or the
+host registry lookup. Unknown and ambiguous bindings fail before OPA.
 
 ## Boundary 3: policy authority
 
@@ -102,8 +107,9 @@ For the implementation and tests behind these boundaries, see [Implementation an
       Why can a forged Context header not borrow another policy?
     </summary>
     <div class="prose-block">
-      Gateway chooses Context/project from the host-created receiving-interface
-      binding. The header cannot change that interface or registry entry.
+      Gateway chooses Context/project from the host-created Workspace source-
+      endpoint binding. The header cannot change that endpoint or registry
+      entry.
     </div>
   </details>
   <details>

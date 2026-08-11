@@ -128,10 +128,18 @@ test_body_bearing_put_and_patch_are_learnable if {
 	}
 }
 
-test_deny_https_non_default_port if {
+test_https_non_default_port_is_learnable if {
 	result := decision with input as input_with_request(request_with_authority({"port": 8443}))
 	not result.allow
-	not result.learnable
+	result.learnable
+}
+
+test_invalid_transport_ports_are_terminal if {
+	every port in {0, 65536, "443"} {
+		result := decision with input as input_with_request(request_with_authority({"port": port}))
+		not result.allow
+		not result.learnable
+	}
 }
 
 test_deny_plain_http_external if {

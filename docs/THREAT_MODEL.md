@@ -22,8 +22,8 @@ refresh endpoint. Anthropic uses exact Claude Code 2.1.220 setup-token
 acquisition and post-policy static resolution without refresh. It does not
 extend the product boundary to
 arbitrary provider programs, manifest-selected refresh/signing, general TWG
-authentication, multiple accounts per Context, transparent proxying, or
-non-HTTP protocols.
+authentication, multiple accounts per Context, recursive DNS, or semantic
+authorization/forwarding of non-HTTP protocols.
 
 ## Trust classification
 
@@ -62,10 +62,12 @@ an exact live broker binding, and an OPA allow.
 | Asset | Threat | Boundary | Enforcement |
 |---|---|---|---|
 | Host files outside a selected root | Workspace reads or modifies them | Docker mounts and root selection | The only host paths mounted writable are the canonical selected root and that Workspace's exact home; unsafe roots and management paths are rejected |
-| Another Workspace's network authority | A process crosses isolation spaces or reuses its policy | Docker networks and host principal | One dedicated internal network per Workspace; Context/project identity is derived from the exact Gateway-side interface and owner-only principal registry |
+| Another Workspace's network authority | A process crosses isolation spaces or reuses its policy | Docker networks, namespace guards, and host principal | One dedicated non-overlapping internal network and one owned endpoint per Workspace; Context/project identity is derived from the kernel-observed source endpoint and complete owner-only Workspace/Gateway binding; duplicate/stale endpoints and source-spoof canaries fail closed |
 | Overlapping project files | Separate Workspaces are mistaken for filesystem-isolated copies | Direct host bind mounts | Same-root and parent/child-root Workspaces may coexist, but overlapping paths expose the same host file effects; no overlay, root lock, or file-integrity isolation is claimed |
 | Docker Engine | Workspace controls host containers | Unix socket and process boundary | Docker socket and host process interfaces are not mounted |
-| Direct Internet access | Agent bypasses policy or ignores proxy variables | Docker topology | A Workspace joins only its dedicated internal network; Gateway is the only component on both that network and egress |
+| Direct Internet access | Agent bypasses policy or ignores proxy variables | Docker topology and guarded routing | A Workspace joins only its dedicated internal network; its default route terminates at Gateway-local listeners, Gateway forwarding stays disabled with a forward drop, and Gateway is the only component on both that network and egress |
+| Network-guard authority | A helper persists, mutates an unrelated namespace, or opens forwarding | Fixed host-side Docker invocation and exact owned rules | One-shot helper shares only one verified container network namespace, has no mounts/secrets/socket/host network, drops every capability except `NET_ADMIN`, installs one exact owned revision, verifies it, and exits before user entry |
+| Pre-policy DNS | A Workspace leaks data in queries or causes destination lookup before allow | Non-recursive synthetic DNS and Gateway call ordering | Bounded A questions receive one synthetic non-public answer without forwarding or retained full-name logs; unsupported DNS is refused; real resolution begins only after one normalized HTTP authority is allowed |
 | OPA policy and decision API | Workspace reads, changes, or bypasses policy | Control network and read-only projection | OPA joins only control; Workspaces do not; OPA receives a validated read-only aggregate generated from host-owned Context sources |
 | Auth Broker control and runtime APIs | Workspace acquires or resolves a primary secret directly | Separate Unix sockets and mounts | Broker exposes no TCP listener and joins no Workspace network; host control uses a private control socket and only Gateway mounts the runtime socket |
 | Host credential companion | Workspace or network input turns refresh into host execution, replays a session, or reaches a listener | Private same-binary process plus authenticated reverse exec | No listener or host socket mount; fixed verified Broker container/exec argv; root-key-derived epoch, direction keys, strict sequence/frame/deadline schemas, and only the compiled reviewed AWS refresh operation |
@@ -74,10 +76,10 @@ an exact live broker binding, and an OPA allow.
 | Project-bound broker capability | A copied, stale, or malformed handle resolves a real credential | Gateway recognition, principal registry, and Broker binding | Handle must match Context, project, provider, credential revision, exact HTTPS target, source syntax, destination transformation, and redaction binding; invalid markers fail closed without fallback |
 | Tool-owned authentication | Another Workspace reads or reuses it | Per-Workspace home and network | Tool state remains in that Workspace's exact home; all processes in the same Workspace may read it |
 | Retained managed secrets | Workspace reads or injects them | Gateway-only files and binding checks | Context-scoped owner-only files mount read-only only into Gateway; Context, project, host, and OPA-selected profile are checked before post-allow reading and injection |
-| Authorization integrity | Request or credential reaches upstream before authorization | Gateway request-header hook and lazy upstream connection | Gateway establishes the principal, prepares credential metadata, asks OPA once, applies credentials only after allow, then creates a separate upstream connection and enables body streaming |
-| Authority binding | An exact decision is replayed for a different effect | OPA decision and Gateway connection boundary | Learned rules bind Context, project, host, port, method, and raw path; the current fixed, non-overlapping scheme-port contract prevents a rule crossing schemes; Gateway classifies and pins resolved addresses |
+| Authorization integrity | Request, DNS lookup, or credential reaches upstream before authorization | Gateway request-header hook, synthetic DNS, and lazy upstream connection | Gateway establishes the source-bound principal, normalizes one transparent authority, prepares credential metadata, asks OPA once, applies credentials only after allow, then resolves/pins, creates a separate upstream connection, and enables body streaming |
+| Authority binding | An exact decision is replayed for a different effect | OPA decision and Gateway connection boundary | Learned rules bind Context, project, scheme, exact 1-65535 port, host, method, and raw path; arbitrary valid TCP ports do not collapse schemes or ports; Gateway classifies and pins resolved addresses |
 | GraphQL multiplexing | One coarse `POST /graphql` allow authorizes unrelated roots | Trusted endpoint declaration, bounded parser, and system OPA evaluator | Declared endpoints never fall back to HTTP rules; Gateway sends only query/mutation plus sorted canonical roots, every root needs an exact rule, and Advanced Context input cannot bypass the system GraphQL evaluator |
-| HTTPS confidentiality in transit | TLS inspection is described as plaintext egress or silently bypassed | Explicit proxy and two TLS connections | Workspace sends `CONNECT`; Gateway terminates Workspace-side TLS with the Tobari CA, authorizes decrypted HTTP attributes, then creates a separate verified TLS connection to upstream |
+| HTTPS confidentiality in transit | TLS inspection is described as plaintext egress or silently bypassed | Transparent ingress and two TLS connections | Transparent clients retain authority in SNI/HTTP headers. Gateway terminates Workspace-side TLS with the Tobari CA, authorizes decrypted HTTP attributes, then creates a separate verified TLS connection to upstream |
 | Body payload exfiltration | An allowed route carries different or sensitive bytes | Deliberate route-level policy boundary | Ordinary body content is not policy or candidate identity; one exact HTTP allow covers every body value at that Context/project/host/port/method/path. Declared GraphQL narrows only by operation type/root, not arguments or variables |
 | Gateway buffering | One Workspace exhausts shared memory with a large body | mitmproxy transport boundary | Ordinary allowed bodies stream; a known `Content-Length` above 8 MiB retains the transport rejection, while unknown-length ordinary bodies have no total-byte quota. AWS signing buffers one already-authorized body within that cap; declared GraphQL requires a positive length no greater than 1 MiB before buffering |
 | Audit confidentiality | Recognized credentials, handles, query, headers, or bodies leak into retained denial evidence | Gateway projection and logger | Audit omits query, headers, request and response bodies, broker primary secrets, handles, and revisions; recognized credential values are redacted before OPA and audit, and handle-bearing paths are replaced; an ordinary path remains potentially sensitive application text |
@@ -110,11 +112,11 @@ remain excluded. Those excluded values cannot become decision dimensions.
 
 ### Proxy bypass
 
-A Workspace process ignores proxy variables and connects directly. Its
-dedicated Docker network is internal and has no external route, so the
-connection fails. Empty `NO_PROXY` values reinforce the supported client
-configuration but are not the security control. If Gateway is unavailable,
-there is no alternate egress path.
+A Workspace process opens an ordinary HTTP or HTTPS socket directly. Its
+dedicated Docker network, synthetic DNS, guarded route, and output rules admit
+that traffic only to the project's transparent Gateway listener. Tobari does
+not project proxy variables or expose an explicit-proxy listener. If Gateway
+is unavailable, there is no alternate egress path.
 
 ### Cross-Workspace access and overlapping roots
 
@@ -174,11 +176,13 @@ does not promise to classify every user-chosen application header as secret.
 ### Project identity and credential scope
 
 A process writes another project or Context ID into a header, environment
-variable, URL, session value, or profile name. Gateway ignores those claims for
-authority. It observes the local Gateway interface on which the proxy
-connection arrived and resolves that exact address through the host-owned
-principal registry. The registry binds one Context/project pair to one owned
-network and local address.
+variable, URL, SNI, session value, or profile name. Gateway ignores those
+claims for caller authority. It observes the Workspace source endpoint on the
+accepted connection and resolves that exact address through the host-owned
+principal registry. The schema-3 registry binds one Context/project pair to
+one dedicated owned network, exact Workspace endpoint, and exact Gateway
+endpoint. The runtime publishes it only after both endpoints and the Workspace
+guard are verified.
 
 An unknown, duplicate, malformed, stale, or mismatched binding returns
 `project_principal_unavailable` before OPA, broker resolution, or upstream I/O.
@@ -245,14 +249,17 @@ EventStream, presigned, SigV4a, and ambiguous forms fail closed.
 
 ### HTTP, HTTPS, and certificate pinning
 
-For plain HTTP within the supported scheme-port policy, the Workspace sends the
-request to Gateway as an explicit proxy. For HTTPS it first sends `CONNECT`.
-Gateway uses the Tobari CA trusted by the Workspace to terminate TLS connection
-A, so it can normalize and authorize the decrypted HTTP authority, method,
-path, query, and redacted headers. The body remains outside policy identity.
+Clients keep their ordinary HTTP/HTTPS URLs, receive a synthetic non-public DNS
+answer, and have their TCP connection redirected to Gateway's transparent listener.
+Gateway requires one unambiguous HTTP authority, including consistent SNI for
+TLS, and never recursively resolves that pre-policy DNS name. Gateway uses the
+Tobari CA trusted by the Workspace to terminate TLS connection A, so it can
+normalize and authorize the decrypted HTTP authority, method, path, query, and
+redacted headers. The body remains outside policy identity.
 
-Only after allow does Gateway resolve and pin a permitted address and create
-the upstream connection. HTTPS uses a separate, certificate-verified TLS
+Only after allow does Gateway replace any synthetic destination with that same
+validated authority, resolve and pin a permitted address, and create the
+upstream connection. HTTPS uses a separate, certificate-verified TLS
 connection B from Gateway to the destination; Tobari is not sending plaintext
 HTTP over the final Internet hop. Trusting the Tobari CA enables inspection but
 does not grant an OPA allow. A certificate-pinned client rejects Gateway's
@@ -484,8 +491,9 @@ authorized network capacity remains outside this control.
 
 ## Reconsideration triggers
 
-Revisit the architecture before adding transparent proxying, non-HTTP
-protocols, multiple clusters or mutually untrusted tenants, a per-project
+Revisit the architecture before forwarding or semantically authorizing
+non-HTTP protocols, adding recursive DNS, multiple clusters or mutually
+untrusted tenants, a per-project
 static baseline, remote execution, filesystem overlays or root locks,
 process-level identity, stronger root-key isolation, additional executable
 host drivers, a host listener or socket mount, new credential shapes, any

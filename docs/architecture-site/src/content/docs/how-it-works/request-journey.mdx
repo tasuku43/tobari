@@ -32,15 +32,23 @@ The [system overview](/how-it-works/system-overview/) shows the fixed network ma
 
 ## The processing order
 
-### 1. Receive proxy traffic
+### 1. Receive guarded HTTP traffic
 
-The Workspace process connects to `gateway:8080` on its dedicated internal network. For plain HTTP, the proxy sees the request directly. For HTTPS, `CONNECT` and Workspace-side TLS establish an intercepted HTTP flow; [HTTPS and TLS](/how-it-works/https-and-tls/) explains that split.
+Docker's bounded resolver forwards to Gateway's synthetic DNS, which
+returns `198.18.0.10` without resolving the real host. The Workspace output
+guard routes TCP through its project Gateway; Gateway redirects it to the
+transparent listener. Plain HTTP authority comes from `Host`; HTTPS authority
+starts with SNI and must remain consistent with the decrypted HTTP authority
+and original port. [HTTPS and TLS](/how-it-works/https-and-tls/) explains the TLS split.
 
 At this point, request bytes are untrusted. A project-looking header is not a principal.
 
 ### 2. Establish Context and project identity
 
-Gateway reads the local address of its interface that accepted the connection and looks it up in the host-owned principal registry. The result supplies stable `context_id` and `project_id`. Missing, unknown, stale, unsafe, or ambiguous bindings stop here, before OPA.
+Gateway reads the kernel-observed Workspace source endpoint and looks it up in
+the host-owned schema-3 principal registry. The result supplies stable
+`context_id` and `project_id`. Missing, unknown, stale, unsafe, or ambiguous
+bindings stop here, before OPA.
 
 ### 3. Prepare the authentication route
 
@@ -121,7 +129,7 @@ The bodies may have very different application meaning, but Tobari's exact polic
 
 | Stage                    | Failure                                                                            | Result                                                                            |
 | ------------------------ | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Principal                | Registry unreadable or interface unknown                                           | 403 `project_principal_unavailable`                                               |
+| Principal                | Registry unreadable or Workspace source endpoint unknown                           | 403 `project_principal_unavailable`                                               |
 | Credential preparation   | Invalid/stale/mismatched handle                                                    | 403 `credential_handle_invalid`                                                   |
 | OPA                      | Timeout, connection error, non-200, invalid or oversized result                    | 503 `policy_unavailable`                                                          |
 | Decision                 | Valid deny                                                                         | 403 `policy_denied`; upstream untouched                                           |
@@ -153,7 +161,7 @@ denial/review projection.
 
 ## Summary
 
-Identity comes from the receiving interface. OPA sees a normalized body-free
+Identity comes from the registered Workspace source endpoint. OPA sees a normalized body-free
 ordinary request and answers once. Deny stops locally. Allow is the prerequisite
 for any secret-bearing Broker action, destination resolution, and upstream
 connection. Ordinary bodies stream after allow; the reviewed AWS plan buffers

@@ -1,5 +1,16 @@
 # Gateway third-party notices
 
+## Debian network tools
+
+The Gateway image installs the signed Debian 13 packages `iproute2` 6.15.0-1
+and `nftables` 1.1.3-1, including their declared runtime-library dependencies,
+only for the fixed network-guard entrypoint. Debian's complete machine-readable
+copyright and license texts remain in the image under
+`/usr/share/doc/iproute2/copyright`, `/usr/share/doc/nftables/copyright`, and
+the corresponding dependency directories. iproute2 and nftables are
+distributed primarily under GPL-2.0-or-later; their linked libraries retain
+the licenses recorded by those Debian package notices.
+
 ## graphql-core 3.2.11
 
 - Project: <https://github.com/graphql-python/graphql-core>

@@ -35,7 +35,10 @@ The pages in this section use one discipline:
 
 Tobari treats the host user, host filesystem controls, Docker Engine, kernel, Gateway, OPA, Auth Broker, root-key backend, and reviewed runtime assets as trusted enforcement infrastructure. The Workspace process and external HTTP services are untrusted. Policy candidates, request attributes, provider manifests, and external response text remain untrusted data even when trusted code parses them.
 
-That distinction explains why a forged project header is useless but a compromised Gateway is out of scope. Gateway derives project authority from its host-created receiving interface. If Gateway itself is malicious, the enforcement point is gone.
+That distinction explains why a forged project header is useless but a
+compromised Gateway is out of scope. Gateway derives project authority from
+the host-registered, kernel-observed Workspace source endpoint. If Gateway
+itself is malicious, the enforcement point is gone.
 
 ## Four boundaries, four different jobs
 
@@ -74,7 +77,7 @@ That distinction explains why a forged project header is useless but a compromis
 
 ## What failure looks like
 
-- No Gateway: proxy connection fails.
+- No Gateway: the guarded connection fails.
 - No valid principal: Gateway returns `project_principal_unavailable` before OPA.
 - OPA unavailable or malformed: Gateway returns `policy_unavailable`; no upstream connection.
 - Auth Broker locked or unavailable: a brokered request fails; there is no secret resolution fallback.

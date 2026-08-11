@@ -62,13 +62,14 @@ class GatewayTests(unittest.TestCase):
         with open(self.principal_path, "w", encoding="utf-8") as handle:
             json.dump(
                 {
-                    "schema_version": 2,
+                    "schema_version": 3,
                     "bindings": [
                         {
                             "project_id": self.project_a,
                             "context_id": self.context_a,
                             "context": "default",
                             "project_root": "/workspace/project-a",
+                            "workspace_ip": "172.29.0.3",
                             "gateway_ip": "172.29.0.2",
                             "network": "tobari-project-a-net",
                         }
@@ -544,13 +545,27 @@ class GatewayTests(unittest.TestCase):
             "cookie": "session=secret",
             "x-safe": "visible",
         })
-        flow.client_conn = SimpleNamespace(sockname=("172.29.0.2", 8080))
+        original_host = flow.request.host
+        original_port = flow.request.port
+        tls_established = flow.request.scheme == "https"
+        default_port = 443 if tls_established else 80
+        host_header = original_host
+        if original_port != default_port:
+            host_header = f"{original_host}:{original_port}"
+        flow.request.headers["host"] = host_header
+        flow.client_conn = SimpleNamespace(
+            peername=("172.29.0.3", 51000),
+            sockname=("198.18.0.10", original_port),
+            tls_established=tls_established,
+            sni=original_host if tls_established else None,
+            proxy_mode=SimpleNamespace(type_name="transparent"),
+        )
+        flow.server_conn.address = ("198.18.0.10", original_port)
         return flow
 
-    def test_project_principal_comes_from_gateway_local_network_address(self):
+    def test_project_principal_comes_from_workspace_source_address(self):
         flow = self.flow()
-        flow.client_conn = SimpleNamespace(sockname=("172.29.0.2", 8080))
-        principals = {"172.29.0.2": self.principal_a}
+        principals = {"172.29.0.3": self.principal_a}
         self.assertEqual(
             gateway.resolve_project_principal(flow, principals), self.principal_a
         )
@@ -560,8 +575,8 @@ class GatewayTests(unittest.TestCase):
         flow.request.headers["x-tobari-session"] = self.project_a
         flow.request.headers["x-tobari-context"] = self.context_a
         flow.request.headers["x-tobari-project-id"] = self.project_a
-        flow.client_conn = SimpleNamespace(sockname=("172.29.1.2", 8080))
-        principals = {"172.29.1.2": self.principal_b}
+        flow.client_conn.peername = ("172.29.1.3", 51001)
+        principals = {"172.29.1.3": self.principal_b}
         self.assertEqual(
             gateway.resolve_project_principal(flow, principals), self.principal_b
         )
@@ -571,7 +586,7 @@ class GatewayTests(unittest.TestCase):
 
     def test_unknown_project_principal_is_denied_before_opa(self):
         flow = self.flow()
-        flow.client_conn = SimpleNamespace(sockname=("172.29.9.2", 8080))
+        flow.client_conn.peername = ("172.29.9.3", 51002)
         addon = gateway.TobariGateway()
         output = io.StringIO()
         with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
@@ -584,6 +599,122 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(
             json.loads(flow.response.content), {"error": "project_principal_unavailable"}
         )
+
+    def transparent_flow(self, host="api.example.com", port=6443):
+        flow = self.flow(f"https://{host}:{port}/v1/resources", "GET")
+        flow.request.headers["host"] = f"{host}:{port}"
+        flow.client_conn.peername = ("172.29.0.3", 51003)
+        return flow
+
+    def test_non_transparent_ingress_is_rejected(self):
+        flow = self.transparent_flow()
+        flow.client_conn.proxy_mode = SimpleNamespace(type_name="regular")
+        with self.assertRaises(gateway.AuthorityError):
+            gateway.normalize_ingress_authority(flow)
+
+    def test_transparent_authority_is_normalized_without_committing_upstream(self):
+        flow = self.transparent_flow()
+        self.assertEqual(
+            gateway.normalize_ingress_authority(flow),
+            ("https", "api.example.com", 6443),
+        )
+        self.assertEqual(flow.request.host, "api.example.com")
+        self.assertEqual(flow.server_conn.address, ("198.18.0.10", 6443))
+        self.assertEqual(
+            flow.metadata["tobari_transparent_authority"],
+            ("api.example.com", 6443),
+        )
+
+    def test_transparent_conflicting_sni_or_port_fails_closed(self):
+        sni_conflict = self.transparent_flow()
+        sni_conflict.client_conn.sni = "other.example.com"
+        port_conflict = self.transparent_flow()
+        port_conflict.request.headers["host"] = "api.example.com:443"
+        for flow in (sni_conflict, port_conflict):
+            with self.subTest(host=flow.request.headers["host"]):
+                with self.assertRaises(gateway.AuthorityError):
+                    gateway.normalize_ingress_authority(flow)
+
+    def test_transparent_denial_does_not_replace_synthetic_destination(self):
+        flow = self.transparent_flow()
+        captured = {}
+
+        def deny(_url, document, _timeout):
+            captured.update(document)
+            return gateway.Decision(False, "denied", None, 403, True)
+
+        addon = gateway.TobariGateway()
+        with mock.patch.object(gateway, "query_opa", side_effect=deny):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertEqual(captured["request"]["authority"], {
+            "scheme": "https", "host": "api.example.com", "port": 6443,
+        })
+        self.assertEqual(flow.server_conn.address, ("198.18.0.10", 6443))
+
+    def test_transparent_allow_commits_exact_authorized_destination(self):
+        flow = self.transparent_flow()
+        addon = gateway.TobariGateway()
+        with mock.patch.object(
+            gateway,
+            "query_opa",
+            return_value=gateway.Decision(True, "allowed", None, 403, False),
+        ):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+        self.assertIsNone(flow.response)
+        self.assertEqual(flow.server_conn.address, ("api.example.com", 6443))
+        self.assertNotIn("tobari_transparent_authority", flow.metadata)
+
+    def test_principal_registry_rejects_duplicate_workspace_or_gateway_endpoint(self):
+        with open(self.principal_path, encoding="utf-8") as handle:
+            document = json.load(handle)
+        second = dict(document["bindings"][0])
+        second["project_id"] = self.project_b
+        second["context_id"] = self.context_b
+        second["context"] = "restricted"
+        second["project_root"] = "/workspace/project-b"
+        second["network"] = "tobari-project-b-net"
+        for field, replacement in (
+            ("workspace_ip", "172.29.1.3"),
+            ("gateway_ip", "172.29.1.2"),
+        ):
+            invalid = json.loads(json.dumps(document))
+            candidate = dict(second)
+            candidate[field] = replacement
+            invalid["bindings"].append(candidate)
+            with open(self.principal_path, "w", encoding="utf-8") as handle:
+                json.dump(invalid, handle)
+            with self.subTest(field=field):
+                with self.assertRaises(gateway.PrincipalError):
+                    gateway.load_project_principals(self.principal_path)
+
+    def test_principal_registry_rejects_cross_role_overlap_and_ipv6(self):
+        with open(self.principal_path, encoding="utf-8") as handle:
+            document = json.load(handle)
+        second = dict(document["bindings"][0])
+        second["project_id"] = self.project_b
+        second["context_id"] = self.context_b
+        second["context"] = "restricted"
+        second["project_root"] = "/workspace/project-b"
+        second["network"] = "tobari-project-b-net"
+        cases = (
+            {"workspace_ip": "172.29.1.3", "gateway_ip": "172.29.0.3"},
+            {"workspace_ip": "172.29.0.2", "gateway_ip": "172.29.1.2"},
+            {"workspace_ip": "fd00::3", "gateway_ip": "172.29.1.2"},
+            {"workspace_ip": "172.29.1.3", "gateway_ip": "fd00::2"},
+        )
+        for endpoints in cases:
+            invalid = json.loads(json.dumps(document))
+            candidate = dict(second)
+            candidate.update(endpoints)
+            invalid["bindings"].append(candidate)
+            with open(self.principal_path, "w", encoding="utf-8") as handle:
+                json.dump(invalid, handle)
+            with self.subTest(endpoints=endpoints):
+                with self.assertRaises(gateway.PrincipalError):
+                    gateway.load_project_principals(self.principal_path)
 
     def test_policy_input_is_generic_and_redacted(self):
         flow = self.flow()
@@ -2021,7 +2152,7 @@ class GatewayTests(unittest.TestCase):
         ]
         flows[0].request.headers["authorization"] = f"Bearer {self.handle}"
         flows[1].request.headers["authorization"] = f"Bearer {second_handle}"
-        flows[1].client_conn = SimpleNamespace(sockname=("172.29.1.2", 8080))
+        flows[1].client_conn.peername = ("172.29.1.3", 51001)
         seen = []
 
         def broker_call(request):
@@ -2047,8 +2178,8 @@ class GatewayTests(unittest.TestCase):
             "profiles": {},
         }
         principals = {
-            "172.29.0.2": self.principal_a,
-            "172.29.1.2": self.principal_b,
+            "172.29.0.3": self.principal_a,
+            "172.29.1.3": self.principal_b,
         }
         with mock.patch.object(gateway, "load_project_principals", return_value=principals):
             with mock.patch.object(
@@ -2109,7 +2240,7 @@ class GatewayTests(unittest.TestCase):
             with mock.patch.object(
                 gateway,
                 "load_project_principals",
-                return_value={"172.29.0.2": self.principal_a},
+                return_value={"172.29.0.3": self.principal_a},
             ):
                 with mock.patch.object(
                     gateway,
@@ -2352,13 +2483,13 @@ class GatewayTests(unittest.TestCase):
 
     def test_credential_profile_does_not_cross_project(self):
         flow = self.flow()
-        flow.client_conn = SimpleNamespace(sockname=("172.29.1.2", 8080))
+        flow.client_conn.peername = ("172.29.1.3", 51001)
         flow.request.headers["x-tobari-credential-profile"] = "example"
         addon = self.managed_gateway()
         output = io.StringIO()
         with mock.patch.object(gateway, "load_credential_config", return_value=self.config):
             with mock.patch.object(
-                gateway, "load_project_principals", return_value={"172.29.1.2": self.principal_b}
+                gateway, "load_project_principals", return_value={"172.29.1.3": self.principal_b}
             ):
                 with mock.patch.object(gateway, "query_opa") as query:
                     with redirect_stdout(output):
@@ -2408,7 +2539,7 @@ class GatewayTests(unittest.TestCase):
             with mock.patch.object(
                 gateway,
                 "load_project_principals",
-                return_value={"172.29.0.2": self.principal_a},
+                return_value={"172.29.0.3": self.principal_a},
             ):
                 with mock.patch.object(
                     gateway,

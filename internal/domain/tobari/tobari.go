@@ -142,15 +142,14 @@ type State struct {
 	CredentialConfig  string     `json:"credential_config"`
 	CredentialDir     string     `json:"credential_directory"`
 	AssetVersion      string     `json:"asset_version"`
-	ProxyEndpoint     string     `json:"proxy_endpoint"`
 	RecentError       string     `json:"recent_error"`
 	Tobari            []Instance `json:"tobari"`
 }
 
 // Validate rejects incomplete, ambiguous, or relative state.
 func (s State) Validate() error {
-	if s.SchemaVersion != 3 {
-		return fmt.Errorf("Tobari state schema version must be 3")
+	if s.SchemaVersion != 4 {
+		return fmt.Errorf("Tobari state schema version must be 4")
 	}
 	for name, value := range map[string]string{
 		"runtime directory": s.RuntimeDirectory,
@@ -169,9 +168,6 @@ func (s State) Validate() error {
 	}
 	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.AggregateRevision) || s.ContextCount < 1 {
 		return fmt.Errorf("aggregate Context projection is invalid")
-	}
-	if s.ProxyEndpoint != "http://gateway:8080" {
-		return fmt.Errorf("proxy endpoint is invalid")
 	}
 	if s.Tobari == nil {
 		return fmt.Errorf("Tobari collection is unknown")
@@ -216,7 +212,6 @@ type ClusterStatus struct {
 	Task                     string            `json:"task"`
 	Configured               bool              `json:"configured"`
 	Running                  bool              `json:"running"`
-	Proxy                    string            `json:"proxy"`
 	Policy                   string            `json:"policy"`
 	TobariCount              int               `json:"tobari_count"`
 	ContextCount             int               `json:"context_count"`
@@ -250,7 +245,7 @@ func (s ClusterStatus) Validate() error {
 		return fmt.Errorf("cluster status task identity is invalid")
 	}
 	if !s.Configured {
-		if s.Running || s.Proxy != "" || s.Policy != "" || s.TobariCount != 0 || s.ContextCount != 0 || s.PolicyRevision != "" || len(s.Components) != 0 {
+		if s.Running || s.Policy != "" || s.TobariCount != 0 || s.ContextCount != 0 || s.PolicyRevision != "" || len(s.Components) != 0 {
 			return fmt.Errorf("unconfigured status contains cluster state")
 		}
 		if s.Components == nil || s.PolicyProjection != "unavailable" || s.PrincipalRegistry != "unavailable" ||
@@ -261,7 +256,7 @@ func (s ClusterStatus) Validate() error {
 		}
 		return nil
 	}
-	if !filepath.IsAbs(s.Policy) || s.Proxy == "" || s.TobariCount < 0 || s.ContextCount < 1 ||
+	if !filepath.IsAbs(s.Policy) || s.TobariCount < 0 || s.ContextCount < 1 ||
 		!regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.PolicyRevision) || s.Components == nil ||
 		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.CredentialProjection == "" ||
 		s.AuthProviderProjection == "" || s.AuthBrokerState == "" || s.CredentialCompanionState == "" || s.RootKeyBackend == "" {

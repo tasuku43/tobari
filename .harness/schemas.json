@@ -9,7 +9,7 @@
   {
     "id": "machine-output.fixture.v1",
     "path": "internal/cli/testdata/machine-output-contract-fixture.json",
-    "sha256": "a460697a9f96aad035e6e28b4fd0371a9221867beab7924242ca76e04f6ee2fa",
+    "sha256": "25f67021adf829535715004c36a909c64abb1fddcbeed464c0d8000080d30b58",
     "provenance": "Repository-authored synthetic fixture for recursive public machine-output interpretation.",
     "license": "MIT"
   },

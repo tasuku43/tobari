@@ -5,10 +5,12 @@ description: See exactly where Workspace-side HTTPS terminates and where separat
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-An HTTPS request through Tobari uses two TLS connections. The Workspace sends
-`CONNECT` to the explicit HTTP proxy and establishes TLS connection A with
-Gateway under the Tobari CA. Gateway terminates that connection so it can
-authorize the decrypted HTTP attributes.
+An HTTPS request through Tobari uses two TLS connections. The client keeps its
+ordinary HTTPS URL, resolves a fixed synthetic address, and the guarded
+Workspace route delivers its TCP connection to Gateway's transparent listener.
+The client establishes TLS connection A with Gateway under the Tobari CA.
+Gateway terminates that connection so it can authorize the decrypted HTTP
+attributes.
 
 After policy allows the request, Gateway creates a separate, verified TLS
 connection B to the upstream. The final destination therefore still receives
@@ -20,25 +22,25 @@ instead of bypassing Gateway. The preceding [request journey](/how-it-works/requ
 
 ## The HTTPS exchange in order
 
-### 1. The client contacts an HTTP proxy
+### 1. The client reaches Gateway
 
-The Workspace client is configured with Gateway as its HTTP and HTTPS proxy. For an HTTPS URL, it opens the project-network connection to Gateway and sends:
-
-```http
-CONNECT api.example.com:443 HTTP/1.1
-```
-
-This asks the proxy to establish a tunnel-like HTTPS flow for that authority. It does not grant network permission.
+The client keeps its ordinary HTTPS URL. Synthetic DNS returns `198.18.0.10`,
+its default TCP route points to the project Gateway, and Gateway redirects the
+connection to its transparent listener. TLS SNI supplies the initial HTTPS
+authority. Reaching this listener does not grant network permission.
 
 ### 2. Gateway establishes TLS connection A
 
-Gateway responds to `CONNECT` and presents a leaf certificate signed by Tobari's installation CA. The Workspace runtime builds an ephemeral client trust bundle from the system CA set plus the public Tobari CA.
+Gateway accepts the intercepted TLS handshake and presents a leaf certificate signed by Tobari's installation CA. The Workspace runtime builds an ephemeral client trust bundle from the system CA set plus the public Tobari CA.
 
 The client therefore establishes **TLS connection A** with Gateway. Gateway terminates this TLS session and can see the decrypted HTTP method, authority, path, query, and headers needed for the generic decision contract.
 
 ### 3. Gateway authorizes the decrypted HTTP request
 
-Gateway derives Context/project identity, removes or redacts credential material, and sends one body-free normalized input to OPA. The request body is not a policy identity dimension. CA trust does not skip this decision.
+Gateway derives Context/project identity, requires transparent SNI, HTTP
+authority, and original port to be consistent, removes or redacts credential
+material, and sends one body-free normalized input to OPA. The request body is
+not a policy identity dimension. CA trust does not skip this decision.
 
 On deny or decision failure, connection B is never created for that request.
 
@@ -82,7 +84,7 @@ A working CA solves only the first row.
 - **OPA deny or outage:** Gateway does not create the authorized upstream path; deny is local.
 - **DNS or address validation failure:** TLS B is not attempted to an unsafe substitute.
 - **Upstream certificate failure:** TLS B fails; Tobari does not mark the policy rule denied or retry insecurely.
-- **Client ignores the proxy:** the dedicated internal network supplies no external route, so there is no TLS bypass.
+- **Client opens an ordinary direct socket:** the guarded transparent route reaches Gateway's decision; it does not create a TLS bypass.
 
 ## Guarantees and limitations
 
@@ -95,15 +97,17 @@ The repository's tests validate intercepted HTTPS behavior, scheme normalization
 ## Source evidence
 
 - [Architecture HTTPS flow](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
-- [HTTPS interception decision](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/decisions/0005-use-an-explicit-intercepting-proxy.md)
 - [Gateway mitmproxy entrypoint](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/entrypoint.sh)
 - [Workspace CA bundle entrypoint](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/tobari/entrypoint.sh)
 - [HTTPS scheme and Gateway tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/gateway/test_tobari_gateway.py)
-- [Intercepted HTTPS and no-proxy integration](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+- [Intercepted HTTPS integration](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
 
 ## Summary
 
-`CONNECT` leads to TLS A between client and Gateway. Gateway authorizes decrypted HTTP attributes. Only after allow does it create separately verified TLS B to upstream. CA trust, policy authority, and credential authority remain distinct.
+Guarded transparent ingress leads to TLS A between client and Gateway. Gateway
+authorizes decrypted HTTP attributes. Only after allow
+does it resolve the real host and create separately verified TLS B to upstream.
+CA trust, policy authority, and credential authority remain distinct.
 
 ## Check your understanding
 

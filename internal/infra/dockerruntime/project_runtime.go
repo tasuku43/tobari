@@ -242,17 +242,50 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
-		specHash, err := r.projectSpecHashWithAuth(state, desired, profile, network, image, imageID, authProjection)
-		if err != nil {
-			return err
+		if err := r.removeProjectPrincipal(ctx, stored.ID); err != nil {
+			return fmt.Errorf("close project principal before network reconciliation: %w", err)
 		}
 		if err := r.ensureProjectNetwork(ctx, network, stored.ID); err != nil {
 			return err
 		}
-		if err := r.ensureGatewayProjectNetwork(ctx, network, stored); err != nil {
+		if err := r.ensureGatewayNetwork(ctx, network); err != nil {
 			return err
 		}
-		if err := r.ensureProjectContainerWithAuth(ctx, state, desired, profile, container, network, image, specHash, authProjection); err != nil {
+		if err := r.ensureGatewayNetworkGuard(ctx); err != nil {
+			return err
+		}
+		gatewayIP, err := r.gatewayNetworkAddress(ctx, network)
+		if err != nil {
+			return err
+		}
+		subnet, err := r.projectNetworkSubnet(ctx, network)
+		if err != nil {
+			return err
+		}
+		specHash, err := r.projectSpecHashWithAuth(state, desired, profile, network, image, imageID, authProjection)
+		if err != nil {
+			return err
+		}
+		if err := r.ensureProjectContainerWithAuth(ctx, state, desired, profile, container, network, gatewayIP, image, specHash, authProjection); err != nil {
+			return err
+		}
+		if err := r.ensureWorkspaceNetworkGuard(ctx, stored, container, network, subnet, gatewayIP); err != nil {
+			return err
+		}
+		workspaceIP, err := r.workspaceNetworkAddress(ctx, container, network)
+		if err != nil {
+			return err
+		}
+		if err := validateProjectNetworkEndpoints(subnet, workspaceIP, gatewayIP); err != nil {
+			return networkGuardFailure("Workspace and Gateway endpoints do not match the owned project network", err)
+		}
+		if err := completeNetworkGuardState().Validate(); err != nil {
+			return networkGuardFailure("Workspace network guard state is incomplete", err)
+		}
+		if err := r.updateProjectPrincipal(ctx, stored, network, workspaceIP, gatewayIP); err != nil {
+			return fmt.Errorf("publish guarded project principal: %w", err)
+		}
+		if err := r.waitProjectReady(ctx, container); err != nil {
 			return err
 		}
 		containerID, err := r.projectResourceID(ctx, "container", container)
@@ -533,17 +566,20 @@ func (r *Runtime) ensureProjectNetwork(ctx context.Context, network, id string) 
 
 func (r *Runtime) ensureProjectContainer(
 	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
-	profile, container, network, image, specHash string,
+	profile, container, network, gatewayIP, image, specHash string,
 ) error {
-	return r.ensureProjectContainerWithAuth(
-		ctx, state, instance, profile, container, network, image, specHash,
+	if err := r.ensureProjectContainerWithAuth(
+		ctx, state, instance, profile, container, network, gatewayIP, image, specHash,
 		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}},
-	)
+	); err != nil {
+		return err
+	}
+	return r.waitProjectReady(ctx, container)
 }
 
 func (r *Runtime) ensureProjectContainerWithAuth(
 	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
-	profile, container, network, image, specHash string,
+	profile, container, network, gatewayIP, image, specHash string,
 	auth projectAuthProjection,
 ) error {
 	workspaceRoot, err := r.projectContainerRoot(instance.Root)
@@ -571,6 +607,17 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 				return fmt.Errorf("remove drifted project container: %w: %s", removeErr, boundedDiagnostic(output))
 			}
 			exists = false
+		} else {
+			observedDNS, dnsErr := r.projectContainerDNS(ctx, container)
+			if dnsErr != nil {
+				return dnsErr
+			}
+			if len(observedDNS) != 1 || observedDNS[0] != gatewayIP {
+				if output, removeErr := r.runner.Output(ctx, []string{"rm", "-f", container}, os.Environ()); removeErr != nil {
+					return fmt.Errorf("remove project container with stale DNS: %w: %s", removeErr, boundedDiagnostic(output))
+				}
+				exists = false
+			}
 		}
 	}
 	if exists {
@@ -586,7 +633,7 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 				return fmt.Errorf("start project container: %w: %s", startErr, boundedDiagnostic(output))
 			}
 		}
-		return r.waitProjectReady(ctx, container)
+		return nil
 	}
 	uid, gid := currentIDs()
 	args := []string{
@@ -598,9 +645,6 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 		"--env", "TOBARI_INSIDE=1", "--env", "TOBARI_ID=" + instance.ID, "--env", "TOBARI_ROOT=" + workspaceRoot,
 		"--env", "TOBARI_CONTEXT_ID=" + instance.ContextID,
 		"--env", "TOBARI_PROFILE=/opt/tobari/profile",
-		"--env", "HTTP_PROXY=http://gateway:8080", "--env", "HTTPS_PROXY=http://gateway:8080",
-		"--env", "http_proxy=http://gateway:8080", "--env", "https_proxy=http://gateway:8080",
-		"--env", "NO_PROXY=", "--env", "no_proxy=",
 		"--env", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
 		"--env", "REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem",
 		"--env", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
@@ -614,7 +658,7 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "commands") + ",dst=/var/lib/tobari/.claude/commands,readonly",
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "plugins.lock") + ",dst=/var/lib/tobari/.claude/plugins.lock,readonly",
 		"--mount", "type=volume,src=tobari-public-ca,dst=/run/tobari/ca-public,readonly",
-		"--workdir", workspaceRoot, "--network", network,
+		"--workdir", workspaceRoot, "--network", network, "--dns", gatewayIP,
 		"--health-cmd", "test -f /tmp/tobari-ready", "--health-interval", "2s",
 		"--health-timeout", "2s", "--health-retries", "30",
 		"--label", ownerLabel + "=" + ownerValue,
@@ -635,7 +679,23 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 	if output, err := r.runner.Output(ctx, []string{"start", container}, os.Environ()); err != nil {
 		return fmt.Errorf("start project container: %w: %s", err, boundedDiagnostic(output))
 	}
-	return r.waitProjectReady(ctx, container)
+	return nil
+}
+
+func (r *Runtime) projectContainerDNS(ctx context.Context, container string) ([]string, error) {
+	output, err := r.runner.Output(
+		ctx,
+		[]string{"inspect", "--format", "{{json .HostConfig.Dns}}", container},
+		os.Environ(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("inspect project DNS: %w: %s", err, boundedDiagnostic(output))
+	}
+	var addresses []string
+	if err := json.Unmarshal(bytes.TrimSpace(output), &addresses); err != nil {
+		return nil, fmt.Errorf("decode project DNS: %w", err)
+	}
+	return addresses, nil
 }
 
 func (r *Runtime) waitProjectReady(ctx context.Context, container string) error {
@@ -696,6 +756,7 @@ type projectRuntimeSpec struct {
 	WorkspaceRoot   string   `json:"workspace_root"`
 	Root            string   `json:"root"`
 	Network         string   `json:"network"`
+	NetworkGuard    string   `json:"network_guard"`
 	User            string   `json:"user"`
 	Environment     []string `json:"environment"`
 	AuthFiles       []string `json:"auth_files"`
@@ -778,14 +839,13 @@ func (r *Runtime) projectRuntimeSpecWithAuthAndCommand(
 	spec := projectRuntimeSpec{
 		Image: image, ImageID: imageID, RuntimeAPI: tobari.RuntimeImageAPI, AssetVersion: state.AssetVersion,
 		WorkspaceRoot: workspaceRoot, Root: instance.Root, Network: network,
-		User: strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
+		NetworkGuard: tobari.NetworkGuardRevision,
+		User:         strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		Environment: []string{
 			"HOME=/var/lib/tobari", "TOBARI_INSIDE=1", "TOBARI_ID=" + instance.ID,
 			"TOBARI_CONTEXT_ID=" + instance.ContextID,
 			"TOBARI_ROOT=" + workspaceRoot, "TOBARI_PROFILE=/opt/tobari/profile",
-			"HTTP_PROXY=http://gateway:8080", "HTTPS_PROXY=http://gateway:8080",
-			"http_proxy=http://gateway:8080", "https_proxy=http://gateway:8080",
-			"NO_PROXY=", "no_proxy=", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
+			"SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
 			"REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
 			"GIT_CONFIG_SYSTEM=" + projectGitContainerConfig,
 		},

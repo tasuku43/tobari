@@ -32,7 +32,7 @@ Treat every process in the Workspace as untrusted. It may read and modify the se
 
 ### 2. Gateway: the enforcement point
 
-Gateway accepts the Workspace's proxy traffic. It establishes the trusted Context and project identity, normalizes the HTTP request, asks OPA once, and enforces the answer. On deny, Gateway returns a local response without opening the upstream connection. On allow, Gateway creates the separate upstream connection and streams the request.
+Gateway accepts the Workspace's transparently routed HTTP traffic. It establishes the trusted Context and project identity, normalizes the HTTP request, asks OPA once, and enforces the answer. On deny, Gateway returns a local response without opening the upstream connection. On allow, Gateway creates the separate upstream connection and streams the request.
 
 OPA does not forward packets. Gateway does.
 
@@ -61,8 +61,8 @@ The upstream service receives a request from Gateway only after the effect is al
 
 Suppose a tool in a Workspace sends `PUT https://example.com/api/items/42`.
 
-1. The tool sends the request through the configured HTTP proxy.
-2. Gateway derives project identity from the receiving network interface, not from a caller header.
+1. The tool opens its ordinary HTTPS URL; the guarded route delivers it transparently to Gateway.
+2. Gateway derives project identity from the kernel-observed Workspace source endpoint, not from a caller header.
 3. Gateway builds a body-free policy input and calls OPA.
 4. If no current rule matches, OPA denies. Gateway returns `403 policy_denied` and leaves the upstream untouched.
 5. A trusted host user can review the retained exact effect.
@@ -76,7 +76,7 @@ The first request is not an application for automatic permission. It is an attem
 | --------------------------- | ---------------------------------------- | --------------------------------------------------- |
 | No matching rule            | `403 policy_denied`                      | No upstream connection and no automatic allow       |
 | OPA unavailable or invalid  | `503 policy_unavailable`                 | No fallback decision                                |
-| Gateway unavailable         | Proxy connection fails                   | No direct Internet fallback                         |
+| Gateway unavailable         | Guarded connection fails                 | No direct Internet fallback                         |
 | Invalid broker handle       | `403 credential_handle_invalid`          | No passthrough fallback and no upstream request     |
 | Auth Broker unavailable     | `503 credential_broker_unavailable`      | No resolve, refresh, signing, or upstream action    |
 | AWS/Datadog outcome unknown | `409 credential_refresh_outcome_unknown` | No automatic replay or application upstream attempt |

@@ -69,7 +69,7 @@ func TestVerifyGatewayImageRejectsOldAPIBeforeEngineMutation(t *testing.T) {
 		metadata: gatewayMetadata("arm64", "ghcr.io/tasuku43/tobari/gateway@"+testGatewayDigest),
 		server:   `{"Os":"linux","Arch":"arm64"}`,
 	}
-	runner.metadata = strings.Replace(runner.metadata, `"io.tobari.gateway-api":"4"`, `"io.tobari.gateway-api":"3"`, 1)
+	runner.metadata = strings.Replace(runner.metadata, `"io.tobari.gateway-api":"5"`, `"io.tobari.gateway-api":"3"`, 1)
 	runtime := &Runtime{runner: runner}
 	err := runtime.verifyGatewayImage(context.Background(), "ghcr.io/tasuku43/tobari/gateway@"+testGatewayDigest, true)
 	public, ok := fault.PublicCopy(err)
@@ -143,5 +143,5 @@ func gatewayMetadata(architecture, repoDigest string) string {
 	if repoDigest != "" {
 		repoDigests = `["` + repoDigest + `"]`
 	}
-	return `{"RepoDigests":` + repoDigests + `,"Architecture":"` + architecture + `","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"4","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`
+	return `{"RepoDigests":` + repoDigests + `,"Architecture":"` + architecture + `","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"5","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`
 }

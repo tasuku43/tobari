@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, and security
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR 0026
 
 ## Context
 

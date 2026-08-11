@@ -19,9 +19,14 @@ first for the trusted components and the boundary shared by these claims.
 
 **Preconditions.** Tobari created and reconciled the Workspace through its Docker configuration; Docker and the host network behave as configured.
 
-**Enforcement point.** The Workspace joins only its dedicated Docker `internal` network. Gateway is the only component attached to that network and the egress network.
+**Enforcement point.** The Workspace joins only its dedicated Docker
+`internal` network. Its output policy is default-drop and its only default TCP
+route points to the exact project Gateway. Gateway forwarding remains disabled;
+synthetic DNS and transparent redirect deliver ordinary HTTP/TLS to Gateway's
+policy listener.
 
-**Failure behavior.** Ignoring proxy variables does not reveal another route. With Gateway unavailable, proxy traffic fails.
+**Failure behavior.** An ordinary direct socket reaches the guarded transparent
+route, not another route. With Gateway unavailable, HTTP traffic fails.
 
 **Limitation.** Tobari mediates ordinary HTTP/HTTPS. It is not a general protocol firewall, and an allowed HTTP destination can receive Workspace-readable data.
 
@@ -31,7 +36,10 @@ first for the trusted components and the boundary shared by these claims.
 
 **Preconditions.** The host lifecycle created a unique Workspace network binding and the principal registry remains intact.
 
-**Enforcement point.** Gateway looks up its own receiving-interface address in the host-owned principal registry and puts that Context/project identity into OPA input. Self-declared headers are ignored for authority.
+**Enforcement point.** Gateway looks up the kernel-observed Workspace source
+endpoint in the host-owned schema-3 principal registry and puts that
+Context/project identity into OPA input. Self-declared headers are ignored for
+authority.
 
 **Failure behavior.** Unknown, malformed, duplicated, or stale bindings return `project_principal_unavailable` before OPA and upstream.
 
@@ -103,12 +111,13 @@ For developers who want to trace these claims into the repository, see [Implemen
 <div class="question-list">
   <details>
     <summary>
-      A process ignores `HTTPS_PROXY`. Does Tobari silently permit direct TLS?
+      A process opens a direct HTTPS socket. Does Tobari silently permit bypass
+      TLS?
     </summary>
     <div class="prose-block">
-      No. In the supported topology the Workspace has only its internal project
-      network. Ignoring the proxy removes the usable path; it does not create
-      egress.
+      No. The Workspace output guard routes ordinary TCP through Gateway's
+      transparent listener. Gateway applies the same authority validation and
+      OPA decision; unsupported traffic does not gain direct egress.
     </div>
   </details>
   <details>

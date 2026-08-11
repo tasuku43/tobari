@@ -16,7 +16,7 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Source-built Gateway image with hash-locked dependencies, existing addon tests, and bounded GraphQL parser tests |
 | `authbroker` | `task authbroker:test` | Credential-boundary feedback | Canonical/snapshot drift, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
-| `integration` | `task integration:test` | Real runtime boundary | One Gateway/OPA/Auth Broker shared across multiple Contexts, same-root and overlapping-root Tobari, Context/project principal and handle separation, separate network, home, runtime, policy, and credential boundaries, shared host-file visibility, typed/redacted denial, Context-local learning/reset, exact marker-absence fallback, broker restart/rotation/logout, down/purge authentication-state preservation, migration/restart, recovery, and cleanup scenarios |
+| `integration` | `task integration:test` | Real runtime boundary | One Gateway/OPA/Auth Broker shared across multiple Contexts, explicit/transparent HTTP parity, guarded routes and forwarding-off inspection, synthetic DNS and zero-pre-policy-upstream canaries, same-root and overlapping-root Tobari, Context/project source-principal and handle separation, separate network, home, runtime, policy, and credential boundaries, shared host-file visibility, typed/redacted denial, Context-local learning/reset, exact marker-absence fallback, broker restart/rotation/logout, down/purge authentication-state preservation, migration/restart, recovery, and cleanup scenarios |
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, Auth Broker image/protocol, and integration coverage |
 
 The optional `task toolbox:build` workflow is not a completion profile. It
@@ -51,9 +51,11 @@ and compile both resolver tags. The published fixture must expose the recorded
 pin APIs and no repository recovery value; the development fixture must expose
 matching source APIs plus exactly `task build:dev` and `bin/tobari-dev`.
 
-The current contributor source expects `io.tobari.gateway-api=4` and
+The current contributor source expects `io.tobari.gateway-api=5` and
 `io.tobari.auth-broker-api=3`, advanced from 3 and 2 for the Codex/Claude
-credential response contracts. `task build:dev` is the matching local image
+credential response contracts and then from Gateway 4 to 5 for guarded
+transparent routing, synthetic DNS, and schema-3 source principals.
+`task build:dev` is the matching local image
 path. The immutable published selections remain Gateway API 3 and Auth Broker
 API 2 until separate release review advances their digests; tests must preserve
 that historical distinction rather than relabel or imply capability for the
@@ -75,7 +77,10 @@ pushes only the base image; pull-request CI has no package-write permission.
 Gateway unit suite against the canonical source, while the runtime integration
 continues to exercise the embedded snapshot used by the CLI. The Gateway unit
 contract fixes ordinary body-free and declared GraphQL-derived OPA documents
-with trusted Context/project principal, null-versus-provider authorization
+with trusted source-bound Context/project principal, explicit/transparent
+authority parity, synthetic-destination replacement only after allow, zero
+external DNS/upstream calls on denial or unsupported protocols,
+null-versus-provider authorization
 metadata, strict decision fields, authorization-before-forward ordering,
 exact endpoint classification, bounded parser behavior, broker
 deny-before-resolution, and secret redaction. The Gateway
@@ -482,7 +487,7 @@ The test suite has complementary levels:
   wrong enum, invalid null, excessive depth/count, empty undeclared sentinels,
   and leaked internal commands. Paged probes additionally enforce the one
   declared always-present string cursor and its typed `empty_cursor` sentinel.
-  Auth additions specifically pin cluster status schema 5 with nullable
+  Auth additions specifically pin cluster status schema 6 with nullable
   unconfigured resources and always-present
   `credential_companion_state=ready|prepared|absent|unavailable`, Context report
   schema 8, Context list schema 4, Workspace status schema 4, and auth
@@ -704,13 +709,16 @@ The test suite has complementary levels:
   `python3 scripts/test-pty-evidence.py` is the executable contract test and
   runs as part of `task check:fast`.
 - Context/project-principal integration creates same-root and overlapping-root
-  Tobari in different Contexts, checks distinct Gateway network addresses,
+  Tobari in different Contexts, checks distinct owned Workspace and Gateway
+  network endpoints and non-overlapping dedicated networks,
   stable IDs and homes, shared host-file effects, and proves an atomically updated
   directory-mounted registry is visible without manually recreating Gateway,
   denies learned permission when requested by another Context/project, and
   checks registry cleanup after restart, recovery, and exact Context-bound
-  deletion. Gateway unit tests separately cover same-name managed profiles in
-  distinct Contexts.
+  deletion. It also rejects unprivileged source binding/IP_FREEBIND attempts
+  and proves transparent connections select the exact source-bound principal.
+  Gateway unit tests separately cover same-name managed profiles in distinct
+  Contexts.
 - Auth Broker runtime integration inspects exactly one locked broker beside one
   Gateway and one OPA, verifies the separate control/runtime socket mounts and
   fixed resource/log bounds, unlocks through a synthetic host root key, issues
@@ -718,9 +726,10 @@ The test suite has complementary levels:
   resolution, rotates and revokes handles, restarts locked, re-unlocks, and
   confirms that primary-secret canaries never appear in Workspace files,
   environment, OPA input, audit, CLI output, or component logs.
-- Policy-boundary tests prove the normalized request authority and port are
-  required by the initialized structured boundary, rejected non-default ports
-  are not learnable, and learned rules do not cross ports.
+- Policy-boundary tests prove the normalized request authority and exact
+  1-65535 port are required by the structured boundary, HTTPS on a non-default
+  port remains learnable, invalid ports are terminal, and learned rules do not
+  cross ports or schemes.
 - Gateway boundary tests resolve and pin an upstream address, reject unsafe
   resolved addresses for dotted hosts, and preserve the explicit single-label
   private-service exception used by the local integration shape.
@@ -786,7 +795,7 @@ Every strong statement should identify its enforcement path.
 | Context shell environment boundary | Fixed allowlist and source-enum domain tests, explicit-empty preservation, schema-1–3 migration to inherited PS1 and schema-4 exact-setting preservation, zero-I/O rejection for arbitrary names and ambiguous values, owner-only atomic update tests, complete Context report output, exact child-exec environment assertions, missing-export fallback, Bash-quote and bounded inherited-value canaries, and host-credential non-copy assertions |
 | Context Git identity boundary | Atomic pair/source domain tests, schema-4 shell-setting preservation and opt-in default migration, exact two-key global Git argv with an absolute executable and exact `HOME`/optional `XDG_CONFIG_HOME` plus fixed-control environment allowlist, project-owned config-directory and `PATH`/loader/shell-startup canaries, timeout/output/framing/unsafe-value bounds, malicious local-include exclusion, private atomic config encoding, symlink and existing-file size checks, read-only directory mount and system-scope precedence, excluded helper/signing/auth/path keys, absent/incomplete-pair behavior, and secret-/personal-data-free faults and fixtures |
 | Context runtime build boundary | Fixed current-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv including official-base refresh versus local-base behavior, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and bound-Context next-entry reconciliation coverage |
-| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, canonical-source unit tests, source API-4/role labels, immutable digest/platform/entrypoint preflight, explicit historical published API-3 separation, non-root host-UID-independent Dockerfile, and pull-request/main workflow permission separation |
+| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-5/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, immutable digest/platform/entrypoint preflight, explicit historical published API-3 separation, non-root resident process, and pull-request/main workflow permission separation |
 | Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-3/role labels, immutable digest/platform/entrypoint preflight, explicit historical published API-2 separation, non-root Dockerfile, and pull-request/main workflow permission separation |
 | Context-owned encrypted credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/Context AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
@@ -807,7 +816,7 @@ Every strong statement should identify its enforcement path.
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/host/port/method/path candidate aggregation with latest/count and legacy-count compatibility, Context-scoped reference validation, single-reference allow/deny/reset round trips, bounded typed TTY staging with one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, GraphQL compaction rejection, raw-body privacy canaries, and zero-upstream integration |
 | Bounded policy compaction | Pure deterministic same-Context/project/host/port/method grouping, minimum evidence and path-depth invariants, positive/boundary OPA tests, stale/cross-Context reference rejection, and Docker canary |
-| Context/project principal and credential scope | Owner-only atomic registry schema 2, local-interface derivation, forged-Context/project and unknown-principal denial, passthrough/managed/broker adapter tests, same-profile and copied-handle cross-Context canaries, Rego canaries, and multi-Context Docker integration |
+| Context/project principal and credential scope | Owner-only atomic registry schema 3, exact Workspace-source/Gateway endpoint and network uniqueness, regular/transparent source derivation, forged-Context/project/SNI/authority and unknown-principal denial, source-spoof canaries, passthrough/managed/broker adapter tests, same-profile and copied-handle cross-Context canaries, Rego canaries, and multi-Context Docker integration |
 | Atomic multi-Context policy activation | Source and projection locks, Context namespace rejection, complete all-Context OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |

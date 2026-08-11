@@ -1572,7 +1572,6 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 type clusterStatusOutput struct {
 	Configured               bool                     `json:"configured"`
 	Running                  bool                     `json:"running"`
-	Proxy                    *string                  `json:"proxy"`
 	Policy                   *string                  `json:"policy"`
 	TobariCount              int                      `json:"tobari_count"`
 	ContextCount             int                      `json:"context_count"`
@@ -1594,10 +1593,10 @@ func renderClusterStatus(status tobari.ClusterStatus, format successFormat, colo
 	}
 	if format == successFormatJSON {
 		document := clusterStatusDocument{
-			SchemaVersion: 5,
+			SchemaVersion: 6,
 			Cluster: clusterStatusOutput{
 				Configured: status.Configured, Running: status.Running,
-				Proxy: optionalExternalText(status.Proxy), Policy: optionalExternalText(status.Policy),
+				Policy:      optionalExternalText(status.Policy),
 				TobariCount: status.TobariCount, ContextCount: status.ContextCount,
 				PolicyRevision: optionalString(status.PolicyRevision), PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
 				CredentialProjection:     safeExternalText(status.CredentialProjection),

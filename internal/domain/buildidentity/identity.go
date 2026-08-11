@@ -10,7 +10,7 @@ import (
 const (
 	UnknownCommit = "unknown"
 
-	RequiredGatewayAPI    = 4
+	RequiredGatewayAPI    = 5
 	RequiredAuthBrokerAPI = 3
 
 	DevelopmentBuildCommand = "task build:dev"

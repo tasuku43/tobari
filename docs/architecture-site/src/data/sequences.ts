@@ -36,7 +36,7 @@ export const sequenceScenarios: SequenceScenario[] = [
     ],
     steps: [
       {
-        title: "Proxy request arrives",
+        title: "Guarded HTTP request arrives",
         from: "Workspace process",
         to: "Gateway",
         sent: "HTTP method, URL, headers, and a streaming body",
@@ -44,19 +44,19 @@ export const sequenceScenarios: SequenceScenario[] = [
         owner: "Gateway",
         failure: "The request stops before policy or upstream work.",
         explanation:
-          "The Workspace can reach only its dedicated internal network. Its configured HTTP proxy is the Gateway.",
+          "The explicit compatibility proxy and the synthetic-DNS transparent route converge at Gateway.",
         tone: "network",
       },
       {
         title: "Principal is established",
-        from: "Gateway network interface",
+        from: "Workspace source endpoint",
         to: "Gateway",
         sent: "Host-owned Context ID and project ID from the principal registry",
         withheld: "Workspace-supplied identity headers",
         owner: "Gateway",
-        failure: "An unknown or ambiguous interface fails closed.",
+        failure: "An unknown or ambiguous source endpoint fails closed.",
         explanation:
-          "The receiving Gateway interface, not a claim in the request, selects the principal.",
+          "The kernel-observed Workspace source endpoint, not a claim in the request, selects the principal.",
         tone: "control",
       },
       {

@@ -184,7 +184,7 @@ Logout for both providers is local handle/state revocation and does not claim
 remote provider revocation.
 
 The current canonical source image contract is Auth Broker API 3 paired with
-Gateway API 4. The reviewed published Auth Broker API-2 and Gateway API-3 pins
+Gateway API 5. The reviewed published Auth Broker API-2 and Gateway API-3 pins
 predate these plans and are incompatible; standard startup must reject them.
 Only explicit development images are usable until new immutable reviewed
 indexes are published. Build the required agent runtime separately with

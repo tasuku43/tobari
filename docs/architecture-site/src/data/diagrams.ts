@@ -51,7 +51,8 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         id: "gateway",
         label: "Gateway",
-        detail: "Terminates the proxy connection and enforces the decision.",
+        detail:
+          "Terminates transparently routed HTTP/TLS and enforces the decision.",
         kind: "network",
       },
       {
@@ -77,7 +78,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         from: "workspace",
         to: "gateway",
-        label: "proxy request",
+        label: "guarded HTTP/HTTPS request",
         kind: "network",
       },
       {
@@ -394,7 +395,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
         id: "workspace",
         label: "Workspace client",
         detail:
-          "Uses the HTTP proxy and trusts the Tobari CA for the Gateway-side TLS session.",
+          "Uses an ordinary HTTPS URL and trusts the Tobari CA for the Gateway-side TLS session.",
         kind: "untrusted",
       },
       {
@@ -424,7 +425,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
         id: "connect",
         from: "workspace",
         to: "gateway",
-        label: "CONNECT example.com:443 reaches the HTTP proxy",
+        label: "Guarded TCP reaches transparent Gateway ingress",
         kind: "network",
       },
       {
@@ -477,7 +478,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
   "project-principal": {
     title: "Project principal establishment",
     description:
-      "The host registry binds a Gateway network interface to Context and project identity. Request headers cannot replace that binding.",
+      "The host registry binds a Workspace source endpoint, Gateway endpoint, and dedicated network to Context and project identity. Request headers cannot replace that binding.",
     nodes: [
       {
         id: "host",
@@ -489,7 +490,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
         id: "registry",
         label: "Principal registry",
         detail:
-          "Host-owned interface/network → Context ID + project ID record.",
+          "Host-owned source/Gateway endpoints + network → Context ID + project ID record.",
         kind: "persistent",
         shape: "store",
       },
@@ -508,8 +509,9 @@ export const diagrams: Record<string, DiagramDefinition> = {
       },
       {
         id: "gateway",
-        label: "Gateway receiving interface",
-        detail: "Looks up the principal selected by the ingress interface.",
+        label: "Workspace source endpoint",
+        detail:
+          "Looks up the principal selected by the kernel-observed peer address.",
         kind: "network",
       },
       {
@@ -535,7 +537,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         from: "network",
         to: "gateway",
-        label: "selects the receiving interface for this project",
+        label: "carries this project's exact source endpoint",
         kind: "network",
       },
       {

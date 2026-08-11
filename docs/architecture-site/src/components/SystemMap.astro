@@ -120,7 +120,7 @@ const messagesEn: Message[] = [
     phase: "proxy",
     from: "workspace",
     to: "gateway",
-    label: "HTTP/HTTPS proxy request",
+    label: "Guarded HTTP/HTTPS request",
     kind: "network",
   },
   {
@@ -129,7 +129,7 @@ const messagesEn: Message[] = [
     phase: "proxy",
     from: "gateway",
     to: "gateway",
-    label: "Derive principal from the receiving interface",
+    label: "Derive principal from the Workspace source endpoint",
     kind: "control",
   },
   {
@@ -209,7 +209,7 @@ const messagesJa: Message[] = [
     phase: "proxy",
     from: "workspace",
     to: "gateway",
-    label: "HTTP/HTTPS のプロキシリクエスト",
+    label: "保護済みの HTTP/HTTPS リクエスト",
     kind: "network",
   },
   {
@@ -218,7 +218,7 @@ const messagesJa: Message[] = [
     phase: "proxy",
     from: "gateway",
     to: "gateway",
-    label: "受信インターフェースから通信主体を確立",
+    label: "Workspace の送信元エンドポイントから通信主体を確立",
     kind: "control",
   },
   {
@@ -303,7 +303,7 @@ const conversationsEn: Conversation[] = [
     sent: "HTTP method, URL, headers, and a streaming body",
     withheld: "Caller-supplied project identity is not trusted",
     result:
-      "Gateway receives the request on the project interface and derives the principal from host-owned registration",
+      "Gateway receives the request from the registered Workspace source endpoint and derives the principal from host-owned registration",
     failure: "Processing stops before policy or external work",
   },
   {

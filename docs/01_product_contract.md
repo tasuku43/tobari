@@ -101,8 +101,9 @@ non-learnable and cannot become policy candidates.
   resource labels, and host-issued project-principal bindings. It is diagnostic
   output, not a routine user action input.
 - **project principal:** a host-issued binding from one stable Tobari ID and
-  stable Context ID to the exact Gateway interface on that project's dedicated
-  network. Caller headers, Context names, and profile names are not principals.
+  stable Context ID to the exact owned Workspace source endpoint and Gateway
+  endpoint on that project's dedicated network. Caller headers, Context names,
+  SNI, request authority, and profile names are not principals.
 - **tool-owned authentication state:** files written by a tool or agent below
   one Tobari's persistent home during its own login or configuration flow.
 - **credential provider:** the external service or authority whose credential
@@ -182,13 +183,24 @@ non-learnable and cannot become policy candidates.
   settings, credentials, and undeclared keys never enter the Workspace.
 
 Stable Tobari and Context IDs are not trusted when supplied by a work
-container. The host-owned principal registry derives both from the Gateway
-interface that received the request. Context policy is selected inside the
+container. The host-owned principal registry derives both from the exact
+kernel-observed Workspace source endpoint within its verified dedicated
+network binding. The registry also retains the exact Gateway endpoint and
+rejects duplicate or stale endpoints. Context policy is selected inside the
 single OPA from that trusted principal. Learned permissions are Context- and
 project-bound. Principal identity alone does not select or inject tool
 credentials. Brokered resolution additionally requires an exact provider,
 credential revision, target, and source-header binding; Context, project, and
 the allowed decision must all match.
+
+Every Workspace uses a guarded default route and non-recursive synthetic DNS,
+so an ordinary HTTP/HTTPS client reaches Gateway transparently without proxy
+environment variables. Gateway exposes no regular explicit-proxy listener.
+The transparent path produces the normalized policy, credential, audit,
+resolution, and upstream behavior. Gateway performs
+no external DNS or upstream connection before allow, and kernel forwarding is
+never a fallback. Raw TCP, non-HTTP TLS, UDP, and QUIC are rejected rather than
+forwarded.
 
 The public commands are:
 
@@ -236,7 +248,7 @@ equivalent. Omission resolves the current Context without changing it;
 duplicate or explicit-empty placement is invalid. After name resolution, the
 stable Context ID is authoritative for the remainder of the operation.
 
-`cluster status --format json` uses output schema 5. Its `cluster` object keeps
+`cluster status --format json` uses output schema 6. Its `cluster` object keeps
 the three shared container components and adds always-present secret-free
 `credential_companion_state`, exactly `ready`, `prepared`, `absent`, or
 `unavailable`. The field reports the resident host process/channel
@@ -498,7 +510,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Doctor report | `report` | 2 |
 | Context list | `contexts` | 4 |
 | Context report (show/create/use/config/runtime results) | `context` | 8 |
-| Cluster status | `cluster` | 5 |
+| Cluster status | `cluster` | 6 |
 | Cluster denials | `denials` | 4 |
 | Policy candidates | `policy_candidates` | 5 |
 | Policy review | `policy_review` | 5 |
@@ -636,9 +648,9 @@ as three user-facing phases: `prepare environment`, `start services`, and
 `verify readiness`. In a terminal, semantic colors distinguish active,
 healthy, warning, failed, and secondary information; labels and values remain
 otherwise plain. The ready summary prioritizes outcome, component health,
-attached Tobari count, and policy path; configured/running booleans, the proxy
-endpoint, and the full recent diagnostic remain available in JSON or failure
-detail. A successful `cluster up` additionally points to the next `tobari`
+attached Tobari count, and policy path; configured/running booleans and the
+full recent diagnostic remain available in JSON or failure detail. A
+successful `cluster up` additionally points to the next `tobari`
 command.
 
 `context use` reports `default_updated`; it changes only the omitted-Context
@@ -751,8 +763,8 @@ fails closed instead of becoming synthetic state.
   only;
 - `contexts/active.json`: compatibility-named owner-only current/default Context
   selection; missing means `default` and the marker has no enforcement authority;
-- `principal-registry/principals.json`: owner-only host-issued schema-v2
-  Context/project-to-Gateway-network bindings, maintained by lifecycle reconciliation
+- `principal-registry/principals.json`: owner-only host-issued schema-v3
+  Context/project-to-owned-Workspace-and-Gateway endpoint bindings, maintained by lifecycle reconciliation
   and directory-mounted read-only into Gateway so atomic host updates remain
   visible without exposing credential files;
 - Legacy top-level `policy/`, `credentials.json`, and `credentials/` are read
@@ -782,9 +794,12 @@ permanent Context binding, and diagnostic runtime identifiers.
 homes are never shared merely because Contexts or roots match.
 Shared read-only agent profiles referenced by Contexts are under
 `${XDG_DATA_HOME:-$HOME/.local/share}/tobari/profiles`.
-Persisted cluster state schema 3 contains the content-addressed aggregate policy revision,
+Persisted cluster state schema 4 contains the content-addressed aggregate policy revision,
 loaded Context count, aggregate projection paths, and Docker resource names or
 identifiers, never one active Context authority or credential contents. The
+loader accepts only the exact prior schema-3 explicit-proxy state, removes its
+fixed retired endpoint, and atomically persists schema 4; no listener or
+environment compatibility path is recreated. The
 owner-only projection contains a schema-v2 Context-aware Gateway credential
 document and Context-ID secret subdirectories plus the non-secret schema-v2
 provider projection. The per-Tobari home may contain tool credentials and
@@ -1034,8 +1049,10 @@ socket paths, and Auth Broker image API/role labels remain explicit
 compatibility boundaries. Their canonical values and paths are defined in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
 
-The canonical source capability requires Gateway image API 4 and Auth Broker
-image API 3, advanced respectively from 3 and 2. Existing reviewed immutable
+The canonical source capability requires Gateway image API 5 and Auth Broker
+image API 3, advanced respectively from 4 and 2. Gateway API 5 adds the fixed
+namespace guard, transparent HTTP/TLS ingress, synthetic DNS, and schema-3
+source-principal contract. Existing reviewed immutable
 published pins remain Gateway API 3 and Auth Broker API 2 and therefore do not
 silently gain this capability. Until reviewed immutable multi-architecture pins
 advance, brokered Codex/Claude OAuth is a contributor-local flow using the
@@ -1050,9 +1067,11 @@ commands; a proven development image mismatch reports the exact
 ## Unsupported outcomes
 
 The deliberate non-goals in [Project Theses](00_theses.md) are not hidden
-commands or transport escape hatches. In particular, Tobari does not promise to
-control non-proxy-aware traffic semantically; it prevents all direct egress and
-supports HTTP/HTTPS through the explicit proxy only.
+commands or transport escape hatches. Tobari supports ordinary HTTP/HTTPS
+sockets through its guarded transparent path;
+it does not forward raw TCP, non-HTTP TLS, UDP, QUIC, recursive DNS, Git SSH, or
+certificate-pinned traffic. A client that cannot use the Tobari CA or expose an
+unambiguous HTTP authority fails closed.
 The built-in slice supports one GitHub.com credential, one configured
 refreshable AWS CLI session, one default-organization Datadog US1 pup OAuth
 session, one pinned Codex ChatGPT OAuth session, and one pinned Claude

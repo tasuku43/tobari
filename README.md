@@ -106,25 +106,31 @@ Gateway alone joins that project network. OPA joins only the shared control
 network. Auth Broker joins control and egress but has no TCP listener and never
 joins a project network; only Gateway mounts its runtime Unix socket. The host
 companion opens no listener and reaches only an unmounted Broker-private socket
-through one authenticated reverse exec stream. A program
-that ignores the proxy has no external route; one Tobari cannot directly reach
-OPA, Auth Broker, or another Tobari.
+through one authenticated reverse exec stream. A program using an ordinary
+HTTP or HTTPS socket follows the guarded Gateway route and gains no direct
+external route; one Tobari cannot directly reach OPA, Auth Broker, or another
+Tobari. Workspace DNS returns a fixed synthetic address, the Workspace output
+guard routes TCP only through its project Gateway, and Gateway transparently
+intercepts the connection. HTTPS authority comes from TLS SNI and must agree
+with any HTTP authority and the original destination port. Tobari does not
+project HTTP proxy environment variables or retain a second explicit-proxy
+listener.
 
-For HTTPS, `HTTPS_PROXY` points to `http://gateway:8080`. The client sends
-`CONNECT host:443`, establishes TLS with Gateway using the Tobari CA, and sends
-the decrypted HTTP request to Gateway. Gateway asks OPA and, only after allow,
-creates a separate verified TLS connection to the upstream. This is HTTPS on
-both sides of the policy boundary, not plaintext traffic to the destination.
+The client establishes TLS with Gateway using the
+Tobari CA and sends the decrypted HTTP request to Gateway. Gateway asks OPA
+and, only after allow, resolves the real host and creates a separate verified
+TLS connection to the upstream. This is HTTPS on both sides of the policy
+boundary, not plaintext traffic to the destination. DNS does not resolve the
+real upstream before policy allow.
 
 Certificate-pinned clients that reject the Tobari CA fail rather than bypass
 Gateway.
 
-Proxy-aware tools such as `gh`, Git over HTTPS, and `curl` receive the same
-`HTTP_PROXY` and `HTTPS_PROXY` settings. Their destination remains an HTTPS
-URL: the client uses HTTP `CONNECT` to reach Gateway, Gateway authorizes the
-decrypted request, and the upstream leg is a separate verified HTTPS
-connection. Policy remains generic HTTP and needs no provider-specific URL
-rewriting. For exact trusted-host-declared GraphQL endpoints, that same
+Tools such as `gh`, Git over HTTPS, and `curl` keep their ordinary HTTPS URLs.
+The transparent path catches their ordinary sockets without proxy-environment
+support. Gateway authorizes the normalized decrypted request, and the upstream leg is a separate verified
+HTTPS connection. Policy remains generic HTTP and needs no provider-specific
+URL rewriting. For exact trusted-host-declared GraphQL endpoints, that same
 provider- and CLI-independent L7 boundary is finer: Gateway parses one bounded
 POST and asks OPA about `query|mutation + canonical root field`. Every root
 needs an exact approval; `POST /graphql` alone cannot authorize unrelated
@@ -163,7 +169,7 @@ tags are development publication channels only. Contributors can exercise the
 complete local source path with `task build:dev` and `bin/tobari-dev` without
 changing the official digest authority.
 
-The current source contract is Gateway API 4 and Auth Broker API 3. The
+The current source contract is Gateway API 5 and Auth Broker API 3. The
 reviewed immutable pins in `versions.env` are historical Gateway API-3/Auth
 Broker API-2 publications that predate the Codex and Claude broker plans and
 are incompatible with this source revision. Standard startup must reject those
@@ -212,7 +218,7 @@ usually means `~/.local/bin` is on `PATH`.
 This path has one deliberate host/agent boundary. The trusted host starts the
 cluster, reviews and changes policy, edits the current Context recipe, and runs
 the explicit runtime build. A process inside Tobari can work below the
-selected project root and make proxy-aware HTTP/HTTPS requests, but it cannot
+selected project root and make ordinary HTTP/HTTPS requests, but it cannot
 reach OPA, Docker, host credentials, or the Internet directly. A denial is a
 host handoff; it is never an automatic approval or retry.
 
@@ -252,7 +258,7 @@ directory. Do not use the filesystem root, your home directory, or a Tobari
 configuration/state directory as a project root.
 
 This canonical source revision deliberately blocks the ordinary release binary
-until compatible reviewed Gateway API-4/Auth Broker API-3 image pins exist.
+until compatible reviewed Gateway API-5/Auth Broker API-3 image pins exist.
 For the source walkthrough, build the development images and bind the command
 name to the absolute development binary in the same host shell. A future
 compatible released binary skips these first three setup lines.
@@ -277,7 +283,7 @@ diagnostic recovery command, not a prerequisite for the normal path.
 The command binding above keeps every later `tobari` example on the same
 development binary. The normal binary continues to use the historical reviewed
 published digests; in this source revision it rejects their API-3/API-2 labels
-because the source requires Gateway API 4 and Auth Broker API 3. The release
+because the source requires Gateway API 5 and Auth Broker API 3. The release
 gate rejects publication while that parity mismatch remains.
 
 ### 2. Observe a denied request inside Tobari
@@ -1277,7 +1283,7 @@ moving tags remain development conveniences. These selected images include
 the earlier AWS Identity Center path but predate AWS console login and the
 Datadog request path, as well as the OpenAI and Anthropic plans now present in
 canonical source and tests. They are historical publication evidence and are
-incompatible with the current Gateway API-4/Auth Broker API-3 source contract.
+incompatible with the current Gateway API-5/Auth Broker API-3 source contract.
 Standard startup must reject them. The new plans are available through
 `task build:dev` and `bin/tobari-dev` only until reviewed immutable pins
 advance; that development path is not release evidence.
@@ -1587,8 +1593,8 @@ projected handle, in
 
 ## MVP exclusions
 
-The MVP excludes multiple clusters, process-level identity, transparent
-proxying, raw TCP/UDP/QUIC, Git SSH semantic inspection, provider-operation
+The MVP excludes multiple clusters, process-level identity, non-HTTP raw
+TCP, UDP/QUIC, Git SSH semantic inspection, provider-operation
 adapters, arbitrary executable provider helpers, general OAuth refresh or
 signing, SigV4a, AWS presigning/streaming/custom endpoints, GitHub App tokens,
 remote token revocation, multiple provider accounts or roles per Context, Git

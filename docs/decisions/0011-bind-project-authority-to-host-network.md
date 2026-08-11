@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-08-01
 - Revised: 2026-08-08
+- Revised by: ADR 0026 replaces the Gateway-local-address mechanism with an
+  exact host-bound Workspace source endpoint for transparent ingress
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, and security
 - Supersedes: The project-principal limitation recorded in the threat model
@@ -26,15 +28,17 @@ Location is selection context, not authentication.
 
 ## Decision
 
-The host writes an owner-only, atomically replaced schema-v2 principal registry
+As revised by ADR 0026, the host writes an owner-only, atomically replaced
+schema-v3 principal registry
 for currently materialized project networks. Each binding contains one stable
 UUIDv7 project ID, one stable UUIDv7 Context ID, the diagnostic Context name
-and canonical root, one exact Docker network name, and the Gateway interface
-address on that network. Docker network ownership, project state, permanent
-Context binding, and labels are verified before a binding is written.
+and canonical root, one exact Docker network name, the owned Workspace source
+endpoint, and the Gateway endpoint on that network. Docker network and
+container ownership, project state, permanent Context binding, endpoint
+uniqueness, guard state, and labels are verified before a binding is written.
 
-Gateway derives the Context/project principal from mitmproxy's local socket
-address for the incoming proxy connection and the host-issued registry. Caller
+Gateway derives the Context/project principal from mitmproxy's kernel-observed
+source endpoint for transparent ingress and the host-issued registry. Caller
 headers, Context strings, URLs, environment, session metadata, and profile
 names remain untrusted metadata. Missing, malformed, ambiguous, stale,
 mismatched, or unregistered bindings deny before OPA and before upstream I/O.
@@ -73,14 +77,14 @@ untrusted process a selector or transport escape hatch.
 
 ## Mechanical enforcement
 
-- Go tests validate registry schema 2, Context/project bindings, uniqueness,
+- Go tests validate registry schema 3, Context/project bindings, endpoint uniqueness,
   atomic update/remove, malformed-state rejection, and missing-file failure.
-- Gateway tests prove local-network principal derivation, forged Context/session
+- Gateway tests prove source-endpoint principal derivation, forged Context/session
   resistance, unknown-principal denial, and cross-Context/project credential denial
   before OPA.
 - Domain and Rego tests prove candidate/rule identity and learned-rule matching
   retain Context/project identity.
 - Docker integration creates same-root and overlapping-root Context-bound
-  projects, checks distinct Gateway addresses, verifies learned-permission
+  projects, checks distinct Workspace/Gateway endpoints, verifies learned-permission
   denial across Contexts/projects, then exercises restart, recovery, and exact
   deletion cleanup.

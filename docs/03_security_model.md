@@ -69,7 +69,7 @@ config files, source paths, and raw diagnostics cannot cross this boundary.
 
 ```text
 host root A (rw) ---> Tobari A --+
-                                  +--explicit proxy--> Gateway --OPA--> upstream
+                                  +--guarded HTTP(S)--> Gateway --OPA--> upstream
 host root B (rw) ---> Tobari B --+                       |
                 no cross-route                           +-- post-allow runtime socket
                                                                   |
@@ -90,6 +90,15 @@ runtime Unix socket; host control uses a separate socket through fixed
 in-container operations. The companion opens no listener and mounts no host
 socket or provider home. It holds one fixed reverse exec stream to an
 image-owned byte-pump and an unmounted Broker-private socket.
+
+Each Workspace namespace has a verified output guard and default route through
+its exact Gateway project endpoint. The Gateway namespace redirects project
+TCP and DNS to local non-root listeners while IPv4/IPv6 forwarding remains
+disabled and its forward path drops. A fixed one-shot helper receives only
+`CAP_NET_ADMIN` and one verified target network namespace, installs the exact
+owned state, verifies it, and exits before entry. It has no mounts, secrets,
+Docker socket, host network, or caller-selected executable. No host-global
+packet filter is changed.
 
 ## Assets
 
@@ -115,7 +124,8 @@ parent/child-root Tobari intentionally observe each other's overlapping host
 file changes, even across Contexts; Tobari does not provide filesystem integrity
 isolation for those files. Docker or kernel
 compromise, VM/container escape, allowed-destination exfiltration, the
-installation-wide baseline policy, non-HTTP protocols, covert channels,
+installation-wide baseline policy, semantic authorization of non-HTTP
+protocols, covert channels,
 same-Tobari process interference, and malware detection are outside the MVP
 guarantee. Mutable learned permissions are bound to the host-issued project
 principal described below. A tool credential is intentionally available to all
@@ -135,7 +145,10 @@ root-key provider can still exercise or recover the credential.
 ## Resource and process boundary
 
 Runtime specs prohibit privileged mode, host networking, the Docker socket,
-SSH agent mounts, host home mounts, and added Linux capabilities. Each
+SSH agent mounts, host home mounts, and added Linux capabilities in every
+resident process. The fixed one-shot network guard is the sole exception: it
+receives root plus `CAP_NET_ADMIN` only while sharing one already-verified
+container network namespace, with all other capabilities dropped. Each
 project work container also receives fixed CPU, total memory-plus-swap,
 PID-count, and container-log bounds through the infrastructure-owned Docker
 specification;
@@ -168,7 +181,7 @@ runtime API `1` and preserves the built-in image user, entrypoint, and
 `io.tobari.runtime-lifetime-command=sleep infinity` capability needed for the
 fixed Workspace lifetime command, then independently fixes the numeric runtime
 user, read-only root, capabilities, security options,
-mounts, network, proxy environment, and health check. Compatibility metadata is
+mounts, guarded network, and health check. Compatibility metadata is
 not a signature or provenance claim. Tobari does not grant the image's `CMD`
 lifecycle authority: the infrastructure supplies the long-lived command and
 runs user commands through child exec sessions. Missing or incompatible image
@@ -272,10 +285,10 @@ mount, Gateway-visible runtime-socket mount, private control/companion tmpfs,
 and provider projection are distinct paths. The image contains no provider CLI,
 credential, provider configuration, handle, root key, or vault.
 
-The current canonical capability advances `io.tobari.gateway-api` from 3 to 4
-and `io.tobari.auth-broker-api` from 2 to 3. Those labels make the
-supplemental account-header response and dynamic OpenAI state fail closed
-against either older component. The API-4/API-3 images are contributor-local
+The current canonical capability advances `io.tobari.gateway-api` from 4 to 5;
+`io.tobari.auth-broker-api` remains 3. The Gateway label makes guarded
+transparent routing, schema-3 source-principal binding, and policy-before-real-
+resolution fail closed against older components. The API-5/API-3 images are contributor-local
 until reviewed immutable multi-architecture pins advance; the published API-3
 Gateway and API-2 Broker remain separate historical artifacts without this
 capability.
@@ -404,8 +417,11 @@ projection keys profiles and secret subdirectories by stable Context ID, so the
 same display profile name may exist in multiple Contexts. Configuration contains
 a profile type, exact allowed hosts, explicit project IDs, and a Context-scoped
 container secret path; it never contains the secret value. The host-owned
-`principal-registry/principals.json` schema 2 registry binds each Context/project
-pair to one exact Gateway network and local address. Its dedicated directory is mounted
+`principal-registry/principals.json` schema 3 registry binds each Context/project
+pair to one exact owned project network, Workspace source endpoint, and Gateway
+endpoint. Gateway derives the transparent-ingress principal from the
+kernel-observed source endpoint; duplicate, missing, stale, and ambiguous
+bindings fail before OPA. Its dedicated directory is mounted
 read-only into Gateway; credential configuration and secret directories are
 not included in that mount.
 
@@ -450,7 +466,7 @@ as owner-only XDG state `auth/keys/root.key`. A missing key alongside a vault is
 never replaced automatically.
 Public auth results name the Linux backend `xdg_file`, while macOS uses
 `macos_keychain`; cluster status may additionally report `unavailable`.
-Cluster status schema 5 separately reports nullable unconfigured resources and
+Cluster status schema 6 separately reports nullable unconfigured resources and
 always-present secret-free
 `credential_companion_state=ready|prepared|absent|unavailable`; this is
 process/channel readiness,
@@ -894,7 +910,9 @@ reference-bound mutation.
 
 | Claim | Enforcement |
 |---|---|
-| No direct Tobari egress | Per-Tobari internal topology and Docker integration test |
+| No direct Tobari egress | Per-Tobari internal topology, forwarding-off sysctls, forward-drop and namespace-guard inspection, and Docker integration tests for raw TCP/UDP and outage paths |
+| Transparent denial performs no pre-policy external I/O | Non-recursive synthetic DNS tests plus Gateway DNS/resolver/upstream call-count canaries for denied, malformed, raw TCP, non-HTTP TLS, UDP, and QUIC traffic |
+| A network guard cannot expand into a persistent privileged service | Exact fixed helper argv, verified namespace ownership, read-only/no-mount/no-secret/no-Docker-socket assertions, sole `NET_ADMIN` capability, and guard-before-entry ordering tests |
 | Tobari cannot access OPA or peers | Separate internal networks and integration test |
 | OPA outage denies | Gateway unit and integration tests |
 | Host-managed secrets stay outside Tobari; tool-owned state stays in its home | Mount-spec tests and integration canaries |
@@ -928,7 +946,7 @@ reference-bound mutation.
 | CWD lifecycle actions use exact Tobari identity | Canonical-root, state, and label-validation tests |
 | One canonical root/Context pair has one Workspace | Pair-derived root-index hash naming, locked exact-pair checks, domain duplicate-index validation, same-root/different-Context tests, and concurrent explicit-creation tests |
 | Session exit cannot delete a Workspace | Child exit-status tests, host-stderr summary tests, and logical-state preservation after entry |
-| Gateway cannot accept caller-selected Context or project authority | Owner-only atomic schema-2 registry, local-interface derivation, forged-header/malformed/unknown/stale denial tests, and multi-Context integration |
+| Gateway cannot accept caller-selected Context or project authority | Owner-only atomic schema-3 registry, exact Workspace-source and Gateway-endpoint binding, duplicate/stale rejection, forged-header/SNI/authority and unknown-principal denial, source-bind/IP_FREEBIND canaries, and multi-Context integration |
 | Managed credentials cannot cross Context/project principals | Context-scoped projections and secret paths, explicit project bindings, pre-OPA Gateway rejection, repeated injection check, same-name cross-Context tests, and integration |
 | Unknown effects fail closed | Domain and catalog validation |
 | Denials support safe policy learning | Typed Context/project/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
@@ -976,7 +994,7 @@ and the Auth Broker digest is
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`.
 Those selected images implement the earlier AWS Identity Center path. Current
 canonical source and tests also contain AWS console login and the Datadog
-request path plus the Gateway API-4/Auth Broker API-3 Codex and Claude OAuth
+request path plus the Gateway API-5/Auth Broker API-3 Codex and Claude OAuth
 paths, but those changes postdate the selected image revisions. Source and
 selected runtime identity are therefore separate facts until reviewed immutable
 pins advance; source/snapshot equality does not silently replace a running or

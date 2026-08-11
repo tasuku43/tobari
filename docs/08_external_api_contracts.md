@@ -40,8 +40,8 @@ Gateway posts one JSON document to
 ```
 
 `principal.context_id` and `principal.project_id` are required canonical UUIDv7
-values established together from the Gateway local interface and owner-only
-principal registry. Neither value is copied from a caller header, environment,
+values established together from the kernel-observed Workspace source endpoint
+and owner-only schema-3 principal registry. Neither value is copied from a caller header, environment,
 request URL, session field, provider ID, handle, or profile name. OPA uses the
 Context ID at the fixed endpoint to select policy and denies an unknown,
 absent, or mismatched principal without falling back to the current/default
@@ -505,7 +505,7 @@ audit schema version `3`, decision fields,
 timeouts, attempt count, owner provider schema `1`, built-in/projection schema
 `2`, broker control/runtime schema `1`, private companion epoch/frame schema
 `1`, encrypted vault envelope schema `1` and payload schema `2`, handle prefix
-`tobari-h1_`, and Gateway/Auth Broker image API labels `4` for Gateway and `3`
+`tobari-h1_`, and Gateway/Auth Broker image API labels `5` for Gateway and `3`
 for Auth Broker are explicit pre-v1 compatibility boundaries. Valid schema-1 static
 provider projections and vault payloads remain readable through their strict
 compatibility/migration paths. Gateway does not accept former OPA input shapes,
@@ -513,7 +513,7 @@ incomplete decisions, or unknown broker frames.
 
 The reviewed immutable Gateway API-3/Auth Broker API-2 digests currently
 recorded in `versions.env` are historical publication facts. They predate and
-are incompatible with this API-4/API-3 source contract, so normal standard
+are incompatible with this API-5/API-3 source contract, so normal standard
 startup must reject them. The explicit `task build:dev` and `bin/tobari-dev`
 path plus the separately built applicable agent runtime can validate the
 canonical source until new immutable reviewed indexes are published and the

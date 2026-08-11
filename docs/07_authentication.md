@@ -555,8 +555,8 @@ credential revision, and OPA allow.
 For a request that contains a Tobari-looking handle, Gateway follows this
 order:
 
-1. Derive stable Context/project identity from the local Gateway interface and
-   owner-only principal registry.
+1. Derive stable Context/project identity from the kernel-observed Workspace
+   source endpoint and the owner-only schema-3 principal registry.
 2. Reject a Tobari handle marker in the URL, cookie, header name, unsupported
    header value, or ambiguous header syntax. Otherwise strictly match exactly
    one static header binding (including Anthropic), the built-in AWS
@@ -789,7 +789,7 @@ and advanced static users may retain the managed adapter.
   `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`;
   their inspected configurations use the historical API-3/API-2 labels,
   reviewed roles/entrypoints, and non-root `1000:1000` users. These selected
-  images predate and are incompatible with the current Gateway API-4/Auth
+  images predate and are incompatible with the current Gateway API-5/Auth
   Broker API-3 source contract, including the OpenAI and Anthropic plans;
   standard startup must reject them. Contributors use `task build:dev` and
   `bin/tobari-dev`, plus the separately built applicable agent runtime, for

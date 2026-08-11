@@ -418,7 +418,7 @@ func TestProjectContainerMountsGitFallbackAtSystemScope(t *testing.T) {
 	}
 	instance := projectGitTestInstance(t, runtime)
 	if err := runtime.ensureProjectContainer(
-		context.Background(), runtimeState(base), instance, "/profile", "project", "network", "image", "sha256:git",
+		context.Background(), runtimeState(base), instance, "/profile", "project", "network", "172.29.0.2", "image", "sha256:git",
 	); err != nil {
 		t.Fatal(err)
 	}

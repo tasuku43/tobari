@@ -7,11 +7,12 @@ import (
 
 func validState(root string) State {
 	return State{
-		SchemaVersion: 2, RuntimeDirectory: filepath.Join(root, "runtime"),
+		SchemaVersion: 4, RuntimeDirectory: filepath.Join(root, "runtime"),
+		AggregateRevision: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", ContextCount: 1,
 		PolicyDirectory:  filepath.Join(root, "policy"),
 		CredentialConfig: filepath.Join(root, "credentials.json"),
 		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
-		ProxyEndpoint: "http://gateway:8080", Tobari: []Instance{},
+		Tobari: []Instance{},
 	}
 }
 
@@ -100,7 +101,7 @@ func TestClusterStatusRequiresKnownCredentialCompanionState(t *testing.T) {
 	t.Parallel()
 	status := ClusterStatus{
 		Task: TaskClusterStatus, Configured: true, Running: true,
-		Proxy: "http://gateway:8080", Policy: filepath.Join(t.TempDir(), "policy"),
+		Policy:       filepath.Join(t.TempDir(), "policy"),
 		ContextCount: 1, PolicyRevision: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
