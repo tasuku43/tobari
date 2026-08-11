@@ -6,11 +6,20 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 CORE = HERE / "docs-sync-audit-core.py"
 
-core_source = CORE.read_text(encoding="utf-8").replace(
-    r"\*\*Implemented:\*\*.*?This documentation does not present",
-    r"\*\*Implemented(?: now)?:\*\*.*?This documentation does not present",
+old_overview_pattern = (
+    r"\*\*" + r"Implemented:" + r"\*\*.*?This documentation does not present"
 )
-exec(compile(core_source, str(CORE), "exec"), {"__name__": "__main__", "__file__": str(CORE)})
+new_overview_pattern = (
+    r"\*\*" + r"Implemented(?: now)?:" + r"\*\*.*?This documentation does not present"
+)
+core_source = CORE.read_text(encoding="utf-8").replace(
+    old_overview_pattern,
+    new_overview_pattern,
+)
+exec(
+    compile(core_source, str(CORE), "exec"),
+    {"__name__": "__main__", "__file__": str(CORE)},
+)
 
 root = Path.cwd() / "docs" / "architecture-site" / "src" / "content" / "docs"
 
