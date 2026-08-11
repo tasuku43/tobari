@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 test.describe("progressive first-use onboarding", () => {
@@ -17,6 +18,7 @@ test.describe("progressive first-use onboarding", () => {
     await expect(
       page.getByRole("link", { name: /ツールの認証を設定する/ }),
     ).toHaveAttribute("href", /\/ja\/start\/authentication-setup\/$/);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
 
   test("authentication setup uses the default path before introducing Contexts", async ({
@@ -32,7 +34,10 @@ test.describe("progressive first-use onboarding", () => {
     await expect(page.locator(".auth-core")).not.toContainText("Context");
     await expect(page.locator(".auth-core")).not.toContainText("--context");
     await expect(page.locator(".auth-advanced")).toContainText("Context");
-    await expect(page.getByText("tobari auth login --provider github")).toBeVisible();
+    await expect(
+      page.getByText("tobari auth login --provider github"),
+    ).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
 
   test("learning progress introduces runtime, authentication, then Contexts", async ({
