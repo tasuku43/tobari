@@ -38,7 +38,7 @@ tobari auth login
 ```sh
 tobari auth login --provider openai
 tobari auth login --provider anthropic
-# または: github / aws / datadog
+# or: github / aws / datadog
 ```
 
 OpenAI の組み込みログインは、信頼するホストにあるレビュー対象の Codex CLI を使います。Anthropic の組み込みログインは、同じくホスト側の Claude Code を使います。このソーススナップショットで要求する版は Codex 0.146.0 と Claude Code 2.1.220 です。Workspace 内に入れたエージェントは、認証情報を取得するための信頼済みヘルパーとしては使いません。
@@ -63,7 +63,7 @@ Codex では Workspace に置く `.codex/auth.json` に実トークンではな�
 cd /path/to/your/project
 tobari
 
-# Workspace 内
+# Inside the Workspace
 <agent-command> <its-login-command>
 ```
 
