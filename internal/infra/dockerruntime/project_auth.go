@@ -339,6 +339,9 @@ func isRecoverableEmptyProviderRegistry(data []byte, registry projectAuthRegistr
 	if registry.Providers != nil || registry.Files == nil || len(registry.Files) != 0 {
 		return false
 	}
+	if validateNoDuplicateJSONKeys(data) != nil {
+		return false
+	}
 	var raw struct {
 		SchemaVersion json.RawMessage `json:"schema_version"`
 		ProjectID     json.RawMessage `json:"project_id"`

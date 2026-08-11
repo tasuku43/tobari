@@ -252,6 +252,18 @@ func TestReadProjectAuthRegistryRecoversOnlyKnownEmptyProviderNullDocument(t *te
 		"wrong project": func(string) string {
 			return `{"schema_version":1,"project_id":"project-other","providers":null,"files":[]}`
 		},
+		"duplicate providers": func(projectID string) string {
+			return `{"schema_version":1,"project_id":"` + projectID + `","providers":[],"providers":null,"files":[]}`
+		},
+		"duplicate files": func(projectID string) string {
+			return `{"schema_version":1,"project_id":"` + projectID + `","providers":null,"files":null,"files":[]}`
+		},
+		"duplicate project": func(projectID string) string {
+			return `{"schema_version":1,"project_id":"project-other","project_id":"` + projectID + `","providers":null,"files":[]}`
+		},
+		"duplicate schema": func(projectID string) string {
+			return `{"schema_version":2,"schema_version":1,"project_id":"` + projectID + `","providers":null,"files":[]}`
+		},
 	} {
 		t.Run(name+" remains rejected", func(t *testing.T) {
 			runtime, projectID, registryPath := newRuntimeWithRegistry(t, documentFor)
