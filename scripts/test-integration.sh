@@ -23,6 +23,7 @@ restricted_container=
 runtime_image=
 official_runtime_image=
 created_dev_runtime_tag=false
+owns_shared_fixture=false
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
 host_docker_context=${DOCKER_CONTEXT:-$(docker context show)}
 
@@ -463,44 +464,46 @@ print(next(item["id"] for item in json.load(sys.stdin)["policy_compactions"]
 }
 
 cleanup() {
-  docker rm -f "$mock_name" >/dev/null 2>&1 || true
-  docker rm -f "$auth_mock_name" >/dev/null 2>&1 || true
-  docker network rm "$auth_network" >/dev/null 2>&1 || true
-  if [[ -n ${test_root:-} && -x $binary && -n ${work_root:-} ]]; then
-    run_tobari_at "$work_root" delete --force >/dev/null 2>&1 || true
-		run_tobari_at "$work_root" delete --context restricted --force >/dev/null 2>&1 || true
-    if [[ -n $other_root ]]; then
-      run_tobari_at "$other_root" delete --context restricted --force >/dev/null 2>&1 || true
+  if [[ $owns_shared_fixture == true ]]; then
+    docker rm -f "$mock_name" >/dev/null 2>&1 || true
+    docker rm -f "$auth_mock_name" >/dev/null 2>&1 || true
+    docker network rm "$auth_network" >/dev/null 2>&1 || true
+    if [[ -n ${test_root:-} && -x $binary && -n ${work_root:-} ]]; then
+      run_tobari_at "$work_root" delete --force >/dev/null 2>&1 || true
+			run_tobari_at "$work_root" delete --context restricted --force >/dev/null 2>&1 || true
+      if [[ -n $other_root ]]; then
+        run_tobari_at "$other_root" delete --context restricted --force >/dev/null 2>&1 || true
+      fi
+      run_tobari cluster down --purge >/dev/null 2>&1 || true
     fi
-    run_tobari cluster down --purge >/dev/null 2>&1 || true
+    # A failed startup may leave an interrupted reconciliation journal that
+    # prevents the public cleanup path from completing. The preflight above
+    # requires these exact shared names to be absent before ownership is set,
+    # so any survivors here were created by this integration run.
+    for container in \
+      tobari-auth-broker tobari-gateway tobari-opa \
+      "$work_container" "$other_container" "$restricted_container"; do
+      [[ -n $container ]] || continue
+      docker rm -f "$container" >/dev/null 2>&1 || true
+    done
+    docker network rm "$auth_network" >/dev/null 2>&1 || true
+    docker network rm tobari-control tobari-egress >/dev/null 2>&1 || true
+    docker volume rm tobari-gateway-ca tobari-public-ca tobari-policy-bundle >/dev/null 2>&1 || true
+    docker image rm -f "$custom_image" >/dev/null 2>&1 || true
+    docker image rm -f "$gateway_base_image" >/dev/null 2>&1 || true
+    if [[ -n ${runtime_image:-} ]]; then
+      docker image rm -f "$runtime_image" >/dev/null 2>&1 || true
+    fi
+    if [[ -n ${official_runtime_image:-} ]]; then
+      docker image rm -f "$official_runtime_image" >/dev/null 2>&1 || true
+    fi
+    if [[ $created_dev_runtime_tag == true ]]; then
+      docker image rm tobari-runtime:dev >/dev/null 2>&1 || true
+    fi
   fi
-  # A failed startup may leave an interrupted reconciliation journal that
-  # prevents the public cleanup path from completing. The preflight above
-  # requires these exact shared names to be absent, so any survivors here were
-  # created by this integration run.
-  for container in \
-    tobari-auth-broker tobari-gateway tobari-opa \
-    "$work_container" "$other_container" "$restricted_container"; do
-    [[ -n $container ]] || continue
-    docker rm -f "$container" >/dev/null 2>&1 || true
-  done
-  docker network rm "$auth_network" >/dev/null 2>&1 || true
-  docker network rm tobari-control tobari-egress >/dev/null 2>&1 || true
-  docker volume rm tobari-gateway-ca tobari-public-ca tobari-policy-bundle >/dev/null 2>&1 || true
-  docker image rm -f "$custom_image" >/dev/null 2>&1 || true
-  docker image rm -f "$gateway_base_image" >/dev/null 2>&1 || true
   if [[ -n $test_keychain_service ]]; then
     /usr/bin/security delete-generic-password \
       -a tobari -s "$test_keychain_service" >/dev/null 2>&1 || true
-  fi
-  if [[ -n ${runtime_image:-} ]]; then
-    docker image rm -f "$runtime_image" >/dev/null 2>&1 || true
-  fi
-  if [[ -n ${official_runtime_image:-} ]]; then
-    docker image rm -f "$official_runtime_image" >/dev/null 2>&1 || true
-  fi
-  if [[ $created_dev_runtime_tag == true ]]; then
-    docker image rm tobari-runtime:dev >/dev/null 2>&1 || true
   fi
 }
 
@@ -556,6 +559,7 @@ done
 if docker network inspect "$auth_network" >/dev/null 2>&1; then
   fail "network $auth_network already exists; remove the stale integration fixture"
 fi
+owns_shared_fixture=true
 
 test_root=$(mktemp -d "$PWD/.tobari-integration.XXXXXX")
 mkdir -p \
@@ -1700,6 +1704,15 @@ print(next((index for index, item in enumerate(items, 1) if item["path"] == "/re
   sleep 0.2
 done
 [[ -n $interactive_index ]] || fail "interactive review candidate did not reach the review queue"
+interactive_candidate_id=$(python3 -c '
+import json
+import sys
+
+items = json.load(sys.stdin)["policy_review"]
+print(next(item["id"] for item in items if item["path"] == "/review-interactive"))
+' <<<"$interactive_review")
+interactive_workspace_before=$(docker inspect --format '{{.Id}}' "$work_container")
+interactive_opa_before=$(docker inspect --format '{{.Id}}' tobari-opa)
 interactive_events=$(python3 -c '
 import json
 import sys
@@ -1708,8 +1721,9 @@ index = sys.argv[1]
 selection = "\x1b[B" * (int(index) - 1) + "\r"
 print(json.dumps([
     {"after_ms": 5000, "data": selection},
-    {"after_ms": 750, "data": "d"},
+    {"after_ms": 750, "data": "a"},
     {"after_ms": 750, "data": "p"},
+    {"after_ms": 750, "data": "y"},
 ]))
 ' "$interactive_index")
 if ! interactive_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
@@ -1719,16 +1733,32 @@ if ! interactive_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
   fail "interactive policy review PTY session failed"
 fi
 if [[ $interactive_output != *'Reviewed permissions applied'* || \
-  $interactive_output != *'Denied'* || $interactive_output != *'1'* ]]; then
+  $interactive_output != *'1 (1 Allow, 0 Deny)'* ]]; then
   printf '%s\n' "$interactive_output" >&2
   fail "interactive policy review did not contain the expected value"
 fi
 assert_contains "$interactive_output" "Context" "interactive permission Context detail and confirmation"
 assert_contains "$interactive_output" "Tobari" "interactive permission Tobari detail and confirmation"
 assert_contains "$interactive_output" "/review-interactive" "interactive permission request detail and confirmation"
+assert_contains "$interactive_output" "$default_context_id" "interactive permission exact Context receipt"
+assert_contains "$interactive_output" "$work_id" "interactive permission exact project receipt"
+assert_contains "$interactive_output" "$interactive_candidate_id" "interactive permission exact candidate receipt"
+interactive_cluster_status=$(run_tobari cluster status --format json)
+interactive_revision=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["cluster"]["policy_revision"])' \
+  <<<"$interactive_cluster_status")
+[[ $interactive_revision =~ ^[0-9a-f]{64}$ ]] || fail "interactive review did not activate one typed policy revision"
+assert_contains "$interactive_output" "$interactive_revision" "interactive permission active revision receipt"
+[[ $(docker inspect --format '{{.Id}}' "$work_container") == "$interactive_workspace_before" ]] ||
+  fail "interactive policy review replaced the running Workspace"
+[[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$interactive_opa_before" ]] ||
+  fail "interactive policy review replaced OPA"
+interactive_retry_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X PUT http://mock-upstream:8080/review-interactive)
+[[ $interactive_retry_status == 200 ]] ||
+  fail "same running Workspace could not retry the reviewed request: $interactive_retry_status"
 interactive_review=$(run_tobari policy review --tail 1000 --format json)
 if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/review-interactive" for item in json.load(sys.stdin)["policy_review"]) else 1)' <<<"$interactive_review"; then
-  fail "interactive deny did not remove the candidate from the review queue"
+  fail "interactive Allow did not remove the candidate from the review queue"
 fi
 
 for item_path in one two three; do

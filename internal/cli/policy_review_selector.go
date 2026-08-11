@@ -18,8 +18,10 @@ import (
 // opaque reference that may cross into one exact policy action.
 type policyReviewDecision struct {
 	CandidateID string
+	SelectedID  string
 	Action      policyReviewAction
 	Apply       bool
+	Refresh     bool
 	Canceled    bool
 }
 
@@ -32,11 +34,13 @@ const (
 )
 
 type policyReviewSelector struct {
-	mode       terminal.Mode
-	style      bool
-	lineReader *bufio.Reader
-	staged     map[string]policyReviewAction
-	notice     string
+	mode        terminal.Mode
+	style       bool
+	lineReader  *bufio.Reader
+	staged      map[string]policyReviewAction
+	stagedOrder []string
+	selectedID  string
+	notice      string
 }
 
 type policyReviewScopeKey struct {
@@ -59,12 +63,50 @@ func (s *policyReviewSelector) Stage(candidateID string, action policyReviewActi
 	if s.staged == nil {
 		s.staged = map[string]policyReviewAction{}
 	}
+	if _, exists := s.staged[candidateID]; !exists {
+		s.stagedOrder = append(s.stagedOrder, candidateID)
+	}
 	s.staged[candidateID] = action
 	label := "Allow exact"
 	if action == policyReviewActionDeny {
 		label = "Deny exact"
 	}
 	s.notice = fmt.Sprintf("Staged %s · %d decision%s ready to apply.", label, len(s.staged), pluralSuffix(len(s.staged)))
+}
+
+func (s *policyReviewSelector) Reconcile(report tobari.PolicyCandidateReport) int {
+	if s == nil {
+		return 0
+	}
+	current := make(map[string]struct{}, len(report.Items))
+	for _, candidate := range report.Items {
+		current[candidate.ID] = struct{}{}
+	}
+	kept := make([]string, 0, len(s.stagedOrder))
+	removed := 0
+	for _, id := range s.stagedOrder {
+		if _, found := current[id]; found {
+			kept = append(kept, id)
+			continue
+		}
+		delete(s.staged, id)
+		removed++
+	}
+	s.stagedOrder = kept
+	return removed
+}
+
+func (s *policyReviewSelector) OrderedDecisions() []policyReviewDecision {
+	if s == nil {
+		return nil
+	}
+	result := make([]policyReviewDecision, 0, len(s.stagedOrder))
+	for _, id := range s.stagedOrder {
+		if action, found := s.staged[id]; found {
+			result = append(result, policyReviewDecision{CandidateID: id, Action: action})
+		}
+	}
+	return result
 }
 
 func (s *policyReviewSelector) Select(
@@ -81,13 +123,18 @@ func (s *policyReviewSelector) Select(
 	if s != nil && s.mode != nil {
 		restore, rawErr := s.mode.Enter(in)
 		if rawErr == nil {
-			decision, selectErr := selectPolicyReviewRaw(ctx, report, in, out, s.style, s.notice)
+			decision, selectErr := selectPolicyReviewRaw(
+				ctx, report, in, out, s.style, s.staged, s.stagedOrder, s.selectedID, s.notice,
+			)
 			restoreErr := restore()
 			if selectErr != nil {
 				return policyReviewDecision{}, selectErr
 			}
 			if restoreErr != nil {
 				return policyReviewDecision{}, restoreErr
+			}
+			if decision.SelectedID != "" {
+				s.selectedID = decision.SelectedID
 			}
 			return decision, nil
 		}
@@ -96,7 +143,11 @@ func (s *policyReviewSelector) Select(
 	if s.lineReader == nil {
 		s.lineReader = bufio.NewReader(in)
 	}
-	return selectPolicyReviewLine(ctx, report, s.lineReader, out, len(s.staged), s.notice)
+	decision, err := selectPolicyReviewLine(ctx, report, s.lineReader, out, s.staged, s.stagedOrder, s.notice)
+	if err == nil && decision.SelectedID != "" {
+		s.selectedID = decision.SelectedID
+	}
+	return decision, err
 }
 
 type policyReviewDetailResult struct {
@@ -107,11 +158,142 @@ type policyReviewDetailResult struct {
 	Lines       int
 }
 
+type policyReviewFinalResult struct {
+	Apply    bool
+	Back     bool
+	Canceled bool
+	Lines    int
+	err      error
+}
+
+func policyReviewStagedCount(staged []map[string]policyReviewAction) int {
+	if len(staged) == 0 || staged[0] == nil {
+		return 0
+	}
+	return len(staged[0])
+}
+
+func policyReviewStagedLabel(candidateID string, staged []map[string]policyReviewAction) string {
+	if len(staged) == 0 || staged[0] == nil {
+		return "Undecided"
+	}
+	switch staged[0][candidateID] {
+	case policyReviewActionAllow:
+		return "Staged Allow"
+	case policyReviewActionDeny:
+		return "Staged Deny"
+	default:
+		return "Undecided"
+	}
+}
+
+func policyReviewStagedStyle(candidateID string, staged []map[string]policyReviewAction) styleToken {
+	if len(staged) == 0 || staged[0] == nil {
+		return styleMuted
+	}
+	switch staged[0][candidateID] {
+	case policyReviewActionAllow:
+		return styleSuccess
+	case policyReviewActionDeny:
+		return styleWarning
+	default:
+		return styleMuted
+	}
+}
+
+func policyReviewActionLabel(action policyReviewAction) string {
+	if action == policyReviewActionDeny {
+		return "Deny exact"
+	}
+	return "Allow exact"
+}
+
+func selectPolicyReviewFinalRaw(
+	ctx context.Context, report tobari.PolicyCandidateReport,
+	staged map[string]policyReviewAction, stagedOrder []string,
+	in io.Reader, out io.Writer, previousLines int, style bool,
+) policyReviewFinalResult {
+	message := ""
+	lineCount := previousLines
+	needsRender := true
+	for {
+		if err := ctx.Err(); err != nil {
+			return policyReviewFinalResult{Lines: lineCount, err: err}
+		}
+		if needsRender {
+			lineCount = renderPolicyReviewFinalRaw(out, report, staged, stagedOrder, message, lineCount, style)
+			if lineCount < 0 {
+				return policyReviewFinalResult{err: fmt.Errorf("render final policy review")}
+			}
+			needsRender = false
+		}
+		key, err := readSelectorKey(ctx, in)
+		if err != nil {
+			return policyReviewFinalResult{Lines: lineCount, err: err}
+		}
+		switch key.kind {
+		case selectorKeyConfirm:
+			return policyReviewFinalResult{Apply: true, Lines: lineCount}
+		case selectorKeyBack:
+			return policyReviewFinalResult{Back: true, Lines: lineCount}
+		case selectorKeyCancel:
+			return policyReviewFinalResult{Canceled: true, Lines: lineCount}
+		default:
+			message = "Press y to Apply, b to go back, or q to cancel."
+			needsRender = true
+		}
+	}
+}
+
+func renderPolicyReviewFinalRaw(
+	out io.Writer, report tobari.PolicyCandidateReport,
+	staged map[string]policyReviewAction, stagedOrder []string,
+	message string, previousLines int, style bool,
+) int {
+	lines := []string{
+		selectorTitle(style, "Tobari · Review staged permissions"),
+		"",
+		applyStyleToken(style, styleWarning, fmt.Sprintf("%d exact decision%s ready for one Apply", len(staged), pluralSuffix(len(staged)))),
+		"",
+	}
+	for index, id := range stagedOrder {
+		action, found := staged[id]
+		candidate, current := policyReviewCandidateByID(report, id)
+		if !found || !current {
+			continue
+		}
+		lines = append(lines,
+			applyStyleToken(style, styleAccent, fmt.Sprintf("%d. %s", index+1, policyReviewActionLabel(action))),
+			selectorDetail(style, "Context", safeExternalText(candidate.ContextName)+" · "+candidate.ContextID, styleText),
+			selectorDetail(style, "Project", safeExternalText(candidate.ProjectRoot)+" · "+candidate.ProjectID, styleText),
+			selectorDetail(style, "Effect", policyReviewCandidateEffect(candidate), styleText),
+			selectorDetail(style, "Candidate", candidate.ID, styleText),
+			"",
+		)
+	}
+	lines = append(lines,
+		selectorHelp(style, "Staging grants no authority. Apply performs one trusted-host policy mutation."),
+		"",
+		selectorActions(
+			styleAction(style, "[y] Apply", styleAccent),
+			styleAction(style, "[b] Back", styleMuted),
+			styleAction(style, "[q] Cancel all", styleMuted),
+		),
+	)
+	if message == "" {
+		lines = append(lines, "")
+	} else {
+		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
+	}
+	return renderPolicyReviewScreen(out, lines, previousLines)
+}
+
 func selectPolicyReviewRaw(
 	ctx context.Context, report tobari.PolicyCandidateReport, in io.Reader, out io.Writer,
-	style bool, notice ...string,
+	style bool, staged map[string]policyReviewAction, stagedOrder []string, selectedID string, notice ...string,
 ) (policyReviewDecision, error) {
-	selected := 0
+	report = groupPolicyReviewReport(report)
+	selected := policyReviewSelectedIndex(report.Items, selectedID)
 	message := ""
 	if len(notice) > 0 {
 		message = notice[0]
@@ -125,7 +307,7 @@ func selectPolicyReviewRaw(
 		}
 		if needsRender {
 			top := selectorWindowTop(selected, len(report.Items), selectorMaxVisibleOptions)
-			currentLines := renderPolicyReviewListRaw(out, report, selected, top, message, lineCount, style)
+			currentLines := renderPolicyReviewListRaw(out, report, selected, top, message, lineCount, style, staged)
 			if currentLines < 0 {
 				finishPolicyReviewSelector(out, lineCount)
 				return policyReviewDecision{}, fmt.Errorf("render policy review selector")
@@ -172,11 +354,13 @@ func selectPolicyReviewRaw(
 			}
 			if detail.CandidateID != "" {
 				finishPolicyReviewSelector(out, detail.Lines)
-				return policyReviewDecision{CandidateID: detail.CandidateID, Action: detail.Action}, nil
+				return policyReviewDecision{
+					CandidateID: detail.CandidateID, SelectedID: candidateIDAt(report.Items, selected), Action: detail.Action,
+				}, nil
 			}
 			if detail.Canceled {
 				finishPolicyReviewSelector(out, detail.Lines)
-				return policyReviewDecision{Canceled: true}, nil
+				return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Canceled: true}, nil
 			}
 			finishPolicyReviewSelector(out, detail.Lines)
 			lineCount = 0
@@ -184,15 +368,55 @@ func selectPolicyReviewRaw(
 			needsRender = true
 		case selectorKeyCancel:
 			finishPolicyReviewSelector(out, lineCount)
-			return policyReviewDecision{Canceled: true}, nil
-		case selectorKeyApply:
+			return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Canceled: true}, nil
+		case selectorKeyReset:
 			finishPolicyReviewSelector(out, lineCount)
-			return policyReviewDecision{Apply: true}, nil
+			return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Refresh: true}, nil
+		case selectorKeyApply:
+			if len(staged) == 0 {
+				message = "Inspect a permission and stage Allow exact or Deny exact first."
+				needsRender = true
+				continue
+			}
+			final := selectPolicyReviewFinalRaw(ctx, report, staged, stagedOrder, in, out, lineCount, style)
+			if final.err != nil {
+				return policyReviewDecision{}, final.err
+			}
+			if final.Back {
+				finishPolicyReviewSelector(out, final.Lines)
+				lineCount = 0
+				message = "Staged decisions unchanged."
+				needsRender = true
+				continue
+			}
+			finishPolicyReviewSelector(out, final.Lines)
+			if final.Canceled {
+				return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Canceled: true}, nil
+			}
+			if final.Apply {
+				return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Apply: true}, nil
+			}
 		default:
-			message = "Use ↑/↓ to move, Enter to inspect, or q to cancel."
+			message = "Use ↑/↓ to move, Enter to inspect, r to refresh, or q to cancel."
 			needsRender = true
 		}
 	}
+}
+
+func policyReviewSelectedIndex(items []tobari.PolicyCandidate, selectedID string) int {
+	for index, item := range items {
+		if item.ID == selectedID {
+			return index
+		}
+	}
+	return 0
+}
+
+func candidateIDAt(items []tobari.PolicyCandidate, index int) string {
+	if index < 0 || index >= len(items) {
+		return ""
+	}
+	return items[index].ID
 }
 
 // policyReviewDetailRawResult carries an error without making the public
@@ -256,7 +480,7 @@ func selectPolicyReviewDetailRaw(
 
 func renderPolicyReviewListRaw(
 	out io.Writer, report tobari.PolicyCandidateReport, selected, top int, message string, previousLines int,
-	style bool,
+	style bool, staged ...map[string]policyReviewAction,
 ) int {
 	report = groupPolicyReviewReport(report)
 	lines := []string{
@@ -284,7 +508,8 @@ func renderPolicyReviewListRaw(
 		if index == selected {
 			prefix = "  " + applyStyleToken(style, styleText, "❯ ")
 		}
-		lines = append(lines, prefix+
+		state := policyReviewStagedLabel(candidate.ID, staged)
+		lines = append(lines, prefix+applyStyleToken(style, policyReviewStagedStyle(candidate.ID, staged), state)+"  "+
 			applyStyleToken(style, styleText, policyReviewCandidateListEffect(candidate))+"  "+
 			applyStyleToken(style, styleMuted, fmt.Sprintf("%d×", candidate.EffectiveObservationCount())))
 	}
@@ -301,8 +526,12 @@ func renderPolicyReviewListRaw(
 			policyCandidateObservationText(selectedCandidate), safeExternalText(selectedCandidate.ObservedAt),
 		)),
 		"",
-		selectorHelp(style, "↑/↓ move   Enter inspect   p apply staged   q cancel"),
 	)
+	help := "↑/↓ move   Enter inspect   r refresh   q cancel"
+	if policyReviewStagedCount(staged) > 0 {
+		help = "↑/↓ move   Enter inspect   r refresh   p review staged   q cancel"
+	}
+	lines = append(lines, selectorHelp(style, help))
 	if message == "" {
 		lines = append(lines, "")
 	} else {
@@ -427,25 +656,31 @@ func finishPolicyReviewSelector(out io.Writer, lines int) {
 
 func selectPolicyReviewLine(
 	ctx context.Context, report tobari.PolicyCandidateReport, reader *bufio.Reader, out io.Writer,
-	stagedCount int, notice ...string,
+	staged map[string]policyReviewAction, stagedOrder []string, notice ...string,
 ) (policyReviewDecision, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return policyReviewDecision{}, err
 		}
-		if err := writePolicyReviewListLine(out, report); err != nil {
+		if err := writePolicyReviewListLine(out, report, staged); err != nil {
 			return policyReviewDecision{}, err
 		}
-		if stagedCount > 0 {
-			message := fmt.Sprintf("%d staged decision%s ready to apply.", stagedCount, pluralSuffix(stagedCount))
-			if len(notice) > 0 && notice[0] != "" {
-				message = notice[0]
-			}
+		message := ""
+		if len(notice) > 0 && notice[0] != "" {
+			message = notice[0]
+		} else if len(staged) > 0 {
+			message = fmt.Sprintf("%d staged decision%s ready to review.", len(staged), pluralSuffix(len(staged)))
+		}
+		if message != "" {
 			if _, err := fmt.Fprintln(out, "\n"+message); err != nil {
 				return policyReviewDecision{}, err
 			}
 		}
-		if _, err := fmt.Fprintln(out, "\nChoose a number to inspect, p to apply staged decisions, or q to cancel:"); err != nil {
+		prompt := "\nChoose a number to inspect, r to refresh, or q to cancel:"
+		if len(staged) > 0 {
+			prompt = "\nChoose a number to inspect, r to refresh, p to review staged decisions, or q to cancel:"
+		}
+		if _, err := fmt.Fprintln(out, prompt); err != nil {
 			return policyReviewDecision{}, err
 		}
 		line, err := reader.ReadString('\n')
@@ -456,7 +691,26 @@ func selectPolicyReviewLine(
 		if value == "q" || value == "quit" || value == "esc" {
 			return policyReviewDecision{Canceled: true}, nil
 		}
+		if value == "r" || value == "refresh" {
+			return policyReviewDecision{Refresh: true}, nil
+		}
 		if value == "p" || value == "apply" {
+			if len(staged) == 0 {
+				if writeErr := writeSelectorLine(out, "Inspect a permission and stage Allow exact or Deny exact first."); writeErr != nil {
+					return policyReviewDecision{}, writeErr
+				}
+				continue
+			}
+			final, finalErr := selectPolicyReviewFinalLine(ctx, report, staged, stagedOrder, reader, out)
+			if finalErr != nil {
+				return policyReviewDecision{}, finalErr
+			}
+			if final.Back {
+				continue
+			}
+			if final.Canceled {
+				return policyReviewDecision{Canceled: true}, nil
+			}
 			return policyReviewDecision{Apply: true}, nil
 		}
 		index, parseErr := strconv.Atoi(value)
@@ -475,7 +729,10 @@ func selectPolicyReviewLine(
 			return policyReviewDecision{}, detailErr
 		}
 		if detail.CandidateID != "" || detail.Canceled {
-			return policyReviewDecision{CandidateID: detail.CandidateID, Action: detail.Action, Canceled: detail.Canceled}, nil
+			return policyReviewDecision{
+				CandidateID: detail.CandidateID, SelectedID: candidateIDAt(report.Items, index-1),
+				Action: detail.Action, Canceled: detail.Canceled,
+			}, nil
 		}
 		if errors.Is(err, io.EOF) {
 			return policyReviewDecision{Canceled: true}, nil
@@ -483,7 +740,7 @@ func selectPolicyReviewLine(
 	}
 }
 
-func writePolicyReviewListLine(out io.Writer, report tobari.PolicyCandidateReport) error {
+func writePolicyReviewListLine(out io.Writer, report tobari.PolicyCandidateReport, staged map[string]policyReviewAction) error {
 	if _, err := fmt.Fprintln(out, "Tobari · Permission Inbox"); err != nil {
 		return err
 	}
@@ -494,12 +751,75 @@ func writePolicyReviewListLine(out io.Writer, report tobari.PolicyCandidateRepor
 		return err
 	}
 	for index, candidate := range report.Items {
-		if _, err := fmt.Fprintf(out, "  %d. %s  %s\n     %s\n", index+1,
+		if _, err := fmt.Fprintf(out, "  %d. %-12s  %s  %s\n     %s\n", index+1,
+			policyReviewStagedLabel(candidate.ID, []map[string]policyReviewAction{staged}),
 			safeExternalText(candidate.ContextName), safeExternalText(candidate.ProjectRoot), policyReviewCandidateRequest(candidate)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func selectPolicyReviewFinalLine(
+	ctx context.Context, report tobari.PolicyCandidateReport,
+	staged map[string]policyReviewAction, stagedOrder []string,
+	reader *bufio.Reader, out io.Writer,
+) (policyReviewFinalResult, error) {
+	if err := writePolicyReviewFinalLines(out, report, staged, stagedOrder); err != nil {
+		return policyReviewFinalResult{}, err
+	}
+	for {
+		if _, err := fmt.Fprintln(out, "\nChoose [y] to Apply, [b] to go back, or [q] to cancel all:"); err != nil {
+			return policyReviewFinalResult{}, err
+		}
+		if err := ctx.Err(); err != nil {
+			return policyReviewFinalResult{}, err
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return policyReviewFinalResult{}, err
+		}
+		switch strings.ToLower(strings.TrimSpace(line)) {
+		case "y", "yes", "apply":
+			return policyReviewFinalResult{Apply: true}, nil
+		case "b", "back":
+			return policyReviewFinalResult{Back: true}, nil
+		case "q", "quit", "cancel", "esc":
+			return policyReviewFinalResult{Canceled: true}, nil
+		default:
+			if _, writeErr := fmt.Fprintln(out, "Use y to Apply, b to go back, or q to cancel all."); writeErr != nil {
+				return policyReviewFinalResult{}, writeErr
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return policyReviewFinalResult{Canceled: true}, nil
+		}
+	}
+}
+
+func writePolicyReviewFinalLines(
+	out io.Writer, report tobari.PolicyCandidateReport,
+	staged map[string]policyReviewAction, stagedOrder []string,
+) error {
+	if _, err := fmt.Fprintf(out, "Tobari · Review staged permissions\n\n%d exact decision%s ready for one Apply\n", len(staged), pluralSuffix(len(staged))); err != nil {
+		return err
+	}
+	for index, id := range stagedOrder {
+		action, found := staged[id]
+		candidate, current := policyReviewCandidateByID(report, id)
+		if !found || !current {
+			continue
+		}
+		if _, err := fmt.Fprintf(out,
+			"\n%d. %s\n   Context   %s · %s\n   Project   %s · %s\n   Effect    %s\n   Candidate %s\n",
+			index+1, policyReviewActionLabel(action), safeExternalText(candidate.ContextName), candidate.ContextID,
+			safeExternalText(candidate.ProjectRoot), candidate.ProjectID, policyReviewCandidateEffect(candidate), candidate.ID,
+		); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintln(out, "\nStaging grants no authority. Apply performs one trusted-host policy mutation.")
+	return err
 }
 
 func selectPolicyReviewDetailLine(

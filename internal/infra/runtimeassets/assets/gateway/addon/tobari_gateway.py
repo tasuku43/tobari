@@ -568,12 +568,15 @@ def _policy_denied(
         "retry_after_review": review_available,
     }
     message = (
-        "Tobari blocked this network request because it is outside the current execution boundary."
+        "Tobari blocked this network request because it is outside the current execution boundary. "
+        "Run `tobari cluster denials` on the trusted host for read-only diagnostics."
     )
     if review_available:
         message = (
             "Tobari blocked this network request because it is outside the current execution boundary. "
-            "Leave the Workspace with `exit`, then run `tobari policy review` on the trusted host."
+            "Keep the current Workspace and agent session running. In a separate trusted-host terminal, "
+            "run `tobari policy review`. After Apply succeeds, retry this request in the same Workspace. "
+            "Tobari does not approve or retry automatically."
         )
     document = {
         "error": "policy_denied",

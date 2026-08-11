@@ -19,14 +19,16 @@ import (
 )
 
 type policyReviewRuntimeFake struct {
-	state      tobari.State
-	denials    []tobari.PolicyDenial
-	rules      []tobari.LearnedPolicyRule
-	denyRules  []tobari.PolicyDenyRule
-	doctorRoot string
-	applyCalls int
-	denyCalls  int
-	terminal   bool
+	state         tobari.State
+	denials       []tobari.PolicyDenial
+	rules         []tobari.LearnedPolicyRule
+	denyRules     []tobari.PolicyDenyRule
+	doctorRoot    string
+	applyCalls    int
+	denyCalls     int
+	terminal      bool
+	denialReads   int
+	denialsByRead [][]tobari.PolicyDenial
 }
 
 func (f *policyReviewRuntimeFake) ResolveRoot(_ context.Context, root string) (string, error) {
@@ -54,6 +56,14 @@ func (f *policyReviewRuntimeFake) ClusterLogs(context.Context, tobari.State, tob
 	return nil, nil
 }
 func (f *policyReviewRuntimeFake) ClusterDenials(context.Context, tobari.State, int) ([]tobari.PolicyDenial, error) {
+	if len(f.denialsByRead) > 0 {
+		index := f.denialReads
+		if index >= len(f.denialsByRead) {
+			index = len(f.denialsByRead) - 1
+		}
+		f.denialReads++
+		return append([]tobari.PolicyDenial{}, f.denialsByRead[index]...), nil
+	}
 	return append([]tobari.PolicyDenial{}, f.denials...), nil
 }
 func (f *policyReviewRuntimeFake) ReadLearnedPolicyRules(context.Context, tobari.State) ([]tobari.LearnedPolicyRule, error) {
@@ -130,12 +140,12 @@ func (f *policyReviewRuntimeApplyingFake) ApplyPolicyDecisionSet(
 	_ context.Context, _ tobari.State,
 	_ []tobari.LearnedPolicyRule, updatedAllows []tobari.LearnedPolicyRule,
 	_ []tobari.PolicyDenyRule, updatedDenies []tobari.PolicyDenyRule,
-) error {
+) (string, error) {
 	f.applyCalls++
 	f.rules = append([]tobari.LearnedPolicyRule{}, updatedAllows...)
 	f.denyRules = append([]tobari.PolicyDenyRule{}, updatedDenies...)
 	f.denyCalls += len(updatedDenies)
-	return nil
+	return strings.Repeat("b", 64), nil
 }
 func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) {
 	t.Parallel()
@@ -290,7 +300,7 @@ func TestPolicyReviewTTYStagesExactAllowAndAppliesOnce(t *testing.T) {
 		},
 	}
 	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader("1\na\np\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command := newCLI(strings.NewReader("1\na\np\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
 	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
 		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
@@ -300,7 +310,10 @@ func TestPolicyReviewTTYStagesExactAllowAndAppliesOnce(t *testing.T) {
 		t.Fatalf("delegated policy = calls:%d rules:%+v candidate:%s", runtime.applyCalls, runtime.rules, candidate.ID)
 	}
 	if !strings.Contains(stdout.String(), "Reviewed permissions applied") ||
-		!strings.Contains(stdout.String(), "Allowed  1") {
+		!strings.Contains(stdout.String(), "1 (1 Allow, 0 Deny)") ||
+		!strings.Contains(stdout.String(), strings.Repeat("b", 64)) ||
+		!strings.Contains(stdout.String(), candidate.ID) ||
+		!strings.Contains(stdout.String(), "retry the blocked request") {
 		t.Fatalf("review output did not show one reviewed-set Apply: %q", stdout.String())
 	}
 }
@@ -322,7 +335,7 @@ func TestPolicyReviewTTYAppliesSeveralDecisionsWithOneRuntimeCall(t *testing.T) 
 		denials: []tobari.PolicyDenial{first, second}, terminal: true,
 	}}
 	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader("1\na\n2\nd\np\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command := newCLI(strings.NewReader("1\na\n2\nd\np\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
 	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
 		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
@@ -330,11 +343,82 @@ func TestPolicyReviewTTYAppliesSeveralDecisionsWithOneRuntimeCall(t *testing.T) 
 	if runtime.applyCalls != 1 || len(runtime.rules) != 1 || len(runtime.denyRules) != 1 {
 		t.Fatalf("reviewed set calls=%d allows=%+v denies=%+v", runtime.applyCalls, runtime.rules, runtime.denyRules)
 	}
-	if !strings.Contains(stdout.String(), "Allowed  1") || !strings.Contains(stdout.String(), "Denied   1") {
+	if !strings.Contains(stdout.String(), "2 (1 Allow, 1 Deny)") ||
+		!strings.Contains(stdout.String(), "1. Allow exact") ||
+		!strings.Contains(stdout.String(), "2. Deny exact") {
 		t.Fatalf("reviewed-set summary = %q", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "2 decisions ready to apply") {
+	if !strings.Contains(stdout.String(), "2 exact decisions ready for one Apply") {
 		t.Fatalf("staged-set feedback = %q", stdout.String())
+	}
+}
+
+func TestPolicyReviewTTYRefreshReconcilesStagedDecisionsByCandidateID(t *testing.T) {
+	t.Parallel()
+	first := tobari.PolicyDenial{
+		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
+		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	}
+	second := first
+	second.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	second.Path = "/two"
+	secondCandidate, err := tobari.NewPolicyCandidate(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
+		state: tobari.State{PolicyDirectory: "/tmp/policy"}, terminal: true,
+		denialsByRead: [][]tobari.PolicyDenial{{first, second}, {second}, {second}},
+	}}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("1\na\n2\nd\nr\np\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.tobari = tobaricmd.New(runtime)
+	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
+		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.applyCalls != 1 || len(runtime.rules) != 0 || len(runtime.denyRules) != 1 ||
+		len(runtime.denyRules[0].SourceCandidates) != 1 || runtime.denyRules[0].SourceCandidates[0] != secondCandidate.ID {
+		t.Fatalf("reconciled Apply calls=%d allows=%+v denies=%+v", runtime.applyCalls, runtime.rules, runtime.denyRules)
+	}
+	for _, want := range []string{"1 stale staged decision removed", "remaining decisions preserved", secondCandidate.ID, "1 (0 Allow, 1 Deny)"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("refresh output %q lacks %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestPolicyReviewTTYRefreshDoesNotTransferStageToDifferentCandidateWithMatchingLabels(t *testing.T) {
+	t.Parallel()
+	original := tobari.PolicyDenial{
+		Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
+		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	}
+	replacement := original
+	replacement.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	replacement.Path = "/replacement"
+	runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
+		state: tobari.State{PolicyDirectory: "/tmp/policy"}, terminal: true,
+		denialsByRead: [][]tobari.PolicyDenial{{original}, {replacement}},
+	}}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("1\na\nr\np\nq\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.tobari = tobaricmd.New(runtime)
+	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitCanceled {
+		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
+	}
+	if runtime.applyCalls != 0 || len(runtime.rules) != 0 || len(runtime.denyRules) != 0 {
+		t.Fatalf("replacement candidate inherited authority: calls=%d allows=%+v denies=%+v", runtime.applyCalls, runtime.rules, runtime.denyRules)
+	}
+	for _, want := range []string{"1 stale staged decision removed", "Inspect a permission and stage Allow exact or Deny exact first."} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("replacement output %q lacks %q", stdout.String(), want)
+		}
 	}
 }
 
@@ -359,7 +443,7 @@ func TestPolicyReviewTTYKeepsOneContextPerStagedApply(t *testing.T) {
 		denials: []tobari.PolicyDenial{first, second}, terminal: true,
 	}}
 	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader("1\na\n2\nd\np\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command := newCLI(strings.NewReader("1\na\n2\nd\np\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
 	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
 		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
@@ -655,15 +739,15 @@ func TestPolicyReviewAllowRendererExplainsExactActivation(t *testing.T) {
 	for label, want := range map[string]string{
 		"Testing policy": "passed", "Applying exact rule": "applied",
 		"Request": "api.example.com:443 POST /repos/example/issues",
-		"Next":    "tobari — Re-enter the Workspace and retry the same request.",
+		"Next":    "retry the same request in the current running Workspace",
 	} {
 		if !humanOutputHasRow(output, label, want) {
 			t.Fatalf("allow output %q lacks %s=%q", output, label, want)
 		}
 	}
 	humanOutput := string(renderPolicyLearningChangeWithColor(change, true))
-	if !strings.Contains(humanOutput, "tobari") || !strings.Contains(humanOutput, "Re-enter the Workspace") {
-		t.Fatalf("allow recovery output does not name tobari: %q", humanOutput)
+	if !strings.Contains(humanOutput, "current running Workspace") || strings.Contains(humanOutput, "Re-enter") {
+		t.Fatalf("allow recovery output is not same-session guidance: %q", humanOutput)
 	}
 }
 

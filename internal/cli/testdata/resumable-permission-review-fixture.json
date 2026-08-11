@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "inbox": {
+    "task": "policy.review",
+    "policy": "/config/example/policy",
+    "window_lines": 200,
+    "items": [
+      {
+        "protocol": "http",
+        "id": "pcy_0123456789abcdef0123456789abcdef",
+        "observed_at": "2026-08-11T09:00:00Z",
+        "observation_count": 2,
+        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "context": "default",
+        "project_id": "01912345-6789-7abc-8def-0123456789ab",
+        "project_root": "/workspace/project",
+        "host": "api.example.com",
+        "port": 443,
+        "method": "POST",
+        "path": "/v1/issues",
+        "reason": "request did not match an allow rule",
+        "status_code": 403
+      },
+      {
+        "protocol": "graphql",
+        "graphql_operation_type": "mutation",
+        "graphql_root_field": "updateIssue",
+        "id": "pcy_abcdef0123456789abcdef0123456789",
+        "observed_at": "2026-08-11T09:01:00Z",
+        "observation_count": 1,
+        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "context": "default",
+        "project_id": "01912345-6789-7abc-8def-0123456789ab",
+        "project_root": "/workspace/project",
+        "host": "api.example.com",
+        "port": 443,
+        "method": "POST",
+        "path": "/graphql",
+        "reason": "request did not match an allow rule",
+        "status_code": 403
+      }
+    ]
+  },
+  "empty_inbox": {
+    "task": "policy.review",
+    "policy": "/config/example/policy",
+    "window_lines": 200,
+    "items": []
+  },
+  "refreshed_inbox": {
+    "task": "policy.review",
+    "policy": "/config/example/policy",
+    "window_lines": 200,
+    "items": [
+      {
+        "protocol": "graphql",
+        "graphql_operation_type": "mutation",
+        "graphql_root_field": "updateIssue",
+        "id": "pcy_abcdef0123456789abcdef0123456789",
+        "observed_at": "2026-08-11T09:01:00Z",
+        "observation_count": 1,
+        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "context": "default",
+        "project_id": "01912345-6789-7abc-8def-0123456789ab",
+        "project_root": "/workspace/project",
+        "host": "api.example.com",
+        "port": 443,
+        "method": "POST",
+        "path": "/graphql",
+        "reason": "request did not match an allow rule",
+        "status_code": 403
+      }
+    ]
+  },
+  "decision_set": {
+    "decisions": [
+      {"candidate_id": "pcy_0123456789abcdef0123456789abcdef", "decision": "allow"},
+      {"candidate_id": "pcy_abcdef0123456789abcdef0123456789", "decision": "deny"}
+    ]
+  },
+  "zero_staged": {
+    "decisions": []
+  },
+  "receipt": {
+    "task": "policy.review.apply",
+    "policy": "/config/example/policy",
+    "allow_count": 1,
+    "deny_count": 1,
+    "applied": true,
+    "active_revision": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "decisions": [
+      {
+        "protocol": "http",
+        "candidate_id": "pcy_0123456789abcdef0123456789abcdef",
+        "decision": "allow",
+        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "context": "default",
+        "project_id": "01912345-6789-7abc-8def-0123456789ab",
+        "project_root": "/workspace/project",
+        "host": "api.example.com",
+        "port": 443,
+        "method": "POST",
+        "path": "/v1/issues"
+      },
+      {
+        "protocol": "graphql",
+        "graphql_operation_type": "mutation",
+        "graphql_root_field": "updateIssue",
+        "candidate_id": "pcy_abcdef0123456789abcdef0123456789",
+        "decision": "deny",
+        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "context": "default",
+        "project_id": "01912345-6789-7abc-8def-0123456789ab",
+        "project_root": "/workspace/project",
+        "host": "api.example.com",
+        "port": 443,
+        "method": "POST",
+        "path": "/graphql"
+      }
+    ]
+  },
+  "activation_failure": {
+    "kind": "unavailable",
+    "code": "policy_learning_failed",
+    "message": "reviewed policy activation did not complete; inspect cluster status",
+    "retryable": false,
+    "next_actions": [
+      {"command": "cluster status", "reason": "Reconcile OPA and current policy state."}
+    ]
+  },
+  "navigation": {
+    "learnable_command": "tobari policy review",
+    "diagnostic_command": "tobari cluster denials",
+    "workspace_container_before": "workspace-container-synthetic",
+    "workspace_container_after": "workspace-container-synthetic",
+    "opa_container_before": "opa-container-synthetic",
+    "opa_container_after": "opa-container-synthetic"
+  }
+}

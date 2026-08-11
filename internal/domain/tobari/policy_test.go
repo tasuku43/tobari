@@ -906,6 +906,46 @@ func TestPolicyReviewDecisionSetRequiresBoundedUniqueOpaqueChoices(t *testing.T)
 	}
 }
 
+func TestPolicyReviewChangeRequiresExactOrderedReceiptAndActiveRevision(t *testing.T) {
+	t.Parallel()
+	candidate, err := NewPolicyCandidate(validPolicyDenial())
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := PolicyReviewAppliedDecision{
+		CandidateID: candidate.ID, Decision: PolicyDecisionAllow,
+		ContextID: candidate.ContextID, ContextName: candidate.ContextName,
+		ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot,
+		PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
+		Host:                   candidate.Host, Port: candidate.Port, Method: candidate.Method, Path: candidate.Path,
+	}
+	valid := PolicyReviewChange{
+		Task: TaskPolicyReviewApply, PolicyDirectory: "/tmp/tobari/policy",
+		AllowCount: 1, DenyCount: 0, Applied: true,
+		ActiveRevision: strings.Repeat("a", 64), Decisions: []PolicyReviewAppliedDecision{receipt},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*PolicyReviewChange){
+		"missing decisions": func(change *PolicyReviewChange) { change.Decisions = nil },
+		"missing revision":  func(change *PolicyReviewChange) { change.ActiveRevision = "" },
+		"count mismatch":    func(change *PolicyReviewChange) { change.AllowCount = 0 },
+		"wrong reference kind": func(change *PolicyReviewChange) {
+			change.Decisions[0].CandidateID = "pcx_0123456789abcdef0123456789abcdef"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := valid
+			invalid.Decisions = append([]PolicyReviewAppliedDecision{}, valid.Decisions...)
+			mutate(&invalid)
+			if err := invalid.Validate(); err == nil {
+				t.Fatalf("invalid reviewed receipt was accepted: %+v", invalid)
+			}
+		})
+	}
+}
+
 func TestCurrentPolicyRulesListsReversibleAllowAndDenyDecisions(t *testing.T) {
 	t.Parallel()
 	allowCandidate, err := NewPolicyCandidate(validPolicyDenial())

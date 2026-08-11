@@ -684,7 +684,11 @@ Denied audit records are also the policy-development feedback interface. A
 learnable Gateway denial carries a fixed host-side `tobari policy review`
 navigation hint, and session closure may summarize the pending queue on host
 stderr. These are advisory only: they contain no action reference and cannot
-approve or retry a request. `tobari cluster denials` parses one bounded Gateway
+approve or retry a request. The learnable response tells the caller to keep the
+current Workspace and agent session running, use a separate trusted-host
+terminal, and retry in that same Workspace only after confirmed Apply. A
+non-learnable response instead names the read-only `tobari cluster denials`
+diagnostic and exposes no review command. `tobari cluster denials` parses one bounded Gateway
 log window, rejects
 malformed denial-shaped records, and returns typed Context and project principal, host, port,
 method, path, optional GraphQL operation/root coordinate, reason, status,
@@ -706,7 +710,11 @@ Baseline denies remain audit-only. `policy review` is the routine human text
 workflow: it stages explicit decisions over unchanged opaque candidate IDs for
 one Context and applies the complete typed set once. Apply or discard precedes
 switching Context, keeping source promotion to one atomic file replacement;
-redirected review is read-only.
+redirected review is read-only. Manual refresh intersects the staged ordered
+set with the fresh queue by opaque ID. Final review repeats every exact scope,
+effect, decision, and candidate ID before one explicit confirmation. The
+infrastructure returns the revision only after the running OPA confirms it;
+the typed application receipt preserves that revision and ordered decisions.
 `policy rules` is the exhaustive current inventory of CLI-owned learned Allows
 and exact Denies. `policy reset --id` removes exactly one such decision through
 the same preflight, atomic-write, and OPA activation boundary, leaving the

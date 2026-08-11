@@ -591,18 +591,27 @@ The test suite has complementary levels:
   unlock services, or mutate auth state.
 - The human permission path is exercised through `policy review`; its TTY
   Permission Inbox covers bounded selection, detail inspection, staged exact
-  allow/deny choices, one final Apply, and pre-Apply discard. PTY tests prove
+  allow/deny choices, manual refresh, one final exact review and confirmed
+  Apply, and pre-Apply discard. PTY tests prove
   action keys are ineffective on the list, several same-Context detail choices
   produce exactly one activation without a second yes/no prompt, a Context
   switch requires Apply or discard, and cancellation delegates nothing. Its
   presentation tests group by stable Context/project IDs, keep same-label
-  different-ID scopes separate, lead rows with the exact HTTP effect, and keep
+  different-ID scopes separate, preserve selection and staged order by
+  candidate ID across refresh/reorder, remove stale choices without transfer,
+  lead rows with the exact HTTP effect, and keep
   selected observation evidence visible before inspection. The
   TTY `policy rules` path separately covers exhaustive current-decision
   inventory, explicit reset confirmation, refresh, and re-review of the
   retained denial. Neither path requires hand-editing OPA or Rego. Redirected
   review and inventory stay read-only; exact reference-bound allow, deny, and
   reset actions are the routine policy mutations.
+- The resumable-permission corpus pins a typed inbox, scoped empty queue, zero
+  staged set, mixed HTTP/GraphQL final review, stale refresh, activation fault,
+  authoritative revision receipt, and stable Workspace/OPA identities. Its
+  answer key records zero routine external processing. Container integration
+  keeps both container IDs stable, confirms the receipt revision against
+  `cluster status`, and retries through the same running Workspace.
 - Container integration PTY helpers set `NO_COLOR` explicitly so semantic
   assertions do not depend on a developer or runner environment or split a
   plain-text canary across independently styled spans. CLI unit tests retain

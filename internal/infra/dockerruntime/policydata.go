@@ -645,7 +645,7 @@ func (r *Runtime) applyPolicyData(
 	}
 	if strings.HasPrefix(state.PolicyDirectory, r.aggregateRoot()+string(filepath.Separator)) {
 		return r.applyAggregatePolicyData(
-			ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot,
+			ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot, nil,
 		)
 	}
 	if err := tobari.ValidateLearnedPolicyRules(expectedAllows); err != nil {
@@ -841,6 +841,7 @@ func (r *Runtime) applyAggregatePolicyData(
 	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
 	checkDenySnapshot bool,
+	activeRevision *string,
 ) error {
 	if updatedAllows == nil {
 		updatedAllows = expectedAllows
@@ -979,6 +980,9 @@ func (r *Runtime) applyAggregatePolicyData(
 			rollback()
 			return fmt.Errorf("persist aggregate policy activation: %w", err)
 		}
+		if activeRevision != nil {
+			*activeRevision = candidateState.AggregateRevision
+		}
 		return nil
 	})
 }
@@ -990,8 +994,10 @@ func (r *Runtime) ApplyPolicyDecisionSet(
 	ctx context.Context, state tobari.State,
 	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
-) error {
-	return r.applyAggregatePolicyData(
-		ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, true,
+) (string, error) {
+	activeRevision := ""
+	err := r.applyAggregatePolicyData(
+		ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, true, &activeRevision,
 	)
+	return activeRevision, err
 }

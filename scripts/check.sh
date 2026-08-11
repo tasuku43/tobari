@@ -167,6 +167,7 @@ run_fast() {
   go run ./tools/archlint
   go run ./tools/contractlint
   python3 scripts/test-pty-evidence.py
+  ./scripts/test-integration-preflight-cleanup.sh
   ./scripts/check-runtime-base.sh
   ./scripts/check-runtime-claude.sh
   ./scripts/check-runtime-codex.sh

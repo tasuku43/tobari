@@ -288,3 +288,148 @@ func TestPolicyReviewSelectorEOFIsSafeCancellation(t *testing.T) {
 		t.Fatalf("decision = %+v", decision)
 	}
 }
+
+func TestPolicyReviewSelectorLineShowsTypedStagedStateAndDoesNotAdvertiseEmptyApply(t *testing.T) {
+	t.Parallel()
+	report := testPolicyReviewReport()
+	selector := &policyReviewSelector{mode: &selectorModeFake{enterErr: errors.New("raw mode unavailable")}, style: false}
+	var emptyOutput bytes.Buffer
+	decision, err := selector.Select(
+		context.Background(), report, strings.NewReader("p\nq\n"), &emptyOutput,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Canceled || decision.Apply {
+		t.Fatalf("empty Apply was accepted: %+v", decision)
+	}
+	if strings.Contains(emptyOutput.String(), "apply staged") {
+		t.Fatalf("empty Apply was advertised: %q", emptyOutput.String())
+	}
+
+	selector.Stage(report.Items[0].ID, policyReviewActionAllow)
+	selector.Stage(report.Items[1].ID, policyReviewActionDeny)
+	var stagedOutput bytes.Buffer
+	decision, err = selector.Select(
+		context.Background(), report, strings.NewReader("q\n"), &stagedOutput,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Canceled {
+		t.Fatalf("staged cancellation = %+v", decision)
+	}
+	for _, want := range []string{"Staged Allow", "Staged Deny", "review staged"} {
+		if !strings.Contains(stagedOutput.String(), want) {
+			t.Fatalf("staged list %q lacks %q", stagedOutput.String(), want)
+		}
+	}
+}
+
+func TestPolicyReviewSelectorKeepsSelectionAndStageByCandidateIDAcrossReorder(t *testing.T) {
+	t.Parallel()
+	report := testPolicyReviewReport()
+	wantID := report.Items[1].ID
+	selector := &policyReviewSelector{mode: &selectorModeFake{}, style: false}
+	var first bytes.Buffer
+	decision, err := selector.Select(context.Background(), report, strings.NewReader("\x1b[B\ra"), &first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.CandidateID != wantID || decision.SelectedID != wantID {
+		t.Fatalf("selected decision = %+v", decision)
+	}
+	selector.Stage(decision.CandidateID, decision.Action)
+
+	reordered := report
+	reordered.Items = []tobari.PolicyCandidate{report.Items[1], report.Items[0]}
+	var second bytes.Buffer
+	decision, err = selector.Select(context.Background(), reordered, strings.NewReader("q"), &second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Canceled || decision.SelectedID != wantID {
+		t.Fatalf("reordered selection = %+v", decision)
+	}
+	for _, want := range []string{"Staged Allow", "GET    registry.npmjs.org:443/package/example", "Selected", "GET registry.npmjs.org:443/package/example"} {
+		if !strings.Contains(second.String(), want) {
+			t.Fatalf("reordered output %q lacks %q", second.String(), want)
+		}
+	}
+
+	removed := report
+	removed.Items = []tobari.PolicyCandidate{report.Items[0]}
+	if got := selector.Reconcile(removed); got != 1 {
+		t.Fatalf("removed staged count = %d, want 1", got)
+	}
+	var fallback bytes.Buffer
+	decision, err = selector.Select(context.Background(), removed, strings.NewReader("q"), &fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Canceled || decision.SelectedID != removed.Items[0].ID {
+		t.Fatalf("fallback selection = %+v", decision)
+	}
+	if strings.Contains(fallback.String(), "❯ Staged Allow") || !strings.Contains(fallback.String(), "Selected") ||
+		!strings.Contains(fallback.String(), "POST api.github.com:443/repos/example/issues") {
+		t.Fatalf("fallback output = %q", fallback.String())
+	}
+}
+
+func TestPolicyReviewSelectorReconcileDoesNotTransferStageToMatchingLabels(t *testing.T) {
+	t.Parallel()
+	report := testPolicyReviewReport()
+	selector := &policyReviewSelector{}
+	selector.Stage(report.Items[0].ID, policyReviewActionDeny)
+
+	replacement := report.Items[0]
+	replacement.ID = "pcy_11111111111111111111111111111111"
+	refreshed := report
+	refreshed.Items = []tobari.PolicyCandidate{replacement, report.Items[1]}
+	if got := selector.Reconcile(refreshed); got != 1 {
+		t.Fatalf("removed count = %d, want 1", got)
+	}
+	if got := selector.OrderedDecisions(); len(got) != 0 {
+		t.Fatalf("stage transferred to matching labels: %+v", got)
+	}
+}
+
+func TestPolicyReviewSelectorFinalReviewRequiresExplicitConfirmation(t *testing.T) {
+	t.Parallel()
+	report := testPolicyReviewReport()
+	selector := &policyReviewSelector{mode: &selectorModeFake{}, style: false}
+	selector.Stage(report.Items[0].ID, policyReviewActionAllow)
+	selector.Stage(report.Items[1].ID, policyReviewActionDeny)
+
+	var canceled bytes.Buffer
+	decision, err := selector.Select(context.Background(), report, strings.NewReader("pq"), &canceled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Canceled || decision.Apply {
+		t.Fatalf("final cancel = %+v", decision)
+	}
+	for _, want := range []string{"Review staged permissions", report.Items[0].ID, report.Items[1].ID, "Staging grants no authority", "[y] Apply"} {
+		if !strings.Contains(canceled.String(), want) {
+			t.Fatalf("final review %q lacks %q", canceled.String(), want)
+		}
+	}
+
+	var backed bytes.Buffer
+	decision, err = selector.Select(context.Background(), report, strings.NewReader("pbq"), &backed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Canceled || decision.Apply {
+		t.Fatalf("back then cancel = %+v", decision)
+	}
+
+	var confirmed bytes.Buffer
+	decision, err = selector.Select(context.Background(), report, strings.NewReader("py"), &confirmed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Apply || decision.Canceled {
+		t.Fatalf("explicit confirmation = %+v", decision)
+	}
+}

@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "routine_success": {
+    "task_invocations": 1,
+    "external_processing_steps": 0
+  },
+  "cases": [
+    {
+      "name": "learnable_denial_navigation",
+      "required_facts": ["keep current Workspace", "trusted-host terminal", "Apply", "retry same request"],
+      "exact_next_argv": ["tobari", "policy", "review"],
+      "unsupported_inferences": ["leave or recreate the Workspace", "Tobari approves or retries automatically"]
+    },
+    {
+      "name": "nonlearnable_denial_diagnostic",
+      "required_facts": ["read-only diagnostics"],
+      "exact_next_argv": ["tobari", "cluster", "denials"],
+      "unsupported_inferences": ["the diagnostic grants authority"]
+    },
+    {
+      "name": "mixed_final_review",
+      "required_facts": ["Allow exact", "Deny exact", "candidate IDs", "GraphQL mutation.updateIssue", "one Apply"],
+      "exact_next_argv": [],
+      "unsupported_inferences": ["matching labels identify the same candidate", "staging grants authority"]
+    },
+    {
+      "name": "stale_refresh",
+      "required_facts": ["stale candidate removed", "remaining candidate preserved by ID"],
+      "exact_next_argv": [],
+      "unsupported_inferences": ["a replacement candidate inherits a staged decision"]
+    },
+    {
+      "name": "confirmed_receipt",
+      "required_facts": ["active revision", "ordered exact decisions", "Context ID", "Project ID", "candidate ID"],
+      "exact_next_argv": [],
+      "unsupported_inferences": ["the receipt was reconstructed from display labels"]
+    },
+    {
+      "name": "cancel",
+      "required_facts": ["zero policy writes"],
+      "exact_next_argv": [],
+      "unsupported_inferences": ["cancel applied staged authority"]
+    },
+    {
+      "name": "same_session_retry",
+      "required_facts": ["Workspace container unchanged", "OPA container unchanged", "retry in current running Workspace"],
+      "exact_next_argv": [],
+      "unsupported_inferences": ["Workspace re-entry is required"]
+    },
+    {
+      "name": "empty_inbox",
+      "required_facts": ["scoped empty collection", "Apply unavailable"],
+      "exact_next_argv": ["tobari", "cluster", "denials"],
+      "unsupported_inferences": ["retained history is exhaustive"]
+    },
+    {
+      "name": "zero_staged",
+      "required_facts": ["Undecided", "Apply unavailable"],
+      "exact_next_argv": [],
+      "unsupported_inferences": ["zero staged decisions can cross the mutation boundary"]
+    },
+    {
+      "name": "activation_failure",
+      "required_facts": ["policy_learning_failed", "no success receipt"],
+      "exact_next_argv": ["tobari", "cluster", "status"],
+      "unsupported_inferences": ["failed activation is safe to replay as a confirmed success"]
+    }
+  ]
+}

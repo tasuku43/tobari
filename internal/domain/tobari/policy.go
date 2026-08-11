@@ -21,6 +21,7 @@ var (
 	learnedRuleIDPattern      = regexp.MustCompile(`^plr_[0-9a-f]{32}$`)
 	httpMethodPattern         = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]{0,31}$`)
 	graphqlNamePattern        = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
+	policyRevisionPattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 const (
@@ -1503,6 +1504,75 @@ type PolicyReviewDecisionSet struct {
 	Decisions []PolicyReviewDecision `json:"decisions"`
 }
 
+// PolicyReviewAppliedDecision is one exact secret-free decision repeated in
+// the confirmed receipt. Its fields are copied from the freshly revalidated
+// candidate; presentation must not reconstruct authority from labels or order.
+type PolicyReviewAppliedDecision struct {
+	PolicyProtocolIdentity
+	CandidateID string `json:"candidate_id"`
+	Decision    string `json:"decision"`
+	ContextID   string `json:"context_id"`
+	ContextName string `json:"context"`
+	ProjectID   string `json:"project_id"`
+	ProjectRoot string `json:"project_root"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+}
+
+// NewPolicyReviewAppliedDecision copies only the candidate dimensions that
+// define the exact policy effect. Observation prose, credentials, headers,
+// queries, and bodies are intentionally absent from the receipt type.
+func NewPolicyReviewAppliedDecision(candidate PolicyCandidate, decision string) (PolicyReviewAppliedDecision, error) {
+	if err := candidate.Validate(); err != nil {
+		return PolicyReviewAppliedDecision{}, err
+	}
+	receipt := PolicyReviewAppliedDecision{
+		PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
+		CandidateID:            candidate.ID, Decision: decision,
+		ContextID: candidate.ContextID, ContextName: candidate.ContextName,
+		ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot,
+		Host: candidate.Host, Port: candidate.Port, Method: candidate.Method, Path: candidate.Path,
+	}
+	receipt.Protocol = candidate.EffectiveProtocol()
+	if err := receipt.Validate(); err != nil {
+		return PolicyReviewAppliedDecision{}, err
+	}
+	return receipt, nil
+}
+
+func (d PolicyReviewAppliedDecision) Validate() error {
+	if err := d.PolicyProtocolIdentity.Validate(); err != nil {
+		return fmt.Errorf("policy review receipt protocol identity: %w", err)
+	}
+	if err := ValidatePolicyCandidateID(d.CandidateID); err != nil {
+		return err
+	}
+	if d.Decision != PolicyDecisionAllow && d.Decision != PolicyDecisionDeny {
+		return fmt.Errorf("policy review receipt decision is invalid")
+	}
+	if err := validatePolicyScope(d.ContextID, d.ContextName, d.ProjectRoot); err != nil {
+		return fmt.Errorf("policy review receipt scope: %w", err)
+	}
+	if err := ValidateProjectID(d.ProjectID); err != nil {
+		return fmt.Errorf("policy review receipt project ID is invalid")
+	}
+	if len(d.Host) == 0 || len(d.Host) > 253 || containsSpaceOrControl(d.Host) {
+		return fmt.Errorf("policy review receipt host is invalid")
+	}
+	if d.Port < 1 || d.Port > 65535 {
+		return fmt.Errorf("policy review receipt port is invalid")
+	}
+	if !httpMethodPattern.MatchString(d.Method) {
+		return fmt.Errorf("policy review receipt method is invalid")
+	}
+	if err := validatePolicyPath(d.Path); err != nil {
+		return fmt.Errorf("policy review receipt path is invalid")
+	}
+	return nil
+}
+
 func (s PolicyReviewDecisionSet) Validate() error {
 	if len(s.Decisions) == 0 || len(s.Decisions) > MaxPolicyReviewDecisions {
 		return fmt.Errorf("policy review decision count must be between 1 and %d", MaxPolicyReviewDecisions)
@@ -1525,11 +1595,13 @@ func (s PolicyReviewDecisionSet) Validate() error {
 
 // PolicyReviewChange is emitted only after the complete reviewed set is active.
 type PolicyReviewChange struct {
-	Task            string `json:"task"`
-	PolicyDirectory string `json:"policy"`
-	AllowCount      int    `json:"allow_count"`
-	DenyCount       int    `json:"deny_count"`
-	Applied         bool   `json:"applied"`
+	Task            string                        `json:"task"`
+	PolicyDirectory string                        `json:"policy"`
+	AllowCount      int                           `json:"allow_count"`
+	DenyCount       int                           `json:"deny_count"`
+	Applied         bool                          `json:"applied"`
+	ActiveRevision  string                        `json:"active_revision"`
+	Decisions       []PolicyReviewAppliedDecision `json:"decisions"`
 }
 
 func (c PolicyReviewChange) Validate() error {
@@ -1539,6 +1611,31 @@ func (c PolicyReviewChange) Validate() error {
 	}
 	if !filepath.IsAbs(c.PolicyDirectory) || filepath.Clean(c.PolicyDirectory) != c.PolicyDirectory {
 		return fmt.Errorf("policy review result directory is invalid")
+	}
+	if !policyRevisionPattern.MatchString(c.ActiveRevision) {
+		return fmt.Errorf("policy review active revision is invalid")
+	}
+	if len(c.Decisions) != c.AllowCount+c.DenyCount {
+		return fmt.Errorf("policy review receipt count is inconsistent")
+	}
+	allowCount, denyCount := 0, 0
+	seen := make(map[string]struct{}, len(c.Decisions))
+	for _, decision := range c.Decisions {
+		if err := decision.Validate(); err != nil {
+			return err
+		}
+		if _, duplicate := seen[decision.CandidateID]; duplicate {
+			return fmt.Errorf("policy review receipt contains a duplicate candidate")
+		}
+		seen[decision.CandidateID] = struct{}{}
+		if decision.Decision == PolicyDecisionAllow {
+			allowCount++
+		} else {
+			denyCount++
+		}
+	}
+	if allowCount != c.AllowCount || denyCount != c.DenyCount {
+		return fmt.Errorf("policy review receipt decisions do not match counts")
 	}
 	return nil
 }

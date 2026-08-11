@@ -283,12 +283,9 @@ curl -sS -w '\nhttp=%{http_code}\n' \
 
 The response is a secret-free `policy_denied` with `http=403` and fixed host
 navigation to `tobari policy review`. It does not contain a candidate ID and
-does not request an automatic retry. Leave the session before running the host
-recovery commands; policy review and policy changes belong to the trusted host:
-
-```sh
-exit
-```
+does not request an automatic retry. Keep this Workspace and agent session
+running. Open a separate terminal on the trusted host for policy review and
+policy changes; the Workspace cannot approve its own request.
 
 ### 3. Review and allow one exact permission on the host
 
@@ -313,15 +310,15 @@ derive an ID from display order, host text, or a previous denial. `policy allow`
 tests the complete policy, records one exact project-bound rule, and activates
 it without restarting the Tobari. `policy deny --id <exact-pcy-id>` is the
 corresponding recovery when the requested permission should remain blocked.
-The successful allow handoff names `tobari` as the next command: re-enter from
-the host and repeat the same request inside the Workspace.
+Successful Apply reports the authoritative active revision and each ordered
+exact decision. Return to the still-running Workspace session and repeat the
+same request there.
 
 ### 4. Retry the same request
 
-Re-enter the same project directory and run the same curl again:
+In the original running Workspace, run the same curl again:
 
 ```sh
-tobari
 curl -sS -w '\nhttp=%{http_code}\n' \
   -X PUT https://example.com/quickstart
 exit
@@ -445,9 +442,11 @@ image on the next `tobari` entry without losing their home.
   Gateway made no upstream attempt and you may explicitly retry the task. If it
   is `not_configured`, re-login or logout that provider, then leave and re-enter
   the Workspace; that state identifies a durable refresh barrier.
-- A learnable `403`: leave the session and run `tobari policy review`. On a TTY,
-  inspect the request and explicitly confirm allow or deny; the review flow
-  applies the exact decision and tells you to re-enter. Redirected or machine
+- A learnable `403`: keep the session running and use a separate trusted-host
+  terminal for `tobari policy review`. Inspect the exact request, stage an
+  Allow or Deny, review the final ordered set, and explicitly confirm one
+  Apply. The receipt names the active revision; retry in the same Workspace.
+  Redirected or machine
   review remains read-only and uses one unchanged candidate ID with
   `tobari policy allow --id ID` or `tobari policy deny --id ID`. Do not retry
   before a confirmed host action.

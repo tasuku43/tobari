@@ -44,7 +44,7 @@ type policyDecisionSetRuntimePort interface {
 		context.Context, tobari.State,
 		[]tobari.LearnedPolicyRule, []tobari.LearnedPolicyRule,
 		[]tobari.PolicyDenyRule, []tobari.PolicyDenyRule,
-	) error
+	) (string, error)
 }
 
 // clusterUpProgressRuntimePort is an optional extension of RuntimePort. The
@@ -1269,6 +1269,7 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 	updatedAllows := append([]tobari.LearnedPolicyRule{}, rules...)
 	updatedDenies := append([]tobari.PolicyDenyRule{}, denyRules.Exact...)
 	allowCount, denyCount := 0, 0
+	receipt := make([]tobari.PolicyReviewAppliedDecision, 0, len(set.Decisions))
 	reviewContextID := ""
 	for _, decision := range set.Decisions {
 		candidate, found := byID[decision.CandidateID]
@@ -1295,23 +1296,34 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 			}
 			updatedAllows = append(updatedAllows, rule)
 			allowCount++
-			continue
+		} else {
+			rule, ruleErr := tobari.NewExactPolicyDenyRule(candidate)
+			if ruleErr != nil {
+				return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "policy candidate cannot become an exact deny", false, ruleErr)
+			}
+			updatedDenies = append(updatedDenies, rule)
+			denyCount++
 		}
-		rule, ruleErr := tobari.NewExactPolicyDenyRule(candidate)
-		if ruleErr != nil {
-			return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "policy candidate cannot become an exact deny", false, ruleErr)
+		applied, receiptErr := tobari.NewPolicyReviewAppliedDecision(candidate, decision.Decision)
+		if receiptErr != nil {
+			return tobari.PolicyReviewChange{}, fault.Wrap(
+				fault.KindContract, "invalid_candidate_contract",
+				"policy candidate cannot become a reviewed receipt", false, receiptErr,
+			)
 		}
-		updatedDenies = append(updatedDenies, rule)
-		denyCount++
+		receipt = append(receipt, applied)
 	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: "policy apply-reviewed", ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
+	activeRevision := ""
 	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		return runtime.ApplyPolicyDecisionSet(
+		var applyErr error
+		activeRevision, applyErr = runtime.ApplyPolicyDecisionSet(
 			actionContext, state, rules, updatedAllows, denyRules.Exact, updatedDenies,
 		)
+		return applyErr
 	})
 	if err != nil {
 		if _, structured := fault.PublicCopy(err); structured {
@@ -1326,6 +1338,7 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 	result := tobari.PolicyReviewChange{
 		Task: tobari.TaskPolicyReviewApply, PolicyDirectory: state.PolicyDirectory,
 		AllowCount: allowCount, DenyCount: denyCount, Applied: true,
+		ActiveRevision: activeRevision, Decisions: receipt,
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.PolicyReviewChange{}, fault.Wrap(

@@ -91,7 +91,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	candidateID := policyReviewPTYCandidateID()
 
 	t.Run("allow through real PTY", func(t *testing.T) {
-		output := runPolicyReviewPTYChild(t, "allow", "1ap")
+		output := runPolicyReviewPTYChild(t, "allow", "1apy")
 		for _, want := range []string{
 			"Tobari · Permission Inbox",
 			"1 pending permission in 1 Tobari",
@@ -102,6 +102,10 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 			"Permission 1 of 1",
 			"This decision applies only to this Tobari in this Context.",
 			"[a] Allow exact",
+			"Review staged permissions",
+			"Context   default · 01912345-6789-7abc-8def-0123456789ad",
+			"Project   /workspace/project · 01912345-6789-7abc-8def-0123456789ab",
+			"[y] Apply",
 			"Reviewed permissions applied",
 			"\x1b[?25h",
 			"POLICY_REVIEW_E2E case=allow code=0 apply_calls=1 deny_calls=0",
@@ -114,7 +118,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	})
 
 	t.Run("deny through real PTY", func(t *testing.T) {
-		output := runPolicyReviewPTYChild(t, "deny", "1dp")
+		output := runPolicyReviewPTYChild(t, "deny", "1dpy")
 		for _, want := range []string{
 			"Tobari · Permission Inbox",
 			"Permission 1 of 1",
@@ -137,6 +141,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 		{name: "invalid then cancel", input: "9q"},
 		{name: "list allow key then cancel", input: "aq"},
 		{name: "list deny key then cancel", input: "dq"},
+		{name: "final review cancel", input: "1|a|p|q"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output := runPolicyReviewPTYChild(t, test.name, test.input)
@@ -148,8 +153,23 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 			if strings.Contains(output, "Permission allowed") || strings.Contains(output, "Permission denied") {
 				t.Fatalf("non-mutating PTY output reports a policy change: %q", output)
 			}
+			if test.name == "cancel" && strings.Contains(output, "p review staged") {
+				t.Fatalf("empty inbox advertised Apply: %q", output)
+			}
 		})
 	}
+
+	t.Run("final review back then explicit apply", func(t *testing.T) {
+		output := runPolicyReviewPTYChild(t, "final-back-apply", "1|a|p|b|p|y")
+		for _, want := range []string{
+			"Review staged permissions", "Staged decisions unchanged.", "[y] Apply",
+			"case=final-back-apply code=0 apply_calls=1 deny_calls=0", "source_candidate=" + candidateID,
+		} {
+			if !strings.Contains(output, want) {
+				t.Fatalf("final review back/apply output lacks %q: %q", want, output)
+			}
+		}
+	})
 
 	t.Run("redirected JSON stays read-only", func(t *testing.T) {
 		output := runPolicyReviewJSONChild(t)
@@ -181,13 +201,13 @@ func TestPolicyReviewDirectDetailActionRealPTYAndCancellation(t *testing.T) {
 	}{
 		{
 			name:     "delayed-allow",
-			input:    "1|a|p",
+			input:    "1|a|p|y",
 			marker:   "case=delayed-allow code=0 apply_calls=1 deny_calls=0",
 			wantText: []string{"source_candidate=" + policyReviewPTYCandidateID(), "Reviewed permissions applied"},
 		},
 		{
 			name:     "delayed-deny",
-			input:    "1|d|p",
+			input:    "1|d|p|y",
 			marker:   "case=delayed-deny code=0 apply_calls=1 deny_calls=1",
 			wantText: []string{"deny_candidate=" + policyReviewPTYCandidateID(), "Reviewed permissions applied"},
 		},

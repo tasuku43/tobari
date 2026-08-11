@@ -92,6 +92,7 @@ const (
 	selectorKeyDeny
 	selectorKeyReset
 	selectorKeyApply
+	selectorKeyConfirm
 	selectorKeyInherit
 	selectorKeyLiteral
 	selectorKeyBack
@@ -488,6 +489,8 @@ func readSelectorKeyOnce(ctx context.Context, in io.Reader) (selectorKey, error)
 		return selectorKey{kind: selectorKeyReset}, nil
 	case 'p', 'P':
 		return selectorKey{kind: selectorKeyApply}, nil
+	case 'y', 'Y':
+		return selectorKey{kind: selectorKeyConfirm}, nil
 	case 'h', 'H':
 		return selectorKey{kind: selectorKeyInherit}, nil
 	case 'l', 'L':

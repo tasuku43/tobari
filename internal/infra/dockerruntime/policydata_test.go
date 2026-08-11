@@ -337,7 +337,7 @@ func TestApplyPolicyDecisionSetRejectsMultipleContextSourcesBeforeDocker(t *test
 		contextRuleFixture(t, defaultContext, "01912345-6789-7abc-8def-0123456789ab", "/default-reviewed"),
 		contextRuleFixture(t, restrictedContext, "01912345-6789-7abc-8def-0123456789ac", "/restricted-reviewed"),
 	}
-	err = runtimeStore.ApplyPolicyDecisionSet(
+	_, err = runtimeStore.ApplyPolicyDecisionSet(
 		context.Background(), runtimeState(root),
 		[]tobari.LearnedPolicyRule{}, updated,
 		[]tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{},
@@ -345,6 +345,56 @@ func TestApplyPolicyDecisionSetRejectsMultipleContextSourcesBeforeDocker(t *test
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "policy_review_scope_mixed" {
 		t.Fatalf("mixed-Context runtime decision set error = %v", err)
+	}
+}
+
+func TestApplyPolicyDecisionSetReturnsTheActivatedAggregateRevision(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
+	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	manifest, _, err := runtimeStore.resolveContext("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := runtimeStore.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(root)
+	state.AggregateRevision = projection.Revision
+	state.ContextCount = projection.ContextCount
+	state.PolicyDirectory = projection.PolicyDirectory
+	state.CredentialConfig = projection.CredentialConfig
+	state.CredentialDir = projection.CredentialDirectory
+	if err := runtimeStore.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	rule := contextRuleFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/reviewed")
+	activeRevision, err := runtimeStore.ApplyPolicyDecisionSet(
+		context.Background(), state,
+		[]tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
+		[]tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, configured, err := runtimeStore.LoadState(context.Background())
+	if err != nil || !configured {
+		t.Fatalf("load activated state: configured=%v err=%v", configured, err)
+	}
+	freshProjection, err := runtimeStore.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activeRevision == "" || activeRevision == state.AggregateRevision ||
+		activeRevision != stored.AggregateRevision || activeRevision != freshProjection.Revision {
+		t.Fatalf(
+			"returned=%q original=%q stored=%q projection=%q",
+			activeRevision, state.AggregateRevision, stored.AggregateRevision, freshProjection.Revision,
+		)
 	}
 }
 

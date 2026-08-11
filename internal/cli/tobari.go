@@ -162,7 +162,6 @@ func runPolicyReview(
 	}
 
 	selector := newPolicyReviewSelectorWithStyle(humanStyleAllowed(ctx, c, c.Out))
-	staged := make(map[string]policyReviewAction, len(result.Items))
 	stagedContextID := ""
 	for {
 		if len(result.Items) == 0 {
@@ -182,7 +181,26 @@ func runPolicyReview(
 		if decision.Canceled {
 			return c.fail(ctx, context.Canceled)
 		}
+		if decision.Refresh {
+			fresh, refreshErr := c.tobari.PolicyReview(ctx, int(tail))
+			if refreshErr != nil {
+				return c.fail(ctx, refreshErr)
+			}
+			removed := selector.Reconcile(fresh)
+			result = fresh
+			stagedContextID = policyReviewStagedContextID(result, selector.OrderedDecisions())
+			if removed > 0 {
+				selector.notice = fmt.Sprintf(
+					"Inbox refreshed · %d stale staged decision%s removed; remaining decisions preserved.",
+					removed, pluralSuffix(removed),
+				)
+			} else {
+				selector.notice = "Inbox refreshed · staged decisions preserved by exact candidate ID."
+			}
+			continue
+		}
 		if decision.Apply {
+			staged := selector.OrderedDecisions()
 			if len(staged) == 0 {
 				return c.fail(ctx, fault.New(
 					fault.KindInvalidInput, "empty_policy_review_set",
@@ -197,17 +215,13 @@ func runPolicyReview(
 				))
 			}
 			set := tobari.PolicyReviewDecisionSet{Decisions: make([]tobari.PolicyReviewDecision, 0, len(staged))}
-			for _, candidate := range result.Items {
-				action, selected := staged[candidate.ID]
-				if !selected {
-					continue
-				}
+			for _, selected := range staged {
 				value := tobari.PolicyDecisionAllow
-				if action == policyReviewActionDeny {
+				if selected.Action == policyReviewActionDeny {
 					value = tobari.PolicyDecisionDeny
 				}
 				set.Decisions = append(set.Decisions, tobari.PolicyReviewDecision{
-					CandidateID: candidate.ID, Decision: value,
+					CandidateID: selected.CandidateID, Decision: value,
 				})
 			}
 			intent := operation.Intent{
@@ -237,10 +251,20 @@ func runPolicyReview(
 			continue
 		}
 
-		staged[decision.CandidateID] = decision.Action
 		stagedContextID = candidate.ContextID
 		selector.Stage(decision.CandidateID, decision.Action)
 	}
+}
+
+func policyReviewStagedContextID(
+	report tobari.PolicyCandidateReport, decisions []policyReviewDecision,
+) string {
+	for _, decision := range decisions {
+		if candidate, found := policyReviewCandidateByID(report, decision.CandidateID); found {
+			return candidate.ContextID
+		}
+	}
+	return ""
 }
 
 func runPolicyRules(
@@ -1111,12 +1135,39 @@ func writePolicyGraphQLIdentity(output *humanOutput, identity tobari.PolicyProto
 func renderPolicyReviewChange(result tobari.PolicyReviewChange, color bool) []byte {
 	var output bytes.Buffer
 	fmt.Fprintln(&output, applyStyleToken(color, styleSuccess, "✓ Reviewed permissions applied"))
-	fmt.Fprintf(&output, "  Allowed  %d\n", result.AllowCount)
-	fmt.Fprintf(&output, "  Denied   %d\n", result.DenyCount)
-	fmt.Fprintln(&output, "  OPA      exact tested revision active; container kept running")
+	fmt.Fprintf(&output, "  Revision  %s\n", result.ActiveRevision)
+	fmt.Fprintf(&output, "  Decisions %d (%d Allow, %d Deny)\n", len(result.Decisions), result.AllowCount, result.DenyCount)
+	for index, decision := range result.Decisions {
+		fmt.Fprintln(&output)
+		fmt.Fprintf(&output, "%d. %s\n", index+1, policyReviewDecisionLabel(decision.Decision))
+		fmt.Fprintf(&output, "   Context   %s · %s\n", safeExternalText(decision.ContextName), decision.ContextID)
+		fmt.Fprintf(&output, "   Project   %s · %s\n", safeExternalText(decision.ProjectRoot), decision.ProjectID)
+		fmt.Fprintf(&output, "   Effect    %s\n", policyReviewAppliedEffect(decision))
+		fmt.Fprintf(&output, "   Candidate %s\n", decision.CandidateID)
+	}
 	fmt.Fprintln(&output)
-	fmt.Fprintln(&output, applyStyleToken(color, styleMuted, "Re-enter the Workspace and retry the allowed requests."))
+	fmt.Fprintln(&output, applyStyleToken(color, styleMuted, "Next: ")+applyStyleToken(
+		color, styleText, "keep the current Workspace and agent session running; retry the blocked request there now.",
+	))
 	return output.Bytes()
+}
+
+func policyReviewDecisionLabel(decision string) string {
+	if decision == tobari.PolicyDecisionDeny {
+		return "Deny exact"
+	}
+	return "Allow exact"
+}
+
+func policyReviewAppliedEffect(decision tobari.PolicyReviewAppliedDecision) string {
+	effect := fmt.Sprintf(
+		"%s %s:%d%s", safeExternalText(decision.Method), safeExternalText(decision.Host),
+		decision.Port, safeExternalText(decision.Path),
+	)
+	if coordinate := policyGraphQLCoordinate(decision.PolicyProtocolIdentity); coordinate != "" {
+		effect += " · GraphQL " + coordinate
+	}
+	return effect
 }
 
 func renderPolicyRulesWithCommands(
@@ -1250,7 +1301,7 @@ func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bo
 		safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
 	), styleText)
 	writePolicyGraphQLIdentity(output, result.Rule.PolicyProtocolIdentity)
-	output.next("tobari", "Re-enter the Workspace and retry the same request.")
+	output.row("Next", "retry the same request in the current running Workspace", styleText)
 	return output.bytes()
 }
 
@@ -1386,7 +1437,7 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 	output.row("Source rules", fmt.Sprintf("%d", result.SourceRuleCount), styleText)
 	output.row("Applied", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
 	if result.Task == tobari.TaskPolicyAllow {
-		output.next("tobari", "Re-enter the Workspace and retry the same request.")
+		output.row("Next", "retry the same request in the current running Workspace", styleText)
 	} else {
 		output.next("cluster status", "Verify the shared policy component after the change.")
 	}

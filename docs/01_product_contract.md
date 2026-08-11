@@ -524,7 +524,14 @@ observation before detail inspection. Matching display names, paths, order, or
 indentation do not merge distinct typed identities. Allow-exact and Deny-exact
 keys are inactive on the list; on the exact detail screen the chosen action is
 explicitly staged without a second yes/no prompt. Only the final Apply delegates
-the reviewed set to the mutation boundary.
+the reviewed set to the mutation boundary. Apply is advertised only for a
+non-empty staged set, shows one final ordered exact review, and requires an
+explicit confirmation. Refresh preserves choices by candidate ID and drops
+stale IDs rather than matching labels. Confirmed output carries the active OPA
+revision plus each ordered exact Context/project/effect/candidate decision and
+directs the caller to retry in the current running Workspace. The public
+read-only JSON review schema remains version 5 and does not expose this
+internal TTY Apply receipt.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
 a small state marker, aligned detail rows, semantic style tokens, and an exact

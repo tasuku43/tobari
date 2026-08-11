@@ -37,8 +37,10 @@ direct egress fails, and an OPA outage fails closed.
 
 The core product loop is progressive policy learning: work freely in Tobari,
 observe a denied boundary effect as secret-free evidence, receive a fixed
-host-side review cue, review the pending exact permission, approve the minimum
-rule, and retry. The normal path does not require writing OPA or Rego by hand:
+host-side review cue, keep the current Workspace and agent session running,
+review the pending exact permission from a separate trusted-host terminal,
+approve the minimum rule, and retry in that same session. The normal path does
+not require writing OPA or Rego by hand:
 interactive `policy review` presents a Permission Inbox, stages explicit exact
 Allow or Deny choices from candidate detail, and applies the reviewed set once;
 its non-interactive and machine-readable path remains read-only. Staging grants
@@ -46,6 +48,8 @@ no authority. Final Apply revalidates every unchanged opaque candidate, tests
 one complete all-Context candidate, and hot-activates one revision without
 restarting active Tobari or the shared OPA. Single-reference `policy allow` and
 `policy deny` remain available to machines and recovery workflows.
+Successful Apply reports the authoritative active revision and the ordered
+exact decision receipts; it never asks the caller to re-enter the Workspace.
 A separate `policy rules` view makes the complete current learned Allow and
 exact Deny decisions visible, and its TTY flow can explicitly reset one
 decision to default deny. Reset never grants or retries; it makes the retained
@@ -523,6 +527,9 @@ administration project.
   binds the complete typed snapshot and applies the staged set as one
   command-owned installation policy decision-set mutation. Every opaque
   candidate ID is retained unchanged and revalidated against fresh evidence.
+  A manual refresh reconciles staged choices only by candidate ID: retained
+  IDs keep their decision and order, stale IDs lose Apply eligibility, and a
+  matching display label never transfers authority to a replacement ID.
   Its list groups by validated stable Context/project identity, presents that
   scope once per group, and leads each selectable row with the exact HTTP
   effect plus bounded observation evidence. Display labels, adjacency, and

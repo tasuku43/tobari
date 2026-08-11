@@ -16,23 +16,24 @@ import (
 )
 
 type fakeRuntime struct {
-	state            tobari.State
-	clusterCalls     int
-	loadStateCalls   int
-	inspectCalls     int
-	configured       *bool
-	clusterReady     *bool
-	inspectErr       error
-	buildIdentityErr error
-	attachCalls      int
-	detachCalls      int
-	learnedCalls     int
-	denyCalls        int
-	decisionSetCalls int
-	execSeen         tobari.Instance
-	denials          []tobari.PolicyDenial
-	rules            []tobari.LearnedPolicyRule
-	denyRules        []tobari.PolicyDenyRule
+	state               tobari.State
+	clusterCalls        int
+	loadStateCalls      int
+	inspectCalls        int
+	configured          *bool
+	clusterReady        *bool
+	inspectErr          error
+	buildIdentityErr    error
+	attachCalls         int
+	detachCalls         int
+	learnedCalls        int
+	denyCalls           int
+	decisionSetCalls    int
+	decisionSetRevision string
+	execSeen            tobari.Instance
+	denials             []tobari.PolicyDenial
+	rules               []tobari.LearnedPolicyRule
+	denyRules           []tobari.PolicyDenyRule
 }
 
 func (f *fakeRuntime) ResolveRoot(_ context.Context, root string) (string, error) { return root, nil }
@@ -227,11 +228,14 @@ func (f *fakeRuntime) ApplyPolicyDecisionSet(
 	_ context.Context, _ tobari.State,
 	_ []tobari.LearnedPolicyRule, updatedAllows []tobari.LearnedPolicyRule,
 	_ []tobari.PolicyDenyRule, updatedDenies []tobari.PolicyDenyRule,
-) error {
+) (string, error) {
 	f.decisionSetCalls++
 	f.rules = append([]tobari.LearnedPolicyRule{}, updatedAllows...)
 	f.denyRules = append([]tobari.PolicyDenyRule{}, updatedDenies...)
-	return nil
+	if f.decisionSetRevision == "" {
+		f.decisionSetRevision = strings.Repeat("b", 64)
+	}
+	return f.decisionSetRevision, nil
 }
 func (f *fakeRuntime) TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error) {
 	return []byte("tobari\n"), nil
@@ -1035,7 +1039,10 @@ func TestApplyPolicyReviewDecisionSetRevalidatesAndActivatesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	if runtime.decisionSetCalls != 1 || len(runtime.rules) != 1 || len(runtime.denyRules) != 1 ||
-		result.AllowCount != 1 || result.DenyCount != 1 || !result.Applied {
+		result.AllowCount != 1 || result.DenyCount != 1 || !result.Applied ||
+		result.ActiveRevision != strings.Repeat("b", 64) || len(result.Decisions) != 2 ||
+		result.Decisions[0].CandidateID != allowCandidate.ID ||
+		result.Decisions[1].CandidateID != denyCandidate.ID {
 		t.Fatalf("result=%+v calls=%d allows=%+v denies=%+v", result, runtime.decisionSetCalls, runtime.rules, runtime.denyRules)
 	}
 

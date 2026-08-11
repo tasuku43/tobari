@@ -343,7 +343,10 @@ names remain an explicit policy-controlled local exception for the Docker
 integration shape.
 
 A learnable policy denial returns a fixed, secret-free navigation object that
-names the trusted host and `tobari policy review`. The object is advisory data
+names the trusted host and `tobari policy review`, keeps the current Workspace
+running, and requires a separate trusted-host terminal. A non-learnable denial
+offers only `tobari cluster denials` as a read-only diagnostic and no review
+command. The object is advisory data
 for the child process, not an authorization token or an instruction to retry;
 it contains no candidate ID, query, body, header, credential, policy path, or
 dynamic command argument. Non-learnable denials advertise no review command.
@@ -355,7 +358,11 @@ unchanged, belong to one Context, and pass fresh snapshot validation. The
 one-Context bound preserves one atomic policy-source promotion even if the host
 process is interrupted. Display position cannot create authority, staging
 writes nothing, cancellation discards the set, wildcard creation is impossible,
-and redirected or machine-readable review is read-only.
+and redirected or machine-readable review is read-only. Refresh retains staged
+authority only for an identical candidate ID; stale and same-label replacement
+IDs remain undecided. Confirmed Apply returns an authoritative active revision
+and exact typed receipt, after which the original running Workspace may issue a
+new request. Neither Workspace nor OPA is recreated by this activation.
 Session-close summaries use the same untrusted request projection
 and are best-effort host stderr output.
 
