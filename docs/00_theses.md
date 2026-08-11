@@ -430,6 +430,12 @@ name prefix or broad Docker query as authority.
   logical state so an interrupted multi-file write cannot remain authoritative.
   The root command is the single deliberate ensure-and-enter runtime
   reconciliation path.
+- `doctor` owns one finite, topologically ordered check graph in application
+  code. It observes every ready check, reports every inventory member, and
+  marks an unready dependent as blocked by exactly one direct non-passing
+  prerequisite; infrastructure cannot invent blocked results or recovery.
+  Policy diagnosis reads bounded owner-controlled source structure on the host
+  and never creates an OPA test container.
 - Every catalog-declared read is observational on first use and during ordinary
   operation: it creates no Tobari-owned configuration, state, lock, policy,
   credential, key, vault, or Docker resource. Missing state remains explicit

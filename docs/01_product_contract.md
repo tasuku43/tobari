@@ -263,8 +263,13 @@ undeclared Docker mutation by the CLI.
 - `doctor` validates the current directory as the prospective project root
   when `--root` is omitted. `--root PATH` exists only for diagnosing another
   host directory without changing the shell's current directory. The command
-  reports its complete check set and returns `diagnostic_failed` when any check
-  fails; warnings alone remain healthy. It remains read-only: it does not
+  reports its fixed complete check set in catalog order. A dependent that was
+  not observed is `blocked` by one named direct prerequisite rather than
+  reported as a speculative failure. Each observed failure owns a concrete
+  correction and exact next Tobari command; blocked rows do not duplicate that
+  recovery. The command returns `diagnostic_failed` when any check fails;
+  warnings and blocked dependents alone do not add another failure. It remains
+  read-only: it does not
   initialize policy, start/reconcile or unlock the shared cluster, create or
   replace the root key, or mutate provider, vault, credential, handle, or
   project-auth state.
@@ -447,7 +452,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Structured error | `error` | 1 |
 | Agent help (`view: index` and input-selected `view: scope`) | `commands` | 9 |
 | Version | `build_identity` | 1 |
-| Doctor report | `report` | 1 |
+| Doctor report | `report` | 2 |
 | Context list | `contexts` | 4 |
 | Context report (show/create/use/config/runtime results) | `context` | 8 |
 | Cluster status | `cluster` | 5 |
@@ -556,7 +561,10 @@ Next guidance. `NO_COLOR` selects no alternate terse or tabular renderer.
 Markers, words, and layout carry the same status meaning without color.
 `doctor` defaults to this human text
 view; `doctor --format tsv` remains the tab-separated projection for scripts,
-and JSON/agent help remain schema contracts.
+and JSON/agent help remain schema contracts. Doctor JSON schema 2 declares
+`check`, `status`, `detail`, nullable `blocked_by`, and nullable `recovery`;
+recovery contains required `action` and `next_command`. TSV flattens those same
+facts without inferring recovery from labels or row order.
 Empty collections are explicit rather than silent. Opaque IDs remain byte-for-
 byte exact, while external evidence remains subject to the existing safe text
 projection before it is displayed. Root, namespace, and exact human help use

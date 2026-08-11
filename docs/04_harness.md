@@ -595,7 +595,12 @@ The test suite has complementary levels:
 - Doctor tests prove the full report is emitted, failures produce
   `diagnostic_failed`, warnings alone remain healthy, and provider/root-key/
   vault/broker/project-binding observation does not create a key, start or
-  unlock services, or mutate auth state.
+  unlock services, or mutate auth state. Domain/application fixtures pin the
+  finite topological inventory, direct blockers, independent continuation,
+  task-owned recovery, cancellation before blocked-row materialization, and
+  schema-2 recursive output. Infrastructure fixtures allowlist observational
+  Docker argv, reject policy test-container creation, and compare content-aware
+  fresh and legacy Context trees before and after doctor.
 - The human permission path is exercised through `policy review`; its TTY
   Permission Inbox covers bounded selection, detail inspection, staged exact
   allow/deny choices, manual refresh, one final exact review and confirmed
@@ -729,7 +734,7 @@ Every strong statement should identify its enforcement path.
 | Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence, stable API/role labels, immutable digest/platform/entrypoint preflight, non-root Dockerfile, and pull-request/main workflow permission separation |
 | Context-owned encrypted credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/Context AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
-| Doctor remains observational | Complete-report and fail/warn exit tests plus zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
+| Doctor remains observational | Fixed dependency-matrix, direct-blocker, complete-report, schema-2 renderer/agent-contract, fail/warn exit, cancellation, Docker-argv allowlist, host-only policy-source validation, content-aware fresh/legacy no-migration snapshots, and zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
 | Every declared read remains observational | Dynamic public-catalog handler coverage, per-command fresh-XDG before/after snapshots, zero Docker-mutation argv, lockless fresh lifecycle reads, read-only/concurrent fixtures, legacy no-migration reads, fail-closed unsafe state, and bounded cleanup of only a pre-existing validated journal |
 | Project-bound broker handles | Full Context/project/provider/revision/target/header round trips, hash-only live index assertions, copied/stale/rotated/revoked negative tests, exact Context-wide eligibility and next-entry semantics, and Workspace projection reconciliation |
 | Broker fallback requires marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and passthrough/managed fallback tests with no marker anywhere inspected |

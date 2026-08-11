@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 )
@@ -556,6 +557,15 @@ func int64Pointer(value int64) *int64 {
 	return &value
 }
 
+func doctorCheckIDValues() []string {
+	inventory := doctor.CheckInventory()
+	values := make([]string, 0, len(inventory))
+	for _, spec := range inventory {
+		values = append(values, string(spec.ID))
+	}
+	return values
+}
+
 func defaultCatalog() Catalog {
 	catalog := NewCatalog(
 		CommandSpec{
@@ -572,27 +582,32 @@ func defaultCatalog() Catalog {
 					{
 						Name: "--root", Source: InputSourceFlag, Required: false,
 						ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-						Description: "Validate an existing host directory as a prospective Tobari root; defaults to the current directory.", AllowedValues: []string{}, DefaultValue: stringPointer("."),
+						Description: "Validate an existing host directory as a prospective Tobari root; defaults to the current directory.", AllowedValues: []string{}, DefaultValue: stringPointer("."), MinimumLength: int64Pointer(1),
 					},
 				},
 				Output: CommandOutput{
 					Formats:       []OutputFormat{OutputFormatText, OutputFormatTSV, OutputFormatJSON},
 					DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 					Fields: []OutputField{
-						{Name: "check", Type: OutputFieldTypeString, Description: "Stable diagnostic name with unsafe structural runes rendered as visible escapes."},
-						{Name: "status", Type: OutputFieldTypeString, Description: "Diagnostic result: pass, warn, or fail."},
+						{Name: "check", Type: OutputFieldTypeString, Description: "Stable diagnostic name with unsafe structural runes rendered as visible escapes.", Enum: doctorCheckIDValues()},
+						{Name: "status", Type: OutputFieldTypeString, Description: "Diagnostic result: pass, warn, fail, or blocked.", Enum: []string{"pass", "warn", "fail", "blocked"}},
 						{Name: "detail", Type: OutputFieldTypeString, Description: "Diagnostic detail with unsafe structural runes rendered as visible escapes."},
+						{Name: "blocked_by", Type: OutputFieldTypeString, Description: "Direct prerequisite that did not pass, or null when this check was observed.", Nullable: true, Enum: doctorCheckIDValues()},
+						{Name: "recovery", Type: OutputFieldTypeObject, Description: "Task-owned recovery for an observed failure or selected warning, or null when no recovery applies.", Nullable: true, Fields: []OutputField{
+							{Name: "action", Type: OutputFieldTypeString, Description: "Concrete prerequisite correction in plain language."},
+							{Name: "next_command", Type: OutputFieldTypeString, Description: "Exact Tobari command to run after the correction."},
+						}},
 					},
 					Delivery:           OutputDeliveryComplete,
 					CollectionCoverage: CollectionCoverageExhaustive,
 					JSONEnvelope:       "report",
 					JSONEnvelopeType:   OutputFieldTypeArray,
-					JSONSchemaVersion:  1,
+					JSONSchemaVersion:  2,
 				},
 				Prerequisites: []string{},
 				Errors: []CommandError{
 					declaredCommandError(fault.KindInvalidInput, "invalid_arguments", false, "help doctor", "Correct the command arguments."),
-					declaredCommandError(fault.KindRejected, "diagnostic_failed", false, "doctor", "Review the failed diagnostic and correct the local prerequisite."),
+					declaredCommandError(fault.KindRejected, "diagnostic_failed", false, "doctor", "Execute the first failed row recovery, then rerun diagnostics."),
 					declaredCommandError(fault.KindInternal, "doctor_failed", false, "doctor", "Inspect the local diagnostic runtime."),
 					declaredCommandError(fault.KindContract, "invalid_doctor_contract", false, "doctor", "Repair the diagnostic adapter contract."),
 					declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),

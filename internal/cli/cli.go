@@ -44,14 +44,17 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
 	runtime, err := dockerruntime.New()
-	if err == nil {
-		command.tobari = tobaricmd.NewWithWorkspaceSelector(
-			runtime,
-			newWorkspaceSelectorWithStyle(!command.noColor),
-		)
-		command.context = contextcmd.New(runtime)
-		command.auth = authcmd.New(runtime)
+	if err != nil {
+		command.doctor = doctorcmd.New(systemdoctor.New(err))
+		return command
 	}
+	command.doctor = doctorcmd.New(runtime)
+	command.tobari = tobaricmd.NewWithWorkspaceSelector(
+		runtime,
+		newWorkspaceSelectorWithStyle(!command.noColor),
+	)
+	command.context = contextcmd.New(runtime)
+	command.auth = authcmd.New(runtime)
 	return command
 }
 

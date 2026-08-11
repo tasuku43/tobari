@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 )
@@ -245,6 +246,39 @@ func TestDefaultCatalogRequiresSemanticTokensForEveryTextCommand(t *testing.T) {
 		if supportsText && command.Agent.Output.TextPresentation != TextPresentationSemanticTokens {
 			t.Errorf("%s text presentation = %d, want semantic tokens", command.Path, command.Agent.Output.TextPresentation)
 		}
+	}
+}
+
+func TestDoctorCatalogDeclaresRecursiveSchemaV2Contract(t *testing.T) {
+	spec, found := DefaultCatalog().Lookup("doctor")
+	if !found {
+		t.Fatal("default catalog lacks doctor")
+	}
+	wantNames := []string{"check", "status", "detail", "blocked_by", "recovery"}
+	gotNames := make([]string, 0, len(spec.Agent.Output.Fields))
+	for _, field := range spec.Agent.Output.Fields {
+		gotNames = append(gotNames, field.Name)
+	}
+	if spec.Agent.Output.JSONSchemaVersion != 2 || !reflect.DeepEqual(gotNames, wantNames) {
+		t.Fatalf("doctor output = version %d fields %v", spec.Agent.Output.JSONSchemaVersion, gotNames)
+	}
+	check := spec.Agent.Output.Fields[0]
+	status := spec.Agent.Output.Fields[1]
+	blockedBy := spec.Agent.Output.Fields[3]
+	recovery := spec.Agent.Output.Fields[4]
+	if !reflect.DeepEqual(check.Enum, doctorCheckIDValues()) ||
+		!reflect.DeepEqual(status.Enum, []string{"pass", "warn", "fail", "blocked"}) ||
+		!blockedBy.Nullable || !reflect.DeepEqual(blockedBy.Enum, doctorCheckIDValues()) ||
+		!recovery.Nullable || recovery.Type != OutputFieldTypeObject || len(recovery.Fields) != 2 ||
+		recovery.Fields[0].Name != "action" || recovery.Fields[1].Name != "next_command" {
+		t.Fatalf("doctor recursive fields = check:%+v status:%+v blocked:%+v recovery:%+v", check, status, blockedBy, recovery)
+	}
+	if len(check.Enum) != len(doctor.CheckInventory()) {
+		t.Fatalf("doctor check enum = %d, inventory = %d", len(check.Enum), len(doctor.CheckInventory()))
+	}
+	root := spec.Agent.Inputs[1]
+	if root.DefaultValue == nil || *root.DefaultValue != "." || root.MinimumLength == nil || *root.MinimumLength != 1 {
+		t.Fatalf("doctor root input = %+v", root)
 	}
 }
 

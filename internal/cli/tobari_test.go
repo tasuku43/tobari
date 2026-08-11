@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
-	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -23,7 +22,6 @@ type policyReviewRuntimeFake struct {
 	denials       []tobari.PolicyDenial
 	rules         []tobari.LearnedPolicyRule
 	denyRules     []tobari.PolicyDenyRule
-	doctorRoot    string
 	applyCalls    int
 	denyCalls     int
 	terminal      bool
@@ -88,37 +86,43 @@ func (f *policyReviewRuntimeFake) ApplyPolicyDenyRules(
 	return nil
 }
 func (f *policyReviewRuntimeFake) ClusterDown(context.Context, tobari.State, bool) error { return nil }
-func (f *policyReviewRuntimeFake) Doctor(_ context.Context, root string) (doctor.Report, error) {
-	f.doctorRoot = root
-	return doctor.Report{Checks: []doctor.Check{{
-		Name: "runtime", Status: doctor.CheckStatusPass, Detail: "ready",
-	}}}, nil
-}
-
 func TestDoctorDefaultsRootToCurrentDirectory(t *testing.T) {
 	runtime := &policyReviewRuntimeFake{}
-	command, stdout, stderr := newTestCLI(passingInspector("unused"))
+	inspector := passingInspector("unused")
+	command, stdout, stderr := newTestCLI(inspector)
 	command.tobari = tobaricmd.New(runtime)
 	if code := runCLI(command, []string{"doctor"}); code != ExitOK {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
 	}
-	if runtime.doctorRoot != "." {
-		t.Fatalf("doctor root = %q, want current directory default", runtime.doctorRoot)
+	if len(inspector.roots) != len(doctorCheckIDValues()) || inspector.roots[0] != "." {
+		t.Fatalf("doctor roots = %q, want current directory default for every check", inspector.roots)
 	}
-	if !strings.Contains(stdout.String(), "runtime        pass") {
+	if !strings.Contains(stdout.String(), "docker_cli     pass") {
 		t.Fatalf("doctor output = %q", stdout.String())
 	}
 }
 
 func TestDoctorHonorsExplicitRoot(t *testing.T) {
 	runtime := &policyReviewRuntimeFake{}
-	command, _, stderr := newTestCLI(passingInspector("unused"))
+	inspector := passingInspector("unused")
+	command, _, stderr := newTestCLI(inspector)
 	command.tobari = tobaricmd.New(runtime)
 	if code := runCLI(command, []string{"doctor", "--root", "/tmp/project"}); code != ExitOK {
 		t.Fatalf("Run(doctor --root /tmp/project) code = %d, stderr = %q", code, stderr.String())
 	}
-	if runtime.doctorRoot != "/tmp/project" {
-		t.Fatalf("doctor root = %q, want explicit root", runtime.doctorRoot)
+	if len(inspector.roots) != len(doctorCheckIDValues()) || inspector.roots[0] != "/tmp/project" {
+		t.Fatalf("doctor roots = %q, want explicit root for every check", inspector.roots)
+	}
+}
+
+func TestDoctorRejectsExplicitEmptyRootBeforeInspection(t *testing.T) {
+	inspector := passingInspector("unused")
+	command, stdout, stderr := newTestCLI(inspector)
+	if code := runCLI(command, []string{"doctor", "--root="}); code != ExitUsage {
+		t.Fatalf("Run(doctor --root=) code = %d, stderr = %q", code, stderr.String())
+	}
+	if inspector.calls != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "invalid_arguments") {
+		t.Fatalf("calls = %d, stdout = %q, stderr = %q", inspector.calls, stdout.String(), stderr.String())
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 
 	"github.com/tasuku43/tobari/internal/app/execution"
 	"github.com/tasuku43/tobari/internal/app/portcheck"
-	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -36,7 +35,6 @@ type RuntimePort interface {
 		[]tobari.PolicyDenyRule, []tobari.PolicyDenyRule,
 	) error
 	ClusterDown(context.Context, tobari.State, bool) error
-	Doctor(context.Context, string) (doctor.Report, error)
 }
 
 type policyDecisionSetRuntimePort interface {
@@ -1935,18 +1933,4 @@ func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purg
 		return tobari.ClusterStatus{}, err
 	}
 	return tobari.UnconfiguredClusterStatus(tobari.TaskClusterDown), nil
-}
-
-func (s *Service) Doctor(ctx context.Context, root string) (doctor.Report, error) {
-	if err := s.requireRuntime(); err != nil {
-		return doctor.Report{}, err
-	}
-	report, err := s.runtime.Doctor(ctx, root)
-	if err != nil {
-		return doctor.Report{}, fault.Wrap(fault.KindInternal, "doctor_failed", "Tobari diagnostics could not run", false, err)
-	}
-	if err := report.Validate(); err != nil {
-		return doctor.Report{}, fault.Wrap(fault.KindContract, "invalid_doctor_contract", "Tobari diagnostic report is invalid", false, err)
-	}
-	return report, nil
 }

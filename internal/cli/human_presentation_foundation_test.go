@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	humanPresentationFixtureSHA256 = "34bc39ba4260683b6c12cb6a8c2694f63b543590129863664e72e63d9e5fc4b6"
-	humanPresentationAnswerSHA256  = "223ec64482852ce774bd7555da85e2535168118e50b25e716121cc2669666301"
+	humanPresentationFixtureSHA256 = "ea0c39f32078014cfb228725d013c79538eb5357814fc51a71fbec03a3078ee3"
+	humanPresentationAnswerSHA256  = "f2dbd3c1c819abf0da5ee05121b13178f9d2889afa9092563a4104de80e1fd32"
 )
 
 type humanPresentationFixture struct {
@@ -172,11 +172,6 @@ func TestPinnedHumanPresentationCorpusDrivesEveryTerminalMode(t *testing.T) {
 
 type humanPresentationFixtureRuntime struct {
 	policyReviewRuntimeFake
-	report doctor.Report
-}
-
-func (r *humanPresentationFixtureRuntime) Doctor(context.Context, string) (doctor.Report, error) {
-	return r.report, nil
 }
 
 func TestPinnedCorpusCrossesCLITerminalStyleSelectionBoundary(t *testing.T) {
@@ -185,9 +180,13 @@ func TestPinnedCorpusCrossesCLITerminalStyleSelectionBoundary(t *testing.T) {
 		t.Helper()
 		runtime := &humanPresentationFixtureRuntime{
 			policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: terminal},
-			report:                  fixture.Warning,
 		}
-		command, stdout, stderr := newTestCLI(passingInspector("ready"))
+		inspector := passingInspector("ready")
+		inspector.observations = make(map[doctor.CheckID]doctor.Observation, len(fixture.Warning.Checks))
+		for _, check := range fixture.Warning.Checks {
+			inspector.observations[check.Name] = doctor.Observation{Status: check.Status, Detail: check.Detail}
+		}
+		command, stdout, stderr := newTestCLI(inspector)
 		command.tobari = tobaricmd.New(runtime)
 		command.noColor = noColor
 		if code := command.RunContext(context.Background(), []string{"doctor"}); code != ExitOK {

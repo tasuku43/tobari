@@ -158,7 +158,7 @@ func (f authDoctorFixture) writeRegistry(t *testing.T, revision, digest string) 
 func runAuthDiagnostics(runtime *Runtime) []doctor.Check {
 	checks := make([]doctor.Check, 0, 5)
 	runtime.addAuthDiagnostics(context.Background(), func(name string, status doctor.CheckStatus, detail string) {
-		checks = append(checks, doctor.Check{Name: name, Status: status, Detail: detail})
+		checks = append(checks, doctor.Check{Name: doctor.CheckID(name), Status: status, Detail: detail})
 	})
 	return checks
 }
@@ -166,7 +166,7 @@ func runAuthDiagnostics(runtime *Runtime) []doctor.Check {
 func requireAuthDiagnostic(t *testing.T, checks []doctor.Check, name string, status doctor.CheckStatus) doctor.Check {
 	t.Helper()
 	for _, check := range checks {
-		if check.Name != name {
+		if check.Name != doctor.CheckID(name) {
 			continue
 		}
 		if check.Status != status {
@@ -200,7 +200,7 @@ func authDoctorArgument(args []string, name string) string {
 func assertAuthDoctorCanaryAbsent(t *testing.T, checks []doctor.Check) {
 	t.Helper()
 	for _, check := range checks {
-		if strings.Contains(check.Name, authDoctorCanary) || strings.Contains(check.Detail, authDoctorCanary) {
+		if strings.Contains(string(check.Name), authDoctorCanary) || strings.Contains(check.Detail, authDoctorCanary) {
 			t.Fatalf("diagnostic exposed secret canary: %+v", check)
 		}
 	}
@@ -351,7 +351,7 @@ func TestAuthDoctorStopsAtLockedOrUnavailableBroker(t *testing.T) {
 			requireAuthDiagnostic(t, checks, "auth_broker", test.status)
 			for _, forbidden := range []string{"credential_companion", "auth_vault_integrity", "auth_project_handles"} {
 				for _, check := range checks {
-					if check.Name == forbidden {
+					if check.Name == doctor.CheckID(forbidden) {
 						t.Fatalf("%s broker diagnostic continued into %s", test.name, forbidden)
 					}
 				}

@@ -17,16 +17,28 @@ import (
 )
 
 type cliInspector struct {
-	report doctor.Report
-	err    error
-	calls  int
-	ctx    context.Context
+	defaultObservation doctor.Observation
+	observations       map[doctor.CheckID]doctor.Observation
+	err                error
+	calls              int
+	ctx                context.Context
+	roots              []string
 }
 
-func (i *cliInspector) Inspect(ctx context.Context) (doctor.Report, error) {
+func (i *cliInspector) ObserveDoctorCheck(ctx context.Context, root string, id doctor.CheckID) (doctor.Observation, error) {
 	i.calls++
 	i.ctx = ctx
-	return i.report, i.err
+	i.roots = append(i.roots, root)
+	if i.err != nil {
+		return doctor.Observation{}, i.err
+	}
+	if observation, exists := i.observations[id]; exists {
+		return observation, nil
+	}
+	if i.defaultObservation.Status == "" {
+		return doctor.Observation{Status: doctor.CheckStatusPass, Detail: "observed"}, nil
+	}
+	return i.defaultObservation, nil
 }
 
 func newTestCLI(inspector *cliInspector) (*CLI, *bytes.Buffer, *bytes.Buffer) {
@@ -81,9 +93,7 @@ func newReferenceTestCLI(in io.Reader, out, errOut io.Writer) *CLI {
 }
 
 func passingInspector(detail string) *cliInspector {
-	return &cliInspector{report: doctor.Report{Checks: []doctor.Check{
-		{Name: "runtime", Status: doctor.CheckStatusPass, Detail: detail},
-	}}}
+	return &cliInspector{defaultObservation: doctor.Observation{Status: doctor.CheckStatusPass, Detail: detail}}
 }
 
 func runCLI(command *CLI, args []string) int {
@@ -299,51 +309,110 @@ func TestVersionOutputContract(t *testing.T) {
 }
 
 func TestDoctorOutputContract(t *testing.T) {
-	inspector := &cliInspector{report: doctor.Report{Checks: []doctor.Check{
-		{Name: "runtime", Status: doctor.CheckStatusPass, Detail: "runtime-version\ttest/test\nlocal"},
-		{Name: "configuration", Status: doctor.CheckStatusWarn, Detail: "path\\value\x1b"},
-	}}}
+	inspector := passingInspector("observed")
+	inspector.observations = map[doctor.CheckID]doctor.Observation{
+		doctor.CheckIDDockerCLI: {Status: doctor.CheckStatusPass, Detail: "runtime-version\ttest/test\nlocal"},
+		doctor.CheckIDProxyPort: {Status: doctor.CheckStatusWarn, Detail: "path\\value\x1b"},
+	}
 	command, stdout, stderr := newTestCLI(inspector)
 	if code := runCLI(command, []string{"doctor"}); code != ExitOK {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
 	}
-	want := "✓ Environment check\n" +
-		"  runtime        pass   runtime-version\\ttest/test\\nlocal\n" +
-		"  configuration  warn   path\\\\value\\u001B\n"
-	if got := stdout.String(); got != want {
-		t.Fatalf("doctor output = %q, want %q", got, want)
+	output := stdout.String()
+	if !strings.HasPrefix(output, "✓ Environment check\n  docker_cli     pass   runtime-version\\ttest/test\\nlocal\n") ||
+		!strings.Contains(output, "\n  proxy_port     warn   path\\\\value\\u001B\n") ||
+		!strings.Contains(output, "\n  owned_resources pass   observed\n") ||
+		len(strings.Split(strings.TrimSuffix(output, "\n"), "\n")) != len(doctor.CheckInventory())+1 {
+		t.Fatalf("doctor output = %q", output)
 	}
 	if strings.Contains(stdout.String(), "\n  Details") {
 		t.Fatalf("doctor output repeats detail labels: %q", stdout.String())
 	}
-	if stderr.Len() != 0 || inspector.calls != 1 {
+	if stderr.Len() != 0 || inspector.calls != len(doctor.CheckInventory()) {
 		t.Fatalf("stderr = %q, inspector calls = %d", stderr.String(), inspector.calls)
 	}
 }
 
 func TestDoctorTSVProjectionRemainsAvailable(t *testing.T) {
-	inspector := &cliInspector{report: doctor.Report{Checks: []doctor.Check{
-		{Name: "runtime", Status: doctor.CheckStatusPass, Detail: "runtime-version"},
-	}}}
+	inspector := passingInspector("observed")
+	inspector.observations = map[doctor.CheckID]doctor.Observation{
+		doctor.CheckIDDockerCLI: {Status: doctor.CheckStatusPass, Detail: "runtime-version"},
+	}
 	command, stdout, stderr := newTestCLI(inspector)
 	if code := runCLI(command, []string{"doctor", "--format", "tsv"}); code != ExitOK {
 		t.Fatalf("Run(doctor --format tsv) code = %d, stderr = %q", code, stderr.String())
 	}
-	if stdout.String() != "CHECK\tSTATUS\tDETAIL\nruntime\tpass\truntime-version\n" {
+	lines := strings.Split(strings.TrimSuffix(stdout.String(), "\n"), "\n")
+	if len(lines) != len(doctor.CheckInventory())+1 ||
+		lines[0] != "CHECK\tSTATUS\tBLOCKED_BY\tDETAIL\tRECOVERY_ACTION\tNEXT_COMMAND" ||
+		lines[1] != "docker_cli\tpass\t\truntime-version\t\t" ||
+		lines[len(lines)-1] != "owned_resources\tpass\t\tobserved\t\t" {
 		t.Fatalf("TSV doctor output = %q", stdout.String())
 	}
 }
 
 func TestDoctorFailureUsesRejectedExitAndStructuredRecovery(t *testing.T) {
-	inspector := &cliInspector{report: doctor.Report{Checks: []doctor.Check{
-		{Name: "runtime", Status: doctor.CheckStatusFail, Detail: "unsupported"},
-	}}}
+	inspector := passingInspector("observed")
+	inspector.observations = map[doctor.CheckID]doctor.Observation{
+		doctor.CheckIDDockerCLI: {Status: doctor.CheckStatusFail, Detail: "unsupported"},
+	}
 	command, stdout, stderr := newTestCLI(inspector)
 	if code := runCLI(command, []string{"doctor"}); code != ExitRejected {
 		t.Fatalf("Run(doctor) code = %d, want %d", code, ExitRejected)
 	}
-	if !strings.Contains(stdout.String(), "runtime        fail") || !humanOutputHasRow(stderr.String(), "Code", "diagnostic_failed") {
+	if !strings.Contains(stdout.String(), "docker_cli     fail") ||
+		!strings.Contains(stdout.String(), "docker_engine  blocked") ||
+		!strings.Contains(stdout.String(), "Recovery\n") ||
+		!strings.Contains(stdout.String(), "tobari doctor") ||
+		!humanOutputHasRow(stderr.String(), "Code", "diagnostic_failed") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestDoctorJSONPreservesBlockedAndRecoveryFacts(t *testing.T) {
+	inspector := passingInspector("observed")
+	inspector.observations = map[doctor.CheckID]doctor.Observation{
+		doctor.CheckIDDockerCLI: {Status: doctor.CheckStatusFail, Detail: "docker missing"},
+	}
+	command, stdout, stderr := newTestCLI(inspector)
+	if code := runCLI(command, []string{"doctor", "--format=json"}); code != ExitRejected {
+		t.Fatalf("Run(doctor --format=json) code = %d, stderr = %q", code, stderr.String())
+	}
+	var document doctorJSONDocument
+	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
+		t.Fatalf("decode doctor JSON: %v, output = %q", err, stdout.String())
+	}
+	if document.SchemaVersion != 2 || len(document.Report) != len(doctor.CheckInventory()) {
+		t.Fatalf("doctor document header = %+v", document)
+	}
+	root := document.Report[0]
+	if root.Check != "docker_cli" || root.Status != "fail" || root.BlockedBy != nil || root.Recovery == nil ||
+		root.Recovery.Action == "" || root.Recovery.NextCommand != "doctor" {
+		t.Fatalf("docker_cli JSON = %+v", root)
+	}
+	blocked := document.Report[1]
+	if blocked.Check != "docker_engine" || blocked.Status != "blocked" || blocked.BlockedBy == nil ||
+		*blocked.BlockedBy != "docker_cli" || blocked.Recovery != nil {
+		t.Fatalf("docker_engine JSON = %+v", blocked)
+	}
+	independent := document.Report[4]
+	if independent.Check != "proxy_port" || independent.Status != "pass" || independent.BlockedBy != nil || independent.Recovery != nil {
+		t.Fatalf("proxy_port JSON = %+v", independent)
+	}
+}
+
+func TestDoctorWarningRecoveryIsRenderedWithoutFailing(t *testing.T) {
+	inspector := passingInspector("observed")
+	inspector.observations = map[doctor.CheckID]doctor.Observation{
+		doctor.CheckIDState: {Status: doctor.CheckStatusWarn, Detail: "cluster is not configured"},
+	}
+	command, stdout, stderr := newTestCLI(inspector)
+	if code := runCLI(command, []string{"doctor"}); code != ExitOK {
+		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "state          warn") || !strings.Contains(stdout.String(), "Recovery\n") ||
+		!strings.Contains(stdout.String(), "tobari cluster up") {
+		t.Fatalf("doctor warning output = %q", stdout.String())
 	}
 }
 
@@ -806,23 +875,30 @@ func TestSuccessWriterFailureIsNotReportedAsSuccess(t *testing.T) {
 }
 
 func TestDoctorJSONSnapshotEscapesExternalCategoryC(t *testing.T) {
-	inspector := &cliInspector{report: doctor.Report{Checks: []doctor.Check{{
-		Name: "runtime", Status: doctor.CheckStatusPass, Detail: "line\nESC:\x1b bidi:\u202e",
-	}}}}
+	inspector := passingInspector("observed")
+	inspector.observations = map[doctor.CheckID]doctor.Observation{
+		doctor.CheckIDDockerCLI: {Status: doctor.CheckStatusPass, Detail: "line\nESC:\x1b bidi:\u202e"},
+	}
 	command, stdout, stderr := newTestCLI(inspector)
 	if code := runCLI(command, []string{"doctor", "--format", "json"}); code != ExitOK {
 		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
 	}
-	want := "{\"schema_version\":1,\"report\":[{\"check\":\"runtime\",\"status\":\"pass\",\"detail\":\"line\\\\nESC:\\\\u001B bidi:\\\\u202E\"}]}\n"
-	if stdout.String() != want {
-		t.Fatalf("JSON output = %q, want %q", stdout.String(), want)
+	var document doctorJSONDocument
+	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
+		t.Fatalf("JSON output: %v, output = %q", err, stdout.String())
+	}
+	if document.SchemaVersion != 2 || len(document.Report) != len(doctor.CheckInventory()) ||
+		document.Report[0].Check != "docker_cli" || document.Report[0].Detail != "line\\nESC:\\u001B bidi:\\u202E" ||
+		document.Report[0].BlockedBy != nil || document.Report[0].Recovery != nil {
+		t.Fatalf("JSON document = %+v", document)
 	}
 }
 
 func TestDoctorOversizeReturnsNoStdout(t *testing.T) {
-	inspector := &cliInspector{report: doctor.Report{Checks: []doctor.Check{{
-		Name: "runtime", Status: doctor.CheckStatusPass, Detail: strings.Repeat("x", maxDoctorDetailBytes+1),
-	}}}}
+	inspector := passingInspector("observed")
+	inspector.observations = map[doctor.CheckID]doctor.Observation{
+		doctor.CheckIDDockerCLI: {Status: doctor.CheckStatusPass, Detail: strings.Repeat("x", maxDoctorDetailBytes+1)},
+	}
 	command, stdout, stderr := newTestCLI(inspector)
 	if code := runCLI(command, []string{"doctor"}); code != ExitContract {
 		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
@@ -830,6 +906,27 @@ func TestDoctorOversizeReturnsNoStdout(t *testing.T) {
 	if stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "output_contract_exceeded") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
+}
+
+func TestDoctorOversizeRecoveryReturnsNoStdout(t *testing.T) {
+	report := completeDoctorCLIReport(doctor.CheckStatusPass, "observed")
+	report.Checks[0].Status = doctor.CheckStatusFail
+	report.Checks[0].Recovery = &doctor.Recovery{Action: strings.Repeat("x", maxDoctorActionBytes+1), NextCommand: "doctor"}
+	if err := validateDoctorProjection(report); err == nil {
+		t.Fatal("oversize recovery passed projection validation")
+	}
+	report.Checks[0].Recovery = &doctor.Recovery{Action: "install Docker", NextCommand: strings.Repeat("x", maxDoctorCommandBytes+1)}
+	if err := validateDoctorProjection(report); err == nil {
+		t.Fatal("oversize next command passed projection validation")
+	}
+}
+
+func completeDoctorCLIReport(status doctor.CheckStatus, detail string) doctor.Report {
+	checks := make([]doctor.Check, 0, len(doctor.CheckInventory()))
+	for _, spec := range doctor.CheckInventory() {
+		checks = append(checks, doctor.Check{Name: spec.ID, Status: status, Detail: detail})
+	}
+	return doctor.Report{Checks: checks}
 }
 
 func TestDoctorRejectsArgumentsBeforeInspection(t *testing.T) {

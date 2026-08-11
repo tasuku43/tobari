@@ -22,7 +22,7 @@
     {
       "name": "warning",
       "task": "doctor",
-      "required_facts": ["Environment check", "runtime", "warn", "optional acceleration is unavailable"],
+      "required_facts": ["Environment check", "root_sharing", "warn", "path is valid; Docker bind sharing is checked when a Workspace is created"],
       "exact_next_argv": [],
       "unsupported_inferences": ["a warning is a failed diagnostic"]
     },

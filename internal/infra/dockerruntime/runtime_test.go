@@ -419,7 +419,7 @@ func TestDoctorRejectsProtectedProspectiveRootsAfterSymlinkResolution(t *testing
 		"symlink to filesystem root": rootAlias,
 	} {
 		t.Run(name, func(t *testing.T) {
-			report, err := runtime.Doctor(context.Background(), candidate)
+			report, err := runRuntimeDoctor(context.Background(), runtime, candidate)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -443,7 +443,7 @@ func TestDoctorRejectsProtectedProspectiveRootsAfterSymlinkResolution(t *testing
 	}
 }
 
-func TestDoctorDiagnosesExistingPolicyBeforeClusterIsConfigured(t *testing.T) {
+func TestDoctorValidatesExistingPolicySourceWithoutCreatingDockerResource(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runner := &policyProbeRunner{}
@@ -457,7 +457,7 @@ func TestDoctorDiagnosesExistingPolicyBeforeClusterIsConfigured(t *testing.T) {
 	if err := os.MkdirAll(policyDirectory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	report, err := runtime.Doctor(context.Background(), "")
+	report, err := runRuntimeDoctor(context.Background(), runtime, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,18 +465,18 @@ func TestDoctorDiagnosesExistingPolicyBeforeClusterIsConfigured(t *testing.T) {
 		if check.Name != "policy" {
 			continue
 		}
-		if check.Status != doctor.CheckStatusFail {
-			t.Fatalf("policy check = %+v, want fail", check)
+		if check.Status != doctor.CheckStatusPass {
+			t.Fatalf("policy check = %+v, want pass", check)
 		}
-		if !strings.Contains(check.Detail, "Docker Engine VM") {
-			t.Fatalf("policy detail = %q, want Docker bind guidance", check.Detail)
+		if !strings.Contains(check.Detail, "source structures are valid") || !strings.Contains(check.Detail, "cluster up") {
+			t.Fatalf("policy detail = %q, want bounded host-source claim", check.Detail)
 		}
 		for _, call := range runner.outputs {
 			if len(call.args) > 0 && call.args[0] == "run" {
-				return
+				t.Fatalf("doctor created a policy-test container: %v", call.args)
 			}
 		}
-		t.Fatal("doctor did not probe the existing policy directory")
+		return
 	}
 	t.Fatal("doctor report did not contain a policy check")
 }
@@ -505,7 +505,7 @@ func TestDoctorDiagnosesUnsafeLearnedPolicyData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err := runtime.Doctor(context.Background(), "")
+	report, err := runRuntimeDoctor(context.Background(), runtime, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

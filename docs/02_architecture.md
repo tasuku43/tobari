@@ -596,9 +596,16 @@ the reviewed choice. Redirected omission fails before the
 status read or mutation, and an AWS method flag requires explicit `--provider`.
 
 `doctor` composes bounded read-only environment, Docker, policy, provider,
-root-key/vault, broker, and project-binding diagnostics. It reports all checks,
-fails the command with `diagnostic_failed` when any check fails, and treats
-warnings alone as healthy. It observes rather than repairs: it does not create a
+root-key/vault, broker, and project-binding diagnostics. The application-owned
+finite DAG schedules each infrastructure observation once its declared direct
+prerequisites pass, continues independent branches, and creates typed blocked
+rows for unready dependents. Infrastructure returns only pass, warning, or
+failure observations; application code owns recovery and validates the fixed
+complete order. Doctor JSON schema 2 and the text/TSV renderers project those
+same facts. It fails the command with `diagnostic_failed` when any check fails,
+and treats warnings alone as healthy. It observes rather than repairs: policy
+checks validate bounded host source structure and do not start an OPA test
+container, and doctor does not create a
 root key, initialize or activate policy, start/reconcile/unlock the cluster, or
 mutate provider, vault, credential, handle, or project-auth state.
 

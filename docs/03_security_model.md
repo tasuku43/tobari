@@ -663,8 +663,13 @@ require `auth status` reconciliation before another auth mutation; none permits
 replay.
 
 `doctor` is a read-only recovery observation. It reports the full diagnostic
-set and fails with `diagnostic_failed` when any check fails; warnings alone are
-healthy. Authentication checks validate provider manifests, vault path safety,
+set through a fixed dependency graph: only checks whose direct prerequisites
+passed cross an infrastructure boundary, while independent checks continue and
+unready checks are typed as blocked without duplicated recovery. It fails with
+`diagnostic_failed` when any check fails; warnings alone are healthy.
+Policy checks perform bounded owner/symlink/source-structure validation on the
+host and never use `docker run` or create an OPA test resource. Authentication
+checks validate provider manifests, vault path safety,
 the fixed root-key backend without creating a key, broker state, vault
 integrity, and project binding consistency when the broker is ready. Doctor
 does not start/reconcile/unlock services, create or replace a key, repair a
@@ -814,7 +819,7 @@ reference-bound mutation.
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
 | Broker fallback cannot accept a Tobari-looking handle | Marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
 | Cluster cleanup preserves authentication authority until explicit logout | Down/purge tests proving vault and root-key preservation plus exact logout/revocation tests |
-| Doctor observes but never repairs authentication state | Recording-runner and filesystem canaries for provider, root-key, vault, broker, and project-binding diagnostics |
+| Doctor observes but never repairs authentication state | Fixed-DAG dependency fixtures, recording-runner Docker-argv allowlists, legacy/fresh-tree content snapshots, and filesystem canaries for provider, root-key, vault, broker, and project-binding diagnostics |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |
 | Attached sessions are not removed accidentally | Exact work-container Exec ID observation, guard-before-delete tests, and explicit force-override tests |
 | Each root and XDG home are its Tobari's only host write scopes | Mount-spec and path-containment tests |

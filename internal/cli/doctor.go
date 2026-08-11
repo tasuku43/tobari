@@ -11,10 +11,12 @@ import (
 )
 
 const (
-	maxDoctorChecks      = 100
-	maxDoctorNameBytes   = 256
-	maxDoctorDetailBytes = 64 * 1024
-	doctorStatusWidth    = 6
+	maxDoctorChecks       = 100
+	maxDoctorNameBytes    = 256
+	maxDoctorDetailBytes  = 64 * 1024
+	maxDoctorActionBytes  = 64 * 1024
+	maxDoctorCommandBytes = 4 * 1024
+	doctorStatusWidth     = 6
 )
 
 func runDoctor(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
@@ -22,12 +24,7 @@ func runDoctor(ctx context.Context, c *CLI, command CommandSpec, intent operatio
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help doctor", "Correct the command arguments.")
 	}
-	var report doctor.Report
-	if c.tobari != nil {
-		report, err = c.tobari.Doctor(ctx, inputs.One("--root"))
-	} else {
-		report, err = c.doctor.Run(ctx, intent)
-	}
+	report, err := c.doctor.Run(ctx, intent, inputs.One("--root"))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -47,7 +44,7 @@ func runDoctor(ctx context.Context, c *CLI, command CommandSpec, intent operatio
 			"diagnostic_failed",
 			"One or more diagnostics failed.",
 			false,
-			fault.NextAction{Command: "doctor", Reason: "Review the report, correct the failed prerequisite, and rerun diagnostics."},
+			fault.NextAction{Command: "doctor", Reason: "Execute the first failed row recovery, then rerun diagnostics."},
 		))
 	}
 	return ExitOK
@@ -61,6 +58,9 @@ func validateDoctorProjection(report doctor.Report) error {
 		if len(check.Name) > maxDoctorNameBytes || len(check.Detail) > maxDoctorDetailBytes {
 			return outputContractExceeded("A diagnostic field exceeds the declared byte limit.", "doctor")
 		}
+		if check.Recovery != nil && (len(check.Recovery.Action) > maxDoctorActionBytes || len(check.Recovery.NextCommand) > maxDoctorCommandBytes) {
+			return outputContractExceeded("A diagnostic recovery field exceeds the declared byte limit.", "doctor")
+		}
 	}
 	return nil
 }
@@ -71,9 +71,16 @@ type doctorJSONDocument struct {
 }
 
 type doctorJSONCheck struct {
-	Check  string `json:"check"`
-	Status string `json:"status"`
-	Detail string `json:"detail"`
+	Check     string              `json:"check"`
+	Status    string              `json:"status"`
+	Detail    string              `json:"detail"`
+	BlockedBy *string             `json:"blocked_by"`
+	Recovery  *doctorJSONRecovery `json:"recovery"`
+}
+
+type doctorJSONRecovery struct {
+	Action      string `json:"action"`
+	NextCommand string `json:"next_command"`
 }
 
 func renderDoctorReport(report doctor.Report, format successFormat) ([]byte, error) {
@@ -82,12 +89,26 @@ func renderDoctorReport(report doctor.Report, format successFormat) ([]byte, err
 
 func renderDoctorReportWithColor(report doctor.Report, format successFormat, color bool) ([]byte, error) {
 	if format == successFormatJSON {
-		document := doctorJSONDocument{SchemaVersion: 1, Report: make([]doctorJSONCheck, 0, len(report.Checks))}
+		document := doctorJSONDocument{SchemaVersion: 2, Report: make([]doctorJSONCheck, 0, len(report.Checks))}
 		for _, check := range report.Checks {
+			var blockedBy *string
+			if check.BlockedBy != nil {
+				value := safeExternalText(string(*check.BlockedBy))
+				blockedBy = &value
+			}
+			var recovery *doctorJSONRecovery
+			if check.Recovery != nil {
+				recovery = &doctorJSONRecovery{
+					Action:      safeExternalText(check.Recovery.Action),
+					NextCommand: safeExternalText(check.Recovery.NextCommand),
+				}
+			}
 			document.Report = append(document.Report, doctorJSONCheck{
-				Check:  safeExternalText(check.Name),
-				Status: string(check.Status),
-				Detail: safeExternalText(check.Detail),
+				Check:     safeExternalText(string(check.Name)),
+				Status:    string(check.Status),
+				Detail:    safeExternalText(check.Detail),
+				BlockedBy: blockedBy,
+				Recovery:  recovery,
 			})
 		}
 		output, err := marshalCommandJSON("doctor", document)
@@ -110,22 +131,45 @@ func renderDoctorReportWithColor(report doctor.Report, format successFormat, col
 		for _, check := range report.Checks {
 			output.doctorCheck(check)
 		}
+		if recovery, exists := report.PrimaryRecovery(); exists {
+			output.section("Recovery")
+			output.next(recovery.NextCommand, recovery.Action)
+		}
 		return output.bytes(), nil
 	}
 
 	var output bytes.Buffer
-	fmt.Fprintln(&output, "CHECK\tSTATUS\tDETAIL")
+	fmt.Fprintln(&output, "CHECK\tSTATUS\tBLOCKED_BY\tDETAIL\tRECOVERY_ACTION\tNEXT_COMMAND")
 	for _, check := range report.Checks {
-		fmt.Fprintf(&output, "%s\t%s\t%s\n", escapeTSVCell(check.Name), check.Status, escapeTSVCell(check.Detail))
+		blockedBy, action, nextCommand := "", "", ""
+		if check.BlockedBy != nil {
+			blockedBy = string(*check.BlockedBy)
+		}
+		if check.Recovery != nil {
+			action = check.Recovery.Action
+			nextCommand = check.Recovery.NextCommand
+		}
+		fmt.Fprintf(
+			&output, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			escapeTSVCell(string(check.Name)), check.Status, escapeTSVCell(blockedBy),
+			escapeTSVCell(check.Detail), escapeTSVCell(action), escapeTSVCell(nextCommand),
+		)
 	}
 	return output.Bytes(), nil
 }
 
 func (o *humanOutput) doctorCheck(check doctor.Check) {
-	name := escapeTSVCell(check.Name)
+	name := escapeTSVCell(string(check.Name))
 	status := escapeTSVCell(string(check.Status))
+	detail := check.Detail
+	if check.BlockedBy != nil {
+		if detail != "" {
+			detail += "; "
+		}
+		detail += "blocked by " + string(*check.BlockedBy)
+	}
 	paddedName := fmt.Sprintf("%-*s", humanOutputLabelWidth, name)
-	if check.Detail == "" {
+	if detail == "" {
 		fmt.Fprintf(
 			&o.Buffer, "  %s %s\n",
 			applyStyleToken(o.color, styleText, paddedName),
@@ -138,7 +182,7 @@ func (o *humanOutput) doctorCheck(check doctor.Check) {
 		&o.Buffer, "  %s %s %s\n",
 		applyStyleToken(o.color, styleText, paddedName),
 		applyStyleToken(o.color, humanStatusToken(status), paddedStatus),
-		applyStyleToken(o.color, styleText, escapeTSVCell(check.Detail)),
+		applyStyleToken(o.color, styleText, escapeTSVCell(detail)),
 	)
 }
 

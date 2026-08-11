@@ -23,8 +23,8 @@
   {
     "id": "human-presentation-foundation.fixture.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-fixture.json",
-    "sha256": "34bc39ba4260683b6c12cb6a8c2694f63b543590129863664e72e63d9e5fc4b6",
-    "bytes": 1324,
+    "sha256": "ea0c39f32078014cfb228725d013c79538eb5357814fc51a71fbec03a3078ee3",
+    "bytes": 3507,
     "cases": 5,
     "provenance": "Repository-authored synthetic typed fixture for human presentation across styled, NO_COLOR, redirected, empty, warning, failure, and cancellation modes.",
     "license": "MIT"
@@ -32,8 +32,8 @@
   {
     "id": "human-presentation-foundation.answer-key.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-answer-key.json",
-    "sha256": "223ec64482852ce774bd7555da85e2535168118e50b25e716121cc2669666301",
-    "bytes": 1624,
+    "sha256": "f2dbd3c1c819abf0da5ee05121b13178f9d2889afa9092563a4104de80e1fd32",
+    "bytes": 1666,
     "cases": 5,
     "provenance": "Repository-authored presentation-independent answer key for human CLI structure, exact recovery, and negative-inference canaries.",
     "license": "MIT"

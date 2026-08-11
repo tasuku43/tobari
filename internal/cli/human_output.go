@@ -108,7 +108,7 @@ func humanStatusToken(status string) styleToken {
 	switch strings.ToLower(status) {
 	case "pass", "ok", "ready", "running", "healthy", "true", "applied", "created", "deleted", "detached":
 		return styleSuccess
-	case "warn", "warning", "starting", "pending", "pending_build", "unknown", "missing", "degraded", "unreachable", "incomplete", "attached", "false":
+	case "warn", "warning", "blocked", "starting", "pending", "pending_build", "unknown", "missing", "degraded", "unreachable", "incomplete", "attached", "false":
 		return styleWarning
 	case "fail", "failed", "error", "unhealthy", "exited", "dead", "rejected":
 		return styleDanger

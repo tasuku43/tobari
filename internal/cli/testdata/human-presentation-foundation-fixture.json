@@ -21,9 +21,114 @@
   "warning": {
     "checks": [
       {
-        "name": "runtime",
+        "name": "docker_cli",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "docker_engine",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "docker_context",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "docker_compose",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "proxy_port",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "root",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "root_sharing",
         "status": "warn",
-        "detail": "optional acceleration is unavailable"
+        "detail": "path is valid; Docker bind sharing is checked when a Workspace is created"
+      },
+      {
+        "name": "context",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "state",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "policy",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "policy_data",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "credentials",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "credential_config",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "image_config",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "auth_provider_manifests",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "auth_vault_paths",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "auth_root_key",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "auth_broker",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "credential_companion",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "auth_vault_integrity",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "auth_project_handles",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
+        "name": "owned_resources",
+        "status": "pass",
+        "detail": "ready"
       }
     ]
   },
