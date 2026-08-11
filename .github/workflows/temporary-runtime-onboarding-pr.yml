@@ -1,0 +1,74 @@
+name: Temporary runtime onboarding patch
+
+on:
+  pull_request:
+    paths:
+      - .github/runtime-doc-patch.py
+      - .github/workflows/temporary-runtime-onboarding-pr.yml
+      - docs/architecture-site/**
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Check whether the patch is already applied
+        id: applied
+        shell: bash
+        run: |
+          if [ "$(git log -1 --pretty=%s)" = "docs: connect onboarding to custom runtime" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply onboarding patch
+        if: steps.applied.outputs.skip != 'true'
+        run: python .github/runtime-doc-patch.py
+
+      - name: Set up Node.js
+        if: steps.applied.outputs.skip != 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: docs/architecture-site/package-lock.json
+
+      - name: Select repository-pinned npm
+        if: steps.applied.outputs.skip != 'true'
+        run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
+
+      - name: Install documentation dependencies
+        if: steps.applied.outputs.skip != 'true'
+        working-directory: docs/architecture-site
+        run: npm ci
+
+      - name: Format and verify the static site
+        if: steps.applied.outputs.skip != 'true'
+        working-directory: docs/architecture-site
+        env:
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_DATE_EPOCH: '1770000000'
+        run: |
+          npm run format:write
+          npm run test:static
+
+      - name: Commit and push
+        if: steps.applied.outputs.skip != 'true'
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          rm .github/runtime-doc-patch.py
+          rm .github/workflows/temporary-runtime-onboarding-pr.yml
+          git add -A
+          git commit -m "docs: connect onboarding to custom runtime"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
