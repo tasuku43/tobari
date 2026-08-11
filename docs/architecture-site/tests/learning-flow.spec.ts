@@ -36,7 +36,10 @@ test.describe("task-first documentation flow", () => {
     await expect(
       page.getByRole("link", { name: "通信が拒否された" }),
     ).toHaveAttribute("href", /\/ja\/start\/first-denial\/$/);
-    await expect(page.locator(".home-tasks > a")).toHaveCount(5);
+    await expect(
+      page.getByRole("link", { name: "エージェントと開発ツールを入れる" }),
+    ).toHaveAttribute("href", /\/ja\/start\/runtime-setup\/$/);
+    await expect(page.locator(".home-tasks > a")).toHaveCount(6);
   });
 
   test("quickstart stays focused on five observable steps", async ({
@@ -49,7 +52,27 @@ test.describe("task-first documentation flow", () => {
     await expect(
       page.getByRole("heading", { name: "What you have now verified" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("link", {
+        name: "Prepare a custom runtime (required before real project work)",
+      }),
+    ).toHaveAttribute("href", /\/start\/runtime-setup\/$/);
     await expect(page.locator("tobari-sequence-explorer")).toHaveCount(0);
+  });
+
+  test("custom runtime setup is an explicit onboarding step", async ({
+    page,
+  }) => {
+    await page.goto("start/runtime-setup/");
+
+    await expect(
+      page.getByRole("heading", {
+        name: "Quickstart verifies policy control; it does not install a coding agent",
+      }),
+    ).toBeVisible();
+    await expect(page.locator(".runtime-flow > li")).toHaveCount(5);
+    await expect(page.locator(".runtime-steps > li")).toHaveCount(5);
+    await expect(page.locator(".learning-badge-step")).toHaveText("3 / 11");
   });
 
   test("learning pages show current position and the next learning goal", async ({
@@ -57,11 +80,11 @@ test.describe("task-first documentation flow", () => {
   }) => {
     await page.goto("start/overview/");
 
-    await expect(page.locator(".learning-badge-step")).toHaveText("1 / 10");
+    await expect(page.locator(".learning-badge-step")).toHaveText("1 / 11");
     await expect(page.locator("nav.learning-progress")).toBeVisible();
     await expect(
       page.locator("nav.learning-progress .learning-next strong"),
-    ).toHaveText("Mental model");
+    ).toHaveText("Quickstart");
   });
 
   test("CLI reference starts from the task instead of a flat command list", async ({

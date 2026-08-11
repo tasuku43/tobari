@@ -5,6 +5,7 @@ import { projectBase, testOrigin } from "../site.config.mjs";
 const representativePages = [
   "",
   "start/quickstart/",
+  "start/runtime-setup/",
   "how-it-works/system-overview/",
   "how-it-works/request-journey/",
   "how-it-works/policy-learning/",
@@ -12,6 +13,7 @@ const representativePages = [
   "security/guarantees-and-limitations/",
   "reference/cli/",
   "ja/",
+  "ja/start/runtime-setup/",
   "ja/how-it-works/credentials/",
   "ja/security/guarantees-and-limitations/",
   "ja/reference/cli/",

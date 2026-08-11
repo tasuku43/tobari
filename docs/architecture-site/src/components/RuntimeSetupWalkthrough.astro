@@ -1,0 +1,720 @@
+---
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const t = <T,>(english: T, japanese: T) => (isJapanese ? japanese : english);
+const withBase = (path: string) =>
+  `${import.meta.env.BASE_URL}${isJapanese ? "ja/" : ""}${path.replace(/^\//, "")}`;
+const evidenceHref = (path: string) =>
+  `${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/${path}`;
+
+const flow = [
+  {
+    from: t("Trusted host", "信頼するホスト"),
+    to: t("Context recipe", "Context のレシピ"),
+    title: t("Initialize one Dockerfile", "Dockerfile を初期化する"),
+    detail: t(
+      "runtime init creates an owner-only recipe for the current Context. It does not build or select an image.",
+      "runtime init は、現在の Context に所有者専用のレシピを作ります。この時点では、イメージをビルドも選択もしません。",
+    ),
+    kind: "control",
+  },
+  {
+    from: t("Context recipe", "Context のレシピ"),
+    to: t("Host Docker build", "ホストの Docker ビルド"),
+    title: t(
+      "Install the agent and toolchain",
+      "エージェントと開発ツールを追加する",
+    ),
+    detail: t(
+      "Edit the generated Dockerfile on the host, then run runtime build. Only the Context runtime directory is sent as build context.",
+      "生成された Dockerfile をホストで編集し、runtime build を実行します。ビルドコンテキストには Context の runtime ディレクトリだけを渡します。",
+    ),
+    kind: "trusted",
+  },
+  {
+    from: t("Host Docker build", "ホストの Docker ビルド"),
+    to: t("Compatibility check", "互換性検査"),
+    title: t("Validate the resulting image", "生成したイメージを検査する"),
+    detail: t(
+      "Tobari checks the runtime API, lifetime capability, entrypoint, user, architecture, and immutable local digest.",
+      "Tobari はランタイム API、寿命管理機能、エントリーポイント、ユーザー、アーキテクチャ、不変なローカルダイジェストを確認します。",
+    ),
+    kind: "diagnostic",
+  },
+  {
+    from: t("Compatibility check", "互換性検査"),
+    to: t("Context selection", "Context の選択情報"),
+    title: t("Promote only a compatible image", "互換イメージだけを採用する"),
+    detail: t(
+      "A successful build atomically updates the current Context. A failed build or check leaves the previous selection active.",
+      "ビルドと検査に成功した場合だけ、現在の Context をアトミックに更新します。失敗した場合は、それまでの選択が有効なままです。",
+    ),
+    kind: "allowed",
+  },
+  {
+    from: t("Context selection", "Context の選択情報"),
+    to: "Workspace",
+    title: t("Reconcile on the next entry", "次の入室時に反映する"),
+    detail: t(
+      "The next tobari entry creates or replaces only the work container that has runtime drift. Project files, Workspace identity, home, and learned policy remain.",
+      "次に tobari で入るとき、ランタイムに差分がある作業コンテナだけを作成または置き換えます。プロジェクトファイル、Workspace の識別情報、ホーム、学習済みポリシーは残ります。",
+    ),
+    kind: "network",
+  },
+];
+
+const steps = [
+  {
+    title: t(
+      "Confirm which Context will own the runtime",
+      "ランタイムを管理する Context を確認する",
+    ),
+    location: t("Trusted host", "信頼するホスト"),
+    command: `tobari context show`,
+    expected: t(
+      "The report identifies the current Context, selected image, and runtime status. All Workspaces bound to this Context use its selected runtime on their next entry.",
+      "現在の Context、選択中のイメージ、ランタイムの状態が表示されます。この Context に結び付いた Workspace は、次の入室時に選択中のランタイムを使います。",
+    ),
+    note: t(
+      "Use a named Context when you need a separate agent or language toolchain. Select it before continuing with context use --name <name>.",
+      "エージェントや言語ツールチェーンを分けたい場合は、名前付き Context を使います。続行前に context use --name <name> で選択してください。",
+    ),
+  },
+  {
+    title: t(
+      "Create the managed Dockerfile once",
+      "管理対象の Dockerfile を一度だけ作る",
+    ),
+    location: t("Trusted host", "信頼するホスト"),
+    command: `tobari runtime init\ntobari context show`,
+    expected: t(
+      "Tobari creates an owner-only runtime/Dockerfile and reports its exact path. It does not overwrite an existing recipe.",
+      "所有者だけが読める runtime/Dockerfile が作成され、正確なパスが表示されます。既存のレシピは上書きしません。",
+    ),
+    note: t(
+      "If runtime_recipe_exists is returned, do not initialize again. Open the Dockerfile path shown by context show.",
+      "runtime_recipe_exists が返った場合は再初期化しません。context show が表示する Dockerfile のパスを開いてください。",
+    ),
+  },
+  {
+    title: t(
+      "Add the agent and the tools it actually needs",
+      "エージェントと必要な開発ツールを追加する",
+    ),
+    location: t(
+      "Edit the reported Dockerfile on the trusted host",
+      "信頼するホストで、表示された Dockerfile を編集",
+    ),
+    command: t(
+      `<editor> <dockerfile-path-shown-by-context-show>`,
+      `<エディタ> <context-show-に表示された-Dockerfile-のパス>`,
+    ),
+    expected: t(
+      "The generated FROM line, Tobari entrypoint contract, and final USER tobari remain intact. Package and agent installation commands are placed between USER root and USER tobari.",
+      "生成済みの FROM 行、Tobari のエントリーポイント契約、最後の USER tobari を維持します。パッケージとエージェントのインストール処理は USER root と USER tobari の間へ追加します。",
+    ),
+    note: t(
+      "Pin versions where practical. Never copy access tokens, cloud credentials, host credential files, or private package-manager configuration into the image.",
+      "可能な範囲でバージョンを固定してください。アクセストークン、クラウド認証情報、ホストの認証ファイル、非公開のパッケージ設定をイメージへ入れないでください。",
+    ),
+  },
+  {
+    title: t(
+      "Build, validate, and select the image",
+      "イメージをビルドし、検査して採用する",
+    ),
+    location: t("Trusted host", "信頼するホスト"),
+    command: `tobari runtime build\ntobari context show`,
+    expected: t(
+      "The build completes, compatibility is verified, and the Context reports a ready custom runtime with the selected image digest.",
+      "ビルドと互換性検査が完了し、Context に準備済みのカスタムランタイムと選択されたイメージダイジェストが表示されます。",
+    ),
+    note: t(
+      "runtime build is a host Docker-build boundary. Network access performed by the Dockerfile is not reviewed by the Workspace HTTP policy, so review every base image and download performed during the build.",
+      "runtime build はホスト上の Docker ビルドです。Dockerfile がビルド中に行う通信は Workspace の HTTP ポリシーレビューを通らないため、ベースイメージとダウンロード先を確認してください。",
+    ),
+  },
+  {
+    title: t(
+      "Enter a real project and verify the executable",
+      "実際のプロジェクトへ入り、実行ファイルを確認する",
+    ),
+    location: t("Trusted host → Workspace", "信頼するホスト → Workspace"),
+    command: t(
+      `cd /path/to/your/project\ntobari\n\n# Inside the Workspace\ncommand -v <agent-command>\n<agent-command> --version`,
+      `cd /path/to/your/project\ntobari\n\n# Workspace 内\ncommand -v <エージェントのコマンド>\n<エージェントのコマンド> --version`,
+    ),
+    expected: t(
+      "The agent executable and required toolchain are available inside the Workspace. Existing Workspaces may recreate only their work container on this entry.",
+      "Workspace 内でエージェントの実行ファイルと必要なツールチェーンを利用できます。既存 Workspace では、この入室時に作業コンテナだけを再作成する場合があります。",
+    ),
+    note: t(
+      "Replace the placeholders with the command installed by your chosen agent. Authentication and outbound permissions are configured separately; installing the binary grants neither.",
+      "プレースホルダーは、利用するエージェントの実際のコマンドへ置き換えてください。認証と外部通信の許可は別に設定します。実行ファイルを追加しただけでは、どちらの権限も増えません。",
+    ),
+  },
+];
+
+const dockerfileExample = `# Keep the generated FROM line and USER transitions.\n# Add commands like these between USER root and USER tobari.\n\nRUN apt-get update \\\n    && apt-get install -y --no-install-recommends \\\n       nodejs npm ripgrep \\\n    && rm -rf /var/lib/apt/lists/*\n\n# Replace both placeholders with the official, version-pinned\n# package for the coding agent you use.\nRUN npm install --global <coding-agent-package>@<version>`;
+
+const installChecklist = t(
+  [
+    "The coding-agent executable and its language runtime",
+    "The compiler, package manager, test runner, and search tools used by the project",
+    "A non-root execution path that works as the tobari user",
+    "Pinned or otherwise reviewable versions for externally downloaded tools",
+  ],
+  [
+    "コーディングエージェントの実行ファイルと、その実行に必要な言語ランタイム",
+    "プロジェクトで使うコンパイラー、パッケージマネージャー、テストランナー、検索ツール",
+    "tobari ユーザーで動作する非 root の実行経路",
+    "外部から取得するツールの、固定またはレビュー可能なバージョン",
+  ],
+);
+
+const limits = t(
+  [
+    "The build context is the Context runtime directory, not the current project. COPY cannot read arbitrary project or host files.",
+    "Do not replace the generated base, entrypoint, final user, or required runtime labels unless you are intentionally implementing the exact runtime contract.",
+    "Do not bake secrets into Dockerfile instructions, build arguments, package configuration, image layers, or shell history.",
+    "A compatible image supplies tools only. Tobari still fixes mounts, network, capabilities, resources, project identity, and Workspace lifetime.",
+  ],
+  [
+    "ビルドコンテキストは Context の runtime ディレクトリです。現在のプロジェクトや任意のホストファイルを COPY することはできません。",
+    "完全なランタイム契約を意図的に実装する場合を除き、生成されたベース、エントリーポイント、最後のユーザー、必須ラベルを置き換えないでください。",
+    "Dockerfile、ビルド引数、パッケージ設定、イメージレイヤー、シェル履歴へ秘密情報を入れないでください。",
+    "互換イメージが提供するのはツールです。マウント、ネットワーク、capability、リソース、プロジェクトの識別、Workspace の寿命は引き続き Tobari が固定します。",
+  ],
+);
+---
+
+<div class="runtime-setup">
+  <section class="runtime-intro">
+    <p class="runtime-eyebrow">
+      {
+        t(
+          "Required before real project work",
+          "実際のプロジェクトで使う前に必要",
+        )
+      }
+    </p>
+    <h2>
+      {
+        t(
+          "Quickstart verifies policy control; it does not install a coding agent",
+          "クイックスタートで確認するのは通信制御です。コーディングエージェントは入りません",
+        )
+      }
+    </h2>
+    <p>
+      {
+        t(
+          "The standard base runtime is intentionally minimal. Quickstart uses its curl command directly so you can verify denial, review, allow, and retry without choosing an agent. Before using Tobari on a real repository, build a Context-owned runtime that contains your agent and project toolchain.",
+          "標準ベースランタイムは意図的に最小限です。クイックスタートは、その中の curl を直接使い、エージェントを選ばずに拒否、レビュー、許可、再実行を確認します。実際のリポジトリで使う前に、エージェントとプロジェクトの開発ツールを含む、Context 管理のランタイムをビルドしてください。",
+        )
+      }
+    </p>
+    <aside class="runtime-required">
+      <strong>{t("Practical completion condition", "実用開始の条件")}</strong>
+      <span>
+        {
+          t(
+            "Do not treat Quickstart completion as agent setup. You are ready for real work only after the intended agent command succeeds inside the Workspace.",
+            "クイックスタート完了を、エージェント導入完了とは扱わないでください。Workspace 内で利用予定のエージェントコマンドを実行できた時点で、実作業へ進めます。",
+          )
+        }
+      </span>
+    </aside>
+  </section>
+
+  <section class="runtime-section">
+    <p class="runtime-eyebrow">
+      {t("One controlled build path", "ランタイムを採用する流れ")}
+    </p>
+    <h2>
+      {
+        t(
+          "Follow the image from recipe to Workspace",
+          "レシピから Workspace までを番号順に追う",
+        )
+      }
+    </h2>
+    <p class="runtime-section-intro">
+      {
+        t(
+          "The recipe belongs to a Context. A build candidate becomes active only after compatibility validation, and Workspaces observe it on their next entry.",
+          "レシピは Context に属します。ビルドした候補は互換性検査に成功した場合だけ有効になり、Workspace は次の入室時にその選択を反映します。",
+        )
+      }
+    </p>
+    <ol
+      class="runtime-flow"
+      aria-label={t(
+        "Custom runtime setup flow",
+        "カスタムランタイムの導入フロー",
+      )}
+    >
+      {
+        flow.map((item, index) => (
+          <li class={`runtime-flow-${item.kind}`}>
+            <span class="runtime-flow-number">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <p class="runtime-route">
+              <>
+                <strong>{item.from}</strong>
+                <b aria-hidden="true">→</b>
+                <strong>{item.to}</strong>
+              </>
+            </p>
+            <h3>{item.title}</h3>
+            <p>{item.detail}</p>
+          </li>
+        ))
+      }
+    </ol>
+    <p class="runtime-failure">
+      <strong
+        >{
+          t("If build or validation fails:", "ビルドまたは検査に失敗した場合:")
+        }</strong
+      >{" "}
+      {
+        t(
+          "promotion stops before the Context selection changes. Inspect the build output and context show; the previous runtime remains authoritative.",
+          "Context の選択情報を変える前に処理が止まります。ビルド出力と context show を確認してください。それまでのランタイムが引き続き有効です。",
+        )
+      }
+    </p>
+  </section>
+
+  <section class="runtime-section">
+    <p class="runtime-eyebrow">
+      {t("Do this once per tooling profile", "ツール構成ごとに一度行う")}
+    </p>
+    <h2>
+      {t("Build the runtime in five steps", "五つの手順でランタイムを用意する")}
+    </h2>
+    <ol class="runtime-steps">
+      {
+        steps.map((step, index) => (
+          <li>
+            <header>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <div>
+                <>
+                  <p>{step.location}</p>
+                  <h3>{step.title}</h3>
+                </>
+              </div>
+            </header>
+            <pre>
+              <code>{step.command}</code>
+            </pre>
+            <dl>
+              <div>
+                <>
+                  <dt>{t("Expected result", "期待する結果")}</dt>
+                  <dd>{step.expected}</dd>
+                </>
+              </div>
+              <div>
+                <>
+                  <dt>{t("Important", "重要")}</dt>
+                  <dd>{step.note}</dd>
+                </>
+              </div>
+            </dl>
+          </li>
+        ))
+      }
+    </ol>
+  </section>
+
+  <section class="runtime-section runtime-recipe">
+    <p class="runtime-eyebrow">
+      {t("Dockerfile pattern", "Dockerfile の基本形")}
+    </p>
+    <h2>
+      {
+        t(
+          "Extend the generated base; do not replace its contract",
+          "生成されたベースを拡張し、契約は置き換えない",
+        )
+      }
+    </h2>
+    <p>
+      {
+        t(
+          "The generated file already contains FROM, USER root, and the final USER tobari. Insert the installation commands between the two USER lines. This example represents an npm-distributed agent; use the official installation method for the agent you actually choose.",
+          "生成ファイルには FROM、USER root、最後の USER tobari がすでにあります。二つの USER 行の間へインストール処理を追加します。次は npm で配布されるエージェントの例です。実際には、利用するエージェントの公式な導入方法を使ってください。",
+        )
+      }
+    </p>
+    <pre><code>{dockerfileExample}</code></pre>
+    <p class="runtime-caption">
+      {
+        t(
+          "The placeholders are intentional: Tobari does not prescribe one coding agent. Replace them with a reviewed package name and version, then verify the installed command inside the Workspace.",
+          "プレースホルダーは意図的です。Tobari は特定のコーディングエージェントを指定しません。確認済みのパッケージ名とバージョンへ置き換え、Workspace 内で実行コマンドを検証してください。",
+        )
+      }
+    </p>
+  </section>
+
+  <section class="runtime-section runtime-two-column">
+    <div>
+      <h2>
+        {
+          t(
+            "Include what the agent needs",
+            "エージェントが必要とするものを入れる",
+          )
+        }
+      </h2>
+      <ul>{installChecklist.map((item) => <li>{item}</li>)}</ul>
+    </div>
+    <div class="runtime-limits">
+      <h2>{t("Keep these boundaries", "維持する境界")}</h2>
+      <ul>{limits.map((item) => <li>{item}</li>)}</ul>
+    </div>
+  </section>
+
+  <section class="runtime-section runtime-next">
+    <h2>
+      {t("After the agent command works", "エージェントの実行を確認した後")}
+    </h2>
+    <p>
+      {
+        t(
+          "Configure authentication only for providers you need, then allow outbound effects as they are observed. Runtime contents, service authentication, and network authorization remain three separate concerns.",
+          "必要なプロバイダーだけ認証を設定し、外部通信は観測された通信条件ごとに許可します。ランタイムに入れるツール、外部サービスの認証、ネットワーク通信の許可は、それぞれ別に管理します。",
+        )
+      }
+    </p>
+    <nav
+      aria-label={t(
+        "Next runtime documentation",
+        "ランタイム導入後に読むページ",
+      )}
+    >
+      <a href={withBase("/guides/authentication/")}
+        >{t("Configure authentication", "認証を設定する")} →</a
+      >
+      <a href={withBase("/start/first-denial/")}
+        >{t("Review denied communication", "拒否された通信をレビューする")} →</a
+      >
+      <a href={withBase("/guides/runtime-customization/")}
+        >{t("Read detailed runtime behavior", "ランタイムの詳細動作を読む")} →</a
+      >
+      <a href={withBase("/reference/runtime-image-contract/")}
+        >{t("Open the exact image contract", "正確なイメージ契約を確認する")} →</a
+      >
+    </nav>
+  </section>
+
+  <details class="runtime-evidence">
+    <summary
+      >{
+        t("Implementation and contract references", "実装と契約を確認する")
+      }</summary
+    >
+    <ul>
+      <li>
+        <a
+          href={evidenceHref("internal/infra/dockerruntime/context_runtime.go")}
+          >{
+            t(
+              "Context runtime initialization, build, validation, and promotion",
+              "Context ランタイムの初期化、ビルド、検査、採用",
+            )
+          }</a
+        >
+      </li>
+      <li>
+        <a
+          href={evidenceHref("internal/infra/dockerruntime/project_runtime.go")}
+          >{
+            t("Workspace runtime reconciliation", "Workspace ランタイムの調整")
+          }</a
+        >
+      </li>
+      <li>
+        <a href={evidenceHref("internal/cli/runtime_catalog.go")}
+          >{
+            t(
+              "runtime init and runtime build command contracts",
+              "runtime init と runtime build のコマンド契約",
+            )
+          }</a
+        >
+      </li>
+      <li>
+        <a href={evidenceHref("runtimes/base/Dockerfile")}
+          >{t("Official base runtime", "公式ベースランタイム")}</a
+        >
+      </li>
+      <li>
+        <a href={evidenceHref("tools/runtimecheck/main.go")}
+          >{t("Runtime compatibility checker", "ランタイム互換性検査")}</a
+        >
+      </li>
+    </ul>
+  </details>
+</div>
+
+<style>
+  .runtime-setup {
+    display: grid;
+    gap: 2.5rem;
+  }
+  .runtime-intro,
+  .runtime-section {
+    min-width: 0;
+  }
+  .runtime-eyebrow {
+    margin: 0 0 0.45rem;
+    color: var(--sl-color-text-accent);
+    font-size: var(--sl-text-sm);
+    font-weight: 760;
+    letter-spacing: 0.045em;
+    text-transform: uppercase;
+  }
+  .runtime-intro h2,
+  .runtime-section > h2 {
+    margin: 0;
+    max-width: 28ch;
+    font-size: clamp(1.55rem, 3.5vw, 2.35rem);
+    line-height: 1.18;
+  }
+  .runtime-intro > p:not(.runtime-eyebrow),
+  .runtime-section-intro {
+    max-width: 72ch;
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-lg);
+  }
+  .runtime-required,
+  .runtime-failure {
+    display: grid;
+    gap: 0.35rem;
+    margin-top: 1.25rem;
+    padding: 1rem 1.1rem;
+    border-inline-start: 0.28rem solid var(--sl-color-orange);
+    background: color-mix(in srgb, var(--sl-color-orange-low) 65%, transparent);
+  }
+  .runtime-flow {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 1.4rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .runtime-flow li {
+    position: relative;
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-bg-nav);
+  }
+  .runtime-flow li:not(:last-child)::after {
+    content: "→";
+    position: absolute;
+    inset-block-start: 1rem;
+    inset-inline-end: -0.68rem;
+    z-index: 2;
+    display: grid;
+    width: 1.3rem;
+    height: 1.3rem;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--sl-color-bg);
+    color: var(--sl-color-text-accent);
+    font-weight: 800;
+  }
+  .runtime-flow-number {
+    display: inline-grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-white);
+    font-size: var(--sl-text-xs);
+    font-weight: 800;
+  }
+  .runtime-route {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.75rem 0 0.4rem;
+    font-size: var(--sl-text-xs);
+  }
+  .runtime-route b {
+    color: var(--sl-color-text-accent);
+  }
+  .runtime-flow h3 {
+    margin: 0.45rem 0;
+    font-size: var(--sl-text-lg);
+    line-height: 1.25;
+  }
+  .runtime-flow li > p:last-child {
+    margin: 0;
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
+  }
+  .runtime-flow-allowed {
+    border-block-start: 0.22rem solid var(--sl-color-green) !important;
+  }
+  .runtime-flow-diagnostic {
+    border-block-start: 0.22rem solid var(--sl-color-blue) !important;
+  }
+  .runtime-flow-control {
+    border-block-start: 0.22rem solid var(--sl-color-purple) !important;
+  }
+  .runtime-flow-trusted {
+    border-block-start: 0.22rem solid var(--sl-color-orange) !important;
+  }
+  .runtime-flow-network {
+    border-block-start: 0.22rem solid var(--sl-color-text-accent) !important;
+  }
+  .runtime-steps {
+    display: grid;
+    gap: 1rem;
+    margin: 1.4rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .runtime-steps > li {
+    padding: 1.1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-bg-nav);
+  }
+  .runtime-steps header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+  }
+  .runtime-steps header > span {
+    display: grid;
+    flex: 0 0 auto;
+    width: 2.25rem;
+    height: 2.25rem;
+    place-items: center;
+    border: 1px solid var(--sl-color-accent);
+    border-radius: 50%;
+    color: var(--sl-color-text-accent);
+    font-weight: 800;
+  }
+  .runtime-steps header p {
+    margin: 0;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+  }
+  .runtime-steps h3 {
+    margin: 0.15rem 0 0;
+  }
+  .runtime-steps pre,
+  .runtime-recipe pre {
+    margin: 1rem 0;
+    overflow: auto;
+  }
+  .runtime-steps dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+  }
+  .runtime-steps dl div {
+    padding: 0.75rem;
+    background: var(--sl-color-bg);
+  }
+  .runtime-steps dt {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    font-weight: 760;
+    text-transform: uppercase;
+  }
+  .runtime-steps dd {
+    margin: 0.25rem 0 0;
+  }
+  .runtime-caption {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+  }
+  .runtime-two-column {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  .runtime-two-column > div {
+    padding: 1.1rem;
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .runtime-two-column h2 {
+    margin-top: 0;
+    font-size: var(--sl-text-xl);
+  }
+  .runtime-two-column ul {
+    margin-bottom: 0;
+  }
+  .runtime-limits {
+    border-inline-start: 0.25rem solid var(--sl-color-orange) !important;
+  }
+  .runtime-next nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin-top: 1rem;
+  }
+  .runtime-next a {
+    padding: 0.85rem 0.95rem;
+    border: 1px solid var(--sl-color-gray-5);
+    text-decoration: none;
+  }
+  .runtime-next a:hover {
+    border-color: var(--sl-color-accent);
+  }
+  .runtime-evidence {
+    border: 1px solid var(--sl-color-gray-5);
+  }
+  .runtime-evidence summary {
+    padding: 0.85rem 1rem;
+    cursor: pointer;
+    font-weight: 720;
+  }
+  .runtime-evidence ul {
+    padding: 0 2rem 1rem;
+  }
+  @media (max-width: 72rem) {
+    .runtime-flow {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .runtime-flow li::after {
+      display: none !important;
+    }
+  }
+  @media (max-width: 44rem) {
+    .runtime-flow,
+    .runtime-two-column,
+    .runtime-next nav,
+    .runtime-steps dl {
+      grid-template-columns: 1fr;
+    }
+    .runtime-intro h2,
+    .runtime-section > h2 {
+      max-width: none;
+    }
+  }
+  @media print {
+    .runtime-flow,
+    .runtime-two-column,
+    .runtime-next nav,
+    .runtime-steps dl {
+      grid-template-columns: 1fr;
+    }
+    .runtime-flow li::after {
+      display: none !important;
+    }
+  }
+</style>

@@ -139,8 +139,12 @@ tobari cluster down --purge`,
       completionTitle: "確認できたこと",
       completion:
         "未許可の通信は接続先へ届く前に拒否されます。信頼するホストで通信条件をレビューし、完全一致で許可した後は、新しいリクエストとして同じ条件の通信を実行できます。",
-      nextTitle: "必要に応じて詳細を確認する",
+      nextTitle: "次に、実作業用のランタイムを用意する",
       nextLinks: [
+        [
+          "カスタムランタイムを用意する（実作業の前に必要）",
+          "/start/runtime-setup/",
+        ],
         ["拒否された通信のレビュー", "/start/first-denial/"],
         ["リクエストを処理する順序", "/how-it-works/request-journey/"],
         ["保証が成立する前提と制限", "/security/guarantees-and-limitations/"],
@@ -295,8 +299,12 @@ tobari cluster down --purge`,
       completionTitle: "What you have now verified",
       completion:
         "You experienced Tobari denying an undeclared request, a person reviewing it on the host, an exact permission becoming active, and a deliberate new request reaching the upstream path.",
-      nextTitle: "Read only the detail you need next",
+      nextTitle: "Next, prepare the runtime for real work",
       nextLinks: [
+        [
+          "Prepare a custom runtime (required before real project work)",
+          "/start/runtime-setup/",
+        ],
         ["What to inspect after a denial", "/start/first-denial/"],
         ["The complete request sequence", "/how-it-works/request-journey/"],
         ["Guarantees and exclusions", "/security/guarantees-and-limitations/"],
