@@ -1,109 +1,85 @@
 ---
 title: Authenticate your tools
-description: Authenticate the coding agent and external services you actually use, while keeping login separate from outbound network permission.
+description: Authenticate only the tools and providers you use, while keeping account login, Workspace projection, and HTTP permission separate.
 ---
 
-The previous step made the agent executable available inside the Workspace. Authentication is separate: the binary can exist and still have no account credentials.
+The previous step installed the coding agent and project tools. Authentication is separate: an executable can exist without an account session, and a successful login does not grant an HTTP/HTTPS allow rule.
 
-Keep the default Tobari setup for this first pass. You do not need to create or select another configuration.
+Keep Tobari's default setup for this first pass. You do not need to learn Context switching yet.
 
-The important distinction is:
+## Choose where the credential should live
 
-- **authentication** decides which account or credential a tool can use;
-- **network policy** decides whether this project may send a particular HTTP/HTTPS request.
+There are two ordinary paths.
 
-A successful login therefore does not automatically allow a request.
+### The tool stores its own login in the Workspace
 
-## Choose the authentication path that fits the tool
-
-There are two common first-use paths.
-
-### The tool manages its own login
-
-If the coding agent or CLI normally stores its own login state, enter the Workspace and follow that tool's official login flow.
+Enter the project and use the tool's documented login flow:
 
 ```sh
 cd /path/to/your/project
 tobari
 
 # Inside the Workspace
-<agent-command> <its-login-command>
+<agent-command> <login-command>
 ```
 
-The login state created by the tool lives with that Workspace. It survives ordinary `exit` and a work-container replacement because the Workspace home is persistent.
+This state belongs to the Workspace home. Other processes in the same Workspace may be able to read or use it, and `tobari delete` removes it with the Workspace.
 
-Use this path when the tool is designed to manage its own credentials and keeping those credentials inside the Workspace is acceptable for your use case.
+### Tobari stores a reviewed provider credential outside the Workspace
 
-### Tobari manages a supported external-service credential
-
-For a reviewed provider supported by Tobari, perform the login on the trusted host. The primary credential stays outside the Workspace.
-
-Make sure the shared cluster is running, then inspect the current authentication state:
+Run provider login on the trusted host:
 
 ```sh
 tobari cluster up
 tobari auth status
-```
-
-To choose from the installed reviewed providers interactively:
-
-```sh
 tobari auth login
 ```
 
-Or select GitHub directly:
+You may select a provider explicitly:
 
 ```sh
 tobari auth login --provider github
+tobari auth login --provider aws
+tobari auth login --provider datadog
+tobari auth login --provider openai
+tobari auth login --provider anthropic
 ```
 
-Then confirm the result without printing the credential itself:
+The current reviewed pairings are GitHub/`gh`, AWS/`aws`, Datadog/`pup`, OpenAI/Codex 0.146.0, and Anthropic/Claude Code 2.1.220. OpenAI uses the exact trusted-host Codex device login; Anthropic uses the exact trusted-host `claude setup-token` flow. The Workspace copy of Codex or Claude is not an acquisition helper.
+
+Tobari commits typed credential state to the encrypted Context vault and projects only a project-bound opaque handle where the provider plan requires one. Login still adds no OPA permission.
+
+## Use auth status as the authority for Workspace activation
+
+After a login, import, replacement, or logout, inspect the result or run:
 
 ```sh
-tobari auth status
+tobari auth status --format json
 ```
 
-The exact login procedure depends on the provider. See [Authentication details](../../guides/authentication/) for GitHub, AWS, Datadog, imports, logout, and the exact credential paths.
+The result distinguishes provider configuration from each eligible Workspace projection. An exact re-entry action is present only when Tobari can prove that a Workspace projection is **missing** or **stale**. A current projection needs no action. `unavailable` or `unresolved` means Tobari could not prove freshness and does not invent a command. Logging out an already absent provider reports `no_change` and makes no removal, revocation, or re-entry claim.
 
-## Re-enter the project after authentication changes
+When a reported row includes a working directory and argv, run that exact action. Do not infer re-entry from the provider label alone.
 
-If the authentication method affects the Workspace environment, leave the current session and enter again:
+## Review new network effects without stopping the agent session
 
-```sh
-cd /path/to/your/project
-tobari
-```
+An authenticated tool can still receive `policy_denied` for an undeclared API request. Keep the Workspace and agent session running. In a separate trusted-host terminal:
 
-Now start the agent or the authenticated CLI normally.
+1. run `tobari policy review`;
+2. inspect the exact destination, port, method, and path;
+3. stage Allow or Deny and confirm one Apply; and
+4. return to the same running Workspace and issue a new request.
 
-## The first authenticated API call can still be denied
+Authentication never bypasses Gateway or OPA, and policy allow never performs provider login.
 
-When the tool sends an HTTP/HTTPS request that has not been allowed yet, Tobari can still return `policy_denied` even though login succeeded.
+## Completion
 
-That is expected. Use the same loop you already learned in Quickstart:
+The first-use path is complete when you have:
 
-1. leave the Workspace;
-2. run `tobari policy review` on the trusted host;
-3. inspect the destination, port, method, and path;
-4. allow only the communication you intend; and
-5. enter again and issue a new request.
+1. experienced deny → host review → allow → same-session retry with `curl`;
+2. built a runtime containing the actual coding agent and project tools; and
+3. authenticated only the accounts required by those tools.
 
-Authentication does not bypass Gateway or OPA, and a policy allow does not perform login for the tool.
+Continue normal work with the default setup. Learn [Contexts and separate configurations](../../guides/contexts/) only when you need different runtimes, authentication sets, or policy modes.
 
-## You can now start normal work
-
-At this point you have completed the first-use path:
-
-1. experienced deny → review → allow → retry with `curl`;
-2. built a runtime containing the real coding agent and project tools; and
-3. configured the authentication actually needed by those tools.
-
-Continue normal work with the default setup. When the agent needs a new outbound effect, review it with the same host-side policy loop.
-
-For a deeper explanation, continue to the [Mental model](../../how-it-works/mental-model/) or [First denial](../first-denial/).
-
-## Later: separate configurations when you need them
-
-If you later need different runtimes, authentication sets, or policy modes for different jobs, Tobari can separate them using named **Contexts**.
-
-Learn [Contexts and separate configurations](../../guides/contexts/) when that need appears. Context is not prerequisite knowledge for the first successful authenticated run.
+For provider-specific details, read [Authentication details](../../guides/authentication/).

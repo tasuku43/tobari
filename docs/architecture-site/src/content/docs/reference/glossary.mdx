@@ -343,7 +343,7 @@ Linux or a fixed macOS Keychain item. `cluster down --purge` preserves it.
 A strict non-secret data document declaring acquisition mode, Workspace handle
 projection, exact HTTPS binding, and redaction. Owner manifests are schema 1
 and `stdin_import` only. Reviewed built-ins may use schema 1 or the closed
-schema-2 AWS/Datadog plan vocabulary. A manifest is not executable code, does
+schema-2 AWS/Datadog/OpenAI plan vocabulary. A manifest is not executable code, does
 not declare method/path policy, and does not grant communication permission.
 
 ## State and public contracts
@@ -403,7 +403,7 @@ becoming a second editable implementation.
 | `exit` and `delete`                      | Exit ends a child session; delete removes the logical Workspace and home.                                 |
 | `cluster down --purge` and `auth logout` | Purge removes shared runtime and CA volumes; logout removes one local credential and handles.             |
 | tag and digest                           | A tag can move; a digest identifies immutable OCI content.                                                |
-| manifest schema and report schema        | Stored Context manifest is schema 4; public Context report is schema 6.                                   |
+| manifest schema and report schema        | Stored Context manifest is schema 5; public Context report is schema 8.                                   |
 
 ## Failure and limits
 

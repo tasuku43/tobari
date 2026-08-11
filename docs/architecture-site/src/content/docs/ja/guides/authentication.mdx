@@ -45,7 +45,7 @@ Tobari は、ホストのホーム、Keychain、SSH エージェント、認証�
 
 <ProviderToolMap />
 
-## GitHub、AWS、Datadog の組み込み認証
+## GitHub、AWS、Datadog、OpenAI、Anthropic の組み込み認証
 
 共有クラスターを起動し、Context の認証状態を確認します。`--provider` を省略すると、インストール済みでレビュー済みのプロバイダーから選択できます。GitHub を直接指定する場合は、選択画面を省略します。
 
@@ -61,11 +61,7 @@ tobari auth status --context default
 
 GitHub では、識別情報を確認した GitHub CLI を、固定された引数、隔離した非公開設定、上限付きの出力、検査付きの後片付けという条件で実行します。Gateway と Auth Broker が `gh` を実行することはありません。取得した値は Auth Broker の制御境界を通して保存し、CLI 出力へは表示せず、Context 保管庫内で暗号化します。
 
-ログイン後、その Context に結び付いた Workspace へ入り直します。
-
-```sh
-tobari --context default
-```
+ログイン後は、結果または `tobari auth status --format json` の `workspace_activation` を確認します。Tobari が投影を `missing` または `stale` と確定できた Workspace に限り、正確な作業ディレクトリと再入室引数を返します。`ready` には操作が不要で、`unavailable`／`unresolved` では推測した再入室を案内しません。すでに存在しない認証情報のログアウトは `no_change` です。
 
 Workspace は、プロジェクトごとに異なる `tobari-h1_...` ハンドルを受け取ります。組み込み GitHub マニフェストでは、対応する GitHub CLI API 通信に使いますが、外部サービスへ送るトークンそのものではありません。Auth Broker を使った非公開 Git 通信の認証情報ヘルパーには、現在対応していません。
 
@@ -90,6 +86,26 @@ Identity Center 方式では、レビュー済みの商用環境用開始 URL、
 Tobari は非公開のファイル保存ホームで、固定されたホスト側の `pup --no-agent auth login --site datadoghq.com` を実行します。ブラウザーでの同意とループバックコールバックは `pup` が処理します。Workspace へ入り直すと、`DD_ACCESS_TOKEN=<project handle>` と固定された `DD_SITE=datadoghq.com` が入ります。
 
 実際のアクセストークンを選ぶのは、OPA の許可後です。有効期限が近い場合、Auth Broker は固定された US1 の更新を一度だけ行い、置き換えた暗号化状態を保存します。Auth Broker のコンテナに `pup` はインストールしません。
+
+<h3 id="openai">OpenAI / Codex</h3>
+
+信頼するホストに正確な Codex 0.146.0 を用意し、次を実行します。
+
+```sh
+tobari auth login --provider openai --context default
+```
+
+Tobari は所有者専用の一時 `HOME` と `CODEX_HOME` で、固定した `codex login --device-auth` の経路を実行します。利用者は通常の ChatGPT ブラウザ操作を完了します。ファイル保存された OAuth セッションだけを厳密に取得し、一時ホームを削除してから暗号化した Context 保管庫へ確定します。Workspace 内の Codex はこの取得処理には使いません。アクセストークンの更新が必要な場合は、OPA の許可後に Auth Broker が組み込みの完全一致更新を行います。
+
+<h3 id="anthropic">Anthropic / Claude Code</h3>
+
+信頼するホストに正確な Claude Code 2.1.220 を用意し、次を実行します。
+
+```sh
+tobari auth login --provider anthropic --context default
+```
+
+Tobari は所有者専用の一時ホームと上限付きの非公開 PTY で、固定した `claude setup-token` を実行します。秘密ではない案内だけを表示し、取得した setup token はターミナルへ再表示せず、後片付けと実行ファイルの再検査に成功した後で確定します。Anthropic のこのプランは静的なトークン解決であり、Broker 内で更新処理を行いません。
 
 <CredentialArchitectureMap headingLevel={2} initial="acquisition" />
 

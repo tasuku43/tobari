@@ -41,7 +41,7 @@ Broker 専用のコンパニオンソケットは、Auth Broker のコンテナ�
 
 ### 外向き通信ネットワーク一つ
 
-Gateway は `egress` に参加し、許可済みの宛先を名前解決して接続します。Auth Broker が `egress` を使うのは、US1 のトークンエンドポイント一つに完全一致する、ポリシー許可後の Datadog 更新処理だけです。対話型の GitHub、AWS、Datadog 認証情報取得は Broker の `egress` を使わず、信頼するホスト上の固定ドライバーから直接行います。作業用コンテナはこのネットワークに参加しません。
+Gateway は `egress` に参加し、許可済みの宛先を名前解決して接続します。Auth Broker が `egress` を使うのは、US1 のトークンエンドポイント一つに完全一致する、ポリシー許可後の Datadog 更新処理だけです。対話型の GitHub、AWS、Datadog、OpenAI、Anthropic 認証情報取得は Broker の `egress` を使わず、信頼するホスト上の固定ドライバーから直接行います。作業用コンテナはこのネットワークに参加しません。
 
 ## 許可されるリクエストの順序
 

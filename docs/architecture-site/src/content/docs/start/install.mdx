@@ -1,122 +1,73 @@
 ---
 title: Install
-description: Supported prerequisites, source installation, and read-only checks before starting a Tobari cluster.
+description: Build the current source with the correct resolver, inspect its compatibility identity, and run dependency-aware host diagnostics before starting Tobari.
 ---
 
-Install the repository-built `tobari` binary on a supported macOS or Linux host, provide Docker Engine 24 or newer and Docker Compose v2, and verify the binary before starting shared services.
+Install Tobari on a supported macOS or Linux host. The current source contract requires **Gateway API 4** and **Auth Broker API 3**, while the immutable published digests still identify the earlier API 3 / API 2 services. A normal source build therefore rejects those historical pins instead of starting an incompatible cluster.
 
-These instructions build the CLI from the public repository and check its host prerequisites without creating a Workspace. If you are new to Tobari, read [Overview](../overview/) first so that Docker is not mistaken for the whole security model.
+For the current `main` source, use the explicit development build below. This builds repository-owned development service images and a CLI that selects them. It does not change the published digest authority.
 
-## Supported prerequisites
+## Prerequisites
 
 You need:
 
-- macOS or Linux on an architecture supported by Docker;
-- Docker Engine 24 or newer;
-- Docker Compose v2;
-- the exact Go toolchain declared by `go.mod` for source builds;
-- [Task](https://taskfile.dev/) for the repository build command; and
-- registry access to the reviewed Gateway, Auth Broker, and runtime images when they are not already local.
+- macOS or Linux on a Docker-supported architecture;
+- Docker Engine 24 or newer and Docker Compose v2;
+- the Go toolchain declared by `go.mod`;
+- [Task](https://taskfile.dev/); and
+- registry access for the official base runtime and other reviewed images when they are not already local.
 
-Docker Desktop-specific APIs are not required. Colima, Lima-based Docker contexts, and standard Linux Docker Engine use the same Docker CLI adapter. A VM-based daemon must be able to bind-mount both the project root and Tobari's XDG configuration and state paths; see [Colima and Lima](../../guides/colima-and-lima/) before troubleshooting application traffic.
+Brokered OpenAI login additionally requires exact **Codex 0.146.0** in a reviewed host executable location. Brokered Anthropic login requires exact **Claude Code 2.1.220**. The copy of either agent installed inside a Workspace is not used as a trusted login helper.
 
-## Build and place the CLI
-
-Clone the public repository and use its declared build task:
+## Build the current source path
 
 ```sh
 git clone https://github.com/tasuku43/tobari.git
 cd tobari
-task build
+task build:dev
+bin/tobari-dev version --format json
 ```
 
-The result is `bin/tobari`. Either add this repository's `bin` directory to `PATH`, or install the binary into a directory already on `PATH`:
+The structured version result identifies the source commit, the `development` resolver, required and selected Gateway/Auth Broker APIs, and whether the pair is compatible. Check this result before any cluster mutation.
+
+To keep the remaining examples readable, bind `tobari` to the absolute development binary in the same host shell:
 
 ```sh
-install -m 0755 bin/tobari ~/.local/bin/tobari
+TOBARI_SOURCE_ROOT=$PWD
+tobari() { "$TOBARI_SOURCE_ROOT/bin/tobari-dev" "$@"; }
+tobari version --format json
 ```
 
-The repository also supports Go's install path:
+A future released binary with compatible reviewed image digests does not need this shell binding. `task build`, `go install`, and `bin/tobari` remain the standard release-oriented paths, but this source revision correctly refuses to use their currently selected historical service images.
 
-```sh
-go install ./cmd/tobari
-```
+## Inspect the host without changing state
 
-Do not download an unverified moving image tag as a substitute for the repository's runtime authority. Shared service identities are selected from reviewed immutable digests embedded with the CLI.
-
-## Verify without starting anything
-
-Confirm that the installed executable is the one your shell will run:
-
-```sh
-command -v tobari
-tobari version
-```
-
-Then run the read-only host diagnostic from the project you plan to use:
+Run the diagnostic from the project directory you plan to use:
 
 ```sh
 tobari doctor
+tobari doctor --format json
 ```
 
-`doctor` observes Docker, required paths, images, policy, provider manifests, root-key and broker state, and residue. It does not start the cluster, repair credentials, create a Workspace, or activate policy.
+`doctor` is read-only. Its checks form a dependency graph: when an earlier prerequisite is unavailable, dependent checks are reported as **blocked** rather than being misreported as independent failures. It does not start the cluster, create a Workspace, repair credentials, activate policy, or create a policy-test container.
 
-Use `tobari doctor --root PATH` only to inspect a directory other than the current one. The exact CLI contract, including supported formats and fault codes, is generated from the Catalog in the [CLI reference](../../reference/cli/).
+Use `--root PATH` only when you intentionally want to inspect another project root. Read-only first-use commands do not create Tobari-owned Context, Workspace, policy, or authentication state merely to produce a report.
 
-## What installation changes—and what it does not
+## What happens next
 
-Building or copying the binary does not:
+The next mutation is explicit `tobari cluster up`. It preflights the selected service identities and refuses an API-incompatible pair. The root `tobari` entry command does not silently start or repair the shared cluster.
 
-- start Gateway, OPA, or Auth Broker;
-- create a Workspace or mount a project;
-- create an outbound allow rule;
-- log in to a provider; or
-- grant the binary access to Docker until you run an operation that needs it.
+Do not work around a diagnostic or compatibility failure by mounting the Docker socket, the host home, or broad host paths into a Workspace. Those changes would invalidate the documented boundary.
 
-The explicit next boundary is `tobari cluster up`. It reconciles shared services and may obtain reviewed images. The root `tobari` entry command does not silently start or repair that cluster.
+## Source references
 
-## Common installation failures
-
-| Observation                        | Meaning                                                              | Safe next step                                                                            |
-| ---------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `tobari: command not found`        | The binary directory is not on `PATH`.                               | Add the exact directory or install the binary into one already on `PATH`.                 |
-| Docker/Compose check fails         | The trusted host cannot use the required Docker CLI surface.         | Correct the Docker installation or selected Docker context, then rerun `tobari doctor`.   |
-| An image is unavailable            | Docker cannot inspect or obtain a reviewed service/runtime identity. | Inspect registry and Docker diagnostics; do not replace the digest with an arbitrary tag. |
-| A bind path is unavailable         | A VM-based Docker daemon cannot see the host path.                   | Share the project and Tobari XDG paths, then rerun `doctor`.                              |
-| Root key is missing beside a vault | Existing encrypted state cannot be opened.                           | Restore the original key; Tobari does not silently generate a replacement.                |
-
-Do not turn a diagnostic failure into a broad Docker mount, host-home mount, or Docker-socket mount inside a Workspace. Those workarounds would change the trust boundary.
-
-## Guarantees and limits
-
-The repository build pins the Go version and embedded service identities. Source/snapshot and image-contract checks detect drift. Installation integrity still depends on the trusted checkout, build host, Docker daemon, and image registry path. Tobari does not claim to defend itself after those trusted foundations are compromised.
-
-## Source evidence
-
-- [README installation and requirements at the reviewed commit](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/README.md)
-- [Go toolchain declaration](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/go.mod)
-- [Task build definitions](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/Taskfile.yml)
-- [Pinned runtime component versions](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/internal/infra/runtimeassets/assets/versions.env)
-- [Read-only doctor implementation](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/internal/infra/dockerruntime/runtime.go)
+- [Current source walkthrough](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/README.md)
+- [Release and development resolver contract](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/docs/06_release.md)
+- [Pinned service identities](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/internal/infra/runtimeassets/assets/versions.env)
+- [Dependency-aware doctor contract](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/docs/01_product_contract.md)
 
 ## Summary
 
-Install one repository-built CLI and verify its trusted-host prerequisites. Shared services, Workspaces, policy, and authentication remain separate explicit operations.
+For this source snapshot, build `bin/tobari-dev`, inspect `version --format json`, and use the development resolver until compatible immutable Gateway API 4 and Auth Broker API 3 indexes are published. `doctor` then checks the host without creating or repairing product state.
 
-## Check your understanding
-
-<details>
-<summary>Does <code>task build</code> start Gateway or create a Workspace?</summary>
-
-No. It builds the CLI. Shared services start only through `tobari cluster up`, and Workspace selection or creation happens through the root `tobari` command.
-
-</details>
-
-<details>
-<summary>Why should you not “fix” a VM bind error by mounting the whole host home?</summary>
-
-The selected project root is the intended writable project mount. A broad host-home mount would expose files outside that boundary and invalidate the documented security precondition.
-
-</details>
-
-**Next:** [Run the end-to-end Quickstart](../quickstart/).
+**Next:** [Run the Quickstart](../quickstart/).

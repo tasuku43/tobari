@@ -33,7 +33,7 @@ unexpected file type, ownership, or permissive modes before use.
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `config.json`                                               | Compatibility schema `v1`; seeds the default Context image once.                                                                                                          |
 | `contexts/active.json`                                      | The current/default Context name. It chooses the default for omitted selectors; it is not request authority.                                                              |
-| `contexts/<name>/context.json`                              | **Stored Context manifest schema 4.** It holds stable Context ID, agent profile, selected image, policy mode, narrow shell settings, and optional runtime-build metadata. |
+| `contexts/<name>/context.json`                              | **Stored Context manifest schema 5.** It holds stable Context ID, agent profile, selected image, policy mode, narrow shell settings, and optional runtime-build metadata. |
 | `contexts/<name>/runtime/Dockerfile`                        | Optional owner-only build recipe created by `runtime init`. Editing it does not select an image.                                                                          |
 | `contexts/<name>/policy/data.json`                          | Context-owned boundary and learned allow/deny data.                                                                                                                       |
 | `contexts/<name>/policy/tobari.rego` and `tobari_test.rego` | Present for Advanced policy. Guided policy uses the reviewed embedded evaluator.                                                                                          |
@@ -42,26 +42,26 @@ unexpected file type, ownership, or permissive modes before use.
 | `principal-registry/principals.json`                        | Host-issued principal registry schema 2, mounted read-only into Gateway by directory.                                                                                     |
 
 Do not confuse the stored manifest with public output. `context show` and other
-Context-result commands emit **public Context report schema 6**. That report is
+Context-result commands emit **public Context report schema 8**. That report is
 a task-owned, secret-free projection. Its version can change independently
 from the persisted Context manifest.
 
 ## Durable runtime state
 
-| Path below the state root              | Contract and lifetime                                                                                                                                                                                      |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `roots/<hash>.json`                    | Root index schema 2. The hash binds canonical project root and stable Context ID to one Workspace ID.                                                                                                      |
-| `instances/<id>/state.json`            | Workspace instance schema 2: logical identity, permanent Context binding, last reconciled image, and diagnostic Docker identifiers.                                                                        |
-| `instances/<id>/home`                  | Independent writable Workspace home for tool-native authentication and projected broker handles. It survives exit and container recreation; `delete` removes it.                                           |
-| `state.json`                           | Shared cluster state schema 3. It records aggregate revision and shared resource identity, never credential contents or one active Context authority.                                                      |
-| `cluster-projections/<revision>/`      | Content-addressed, complete policy and managed-provider projection. OPA receives its policy directory read-only.                                                                                           |
-| `auth/projection/providers.json`       | Normalized, non-secret provider projection schema 2. Owner manifests remain schema 1; reviewed built-ins may be schema 1 or 2.                                                                             |
-| `auth/contexts/<context-id>/vault.enc` | Encrypted Context vault: AES-256-GCM envelope schema 1 containing payload schema 2. It may hold typed static secrets, opaque AWS state, Datadog OAuth state, revisions, durable barriers, and raw handles. |
-| `auth/keys/root.key`                   | Linux installation root key: exactly 32 owner-only bytes. On macOS the key is in Keychain instead.                                                                                                         |
-| `auth/projects/<project-id>.json`      | Project authentication file registry schema 1.                                                                                                                                                             |
-| `auth/runtime/`                        | Host-owned Gateway runtime Unix-socket directory. Sockets are recreated with services; they are not durable credentials.                                                                                   |
-| `runtime/<asset-revision>/`            | Materialized embedded Compose, Gateway, OPA, and Broker runtime assets.                                                                                                                                    |
-| journal files                          | Durable markers used to reconcile interrupted multi-step project or cluster mutations.                                                                                                                     |
+| Path below the state root              | Contract and lifetime                                                                                                                                                                                                                                              |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `roots/<hash>.json`                    | Root index schema 2. The hash binds canonical project root and stable Context ID to one Workspace ID.                                                                                                                                                              |
+| `instances/<id>/state.json`            | Workspace instance schema 2: logical identity, permanent Context binding, last reconciled image, and diagnostic Docker identifiers.                                                                                                                                |
+| `instances/<id>/home`                  | Independent writable Workspace home for tool-native authentication and projected broker handles. It survives exit and container recreation; `delete` removes it.                                                                                                   |
+| `state.json`                           | Shared cluster state schema 3. It records aggregate revision and shared resource identity, never credential contents or one active Context authority.                                                                                                              |
+| `cluster-projections/<revision>/`      | Content-addressed, complete policy and managed-provider projection. OPA receives its policy directory read-only.                                                                                                                                                   |
+| `auth/projection/providers.json`       | Normalized, non-secret provider projection schema 2. Owner manifests remain schema 1; reviewed built-ins may be schema 1 or 2.                                                                                                                                     |
+| `auth/contexts/<context-id>/vault.enc` | Encrypted Context vault: AES-256-GCM envelope schema 1 containing payload schema 2. It may hold typed static secrets, opaque AWS state, Datadog OAuth state, OpenAI Codex OAuth state, Anthropic static token state, revisions, durable barriers, and raw handles. |
+| `auth/keys/root.key`                   | Linux installation root key: exactly 32 owner-only bytes. On macOS the key is in Keychain instead.                                                                                                                                                                 |
+| `auth/projects/<project-id>.json`      | Project authentication file registry schema 1.                                                                                                                                                                                                                     |
+| `auth/runtime/`                        | Host-owned Gateway runtime Unix-socket directory. Sockets are recreated with services; they are not durable credentials.                                                                                                                                           |
+| `runtime/<asset-revision>/`            | Materialized embedded Compose, Gateway, OPA, and Broker runtime assets.                                                                                                                                                                                            |
+| journal files                          | Durable markers used to reconcile interrupted multi-step project or cluster mutations.                                                                                                                                                                             |
 
 On macOS, the root-key backend is a generic Keychain password with service
 `io.tobari.auth-root.v1` and account `tobari`. On Linux, XDG file protection
@@ -212,9 +212,9 @@ volumes. Vaults and the installation root key remain.
 </details>
 
 <details>
-  <summary>Is Context manifest schema 4 the same contract as Context report schema 6?</summary>
+  <summary>Is Context manifest schema 5 the same contract as Context report schema 8?</summary>
 
-No. Schema 4 is persisted host configuration. Schema 6 is the public,
+No. Schema 5 is persisted host configuration. Schema 8 is the public,
 task-owned, secret-free CLI projection.
 
 </details>

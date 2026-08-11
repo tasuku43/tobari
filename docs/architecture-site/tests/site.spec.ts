@@ -378,12 +378,14 @@ test("Provider-first support map keeps Provider, Tool, and acquisition distinct"
 
     const map = page.locator(".provider-tool-map");
     await expect(map).toBeVisible();
-    await expect(map.locator(".pairing-row")).toHaveCount(4);
+    await expect(map.locator(".pairing-row")).toHaveCount(6);
 
     const expected = [
       ["github", "GitHub CLI", "gh"],
       ["aws", "AWS CLI", "aws"],
       ["datadog", "pup", "pup"],
+      ["openai", "Codex CLI 0.146.0", "codex"],
+      ["anthropic", "Claude Code 2.1.220", "claude"],
       ["chatwork", "cwk", "cwk"],
     ];
     for (const [provider, toolName, command] of expected) {

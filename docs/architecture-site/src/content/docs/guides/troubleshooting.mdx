@@ -43,7 +43,7 @@ For `workspace_selection_stale`, rerun `tobari` and choose from the refreshed ca
 
 First identify the response code:
 
-- `policy_denied`: leave the Workspace and run `tobari policy review`. Inspect and stage exact choices for one Context, Apply the reviewed set once, then retry deliberately.
+- `policy_denied`: keep the Workspace running and use a separate trusted-host terminal for `tobari policy review`. Inspect and stage exact choices for one Context, Apply the reviewed set once, then retry deliberately.
 - `credential_handle_invalid`: leave and re-enter the same Context-bound Workspace. A stale, copied, malformed, misplaced, or mismatched handle must not be forwarded.
 - A baseline or learned exact deny: it is terminal policy, not a pending candidate. Inspect `tobari policy rules`; reset only if changing that decision is intentional.
 
@@ -203,7 +203,7 @@ Not yet. The credential may already have been replaced. Run `tobari auth status`
 <details>
 <summary>An HTTPS request gets a policy denial. Should you restart the cluster first?</summary>
 
-No, not when the cluster is healthy and the denial is learnable. Leave the Workspace, review the exact effect on the host, decide, then retry deliberately.
+No, not when the cluster is healthy and the denial is learnable. Keep the Workspace running, review the exact effect in a separate trusted-host terminal, then retry deliberately in the original session.
 
 </details>
 

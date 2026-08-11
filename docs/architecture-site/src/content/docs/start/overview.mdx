@@ -65,22 +65,9 @@ A client that ignores proxy configuration has no supported direct egress route; 
 
 ## Current implementation status
 
-**Implemented now:** reusable Context-bound Workspaces, dedicated internal
-project networks, Gateway/OPA mediation, exact denial review, guided and
-advanced policy modes, Context runtime recipes, tool-native authentication,
-the retained managed adapter, strict schema-1 static Broker providers, and
-reviewed built-in GitHub, AWS, and Datadog acquisition. The built-in schema-2
-plans provide bounded AWS SigV4 through a private host companion and fixed
-Datadog US1 OAuth refresh inside Broker.
+**Implemented:** reusable Workspaces, dedicated project networks, Gateway/OPA enforcement, same-session policy review, Context-owned runtimes, tool-native authentication, the retained managed adapter, static Broker providers, and reviewed GitHub, AWS, Datadog, OpenAI, and Anthropic acquisition. Closed dynamic plans cover AWS SigV4, Datadog US1 OAuth refresh, and OpenAI Codex OAuth refresh. Anthropic setup-token is static and does not refresh.
 
-The source tree and tests contain both schema-2 plans. The immutable Gateway
-and Auth Broker digests currently selected by `versions.env` include the
-earlier AWS Identity Center path but predate AWS console login and the Datadog
-request path. Those newer paths are therefore implemented in source but are
-not active in the standard cluster until the pins are reviewed and advanced.
-[Component versions](/reference/component-versions/) reports the
-selected artifacts; [Supply chain](/security/supply-chain/) explains why source
-and runtime identity are separate claims.
+The current source contract requires Gateway API 4 and Auth Broker API 3. The immutable public pins in `versions.env` are the historical API 3 / API 2 publications and are incompatible with this source. Standard startup rejects them. Until compatible immutable indexes are published, use `task build:dev` and `bin/tobari-dev` from [Install](../install/). [Component versions](../../reference/component-versions/) keeps required APIs separate from selected image identities.
 
 This documentation does not present arbitrary manifest-selected signing or
 refresh, arbitrary OAuth helpers, provider-operation policy, Git credential

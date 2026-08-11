@@ -40,8 +40,8 @@ export const credentialNodes: CredentialNode[] = [
     label: { en: "Trusted-host CLI", ja: "信頼できるホスト上の CLI" },
     role: { en: "Acquisition control", ja: "認証情報の取得" },
     detail: {
-      en: "Runs fixed gh, aws, or pup login drivers; import reads protected stdin.",
-      ja: "あらかじめ決められた gh、aws、pup のログイン処理を実行します。インポートで読み取るのは、保護された標準入力だけです。",
+      en: "Runs fixed gh, aws, pup, Codex 0.146.0, or Claude Code 2.1.220 login drivers; import reads protected stdin.",
+      ja: "あらかじめ決められた gh、aws、pup、Codex、Claude、Codex 0.146.0、Claude Code 2.1.220 のログイン処理を実行します。インポートで読み取るのは、保護された標準入力だけです。",
     },
     kind: "trusted",
   },
@@ -106,8 +106,8 @@ export const credentialNodes: CredentialNode[] = [
     },
     role: { en: "Persistent secret state", ja: "永続する秘密情報の状態" },
     detail: {
-      en: "Stores typed static secrets, opaque AWS state, Datadog OAuth state, revisions, and raw handles.",
-      ja: "型付きの静的な秘密情報、AWS の不透明な状態、Datadog OAuth の状態、リビジョン、未加工のハンドルを保存します。",
+      en: "Stores typed static secrets, opaque AWS state, Datadog OAuth state, OpenAI Codex OAuth state, revisions, and raw handles.",
+      ja: "型付きの静的な秘密情報、AWS の不透明な状態、Datadog OAuth の状態、OpenAI Codex OAuth の状態、リビジョン、未加工のハンドルを保存します。",
     },
     kind: "secret",
   },
@@ -119,8 +119,8 @@ export const credentialNodes: CredentialNode[] = [
     },
     role: { en: "External acquisition", ja: "外部での認証取得" },
     detail: {
-      en: "GitHub device login, AWS login, or Datadog OAuth reached by fixed trusted-host drivers.",
-      ja: "信頼できるホスト上の決められた処理から、GitHub のデバイスログイン、AWS のログイン、または Datadog OAuth へ接続します。",
+      en: "GitHub device login, AWS login, Datadog OAuth, OpenAI device OAuth, or Anthropic setup-token reached by fixed trusted-host drivers.",
+      ja: "信頼できるホスト上の決められた処理から、GitHub のデバイスログイン、AWS のログイン、Datadog OAuth、OpenAI デバイス OAuth、または Anthropic setup-token へ接続します。",
     },
     kind: "external",
   },
@@ -131,6 +131,22 @@ export const credentialNodes: CredentialNode[] = [
     detail: {
       en: "Receives one separately connected request only after OPA allow and credential preparation.",
       ja: "OPA の許可と認証情報の準備が完了した後に、Gateway が別の接続で送る 1 回のリクエストだけを受け取ります。",
+    },
+    kind: "external",
+  },
+  {
+    id: "openai-token",
+    label: {
+      en: "OpenAI token endpoint",
+      ja: "OpenAI トークンエンドポイント",
+    },
+    role: {
+      en: "Fixed OAuth refresh destination",
+      ja: "固定された OAuth 更新先",
+    },
+    detail: {
+      en: "The compiled Codex OAuth plan refreshes only at its reviewed exact HTTPS authority after OPA allow.",
+      ja: "組み込みの Codex OAuth プランが、OPA の許可後に、レビュー済みの完全一致 HTTPS 接続先だけで更新します。",
     },
     kind: "external",
   },
@@ -238,6 +254,18 @@ export const credentialRoutes: CredentialRoute[] = [
     bidirectional: true,
   },
   {
+    id: "openai-refresh",
+    from: "broker",
+    to: "openai-token",
+    label: {
+      en: "exact Codex OAuth refresh",
+      ja: "完全一致する Codex OAuth 更新",
+    },
+    kind: "secret",
+    path: "M 580 515 C 655 515, 720 505, 790 505",
+    bidirectional: true,
+  },
+  {
     id: "datadog-refresh",
     from: "broker",
     to: "datadog-token",
@@ -336,6 +364,38 @@ export const credentialScenarios: CredentialScenario[] = [
     failure: {
       en: "Known pre-execution failure is 503; explicit or post-dispatch uncertainty is non-retryable 409; no upstream attempt occurs.",
       ja: "外部処理を始める前の失敗と確認できる場合は 503、処理開始後など結果を確定できない場合は再試行不可の 409 となります。どちらもアプリケーションの接続先へは送信しません。",
+    },
+  },
+  {
+    id: "openai",
+    label: { en: "OpenAI Codex OAuth", ja: "OpenAI Codex OAuth" },
+    summary: {
+      en: "Only after OPA allow, Broker selects the stored Codex access token or performs one exact reviewed OAuth refresh before returning a request-local bearer value.",
+      ja: "OPA の許可後にだけ Auth Broker が保存済みの Codex アクセストークンを選ぶか、レビュー済みの完全一致 OAuth 更新を 1 回実行し、リクエスト専用の Bearer 値を返します。",
+    },
+    routes: [
+      "workspace-proxy",
+      "broker-introspect",
+      "policy",
+      "vault-state",
+      "openai-refresh",
+      "upstream-request",
+    ],
+    sent: {
+      en: "One strict OAuth refresh when required; one request-local bearer value returns to Gateway.",
+      ja: "必要な場合だけ厳密な OAuth 更新を 1 回行い、そのリクエストだけで使う Bearer 値を Gateway へ返します。",
+    },
+    withheld: {
+      en: "No Codex executable in Broker, no Workspace OAuth session, no ambient proxy or redirect, and no token in OPA.",
+      ja: "Auth Broker 内の Codex 実行ファイル、Workspace 内の OAuth セッション、環境由来のプロキシやリダイレクト、OPA 内のトークンはありません。",
+    },
+    result: {
+      en: "Refreshed state commits before Gateway replaces the exact bearer header and makes one upstream attempt.",
+      ja: "更新後の状態を確定してから、Gateway が対象の Bearer ヘッダーだけを置き換え、接続先へ 1 回接続します。",
+    },
+    failure: {
+      en: "Known pre-send failure is 503; post-send ambiguity is non-retryable 409 with a durable barrier; no application-upstream attempt occurs.",
+      ja: "送信前の失敗と確認できる場合は 503、送信後に結果を確定できない場合は永続バリアを残して再試行不可の 409 となり、アプリケーション接続先へは送信しません。",
     },
   },
   {

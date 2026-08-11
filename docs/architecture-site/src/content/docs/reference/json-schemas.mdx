@@ -55,11 +55,11 @@ This distinction is important:
 ```text
 Host configuration
   contexts/<name>/context.json
-  Context manifest schema 4
+  Context manifest schema 5
 
 CLI presentation
-  {"schema_version": 6, "context": ...}
-  public Context report schema 6
+  {"schema_version": 8, "context": ...}
+  public Context report schema 8
 ```
 
 The report adds task-owned runtime, cluster, complete shell-setting, and
@@ -208,7 +208,7 @@ external contracts are supported public boundaries.
 ## Summary
 
 Schema versions are local to a boundary. Stored Context schema 4 and public
-Context report schema 6 are both correct because they govern different
+Context report schema 8 are both correct because they govern different
 documents. Exact readers and tests, not a shared number, define compatibility.
 
 ## Check your understanding

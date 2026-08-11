@@ -71,6 +71,12 @@ The Gateway and Auth Broker also have canonical source trees and byte-checked
 embedded snapshots. Source/snapshot equality is independent from the base
 image digest: both must be correct for a reviewed build.
 
+## Current service API compatibility
+
+The generated Gateway API 4 and Auth Broker API 3 rows describe the interfaces required by the current source. The Gateway/Auth Broker digests in the component table are the historical API 3 / API 2 publications selected by `versions.env`. These are different kinds of identity.
+
+A standard binary rejects that mismatch before startup. To exercise this source, run `task build:dev` and inspect `bin/tobari-dev version --format json` for the `development` resolver and compatible selected APIs. Development images are not publication authority.
+
 ## CLI version behavior
 
 A source build prints `dev`. It may also include a commit when build flags
@@ -82,7 +88,7 @@ directory, or documentation version.
 Use:
 
 ```console
-tobari version
+tobari version --format json
 ```
 
 to inspect the executable you are actually running. Compare that result with

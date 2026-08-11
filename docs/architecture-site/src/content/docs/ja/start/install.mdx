@@ -1,122 +1,73 @@
 ---
 title: インストール
-description: Tobari をビルドして配置し、Workspace を作る前にホスト側の前提条件を検証します。
+description: 現在のソースに対応する実行ファイルをビルドし、互換性の識別情報とホスト側の前提条件を、状態を変更せずに確認します。
 ---
 
-対応する macOS または Linux ホストで、公開リポジトリから `tobari` をビルドして配置します。共有サービスを起動する前に、Docker と実行環境の前提条件を `tobari doctor` で確認します。
+対応する macOS または Linux ホストへ Tobari を導入します。現在のソースは **Gateway API 4** と **Auth Broker API 3** を必要としますが、固定済みの公開ダイジェストは一つ前の API 3 / API 2 の成果物です。通常のソースビルドは、互換性のない古い成果物を起動せず、明示的に拒否します。
 
-以下の操作では Workspace を作成しません。CLI をビルドして配置し、ホスト側の条件を読み取り専用の診断で確認します。Tobari を初めて使う場合は、Docker コンテナだけで保護範囲が決まるわけではないため、先に[概要](../overview/)を読んでください。
+現在の `main` を試すときは、次の開発用ビルドを使います。リポジトリ内のソースから開発用サービスイメージと、それらを選ぶ CLI を作ります。公開ダイジェストの正本を書き換える操作ではありません。
 
-## 対応する前提条件
+## 前提条件
 
 次が必要です。
 
 - Docker が対応するアーキテクチャの macOS または Linux
-- Docker Engine 24 以降
-- Docker Compose v2
-- ソースビルドでは `go.mod` が宣言するバージョンの Go ツールチェーン
-- リポジトリのビルドコマンドを実行する [Task](https://taskfile.dev/)
-- レビュー済みの Gateway、Auth Broker、ランタイムイメージがローカルにない場合、それらを取得できるレジストリへのアクセス
+- Docker Engine 24 以降と Docker Compose v2
+- `go.mod` が宣言する Go ツールチェーン
+- [Task](https://taskfile.dev/)
+- 公式ベースランタイムなど、ローカルにないレビュー済みイメージを取得できること
 
-Docker Desktop 固有の API は必要ありません。Colima、Lima ベースの Docker コンテキスト、標準的な Linux Docker Engine は、同じ Docker CLI アダプターを使います。VM 内のデーモンから、プロジェクトルートと Tobari の XDG 設定・状態パスの両方をバインドマウントできる必要があります。詳しくは [Colima と Lima](../../guides/colima-and-lima/)を参照してください。
+OpenAI の Broker 認証を使う場合は、信頼するホスト上のレビュー対象となる場所に、正確に **Codex 0.146.0** が必要です。Anthropic では、正確に **Claude Code 2.1.220** が必要です。Workspace に入れたエージェント本体は、信頼するログイン用ヘルパーには使いません。
 
-## CLI をビルドして配置する
-
-公開リポジトリをクローンし、宣言済みのビルドタスクを使います。
+## 現在のソースをビルドする
 
 ```sh
 git clone https://github.com/tasuku43/tobari.git
 cd tobari
-task build
+task build:dev
+bin/tobari-dev version --format json
 ```
 
-生成物は `bin/tobari` です。このリポジトリの `bin` ディレクトリを `PATH` に追加するか、すでに `PATH` に含まれるディレクトリへバイナリをインストールします。
+構造化されたバージョン表示には、ソースコミット、`development` リゾルバー、必要な Gateway/Auth Broker API、選択中の API、互換性が含まれます。クラスターを変更する前に確認してください。
+
+以降の例を読みやすくするため、同じホストシェルで `tobari` を開発用バイナリへ結び付けます。
 
 ```sh
-install -m 0755 bin/tobari ~/.local/bin/tobari
+TOBARI_SOURCE_ROOT=$PWD
+tobari() { "$TOBARI_SOURCE_ROOT/bin/tobari-dev" "$@"; }
+tobari version --format json
 ```
 
-Go の標準的なインストール方法も利用できます。
+将来、互換する不変ダイジェストを含むリリース版が公開された場合、このシェル設定は不要です。`task build`、`go install`、`bin/tobari` は通常のリリース向け経路ですが、このソース時点では、そこから選ばれる過去のサービスイメージを正しく拒否します。
 
-```sh
-go install ./cmd/tobari
-```
+## 状態を変えずにホストを確認する
 
-リポジトリが管理するランタイム権限の代わりに、未検証で更新されるイメージタグを取得しないでください。共有サービスの識別情報は、CLI に埋め込まれたレビュー済みの不変なダイジェストから選ばれます。
-
-## 何も起動せずに確認する
-
-シェルが実行するファイルが、意図したものか確認します。
-
-```sh
-command -v tobari
-tobari version
-```
-
-続けて、利用予定のプロジェクトから読み取り専用のホスト診断を実行します。
+利用予定のプロジェクトディレクトリから実行します。
 
 ```sh
 tobari doctor
+tobari doctor --format json
 ```
 
-`doctor` は Docker、必要なパス、イメージ、ポリシー、プロバイダーマニフェスト、ルート鍵と Broker 状態、残留物を観測します。クラスターの起動、認証情報の修復、Workspace の作成、ポリシーの有効化は行いません。
+`doctor` は読み取り専用です。検査には依存関係があり、前提となる検査を実行できない場合、後続は独立した失敗ではなく **blocked（前提不足）** として表示します。クラスターの起動、Workspace の作成、認証情報の修復、ポリシーの有効化、ポリシー確認用コンテナの作成は行いません。
 
-現在のディレクトリ以外を調べる場合に限り、`tobari doctor --root PATH` を使ってください。対応する出力形式と障害コードを含む正確な CLI 仕様は、Catalog から生成される [CLI リファレンス](../../reference/cli/)にあります。
+別のディレクトリを意図して調べる場合だけ `--root PATH` を使います。最初の読み取り操作は、表示のためだけに Context、Workspace、ポリシー、認証状態を新しく作りません。
 
-## インストールで変わること、変わらないこと
+## 次に変更されるもの
 
-バイナリのビルドまたはコピーだけでは、次の処理は行われません。
+次の変更操作は、明示的な `tobari cluster up` です。選択したサービスイメージを事前検査し、API が合わない組み合わせは起動しません。ルートの `tobari` 入室コマンドが、共有クラスターを暗黙に起動・修復することもありません。
 
-- Gateway、OPA、Auth Broker の起動
-- Workspace の作成またはプロジェクトのマウント
-- 外部通信の許可ルールの作成
-- プロバイダーへのログイン
-- Docker を必要とする操作を実行する前の、バイナリへの Docker アクセスの付与
+診断や互換性の失敗を、Docker ソケット、ホストホーム、広いホストパスの追加マウントで回避しないでください。文書化した境界そのものが変わります。
 
-次の明示的な境界は `tobari cluster up` です。このコマンドは共有サービスを調整し、レビュー済みイメージを取得する場合があります。ルートの `tobari` 入室コマンドが、そのクラスターを暗黙に起動または修復することはありません。
+## 参照する仕様
 
-## よくあるインストール失敗
-
-| 観測したこと                     | 意味                                                                        | 安全な次の手順                                                                                |
-| -------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `tobari: command not found`      | バイナリのディレクトリが `PATH` にありません。                              | 正確なディレクトリを追加するか、`PATH` 上のディレクトリへバイナリを配置します。               |
-| Docker/Compose 検査が失敗する    | 信頼するホストから、必要な Docker CLI の機能を利用できません。              | Docker インストールまたは選択中の Docker コンテキストを直し、`tobari doctor` を再実行します。 |
-| イメージを利用できない           | Docker がレビュー済みサービスやランタイムの識別情報を調査・取得できません。 | レジストリと Docker の診断を確認し、ダイジェストを任意のタグへ置き換えないでください。        |
-| バインドマウント元を利用できない | VM 上の Docker デーモンからホストパスが見えません。                         | プロジェクトと Tobari の XDG パスを共有し、`doctor` を再実行します。                          |
-| 保管庫の横にルート鍵がない       | 既存の暗号化された状態を開けません。                                        | 元の鍵を復元します。Tobari は代替鍵を暗黙に生成しません。                                     |
-
-診断失敗を、広範な Docker マウント、ホストホームのマウント、Workspace 内への Docker ソケットのマウントで回避しないでください。これらの回避策は信頼境界を変えてしまいます。
-
-## 保証と制限
-
-リポジトリのビルドは、Go バージョンと埋め込みサービスの識別情報を固定します。ソースとスナップショットの整合性検査、およびイメージ契約の検査が不整合を検出します。それでもインストールの完全性は、信頼するチェックアウト、ビルドホスト、Docker デーモン、イメージレジストリの経路に依存します。これらの信頼基盤が侵害された後まで、Tobari が自分自身を防御するとは主張しません。
-
-## 根拠となるソース
-
-- [レビュー対象コミットの README に記載されたインストール手順と要件](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/README.md)
-- [Go ツールチェーンの宣言](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/go.mod)
-- [Task のビルド定義](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/Taskfile.yml)
-- [固定されたランタイムコンポーネントのバージョン](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/internal/infra/runtimeassets/assets/versions.env)
-- [状態を変更しない診断処理の実装](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/internal/infra/dockerruntime/runtime.go)
+- [現在のソース向け手順](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/README.md)
+- [リリースと開発用リゾルバーの契約](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/docs/06_release.md)
+- [固定済みサービスイメージ](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/internal/infra/runtimeassets/assets/versions.env)
+- [依存関係を持つ doctor の契約](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/docs/01_product_contract.md)
 
 ## まとめ
 
-リポジトリからビルドした CLI をインストールし、信頼するホスト側の前提条件を確認します。共有サービス、Workspace、ポリシー、認証は、それぞれ別の明示的な操作です。
+このソース時点では `bin/tobari-dev` を作り、`version --format json` で互換性を確認します。Gateway API 4 と Auth Broker API 3 に対応する不変な公開成果物が揃うまでは、開発用リゾルバーを使います。`doctor` は製品状態を作成・修復せずにホストを確認します。
 
-## 理解を確認する
-
-<details>
-<summary><code>task build</code> は Gateway を起動したり Workspace を作成したりしますか？</summary>
-
-いいえ。CLI をビルドするだけです。共有サービスは `tobari cluster up` でのみ起動し、Workspace の選択または作成はルートの `tobari` コマンドで行います。
-
-</details>
-
-<details>
-<summary>VM のバインドマウントエラーを、ホストのホーム全体をマウントして解決すべきでないのはなぜですか？</summary>
-
-作業対象のプロジェクトルートだけが、意図して読み書き可能にするマウントだからです。ホストホームを広くマウントすると境界外のファイルを公開し、文書化されたセキュリティ上の前提条件を無効にします。
-
-</details>
-
-**次へ:** [一連の流れを試すクイックスタート](../quickstart/)。
+**次へ:** [クイックスタート](../quickstart/)。

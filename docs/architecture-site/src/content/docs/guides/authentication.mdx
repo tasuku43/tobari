@@ -13,11 +13,11 @@ This guide compares the three supported paths, shows the reviewed built-in broke
 
 ## Compare the three paths
 
-| Path                     | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                     | Main limit                                                              |
-| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace              |
-| Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Introspects without secret, asks OPA, then resolves, refreshes, or signs after allow | Static exact bindings plus reviewed GitHub, AWS, and Datadog plans only |
-| Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                                               | Validates Context/project/host profile and injects after allow                       | Static reviewed adapter; not a general provider program                 |
+| Path                     | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                     | Main limit                                                                                 |
+| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace                                 |
+| Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Introspects without secret, asks OPA, then resolves, refreshes, or signs after allow | Static exact bindings plus reviewed GitHub, AWS, Datadog, OpenAI, and Anthropic plans only |
+| Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                                               | Validates Context/project/host profile and injects after allow                       | Static reviewed adapter; not a general provider program                                    |
 
 No path changes the OPA rule requirement. “The request is authenticated” and “this Context/project/method/path may connect” are different claims.
 
@@ -71,11 +71,7 @@ and checked cleanup. Neither Gateway nor Auth Broker runs `gh`; the acquired
 static value is committed through Broker control and encrypted in the stable
 Context vault without appearing in CLI output.
 
-Leave and re-enter a Workspace permanently bound to that Context:
-
-```sh
-tobari --context default
-```
+After login, inspect the result or `tobari auth status --format json`. Only a Workspace whose projection is authoritatively `missing` or `stale` receives an exact working-directory and argv re-entry action. `ready` needs no action; `unavailable` and `unresolved` do not invent one. Logging out an already absent provider reports `no_change`.
 
 The Workspace receives a distinct `tobari-h1_...` handle. For the built-in GitHub manifest it is projected for supported GitHub CLI API use, but it is not the upstream token. Private Git transport through a broker Git credential helper is not currently supported.
 
@@ -103,6 +99,26 @@ re-entry, the Workspace receives `DD_ACCESS_TOKEN=<project handle>` and fixed
 `DD_SITE=datadoghq.com`. A valid access token is selected only after OPA allow;
 near expiry, Broker performs one bounded fixed-US1 refresh and persists the
 replacement encrypted state. Pup is not installed in Broker.
+
+<h3 id="openai">OpenAI / Codex</h3>
+
+Install exact Codex 0.146.0 in a reviewed trusted-host executable root, then run:
+
+```sh
+tobari auth login --provider openai --context default
+```
+
+Tobari runs the fixed Codex device-login path in owner-only temporary `HOME` and `CODEX_HOME` directories. The user completes the ordinary ChatGPT browser step. Tobari accepts only the strict file-backed OAuth session, removes the temporary home, and then commits canonical encrypted Context state. The Workspace copy of Codex is not used for acquisition. When refresh is needed, Auth Broker performs the compiled exact OAuth refresh only after OPA allow.
+
+<h3 id="anthropic">Anthropic / Claude Code</h3>
+
+Install exact Claude Code 2.1.220 in a reviewed trusted-host executable root, then run:
+
+```sh
+tobari auth login --provider anthropic --context default
+```
+
+Tobari runs fixed `claude setup-token` in an owner-only temporary home through a bounded private PTY. It forwards only recognized non-secret instructions, never reprints the captured token, and commits one inference token only after cleanup and executable revalidation. This plan is static token resolution; Broker does not refresh it.
 
 <CredentialArchitectureMap headingLevel={2} initial="acquisition" />
 
