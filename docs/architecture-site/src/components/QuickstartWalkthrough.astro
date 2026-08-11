@@ -80,25 +80,24 @@ tobari cluster up`,
         },
         {
           title: "Workspace から未許可のリクエストを送る",
-          location: "ホスト → Workspace → ホスト",
+          location: "ホスト → Workspace（開いたまま）",
           action:
-            "ホストで `tobari` を実行して Workspace に入り、練習用の PUT リクエストを送ります。拒否を確認したら、`exit` でホストへ戻ります。",
+            "ホストで `tobari` を実行して Workspace に入り、練習用の PUT リクエストを送ります。拒否を確認してもセッションは終了せず、そのまま待たせます。次の手順は別の信頼するホスト端末で行います。",
           command: `tobari
 
 # Workspace 内
 curl -sS -w '\\nhttp=%{http_code}\\n' \\
-  -X PUT https://example.com/quickstart
-exit`,
+  -X PUT https://example.com/quickstart`,
           expected:
-            "HTTP 403 と `policy_denied` が表示され、ホスト側のレビューコマンドが案内されます。Gateway は接続先へ接続せず、リクエストを自動で許可・再送しません。`exit` 後も Workspace とその状態は残ります。",
+            "HTTP 403 と `policy_denied` が表示され、ホスト側のレビューコマンドが案内されます。Gateway は接続先へ接続せず、リクエストを自動で許可・再送しません。Workspace のシェルは開いたままにします。",
           blocked:
             "`tobari` で Workspace に入るには、対話型ターミナルが必要です。イメージに関するエラーが出た場合は `tobari context show` を確認し、対応するランタイムを準備します。",
         },
         {
           title: "ホスト側で拒否内容をレビューし、完全一致で許可する",
-          location: "信頼するホスト",
+          location: "別の信頼するホスト端末",
           action:
-            "レビュー画面で Context、プロジェクト、ホスト、ポート、メソッド、パスを確認し、この通信条件だけを許可します。",
+            "Workspace セッションを残したまま、別のホスト端末でレビュー画面を開きます。Context、プロジェクト、ホスト、ポート、メソッド、パスを確認し、この通信条件だけを許可します。",
           command: `tobari policy review --tail 100`,
           expected:
             "選択した通信条件の完全一致ルールが、ポリシー全体の検証後に有効になります。許可操作は、拒否された HTTP リクエストそのものを再送しません。",
@@ -106,13 +105,11 @@ exit`,
             "候補が表示されない場合は、手順2で拒否が発生したことを確認してからレビューをやり直します。同じリクエストを無条件に繰り返し送らないでください。",
         },
         {
-          title: "Workspace から同じ条件のリクエストを送り直す",
-          location: "ホスト → Workspace → ホスト",
+          title: "元の Workspace セッションから同じ条件で送り直す",
+          location: "手順 2 で開いた Workspace → ホスト",
           action:
-            "同じプロジェクトから Workspace へ入り直し、同じメソッドとパスの新しいリクエストを送ります。",
-          command: `tobari
-
-# Workspace 内
+            "手順 2 で待たせていた Workspace セッションへ戻り、同じメソッドとパスの新しいリクエストを送ります。確認後に `exit` でホストへ戻ります。",
+          command: `# 手順 2 で開いた Workspace 内
 curl -sS -w '\\nhttp=%{http_code}\\n' \\
   -X PUT https://example.com/quickstart
 exit`,
@@ -240,25 +237,24 @@ tobari cluster up`,
         },
         {
           title: "Enter the Workspace and send one request that will be denied",
-          location: "Host → inside Workspace → host",
+          location: "Host → Workspace (keep it open)",
           action:
-            "Run `tobari` on the host, issue the synthetic PUT request inside the Workspace, then use `exit` to return to the host after observing the denial.",
+            "Run `tobari` on the host and issue the synthetic PUT request inside the Workspace. After observing the denial, keep that session open and use another trusted-host terminal for the next step.",
           command: `tobari
 
 # Inside the Workspace
 curl -sS -w '\\nhttp=%{http_code}\\n' \\
-  -X PUT https://example.com/quickstart
-exit`,
+  -X PUT https://example.com/quickstart`,
           expected:
-            "You receive HTTP 403 with `policy_denied` and a host-side review command. Tobari does not connect upstream, approve the request, or retry it. The Workspace and its state remain after `exit`.",
+            "You receive HTTP 403 with `policy_denied` and a host-side review command. Tobari does not connect upstream, approve the request, or retry it. Keep the Workspace shell running.",
           blocked:
             "The root `tobari` entry requires an interactive terminal. For image errors, inspect `tobari context show` and prepare a compatible runtime before entering again.",
         },
         {
           title: "Review the denial on the host and allow the exact effect",
-          location: "Trusted host",
+          location: "Another trusted-host terminal",
           action:
-            "Inspect the Context, project, host, port, method, and path in the review screen, then allow only this exact communication.",
+            "Leave the Workspace session running. In another host terminal, inspect the Context, project, host, port, method, and path in the review screen, then allow only this exact communication.",
           command: `tobari policy review --tail 100`,
           expected:
             "The exact rule becomes active after the complete policy is validated. The allow action does not replay the denied HTTP request.",
@@ -266,13 +262,11 @@ exit`,
             "If no candidate appears, confirm that step 2 produced the denial and then review again. Do not loop the same request without checking its state.",
         },
         {
-          title: "Re-enter the Workspace and issue a new request",
-          location: "Host → inside Workspace → host",
+          title: "Retry from the original Workspace session",
+          location: "Workspace opened in step 2 → host",
           action:
-            "Re-enter from the same project and deliberately send a new request with the same method and path.",
-          command: `tobari
-
-# Inside the Workspace
+            "Return to the Workspace session that has been waiting since step 2 and deliberately send a new request with the same method and path. Exit after observing the result.",
+          command: `# Inside the Workspace opened in step 2
 curl -sS -w '\\nhttp=%{http_code}\\n' \\
   -X PUT https://example.com/quickstart
 exit`,

@@ -20,17 +20,31 @@ description: Tobari をビルドして配置し、Workspace を作る前にホ�
 
 Docker Desktop 固有の API は必要ありません。Colima、Lima ベースの Docker コンテキスト、標準的な Linux Docker Engine は、同じ Docker CLI アダプターを使います。VM 内のデーモンから、プロジェクトルートと Tobari の XDG 設定・状態パスの両方をバインドマウントできる必要があります。詳しくは [Colima と Lima](../../guides/colima-and-lima/)を参照してください。
 
-## CLI をビルドして配置する
+## CLI をビルドし、実行する成果物を確認する
 
-公開リポジトリをクローンし、宣言済みのビルドタスクを使います。
+公開リポジトリをクローンし、まず通常の CLI をビルドします。
 
 ```sh
 git clone https://github.com/tasuku43/tobari.git
 cd tobari
 task build
+bin/tobari version --format json
 ```
 
-生成物は `bin/tobari` です。このリポジトリの `bin` ディレクトリを `PATH` に追加するか、すでに `PATH` に含まれるディレクトリへバイナリをインストールします。
+`version` は、ソースコミット、ランタイム解決経路、必要な Gateway / Auth Broker API と、選択中の成果物が互換かどうかを表示します。共有サービスを起動する前に、この結果を確認してください。
+
+**現在のソーススナップショットでは、ソースが要求する Gateway API 4 / Auth Broker API 3 に対して、通常ビルドが参照するレビュー済み公開ダイジェストは一世代前です。** 通常の `bin/tobari` は、この不一致を検出するとクラスター起動前に停止します。互換する公開ダイジェストが発行されるまで、現在のチェックアウト自体を試す場合は、リポジトリ所有の開発用成果物を明示的に使います。
+
+```sh
+task build:dev
+TOBARI_SOURCE_ROOT=$PWD
+tobari() { "$TOBARI_SOURCE_ROOT/bin/tobari-dev" "$@"; }
+tobari version --format json
+```
+
+この関数は現在のホストシェルだけで `tobari` を `bin/tobari-dev` に結び付けます。以降のクイックスタートも同じシェルで実行してください。互換するレビュー済み成果物を選べる公開版では、この開発用の切り替えは不要です。
+
+通常の公開バイナリを配置する場合、生成物は `bin/tobari` です。`PATH` 上のディレクトリへ配置できます。
 
 ```sh
 install -m 0755 bin/tobari ~/.local/bin/tobari
@@ -42,7 +56,7 @@ Go の標準的なインストール方法も利用できます。
 go install ./cmd/tobari
 ```
 
-リポジトリが管理するランタイム権限の代わりに、未検証で更新されるイメージタグを取得しないでください。共有サービスの識別情報は、CLI に埋め込まれたレビュー済みの不変なダイジェストから選ばれます。
+未検証で更新されるイメージタグへ置き換えて互換性検査を回避しないでください。共有サービスの識別情報は、レビュー済みの不変なダイジェストまたは明示的なリポジトリ開発経路から選ばれます。
 
 ## 何も起動せずに確認する
 
@@ -50,7 +64,7 @@ go install ./cmd/tobari
 
 ```sh
 command -v tobari
-tobari version
+tobari version --format json
 ```
 
 続けて、利用予定のプロジェクトから読み取り専用のホスト診断を実行します。

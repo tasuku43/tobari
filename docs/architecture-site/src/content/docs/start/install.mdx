@@ -20,17 +20,31 @@ You need:
 
 Docker Desktop-specific APIs are not required. Colima, Lima-based Docker contexts, and standard Linux Docker Engine use the same Docker CLI adapter. A VM-based daemon must be able to bind-mount both the project root and Tobari's XDG configuration and state paths; see [Colima and Lima](../../guides/colima-and-lima/) before troubleshooting application traffic.
 
-## Build and place the CLI
+## Build the CLI and verify the resolver you will use
 
-Clone the public repository and use its declared build task:
+Clone the public repository, build the ordinary CLI, and inspect its runtime identity before starting shared services:
 
 ```sh
 git clone https://github.com/tasuku43/tobari.git
 cd tobari
 task build
+bin/tobari version --format json
 ```
 
-The result is `bin/tobari`. Either add this repository's `bin` directory to `PATH`, or install the binary into a directory already on `PATH`:
+`version` reports the source commit, runtime resolver channel, required Gateway / Auth Broker APIs, and whether the selected component identities are compatible.
+
+**At this source snapshot, source requires Gateway API 4 and Auth Broker API 3 while the reviewed published digests selected by the ordinary build are one generation older.** `bin/tobari` deliberately stops before cluster mutation when it detects that mismatch. Until compatible reviewed published digests exist, use the repository-owned development artifacts explicitly when exercising this checkout:
+
+```sh
+task build:dev
+TOBARI_SOURCE_ROOT=$PWD
+tobari() { "$TOBARI_SOURCE_ROOT/bin/tobari-dev" "$@"; }
+tobari version --format json
+```
+
+That function binds `tobari` to `bin/tobari-dev` only in the current host shell. Run the following Quickstart from the same shell. A compatible published build does not need this development override.
+
+For an ordinary published binary, the build result remains `bin/tobari`; install it into a directory on `PATH` if desired:
 
 ```sh
 install -m 0755 bin/tobari ~/.local/bin/tobari
@@ -42,7 +56,7 @@ The repository also supports Go's install path:
 go install ./cmd/tobari
 ```
 
-Do not download an unverified moving image tag as a substitute for the repository's runtime authority. Shared service identities are selected from reviewed immutable digests embedded with the CLI.
+Do not replace an incompatible reviewed digest with an unverified moving tag. Shared service identities come from reviewed immutable digests or the explicit repository development resolver.
 
 ## Verify without starting anything
 
@@ -50,7 +64,7 @@ Confirm that the installed executable is the one your shell will run:
 
 ```sh
 command -v tobari
-tobari version
+tobari version --format json
 ```
 
 Then run the read-only host diagnostic from the project you plan to use:

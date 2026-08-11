@@ -6,17 +6,17 @@ description: Review retained denial evidence, stage exact choices, and activate 
 import PolicyLoopMap from "../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
-Policy review turns retained denial evidence into an explicit host-owned decision. Leave the Workspace, inspect the bounded secret-free Permission Inbox on the trusted host, stage choices from exact detail screens, and Apply one Context's reviewed set once. Approval changes policy; it never retries the denied traffic.
+Policy review turns retained denial evidence into an explicit host-owned decision. Keep the Workspace session waiting, open another trusted-host terminal, and inspect the bounded secret-free Permission Inbox there, stage choices from exact detail screens, and Apply one Context's reviewed set once. Approval changes policy; it never retries the denied traffic.
 
 [First denial](../../start/first-denial/) explains how the request reaches this host-side review flow.
 
 <PolicyLoopMap headingLevel={2} />
 
-## 1. Stop retrying and leave the Workspace
+## 1. Stop retrying and keep the Workspace session
 
 A learnable Gateway `403` contains fixed guidance to run `tobari policy review` on the host. It contains no candidate ID and gives the agent no way to approve itself.
 
-Exit the Workspace before review. Repeated retries do not increase authority; they only refresh bounded evidence for the same effect.
+You do not need to terminate the Workspace for review. Leave the agent waiting and use another host terminal. Repeated retries do not increase authority; they only refresh bounded evidence for the same effect.
 
 ## 2. Open the human review flow
 
@@ -78,7 +78,7 @@ If any validation or activation step fails, Tobari retains or restores the previ
 
 ## 5. Retry deliberately
 
-After a confirmed allow, re-enter the matching Workspace and issue a new request. The old denied request is gone; Gateway never queues or replays its body.
+After a confirmed allow, return to the waiting Workspace session and issue a new request. Re-enter only if that session was already closed. The old denied request is gone; Gateway never queues or replays its body.
 
 An exact rule binds Context ID, project ID, scheme, host, port, method, and path. Body, timestamp, display order, request ID, and credential label do not widen or split its authority.
 

@@ -40,8 +40,8 @@ export const credentialNodes: CredentialNode[] = [
     label: { en: "Trusted-host CLI", ja: "信頼できるホスト上の CLI" },
     role: { en: "Acquisition control", ja: "認証情報の取得" },
     detail: {
-      en: "Runs fixed gh, aws, or pup login drivers; import reads protected stdin.",
-      ja: "あらかじめ決められた gh、aws、pup のログイン処理を実行します。インポートで読み取るのは、保護された標準入力だけです。",
+      en: "Runs fixed gh, aws, pup, Codex, or Claude login drivers; import reads protected stdin.",
+      ja: "固定された gh、aws、pup、Codex、Claude のログイン処理を実行します。インポートで読み取るのは、保護された標準入力だけです。",
     },
     kind: "trusted",
   },
@@ -106,8 +106,8 @@ export const credentialNodes: CredentialNode[] = [
     },
     role: { en: "Persistent secret state", ja: "永続する秘密情報の状態" },
     detail: {
-      en: "Stores typed static secrets, opaque AWS state, Datadog OAuth state, revisions, and raw handles.",
-      ja: "型付きの静的な秘密情報、AWS の不透明な状態、Datadog OAuth の状態、リビジョン、未加工のハンドルを保存します。",
+      en: "Stores typed static secrets, AWS state, Datadog and OpenAI OAuth state, revisions, and raw handles.",
+      ja: "型付きの静的な秘密情報、AWS の状態、Datadog と OpenAI の OAuth 状態、リビジョン、未加工のハンドルを保存します。",
     },
     kind: "secret",
   },
@@ -119,8 +119,8 @@ export const credentialNodes: CredentialNode[] = [
     },
     role: { en: "External acquisition", ja: "外部での認証取得" },
     detail: {
-      en: "GitHub device login, AWS login, or Datadog OAuth reached by fixed trusted-host drivers.",
-      ja: "信頼できるホスト上の決められた処理から、GitHub のデバイスログイン、AWS のログイン、または Datadog OAuth へ接続します。",
+      en: "GitHub, AWS, Datadog, OpenAI, or Anthropic login reached only by fixed trusted-host drivers.",
+      ja: "固定された信頼するホスト側ドライバーだけが、GitHub、AWS、Datadog、OpenAI、Anthropic のログイン先へ接続します。",
     },
     kind: "external",
   },

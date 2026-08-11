@@ -22,13 +22,12 @@ Tobari では、外部サービスへの認証と HTTP 通信の許可を別々�
 どの方式でも OPA の許可が必要です。「リクエストへ認証情報を付けられること」と「その HTTP 通信が許可されること」は別の権限です。
 
 <aside class="warning">
-  <strong>標準クラスターが使う成果物:</strong> ソースとテストには、AWS
-  コンソールログインと Datadog
-  の認証情報取得・更新経路があります。ただし、現在固定されている Gateway と Auth
-  Broker のイメージは、それらより前の AWS Identity Center 成果物です。Datadog
-  または AWS コンソールログインを使う前に、
-  <a href="../../reference/component-versions/">コンポーネントのバージョン</a>
-  で、標準クラスターが選ぶダイジェストを確認してください。
+  <strong>現在のソースと公開ダイジェスト:</strong> このソースは Gateway API 4 / Auth
+  Broker API 3 を要求し、OpenAI/Codex と Anthropic/Claude Code を含む現在の認証計画を実装しています。
+  一方、通常ビルドが参照するレビュー済み公開ダイジェストは一世代前です。互換性がない場合、
+  Tobari はクラスター起動前に停止します。現在のチェックアウトを試す場合は
+  <a href="../../start/install/">インストール</a>に記載した明示的な開発用経路を使い、
+  任意のイメージタグで検査を回避しないでください。
 </aside>
 
 ## ツール自身で認証する
@@ -45,7 +44,7 @@ Tobari は、ホストのホーム、Keychain、SSH エージェント、認証�
 
 <ProviderToolMap />
 
-## GitHub、AWS、Datadog の組み込み認証
+## Codex、Claude Code、GitHub、AWS、Datadog の組み込み認証
 
 共有クラスターを起動し、Context の認証状態を確認します。`--provider` を省略すると、インストール済みでレビュー済みのプロバイダーから選択できます。GitHub を直接指定する場合は、選択画面を省略します。
 
@@ -53,19 +52,21 @@ Tobari は、ホストのホーム、Keychain、SSH エージェント、認証�
 tobari cluster up
 tobari auth status --context default
 tobari auth login --context default # choose an installed reviewed provider
-tobari auth login --provider github --context default
+tobari auth login --provider openai --context default
+tobari auth login --provider anthropic --context default
+# または: github / aws / datadog
 tobari auth status --context default
 ```
 
 ログインは、信頼するホストの対話型ターミナルで行います。`--provider` を省略した場合、インストール済みでレビュー済みのプロバイダーだけを表示し、各行に対応ツールも示します。`--provider` を指定すると選択画面を省略します。
 
+OpenAI では、信頼するホストにある完全一致の Codex 0.146.0 を固定引数のデバイスログインで実行し、隔離した一時 HOME から ChatGPT OAuth セッションだけを取得します。Workspace の `.codex/auth.json` に入る access token は実トークンではなく、プロジェクトに結び付いたハンドルです。実際のアクセストークンと account ID は、OPA の許可後に Auth Broker が選択または必要に応じて更新します。
+
+Anthropic では、信頼するホストにある完全一致の Claude Code 2.1.220 で `claude setup-token` を実行し、取得した inference token を Workspace の外へ保存します。Workspace の `CLAUDE_CODE_OAUTH_TOKEN` には実トークンではなくハンドルが入り、`api.anthropic.com` への許可済み通信でだけ解決されます。この経路には自動更新はありません。
+
 GitHub では、識別情報を確認した GitHub CLI を、固定された引数、隔離した非公開設定、上限付きの出力、検査付きの後片付けという条件で実行します。Gateway と Auth Broker が `gh` を実行することはありません。取得した値は Auth Broker の制御境界を通して保存し、CLI 出力へは表示せず、Context 保管庫内で暗号化します。
 
-ログイン後、その Context に結び付いた Workspace へ入り直します。
-
-```sh
-tobari --context default
-```
+ログイン、置換、ログアウトは、すでに動いているプロセスの環境やファイルをその場で書き換えません。`tobari auth status --context default` は既存 Workspace の投影状態を観測し、欠落または古い投影に再入室が必要な場合だけ、対象と操作を表示します。すべての Workspace を無条件に再起動するのではなく、その案内に従ってください。
 
 Workspace は、プロジェクトごとに異なる `tobari-h1_...` ハンドルを受け取ります。組み込み GitHub マニフェストでは、対応する GitHub CLI API 通信に使いますが、外部サービスへ送るトークンそのものではありません。Auth Broker を使った非公開 Git 通信の認証情報ヘルパーには、現在対応していません。
 
@@ -103,7 +104,8 @@ Tobari は非公開のファイル保存ホームで、固定されたホスト�
 6. 静的認証情報を使う許可では、Gateway が同じリビジョンを一度だけ解決し、宣言されたヘッダーを置き換えます。
 7. AWS の許可では、Gateway が完全なリクエストを 8 MiB の上限内で保持します。Auth Broker は認証済みの非公開ホスト側コンパニオンを使い、固定された AWS CLI の認証情報エクスポートを一度実行します。リビジョンを再確認して状態を保存し、標準ヘッダーを使う SigV4 署名をローカルで行います。
 8. Datadog の許可では、十分な有効期間が残るトークンを選びます。必要な場合は、プロキシとリダイレクトを使わず、完全一致する US1 トークンエンドポイントで同じレコードを一度だけ更新します。Bearer 値を返す前に状態を保存します。
-9. Gateway が完全一致する HTTPS 接続先へ一度接続します。元のリクエストを自動再実行しません。
+9. OpenAI の許可では、有効期限に余裕のあるアクセストークンを選び、必要なら固定された OpenAI OAuth エンドポイントで一度だけ更新します。更新状態を先に保存し、Gateway が検証済みのアカウント ID と認証ヘッダーを最終的に付与します。Anthropic は静的な解決経路を使い、自動更新しません。
+10. Gateway が完全一致する HTTPS 接続先へ一度接続します。元のリクエストを自動再実行しません。
 
 <SequenceExplorer
   title="Auth Broker を使う認証情報の経路"
@@ -133,7 +135,7 @@ trusted-secret-source | tobari auth import example --context default
 
 ## 認証情報を置き換える、ログアウトする
 
-Context とプロバイダーの認証情報を置き換えると、以前に発行したハンドルはすべて無効になります。実行中のプロセスには古い環境変数が残りますが、その値は使えません。新しいハンドルを受け取るには、Workspace から退出して入り直します。
+Context とプロバイダーの認証情報を置き換えると、以前に発行したハンドルはすべて無効になります。実行中のプロセスには古い投影が残る場合がありますが、その値は使えません。`auth status` で Workspace ごとの投影状態を確認し、欠落または古い行に表示された再入室操作だけを実行します。
 
 ローカルの Auth Broker 状態を削除するには、次を実行します。
 
@@ -142,7 +144,7 @@ tobari auth logout github --context default
 tobari auth status --context default
 ```
 
-ログアウトは、ローカルのプロバイダーレコードを削除し、ハンドルを無効化します。GitHub へは接続せず、外部サービス側でのトークン失効は保証しません。実行中のプロセス環境も書き換えません。次に Workspace へ入るとき、Tobari が管理する配置内容を削除します。
+ログアウトは、認証情報が存在する場合はローカルのプロバイダーレコードを削除してハンドルを無効化し、すでに存在しない場合は `no_change` として報告します。GitHub へは接続せず、外部サービス側でのトークン失効は保証しません。実行中のプロセス環境も書き換えません。次に Workspace へ入るとき、Tobari が管理する配置内容を削除します。
 
 `cluster down --purge` はログアウトの代わりにはなりません。暗号化済みの Context 保管庫とルート鍵は残ります。
 
@@ -178,7 +180,7 @@ Auth Broker は、静的または更新可能な認証状態を Workspace と OP
 
 ## まとめ
 
-認証は、許可済みリクエストへ付ける認証情報を用意します。HTTP 通信そのものは、OPA のポリシーで別に制御します。Auth Broker 方式で Workspace が持つのは、用途を限定した不透明なハンドルだけです。許可された Gateway の経路だけが、宣言済みの静的認証情報の解決、AWS 署名、Datadog トークン操作を開始できます。
+認証は、許可済みリクエストへ付ける認証情報を用意します。HTTP 通信そのものは、OPA のポリシーで別に制御します。Auth Broker 方式で Workspace が持つのは、用途を限定した不透明なハンドルだけです。許可された Gateway の経路だけが、宣言済みの静的認証情報の解決、AWS 署名、Datadog または OpenAI のトークン操作を開始できます。
 
 ## 理解を確認する
 
