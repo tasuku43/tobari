@@ -1,0 +1,49 @@
+name: Temporary refresh public docs
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.head_ref == 'agent/refresh-pages-from-main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/refresh-pages-from-main
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Refresh public documentation snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          snapshot='docs/architecture-site/source-snapshot.txt'
+          old="$(tr -d '\n' < "$snapshot")"
+          target='3a9acc9c264d3e4efca2cd9aafabc9a122b183b8'
+          printf '%s\n' "$target" > "$snapshot"
+          if [[ "$old" != "$target" ]]; then
+            grep -RIl --exclude='source-snapshot.txt' "$old" docs/architecture-site/src | while read -r file; do
+              sed -i "s/$old/$target/g" "$file"
+            done
+          fi
+          go run ./tools/sitegen --write
+      - name: Commit generated refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/architecture-site/source-snapshot.txt docs/architecture-site/src/generated docs/architecture-site/src
+          if git diff --cached --quiet; then
+            echo 'No generated changes.'
+            exit 0
+          fi
+          git commit -m 'docs(site): refresh product snapshot'
+          git push origin HEAD:agent/refresh-pages-from-main
