@@ -16,18 +16,19 @@ This guide compares the three supported paths, shows the reviewed built-in broke
 | Path                     | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                     | Main limit                                                              |
 | ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
 | Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace              |
-| Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Introspects without secret, asks OPA, then resolves, refreshes, or signs after allow | Static exact bindings plus reviewed GitHub, AWS, and Datadog plans only |
+| Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Introspects without secret, asks OPA, then resolves, refreshes, or signs after allow | Exact reviewed bindings, including GitHub, AWS, Datadog, OpenAI, and Anthropic |
 | Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                                               | Validates Context/project/host profile and injects after allow                       | Static reviewed adapter; not a general provider program                 |
 
 No path changes the OPA rule requirement. “The request is authenticated” and “this Context/project/method/path may connect” are different claims.
 
 <aside class="warning">
-  <strong>Artifact status:</strong> the source and tests implement the Datadog
-  acquisition and post-policy refresh path, but the current immutable Gateway
-  and Auth Broker pins predate AWS console login and that request path. The
-  standard cluster selects the earlier AWS Identity Center artifacts today; use
-  [Component versions](/reference/component-versions/) to verify the selected
-  identities before following the Datadog steps.
+  <strong>Current source versus published digests:</strong> this source requires
+  Gateway API 4 and Auth Broker API 3 and includes the current OpenAI/Codex and
+  Anthropic/Claude Code plans. The reviewed published digests selected by the
+  ordinary build are one generation older. Tobari rejects that mismatch before
+  cluster mutation. To exercise this checkout, use the explicit development
+  resolver documented in [Install](../../start/install/) rather than replacing
+  a reviewed digest with a moving image tag.
 </aside>
 
 ## Tool-native authentication
@@ -50,14 +51,15 @@ redundant `--tool` input.
 
 ## Reviewed built-in authentication
 
-The reviewed helpers are GitHub, two AWS login methods, and Datadog US1 pup
-OAuth. For GitHub, on the trusted host:
+The reviewed built-in login helpers are OpenAI/Codex, Anthropic/Claude Code, GitHub, two AWS login methods, and Datadog US1 pup OAuth. Start on the trusted host:
 
 ```sh
 tobari cluster up
 tobari auth status --context default
 tobari auth login --context default # choose an installed reviewed provider
-tobari auth login --provider github --context default
+tobari auth login --provider openai --context default
+tobari auth login --provider anthropic --context default
+# or: github / aws / datadog
 tobari auth status --context default
 ```
 
@@ -65,19 +67,21 @@ Login requires an interactive trusted-host terminal. Omitting optional
 `--provider` presents only installed reviewed login providers; an explicit
 `--provider` skips that menu. Each menu row names its automatically selected
 Workspace client Tool. The AWS-only `--method` flag requires
-`--provider aws`. Tobari runs the trusted host's identity-checked GitHub CLI
+`--provider aws`.
+
+For OpenAI, Tobari runs exact trusted-host Codex 0.146.0 with fixed device-login arguments in an isolated temporary HOME/CODEX_HOME and commits only canonical ChatGPT OAuth state. The Workspace receives a project-bound handle inside the version-pinned `.codex/auth.json` compatibility shape; it never receives the real access or refresh token. After OPA allow, Auth Broker selects or refreshes the access token and Gateway adds the validated account routing header.
+
+For Anthropic, Tobari runs exact trusted-host Claude Code 2.1.220 with fixed `claude setup-token` behavior in a bounded private PTY. The captured inference token stays outside the Workspace. `CLAUDE_CODE_OAUTH_TOKEN` receives only the project handle, which resolves after exact OPA allow at `api.anthropic.com`; this plan does not auto-refresh.
+
+For GitHub, Tobari runs the trusted host's identity-checked GitHub CLI
 with fixed argv, sanitized private configuration, bounded projected output,
 and checked cleanup. Neither Gateway nor Auth Broker runs `gh`; the acquired
 static value is committed through Broker control and encrypted in the stable
 Context vault without appearing in CLI output.
 
-Leave and re-enter a Workspace permanently bound to that Context:
+Authentication mutations cannot rewrite an already-running Workspace in place. Inspect `tobari auth status --context default`: its Workspace activation rows report whether each known projection is current, missing, stale, unavailable, or unresolved, and provide an exact re-entry action only when that is the supported recovery. Do not restart every Workspace unconditionally.
 
-```sh
-tobari --context default
-```
-
-The Workspace receives a distinct `tobari-h1_...` handle. For the built-in GitHub manifest it is projected for supported GitHub CLI API use, but it is not the upstream token. Private Git transport through a broker Git credential helper is not currently supported.
+On the next required reconciliation, the Workspace receives a distinct `tobari-h1_...` handle. For the built-in GitHub manifest it is projected for supported GitHub CLI API use, but it is not the upstream token. Private Git transport through a broker Git credential helper is not currently supported.
 
 For AWS, choose one explicit trusted-host method:
 
@@ -123,7 +127,8 @@ replacement encrypted state. Pup is not installed in Broker.
 8. On a Datadog allow, Broker selects a sufficiently valid token or performs
    one same-record strict refresh at the exact proxy-free, no-redirect US1
    token endpoint and commits state before returning a bearer value.
-9. Gateway creates one exact HTTPS upstream connection. It does not replay.
+9. On an OpenAI allow, Broker selects a sufficiently valid access token or performs one bounded exact refresh at `auth.openai.com`, persists the updated OAuth state, and returns the validated account identity for Gateway routing. Anthropic uses the static resolve path and has no Broker refresh.
+10. Gateway creates one exact HTTPS upstream connection. It does not replay.
 
 <SequenceExplorer
   title="Brokered credential paths"
@@ -151,7 +156,7 @@ trusted-secret-source | tobari auth import example --context default
 
 ## Rotation and logout
 
-Replacing a Context/provider credential revokes every previously issued handle. A running process still holds its old environment value, but that value is invalid. Leave and re-enter to receive a new project-specific projection.
+Replacing a Context/provider credential revokes every previously issued handle. A running process can retain an old environment or complete-file projection, but that handle is invalid. Inspect `auth status`; re-enter only the Workspaces reported as missing or stale to receive the new project-specific projection.
 
 To remove local broker state:
 
@@ -160,7 +165,7 @@ tobari auth logout github --context default
 tobari auth status --context default
 ```
 
-Logout removes the local provider record and revokes its handles. It does not contact GitHub or guarantee remote token revocation. It also cannot rewrite the environment of an already running process; next entry removes the projection. `cluster down --purge` is not a substitute for logout and preserves vaults/root key.
+Logout removes and revokes the local provider record when present; an already-absent credential reports `change=no_change` rather than pretending that state changed. It does not contact GitHub or guarantee remote token revocation. It also cannot rewrite the environment of an already running process; next entry removes the projection. `cluster down --purge` is not a substitute for logout and preserves vaults/root key.
 
 ## Failure behavior
 
@@ -178,7 +183,7 @@ Logout removes the local provider record and revokes its handles. It does not co
   after the original request settles, inspect `auth status`. Ready/configured
   permits an explicit retry because Gateway made no application upstream
   attempt. `not_configured` retains a durable barrier: re-login or logout the
-  affected AWS/Datadog provider, then leave and re-enter before retrying.
+  affected AWS/Datadog/OpenAI provider, then follow the Workspace activation action reported by `auth status` before retrying.
 - `auth_mutation_outcome_unknown` or an output failure after mutation: inspect `auth status` before another login/import/logout. Blind replay may rotate or remove confirmed state twice.
 
 ## Guarantees and limits
@@ -188,7 +193,7 @@ files/environment and OPA, binds handles to exact authority, and performs
 secret-bearing actions only after allow. It does not isolate mutually hostile
 processes inside one Workspace, stop use of an already allowed capability,
 perform remote logout, support multiple accounts per Context, or implement
-refresh/signing/OAuth beyond the reviewed AWS and Datadog plans.
+refresh/signing/OAuth beyond the reviewed AWS, Datadog, OpenAI, and Anthropic plans.
 
 ## Source evidence
 
@@ -206,7 +211,7 @@ refresh/signing/OAuth beyond the reviewed AWS and Datadog plans.
 Authentication supplies identity material; OPA authorization still controls
 each HTTP effect. Brokered Workspaces hold opaque, narrowly bound handles. Only
 an allowed Gateway path can trigger the declared static resolve, AWS signing,
-or Datadog token action.
+Datadog token action, OpenAI token refresh, or Anthropic static credential resolution.
 
 ## Check your understanding
 
