@@ -500,7 +500,9 @@ const ui = isJapanese
     };
 ---
 
-<tobari-system-map class:list={["system-map", { compact, "network-detail": networkDetail }]}>
+<tobari-system-map
+  class:list={["system-map", { compact, "network-detail": networkDetail }]}
+>
   <figure data-active-conversation="proxy">
     <figcaption>
       <span class="eyebrow">{ui.eyebrow}</span>
@@ -508,7 +510,10 @@ const ui = isJapanese
       <p>{description}</p>
     </figcaption>
 
-    <div class="map-legend" aria-label={isJapanese ? "図の読み方" : "Diagram key"}>
+    <div
+      class="map-legend"
+      aria-label={isJapanese ? "図の読み方" : "Diagram key"}
+    >
       <span>{ui.legendLocation}</span>
       <span>{ui.legendLane}</span>
       <span>{ui.legendMessage}</span>
@@ -556,7 +561,7 @@ const ui = isJapanese
                   class={`lifeline lifeline-${participant.id}`}
                   style={`--lane-x:${(laneX[participant.id] / 1230) * 100}%`}
                   aria-hidden="true"
-                ></span>
+                />
               </>
             );
           })
@@ -602,20 +607,18 @@ const ui = isJapanese
                 data-message-route={message.id}
                 d={message.path}
                 marker-end="url(#system-map-arrow)"
-              ></path>
+              />
             ))
           }
 
           <path
             class="denied-branch"
             d="M 390 575 L 120 575"
-            marker-end="url(#system-map-arrow)"
-          ></path>
+            marker-end="url(#system-map-arrow)"></path>
           <path
             class="direct-blocked"
             d="M 120 1020 L 1110 1020"
-            marker-end="url(#system-map-stop)"
-          ></path>
+            marker-end="url(#system-map-stop)"></path>
         </svg>
 
         {
@@ -758,7 +761,7 @@ const ui = isJapanese
               "node-active",
               Boolean(
                 active &&
-                  [active.from, active.to].includes(item.dataset.node || ""),
+                [active.from, active.to].includes(item.dataset.node || ""),
               ),
             ),
           );
@@ -1057,11 +1060,8 @@ const ui = isJapanese
     position: absolute;
     z-index: 4;
     padding: 0.24rem 0.45rem;
-    border: 1px solid color-mix(
-      in srgb,
-      var(--tobari-denied) 55%,
-      var(--sl-color-gray-5)
-    );
+    border: 1px solid
+      color-mix(in srgb, var(--tobari-denied) 55%, var(--sl-color-gray-5));
     background: var(--sl-color-bg);
     color: var(--tobari-denied);
     font-family: var(--sl-font-mono);

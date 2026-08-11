@@ -11,18 +11,12 @@ test("mental model locates components and follows one request in time order", as
   await expect(map.locator("[data-message-route]")).toHaveCount(9);
   await expect(map.locator("[data-message-label]")).toHaveCount(9);
   await expect(map).toContainText("存在場所");
-  await expect(map).toContainText(
-    "Workspace から接続先への直接経路はない",
-  );
+  await expect(map).toContainText("Workspace から接続先への直接経路はない");
   await expect(map).toContainText("許可または拒否");
 
   await map.locator('[data-conversation="credential"]').click();
-  await expect(map.locator('[data-node="gateway"]')).toHaveClass(
-    /node-active/,
-  );
-  await expect(map.locator('[data-node="broker"]')).toHaveClass(
-    /node-active/,
-  );
+  await expect(map.locator('[data-node="gateway"]')).toHaveClass(/node-active/);
+  await expect(map.locator('[data-node="broker"]')).toHaveClass(/node-active/);
 });
 
 test("concept diagrams put locations and route labels inside the map", async ({

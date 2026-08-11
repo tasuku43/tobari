@@ -1,13 +1,6 @@
 ---
-import {
-  diagramLayouts,
-  type DiagramRegion,
-} from "../data/diagramLayouts";
-import {
-  diagrams,
-  type DiagramEdge,
-  type DiagramKind,
-} from "../data/diagrams";
+import { diagramLayouts, type DiagramRegion } from "../data/diagramLayouts";
+import { diagrams, type DiagramEdge, type DiagramKind } from "../data/diagrams";
 import { diagramsJa } from "../data/diagrams.ja";
 
 interface Props {
@@ -155,13 +148,9 @@ const quadraticPoint = (
   const inverse = 1 - t;
   return {
     x:
-      inverse * inverse * start.x +
-      2 * inverse * t * control.x +
-      t * t * end.x,
+      inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
     y:
-      inverse * inverse * start.y +
-      2 * inverse * t * control.y +
-      t * t * end.y,
+      inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * end.y,
   };
 };
 
@@ -226,12 +215,7 @@ const routeGeometry = (edge: DiagramEdge, index: number) => {
     fromWidth,
     fromHeight,
   );
-  const end = boxEdge(
-    to,
-    offset === 0 ? from : control,
-    toWidth,
-    toHeight,
-  );
+  const end = boxEdge(to, offset === 0 ? from : control, toWidth, toHeight);
   const midpoint =
     offset === 0
       ? { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
@@ -245,16 +229,8 @@ const routeGeometry = (edge: DiagramEdge, index: number) => {
         ? `M ${start.x} ${start.y} L ${end.x} ${end.y}`
         : `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`,
     label: {
-      x: clamp(
-        midpoint.x + (mostlyVertical ? 96 : 0),
-        110,
-        layout.width - 110,
-      ),
-      y: clamp(
-        midpoint.y + (mostlyVertical ? 0 : -27),
-        30,
-        layout.height - 30,
-      ),
+      x: clamp(midpoint.x + (mostlyVertical ? 96 : 0), 110, layout.width - 110),
+      y: clamp(midpoint.y + (mostlyVertical ? 0 : -27), 30, layout.height - 30),
     },
   };
 };
@@ -603,11 +579,8 @@ const stageMinWidth = Math.max(760, Math.round(layout.width * 0.76));
     align-items: center;
     transform: translate(-50%, -50%);
     padding: 0.22rem 0.4rem;
-    border: 1px solid color-mix(
-      in srgb,
-      currentColor 45%,
-      var(--sl-color-gray-5)
-    );
+    border: 1px solid
+      color-mix(in srgb, currentColor 45%, var(--sl-color-gray-5));
     background: color-mix(in srgb, var(--sl-color-bg) 94%, transparent);
     color: var(--sl-color-gray-2);
     font-size: 0.6rem;
