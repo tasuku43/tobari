@@ -75,7 +75,10 @@ test.describe("task-first documentation flow", () => {
     ).toBeVisible();
     await expect(page.locator(".learning-badge-step")).toHaveText("3 / 11");
     await expect(
-      page.getByRole("link", { name: "Authenticate your tools" }),
+      page.getByRole("main").getByRole("link", {
+        name: "Authenticate your tools",
+        exact: true,
+      }),
     ).toHaveAttribute("href", /\/start\/authentication-setup\/$/);
   });
 
