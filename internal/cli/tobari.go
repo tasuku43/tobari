@@ -1833,14 +1833,21 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 	if err := result.Validate(); err != nil {
 		return nil, fault.Wrap(fault.KindContract, "invalid_status_contract", "project status is invalid", false, err)
 	}
+	nextArgv := []string{ProgramName}
+	if result.ContextState != tobari.ContextObservationSyntheticDefault {
+		nextArgv = append(nextArgv, "--context", result.ContextName)
+	}
 	value := projectStatusOutput{
 		ContextState: result.ContextState, Exists: result.Exists, Root: safeExternalText(result.Root), ID: result.ID,
 		Home: safeExternalText(result.Home), Context: safeExternalText(result.ContextName), ContextID: optionalString(result.ContextID),
 		Runtime: string(result.Runtime), Attachment: string(result.Attachment),
-		NextArgv: []string{ProgramName, "--context", result.ContextName},
+		NextArgv: nextArgv,
 	}
 	nextCommand := strings.Join(value.NextArgv, " ")
-	nextRecovery := strings.Join(value.NextArgv[1:], " ")
+	nextRecovery := ProgramName
+	if len(value.NextArgv) > 1 {
+		nextRecovery = strings.Join(value.NextArgv[1:], " ")
+	}
 	if format == successFormatJSON {
 		output, err := marshalCommandJSON("status", projectStatusDocument{SchemaVersion: 4, Status: value})
 		if err != nil {

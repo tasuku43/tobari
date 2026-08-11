@@ -551,9 +551,13 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 			}
 			writeStyledLine(&output, color, "Auth provider "+safeExternalText(provider.Provider)+":", value, humanStatusToken(provider.State))
 		}
-		writeStyledLine(&output, color, "Next:", "run `tobari auth status --context "+safeExternalText(result.Name)+"` for activation guidance.", styleText)
+		writeStyledLine(
+			&output, color, "Next:",
+			"run `"+safeExternalText(strings.Join(contextAuthStatusNextArgv(result), " "))+"` for activation guidance.",
+			styleText,
+		)
 	}
-	if result.Task == tobari.TaskContextUse {
+	if result.Task == tobari.TaskContextCreate || result.Task == tobari.TaskContextUse {
 		writeStyledLine(&output, color, "Cluster:", string(result.Cluster), humanStatusToken(string(result.Cluster)))
 	}
 	if result.Runtime.Kind != "" {
@@ -583,6 +587,14 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		)
 	}
 	switch result.Task {
+	case tobari.TaskContextCreate:
+		if nextArgv := contextCreateNextArgv(result); len(nextArgv) > 0 {
+			writeStyledCommandLine(
+				&output, color, "Next:", "run ",
+				"`"+safeExternalText(strings.Join(nextArgv, " "))+"`",
+				" to load every Context into the shared cluster.",
+			)
+		}
 	case tobari.TaskConfigShell:
 		writeStyledCommandLine(&output, color, "Next:", "start a new session with ", "`tobari`", "; running sessions are unchanged.")
 	case tobari.TaskConfigGit:
@@ -604,6 +616,21 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		writeStyledLine(&output, color, "Credential directory:", safeExternalText(result.Stores.CredentialDirectory), styleText)
 	}
 	return []byte(output.String())
+}
+
+func contextAuthStatusNextArgv(result tobari.ContextReport) []string {
+	argv := []string{ProgramName, "auth", "status"}
+	if result.ContextState != tobari.ContextObservationSyntheticDefault {
+		argv = append(argv, "--context", result.Name)
+	}
+	return argv
+}
+
+func contextCreateNextArgv(result tobari.ContextReport) []string {
+	if result.Task == tobari.TaskContextCreate && result.Cluster == tobari.ContextClusterStatusRequiresReconcile {
+		return []string{ProgramName, "cluster", "up"}
+	}
+	return nil
 }
 
 func renderRuntimeInitReportText(result tobari.ContextReport, color bool) []byte {

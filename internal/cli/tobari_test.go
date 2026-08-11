@@ -14,6 +14,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -991,6 +992,76 @@ func TestProjectStatusRecoveryPreservesNonActiveContextInTextAndJSON(t *testing.
 	}
 	if got, want := document.Status.NextArgv, []string{"tobari", "--context", "toolbox"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("JSON next argv = %q, want %q", got, want)
+	}
+}
+
+func TestSyntheticProjectStatusUsesOmissionBasedRootRecovery(t *testing.T) {
+	t.Parallel()
+	result := tobari.ProjectStatus{
+		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationSyntheticDefault,
+		ContextName: tobari.DefaultContextName, Runtime: tobari.RuntimeDiagnosticUnknown,
+		Attachment: tobari.AttachmentNotApplicable,
+	}
+	textOutput, err := renderProjectStatusWithColor(result, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !humanOutputHasRow(string(textOutput), "Next", "tobari — Create or enter a Workspace in this Context.") ||
+		strings.Contains(string(textOutput), "--context default") {
+		t.Fatalf("synthetic status recovery claims an explicit Context selector: %q", textOutput)
+	}
+	jsonOutput, err := renderProjectStatusWithColor(result, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document projectStatusDocument
+	if err := json.Unmarshal(jsonOutput, &document); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := document.Status.NextArgv, []string{"tobari"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("synthetic JSON next argv = %q, want %q", got, want)
+	}
+	if routed := assertPublicNextArgvRoutes(t, document.Status.NextArgv); routed.Path != "tobari" {
+		t.Fatalf("synthetic recovery routes to %q, want root entry", routed.Path)
+	}
+}
+
+func TestProjectEntryDeclaresClusterProjectionStaleRecovery(t *testing.T) {
+	t.Parallel()
+	catalog := DefaultCatalog()
+	commands := catalog.Commands()
+	found := false
+	for index := range commands {
+		if commands[index].Path != "tobari" {
+			continue
+		}
+		found = true
+		commands[index].handler = func(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, _ ParsedInputs) int {
+			return c.fail(ctx, fault.New(
+				fault.KindRejected,
+				"cluster_projection_stale",
+				"the shared cluster has not loaded the complete Context catalog",
+				false,
+				fault.NextAction{Command: "untrusted recovery", Reason: "untrusted runtime prose"},
+			))
+		}
+		break
+	}
+	if !found {
+		t.Fatal("root entry is absent from the catalog")
+	}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, NewCatalog(commands...), nil)
+	if code := command.RunContext(context.Background(), []string{"--error-format=json"}); code != ExitRejected {
+		t.Fatalf("stale projection exit = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), `"code":"cluster_projection_stale"`) ||
+		!strings.Contains(stderr.String(), `"command":"cluster up"`) ||
+		strings.Contains(stderr.String(), "undeclared_fault_contract") || strings.Contains(stderr.String(), "untrusted recovery") {
+		t.Fatalf("stale projection fault was not aligned to catalog recovery: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if routed := assertPublicNextArgvRoutes(t, []string{ProgramName, "cluster", "up"}); routed.Path != "cluster up" {
+		t.Fatalf("stale projection recovery routes to %q", routed.Path)
 	}
 }
 

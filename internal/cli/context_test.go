@@ -692,6 +692,56 @@ func TestSyntheticAndLegacyContextJSONNeverInventAuthority(t *testing.T) {
 	}
 }
 
+func TestContextCreateRendersRequiresReconcileAndExecutableClusterUp(t *testing.T) {
+	t.Parallel()
+	report := contextCLIReport(
+		tobari.TaskContextCreate, "review", false,
+		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided,
+	)
+	report.Cluster = tobari.ContextClusterStatusRequiresReconcile
+	output, err := renderContextReport(report, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), "Cluster: requires_reconcile") ||
+		!strings.Contains(string(output), "Next: run `tobari cluster up`") {
+		t.Fatalf("Context create hides required cluster reconciliation: %q", output)
+	}
+	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "cluster up" {
+		t.Fatalf("Context create recovery routes to %q", routed.Path)
+	}
+}
+
+func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
+	t.Parallel()
+	report := tobari.ContextReport{
+		Task: tobari.TaskContextShow, ContextState: tobari.ContextObservationSyntheticDefault,
+		Name: tobari.DefaultContextName, Active: true, AgentProfile: tobari.DefaultProfile,
+		Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided,
+		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
+		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
+		Runtime: tobari.ContextRuntimeReport{
+			Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial,
+			BaseReference: tobari.OfficialRuntimeBase,
+		},
+		Cluster: tobari.ContextClusterStatusNotApplicable,
+		Authentication: tobari.ContextAuthentication{
+			BrokerState: tobari.ContextAuthBrokerUnavailable, Providers: []tobari.ContextAuthProvider{},
+		},
+	}
+	output, err := renderContextReport(report, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), "Next: run `tobari auth status`") ||
+		strings.Contains(string(output), "--context default") {
+		t.Fatalf("synthetic Context show claims an explicit absent selector: %q", output)
+	}
+	if routed := assertPublicNextArgvRoutes(t, contextAuthStatusNextArgv(report)); routed.Path != "auth status" {
+		t.Fatalf("synthetic Context recovery routes to %q", routed.Path)
+	}
+}
+
 func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	fake.list = tobari.ContextListResult{
