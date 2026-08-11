@@ -110,9 +110,12 @@ func Versions() (map[string]string, error) {
 		}
 		values[key] = value
 	}
-	for _, required := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "AUTH_BROKER_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
+	for _, required := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "GATEWAY_IMAGE_API", "AUTH_BROKER_IMAGE", "AUTH_BROKER_IMAGE_API", "OPA_IMAGE", "DEBIAN_IMAGE"} {
 		if values[required] == "" {
 			return nil, fmt.Errorf("embedded versions.env is missing %s", required)
+		}
+		if required == "GATEWAY_IMAGE_API" || required == "AUTH_BROKER_IMAGE_API" {
+			continue
 		}
 		if err := validateImmutableImageReference(values[required]); err != nil {
 			return nil, fmt.Errorf("embedded versions.env %s: %w", required, err)

@@ -15,6 +15,14 @@ not a second executable or public Catalog command, so archives add no sibling
 binary. Runtime epoch/session keys, provider homes, and credential state are
 never packaged.
 
+Every CLI artifact exposes build identity through `version` text and schema-1
+JSON. A release archive embeds the validated SemVer and full source commit,
+uses the published resolver channel, names source-required and selected
+Gateway/Auth Broker APIs, and leaves contributor command fields empty. A
+repository build retains version `dev` and embeds only the exact HEAD commit;
+the `tobari_dev` build is a distinct resolver artifact named
+`bin/tobari-dev`, not a release candidate.
+
 Runtime assets are embedded in the binary and materialized into versioned state
 before Docker builds. The embedded Tobari, Gateway, Auth Broker, OPA policy, and compose
 inputs are therefore bound to the CLI source revision. Container base images
@@ -123,10 +131,25 @@ amd64/arm64 members, API/role metadata, non-root `1000:1000` users,
 entrypoints, source, revision, and license metadata were independently
 inspected. `versions.env` records Gateway
 `sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
-and the current compatible Auth Broker
+and the historical Auth Broker
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`.
 A moving tag or successful workflow does not make a digest reviewed runtime
 authority by itself.
+
+Those reviewed indexes and pins remain historical API-3/API-2 publication
+facts; they predate and are incompatible with the current Gateway API-4/Auth
+Broker API-3 source contract. Standard startup from this source must reject the
+old pins. `versions.env` records `GATEWAY_IMAGE_API=3` and
+`AUTH_BROKER_IMAGE_API=2` beside those digests; `task release:check` derives
+the canonical Dockerfile APIs and fails until both API authorities and digests
+advance together. The closed OpenAI Codex and Anthropic Claude plans are usable only
+through the explicit `task build:dev` development-image path until maintainers
+publish and independently review new immutable Linux amd64/arm64 indexes and
+advance `versions.env`. Build the applicable runtime separately with the
+`task runtime:codex:build` or `task runtime:claude:build` command. Moving tags
+and development images are not release authority. Codex and Claude runtime variants
+remain local/CI-only pending their separate redistribution and image-layer
+license decisions.
 
 Tobari does not yet claim code signing, notarization, SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact
@@ -153,6 +176,11 @@ task gateway:test
 task authbroker:test
 task integration:test
 ```
+
+`task release:check` also requires the release artifact build identity to be
+complete and compatible. The current API-3/API-2 immutable pins make that gate
+fail intentionally against API-4/API-3 source; version diagnostics explain the
+same state but cannot override it.
 
 Auth Broker and companion changes additionally require the canonical source,
 image, private protocol, host-driver, and topology checks used by `task check`

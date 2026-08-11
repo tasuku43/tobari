@@ -23,6 +23,7 @@ type fakeRuntime struct {
 	configured       *bool
 	clusterReady     *bool
 	inspectErr       error
+	buildIdentityErr error
 	attachCalls      int
 	detachCalls      int
 	learnedCalls     int
@@ -47,6 +48,9 @@ func (f *fakeRuntime) ResolveImageSelector(_ context.Context, image string) (str
 		return tobari.BuiltinImageSelector, nil
 	}
 	return image, nil
+}
+func (f *fakeRuntime) ValidateClusterBuildIdentity(context.Context) error {
+	return f.buildIdentityErr
 }
 func (f *fakeRuntime) ClusterUp(context.Context) (tobari.State, error) {
 	f.clusterCalls++
@@ -122,6 +126,27 @@ func TestClusterUpWithProgressKeepsMutationAndStatusContracts(t *testing.T) {
 	}
 	if status.Task != tobari.TaskClusterUp || !status.Running || runtime.clusterCalls != 1 || runtime.inspectCalls != 1 {
 		t.Fatalf("status=%+v cluster calls=%d inspect calls=%d", status, runtime.clusterCalls, runtime.inspectCalls)
+	}
+}
+
+func TestClusterUpRejectsBuildIdentityBeforeLifecycleMutation(t *testing.T) {
+	t.Parallel()
+	identityErr := fault.New(
+		fault.KindContract, "runtime_image_api_mismatch", "source and selected APIs differ", false,
+		fault.NextAction{Command: "doctor", Reason: "Inspect build identity."},
+	)
+	runtime := &fakeRuntime{buildIdentityErr: identityErr}
+	_, err := New(runtime).ClusterUp(context.Background(), operation.Intent{
+		Command: "cluster up", Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ParentID: tobari.ClusterTargetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo,
+		},
+	})
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "runtime_image_api_mismatch" || runtime.clusterCalls != 0 || runtime.inspectCalls != 0 {
+		t.Fatalf("fault=%#v cluster_calls=%d inspect_calls=%d", public, runtime.clusterCalls, runtime.inspectCalls)
 	}
 }
 

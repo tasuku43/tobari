@@ -3,7 +3,7 @@ FROM ${MITMPROXY_IMAGE}
 
 ENV PYTHONPATH="/opt/tobari"
 
-LABEL io.tobari.auth-broker-api="2" \
+LABEL io.tobari.auth-broker-api="3" \
       io.tobari.auth-broker-role="credential-resolution" \
       org.opencontainers.image.title="Tobari Auth Broker" \
       org.opencontainers.image.description="Locked Context credential vault and post-policy resolution service" \

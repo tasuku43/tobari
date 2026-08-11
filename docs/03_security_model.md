@@ -163,6 +163,13 @@ metadata is rejected before project home, network, or container mutation. Users
 remain responsible for image contents and should prefer immutable digest
 references.
 
+Executable build identity is public metadata, not runtime authority. It is
+limited to the CLI version, a full lowercase source commit or `unknown`, the
+compiled resolver channel, and integer required/selected component APIs. It
+contains no branch, dirty diff, absolute path, username, environment value,
+registry credential, or unreviewed digest. Repository-only recovery text is
+gated by the compiled development resolver metadata rather than CWD inspection.
+
 The current Context's runtime recipe is a trusted-host build input. Explicit
 `cluster up` may obtain the published official runtime base for an
 uncustomized Context; `runtime build` may obtain the declared base image only

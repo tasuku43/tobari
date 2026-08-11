@@ -4,6 +4,8 @@ package dockerruntime
 
 import "context"
 
+import "github.com/tasuku43/tobari/internal/domain/buildidentity"
+
 const (
 	localDevAuthBrokerImage = "tobari-auth-broker:dev"
 	localDevGatewayImage    = "tobari-gateway:dev"
@@ -11,6 +13,21 @@ const (
 )
 
 type localDevImageResolver struct{}
+
+func (localDevImageResolver) BuildIdentity(version, commit string) (buildidentity.Identity, error) {
+	return buildidentity.Identity{
+		Version: version, Commit: buildidentity.NormalizeCommit(commit),
+		ResolverChannel: buildidentity.ResolverDevelopment, DevelopmentSource: true,
+		Gateway: buildidentity.Component{
+			RequiredAPI: buildidentity.RequiredGatewayAPI,
+			SelectedAPI: buildidentity.RequiredGatewayAPI,
+		},
+		AuthBroker: buildidentity.Component{
+			RequiredAPI: buildidentity.RequiredAuthBrokerAPI,
+			SelectedAPI: buildidentity.RequiredAuthBrokerAPI,
+		},
+	}, nil
+}
 
 func newImageResolver() imageResolver {
 	return localDevImageResolver{}

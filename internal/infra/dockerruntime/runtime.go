@@ -406,10 +406,22 @@ func (r *Runtime) ClusterUpWithProgress(
 	return r.clusterUpWithProgressMode(ctx, progress, false)
 }
 
+// ValidateClusterBuildIdentity rejects a compiled resolver/API mismatch before
+// the application enters its lifecycle mutation boundary.
+func (r *Runtime) ValidateClusterBuildIdentity(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return r.validateResolverCompatibility()
+}
+
 func (r *Runtime) clusterUpWithProgressMode(
 	ctx context.Context, progress tobari.ClusterUpProgressSink, forceRecreate bool,
 ) (tobari.State, error) {
 	if err := ctx.Err(); err != nil {
+		return tobari.State{}, err
+	}
+	if err := r.validateResolverCompatibility(); err != nil {
 		return tobari.State{}, err
 	}
 	emitClusterUpProgress(progress, tobari.ClusterUpProgress{

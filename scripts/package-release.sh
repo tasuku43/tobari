@@ -68,12 +68,25 @@ go version -m "$work_dir/$executable" | grep -F "$module" >/dev/null
 host_os=$(go env GOHOSTOS)
 host_arch=$(go env GOHOSTARCH)
 if [[ $goos == "$host_os" && $goarch == "$host_arch" ]]; then
-  actual=$("$work_dir/$executable" version)
-  expected="$binary $version ($revision)"
-  if [[ $actual != "$expected" ]]; then
-    echo "version output = $actual, want $expected" >&2
-    exit 1
-  fi
+	# shellcheck disable=SC1091
+	source internal/infra/runtimeassets/assets/versions.env
+	gateway_source_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
+	auth_broker_source_api=$(sed -n 's/.*io\.tobari\.auth-broker-api="\([1-9][0-9]*\)".*/\1/p' authbroker/Dockerfile)
+	if [[ ! $gateway_source_api =~ ^[1-9][0-9]*$ || ! $auth_broker_source_api =~ ^[1-9][0-9]*$ ]]; then
+		echo "could not derive exact Gateway/Auth Broker source API labels" >&2
+		exit 1
+	fi
+	compatible=false
+	if [[ $GATEWAY_IMAGE_API == "$gateway_source_api" && $AUTH_BROKER_IMAGE_API == "$auth_broker_source_api" ]]; then
+		compatible=true
+	fi
+	actual=$("$work_dir/$executable" version --format json)
+	expected=$(printf '{"schema_version":1,"build_identity":{"version":"%s","commit":"%s","resolver_channel":"published","development_source":false,"gateway_required_api":%s,"gateway_selected_api":%s,"auth_broker_required_api":%s,"auth_broker_selected_api":%s,"compatible":%s,"development_build_command":"","development_binary":""}}' \
+		"$version" "$revision" "$gateway_source_api" "$GATEWAY_IMAGE_API" "$auth_broker_source_api" "$AUTH_BROKER_IMAGE_API" "$compatible")
+	if [[ $actual != "$expected" ]]; then
+		echo "build identity output = $actual, want $expected" >&2
+		exit 1
+	fi
 fi
 
 release_archive_entries "$work_dir/$executable" "$executable"

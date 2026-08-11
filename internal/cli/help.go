@@ -219,6 +219,7 @@ func (c *CLI) renderRootHelpWithColor(color bool) []byte {
 	fmt.Fprintln(&output)
 	fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Start here:"))
 	startHere := []struct{ path, description string }{
+		{path: "version", description: "Inspect build channel and runtime API compatibility"},
 		{path: "cluster up", description: "Prepare the shared enforcement boundary"},
 		{path: ProgramName, description: "Enter or reuse the current project's Workspace"},
 	}

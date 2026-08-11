@@ -118,7 +118,9 @@ Before each public release, verify:
 
 - the tag points to reviewed source;
 - all required profiles pass;
-- version and commit metadata are correct;
+- `version --format json` reports the release version, full source commit,
+  published resolver, selected pin APIs, and compatibility expected by the
+  release gate, with empty repository-development recovery fields;
 - supported-platform artifacts are complete;
 - checksums and any provenance or signatures are present and verified;
 - archives contain only intended files;
@@ -161,8 +163,30 @@ startup pins Gateway
 and Auth Broker
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`
 in `versions.env`; moving tags are not runtime authority. An unpublished
-marker, invented digest, wrong repository, moving identity, or API-label/pin
-mismatch remains a public-boundary failure.
+marker, invented digest, wrong repository, or moving identity remains a
+public-boundary failure. A documented historical API-label/pin mismatch may
+remain in public source only while the release gate rejects it mechanically.
+
+Source-build identity may contain only the deterministic public fields above.
+Artifact and repository scans reject local absolute paths, usernames, branch
+names, dirty content, credentials, or invented digest authority; the literal
+`unknown` commit remains visibly incompatible rather than becoming a release
+identity.
+
+Those digests are historical publication evidence only. The current source
+contract requires Gateway API label 4 and Auth Broker API label 3 for the
+closed OpenAI Codex and Anthropic Claude credential plans. The published
+Gateway API-3/Auth Broker API-2 pins predate that contract and are incompatible
+with this source revision; normal standard startup must reject them rather
+than silently disabling or misinterpreting the new plans. Contributors may use
+the explicit `task build:dev` development images and `bin/tobari-dev`, but
+must separately build the applicable local agent runtime. Those local images
+are not release authority. New immutable multi-architecture
+digests require the complete image, license, confidentiality, synthetic, and
+manual live-login review before `versions.env` may advance.
+`GATEWAY_IMAGE_API` and `AUTH_BROKER_IMAGE_API` advance atomically with those
+digests; `task release:check` must fail while either differs from the canonical
+source Dockerfile label.
 
 See [Release](06_release.md) for the artifact workflow.
 

@@ -1,7 +1,7 @@
 ARG MITMPROXY_IMAGE
 FROM ${MITMPROXY_IMAGE}
 
-LABEL io.tobari.gateway-api="3" \
+LABEL io.tobari.gateway-api="4" \
       io.tobari.gateway-role="enforcement"
 
 COPY requirements.txt /opt/tobari/requirements.txt

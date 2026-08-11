@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "answers": [
+    {
+      "name": "published-compatible",
+      "compatible": true,
+      "development_build_command": "",
+      "development_binary": ""
+    },
+    {
+      "name": "published-historical-pins",
+      "compatible": false,
+      "development_build_command": "",
+      "development_binary": ""
+    },
+    {
+      "name": "development-compatible",
+      "compatible": true,
+      "development_build_command": "task build:dev",
+      "development_binary": "bin/tobari-dev"
+    },
+    {
+      "name": "missing-source-metadata",
+      "compatible": false,
+      "development_build_command": "task build:dev",
+      "development_binary": "bin/tobari-dev"
+    }
+  ]
+}

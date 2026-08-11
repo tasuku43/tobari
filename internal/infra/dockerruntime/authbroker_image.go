@@ -10,13 +10,13 @@ import (
 	"os"
 	"strings"
 
+	"github.com/tasuku43/tobari/internal/domain/buildidentity"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 )
 
 const (
 	authBrokerAPIKey  = "io.tobari.auth-broker-api" // #nosec G101 -- stable image-contract label key, not a credential.
 	authBrokerRoleKey = "io.tobari.auth-broker-role"
-	authBrokerAPI     = "2"
 	authBrokerRole    = "credential-resolution"
 )
 
@@ -97,7 +97,11 @@ func (r *Runtime) verifyAuthBrokerImage(ctx context.Context, image string, requi
 		)
 	}
 	labels := metadata.Config.Labels
-	if labels[authBrokerAPIKey] != authBrokerAPI || labels[authBrokerRoleKey] != authBrokerRole {
+	selectedAPI := parseAPIOrZero(labels[authBrokerAPIKey])
+	if selectedAPI != buildidentity.RequiredAuthBrokerAPI {
+		return r.incompatibleComponentAPI("Auth Broker", selectedAPI, buildidentity.RequiredAuthBrokerAPI, "auth_broker_image_incompatible")
+	}
+	if labels[authBrokerRoleKey] != authBrokerRole {
 		return fault.New(
 			fault.KindContract, "auth_broker_image_incompatible",
 			"The Auth Broker image does not declare Tobari's credential-resolution API contract.", false,

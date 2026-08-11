@@ -186,7 +186,7 @@ The public commands are:
 | Command | Role | Effect | Outcome |
 |---|---|---|---|
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
-| `version` | utility | read | Print build identity |
+| `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected Gateway/Auth Broker APIs, and compatibility |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, provider-manifest, root-key/vault, broker/project-handle, managed-secret, port, and residue diagnostics without repairing state |
 | `cluster up` | act, fixed target | create | Validate all Context policy/provider inputs and image contracts, reconcile Gateway, OPA, and Auth Broker, unlock the broker, and start its resident host credential companion |
 | `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it, and leave it reusable after `exit` |
@@ -453,6 +453,15 @@ where applicable, and one opaque mutation reference. Agent help uses the
 catalog schema.
 Successful data is stdout;
 failures are stderr.
+
+`version --format json` uses schema version 1 with envelope
+`build_identity`. Its fixed fields are `version`, `commit`,
+`resolver_channel`, `development_source`, required and selected Gateway/Auth
+Broker APIs, `compatible`, `development_build_command`, and
+`development_binary`. An absent source commit is the explicit string
+`unknown` and makes `compatible=false`. The two repository-command fields are
+empty for a published resolver and contain exactly `task build:dev` and
+`bin/tobari-dev` only when the compiled development metadata proves that path.
 The Workspace selector is a human stderr interaction; it produces no JSON or
 stdout selection protocol. A successful choice prints an English summary before
 the child session, and cancellation or stale selection prints no success
@@ -891,6 +900,19 @@ schema 2, the `tobari-h1_` handle prefix, root-key backend identifiers, Unix
 socket paths, and Auth Broker image API/role labels remain explicit
 compatibility boundaries. Their canonical values and paths are defined in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
+
+The canonical source capability requires Gateway image API 4 and Auth Broker
+image API 3, advanced respectively from 3 and 2. Existing reviewed immutable
+published pins remain Gateway API 3 and Auth Broker API 2 and therefore do not
+silently gain this capability. Until reviewed immutable multi-architecture pins
+advance, brokered Codex/Claude OAuth is a contributor-local flow using the
+`tobari_dev` resolver and locally built images; this distinction preserves the
+historical published image record.
+`cluster up` compares those required and selected API identities before it
+reads or writes cluster state or calls Docker. A published mismatch reports
+the historical pin and current source APIs without advertising repository-only
+commands; a proven development image mismatch reports the exact
+`task build:dev` and `bin/tobari-dev cluster up` recovery.
 
 ## Unsupported outcomes
 

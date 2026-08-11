@@ -8,15 +8,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/tasuku43/tobari/internal/domain/buildidentity"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 )
 
 const (
 	gatewayAPIKey  = "io.tobari.gateway-api" // #nosec G101 -- stable image-contract label key, not a credential.
 	gatewayRoleKey = "io.tobari.gateway-role"
-	gatewayAPI     = "3"
 	gatewayRole    = "enforcement"
 )
 
@@ -93,7 +94,11 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 		)
 	}
 	labels := metadata.Config.Labels
-	if labels[gatewayAPIKey] != gatewayAPI || labels[gatewayRoleKey] != gatewayRole {
+	selectedAPI := parseAPIOrZero(labels[gatewayAPIKey])
+	if selectedAPI != buildidentity.RequiredGatewayAPI {
+		return r.incompatibleComponentAPI("Gateway", selectedAPI, buildidentity.RequiredGatewayAPI, "gateway_image_incompatible")
+	}
+	if labels[gatewayRoleKey] != gatewayRole {
 		return fault.New(
 			fault.KindContract, "gateway_image_incompatible",
 			"The Gateway image does not declare Tobari's enforcement API contract.", false,
@@ -133,6 +138,11 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 		)
 	}
 	return nil
+}
+
+func parseAPIOrZero(value string) int {
+	parsed, _ := strconv.Atoi(value)
+	return parsed
 }
 
 func (r *Runtime) inspectGatewayImage(ctx context.Context, image string) (gatewayImageMetadata, error) {

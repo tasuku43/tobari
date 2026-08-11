@@ -256,6 +256,14 @@ configured provider handles and renders only manifest-declared environment or
 complete-file projections. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
+The same resolver owns a pure build-identity projection used by `version` and
+cluster preflight. The published implementation reads selected component APIs
+from embedded `versions.env`; the `tobari_dev` implementation fixes them to the
+canonical source APIs and proves contributor metadata through its build tag.
+Neither implementation can consult CWD, project metadata, environment, or a
+moving registry tag. Cluster preflight compares this projection before state
+loading, asset materialization, journals, policy tests, or Docker calls.
+
 Auth Broker follows the same canonical-source/snapshot pattern as Gateway. Its
 editable Python package, Dockerfile, tests, and bridge/protocol source live
 under `authbroker/`; the Go binary embeds the checked
@@ -268,6 +276,16 @@ and arm64 and publishes moving development tags plus an immutable commit tag.
 Routine startup uses the reviewed multi-architecture digest in `versions.env`;
 the moving tags never select runtime authority. The contributor resolver uses
 `tobari-auth-broker:dev` for explicit local source validation.
+
+The Codex/Claude broker source advances the Gateway image contract from
+`io.tobari.gateway-api=3` to `4` and the Auth Broker image contract from
+`io.tobari.auth-broker-api=2` to `3`. The Go preflight expects those newer
+labels for this source tree, while the contributor resolver supplies the local
+matching images. The already published immutable `versions.env` selections are
+still Gateway API 3 and Auth Broker API 2; they remain historical runtime facts
+and do not implement the new supplemental-header and dynamic OAuth protocol.
+A routine published resolver cannot claim this capability until reviewed
+immutable multi-architecture pins advance.
 
 Compose mounts owner-only host state
 `auth/contexts` at `/var/lib/tobari-auth/contexts` and `auth/runtime` at

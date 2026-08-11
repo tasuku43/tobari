@@ -10,10 +10,11 @@ import (
 	"github.com/tasuku43/tobari/internal/cli"
 )
 
-// Release builds inject both values with -ldflags.
+// Release builds inject both values; repository tasks inject the exact source
+// commit while retaining the fixed development version.
 var (
 	version = "dev"
-	commit  = ""
+	commit  = "unknown"
 )
 
 func main() {

@@ -101,9 +101,16 @@ for forbidden in 'git describe' '{{.VERSION}}' '{{.COMMIT}}'; do
   fi
 done
 grep -qF 'go build -buildvcs=false -trimpath -o bin/' Taskfile.yml || {
-  echo "local build must use fixed dev metadata without implicit VCS stamping" >&2
-  exit 1
+	echo "local build must use fixed dev version metadata without implicit VCS stamping" >&2
+	exit 1
 }
+# The Taskfile must contain this literal shell expansion.
+# shellcheck disable=SC2016
+if [[ $(grep -cF 'git rev-parse --verify HEAD' Taskfile.yml) -ne 2 ]] ||
+	[[ $(grep -cF -- '-X main.commit=$(git rev-parse --verify HEAD)' Taskfile.yml) -ne 2 ]]; then
+	echo "standard and development repository builds must embed only the exact source commit" >&2
+	exit 1
+fi
 for required in \
   'export GO111MODULE=on' 'export GOENV=off' 'export GOEXPERIMENT=' 'export GOFIPS140=off' \
   'export GOFLAGS=' 'export GOTOOLCHAIN=local' 'export GOWORK=off'; do

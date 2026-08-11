@@ -43,6 +43,26 @@ The integration script owns its dev-resolver prerequisites: when
 compatible integration base and removes only that alias during cleanup. It
 never overwrites or deletes a contributor's pre-existing dev tag.
 
+Both repository build tasks embed only `git rev-parse --verify HEAD` as the
+source commit while retaining the fixed `dev` version; `-buildvcs=false` and
+`-trimpath` exclude implicit VCS state and local paths. Build-identity tests
+fix version JSON schema 1, require `unknown` metadata to remain incompatible,
+and compile both resolver tags. The published fixture must expose the recorded
+pin APIs and no repository recovery value; the development fixture must expose
+matching source APIs plus exactly `task build:dev` and `bin/tobari-dev`.
+
+The current contributor source expects `io.tobari.gateway-api=4` and
+`io.tobari.auth-broker-api=3`, advanced from 3 and 2 for the Codex/Claude
+credential response contracts. `task build:dev` is the matching local image
+path. The immutable published selections remain Gateway API 3 and Auth Broker
+API 2 until separate release review advances their digests; tests must preserve
+that historical distinction rather than relabel or imply capability for the
+old images. `versions.env` records those image API authorities beside the
+digests. The release profile derives the API labels from canonical Gateway and
+Auth Broker Dockerfiles and fails unless both recorded pin APIs equal the
+source APIs, so a CLI that necessarily rejects its own official pins cannot be
+tagged.
+
 The focused `task runtime:base:check` workflow validates the canonical
 `runtimes/base` metadata and per-platform artifact lock, the Dockerfile's common
 tool, integrity, redistribution/license, and runtime contracts, and byte
@@ -647,6 +667,7 @@ Every strong statement should identify its enforcement path.
 | Claim type | Preferred enforcement |
 |---|---|
 | Layer dependency | Go-aware architecture lint and import-boundary tests |
+| Build and resolver identity | Pure identity validation, exact version text/JSON tests, standard/dev build-tag resolver fixtures, artifact metadata inspection, and a zero-progress/zero-Docker API-mismatch preflight test |
 | Finite domain state | Types, constructors, and table-driven negative tests |
 | Catalog completeness | Whole-catalog contract tests |
 | Semantic terminal presentation | Exact six-token rendering tests, catalog-wide text-presentation declarations, `NO_COLOR`/non-TTY ANSI-free tests, color-independent state canaries, and AST lint that rejects direct ANSI SGR outside the shared style layer |

@@ -167,7 +167,7 @@ func TestGatewayDockerfileDeclaresStableContractAndHostIndependentRuntime(t *tes
 	}
 	spec := string(data)
 	for _, required := range []string{
-		`io.tobari.gateway-api="3"`,
+		`io.tobari.gateway-api="4"`,
 		`io.tobari.gateway-role="enforcement"`,
 		"USER 1000:1000",
 		"chmod 0777",

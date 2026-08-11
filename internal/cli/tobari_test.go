@@ -40,6 +40,7 @@ func (f *policyReviewRuntimeFake) IsInputTerminal(io.Reader) bool { return f.ter
 func (f *policyReviewRuntimeFake) ResolveImageSelector(context.Context, string) (string, error) {
 	return "test-image", nil
 }
+func (f *policyReviewRuntimeFake) ValidateClusterBuildIdentity(context.Context) error { return nil }
 func (f *policyReviewRuntimeFake) ClusterUp(context.Context) (tobari.State, error) {
 	return f.state, nil
 }

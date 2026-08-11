@@ -20,6 +20,7 @@ type RuntimePort interface {
 	CurrentDirectory(context.Context) (string, error)
 	IsTerminal(io.Writer) bool
 	ResolveImageSelector(context.Context, string) (string, error)
+	ValidateClusterBuildIdentity(context.Context) error
 	ClusterUp(context.Context) (tobari.State, error)
 	LoadState(context.Context) (tobari.State, bool, error)
 	InspectCluster(context.Context, tobari.State) (tobari.ClusterStatus, error)
@@ -817,6 +818,9 @@ func (s *Service) clusterUp(
 	ctx context.Context, intent operation.Intent, progress tobari.ClusterUpProgressSink,
 ) (tobari.ClusterStatus, error) {
 	if err := s.requireRuntime(); err != nil {
+		return tobari.ClusterStatus{}, err
+	}
+	if err := s.runtime.ValidateClusterBuildIdentity(ctx); err != nil {
 		return tobari.ClusterStatus{}, err
 	}
 	var state tobari.State

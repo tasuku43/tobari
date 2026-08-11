@@ -19,7 +19,7 @@ func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 		t.Fatalf("Run(help) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Start here:", "tobari cluster up", "Enter or reuse the current project's Workspace", "doctor", "help", "version", "items", "Namespace with 2 commands"} {
+	for _, want := range []string{"Start here:", "tobari version", "Inspect build channel and runtime API compatibility", "tobari cluster up", "Enter or reuse the current project's Workspace", "doctor", "help", "version", "items", "Namespace with 2 commands"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("root help lacks %q\n%s", want, output)
 		}
@@ -27,6 +27,36 @@ func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 	for _, unwanted := range []string{"items list", "items read"} {
 		if strings.Contains(output, unwanted) {
 			t.Errorf("root help repeats namespace leaf %q\n%s", unwanted, output)
+		}
+	}
+}
+
+func TestVersionHelpDeclaresBuildIdentityBeforeClusterMutation(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"version", "--help"}); code != ExitOK {
+		t.Fatalf("Run(version --help) code = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	for _, want := range []string{
+		"Usage:\n  tobari version [--format text|json]",
+		"resolver channel",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("version help lacks %q\n%s", want, output)
+		}
+	}
+	stdout.Reset()
+	if code := runCLI(command, []string{"help", "version", "--format", "agent"}); code != ExitOK {
+		t.Fatalf("Run(help version --format agent) code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, want := range []string{
+		`"gateway_required_api"`, `"gateway_selected_api"`,
+		`"auth_broker_required_api"`, `"auth_broker_selected_api"`,
+		`"development_build_command"`, `"development_binary"`,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("version agent help lacks %q\n%s", want, stdout.String())
 		}
 	}
 }

@@ -277,9 +277,23 @@ func TestVersionOutputContract(t *testing.T) {
 	if code := runCLI(command, []string{"version"}); code != ExitOK {
 		t.Fatalf("Run(version) code = %d, stderr = %q", code, stderr.String())
 	}
-	want := "tobari v1.2.3 (0123456789abcdef0123456789abcdef01234567)\n"
+	want := "! Tobari build\n" +
+		"  Version        v1.2.3\n" +
+		"  Commit         0123456789abcdef0123456789abcdef01234567\n" +
+		"  Resolver       published\n" +
+		"  Gateway API    required 4, selected 3\n" +
+		"  Auth Broker API required 3, selected 2\n" +
+		"  Compatibility  incompatible or incomplete\n"
 	if got := stdout.String(); got != want {
 		t.Fatalf("version output = %q, want %q", got, want)
+	}
+	stdout.Reset()
+	if code := runCLI(command, []string{"version", "--format", "json"}); code != ExitOK {
+		t.Fatalf("Run(version --format json) code = %d, stderr = %q", code, stderr.String())
+	}
+	wantJSON := "{\"schema_version\":1,\"build_identity\":{\"version\":\"v1.2.3\",\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"resolver_channel\":\"published\",\"development_source\":false,\"gateway_required_api\":4,\"gateway_selected_api\":3,\"auth_broker_required_api\":3,\"auth_broker_selected_api\":2,\"compatible\":false,\"development_build_command\":\"\",\"development_binary\":\"\"}}\n"
+	if got := stdout.String(); got != wantJSON {
+		t.Fatalf("version JSON = %q, want %q", got, wantJSON)
 	}
 }
 
@@ -893,8 +907,8 @@ func TestRootAliasesUseCatalogCommands(t *testing.T) {
 	}{
 		{args: []string{"--help"}, want: "Tobari\n"},
 		{args: []string{"-h"}, want: "Tobari\n"},
-		{args: []string{"--version"}, want: "tobari dev\n"},
-		{args: []string{"-v"}, want: "tobari dev\n"},
+		{args: []string{"--version"}, want: "! Tobari build\n"},
+		{args: []string{"-v"}, want: "! Tobari build\n"},
 	}
 	for _, test := range tests {
 		command, stdout, stderr := newTestCLI(passingInspector("unused"))

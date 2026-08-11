@@ -158,13 +158,33 @@ tags are development publication channels only. Contributors can exercise the
 complete local source path with `task build:dev` and `bin/tobari-dev` without
 changing the official digest authority.
 
+The current source contract is Gateway API 4 and Auth Broker API 3. The
+reviewed immutable pins in `versions.env` are historical Gateway API-3/Auth
+Broker API-2 publications that predate the Codex and Claude broker plans and
+are incompatible with this source revision. Standard startup must reject those
+old pins. Until new immutable reviewed indexes are published, use the explicit
+`task build:dev` and `bin/tobari-dev` path for this source; development images
+are not release authority.
+
+Inspect the binary before any cluster mutation:
+
+```sh
+bin/tobari version --format json
+```
+
+The result names the source commit, `published` or `development` resolver,
+required and selected Gateway/Auth Broker APIs, and compatibility. Only a
+development binary includes the repository-owned `task build:dev` and
+`bin/tobari-dev` fields; a standard binary never suggests that checkout-only
+path.
+
 ## Install from source
 
 ```sh
 git clone https://github.com/tasuku43/tobari.git
 cd tobari
 task build
-tobari version # works immediately when this repository's bin/ is on PATH
+bin/tobari version
 ```
 
 Alternatively:
@@ -803,7 +823,8 @@ TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev \
   ./scripts/test-integration.sh
 ```
 
-That task builds `tobari-gateway:dev`, `tobari-runtime:dev`, and a
+That task builds `tobari-gateway:dev`, `tobari-auth-broker:dev`,
+`tobari-runtime:dev`, and a
 `tobari_dev`-tagged CLI binary. Only that binary resolves Tobari-managed images
 to those local tags. The normal `task build` binary keeps using the published
 Gateway digest and official runtime base.
@@ -900,7 +921,7 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari delete [--context NAME] [--force]` | Delete the nearest detached current-directory Tobari in the selected Context; `--force` overrides an attached-session guard |
 | `tobari doctor [--root PATH] [--format text\|tsv\|json]` | Diagnose Docker, paths, policy, root-key/broker/provider state, managed-secret permissions, and residue |
 | `tobari help [SELECTOR] [--format text\|agent]` | Read human or machine command contracts |
-| `tobari version` | Print build identity |
+| `tobari version [--format text\|json]` | Print deterministic source and runtime resolver identity |
 
 `cluster status --format json` is schema 4 and always includes
 `credential_companion_state` as `ready`, `prepared`, `absent`, or `unavailable`;

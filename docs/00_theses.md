@@ -481,6 +481,10 @@ test, lint, policy test, or integration scenario.
 
 - `cli.Catalog` remains the public command source of truth.
 - The four-layer dependency direction remains in force.
+- Every executable identifies its source version/commit, compiled runtime-image
+  resolver channel, source-required Gateway/Auth Broker APIs, and the APIs
+  selected by that resolver. Missing source metadata or an API mismatch is
+  never presented as compatible.
 - `task check` is the implementation completion gate; security and public
   changes also run their named profiles.
 - Docker integration is a separate explicit profile because it requires a
@@ -490,6 +494,9 @@ test, lint, policy test, or integration scenario.
 
 - `tools/archlint`, catalog contract tests, Go unit tests, Gateway tests, OPA
   tests, and Docker integration tests cover distinct boundaries.
+- Standard and `tobari_dev` build fixtures prove that published pins and local
+  development tags cannot cross resolver channels, and cluster preflight
+  rejects an API mismatch before state or Docker mutation.
 - `.harness/capabilities.json` classifies every supported and excluded outcome.
 - CI delegates to repository scripts rather than duplicating commands.
 
