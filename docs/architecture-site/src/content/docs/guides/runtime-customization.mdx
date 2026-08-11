@@ -1,135 +1,181 @@
 ---
-title: Runtime customization
-description: Build and select a compatible Context-owned runtime without changing Workspace identity or persistent home.
+title: Set up a custom runtime
+description: Extend the standard base runtime with the coding agent and project tools needed for real Workspace use.
 ---
 
-Add project tools by initializing the current Context's owner-only Dockerfile recipe, editing it on the trusted host, and running an explicit `runtime build`. The next Workspace entry reconciles the work container while preserving the logical Workspace identity and persistent home.
+import RuntimeSetupFlow from "../../../components/RuntimeSetupFlow.astro";
 
-Before starting, identify the current Context; see [Contexts](../contexts/). A custom runtime image provides the working environment, but it does not gain authority over mounts, networking, or Workspace lifetime.
+The quickstart uses only `curl` from the standard base runtime to demonstrate denial, review, allow, and deliberate retry. The standard base runtime is deliberately small: it is a foundation for checking the boundary and building a custom image. **It does not include a coding agent and is not intended to provide every project-specific language runtime or build tool.**
 
-## 1. Select and inspect the Context
+Before using Tobari on a real repository, build a custom runtime with the tools you need. Tobari calls the reusable configuration shared by Workspaces a **Context**. Runtime selection belongs to the current Context, and every Workspace bound to that Context consults the same selected image on its next entry.
 
-Runtime commands operate on the current/default Context. To work on a named Context, select it first:
+Perform this procedure on the trusted host. A Workspace has no control path for editing the managed Dockerfile or running `runtime build`.
+
+<RuntimeSetupFlow />
+
+## Why this step comes early
+
+The standard runtime is enough to inspect the boundary with tools such as `bash` and `curl`. It is not enough to begin real development when the coding agent, compiler, package manager, or test tools required by the project are absent.
+
+After completing the first policy review, the normal setup order is:
+
+1. inspect the current Context;
+2. initialize its managed Dockerfile;
+3. add the coding agent and development tools;
+4. let Tobari build and validate the image; and
+5. re-enter the Workspace with the selected image.
+
+## 1. Inspect the current Context
+
+First confirm which Context will own the runtime:
+
+```sh
+tobari context show --format json
+```
+
+To use a named Context, select it first and inspect it in the same way:
 
 ```sh
 tobari context use --name review
-tobari context show
+tobari context show --format json
 ```
 
-The Context report tells you the selected image and whether a managed recipe already exists. Existing Workspaces permanently bound to this Context will consult its current image on their next entry.
+Runtime selection belongs to a Context rather than directly to one project. Use separate Contexts when different work requires different toolsets.
 
-## 2. Initialize once
+## 2. Create the runtime recipe
+
+Initialize the managed Dockerfile once for the current Context:
 
 ```sh
 tobari runtime init --format json
 tobari context show --format json
 ```
 
-Use the reported runtime recipe path instead of guessing it. `runtime init` creates an owner-only `runtime/Dockerfile` template. It does not build an image, change the selected image, start Docker services, or overwrite an existing recipe.
+Use the Dockerfile path returned by `context show`; there is no need to guess the storage location.
 
-Edit the recipe on the trusted host. A minimal customization keeps the template's base and user transitions intact, for example adding a package between its existing `USER root` and `USER tobari` lines:
+`runtime init` only:
+
+- creates an owner-only runtime directory;
+- writes a Dockerfile template based on the official runtime; and
+- records that the Context has a managed recipe.
+
+It does not build an image or change the current image selection. It refuses to overwrite an existing recipe.
+
+## 3. Add the agent and development tools
+
+The generated Dockerfile contains existing `USER root` and `USER tobari` lines. Add operating-system packages and global command-line tools between those lines.
+
+The following example installs Node.js, npm, and Codex CLI. Codex is only an example; it is not a Tobari dependency. Replace the install line when you use another coding agent.
 
 ```dockerfile
+USER root
+
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tree \
+    && apt-get install -y --no-install-recommends nodejs npm \
     && rm -rf /var/lib/apt/lists/*
+
+RUN npm install --global @openai/codex
+
+USER tobari
 ```
 
-Do not put real credentials in the Dockerfile, build context, image layers, or examples.
+For a reproducible team image, pin the coding agent and other important tools to reviewed versions. The current official Codex installation methods are documented in the [Codex repository](https://github.com/openai/codex#installing-and-running-codex-cli).
 
-## 3. Build, validate, and promote
+Add the SDKs, compilers, linters, and test tools required by the project to the same Dockerfile. Files used by `COPY` must be placed inside the Context runtime directory because `runtime build` uses only that directory as its Docker build context.
+
+**Never put credentials, API keys, tokens, or personal configuration in the Dockerfile, build arguments, build context, or image layers.**
+
+## 4. Build and select the image
+
+Editing the Dockerfile does not change a Workspace. Run the explicit build on the trusted host:
 
 ```sh
 tobari runtime build --format json
+tobari context show --format json
 ```
 
-This is one deliberate host Docker-build boundary. Tobari:
+`runtime build` performs one operation that:
 
-1. uses only the Context runtime directory as build context;
-2. derives a local image identity from the Context and recipe source digest;
-3. runs the Docker build with bounded, structured invocation;
-4. validates the resulting image against the Tobari runtime contract;
-5. records the confirmed image digest; and
-6. atomically promotes the image selector in the Context manifest.
+1. uses only the Context runtime directory as the build context;
+2. builds a candidate image with Docker;
+3. validates it against the Tobari runtime contract;
+4. records the confirmed image digest; and
+5. selects only the compatible image for the Context.
 
-Editing the file alone has no effect. A failed build or failed compatibility check leaves the previous selected image authoritative. Docker/BuildKit may retain cache or an unselected candidate image; Tobari does not misreport those as active.
+A failed build or compatibility check leaves the previous image selected. Docker or BuildKit may retain a candidate image or cache, but Tobari does not report it as active.
 
-## 4. Re-enter an existing Workspace
+This is a trusted-host Docker build, not Workspace traffic governed by Gateway policy. Review every package source and build script that the Dockerfile executes.
 
-From a project bound to this Context:
+## 5. Enter the Workspace and verify the real tool
+
+Move to a project that uses this Context and enter the Workspace:
 
 ```sh
 tobari
-tree --version
-exit
+codex --version
+codex
 ```
 
-Entry compares the desired image and complete runtime spec with the existing container. If they changed, Tobari recreates only that container. It preserves the logical Workspace ID, canonical root, Context binding, persistent home, learned policy, and project files.
+If an existing Workspace used a different image, Tobari recreates only the work container on the next entry. A new Workspace starts directly from the selected image.
 
-The image's `CMD` does not define Workspace lifetime. Tobari supplies its fixed lifetime command and opens each shell or agent command through a child exec session. Container loss is recoverable; the logical Workspace is not the container.
+When the agent begins external communication, undeclared requests are denied just as they were in the quickstart. Leave the Workspace, run `tobari policy review`, and allow only the destination, port, method, and path that the agent actually needs. Tobari never replays the denied request; issue a new request from the agent after the permission is active.
 
-## What compatibility means
+## Credentials and persistent home
 
-A custom image must preserve the declared Tobari runtime API and operational contract, including the expected non-root `tobari` user, entrypoint behavior, fixed lifetime-command capability, CA/proxy environment compatibility, writable home location, health behavior, and supported architecture.
+A coding agent normally stores login state and configuration in the Workspace home directory. The home is persistent state mounted separately from the work container, so it survives runtime-image changes and container recreation.
 
-The image cannot grant itself:
+However, credentials stored there are **not isolated from other processes in the same Workspace.** Auth Broker protects only credentials that use an explicitly supported broker path. Tobari does not automatically move a coding agent's own stored credentials into Auth Broker.
 
-- extra host mounts or the host home;
-- Docker socket access;
-- host networking or a direct external route;
-- added Linux capabilities;
-- a different project principal; or
-- a longer logical lifetime by changing `CMD`.
+Therefore:
 
-Those controls are owned by the host lifecycle implementation, not image metadata.
+- never bake credentials into the image;
+- never add the host home as a mount;
+- treat agent login state as shared within the same Workspace;
+- use `tobari delete` to remove the persistent home when the Workspace is no longer needed; and
+- when a supported path exists, consult the [authentication guide](../authentication/) for Auth Broker setup.
+
+## What an existing Workspace preserves
+
+When a runtime change recreates the work container, Tobari preserves:
+
+- the logical Workspace ID;
+- the canonical project root;
+- the Context binding;
+- the persistent Workspace home;
+- learned policy; and
+- project files.
+
+The image `CMD` does not define Workspace lifetime. Tobari supplies the fixed lifetime command and starts shells or coding agents as child exec sessions.
+
+A custom image cannot grant itself the Docker socket, extra host mounts, host networking, direct external access, added Linux capabilities, or another project's identity. The host lifecycle implementation owns those controls.
 
 ## Failure behavior
 
-- `runtime_recipe_exists`: inspect the existing recipe; init refuses to overwrite it.
-- `runtime_recipe_missing`: run `tobari runtime init` before build.
-- `runtime_build_failed`: correct the Dockerfile and inspect `tobari context show`; the old selection remains unless promotion already completed.
-- `image_not_found`: make the declared base or selected image available, then retry the explicit build/reconcile step.
-- `incompatible_image`: restore the required user, labels/API, entrypoint, lifetime capability, and architecture.
-- An uncertain mutation outcome: inspect `tobari context show` before another build instead of assuming promotion failed.
-- Existing Workspace entry failure: prior logical state and home remain; fix the Context image and re-enter.
+- `runtime_recipe_exists`: use the existing Dockerfile; `runtime init` does not overwrite it.
+- `runtime_recipe_missing`: run `tobari runtime init` before building.
+- `runtime_build_failed`: inspect the Dockerfile and build output. The previous selection remains.
+- `incompatible_image`: restore the required `tobari` user, labels and API, entrypoint, architecture, and other runtime-contract requirements.
+- `image_not_found`: make the base or selected image available to Docker and retry.
+- uncertain mutation result: inspect `tobari context show --format json` before starting another build.
+- Workspace entry failure: the logical Workspace and persistent home remain. Repair the Context image and enter again.
+
+See the [runtime image contract](../../reference/runtime-image-contract/) for the exact required properties.
 
 ## Guarantees and limits
 
-Promotion is content-aware and Context-scoped, and failed validation does not silently replace the active selection. Compatibility validation cannot make arbitrary software inside the image trustworthy. Anything running in the Workspace can still modify the selected project and use already allowed network effects.
+Tobari selects only an image that passes compatibility validation and does not silently replace the active image with a failed candidate. It does not establish that arbitrary software added to the image or its package source is trustworthy.
 
-## Source evidence
+An agent inside the Workspace can still read and write the selected project and use already allowed communication. Custom runtime setup adds required tools to the isolated work environment; it does not narrow the authority already granted to that Workspace.
+
+## Inspect the implementation
 
 - [Runtime customization contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
-- [Runtime Catalog specifications](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/cli/runtime_catalog.go)
 - [Context runtime implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/context_runtime.go)
-- [Container drift reconciliation tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime_test.go)
+- [Work-container reconciliation implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/project_runtime.go)
 - [Base runtime contract checker](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/tools/runtimecheck/main.go)
 
 ## Summary
 
-The recipe is source, `runtime build` is the explicit validated promotion boundary, and Workspace entry is the reconciliation point. Runtime images provide tools; host lifecycle code owns authority and lifetime.
+The standard quickstart runtime is the foundation used to inspect network control. For real development, create the managed Dockerfile for the current Context, add the agent and development tools, and run `runtime build` so Tobari selects a validated image. On the next entry, Tobari recreates only the work container when necessary and preserves the Workspace home, policy, and project files.
 
-## Check your understanding
-
-<details>
-<summary>Does editing the Dockerfile update running Workspaces?</summary>
-
-No. You must run `runtime build`; existing Workspaces observe a promoted compatible image on their next entry.
-
-</details>
-
-<details>
-<summary>What happens to the Workspace home when image drift recreates its container?</summary>
-
-The home is preserved. It is logical Workspace state mounted separately from the replaceable container.
-
-</details>
-
-<details>
-<summary>Can a custom image add the Docker socket by declaring it in its Dockerfile?</summary>
-
-No. Host lifecycle code fixes mounts and capabilities. Image contents do not select those privileges.
-
-</details>
-
-**Next:** [Choose an authentication path](../authentication/).
+**Next:** read the [mental model](../../how-it-works/mental-model/) to connect Workspace, Gateway, OPA, Auth Broker, and the upstream service.
