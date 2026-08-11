@@ -23,7 +23,7 @@ test.describe("task-first documentation flow", () => {
     ).toBeVisible();
   });
 
-  test("the Japanese home page exposes task-based entry points", async ({
+  test("the Japanese home page exposes runtime setup as a first-use task", async ({
     page,
   }) => {
     await page.goto("ja/");
@@ -36,10 +36,13 @@ test.describe("task-first documentation flow", () => {
     await expect(
       page.getByRole("link", { name: "通信が拒否された" }),
     ).toHaveAttribute("href", /\/ja\/start\/first-denial\/$/);
+    await expect(
+      page.getByRole("link", { name: "カスタムランタイムを作る" }),
+    ).toHaveAttribute("href", /\/ja\/guides\/runtime-customization\/$/);
     await expect(page.locator(".home-tasks > a")).toHaveCount(5);
   });
 
-  test("quickstart stays focused on five observable steps", async ({
+  test("quickstart stays focused and points to the usable runtime setup", async ({
     page,
   }) => {
     await page.goto("start/quickstart/");
@@ -49,10 +52,29 @@ test.describe("task-first documentation flow", () => {
     await expect(
       page.getByRole("heading", { name: "What you have now verified" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Set up the coding-agent runtime" }),
+    ).toHaveAttribute("href", /\/guides\/runtime-customization\/$/);
     await expect(page.locator("tobari-sequence-explorer")).toHaveCount(0);
   });
 
-  test("learning pages show current position and the next learning goal", async ({
+  test("runtime setup explains the mandatory first-use path", async ({ page }) => {
+    await page.goto("guides/runtime-customization/");
+
+    await expect(
+      page.getByRole("heading", { name: "Set up a custom runtime", level: 1 }),
+    ).toBeVisible();
+    await expect(page.locator("[data-runtime-setup-flow] li")).toHaveCount(5);
+    await expect(
+      page.getByText("It does not include a coding agent", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("npm install --global @openai/codex"),
+    ).toBeVisible();
+    await expect(page.locator(".learning-badge-step")).toHaveText("3 / 10");
+  });
+
+  test("learning pages start with installation and the practical setup", async ({
     page,
   }) => {
     await page.goto("start/overview/");
@@ -61,7 +83,7 @@ test.describe("task-first documentation flow", () => {
     await expect(page.locator("nav.learning-progress")).toBeVisible();
     await expect(
       page.locator("nav.learning-progress .learning-next strong"),
-    ).toHaveText("Mental model");
+    ).toHaveText("Install");
   });
 
   test("CLI reference starts from the task instead of a flat command list", async ({
