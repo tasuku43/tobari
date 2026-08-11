@@ -23,6 +23,24 @@ exec(
 
 root = Path.cwd() / "docs" / "architecture-site" / "src" / "content" / "docs"
 
+# The canonical page used a different sentence than the temporary core patch
+# expected. Remove the unconditional re-entry example and replace it with the
+# same status-driven activation rule used by the Japanese page.
+english_auth = root / "guides" / "authentication.mdx"
+text = english_auth.read_text(encoding="utf-8")
+text = text.replace(
+    "Leave and re-enter a Workspace permanently bound to that Context:\n\n"
+    "```sh\n"
+    "tobari --context default\n"
+    "```",
+    "After login, inspect the result or `tobari auth status --format json`. "
+    "Only a Workspace whose projection is authoritatively `missing` or `stale` "
+    "receives an exact working-directory and argv re-entry action. `ready` needs "
+    "no action; `unavailable` and `unresolved` do not invent one. Logging out an "
+    "already absent provider reports `no_change`.",
+)
+english_auth.write_text(text, encoding="utf-8")
+
 
 def synchronize_fences(english_path: Path, japanese_path: Path) -> None:
     pattern = re.compile(r"^```[^\n]*\n.*?^```[ \t]*$", re.M | re.S)
