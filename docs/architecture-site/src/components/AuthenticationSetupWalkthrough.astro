@@ -1,0 +1,289 @@
+---
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+const t = <T,>(english: T, japanese: T) => (isJapanese ? japanese : english);
+const withBase = (path: string) =>
+  `${import.meta.env.BASE_URL}${isJapanese ? "ja/" : ""}${path.replace(/^\//, "")}`;
+
+const flow = t(
+  [
+    ["Installed tool", "choose auth path", "Decide who should own the credential"],
+    ["Trusted host / Workspace", "login", "Complete the tool or provider login"],
+    ["Trusted host", "auth status", "Confirm the configured state without printing the secret"],
+    ["Project", "tobari", "Re-enter so new authentication state is available"],
+    ["Agent", "request", "Review any new outbound permission exactly as in Quickstart"],
+  ],
+  [
+    ["インストールしたツール", "認証方式を選ぶ", "認証情報をどこで管理するか決める"],
+    ["信頼するホスト / Workspace", "ログイン", "ツールまたは外部サービスのログインを完了する"],
+    ["信頼するホスト", "auth status", "秘密情報を表示せず、設定状態を確認する"],
+    ["プロジェクト", "tobari", "入り直して新しい認証状態を反映する"],
+    ["エージェント", "外部リクエスト", "新しい通信は Quickstart と同じ方法でレビューする"],
+  ],
+);
+---
+
+<div class="auth-onboarding">
+  <section class="auth-core">
+    <p class="auth-eyebrow">
+      {t("Step 3: authenticate what you installed", "次のステップ：インストールしたツールを認証する")}
+    </p>
+    <h2>
+      {
+        t(
+          "Authentication and network permission are separate",
+          "ログインできることと、外部通信を許可することは別です",
+        )
+      }
+    </h2>
+    <p class="auth-lead">
+      {
+        t(
+          "The previous step made the executable available. Now authenticate the coding agent and any external service it needs. Keep the default Tobari setup for this first pass; you do not need to create or select another configuration.",
+          "前のステップで実行ファイルは使えるようになりました。次に、コーディングエージェントと、作業に必要な外部サービスの認証を設定します。最初の一連の導入では Tobari の初期設定をそのまま使い、別の設定を作ったり切り替えたりする必要はありません。",
+        )
+      }
+    </p>
+
+    <section class="auth-flow" aria-labelledby="auth-flow-title">
+      <h3 id="auth-flow-title">
+        {t("From installed binary to authenticated requests", "実行ファイルの導入から、認証付き通信まで")}
+      </h3>
+      <ol>
+        {
+          flow.map(([from, via, label], index) => (
+            <li>
+              <span class="auth-flow-number">{index + 1}</span>
+              <p class="auth-flow-route">
+                <strong>{from}</strong><b aria-hidden="true">→</b><code>{via}</code>
+              </p>
+              <p>{label}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </section>
+
+    <section class="auth-choice">
+      <h3>{t("Use the simplest authentication path that fits the tool", "まず、ツールに合う最小の認証経路を選ぶ")}</h3>
+      <div class="auth-choice-grid">
+        <article>
+          <h4>{t("The tool manages its own login", "ツール自身でログインする")}</h4>
+          <p>
+            {
+              t(
+                "If the coding agent or CLI normally stores its own login state, enter the Workspace and follow that tool's official login flow. The resulting state lives with that Workspace and survives ordinary exit and runtime-container replacement.",
+                "コーディングエージェントや CLI が通常、自分自身でログイン状態を保存する場合は、Workspace に入ってそのツールの公式ログイン手順を実行します。保存された状態はその Workspace に残り、通常の `exit` やランタイムコンテナの置き換えでは失われません。",
+              )
+            }
+          </p>
+          <pre><code>{t(
+            `cd /path/to/your/project\ntobari\n\n# Inside the Workspace\n<agent-command> <its-login-command>`,
+            `cd /path/to/your/project\ntobari\n\n# Workspace 内\n<エージェントのコマンド> <そのツールのログインコマンド>`,
+          )}</code></pre>
+        </article>
+
+        <article>
+          <h4>{t("Tobari manages a supported provider credential", "Tobari で対応サービスへログインする")}</h4>
+          <p>
+            {
+              t(
+                "For a reviewed provider supported by Tobari, perform the login on the trusted host. The primary credential stays outside the Workspace; the Workspace receives only the project-bound material required by the supported integration.",
+                "Tobari が対応するレビュー済みの外部サービスでは、信頼するホスト側でログインできます。認証情報の本体は Workspace の外側に置き、Workspace には対応する統合に必要な、プロジェクトに結び付いた情報だけを渡します。",
+              )
+            }
+          </p>
+          <pre><code>{`tobari cluster up\ntobari auth status\n\n# Interactive provider selection\ntobari auth login\n\n# Or choose GitHub directly\ntobari auth login --provider github\n\ntobari auth status`}</code></pre>
+        </article>
+      </div>
+    </section>
+
+    <aside class="auth-important">
+      <strong>{t("A successful login does not allow a request", "ログインに成功しても、通信は自動では許可されません")}</strong>
+      <p>
+        {
+          t(
+            "Authentication answers “which account can sign this request?” Tobari's network policy separately answers “may this project send this HTTP request?” The first new API call can therefore be denied even after login. Review it on the host and allow only the exact effect you intend, just as you did in Quickstart.",
+            "認証は「どのアカウントとしてリクエストを送るか」を決めます。一方、Tobari の通信ポリシーは「このプロジェクトが、この HTTP リクエストを送ってよいか」を別に判断します。そのため、ログイン後の最初の API 通信が拒否されることがあります。クイックスタートと同じようにホスト側で内容を確認し、必要な通信条件だけを許可してください。",
+          )
+        }
+      </p>
+    </aside>
+
+    <section class="auth-finish">
+      <h3>{t("Finish the first-use loop", "最初の一連の導入を完了する")}</h3>
+      <pre><code>{t(
+        `cd /path/to/your/project\ntobari\n\n# Inside the Workspace\n<agent-command>`,
+        `cd /path/to/your/project\ntobari\n\n# Workspace 内\n<エージェントのコマンド>`,
+      )}</code></pre>
+      <p>
+        {
+          t(
+            "At this point you have experienced Tobari's policy loop, installed the real runtime, authenticated the tools you need, and can start normal work. When the agent hits a new outbound effect, use the same host-side policy review you already learned.",
+            "ここまでで、通信の拒否とレビューを体験し、実作業用のランタイムを作り、必要なツールの認証まで完了しました。ここから通常の作業を始められます。エージェントが新しい外部通信を必要としたら、すでに学んだホスト側のポリシーレビューを使います。",
+          )
+        }
+      </p>
+      <div class="auth-next-links">
+        <a href={withBase("/start/first-denial/")}>
+          {t("Understand policy review in detail", "ポリシーレビューを詳しく理解する")} →
+        </a>
+        <a href={withBase("/how-it-works/mental-model/")}>
+          {t("Learn the internal model", "内部の仕組みを学ぶ")} →
+        </a>
+      </div>
+    </section>
+  </section>
+
+  <aside class="auth-advanced">
+    <h3>{t("When your setup needs to split", "設定を分けたくなった段階で")}</h3>
+    <p>
+      {
+        t(
+          "Later you may want different runtimes, authentication sets, or policy modes for different jobs. Tobari calls those named bundles Contexts. They are useful at that point; they are not prerequisite knowledge for the first successful run.",
+          "用途ごとにランタイム、認証設定、ポリシーモードを分けたくなった場合、Tobari ではそれらを Context という単位で切り替えられます。Context が必要になるのはその段階です。最初の実行を成功させるための前提知識ではありません。",
+        )
+      }
+    </p>
+    <div class="auth-advanced-links">
+      <a href={withBase("/guides/contexts/")}>
+        {t("Separate configurations with Contexts", "Context で設定を分ける")} →
+      </a>
+      <a href={withBase("/guides/authentication/")}>
+        {t("Read authentication details", "認証の詳細を読む")} →
+      </a>
+    </div>
+  </aside>
+</div>
+
+<style>
+  .auth-onboarding {
+    display: grid;
+    gap: 2rem;
+  }
+
+  .auth-core,
+  .auth-advanced {
+    min-width: 0;
+  }
+
+  .auth-eyebrow {
+    margin: 0 0 0.45rem;
+    font-size: 0.78rem;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sl-color-text-accent);
+  }
+
+  .auth-core > h2 {
+    margin: 0;
+    font-size: clamp(1.55rem, 4vw, 2.25rem);
+    line-height: 1.15;
+  }
+
+  .auth-lead {
+    max-width: 48rem;
+    margin-top: 1rem;
+    font-size: 1.04rem;
+  }
+
+  .auth-flow,
+  .auth-choice,
+  .auth-important,
+  .auth-finish {
+    margin-top: 2rem;
+  }
+
+  .auth-flow > ol {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(10rem, 1fr));
+    gap: 0.7rem;
+    padding: 0;
+    list-style: none;
+    overflow-x: auto;
+  }
+
+  .auth-flow li {
+    min-width: 10rem;
+    border-top: 2px solid var(--sl-color-accent);
+    padding: 1rem 0.8rem 0.8rem;
+    background: color-mix(in srgb, var(--sl-color-bg-nav) 85%, transparent);
+  }
+
+  .auth-flow-number {
+    display: inline-grid;
+    width: 1.75rem;
+    height: 1.75rem;
+    place-items: center;
+    border: 1px solid var(--sl-color-accent);
+    border-radius: 50%;
+    font-size: 0.75rem;
+    font-weight: 750;
+  }
+
+  .auth-flow-route {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.75rem 0 0.35rem;
+  }
+
+  .auth-flow li > p:last-child {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+
+  .auth-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .auth-choice-grid article,
+  .auth-important,
+  .auth-finish,
+  .auth-advanced {
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.8rem;
+    padding: 1rem 1.1rem;
+  }
+
+  .auth-choice-grid h4,
+  .auth-finish h3,
+  .auth-advanced h3 {
+    margin-top: 0;
+  }
+
+  .auth-important {
+    border-left: 3px solid var(--sl-color-accent);
+    background: var(--sl-color-bg-nav);
+  }
+
+  .auth-important p {
+    margin-bottom: 0;
+  }
+
+  .auth-next-links,
+  .auth-advanced-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.2rem;
+  }
+
+  .auth-advanced {
+    background: transparent;
+  }
+
+  @media (max-width: 42rem) {
+    .auth-flow > ol {
+      grid-template-columns: none;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(15rem, 82vw);
+    }
+
+    .auth-choice-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
