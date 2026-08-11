@@ -5,23 +5,29 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CORE = HERE / "docs-sync-audit-core.py"
+TARGET = "3a9acc9c264d3e4efca2cd9aafabc9a122b183b8"
+SITE_ROOT = Path.cwd() / "docs" / "architecture-site"
+root = SITE_ROOT / "src" / "content" / "docs"
 
-old_overview_pattern = (
-    r"\*\*" + r"Implemented:" + r"\*\*.*?This documentation does not present"
-)
-new_overview_pattern = (
-    r"\*\*" + r"Implemented(?: now)?:" + r"\*\*.*?This documentation does not present"
-)
-core_source = CORE.read_text(encoding="utf-8").replace(
-    old_overview_pattern,
-    new_overview_pattern,
-)
-exec(
-    compile(core_source, str(CORE), "exec"),
-    {"__name__": "__main__", "__file__": str(CORE)},
-)
-
-root = Path.cwd() / "docs" / "architecture-site" / "src" / "content" / "docs"
+# The large first synchronization already ran on this branch. Execute it only
+# when the selected source snapshot has not yet been applied; later runs only
+# finish residual prose/parity corrections and are therefore idempotent.
+snapshot = SITE_ROOT / "source-snapshot.txt"
+if not snapshot.exists() or snapshot.read_text(encoding="utf-8").strip() != TARGET:
+    old_overview_pattern = (
+        r"\*\*" + r"Implemented:" + r"\*\*.*?This documentation does not present"
+    )
+    new_overview_pattern = (
+        r"\*\*" + r"Implemented(?: now)?:" + r"\*\*.*?This documentation does not present"
+    )
+    core_source = CORE.read_text(encoding="utf-8").replace(
+        old_overview_pattern,
+        new_overview_pattern,
+    )
+    exec(
+        compile(core_source, str(CORE), "exec"),
+        {"__name__": "__main__", "__file__": str(CORE)},
+    )
 
 # The canonical page used a different sentence than the temporary core patch
 # expected. Remove the unconditional re-entry example and replace it with the
@@ -41,8 +47,8 @@ text = text.replace(
 )
 english_auth.write_text(text, encoding="utf-8")
 
-# Complete the schema updates that appear in prose tables rather than the
-# generated version projection.
+# Complete schema updates that appear in prose tables rather than generated
+# version data.
 residual_replacements = {
     root / "ja" / "reference" / "configuration-and-state.mdx": {
         "保存用 Context マニフェストのスキーマ 4": "保存用 Context マニフェストのスキーマ 5",
