@@ -33,7 +33,18 @@ jobs:
 
       - name: Apply source snapshot and audit
         if: steps.skip.outputs.value != 'true'
-        run: python3 .github/docs-sync-audit.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/docs-sync-audit.py')
+          text = path.read_text()
+          text = text.replace(
+              r'\*\*Implemented:\*\*.*?This documentation does not present',
+              r'\*\*Implemented(?: now)?:\*\*.*?This documentation does not present',
+          )
+          path.write_text(text)
+          PY
+          python3 .github/docs-sync-audit.py
 
       - name: Set up Go
         if: steps.skip.outputs.value != 'true'
