@@ -141,7 +141,7 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 			return err
 		}
 	}
-	if err := r.ensureContext(tobari.ContextManifest{
+	return r.initializeContextStoreUnlocked(tobari.ContextManifest{
 		SchemaVersion:    tobari.ContextSchemaVersion,
 		ID:               defaultID,
 		Name:             tobari.DefaultContextName,
@@ -149,7 +149,16 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 		Image:            image,
 		PolicyMode:       tobari.ContextPolicyModeGuided,
 		ShellEnvironment: tobari.InitialContextShellEnvironment(),
-	}, true); err != nil {
+	})
+}
+
+// initializeContextStoreUnlocked completes mutation-owned initialization with
+// the selected default manifest. The caller must hold the Context-store lock.
+func (r *Runtime) initializeContextStoreUnlocked(defaultManifest tobari.ContextManifest) error {
+	if err := r.ensurePrivateDirectory(r.contextsDirectory()); err != nil {
+		return fmt.Errorf("prepare Context directory: %w", err)
+	}
+	if err := r.ensureContext(defaultManifest, true); err != nil {
 		return err
 	}
 	if err := r.upgradeLegacyContextManifests(); err != nil {
@@ -811,9 +820,6 @@ func (r *Runtime) CreateContext(ctx context.Context, name string, image string, 
 	if err := ctx.Err(); err != nil {
 		return tobari.ContextReport{}, err
 	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextReport{}, err
-	}
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: r.resolveBuiltinImageSelector(image), PolicyMode: mode,
@@ -827,16 +833,31 @@ func (r *Runtime) CreateContext(ctx context.Context, name string, image string, 
 	if err := manifest.Validate(); err != nil {
 		return tobari.ContextReport{}, err
 	}
-	if _, err := os.Lstat(r.contextManifestPath(name)); err == nil {
-		return tobari.ContextReport{}, tobari.ErrContextExists
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return tobari.ContextReport{}, err
-	}
-	if err := r.ensureContext(manifest, false); err != nil {
-		return tobari.ContextReport{}, err
-	}
-	active, err := r.readActiveContext()
-	if err != nil {
+	var active string
+	if err := r.withContextStoreLock(func() error {
+		if _, err := os.Lstat(r.contextManifestPath(name)); err == nil {
+			return tobari.ErrContextExists
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+
+		if name == tobari.DefaultContextName {
+			if err := r.initializeContextStoreUnlocked(manifest); err != nil {
+				return err
+			}
+		} else {
+			if err := r.ensureContextStoreUnlocked(); err != nil {
+				return err
+			}
+			if err := r.ensureContext(manifest, false); err != nil {
+				return err
+			}
+		}
+
+		var err error
+		active, err = r.readActiveContext()
+		return err
+	}); err != nil {
 		return tobari.ContextReport{}, err
 	}
 	report, err := r.contextReport(ctx, tobari.TaskContextCreate, manifest, active)

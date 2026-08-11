@@ -732,6 +732,26 @@ func TestContextCreateRendersRequiresReconcileAndExecutableClusterUp(t *testing.
 	}
 }
 
+func TestContextCreateRendersAbsentClusterAndExecutableClusterUp(t *testing.T) {
+	t.Parallel()
+	report := contextCLIReport(
+		tobari.TaskContextCreate, tobari.DefaultContextName, true,
+		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided,
+	)
+	report.Cluster = tobari.ContextClusterStatusNotApplicable
+	output, err := renderContextReport(report, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), "Cluster: not_applicable") ||
+		!strings.Contains(string(output), "Next: run `tobari cluster up`") {
+		t.Fatalf("Context create hides absent-cluster recovery: %q", output)
+	}
+	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "cluster up" {
+		t.Fatalf("Context create recovery routes to %q", routed.Path)
+	}
+}
+
 func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
 	t.Parallel()
 	report := tobari.ContextReport{

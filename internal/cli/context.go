@@ -632,10 +632,15 @@ func contextAuthStatusNextArgv(result tobari.ContextReport) []string {
 }
 
 func contextCreateNextArgv(result tobari.ContextReport) []string {
-	if result.Task == tobari.TaskContextCreate && result.Cluster == tobari.ContextClusterStatusRequiresReconcile {
-		return []string{ProgramName, "cluster", "up"}
+	if result.Task != tobari.TaskContextCreate {
+		return nil
 	}
-	return nil
+	switch result.Cluster {
+	case tobari.ContextClusterStatusNotApplicable, tobari.ContextClusterStatusRequiresReconcile:
+		return []string{ProgramName, "cluster", "up"}
+	default:
+		return nil
+	}
 }
 
 func renderRuntimeInitReportText(result tobari.ContextReport, color bool) []byte {

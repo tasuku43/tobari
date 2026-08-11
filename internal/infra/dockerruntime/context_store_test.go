@@ -206,6 +206,65 @@ func TestExplicitFreshDefaultIsNotSyntheticAuthority(t *testing.T) {
 	}
 }
 
+func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &contextSwitchRunner{}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := runtime.CreateContext(
+		context.Background(), tobari.DefaultContextName,
+		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced,
+	)
+	if err != nil {
+		t.Fatalf("first CreateContext(default) error = %v", err)
+	}
+	if err := created.Validate(); err != nil {
+		t.Fatalf("created report is invalid: %v", err)
+	}
+	if created.Task != tobari.TaskContextCreate ||
+		created.ContextState != tobari.ContextObservationPersisted ||
+		created.Name != tobari.DefaultContextName || !created.Active ||
+		created.PolicyMode != tobari.ContextPolicyModeAdvanced ||
+		created.Cluster != tobari.ContextClusterStatusNotApplicable {
+		t.Fatalf("created default Context = %+v", created)
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("Context create made Docker calls: %+v", runner.runs)
+	}
+
+	manifestPath := runtime.contextManifestPath(tobari.DefaultContextName)
+	manifestBefore, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	treeBefore := snapshotOwnedTree(t, root)
+	if _, err := runtime.CreateContext(
+		context.Background(), tobari.DefaultContextName,
+		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided,
+	); !errors.Is(err, tobari.ErrContextExists) {
+		t.Fatalf("second CreateContext(default) error = %v, want ErrContextExists", err)
+	}
+	manifestAfter, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(manifestAfter, manifestBefore) {
+		t.Fatalf("duplicate create changed manifest\nbefore=%s\nafter=%s", manifestBefore, manifestAfter)
+	}
+	if treeAfter := snapshotOwnedTree(t, root); !reflect.DeepEqual(treeAfter, treeBefore) {
+		t.Fatalf("duplicate create changed Context state\nbefore=%v\nafter=%v", treeBefore, treeAfter)
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("duplicate Context create made Docker calls: %+v", runner.runs)
+	}
+}
+
 func TestLegacyContextObservationDoesNotMigrateUntilMutation(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
