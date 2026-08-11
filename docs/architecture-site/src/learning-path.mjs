@@ -7,7 +7,7 @@ const page = (step, path, title, japaneseTitle, goal, japaneseGoal) => ({
   japaneseGoal,
 });
 
-export const learningPathStepCount = 10;
+export const learningPathStepCount = 11;
 
 export const learningPathPages = [
   page(
@@ -20,6 +20,22 @@ export const learningPathPages = [
   ),
   page(
     2,
+    "/start/quickstart/",
+    "Quickstart",
+    "クイックスタート",
+    "Experience one denial, host review, exact allow, and deliberate retry with curl.",
+    "curl を使い、拒否、ホストでのレビュー、完全一致の許可、意図的な再実行を体験します。",
+  ),
+  page(
+    3,
+    "/start/runtime-setup/",
+    "Prepare a custom runtime",
+    "カスタムランタイムを用意する",
+    "Install the coding agent and project toolchain into a Context-owned runtime.",
+    "コーディングエージェントと開発ツールを、Context が管理するランタイムへ追加します。",
+  ),
+  page(
+    4,
     "/how-it-works/mental-model/",
     "Mental model",
     "基本モデル",
@@ -27,7 +43,7 @@ export const learningPathPages = [
     "実装の詳細に入る前に、五つの主要コンポーネントを押さえます。",
   ),
   page(
-    3,
+    5,
     "/how-it-works/workspace-lifecycle/",
     "Workspace lifecycle",
     "Workspace のライフサイクル",
@@ -35,7 +51,7 @@ export const learningPathPages = [
     "シェルの終了、Workspace の削除、クラスター停止の違いを整理します。",
   ),
   page(
-    4,
+    6,
     "/how-it-works/request-journey/",
     "Request journey",
     "リクエストの流れ",
@@ -43,7 +59,7 @@ export const learningPathPages = [
     "Workspace から接続先まで、一つのリクエストを処理順に追います。",
   ),
   page(
-    5,
+    6,
     "/how-it-works/https-and-tls/",
     "HTTPS and TLS",
     "HTTPS と TLS",
@@ -51,7 +67,7 @@ export const learningPathPages = [
     "二つの TLS 接続と、証明書に関する制限を確認します。",
   ),
   page(
-    6,
+    7,
     "/how-it-works/policy-learning/",
     "Policy learning",
     "ポリシー学習",
@@ -59,7 +75,7 @@ export const learningPathPages = [
     "拒否された通信が、完全一致のレビュー候補になるまでを追います。",
   ),
   page(
-    6,
+    7,
     "/start/first-denial/",
     "First denial",
     "最初の拒否",
@@ -67,7 +83,7 @@ export const learningPathPages = [
     "拒否された通信を、信頼するホストでレビューする手順を確認します。",
   ),
   page(
-    7,
+    8,
     "/how-it-works/credentials/",
     "Credentials",
     "認証情報",
@@ -75,7 +91,7 @@ export const learningPathPages = [
     "外部サービスの認証と、HTTP 通信の許可を分けて扱います。",
   ),
   page(
-    7,
+    8,
     "/guides/authentication/",
     "Authentication guide",
     "認証",
@@ -83,7 +99,7 @@ export const learningPathPages = [
     "認証情報の本体を Workspace に渡さず、対応するプロバイダーを設定します。",
   ),
   page(
-    8,
+    9,
     "/security/guarantees-and-limitations/",
     "Guarantees and limitations",
     "保証と制限",
@@ -91,7 +107,7 @@ export const learningPathPages = [
     "各保証が成立する前提と、保護しない範囲を確認します。",
   ),
   page(
-    8,
+    9,
     "/security/trust-boundaries/",
     "Trust boundaries",
     "信頼境界",
@@ -99,7 +115,7 @@ export const learningPathPages = [
     "各境界を所有し、強制するコンポーネントを特定します。",
   ),
   page(
-    9,
+    10,
     "/how-it-works/state-and-recovery/",
     "State and recovery",
     "状態と復旧",
@@ -107,7 +123,7 @@ export const learningPathPages = [
     "障害、退出、削除の後に残る状態を整理します。",
   ),
   page(
-    9,
+    10,
     "/guides/troubleshooting/",
     "Troubleshooting",
     "トラブルシューティング",
@@ -115,7 +131,7 @@ export const learningPathPages = [
     "観測できる状態から、破壊的でない復旧操作を選びます。",
   ),
   page(
-    10,
+    11,
     "/start/understanding-check/",
     "Understanding check",
     "理解度チェック",
