@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+// Shared rule: locate real concepts, label every route, and avoid invented physical regions.
 test("mental model locates components and follows one request in time order", async ({
   page,
 }) => {
