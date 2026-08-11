@@ -1,56 +1,46 @@
 ---
 title: JSON schemas and versioned contracts
-description: Public JSON envelopes, persisted documents, internal protocols, strict parsers, and compatibility boundaries.
+description: Public CLI envelopes, persisted documents, internal protocols, and the compatibility boundary of each versioned surface.
 ---
 
-This reference lists Tobari's versioned JSON surfaces and their compatibility
-boundaries. A public CLI report, persisted manifest, Gateway policy input,
-audit line, and Broker socket frame are separate contracts even when they
-describe related objects.
+Tobari uses versioned JSON for several different surfaces. A public CLI report,
+a persisted Context manifest, a Gateway policy request, and an Auth Broker frame
+are separate contracts even when they describe related state. A schema number
+has meaning only together with the name of its surface.
 
-Each version belongs to one specific surface. A statement such as “the Context
-schema is 5” is incomplete until it identifies stored configuration, public
-output, or another named contract. The owning parser, Catalog entry, or
-protocol implementation is the source of truth for each surface below.
-
-## “Schema” does not always mean JSON Schema
-
-Tobari uses explicit `schema_version` fields and strict readers for many JSON
-contracts. The repository does not currently publish a formal JSON Schema
-document for every surface. In particular, provider manifest v1 is enforced by
-the Go parser and validator, with a canonical synthetic fixture recorded in the
-harness ledger. That fixture's digest proves fixture identity; it is not a
-general-purpose JSON Schema.
-
-For public CLI output, the Catalog declares the JSON envelope and schema
-version. Contract tests execute the renderer and compare the produced
-`schema_version` to the Catalog. For persisted or internal documents, the
-owning domain or infrastructure reader defines validation and compatibility.
+The owning Catalog entry, parser, or protocol implementation is authoritative.
+This page summarizes those contracts at the product snapshot shown in the page
+footer.
 
 ## Public CLI JSON
 
-| Surface                                                            | Envelope                             | Current schema |
-| ------------------------------------------------------------------ | ------------------------------------ | -------------: |
-| Structured error                                                   | `error`                              |              1 |
-| Agent help                                                         | `commands`                           |              8 |
-| Doctor report                                                      | `report`                             |              1 |
-| Context list                                                       | `contexts`                           |              3 |
-| Context report (`context show`, create/use/config/runtime results) | `context`                            |          **6** |
-| Cluster status                                                     | `cluster`                            |              4 |
-| Cluster denials                                                    | `denials`                            |              3 |
-| Policy candidates and review                                       | `policy_candidates`, `policy_review` |              4 |
-| Policy rules                                                       | `policy_rules`                       |              2 |
-| Policy compactions                                                 | `policy_compactions`                 |              3 |
-| Authentication commands                                            | `auth`                               |              1 |
-| Workspace list and status                                          | `tobari` or `status`                 |              2 |
+<!-- public-cli-json-schemas:start -->
 
-Exact fields, optionality, collection coverage, and output formats are
-generated on the [CLI reference](/reference/cli/). Do not infer a field from
-another envelope merely because the two objects share a name.
+| Surface | Envelope | Current schema |
+| --- | --- | ---: |
+| Structured error | `error` | 1 |
+| Agent help (`view: index` and input-selected `view: scope`) | `commands` | 9 |
+| Version | `build_identity` | 1 |
+| Doctor report | `report` | 2 |
+| Context list | `contexts` | 4 |
+| Context report (show/create/use/config/runtime results) | `context` | 8 |
+| Cluster status | `cluster` | 5 |
+| Cluster denials | `denials` | 4 |
+| Policy candidates | `policy_candidates` | 5 |
+| Policy review | `policy_review` | 5 |
+| Policy rules | `policy_rules` | 3 |
+| Policy compactions | `policy_compactions` | 3 |
+| Authentication result and status | `auth` | 4 |
+| Workspace list | `tobari` | 2 |
+| Workspace status | `status` | 4 |
+<!-- public-cli-json-schemas:end -->
 
-### Context version boundary
+Exact fields, optionality, output formats, and command coverage are generated in
+the [CLI reference](/reference/cli/). Consumers must select behavior by the
+exact envelope and `schema_version`; a field present in one envelope is not
+implicitly part of another.
 
-This distinction is important:
+## Context storage and presentation are different contracts
 
 ```text
 Host configuration
@@ -62,183 +52,81 @@ CLI presentation
   public Context report schema 8
 ```
 
-The report adds task-owned runtime, cluster, complete shell-setting, and
-secret-free authentication interpretation. It is not the bytes
-stored in `context.json`.
+The public report adds runtime, cluster, shell, Git, and secret-free
+authentication interpretation. It is not a byte-for-byte rendering of
+`context.json`.
 
-## Persisted host contracts
+## Important persisted host contracts
 
-| State                                  | Current contract          |
-| -------------------------------------- | ------------------------- |
-| Context manifest                       | Schema 5                  |
-| Root index and Workspace instance      | Schema 2                  |
-| Shared cluster state                   | Schema 3                  |
-| Project principal registry             | Schema 2                  |
-| Guided policy data                     | `tobari.schema_version` 2 |
-| Aggregate policy projection marker     | Schema 1                  |
-| Owner provider manifest                | Schema 1                  |
-| Reviewed built-in provider manifest    | Schema 1 or 2             |
-| Normalized provider projection         | Schema 2                  |
-| Encrypted Context vault                | Envelope 1; payload 2     |
-| Workspace authentication file registry | Schema 1                  |
-| Base runtime metadata                  | Schema 1                  |
+| State | Current contract |
+| --- | --- |
+| Context manifest | Schema 5 |
+| Root index and Workspace instance | Schema 2 |
+| Shared cluster state | Schema 3 |
+| Project principal registry | Schema 2 |
+| Guided policy data | `tobari.schema_version` 2 |
+| Aggregate policy projection marker | Schema 1 |
+| Owner provider manifest | Schema 1 |
+| Reviewed built-in provider manifest | Schema 1 or 2 |
+| Normalized provider projection | Schema 2 |
+| Encrypted Context vault | Envelope 1; payload 2 |
+| Workspace authentication file registry | Schema 1 |
+| Base runtime metadata | Schema 1 |
 
-Readers reject malformed, oversized, unsafe, or unsupported state according to
-the owning contract. Strictness is surface-specific: do not assume that every
-JSON reader accepts or rejects an unknown field in the same way. Provider
-documents, principal state, broker frames, and critical runtime state use
-explicit fail-closed validation.
+The Context vault can contain typed static credentials, opaque AWS state,
+Datadog OAuth state, OpenAI Codex OAuth state, Anthropic static-token state,
+revisions, durable ambiguity barriers, and raw handles. None of those internal
+values becomes public CLI output merely because the public `auth` envelope
+summarizes its state.
 
-Legacy compatibility is also surface-specific. For example, the Context store
-has deliberate upgrades from earlier manifest versions, while legacy
-singleton state can require cleanup with an older Tobari. A future version is
-not automatically accepted.
+## Gateway, OPA, audit, and Broker contracts
 
-## Gateway, OPA, audit, and broker contracts
+| Boundary | Current contract | Important rule |
+| --- | ---: | --- |
+| Gateway credential configuration | Schema 2 | Contains managed projection metadata, not policy authority. |
+| Gateway → OPA decision input | Schema 5 | Host-derived principal and normalized HTTP attributes; no ordinary body or client secret header. |
+| Guided/Advanced source policy | Source schema 4 | Legacy source schema 3 is accepted only for migration; aggregate output is runtime schema 5. |
+| Gateway audit line | Schema 2 | Bounded, secret-free decision evidence. |
+| Learnable-denial navigation response | Schema 1 | Fixed host-review guidance; no candidate ID, query, body, or secret. |
+| Broker control protocol | Schema 1 | Bounded newline-delimited JSON on the host control socket. |
+| Broker runtime protocol | Schema 1 | Non-secret introspection followed, after allow, by a declared static resolve, Datadog/OpenAI token action, or AWS signing result. |
+| Private host companion frames | Schema 1 | Authenticated, direction-bound, strictly sequenced frames for the compiled AWS operation. |
+| Workspace Broker handle | Handle version 1 | Opaque `tobari-h1_…` bytes; never decode them into authority. |
 
-| Boundary                                     |                                               Current contract | Important content rule                                                                                                              |
-| -------------------------------------------- | -------------------------------------------------------------: | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Gateway credential configuration             |                                                       Schema 2 | Context-aware managed projection; contains paths/metadata, not policy authority.                                                    |
-| Gateway → OPA decision input                 |                                                       Schema 5 | Host-derived principal plus normalized HTTP attributes. No body and no client secret headers.                                       |
-| Guided/Advanced source policy input          | Source schema 4; legacy source schema 3 accepted for migration | Aggregate generation rewrites the supported source to runtime input schema 5 before complete validation.                            |
-| Gateway audit line                           |                                                       Schema 2 | Secret-free normalized decision evidence.                                                                                           |
-| Gateway learnable-denial navigation response |                                                       Schema 1 | Fixed host review guidance; no candidate ID, query, body, or secret.                                                                |
-| Broker control protocol                      |                                                       Schema 1 | Bounded newline-delimited JSON over the host control Unix socket.                                                                   |
-| Broker runtime protocol                      |                                                       Schema 1 | Introspection is non-secret; a post-allow static resolve, Datadog token action, or AWS signing response uses Gateway's Unix socket. |
-| Private host companion frames                |                                                       Schema 1 | Authenticated, direction-bound, strictly sequenced frames carry only the compiled post-policy AWS operation.                        |
-| Workspace broker handle                      |                                               Handle version 1 | Opaque `tobari-h1_…` value; never decode it into authority.                                                                         |
+OPA returns a decision. Gateway owns the external connection and fails closed
+when the decision is unavailable or malformed.
 
-OPA output is a decision consumed by Gateway. OPA does not open an upstream
-connection. A wrong or unavailable policy response fails closed before
-upstream connection.
+## Compatibility rules
 
-Both Broker protocols use bounded newline-delimited JSON frames. Unlock and
-credential-import operations carry their declared, length-bounded raw payload
-after the control frame; those secret-bearing bytes are not JSON metadata.
+- Treat an unknown version as unsupported; do not coerce it to the newest shape.
+- Preserve the difference between absent and explicit empty, zero, or false
+  when the named contract requires it.
+- Treat opaque references and handles as exact bytes. Do not normalize,
+  truncate, decode, or reconstruct them.
+- Do not infer identity from display labels, array order, indentation, or
+  proximity.
+- Use the public CLI rather than reading internal state as an integration API.
+- When a mutation result is uncertain, inspect the authoritative status or
+  report surface before retrying.
 
-## Compatibility rules for consumers
+## Failure behavior
 
-- Select behavior by the exact envelope and `schema_version`.
-- Treat unknown versions as unsupported. Do not silently coerce them to the
-  newest known shape.
-- Preserve absent versus explicit empty, zero, or false when the contract says
-  the distinction matters.
-- Treat opaque references and handles as exact bytes. Do not decode, normalize,
-  truncate, or reconstruct them.
-- Do not infer identity or relationships from labels, array order, proximity,
-  or human indentation.
-- Do not read internal state files as a substitute for a supported public CLI
-  result.
+Malformed, oversized, unsafe, or unsupported persisted and protocol documents
+are rejected by their owning reader. Compatibility is deliberately
+surface-specific: support for an older Context manifest does not imply support
+for an older Broker frame or a future public CLI envelope.
 
-## Failure and limits
+## Implementation and tests
 
-A schema mismatch is a contract or compatibility failure, not permission to
-guess. Tobari preserves known-good policy or runtime selection when candidate
-validation fails. Invalid broker frames and invalid Tobari-looking handles fail
-closed. Public errors omit arbitrary wrapped upstream prose because it may
-contain URLs, response bodies, or credentials.
-
-This page records current contracts; it is not a promise that every internal
-format is a public extension point. Only the Catalog and explicitly documented
-external contracts are supported public boundaries.
-
-## Evidence
-
-- Public output contracts:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}
-  >
-    Catalog output schemas
-  </a>
-  and
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/output_schema_contract_test.go`}
-  >
-    renderer agreement tests
-  </a>
-- Context contracts:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}
-  >
-    manifest schema 4
-  </a>
-  and
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}
-  >
-    report schema 6
-  </a>
-- Gateway input and audit:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}
-  >
-    canonical Gateway addon
-  </a>
-  and
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}
-  >
-    Gateway contract tests
-  </a>
-- Policy source and transformation:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/aggregate.go`}
-  >
-    aggregate projection
-  </a>
-- Broker protocols:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/protocol.py`}
-  >
-    protocol parser
-  </a>
-  and
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_broker.py`}
-  >
-    negative tests
-  </a>
-- Fixture ledger:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/.harness/schemas.json`}
-  >
-    `.harness/schemas.json`
-  </a>
+- [Public command and machine-output contract](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/docs/01_product_contract.md)
+- [CLI Catalog](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/internal/cli/catalog.go)
+- [Machine-output contract tests](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/internal/cli/machine_output_contract_test.go)
+- [Context storage](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/internal/infra/dockerruntime/context_store.go)
+- [Gateway request contract](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/gateway/addon/tobari_gateway.py)
+- [Auth Broker protocols](https://github.com/tasuku43/tobari/blob/3a9acc9c264d3e4efca2cd9aafabc9a122b183b8/authbroker/control.py)
 
 ## Summary
 
-Schema versions are local to a boundary. Stored Context schema 4 and public
-Context report schema 8 are both correct because they govern different
-documents. Exact readers and tests, not a shared number, define compatibility.
-
-## Check your understanding
-
-You should now be able to explain why a schema number is incomplete without
-its surface.
-
-<details>
-  <summary>Is `synthetic-provider-v1.json` a formal JSON Schema?</summary>
-
-No. It is the canonical synthetic fixture used with the strict Go parser,
-validator, normalization, and tests.
-
-</details>
-
-<details>
-  <summary>Can an Advanced policy written for source input schema 4 be sent unchanged to runtime OPA input schema 5?</summary>
-
-No. Aggregate generation validates the supported source contract, rewrites
-it into the Context-isolated runtime schema 5 projection, then tests the
-complete candidate before activation.
-
-</details>
-
-<details>
-  <summary>May a client decode an opaque reference to recover an ID?</summary>
-
-No. It must preserve and return the exact validated value to the command that
-consumes its reference kind.
-
-</details>
-
-Next: [Faults and recovery](/reference/faults-and-recovery/).
+A version is scoped to one named surface. Public CLI schemas, persisted state,
+policy input, audit records, and Broker protocols must be interpreted and
+upgraded independently.
