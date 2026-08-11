@@ -1,22 +1,32 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
+async function expectContextAfterLaterHeading(page: import("@playwright/test").Page) {
+  const text = (await page.locator("main").innerText()).replace(/\s+/g, " ");
+  const later = text.indexOf("あとで:");
+  const context = text.indexOf("Context");
+  expect(later).toBeGreaterThan(-1);
+  expect(context).toBeGreaterThan(later);
+}
+
 test.describe("progressive first-use onboarding", () => {
-  test("runtime setup keeps Context out of the core first-use instructions", async ({
+  test("runtime setup postpones Context until the optional later section", async ({
     page,
   }) => {
     await page.goto("ja/start/runtime-setup/");
 
     await expect(
+      page.getByRole("heading", { name: "1. ランタイム用の Dockerfile を作る" }),
+    ).toBeVisible();
+    await expect(
       page.getByRole("heading", {
-        name: "最小ランタイムに、使いたいエージェントと開発ツールを追加する",
+        name: "4. 実際のプロジェクトへ入り、エージェントを確認する",
       }),
     ).toBeVisible();
-    await expect(page.locator(".runtime-step")).toHaveCount(4);
-    await expect(page.locator(".runtime-core")).not.toContainText("Context");
-    await expect(page.locator(".runtime-advanced")).toContainText("Context");
+    await expect(page.locator("main")).not.toContainText("--context");
+    await expectContextAfterLaterHeading(page);
     await expect(
-      page.getByRole("link", { name: /ツールの認証を設定する/ }),
+      page.getByRole("link", { name: "ツールの認証を設定する" }),
     ).toHaveAttribute("href", /\/ja\/start\/authentication-setup\/$/);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
@@ -27,13 +37,10 @@ test.describe("progressive first-use onboarding", () => {
     await page.goto("ja/start/authentication-setup/");
 
     await expect(
-      page.getByRole("heading", {
-        name: "ログインできることと、外部通信を許可することは別です",
-      }),
+      page.getByRole("heading", { name: "ツールに合う認証方法を選ぶ" }),
     ).toBeVisible();
-    await expect(page.locator(".auth-core")).not.toContainText("Context");
-    await expect(page.locator(".auth-core")).not.toContainText("--context");
-    await expect(page.locator(".auth-advanced")).toContainText("Context");
+    await expect(page.locator("main")).not.toContainText("--context");
+    await expectContextAfterLaterHeading(page);
     await expect(
       page.getByText("tobari auth login --provider github"),
     ).toBeVisible();
