@@ -1,26 +1,63 @@
 ---
 title: Authenticate your tools
-description: Authenticate the coding agent and external services you actually use, while keeping login separate from outbound network permission.
+description: Authenticate the tools you actually use, then verify authentication state separately from outbound network permission.
 ---
 
-The previous step made the agent executable available inside the Workspace. Authentication is separate: the binary can exist and still have no account credentials.
+The previous step made the coding agent executable available inside the Workspace. Next, configure the authentication that tool actually needs.
 
-Keep the default Tobari setup for this first pass. You do not need to create or select another configuration.
+Keep Tobari's default setup for this first pass. You do not need to create or select another Context.
 
-The important distinction is:
+Keep these two permissions separate:
 
 - **authentication** decides which account or credential a tool can use;
-- **network policy** decides whether this project may send a particular HTTP/HTTPS request.
+- **network policy** decides which HTTP/HTTPS requests this project may send.
 
-A successful login therefore does not automatically allow a request.
+A successful login does not automatically allow network traffic, and allowing traffic does not perform login.
 
-## Choose the authentication path that fits the tool
+## Choose the authentication path
 
-There are two common first-use paths.
+### Use Tobari's supported host-side authentication
 
-### The tool manages its own login
+For providers supported by Tobari, authenticate on the trusted host and keep the primary credential outside the Workspace. Current built-in paths include Codex with an OpenAI account, Claude Code with an Anthropic account, GitHub, AWS, and Datadog. Owner-installed providers can also use protected stdin import when declared by their manifest.
 
-If the coding agent or CLI normally stores its own login state, enter the Workspace and follow that tool's official login flow.
+Start the shared cluster and inspect the current state:
+
+```sh
+tobari cluster up
+tobari auth status
+```
+
+Choose a provider interactively:
+
+```sh
+tobari auth login
+```
+
+Or name the provider directly:
+
+```sh
+tobari auth login --provider openai
+tobari auth login --provider anthropic
+# or: github / aws / datadog
+```
+
+The built-in OpenAI login uses a reviewed Codex CLI on the trusted host. The built-in Anthropic login similarly uses host-side Claude Code. At this product snapshot, those helpers require Codex 0.146.0 and Claude Code 2.1.220. The agent binary installed inside the Workspace is not treated as the trusted acquisition helper.
+
+After login, inspect state without printing credential material:
+
+```sh
+tobari auth status
+```
+
+`auth status` observes both provider storage and whether existing Workspaces have the expected credential projection. **Do not re-enter every Workspace after every authentication mutation by default.** When a specific Workspace projection is missing or stale and re-entry is the supported recovery, the authentication result or `auth status` reports that target and action. Re-enter only when that state asks you to.
+
+For Codex, Tobari projects a project-bound handle rather than the real token into `.codex/auth.json`. For Claude Code, the same idea is exposed through `CLAUDE_CODE_OAUTH_TOKEN`. Gateway resolves the real credential through Auth Broker only for an already authorized exact request.
+
+See [Authentication details](../../guides/authentication/) for provider-specific acquisition, AWS and Datadog behavior, logout, import, and state recovery.
+
+### Let the tool manage its own login
+
+If a tool normally stores its own login state in its home directory, you can instead follow that tool's official login flow inside the Workspace:
 
 ```sh
 cd /path/to/your/project
@@ -30,80 +67,34 @@ tobari
 <agent-command> <its-login-command>
 ```
 
-The login state created by the tool lives with that Workspace. It survives ordinary `exit` and a work-container replacement because the Workspace home is persistent.
+With this path, another process inside the same Workspace may be able to read credentials the tool stores there. When Tobari supports the provider and you want the primary credential to remain outside the Workspace, use the host-side path above instead.
 
-Use this path when the tool is designed to manage its own credentials and keeping those credentials inside the Workspace is acceptable for your use case.
+## An authenticated API request can still be denied
 
-### Tobari manages a supported external-service credential
+If the authenticated tool sends an HTTP/HTTPS request that has not been allowed yet, Tobari returns `policy_denied`. That is a network-policy decision, not evidence that login failed.
 
-For a reviewed provider supported by Tobari, perform the login on the trusted host. The primary credential stays outside the Workspace.
-
-Make sure the shared cluster is running, then inspect the current authentication state:
+You do not need to terminate the Workspace session. Leave the agent waiting and open **another trusted-host terminal** for review:
 
 ```sh
-tobari cluster up
-tobari auth status
+tobari policy review
 ```
 
-To choose from the installed reviewed providers interactively:
+Inspect the destination, port, method, and path, allow only the traffic you intend, then return to the original Workspace session and issue a new request. The allow operation never replays the denied request automatically.
 
-```sh
-tobari auth login
-```
+## Start normal work
 
-Or select GitHub directly:
+You have now completed the first-use path:
 
-```sh
-tobari auth login --provider github
-```
-
-Then confirm the result without printing the credential itself:
-
-```sh
-tobari auth status
-```
-
-The exact login procedure depends on the provider. See [Authentication details](../../guides/authentication/) for GitHub, AWS, Datadog, imports, logout, and the exact credential paths.
-
-## Re-enter the project after authentication changes
-
-If the authentication method affects the Workspace environment, leave the current session and enter again:
-
-```sh
-cd /path/to/your/project
-tobari
-```
-
-Now start the agent or the authenticated CLI normally.
-
-## The first authenticated API call can still be denied
-
-When the tool sends an HTTP/HTTPS request that has not been allowed yet, Tobari can still return `policy_denied` even though login succeeded.
-
-That is expected. Use the same loop you already learned in Quickstart:
-
-1. leave the Workspace;
-2. run `tobari policy review` on the trusted host;
-3. inspect the destination, port, method, and path;
-4. allow only the communication you intend; and
-5. enter again and issue a new request.
-
-Authentication does not bypass Gateway or OPA, and a policy allow does not perform login for the tool.
-
-## You can now start normal work
-
-At this point you have completed the first-use path:
-
-1. experienced deny → review → allow → retry with `curl`;
+1. verified deny → review → allow → deliberate retry with `curl`;
 2. built a runtime containing the real coding agent and project tools; and
-3. configured the authentication actually needed by those tools.
+3. configured the authentication those tools need and checked its Workspace activation state.
 
-Continue normal work with the default setup. When the agent needs a new outbound effect, review it with the same host-side policy loop.
+Continue normal work with the default setup. When the agent needs a new outbound effect, use the same host-side policy review loop.
 
 For a deeper explanation, continue to the [Mental model](../../how-it-works/mental-model/) or [First denial](../first-denial/).
 
 ## Later: separate configurations when you need them
 
-If you later need different runtimes, authentication sets, or policy modes for different jobs, Tobari can separate them using named **Contexts**.
+When you actually need different runtimes, authentication sets, or policy modes for different jobs, use named **Contexts**.
 
-Learn [Contexts and separate configurations](../../guides/contexts/) when that need appears. Context is not prerequisite knowledge for the first successful authenticated run.
+Read [Contexts and separate configurations](../../guides/contexts/) when that need appears. Context is not prerequisite knowledge for the first successful authenticated run.
