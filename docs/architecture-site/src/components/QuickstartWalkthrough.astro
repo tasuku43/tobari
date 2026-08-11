@@ -14,6 +14,49 @@ const ui = isJapanese
       prerequisite:
         "事前にインストールを完了し、対話型ターミナルを用意してください。このクイックスタートでは、標準のベースランタイムに含まれる `curl` だけを使って通信制御を確認します。コーディングエージェントや実際のリポジトリは必要ないため、空の練習用ディレクトリを使います。",
       install: "インストール手順を確認する",
+      flowTitle: "このクイックスタートで追う通信経路",
+      flowIntro:
+        "コマンドを実行する前に、一つ目のリクエストがどこで止まり、ホスト側の操作後に新しいリクエストがどう進むかを番号順に確認します。",
+      flowLabel: "横にスクロールできるクイックスタートの通信フロー",
+      flowSteps: [
+        {
+          from: "Workspace",
+          to: "Gateway",
+          label: "未許可の PUT リクエストを送る",
+          kind: "network",
+        },
+        {
+          from: "Gateway",
+          to: "接続先",
+          label: "許可がないため、外部接続を作る前に拒否する",
+          kind: "denied",
+          blocked: true,
+        },
+        {
+          from: "Gateway",
+          to: "ホストでのレビュー",
+          label: "通信条件を記録し、レビューコマンドを案内する",
+          kind: "diagnostic",
+        },
+        {
+          from: "ホストでのレビュー",
+          to: "ポリシー",
+          label: "完全一致の許可ルールを検証して有効化する",
+          kind: "control",
+        },
+        {
+          from: "Workspace",
+          to: "Gateway",
+          label: "同じ条件で新しいリクエストを送る",
+          kind: "network",
+        },
+        {
+          from: "Gateway",
+          to: "接続先",
+          label: "許可後に外部接続を作り、リクエストを中継する",
+          kind: "allowed",
+        },
+      ],
       labels: {
         location: "実行場所",
         action: "操作",
@@ -124,6 +167,52 @@ tobari policy allow --id <exact-pcy-id-from-policy-review>`,
       prerequisite:
         "Complete installation first and use an interactive terminal. This quickstart uses `curl` from the standard base runtime to exercise network control directly; it does not require a coding agent or a real repository. Use the empty synthetic directory below.",
       install: "Review installation",
+      flowTitle: "The request path used in this quickstart",
+      flowIntro:
+        "Before running commands, follow where the first request stops and how a new request proceeds after the host-side policy change.",
+      flowLabel: "Scrollable quickstart request flow",
+      flowSteps: [
+        {
+          from: "Workspace",
+          to: "Gateway",
+          label: "Send one undeclared PUT request",
+          kind: "network",
+        },
+        {
+          from: "Gateway",
+          to: "Upstream",
+          label:
+            "Stop before opening an external connection because no permission matches",
+          kind: "denied",
+          blocked: true,
+        },
+        {
+          from: "Gateway",
+          to: "Host review",
+          label:
+            "Record the communication dimensions and show the review command",
+          kind: "diagnostic",
+        },
+        {
+          from: "Host review",
+          to: "Policy",
+          label: "Validate and activate one exact allow rule",
+          kind: "control",
+        },
+        {
+          from: "Workspace",
+          to: "Gateway",
+          label: "Issue a new request with the same dimensions",
+          kind: "network",
+        },
+        {
+          from: "Gateway",
+          to: "Upstream",
+          label:
+            "Open the external connection after allow and relay the request",
+          kind: "allowed",
+        },
+      ],
       labels: {
         location: "Run this on",
         action: "What to do",
@@ -241,6 +330,30 @@ tobari policy allow --id <exact-pcy-id-from-policy-review>`,
     <a href={withBase("/start/install/")}>{ui.install} →</a>
   </aside>
 
+  <section class="quickstart-flow-overview">
+    <h2>{ui.flowTitle}</h2>
+    <p>{ui.flowIntro}</p>
+    <div class="quickstart-flow-scroll" tabindex="0" aria-label={ui.flowLabel}>
+      <ol class="quickstart-flow">
+        {
+          ui.flowSteps.map((step, index) => (
+            <li
+              class:list={[`flow-${step.kind}`, step.blocked && "flow-blocked"]}
+            >
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <small>
+                <strong>{step.from}</strong>
+                <b aria-hidden="true">{step.blocked ? "⊣" : "→"}</b>
+                <strong>{step.to}</strong>
+              </small>
+              <p>{step.label}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+
   <ol class="quickstart-steps">
     {
       ui.steps.map((step, index) => (
@@ -341,6 +454,103 @@ tobari policy allow --id <exact-pcy-id-from-policy-review>`,
     display: inline-block;
     margin-top: 0.55rem;
     font-weight: 750;
+  }
+  .quickstart-flow-overview {
+    margin: 2.5rem 0 1rem;
+    padding-block: 1.25rem 1.5rem;
+    border-block: 1px solid var(--sl-color-gray-5);
+  }
+  .quickstart-flow-overview > h2 {
+    margin: 0;
+    font-size: var(--sl-text-xl);
+  }
+  .quickstart-flow-overview > p {
+    max-width: 48rem;
+    margin: 0.5rem 0 1rem;
+    color: var(--sl-color-gray-2);
+  }
+  .quickstart-flow-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+  .quickstart-flow {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(10.5rem, 1fr));
+    gap: 1.6rem;
+    min-width: 72rem;
+    margin: 0;
+    padding: 0.25rem;
+    list-style: none;
+  }
+  .quickstart-flow li {
+    position: relative;
+    min-width: 0;
+    padding: 0.75rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-block-start: 0.22rem solid currentColor;
+    background: var(--sl-color-bg);
+    color: var(--tobari-control);
+  }
+  .quickstart-flow li:not(:last-child)::after {
+    position: absolute;
+    z-index: 2;
+    inset: 2.15rem -1.6rem auto auto;
+    width: 1.6rem;
+    border-block-start: 2px solid currentColor;
+    content: "";
+  }
+  .quickstart-flow li:not(:last-child)::before {
+    position: absolute;
+    z-index: 3;
+    inset: calc(2.15rem - 0.27rem) -0.05rem auto auto;
+    width: 0.52rem;
+    height: 0.52rem;
+    border-block-start: 2px solid currentColor;
+    border-inline-end: 2px solid currentColor;
+    content: "";
+    transform: rotate(45deg);
+  }
+  .quickstart-flow li > span {
+    color: inherit;
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xs);
+    font-weight: 850;
+  }
+  .quickstart-flow small {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.35rem;
+    align-items: center;
+    margin-top: 0.35rem;
+    color: inherit;
+    font-family: var(--sl-font-mono);
+    font-size: 0.62rem;
+    line-height: 1.35;
+  }
+  .quickstart-flow small b {
+    font-size: 0.95rem;
+  }
+  .quickstart-flow p {
+    margin: 0.65rem 0 0;
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
+    line-height: 1.45;
+  }
+  .quickstart-flow .flow-network {
+    color: var(--tobari-network);
+  }
+  .quickstart-flow .flow-denied {
+    color: var(--tobari-denied);
+  }
+  .quickstart-flow .flow-diagnostic {
+    color: var(--tobari-diagnostic);
+  }
+  .quickstart-flow .flow-control {
+    color: var(--tobari-control);
+  }
+  .quickstart-flow .flow-allowed {
+    color: var(--tobari-allowed);
   }
   .quickstart-steps {
     margin: 0;

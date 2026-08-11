@@ -8,31 +8,51 @@ const evidenceHref = (path: string) =>
 
 const steps = [
   {
-    title: t("The agent attempts a request", "エージェントが外部通信を試みる"),
+    from: "Workspace",
+    to: "Gateway",
+    title: t("A request enters Gateway", "リクエストが Gateway に入る"),
     detail: t(
-      "A tool in the selected project's working environment sends an HTTP or HTTPS request to an external service.",
-      "プロジェクト専用の作業環境から、外部サービスへ HTTP/HTTPS リクエストが送られます。",
+      "A tool in the project Workspace sends an HTTP or HTTPS request. The project-specific network gives that request only one supported path: Gateway.",
+      "プロジェクトの Workspace から HTTP/HTTPS リクエストを送ります。プロジェクト専用ネットワークでは、Gateway が唯一の外向き経路です。",
     ),
+    kind: "network",
   },
   {
-    title: t(
-      "Tobari stops it and keeps review evidence",
-      "Gateway が未許可の通信を止める",
-    ),
+    from: "Gateway",
+    to: t("Upstream", "接続先"),
+    title: t("An undeclared request stops here", "未許可の通信はここで止まる"),
     detail: t(
-      "Tobari does not connect to an undeclared destination. It retains bounded, secret-free evidence such as destination, method, and path for host-side review.",
-      "Tobari は接続先へ到達する前にリクエストを拒否し、宛先・メソッド・パスなど、レビューに必要な情報だけを記録します。",
+      "Gateway asks OPA before opening an external connection. If no matching permission exists, it returns a denial and records bounded review data.",
+      "Gateway は外部接続を作る前に OPA へ問い合わせます。一致する許可がなければ拒否し、レビューに必要な範囲だけを記録します。",
     ),
+    kind: "denied",
+    blocked: true,
   },
   {
+    from: t("Host review", "ホストでのレビュー"),
+    to: t("Policy", "ポリシー"),
     title: t(
-      "A person allows only the exact effect",
-      "ホスト側で確認し、必要な通信だけを許可する",
+      "A person decides the exact permission",
+      "通信条件を確認して許可を決める",
     ),
     detail: t(
-      "On the trusted host, you allow or deny the exact communication. Allowing policy does not replay the request; you deliberately issue a new one.",
-      "信頼するホストで通信条件を確認し、許可または拒否します。許可しても元のリクエストは再送されないため、エージェントは新しいリクエストを実行します。",
+      "On the trusted host, you inspect the destination, port, method, and path, then allow or deny that exact communication.",
+      "信頼するホストで、宛先・ポート・メソッド・パスを確認し、その通信条件を許可するか拒否するか決めます。",
     ),
+    kind: "control",
+  },
+  {
+    from: "Gateway",
+    to: t("Upstream", "接続先"),
+    title: t(
+      "Only a new authorized request proceeds",
+      "許可後の新しいリクエストだけが進む",
+    ),
+    detail: t(
+      "The previous request is never replayed. A new matching request is evaluated again, then Gateway opens the external connection after allow.",
+      "拒否されたリクエストは再送しません。同じ条件の新しいリクエストを再評価し、許可後に Gateway が外部接続を作ります。",
+    ),
+    kind: "allowed",
   },
 ];
 
@@ -203,20 +223,27 @@ const evidence = [
     <p class="home-intro">
       {
         t(
-          "You do not need to learn every component first. From the user's point of view, the loop has three stages.",
-          "最初に押さえる流れは三段階です。各コンポーネントの詳細は、後のページで扱います。",
+          "Start with one request. The numbered route shows where it stops, who changes policy, and when a new request can continue.",
+          "一つのリクエストを番号順に追います。どこで止まり、誰がポリシーを変更し、いつ新しいリクエストが先へ進むかを確認します。",
         )
       }
     </p>
     <ol class="home-flow">
       {
         steps.map((step, index) => (
-          <li>
-            <>
-              <span>{index + 1}</span>
-              <h3>{step.title}</h3>
-              <p>{step.detail}</p>
-            </>
+          <li
+            class:list={[`flow-${step.kind}`, step.blocked && "flow-blocked"]}
+          >
+            <span class="home-flow-number">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <p class="home-flow-route">
+              <strong>{step.from}</strong>
+              <b aria-hidden="true">{step.blocked ? "⊣" : "→"}</b>
+              <strong>{step.to}</strong>
+            </p>
+            <h3>{step.title}</h3>
+            <p class="home-flow-detail">{step.detail}</p>
           </li>
         ))
       }
@@ -506,29 +533,81 @@ const evidence = [
   }
   .home-flow {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: clamp(1rem, 3vw, 2rem);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: clamp(1.5rem, 3vw, 2.4rem);
     margin: 2rem 0 0;
     padding: 0;
     list-style: none;
   }
   .home-flow li {
+    position: relative;
     min-width: 0;
-    padding-block-start: 1rem;
-    border-block-start: 0.18rem solid var(--tobari-control);
-  }
-  .home-flow li > span {
+    padding: 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-block-start: 0.22rem solid currentColor;
+    background: var(--sl-color-bg);
     color: var(--tobari-control);
+  }
+  .home-flow li:not(:last-child)::after {
+    position: absolute;
+    z-index: 2;
+    inset: 3.25rem calc(-1 * clamp(1.5rem, 3vw, 2.4rem)) auto auto;
+    width: clamp(1.5rem, 3vw, 2.4rem);
+    border-block-start: 2px solid currentColor;
+    content: "";
+  }
+  .home-flow li:not(:last-child)::before {
+    position: absolute;
+    z-index: 3;
+    inset: calc(3.25rem - 0.28rem) -0.05rem auto auto;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-block-start: 2px solid currentColor;
+    border-inline-end: 2px solid currentColor;
+    content: "";
+    transform: rotate(45deg);
+  }
+  .home-flow .flow-network {
+    color: var(--tobari-network);
+  }
+  .home-flow .flow-denied {
+    color: var(--tobari-denied);
+  }
+  .home-flow .flow-control {
+    color: var(--tobari-control);
+  }
+  .home-flow .flow-allowed {
+    color: var(--tobari-allowed);
+  }
+  .home-flow-number {
+    color: inherit;
     font-family: var(--sl-font-mono);
-    font-weight: 800;
+    font-size: var(--sl-text-xs);
+    font-weight: 850;
+  }
+  .home-flow-route {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.45rem;
+    align-items: center;
+    margin: 0.45rem 0 0;
+    color: inherit;
+    font-family: var(--sl-font-mono);
+    font-size: 0.68rem;
+    line-height: 1.35;
+  }
+  .home-flow-route b {
+    font-size: 1rem;
   }
   .home-flow h3 {
-    margin: 0.7rem 0 0.45rem;
-    font-size: var(--sl-text-lg);
+    margin: 0.8rem 0 0.45rem;
+    color: var(--sl-color-white);
+    font-size: var(--sl-text-base);
   }
-  .home-flow p {
+  .home-flow-detail {
     margin: 0;
     color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
   }
   .home-more {
     margin: 1.5rem 0 0;
@@ -629,10 +708,16 @@ const evidence = [
   }
   @media (max-width: 52rem) {
     .home-hero,
-    .home-flow,
     .home-boundaries,
     .home-evidence details > div {
       grid-template-columns: 1fr;
+    }
+    .home-flow {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .home-flow li::before,
+    .home-flow li::after {
+      display: none;
     }
     .home-hero {
       padding-top: 3rem;
@@ -647,6 +732,9 @@ const evidence = [
     }
     .home-actions a {
       width: 100%;
+    }
+    .home-flow {
+      grid-template-columns: 1fr;
     }
     .home-tasks {
       grid-template-columns: 1fr;

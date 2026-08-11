@@ -33,6 +33,8 @@ const initialId =
   initial && selected.some((scenario) => scenario.id === initial)
     ? initial
     : selected[0]?.id;
+const initialScenario =
+  selected.find((scenario) => scenario.id === initialId) ?? selected[0];
 const serialized = JSON.stringify(selected);
 const serializedActorLabels = JSON.stringify(
   isJapanese ? sequenceActorLabelsJa : {},
@@ -72,6 +74,10 @@ const ui = isJapanese
     };
 const staticActorLabel = (actor: string) =>
   isJapanese ? sequenceActorLabelsJa[actor] : actor;
+const stepIndexLabel = isJapanese
+  ? "処理の全体順序"
+  : "Complete processing order";
+const jumpToStepLabel = isJapanese ? "この段階を表示" : "Show this step";
 ---
 
 <figure class:list={["sequence-explorer", { compact }]}>
@@ -116,6 +122,31 @@ const staticActorLabel = (actor: string) =>
       </div>
 
       <p class="scenario-summary" data-field="summary"></p>
+      <ol
+        class="sequence-step-index"
+        data-field="step-index"
+        aria-label={stepIndexLabel}
+      >
+        {
+          initialScenario?.steps.map((step, index) => (
+            <li>
+              <button
+                type="button"
+                data-sequence-step={index}
+                aria-current={index === 0 ? "step" : undefined}
+                aria-label={`${jumpToStepLabel}: ${step.title}`}
+                disabled
+              >
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <strong>{step.title}</strong>
+                <small>
+                  {staticActorLabel(step.from)} → {staticActorLabel(step.to)}
+                </small>
+              </button>
+            </li>
+          ))
+        }
+      </ol>
       <div
         class="lane-map"
         role="img"
@@ -285,6 +316,7 @@ const staticActorLabel = (actor: string) =>
             this.stop();
             this.scenarioIndex = index;
             this.stepIndex = 0;
+            this.renderStepIndex();
             this.render();
           }
         },
@@ -333,6 +365,7 @@ const staticActorLabel = (actor: string) =>
       document.addEventListener("visibilitychange", () => {
         if (document.hidden) this.stop();
       });
+      this.renderStepIndex();
       this.render();
     }
 
@@ -347,6 +380,39 @@ const staticActorLabel = (actor: string) =>
     setText(field: string, value: string) {
       const element = this.querySelector(`[data-field="${field}"]`);
       if (element) element.textContent = value;
+    }
+
+    renderStepIndex() {
+      const scenario = this.scenario;
+      const list = this.querySelector<HTMLOListElement>(
+        '[data-field="step-index"]',
+      );
+      if (!scenario || !list) return;
+      list.replaceChildren();
+      scenario.steps.forEach((step, index) => {
+        const item = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.sequenceStep = String(index);
+        button.setAttribute(
+          "aria-label",
+          `${this.isJapanese ? "この段階を表示" : "Show this step"}: ${step.title}`,
+        );
+        const number = document.createElement("span");
+        number.textContent = String(index + 1).padStart(2, "0");
+        const title = document.createElement("strong");
+        title.textContent = step.title;
+        const route = document.createElement("small");
+        route.textContent = `${step.fromLabel || this.displayActor(step.from)} → ${step.toLabel || this.displayActor(step.to)}`;
+        button.append(number, title, route);
+        button.addEventListener("click", () => {
+          this.stop();
+          this.stepIndex = index;
+          this.render();
+        });
+        item.append(button);
+        list.append(item);
+      });
     }
 
     render() {
@@ -458,6 +524,14 @@ const staticActorLabel = (actor: string) =>
           route.toggleAttribute("data-self-route", source === target);
         }
       }
+      this.querySelectorAll<HTMLButtonElement>("[data-sequence-step]").forEach(
+        (button) => {
+          const active = Number(button.dataset.sequenceStep) === this.stepIndex;
+          if (active) button.setAttribute("aria-current", "step");
+          else button.removeAttribute("aria-current");
+          button.classList.toggle("is-active", active);
+        },
+      );
       const previous = this.querySelector<HTMLButtonElement>(
         '[data-control="previous"]',
       );
@@ -598,6 +672,64 @@ const staticActorLabel = (actor: string) =>
   .scenario-summary {
     margin: 1rem 0 0.75rem;
     color: var(--sl-color-gray-2);
+  }
+  .sequence-step-index {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr));
+    gap: 0.45rem;
+    margin: 0 0 0.8rem;
+    padding: 0;
+    list-style: none;
+  }
+  .sequence-step-index li {
+    min-width: 0;
+    margin: 0;
+  }
+  .sequence-step-index button {
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0.15rem 0.55rem;
+    width: 100%;
+    min-height: 5.2rem;
+    padding: 0.65rem 0.7rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-bg);
+    color: var(--sl-color-gray-2);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+  .sequence-step-index button:disabled {
+    cursor: default;
+  }
+  .sequence-step-index button:hover:not(:disabled),
+  .sequence-step-index button:focus-visible,
+  .sequence-step-index button.is-active,
+  .sequence-step-index button[aria-current="step"] {
+    border-color: var(--tobari-control);
+    box-shadow: inset 0 -0.2rem var(--tobari-control);
+    color: var(--sl-color-white);
+  }
+  .sequence-step-index span {
+    grid-row: 1 / 3;
+    color: var(--tobari-control);
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xs);
+    font-weight: 850;
+  }
+  .sequence-step-index strong,
+  .sequence-step-index small {
+    min-width: 0;
+  }
+  .sequence-step-index strong {
+    font-size: var(--sl-text-xs);
+    line-height: 1.35;
+  }
+  .sequence-step-index small {
+    color: var(--sl-color-gray-3);
+    font-family: var(--sl-font-mono);
+    font-size: 0.62rem;
+    overflow-wrap: anywhere;
   }
   .lane-map {
     max-width: 100%;

@@ -12,7 +12,7 @@ interface LocalizedDiagramText {
   edges: Record<string, string>;
 }
 
-const edgeKey = (edge: DiagramEdge) => `${edge.from}->${edge.to}`;
+const edgeKey = (edge: DiagramEdge) => edge.id ?? `${edge.from}->${edge.to}`;
 
 const text: Record<string, LocalizedDiagramText> = {
   "minimal-system": {
@@ -51,18 +51,19 @@ const text: Record<string, LocalizedDiagramText> = {
     },
   },
   "detailed-network": {
-    title: "対応する Docker ネットワーク構成",
+    title: "対応する Docker ネットワーク上での通信経路",
     description:
-      "各 Workspace は内部のプロジェクト専用ネットワークを持ちます。Gateway はそのネットワークと外向きネットワークの両方にインターフェースを持ちます。OPA は制御経路だけを持ちます。Auth Broker は制御経路と外向きネットワークを持ちますが、プロジェクト専用ネットワークのインターフェースは持ちません。",
+      "リクエストはプロジェクト専用の内部ネットワークから始まります。外向きネットワークにも接続するのは Gateway だけで、ポリシー判断と認証情報の制御には別の制御ネットワークを使います。",
     nodes: {
       process: {
         label: "Workspace のプロセス",
         detail:
-          "プロジェクト専用の内部ネットワークにつながるランタイムコンテナ内で動きます。",
+          "一つのプロジェクト専用ネットワークに接続したランタイム内で動きます。",
       },
       projectnet: {
         label: "プロジェクト専用の内部ネットワーク",
-        detail: "Docker が提供する外部への経路はありません。",
+        detail:
+          "Workspace のプロキシ通信を運びます。Docker が提供する外部への経路はありません。",
       },
       gateway: {
         label: "Gateway",
@@ -72,21 +73,21 @@ const text: Record<string, LocalizedDiagramText> = {
       controlnet: {
         label: "制御ネットワーク",
         detail:
-          "Gateway と OPA、Gateway と Auth Broker の間だけで使う制御経路です。",
+          "Gateway と OPA、Gateway と Auth Broker の間の通信だけを運びます。",
       },
       opa: {
         label: "OPA",
-        detail: "ポリシー判断に外部接続は不要です。",
+        detail: "外部接続を使わずにポリシーを判断します。",
       },
       broker: {
         label: "Auth Broker",
         detail:
-          "共有されたロック可能なサービスであり、プロジェクト専用ネットワークのインターフェースを持ちません。",
+          "制御ネットワークと外向きネットワークを使いますが、プロジェクト専用ネットワークには接続しません。",
       },
       egress: {
         label: "外向きネットワーク",
         detail:
-          "Gateway と Auth Broker が、宣言された役割の範囲で外部接続を持ちます。",
+          "Gateway または Auth Broker が所有する、許可済みの外部接続を運びます。",
       },
       upstream: {
         label: "DNS と接続先",
@@ -94,13 +95,19 @@ const text: Record<string, LocalizedDiagramText> = {
       },
     },
     edges: {
-      "process->projectnet": "HTTP プロキシ通信",
-      "projectnet->gateway": "受信インターフェースからプリンシパルを識別",
-      "process->upstream": "直接経路なし",
-      "gateway->opa": "判断",
-      "gateway->broker": "Unix ソケット",
-      "gateway->egress": "許可済み接続",
-      "egress->upstream": "DNS/TCP/TLS",
+      "process->projectnet":
+        "HTTP/HTTPS のプロキシ通信がプロジェクト専用ネットワークへ入る",
+      "projectnet->gateway":
+        "Gateway がプロジェクト固有のインターフェースでリクエストを受け取る",
+      "process->upstream": "サポート対象の直接経路は存在しない",
+      "gateway->controlnet":
+        "ポリシー判断と認証情報の制御通信は制御ネットワーク内に留まる",
+      "controlnet->opa":
+        "本文を含まないポリシー入力と、許可または拒否の判断一つ",
+      "controlnet->broker":
+        "秘密を含まないハンドル検査。認証情報処理は許可後だけ",
+      "gateway->egress": "Gateway は許可後にだけ外部接続を作る",
+      "egress->upstream": "DNS、TCP、TLS で選択した接続先へ到達する",
     },
   },
   "workspace-context-cluster": {
@@ -188,37 +195,43 @@ const text: Record<string, LocalizedDiagramText> = {
     },
   },
   "tls-split": {
-    title: "HTTPS は二つの検証済み TLS 接続に分かれる",
+    title: "一つの HTTPS リクエストが二つの TLS セッションを通る",
     description:
-      "CONNECT は HTTP プロキシへ届きます。Gateway は Tobari CA で Workspace 側の TLS を終端し、復号した HTTP 属性を認可した後、接続先へ独立した検証済み TLS 接続を作ります。",
+      "クライアントは最初に Gateway との TLS セッションを作ります。Gateway は復号した HTTP リクエストを認可し、許可された後にだけ、接続先へ別の検証済み TLS セッションを作ります。",
     nodes: {
       workspace: {
         label: "Workspace のクライアント",
         detail:
-          "対応するプロキシ対応 HTTPS クライアントが Tobari CA を信頼します。",
-      },
-      tlsa: {
-        label: "TLS 接続 A",
-        detail: "クライアントと Gateway の間で、CONNECT の後に始まります。",
+          "HTTP プロキシを使い、Gateway 側の TLS セッションでは Tobari CA を信頼します。",
       },
       gateway: {
         label: "Gateway",
-        detail: "A を終端して HTTP の判断属性を読み、OPA の判断を執行します。",
+        detail:
+          "クライアント側の TLS を終端し、接続先への通信を所有して、ポリシー判断を執行します。",
       },
-      tlsb: {
-        label: "TLS 接続 B",
-        detail: "Gateway ↔ 接続先。通常の接続先証明書の検証を行います。",
+      opa: {
+        label: "OPA",
+        detail:
+          "本文を受け取らず、正規化した HTTP 通信を許可するか判断します。",
       },
       upstream: {
         label: "HTTPS の接続先",
-        detail: "平文の HTTP ではなく、Gateway からの TLS 接続を受け取ります。",
+        detail:
+          "Gateway が別に作り、証明書を検証した TLS セッションを受け取ります。",
       },
     },
     edges: {
-      "workspace->tlsa": "CONNECT、その後に暗号化された HTTP",
-      "tlsa->gateway": "Tobari が発行したサーバー証明書",
-      "gateway->tlsb": "許可後だけ",
-      "tlsb->upstream": "検証済みの接続先 TLS",
+      connect: "CONNECT example.com:443 が HTTP プロキシへ届く",
+      "workspace-tls":
+        "Tobari が発行したサーバー証明書で TLS セッション 1 を開始する",
+      "policy-query":
+        "Gateway がスキーム、ホスト、ポート、メソッド、パスを送り、本文は送らない",
+      "policy-result": "OPA が許可または拒否の判断を一つ返す",
+      "upstream-connect":
+        "許可後に Gateway が接続先を名前解決し、TCP 接続を作る",
+      "upstream-tls": "TLS セッション 2 で接続先の証明書を独立して検証する",
+      "https-forward":
+        "セッション 2 上で HTTP を転送し、レスポンスは二つのセッションを通って戻る",
     },
   },
   "project-principal": {
@@ -257,6 +270,8 @@ const text: Record<string, LocalizedDiagramText> = {
     },
     edges: {
       "host->registry": "不可分な登録",
+      "host->network": "プロジェクト専用の内部ネットワークを作成",
+      "network->gateway": "このプロジェクトを示す受信インターフェースを選択",
       "registry->gateway": "プリンシパルを検索",
       "workspace->gateway": "リクエストデータ",
       "workspace->opa": "自己申告した ID は無視",

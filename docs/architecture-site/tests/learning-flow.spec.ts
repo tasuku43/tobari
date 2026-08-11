@@ -14,7 +14,7 @@ test.describe("task-first documentation flow", () => {
     await expect(
       page.getByRole("link", { name: "Try it in five minutes" }),
     ).toHaveAttribute("href", /\/start\/quickstart\/$/);
-    await expect(page.locator(".home-flow > li")).toHaveCount(3);
+    await expect(page.locator(".home-flow > li")).toHaveCount(4);
     await expect(
       page.getByText(
         "files inside the selected project are not protected from the agent",
@@ -44,6 +44,7 @@ test.describe("task-first documentation flow", () => {
   }) => {
     await page.goto("start/quickstart/");
 
+    await expect(page.locator(".quickstart-flow > li")).toHaveCount(6);
     await expect(page.locator(".quickstart-step")).toHaveCount(5);
     await expect(
       page.getByRole("heading", { name: "What you have now verified" }),

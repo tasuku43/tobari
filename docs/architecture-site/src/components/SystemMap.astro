@@ -10,15 +10,30 @@ interface Props {
   networkDetail?: boolean;
 }
 
+interface Conversation {
+  id: string;
+  number: string;
+  label: string;
+  from: string;
+  to: string;
+  fromId: string;
+  toId: string;
+  sent: string;
+  withheld: string;
+  result: string;
+  failure: string;
+  optional?: boolean;
+}
+
 const isJapanese = Astro.locals.starlightRoute.locale === "ja";
 const {
   headingLevel = 2,
   title = isJapanese
-    ? "Gateway が四つの通信経路を仲介する"
-    : "Gateway coordinates four conversations",
+    ? "一つのリクエストが Tobari を通る順序"
+    : "Follow one request through Tobari",
   description = isJapanese
-    ? "コンポーネントの位置は変わりません。通信経路を一つ選ぶと、その境界を越えて送る情報と、送らない情報を確認できます。"
-    : "The positions stay fixed. Select one conversation to inspect what crosses that boundary and what does not.",
+    ? "番号付きの矢印を追うと、Workspace から始まった通信が、どこで識別・判断され、いつ接続先へ進むかを確認できます。認証情報の経路は、ブローカー方式を使う場合だけ通ります。"
+    : "Follow the numbered arrows to see where a Workspace request is identified, authorized, and finally connected upstream. The credential route is conditional on a brokered provider.",
   compact = false,
   networkDetail = false,
 } = Astro.props;
@@ -26,165 +41,196 @@ const Heading = `h${headingLevel}` as "h2" | "h3";
 const source = (isJapanese ? diagramsJa : diagrams)["minimal-system"];
 const node = (id: string) => source.nodes.find((item) => item.id === id)!;
 
-const conversationsEn = [
+const conversationsEn: Conversation[] = [
   {
     id: "proxy",
     number: "01",
-    label: "Proxy",
+    label: "Request enters Gateway",
     from: "Workspace",
     to: "Gateway",
     fromId: "workspace",
     toId: "gateway",
     sent: "HTTP method, URL, headers, and a streaming body",
-    withheld: "No caller-supplied project identity becomes trusted",
-    result: "Gateway receives the request on the project network",
+    withheld: "Caller-supplied project identity is not trusted",
+    result: "Gateway receives the request on the project-specific interface",
     failure: "Processing stops before policy or upstream work",
   },
   {
     id: "policy",
     number: "02",
-    label: "Policy",
+    label: "Gateway asks OPA",
     from: "Gateway",
     to: "OPA",
     fromId: "gateway",
     toId: "opa",
-    sent: "Trusted principal and normalized HTTP decision dimensions",
+    sent: "Registry-derived principal and normalized HTTP decision dimensions",
     withheld: "Request body, broker handle, and credential values",
-    result: "One structured allow or deny decision",
+    result: "OPA receives one bounded decision input",
     failure: "Gateway does not connect upstream",
   },
   {
-    id: "credential",
+    id: "decision",
     number: "03",
-    label: "Credential",
+    label: "OPA returns a decision",
+    from: "OPA",
+    to: "Gateway",
+    fromId: "opa",
+    toId: "gateway",
+    sent: "One structured allow or deny result",
+    withheld: "OPA does not open connections or handle credentials",
+    result: "Gateway either stops the request or continues",
+    failure: "Missing or malformed policy results fail closed",
+  },
+  {
+    id: "credential",
+    number: "04",
+    label: "Credential work, when required",
     from: "Gateway",
     to: "Auth Broker",
     fromId: "gateway",
     toId: "broker",
     sent: "Bound handle and principal for introspection; exact binding after allow",
-    withheld: "Secret or renewable provider state from Workspace and OPA",
-    result:
-      "Non-secret metadata, then the declared post-policy resolve, refresh, or sign action",
-    failure: "The request fails closed without fallback",
+    withheld: "Workspace and OPA do not receive broker-managed secret state",
+    result: "The declared resolve, refresh, or sign operation runs after allow",
+    failure:
+      "The request fails closed without switching to another credential mode",
+    optional: true,
   },
   {
     id: "egress",
-    number: "04",
-    label: "Egress",
+    number: "05",
+    label: "Gateway connects upstream",
     from: "Gateway",
     to: "Upstream",
     fromId: "gateway",
     toId: "upstream",
     sent: "The authorized request over a separate connection",
     withheld: "Policy internals, principal registry, and broker handle",
-    result: "Upstream receives only the Gateway connection",
+    result: "Upstream sees a connection owned by Gateway",
     failure: "An upstream error does not change policy",
   },
-] as const;
-const conversationsJa = [
+];
+const conversationsJa: Conversation[] = [
   {
     id: "proxy",
     number: "01",
-    label: "プロキシ",
+    label: "リクエストが Gateway に入る",
     from: "Workspace",
     to: "Gateway",
     fromId: "workspace",
     toId: "gateway",
     sent: "HTTP メソッド、URL、ヘッダー、ストリーミングされる本文",
     withheld: "呼び出し元が申告したプロジェクト識別情報は信頼しない",
-    result: "Gateway がプロジェクト専用ネットワーク上でリクエストを受け取る",
+    result:
+      "Gateway がプロジェクト固有のインターフェースでリクエストを受け取る",
     failure: "ポリシー判断や接続先の処理より前に停止する",
   },
   {
     id: "policy",
     number: "02",
-    label: "ポリシー",
+    label: "Gateway が OPA に問い合わせる",
     from: "Gateway",
     to: "OPA",
     fromId: "gateway",
     toId: "opa",
-    sent: "信頼済みのプロジェクトプリンシパルと、正規化した HTTP 通信の情報",
+    sent: "登録情報から導出したプリンシパルと、正規化した HTTP 通信の情報",
     withheld: "リクエスト本文、ブローカーのハンドル、認証情報の値",
-    result: "構造化された許可または拒否の判断一つ",
+    result: "OPA が上限を定めた判断入力を一つ受け取る",
     failure: "Gateway は接続先へ接続しない",
   },
   {
-    id: "credential",
+    id: "decision",
     number: "03",
-    label: "認証情報",
+    label: "OPA が判断を返す",
+    from: "OPA",
+    to: "Gateway",
+    fromId: "opa",
+    toId: "gateway",
+    sent: "構造化された許可または拒否の結果一つ",
+    withheld: "OPA は外部接続を作らず、認証情報も扱わない",
+    result: "Gateway がリクエストを止めるか、次の処理へ進める",
+    failure: "判断を取得できない、または応答が不正な場合は拒否する",
+  },
+  {
+    id: "credential",
+    number: "04",
+    label: "必要な場合だけ認証情報を処理する",
     from: "Gateway",
     to: "Auth Broker",
     fromId: "gateway",
     toId: "broker",
-    sent: "秘密を使わない検査に必要な、結び付いたハンドルとプリンシパル。許可後は対象と完全に一致する結び付き",
-    withheld:
-      "Workspace と OPA へは秘密情報や更新可能なプロバイダー状態を送らない",
-    result:
-      "秘密を含まないメタデータを返した後、宣言済みの解決、更新、または署名処理をポリシー許可後に実行する",
-    failure: "別方式へフォールバックせず、許可しないまま失敗する",
+    sent: "秘密を使わない検査に必要なハンドルとプリンシパル。許可後は完全一致する結び付き",
+    withheld: "Workspace と OPA へ、ブローカー管理の秘密情報を送らない",
+    result: "宣言済みの解決、更新、または署名処理を許可後に実行する",
+    failure: "別の認証方式へ切り替えず、許可しないまま失敗する",
+    optional: true,
   },
   {
     id: "egress",
-    number: "04",
-    label: "外向き通信",
+    number: "05",
+    label: "Gateway が接続先へ接続する",
     from: "Gateway",
-    to: "Upstream",
+    to: "接続先",
     fromId: "gateway",
     toId: "upstream",
     sent: "独立した接続で送る許可済みリクエスト",
     withheld: "ポリシーの内部情報、プリンシパル登録情報、ブローカーのハンドル",
-    result: "Upstream が受け取る接続は Gateway からのものだけ",
+    result: "接続先から見ると、接続元は Gateway だけ",
     failure: "接続先のエラーはポリシーを変更しない",
   },
-] as const;
+];
 const conversations = isJapanese ? conversationsJa : conversationsEn;
 const ui = isJapanese
   ? {
-      eyebrow: "コンポーネント図",
-      scrollableMap: "横方向にスクロールできるコンポーネント図",
+      eyebrow: "通信フロー",
+      scrollableMap: "横方向にスクロールできる通信フロー図",
       mapDescription:
-        "Workspace と接続先は、ホストが管理する共有クラスターの両側にあります。クラスターの中央に Gateway、その上に OPA、下に Auth Broker があります。",
+        "左の Workspace から中央の Gateway へ通信が入り、Gateway が上の OPA に判断を求めます。ブローカー方式では下の Auth Broker を使い、許可後に右の接続先へ進みます。Workspace から接続先への直接経路はありません。",
       cluster: "Tobari 共有クラスター · ホストが管理",
       projectNetwork: "プロジェクト専用の内部ネットワーク",
       egress: "Gateway 所有の外向き通信",
-      networkEnforcement: "ネットワーク + 通信制御",
-      secretBoundary: "秘密情報の境界",
+      networkEnforcement: "通信経路の制御",
+      secretBoundary: "認証情報の境界",
       external: "外部",
       untrusted: "信頼しない領域",
-      control: "制御",
-      conversations: "直接対話するコンポーネント",
-      conversation: "対話",
+      control: "ポリシー判断",
+      flowSteps: "番号順に処理を見る",
+      step: "ステップ",
+      optional: "条件付き",
       sent: "送る情報",
       notSent: "送らない情報",
       result: "結果",
       failure: "失敗時",
-      transcript: "すべての対話をテキストで読む",
+      transcript: "通信フローを文章で読む",
+      directBlocked: "直接経路なし",
     }
   : {
-      eyebrow: "Component map",
-      scrollableMap: "Scrollable component map",
+      eyebrow: "Request flow",
+      scrollableMap: "Scrollable request-flow diagram",
       mapDescription:
-        "Workspace and Upstream sit on opposite sides of a host-owned shared cluster. Gateway is centered in that cluster, with OPA above it and Auth Broker below it.",
+        "A request moves from Workspace to Gateway, Gateway asks OPA above it, optionally uses Auth Broker below it, and only after allow reaches Upstream on the right. Workspace has no direct route to Upstream.",
       cluster: "Tobari shared cluster · host-owned",
       projectNetwork: "Dedicated internal project network",
       egress: "Gateway-owned egress",
-      networkEnforcement: "Network + enforcement",
-      secretBoundary: "Secret boundary",
+      networkEnforcement: "Network enforcement",
+      secretBoundary: "Credential boundary",
       external: "External",
       untrusted: "Untrusted",
-      control: "Control",
-      conversations: "Direct conversations",
-      conversation: "Conversation",
+      control: "Policy decision",
+      flowSteps: "Read the processing order",
+      step: "Step",
+      optional: "Conditional",
       sent: "Sent",
       notSent: "Not sent",
       result: "Result",
       failure: "Failure",
-      transcript: "Read every conversation as text",
+      transcript: "Read the request flow as text",
+      directBlocked: "No direct route",
     };
 ---
 
 <tobari-system-map class:list={["system-map", { compact }]}>
-  <figure data-active-conversation="policy">
+  <figure data-active-conversation="proxy">
     <figcaption>
       <span class="eyebrow">{ui.eyebrow}</span>
       <Heading>{title}</Heading>
@@ -219,15 +265,33 @@ const ui = isJapanese
             >
               <path d="M 0 0 L 10 5 L 0 10 z"></path>
             </marker>
+            <marker
+              id="system-map-stop"
+              viewBox="0 0 12 12"
+              refX="8"
+              refY="6"
+              markerWidth="8"
+              markerHeight="8"
+              orient="auto"
+            >
+              <path d="M 3 1 L 3 11 M 7 1 L 7 11"></path>
+            </marker>
           </defs>
+          <path
+            class="direct-blocked"
+            d="M 300 330 C 440 470 620 470 700 330"
+            marker-end="url(#system-map-stop)"></path>
           <path
             class="conversation-route route-proxy"
             d="M 300 300 L 420 300"
             marker-end="url(#system-map-arrow)"></path>
           <path
             class="conversation-route route-policy"
-            d="M 500 235 L 500 180"
-            marker-start="url(#system-map-arrow)"
+            d="M 475 235 C 450 215 450 195 475 180"
+            marker-end="url(#system-map-arrow)"></path>
+          <path
+            class="conversation-route route-decision"
+            d="M 525 180 C 550 200 550 220 525 235"
             marker-end="url(#system-map-arrow)"></path>
           <path
             class="conversation-route route-credential"
@@ -239,6 +303,10 @@ const ui = isJapanese
             d="M 580 300 L 700 300"
             marker-end="url(#system-map-arrow)"></path>
         </svg>
+
+        <span class="direct-blocked-label" aria-hidden="true"
+          >× {ui.directBlocked}</span
+        >
 
         {
           conversations.map((conversation) => (
@@ -260,8 +328,7 @@ const ui = isJapanese
                   "map-node",
                   `node-${id}`,
                   `kind-${item.kind}`,
-                  id === "gateway" && "node-active",
-                  id === "opa" && "node-active",
+                  ["workspace", "gateway"].includes(id) && "node-active",
                 ]}
                 data-node={id}
               >
@@ -274,9 +341,7 @@ const ui = isJapanese
                         ? ui.external
                         : id === "workspace"
                           ? ui.untrusted
-                          : id === "opa"
-                            ? ui.control
-                            : item.kind}
+                          : ui.control}
                 </span>
                 <h3>{item.label}</h3>
                 <p>{item.detail}</p>
@@ -287,21 +352,24 @@ const ui = isJapanese
       </div>
     </div>
 
-    <ol class="conversation-tabs" aria-label={ui.conversations}>
+    <ol class="conversation-tabs" aria-label={ui.flowSteps}>
       {
         conversations.map((conversation) => (
           <li>
             <button
               type="button"
               data-conversation={conversation.id}
-              aria-pressed={conversation.id === "policy" ? "true" : "false"}
+              aria-pressed={conversation.id === "proxy" ? "true" : "false"}
               disabled
             >
               <span>
-                {conversation.number} · {conversation.label}
+                {conversation.number}
+                {" · "}
+                {conversation.optional ? `${ui.optional} · ` : ""}
+                {conversation.label}
               </span>
               <strong>
-                {conversation.from} ↔ {conversation.to}
+                {conversation.from} → {conversation.to}
               </strong>
             </button>
           </li>
@@ -314,30 +382,38 @@ const ui = isJapanese
         conversations.map((conversation) => (
           <section
             data-conversation-detail={conversation.id}
-            hidden={conversation.id !== "policy"}
+            hidden={conversation.id !== "proxy"}
           >
             <header>
               <span>
-                {ui.conversation} {conversation.number}
+                {ui.step} {conversation.number}
               </span>
               <strong>{conversation.label}</strong>
             </header>
             <dl>
               <div>
-                <dt>{ui.sent}</dt>
-                <dd>{conversation.sent}</dd>
+                <>
+                  <dt>{ui.sent}</dt>
+                  <dd>{conversation.sent}</dd>
+                </>
               </div>
               <div>
-                <dt>{ui.notSent}</dt>
-                <dd>{conversation.withheld}</dd>
+                <>
+                  <dt>{ui.notSent}</dt>
+                  <dd>{conversation.withheld}</dd>
+                </>
               </div>
               <div>
-                <dt>{ui.result}</dt>
-                <dd>{conversation.result}</dd>
+                <>
+                  <dt>{ui.result}</dt>
+                  <dd>{conversation.result}</dd>
+                </>
               </div>
               <div>
-                <dt>{ui.failure}</dt>
-                <dd>{conversation.failure}</dd>
+                <>
+                  <dt>{ui.failure}</dt>
+                  <dd>{conversation.failure}</dd>
+                </>
               </div>
             </dl>
           </section>
@@ -352,24 +428,33 @@ const ui = isJapanese
           conversations.map((conversation) => (
             <li>
               <strong>
-                {conversation.from} ↔ {conversation.to}
+                {conversation.number} · {conversation.from} → {conversation.to}
               </strong>
+              <p>{conversation.label}</p>
               <dl>
                 <div>
-                  <dt>{ui.sent}</dt>
-                  <dd>{conversation.sent}</dd>
+                  <>
+                    <dt>{ui.sent}</dt>
+                    <dd>{conversation.sent}</dd>
+                  </>
                 </div>
                 <div>
-                  <dt>{ui.notSent}</dt>
-                  <dd>{conversation.withheld}</dd>
+                  <>
+                    <dt>{ui.notSent}</dt>
+                    <dd>{conversation.withheld}</dd>
+                  </>
                 </div>
                 <div>
-                  <dt>{ui.result}</dt>
-                  <dd>{conversation.result}</dd>
+                  <>
+                    <dt>{ui.result}</dt>
+                    <dd>{conversation.result}</dd>
+                  </>
                 </div>
                 <div>
-                  <dt>{ui.failure}</dt>
-                  <dd>{conversation.failure}</dd>
+                  <>
+                    <dt>{ui.failure}</dt>
+                    <dd>{conversation.failure}</dd>
+                  </>
                 </div>
               </dl>
             </li>
@@ -422,6 +507,7 @@ const ui = isJapanese
   const conversationsForMap: Record<string, { from: string; to: string }> = {
     proxy: { from: "workspace", to: "gateway" },
     policy: { from: "gateway", to: "opa" },
+    decision: { from: "opa", to: "gateway" },
     credential: { from: "gateway", to: "broker" },
     egress: { from: "gateway", to: "upstream" },
   };
@@ -526,6 +612,8 @@ const ui = isJapanese
   }
   .map-stage marker path {
     fill: context-stroke;
+    stroke: context-stroke;
+    stroke-width: 1.5;
   }
   .conversation-route {
     fill: none;
@@ -536,12 +624,32 @@ const ui = isJapanese
   .route-credential {
     stroke-dasharray: 7 6;
   }
+  .direct-blocked {
+    fill: none;
+    stroke: var(--tobari-denied);
+    stroke-width: 2.5;
+    stroke-dasharray: 4 6;
+    opacity: 0.8;
+    vector-effect: non-scaling-stroke;
+  }
+  .direct-blocked-label {
+    position: absolute;
+    z-index: 1;
+    left: 50%;
+    top: 78%;
+    transform: translateX(-50%);
+    color: var(--tobari-denied);
+    font-family: var(--sl-font-mono);
+    font-size: 0.64rem;
+    font-weight: 800;
+  }
   [data-active-conversation="proxy"] .route-proxy,
   [data-active-conversation="policy"] .route-policy,
+  [data-active-conversation="decision"] .route-decision,
   [data-active-conversation="credential"] .route-credential,
   [data-active-conversation="egress"] .route-egress {
     stroke: var(--tobari-control);
-    stroke-width: 3;
+    stroke-width: 3.2;
   }
   .map-node {
     position: absolute;
@@ -553,7 +661,7 @@ const ui = isJapanese
     transform: translate(-50%, -50%);
     border: 2px solid currentColor;
     background: var(--sl-color-bg);
-    box-shadow: 0 0.8rem 1.6rem rgb(0 0 0 / 18%);
+    box-shadow: 0 0 0 0.3rem var(--sl-color-bg);
   }
   .node-workspace {
     left: 20%;
@@ -587,7 +695,7 @@ const ui = isJapanese
     border-style: dashed;
   }
   .map-node.node-active {
-    outline: 3px solid var(--tobari-focus);
+    outline: 3px solid currentColor;
     outline-offset: 4px;
   }
   .node-kind {
@@ -620,20 +728,24 @@ const ui = isJapanese
     height: 2rem;
     place-items: center;
     transform: translate(-50%, -50%);
-    border: 1px solid var(--sl-color-gray-3);
+    border: 2px solid var(--tobari-control);
     border-radius: 50%;
-    background: var(--sl-color-gray-7);
-    color: var(--sl-color-white);
+    background: var(--sl-color-bg);
+    color: var(--tobari-control);
     font-family: var(--sl-font-mono);
     font-size: var(--sl-text-xs);
-    font-weight: 800;
+    font-weight: 850;
   }
   .number-proxy {
     left: 35%;
     top: 50%;
   }
   .number-policy {
-    left: 50%;
+    left: 46.5%;
+    top: 34.5%;
+  }
+  .number-decision {
+    left: 53.5%;
     top: 34.5%;
   }
   .number-credential {
@@ -646,15 +758,15 @@ const ui = isJapanese
   }
   [data-active-conversation="proxy"] .number-proxy,
   [data-active-conversation="policy"] .number-policy,
+  [data-active-conversation="decision"] .number-decision,
   [data-active-conversation="credential"] .number-credential,
   [data-active-conversation="egress"] .number-egress {
-    border: 2px solid var(--tobari-control);
-    background: var(--sl-color-accent-low);
-    color: var(--sl-color-accent-high);
+    background: var(--tobari-control);
+    color: var(--sl-color-bg);
   }
   .conversation-tabs {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     margin: 0;
     padding: 0;
     border-block-start: 1px solid var(--sl-color-gray-5);
@@ -666,7 +778,7 @@ const ui = isJapanese
   }
   .conversation-tabs button {
     width: 100%;
-    min-height: 5rem;
+    min-height: 5.6rem;
     padding: 0.8rem 0.9rem;
     border: 0;
     border-inline-end: 1px solid var(--sl-color-gray-5);
@@ -694,13 +806,13 @@ const ui = isJapanese
   .conversation-tabs button span {
     color: var(--tobari-control);
     font-family: var(--sl-font-mono);
-    font-size: 0.65rem;
+    font-size: 0.62rem;
     font-weight: 800;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
   }
   .conversation-tabs button strong {
-    margin-top: 0.5rem;
+    margin-top: 0.45rem;
     font-size: var(--sl-text-xs);
   }
   .conversation-details {
@@ -708,7 +820,7 @@ const ui = isJapanese
   }
   .conversation-details section {
     display: grid;
-    grid-template-columns: 9.5rem 1fr;
+    grid-template-columns: 11rem 1fr;
   }
   .conversation-details section[hidden] {
     display: none;
@@ -765,6 +877,12 @@ const ui = isJapanese
     cursor: pointer;
     font-weight: 700;
   }
+  .map-transcript > ol {
+    padding-inline-start: 1.35rem;
+  }
+  .map-transcript li > p {
+    margin-block: 0.25rem 0.5rem;
+  }
   .map-transcript dl {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -783,7 +901,7 @@ const ui = isJapanese
   .compact .map-node {
     min-height: 6.8rem;
   }
-  @media (max-width: 48rem) {
+  @media (max-width: 52rem) {
     .system-map figcaption {
       grid-template-columns: 1fr;
     }
@@ -794,9 +912,6 @@ const ui = isJapanese
     }
     .conversation-tabs {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .conversation-tabs li:nth-child(2) button {
-      border-inline-end: 0;
     }
     .conversation-details section {
       grid-template-columns: 1fr;

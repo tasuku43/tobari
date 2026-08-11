@@ -166,6 +166,12 @@ test("sequence never autoplays and is keyboard operable", async ({ page }) => {
   await expect(explorer.locator('[data-field="count"]')).toHaveText(
     "Step 1 of 7",
   );
+  await expect(explorer.locator(".sequence-step-index > li")).toHaveCount(7);
+  await explorer.locator('[data-sequence-step="3"]').click();
+  await expect(explorer.locator('[data-field="count"]')).toHaveText(
+    "Step 4 of 7",
+  );
+  await explorer.locator('[data-control="restart"]').click();
   await page.waitForTimeout(800);
   await expect(explorer.locator('[data-field="count"]')).toHaveText(
     "Step 1 of 7",
@@ -224,46 +230,38 @@ test("system map keeps positions fixed while selecting a conversation", async ({
   expect(positionsAfter).toEqual(positionsBefore);
 });
 
-test("credential map keeps component positions fixed while switching exact plans", async ({
+test("credential map follows one numbered processing path for each plan", async ({
   page,
 }) => {
   await page.goto("how-it-works/credentials/");
   const map = page.locator("tobari-credential-map").first();
-  const componentPositions = () =>
-    map.evaluate((element) => {
-      const stage = element
-        .querySelector(".credential-map-stage")
-        ?.getBoundingClientRect();
-      if (!stage) return null;
-      return ["gateway", "broker", "companion", "datadog-token"].map((id) => {
-        const box = element
-          .querySelector(`[data-node="${id}"]`)
-          ?.getBoundingClientRect();
-        return box ? { x: box.x - stage.x, y: box.y - stage.y } : null;
-      });
-    });
-  const positionsBefore = await componentPositions();
+
+  await expect(map.locator('[data-field="route-order"] > li')).toHaveCount(5);
+  await expect(
+    map.locator('[data-field="route-order"] > li').first(),
+  ).toContainText("Workspace");
+  await expect(
+    map.locator('[data-field="route-order"] > li').first(),
+  ).toContainText("Gateway");
+
   await map.locator('[data-scenario="aws"]').click();
   await expect(map.locator('[data-scenario="aws"]')).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(map.locator('[data-node="companion"]')).toHaveClass(
-    /node-active/,
-  );
-  await expect(map.locator('[data-node="datadog-token"]')).not.toHaveClass(
-    /node-active/,
-  );
+  await expect(map.locator('[data-field="route-order"] > li')).toHaveCount(7);
+  await expect(map.locator('[data-node="companion"]')).toHaveCount(2);
+  await expect(map.locator('[data-node="datadog-token"]')).toHaveCount(0);
+
   await map.locator('[data-scenario="datadog"]').focus();
   await page.keyboard.press("Enter");
   await expect(map.locator('[data-scenario="datadog"]')).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(map.locator('[data-node="datadog-token"]')).toHaveClass(
-    /node-active/,
-  );
-  expect(await componentPositions()).toEqual(positionsBefore);
+  await expect(map.locator('[data-field="route-order"] > li')).toHaveCount(6);
+  await expect(map.locator('[data-node="datadog-token"]')).toHaveCount(1);
+  await expect(map.locator('[data-node="companion"]')).toHaveCount(0);
 });
 
 test("policy loop exposes the cycle without automatic playback", async ({
@@ -464,22 +462,53 @@ test("home exposes global navigation on a narrow viewport", async ({
   ).toBeVisible();
 });
 
-test("four-layer diagram uses an aligned two-by-two grid", async ({ page }) => {
+test("four-layer diagram exposes dependency direction as a numbered flow", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("how-it-works/code-architecture/");
-  const nodes = page.locator('[data-diagram="code-layers"] .diagram-node');
-  await expect(nodes).toHaveCount(4);
-  const boxes = await nodes.evaluateAll((elements) =>
-    elements.map((element) => {
-      const box = element.getBoundingClientRect();
-      return { x: box.x, y: box.y, width: box.width, height: box.height };
-    }),
+  const diagram = page.locator('[data-diagram="code-layers"]');
+  await expect(diagram.locator(".flow-node")).toHaveCount(4);
+  await expect(diagram.locator(".flow-step-list > li")).toHaveCount(5);
+
+  const positions = await diagram.evaluate((element) => {
+    const stage = element
+      .querySelector(".flow-map-stage")
+      ?.getBoundingClientRect();
+    if (!stage) return null;
+    return Object.fromEntries(
+      ["cli", "app", "infra", "domain"].map((id) => {
+        const box = element
+          .querySelector(`[data-node="${id}"]`)
+          ?.getBoundingClientRect();
+        return [id, box ? { x: box.x - stage.x, y: box.y - stage.y } : null];
+      }),
+    );
+  });
+  expect(positions).not.toBeNull();
+  expect(positions!.cli!.y).toBeLessThan(positions!.app!.y);
+  expect(positions!.cli!.y).toBeLessThan(positions!.infra!.y);
+  expect(positions!.app!.x).toBeLessThan(positions!.infra!.x);
+  expect(positions!.domain!.y).toBeGreaterThan(positions!.app!.y);
+  expect(positions!.domain!.y).toBeGreaterThan(positions!.infra!.y);
+});
+
+test("HTTPS diagram follows one request through both TLS connections", async ({
+  page,
+}) => {
+  await page.goto("ja/how-it-works/https-and-tls/");
+  const diagram = page.locator('[data-diagram="tls-split"]');
+  await expect(diagram.locator(".flow-node")).toHaveCount(4);
+  await expect(diagram.locator(".flow-step-list > li")).toHaveCount(7);
+  await expect(diagram.locator('[data-node="workspace"]')).toContainText(
+    "Workspace",
   );
-  expect(Math.abs(boxes[0].y - boxes[1].y)).toBeLessThanOrEqual(1);
-  expect(Math.abs(boxes[0].height - boxes[1].height)).toBeLessThanOrEqual(1);
-  expect(Math.abs(boxes[2].y - boxes[3].y)).toBeLessThanOrEqual(1);
-  expect(Math.abs(boxes[2].height - boxes[3].height)).toBeLessThanOrEqual(1);
-  expect(boxes[2].y).toBeGreaterThan(boxes[0].y + boxes[0].height);
+  await expect(diagram.locator('[data-node="gateway"]')).toContainText(
+    "Gateway",
+  );
+  await expect(diagram.locator('[data-node="opa"]')).toContainText("OPA");
+  await expect(diagram).toContainText("CONNECT");
+  await expect(diagram).toContainText("TLS");
 });
 
 test("360px mobile layout has no page-level horizontal overflow", async ({
