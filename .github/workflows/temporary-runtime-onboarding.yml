@@ -46,6 +46,7 @@ jobs:
           SOURCE_DATE_EPOCH: '1770000000'
         run: |
           npm run format:write
+          npm run format:write
           npm run test:static
 
       - name: Install browser runtime
