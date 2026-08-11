@@ -11,13 +11,11 @@ interface Props {
 }
 
 interface Conversation {
-  id: string;
+  id: "proxy" | "policy" | "decision" | "credential" | "egress";
   number: string;
   label: string;
   from: string;
   to: string;
-  fromId: string;
-  toId: string;
   sent: string;
   withheld: string;
   result: string;
@@ -25,15 +23,33 @@ interface Conversation {
   optional?: boolean;
 }
 
+interface Participant {
+  id: "workspace" | "gateway" | "opa" | "broker" | "upstream";
+  location: string;
+  networks: string;
+}
+
+interface Message {
+  id: string;
+  number: string;
+  phase: Conversation["id"];
+  from: Participant["id"];
+  to: Participant["id"];
+  label: string;
+  kind: "network" | "control" | "handle" | "allowed";
+  optional?: boolean;
+  response?: boolean;
+}
+
 const isJapanese = Astro.locals.starlightRoute.locale === "ja";
 const {
   headingLevel = 2,
   title = isJapanese
-    ? "一つのリクエストが Tobari を通る順序"
-    : "Follow one request through Tobari",
+    ? "Workspace から接続先まで、一つのリクエストを追う"
+    : "Follow one request from Workspace to its destination",
   description = isJapanese
-    ? "番号付きの矢印を追うと、Workspace から始まった通信が、どこで識別・判断され、いつ接続先へ進むかを確認できます。認証情報の経路は、ブローカー方式を使う場合だけ通ります。"
-    : "Follow the numbered arrows to see where a Workspace request is identified, authorized, and finally connected upstream. The credential route is conditional on a brokered provider.",
+    ? "列はコンポーネントが存在する場所、上から下は処理の時間です。横向きの矢印を番号順に追うと、どこで識別・判断・認証処理・外部接続が行われるかが分かります。"
+    : "Columns show where each component exists; time moves from top to bottom. Follow the numbered messages to see where identity, policy, credentials, and the external connection are handled.",
   compact = false,
   networkDetail = false,
 } = Astro.props;
@@ -41,195 +57,452 @@ const Heading = `h${headingLevel}` as "h2" | "h3";
 const source = (isJapanese ? diagramsJa : diagrams)["minimal-system"];
 const node = (id: string) => source.nodes.find((item) => item.id === id)!;
 
+const participantsEn: Participant[] = [
+  {
+    id: "workspace",
+    location: "Project runtime · untrusted",
+    networks: "project network only",
+  },
+  {
+    id: "gateway",
+    location: "Shared cluster · host-managed",
+    networks: "project + control + egress",
+  },
+  {
+    id: "opa",
+    location: "Shared cluster · host-managed",
+    networks: "control only",
+  },
+  {
+    id: "broker",
+    location: "Shared cluster · host-managed",
+    networks: "control + bounded egress",
+  },
+  {
+    id: "upstream",
+    location: "External service",
+    networks: "reached only from Gateway",
+  },
+];
+const participantsJa: Participant[] = [
+  {
+    id: "workspace",
+    location: "プロジェクトの実行環境 · 信頼しない",
+    networks: "プロジェクト専用ネットワークだけ",
+  },
+  {
+    id: "gateway",
+    location: "共有クラスター · ホストが管理",
+    networks: "プロジェクト / 制御 / 外向き",
+  },
+  {
+    id: "opa",
+    location: "共有クラスター · ホストが管理",
+    networks: "制御ネットワークだけ",
+  },
+  {
+    id: "broker",
+    location: "共有クラスター · ホストが管理",
+    networks: "制御 + 限定された外向き通信",
+  },
+  {
+    id: "upstream",
+    location: "外部サービス",
+    networks: "Gateway からだけ到達",
+  },
+];
+const participants = isJapanese ? participantsJa : participantsEn;
+
+const messagesEn: Message[] = [
+  {
+    id: "request",
+    number: "01",
+    phase: "proxy",
+    from: "workspace",
+    to: "gateway",
+    label: "HTTP/HTTPS proxy request",
+    kind: "network",
+  },
+  {
+    id: "principal",
+    number: "02",
+    phase: "proxy",
+    from: "gateway",
+    to: "gateway",
+    label: "Derive principal from the receiving interface",
+    kind: "control",
+  },
+  {
+    id: "policy-input",
+    number: "03",
+    phase: "policy",
+    from: "gateway",
+    to: "opa",
+    label: "Body-free, secret-free policy input",
+    kind: "control",
+  },
+  {
+    id: "policy-result",
+    number: "04",
+    phase: "decision",
+    from: "opa",
+    to: "gateway",
+    label: "One allow or deny result",
+    kind: "control",
+    response: true,
+  },
+  {
+    id: "credential-request",
+    number: "05",
+    phase: "credential",
+    from: "gateway",
+    to: "broker",
+    label: "Credential operation, only when required and allowed",
+    kind: "handle",
+    optional: true,
+  },
+  {
+    id: "credential-result",
+    number: "06",
+    phase: "credential",
+    from: "broker",
+    to: "gateway",
+    label: "Resolve, refresh, or sign result",
+    kind: "handle",
+    optional: true,
+    response: true,
+  },
+  {
+    id: "upstream-request",
+    number: "07",
+    phase: "egress",
+    from: "gateway",
+    to: "upstream",
+    label: "Open a separate connection and forward",
+    kind: "allowed",
+  },
+  {
+    id: "upstream-response",
+    number: "08",
+    phase: "egress",
+    from: "upstream",
+    to: "gateway",
+    label: "Destination response",
+    kind: "network",
+    response: true,
+  },
+  {
+    id: "workspace-response",
+    number: "09",
+    phase: "egress",
+    from: "gateway",
+    to: "workspace",
+    label: "Return the response to Workspace",
+    kind: "network",
+    response: true,
+  },
+];
+const messagesJa: Message[] = [
+  {
+    id: "request",
+    number: "01",
+    phase: "proxy",
+    from: "workspace",
+    to: "gateway",
+    label: "HTTP/HTTPS のプロキシリクエスト",
+    kind: "network",
+  },
+  {
+    id: "principal",
+    number: "02",
+    phase: "proxy",
+    from: "gateway",
+    to: "gateway",
+    label: "受信インターフェースから通信主体を確立",
+    kind: "control",
+  },
+  {
+    id: "policy-input",
+    number: "03",
+    phase: "policy",
+    from: "gateway",
+    to: "opa",
+    label: "本文と秘密情報を除いた判断入力",
+    kind: "control",
+  },
+  {
+    id: "policy-result",
+    number: "04",
+    phase: "decision",
+    from: "opa",
+    to: "gateway",
+    label: "許可または拒否の結果一つ",
+    kind: "control",
+    response: true,
+  },
+  {
+    id: "credential-request",
+    number: "05",
+    phase: "credential",
+    from: "gateway",
+    to: "broker",
+    label: "必要な場合だけ、許可後の認証処理",
+    kind: "handle",
+    optional: true,
+  },
+  {
+    id: "credential-result",
+    number: "06",
+    phase: "credential",
+    from: "broker",
+    to: "gateway",
+    label: "解決・更新・署名の結果",
+    kind: "handle",
+    optional: true,
+    response: true,
+  },
+  {
+    id: "upstream-request",
+    number: "07",
+    phase: "egress",
+    from: "gateway",
+    to: "upstream",
+    label: "別の接続を開いて転送",
+    kind: "allowed",
+  },
+  {
+    id: "upstream-response",
+    number: "08",
+    phase: "egress",
+    from: "upstream",
+    to: "gateway",
+    label: "外部サービスの応答",
+    kind: "network",
+    response: true,
+  },
+  {
+    id: "workspace-response",
+    number: "09",
+    phase: "egress",
+    from: "gateway",
+    to: "workspace",
+    label: "応答を Workspace へ返す",
+    kind: "network",
+    response: true,
+  },
+];
+const messages = isJapanese ? messagesJa : messagesEn;
+
 const conversationsEn: Conversation[] = [
   {
     id: "proxy",
-    number: "01",
-    label: "Request enters Gateway",
+    number: "01–02",
+    label: "Receive and identify the request",
     from: "Workspace",
     to: "Gateway",
-    fromId: "workspace",
-    toId: "gateway",
     sent: "HTTP method, URL, headers, and a streaming body",
     withheld: "Caller-supplied project identity is not trusted",
-    result: "Gateway receives the request on the project-specific interface",
-    failure: "Processing stops before policy or upstream work",
+    result:
+      "Gateway receives the request on the project interface and derives the principal from host-owned registration",
+    failure: "Processing stops before policy or external work",
   },
   {
     id: "policy",
-    number: "02",
-    label: "Gateway asks OPA",
+    number: "03",
+    label: "Ask OPA",
     from: "Gateway",
     to: "OPA",
-    fromId: "gateway",
-    toId: "opa",
     sent: "Registry-derived principal and normalized HTTP decision dimensions",
     withheld: "Request body, broker handle, and credential values",
     result: "OPA receives one bounded decision input",
-    failure: "Gateway does not connect upstream",
+    failure: "Gateway does not connect to the destination",
   },
   {
     id: "decision",
-    number: "03",
-    label: "OPA returns a decision",
+    number: "04",
+    label: "Enforce the decision",
     from: "OPA",
     to: "Gateway",
-    fromId: "opa",
-    toId: "gateway",
     sent: "One structured allow or deny result",
     withheld: "OPA does not open connections or handle credentials",
-    result: "Gateway either stops the request or continues",
+    result: "Gateway either returns a local denial or continues",
     failure: "Missing or malformed policy results fail closed",
   },
   {
     id: "credential",
-    number: "04",
-    label: "Credential work, when required",
+    number: "05–06",
+    label: "Use brokered credentials when required",
     from: "Gateway",
     to: "Auth Broker",
-    fromId: "gateway",
-    toId: "broker",
-    sent: "Bound handle and principal for introspection; exact binding after allow",
+    sent: "A bound handle and the exact post-allow operation",
     withheld: "Workspace and OPA do not receive broker-managed secret state",
-    result: "The declared resolve, refresh, or sign operation runs after allow",
-    failure:
-      "The request fails closed without switching to another credential mode",
+    result: "The declared resolve, refresh, or sign operation completes",
+    failure: "The request fails without switching credential modes",
     optional: true,
   },
   {
     id: "egress",
-    number: "05",
-    label: "Gateway connects upstream",
+    number: "07–09",
+    label: "Create the external connection and relay the response",
     from: "Gateway",
-    to: "Upstream",
-    fromId: "gateway",
-    toId: "upstream",
-    sent: "The authorized request over a separate connection",
+    to: "Destination",
+    sent: "The authorized request over a separate Gateway-owned connection",
     withheld: "Policy internals, principal registry, and broker handle",
-    result: "Upstream sees a connection owned by Gateway",
-    failure: "An upstream error does not change policy",
+    result: "The response returns through Gateway to Workspace",
+    failure: "A destination error does not change policy",
   },
 ];
 const conversationsJa: Conversation[] = [
   {
     id: "proxy",
-    number: "01",
-    label: "リクエストが Gateway に入る",
+    number: "01–02",
+    label: "リクエストを受け取り、通信主体を確立する",
     from: "Workspace",
     to: "Gateway",
-    fromId: "workspace",
-    toId: "gateway",
     sent: "HTTP メソッド、URL、ヘッダー、ストリーミングされる本文",
     withheld: "呼び出し元が申告したプロジェクト識別情報は信頼しない",
     result:
-      "Gateway がプロジェクト固有のインターフェースでリクエストを受け取る",
-    failure: "ポリシー判断や接続先の処理より前に停止する",
+      "Gateway がプロジェクト側のインターフェースで受け取り、ホスト管理の登録情報から通信主体を確立する",
+    failure: "ポリシー判断や外部接続より前に停止する",
   },
   {
     id: "policy",
-    number: "02",
-    label: "Gateway が OPA に問い合わせる",
+    number: "03",
+    label: "OPA に判断を求める",
     from: "Gateway",
     to: "OPA",
-    fromId: "gateway",
-    toId: "opa",
-    sent: "登録情報から導出したプリンシパルと、正規化した HTTP 通信の情報",
+    sent: "登録情報から導出した通信主体と、正規化した HTTP 通信の情報",
     withheld: "リクエスト本文、ブローカーのハンドル、認証情報の値",
     result: "OPA が上限を定めた判断入力を一つ受け取る",
     failure: "Gateway は接続先へ接続しない",
   },
   {
     id: "decision",
-    number: "03",
-    label: "OPA が判断を返す",
+    number: "04",
+    label: "判断を通信経路へ反映する",
     from: "OPA",
     to: "Gateway",
-    fromId: "opa",
-    toId: "gateway",
     sent: "構造化された許可または拒否の結果一つ",
     withheld: "OPA は外部接続を作らず、認証情報も扱わない",
-    result: "Gateway がリクエストを止めるか、次の処理へ進める",
+    result: "Gateway がローカルで拒否を返すか、次の処理へ進む",
     failure: "判断を取得できない、または応答が不正な場合は拒否する",
   },
   {
     id: "credential",
-    number: "04",
-    label: "必要な場合だけ認証情報を処理する",
+    number: "05–06",
+    label: "必要な場合だけ、ブローカー管理の認証情報を使う",
     from: "Gateway",
     to: "Auth Broker",
-    fromId: "gateway",
-    toId: "broker",
-    sent: "秘密を使わない検査に必要なハンドルとプリンシパル。許可後は完全一致する結び付き",
+    sent: "プロジェクトに結び付いたハンドルと、許可後の完全一致する操作",
     withheld: "Workspace と OPA へ、ブローカー管理の秘密情報を送らない",
-    result: "宣言済みの解決、更新、または署名処理を許可後に実行する",
-    failure: "別の認証方式へ切り替えず、許可しないまま失敗する",
+    result: "宣言済みの解決、更新、または署名処理が完了する",
+    failure: "別の認証方式へ切り替えずに失敗する",
     optional: true,
   },
   {
     id: "egress",
-    number: "05",
-    label: "Gateway が接続先へ接続する",
+    number: "07–09",
+    label: "外部接続を作り、応答を中継する",
     from: "Gateway",
     to: "接続先",
-    fromId: "gateway",
-    toId: "upstream",
-    sent: "独立した接続で送る許可済みリクエスト",
+    sent: "Gateway が所有する別接続で、許可済みリクエストを送る",
     withheld: "ポリシーの内部情報、プリンシパル登録情報、ブローカーのハンドル",
-    result: "接続先から見ると、接続元は Gateway だけ",
+    result: "応答が Gateway を通って Workspace へ戻る",
     failure: "接続先のエラーはポリシーを変更しない",
   },
 ];
 const conversations = isJapanese ? conversationsJa : conversationsEn;
+
+const laneX: Record<Participant["id"], number> = {
+  workspace: 120,
+  gateway: 390,
+  opa: 630,
+  broker: 870,
+  upstream: 1110,
+};
+const messageY = [275, 360, 445, 530, 625, 700, 795, 870, 945];
+const messageGeometry = messages.map((message, index) => {
+  const fromX = laneX[message.from];
+  const toX = laneX[message.to];
+  const y = messageY[index];
+  if (message.from === message.to) {
+    return {
+      ...message,
+      y,
+      path: `M ${fromX} ${y} C ${fromX + 105} ${y}, ${fromX + 105} ${y + 58}, ${fromX} ${y + 58}`,
+      labelX: fromX + 112,
+      labelY: y + 28,
+      self: true,
+    };
+  }
+  return {
+    ...message,
+    y,
+    path: `M ${fromX} ${y} L ${toX} ${y}`,
+    labelX: (fromX + toX) / 2,
+    labelY: y,
+    self: false,
+  };
+});
+
 const ui = isJapanese
   ? {
       eyebrow: "通信フロー",
-      scrollableMap: "横方向にスクロールできる通信フロー図",
+      scrollableMap: "横方向にスクロールできるシーケンス図",
       mapDescription:
-        "左の Workspace から中央の Gateway へ通信が入り、Gateway が上の OPA に判断を求めます。ブローカー方式では下の Auth Broker を使い、許可後に右の接続先へ進みます。Workspace から接続先への直接経路はありません。",
-      cluster: "Tobari 共有クラスター · ホストが管理",
-      projectNetwork: "プロジェクト専用の内部ネットワーク",
-      egress: "Gateway 所有の外向き通信",
-      networkEnforcement: "通信経路の制御",
-      secretBoundary: "認証情報の境界",
-      external: "外部",
-      untrusted: "信頼しない領域",
-      control: "ポリシー判断",
-      flowSteps: "番号順に処理を見る",
-      step: "ステップ",
+        "左から Workspace、Gateway、OPA、Auth Broker、外部の接続先が並び、時間は上から下へ進みます。番号付きの矢印が一つのリクエストの処理順序を示します。",
+      zoneWorkspace: "プロジェクトの実行環境",
+      zoneCluster: "Tobari 共有クラスター · ホスト管理",
+      zoneExternal: "外部",
+      place: "存在場所",
+      network: "接続範囲",
+      legendLocation: "背景 = 存在場所",
+      legendLane: "縦線 = コンポーネント",
+      legendMessage: "番号付き矢印 = 処理とデータの移動",
+      legendStop: "赤い停止線 = 経路を作らない",
+      flowSteps: "処理を段階ごとに確認する",
+      step: "段階",
       optional: "条件付き",
       sent: "送る情報",
       notSent: "送らない情報",
       result: "結果",
       failure: "失敗時",
       transcript: "通信フローを文章で読む",
-      directBlocked: "直接経路なし",
+      directBlocked: "Workspace から接続先への直接経路はない",
+      deniedBranch:
+        "拒否: Gateway がローカルで応答し、接続先への接続を作らない",
     }
   : {
       eyebrow: "Request flow",
-      scrollableMap: "Scrollable request-flow diagram",
+      scrollableMap: "Horizontally scrollable sequence diagram",
       mapDescription:
-        "A request moves from Workspace to Gateway, Gateway asks OPA above it, optionally uses Auth Broker below it, and only after allow reaches Upstream on the right. Workspace has no direct route to Upstream.",
-      cluster: "Tobari shared cluster · host-owned",
-      projectNetwork: "Dedicated internal project network",
-      egress: "Gateway-owned egress",
-      networkEnforcement: "Network enforcement",
-      secretBoundary: "Credential boundary",
-      external: "External",
-      untrusted: "Untrusted",
-      control: "Policy decision",
-      flowSteps: "Read the processing order",
-      step: "Step",
+        "Workspace, Gateway, OPA, Auth Broker, and the external destination are arranged from left to right; time moves downward. Numbered messages show one request in processing order.",
+      zoneWorkspace: "Project runtime",
+      zoneCluster: "Tobari shared cluster · host-managed",
+      zoneExternal: "External",
+      place: "Location",
+      network: "Network reach",
+      legendLocation: "Background = location",
+      legendLane: "Lifeline = component",
+      legendMessage: "Numbered arrow = processing and data movement",
+      legendStop: "Red stop = no route is created",
+      flowSteps: "Inspect each phase",
+      step: "Phase",
       optional: "Conditional",
       sent: "Sent",
       notSent: "Not sent",
       result: "Result",
       failure: "Failure",
       transcript: "Read the request flow as text",
-      directBlocked: "No direct route",
+      directBlocked: "Workspace has no direct route to the destination",
+      deniedBranch:
+        "Deny: Gateway responds locally and creates no destination connection",
     };
 ---
 
-<tobari-system-map class:list={["system-map", { compact }]}>
+<tobari-system-map
+  class:list={["system-map", { compact, "network-detail": networkDetail }]}
+>
   <figure data-active-conversation="proxy">
     <figcaption>
       <span class="eyebrow">{ui.eyebrow}</span>
@@ -237,22 +510,69 @@ const ui = isJapanese
       <p>{description}</p>
     </figcaption>
 
-    <div class="map-scroll" tabindex="0" aria-label={ui.scrollableMap}>
+    <div
+      class="map-legend"
+      aria-label={isJapanese ? "図の読み方" : "Diagram key"}
+    >
+      <span>{ui.legendLocation}</span>
+      <span>{ui.legendLane}</span>
+      <span>{ui.legendMessage}</span>
+      <span class="legend-stop">{ui.legendStop}</span>
+    </div>
+
+    <div
+      class="map-scroll"
+      tabindex="0"
+      role="region"
+      aria-label={ui.scrollableMap}
+    >
       <div class="map-stage" role="img" aria-label={ui.mapDescription}>
-        <div class="cluster-boundary" aria-hidden="true">
-          <span>{ui.cluster}</span>
+        <div class="map-zone zone-workspace" aria-hidden="true">
+          <span>{ui.zoneWorkspace}</span>
         </div>
+        <div class="map-zone zone-cluster" aria-hidden="true">
+          <span>{ui.zoneCluster}</span>
+        </div>
+        <div class="map-zone zone-external" aria-hidden="true">
+          <span>{ui.zoneExternal}</span>
+        </div>
+
         {
-          networkDetail && (
-            <>
-              <span class="network-label project-network">
-                {ui.projectNetwork}
-              </span>
-              <span class="network-label egress-network">{ui.egress}</span>
-            </>
-          )
+          participants.map((participant) => {
+            const item = node(participant.id);
+            return (
+              <>
+                <article
+                  class:list={[
+                    "map-node",
+                    `node-${participant.id}`,
+                    `kind-${item.kind}`,
+                    ["workspace", "gateway"].includes(participant.id) &&
+                      "node-active",
+                  ]}
+                  data-node={participant.id}
+                  style={`--lane-x:${(laneX[participant.id] / 1230) * 100}%`}
+                >
+                  <span class="node-location">
+                    {ui.place} · {participant.location}
+                  </span>
+                  <h3>{item.label}</h3>
+                  <p>{item.detail}</p>
+                  <span class="node-network">
+                    {ui.network} · {participant.networks}
+                  </span>
+                </article>
+                <span
+                  class={`lifeline lifeline-${participant.id}`}
+                  style={`--lane-x:${(laneX[participant.id] / 1230) * 100}%`}
+                  aria-hidden="true"
+                />
+              </>
+            );
+          })
         }
-        <svg viewBox="0 0 1000 600" aria-hidden="true">
+
+        <svg viewBox="0 0 1230 1070" aria-hidden="true">
           <defs>
             <marker
               id="system-map-arrow"
@@ -277,78 +597,59 @@ const ui = isJapanese
               <path d="M 3 1 L 3 11 M 7 1 L 7 11"></path>
             </marker>
           </defs>
+
+          {
+            messageGeometry.map((message) => (
+              <path
+                class:list={[
+                  "message-route",
+                  `message-${message.id}`,
+                  `phase-${message.phase}`,
+                  `kind-${message.kind}`,
+                  message.optional && "is-optional",
+                  message.response && "is-response",
+                ]}
+                data-message-route={message.id}
+                d={message.path}
+                marker-end="url(#system-map-arrow)"
+              />
+            ))
+          }
+
+          <path
+            class="denied-branch"
+            d="M 390 575 L 120 575"
+            marker-end="url(#system-map-arrow)"></path>
           <path
             class="direct-blocked"
-            d="M 300 330 C 440 470 620 470 700 330"
+            d="M 120 1020 L 1110 1020"
             marker-end="url(#system-map-stop)"></path>
-          <path
-            class="conversation-route route-proxy"
-            d="M 300 300 L 420 300"
-            marker-end="url(#system-map-arrow)"></path>
-          <path
-            class="conversation-route route-policy"
-            d="M 475 235 C 450 215 450 195 475 180"
-            marker-end="url(#system-map-arrow)"></path>
-          <path
-            class="conversation-route route-decision"
-            d="M 525 180 C 550 200 550 220 525 235"
-            marker-end="url(#system-map-arrow)"></path>
-          <path
-            class="conversation-route route-credential"
-            d="M 500 365 L 500 420"
-            marker-start="url(#system-map-arrow)"
-            marker-end="url(#system-map-arrow)"></path>
-          <path
-            class="conversation-route route-egress"
-            d="M 580 300 L 700 300"
-            marker-end="url(#system-map-arrow)"></path>
         </svg>
 
-        <span class="direct-blocked-label" aria-hidden="true"
-          >× {ui.directBlocked}</span
-        >
-
         {
-          conversations.map((conversation) => (
+          messageGeometry.map((message) => (
             <span
-              class:list={["conversation-number", `number-${conversation.id}`]}
+              class:list={[
+                "message-label",
+                `message-label-${message.id}`,
+                `phase-${message.phase}`,
+                `kind-${message.kind}`,
+                message.optional && "is-optional",
+              ]}
+              data-message-label={message.id}
+              style={`--message-x:${(message.labelX / 1230) * 100}%;--message-y:${(message.labelY / 1070) * 100}%`}
               aria-hidden="true"
             >
-              {conversation.number.replace(/^0/, "")}
+              <strong>{message.number}</strong>
+              <span>{message.label}</span>
             </span>
           ))
         }
 
-        {
-          ["workspace", "gateway", "opa", "broker", "upstream"].map((id) => {
-            const item = node(id);
-            return (
-              <article
-                class:list={[
-                  "map-node",
-                  `node-${id}`,
-                  `kind-${item.kind}`,
-                  ["workspace", "gateway"].includes(id) && "node-active",
-                ]}
-                data-node={id}
-              >
-                <span class="node-kind">
-                  {id === "gateway"
-                    ? ui.networkEnforcement
-                    : id === "broker"
-                      ? ui.secretBoundary
-                      : id === "upstream"
-                        ? ui.external
-                        : id === "workspace"
-                          ? ui.untrusted
-                          : ui.control}
-                </span>
-                <h3>{item.label}</h3>
-                <p>{item.detail}</p>
-              </article>
-            );
-          })
-        }
+        <span class="denied-label" aria-hidden="true">{ui.deniedBranch}</span>
+        <span class="direct-blocked-label" aria-hidden="true">
+          × {ui.directBlocked}
+        </span>
       </div>
     </div>
 
@@ -392,28 +693,20 @@ const ui = isJapanese
             </header>
             <dl>
               <div>
-                <>
-                  <dt>{ui.sent}</dt>
-                  <dd>{conversation.sent}</dd>
-                </>
+                <dt>{ui.sent}</dt>
+                <dd>{conversation.sent}</dd>
               </div>
               <div>
-                <>
-                  <dt>{ui.notSent}</dt>
-                  <dd>{conversation.withheld}</dd>
-                </>
+                <dt>{ui.notSent}</dt>
+                <dd>{conversation.withheld}</dd>
               </div>
               <div>
-                <>
-                  <dt>{ui.result}</dt>
-                  <dd>{conversation.result}</dd>
-                </>
+                <dt>{ui.result}</dt>
+                <dd>{conversation.result}</dd>
               </div>
               <div>
-                <>
-                  <dt>{ui.failure}</dt>
-                  <dd>{conversation.failure}</dd>
-                </>
+                <dt>{ui.failure}</dt>
+                <dd>{conversation.failure}</dd>
               </div>
             </dl>
           </section>
@@ -425,42 +718,20 @@ const ui = isJapanese
       <summary>{ui.transcript}</summary>
       <ol>
         {
-          conversations.map((conversation) => (
+          messages.map((message) => (
             <li>
               <strong>
-                {conversation.number} · {conversation.from} → {conversation.to}
+                {message.number} · {node(message.from).label}
+                <span aria-hidden="true"> → </span>
+                {node(message.to).label}
               </strong>
-              <p>{conversation.label}</p>
-              <dl>
-                <div>
-                  <>
-                    <dt>{ui.sent}</dt>
-                    <dd>{conversation.sent}</dd>
-                  </>
-                </div>
-                <div>
-                  <>
-                    <dt>{ui.notSent}</dt>
-                    <dd>{conversation.withheld}</dd>
-                  </>
-                </div>
-                <div>
-                  <>
-                    <dt>{ui.result}</dt>
-                    <dd>{conversation.result}</dd>
-                  </>
-                </div>
-                <div>
-                  <>
-                    <dt>{ui.failure}</dt>
-                    <dd>{conversation.failure}</dd>
-                  </>
-                </div>
-              </dl>
+              <p>{message.label}</p>
             </li>
           ))
         }
       </ol>
+      <p class="transcript-denied">{ui.deniedBranch}</p>
+      <p class="transcript-blocked">{ui.directBlocked}</p>
     </details>
   </figure>
 </tobari-system-map>
@@ -555,6 +826,24 @@ const ui = isJapanese
     color: var(--sl-color-gray-2);
     font-size: var(--sl-text-sm);
   }
+  .map-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 1.2rem;
+    padding: 0.7rem 1.35rem;
+    border-block-end: 1px solid var(--sl-color-gray-5);
+    color: var(--sl-color-gray-3);
+    font-family: var(--sl-font-mono);
+    font-size: 0.65rem;
+  }
+  .map-legend span::before {
+    content: "•";
+    margin-inline-end: 0.35rem;
+    color: var(--tobari-control);
+  }
+  .map-legend .legend-stop::before {
+    color: var(--tobari-denied);
+  }
   .map-scroll {
     max-width: 100%;
     overflow-x: auto;
@@ -562,50 +851,135 @@ const ui = isJapanese
   }
   .map-stage {
     position: relative;
-    min-width: 45rem;
-    height: 31.5rem;
+    min-width: 64rem;
+    height: 55.5rem;
     overflow: hidden;
     background-image:
       linear-gradient(var(--sl-color-gray-6) 1px, transparent 1px),
       linear-gradient(90deg, var(--sl-color-gray-6) 1px, transparent 1px);
     background-size: 2rem 2rem;
   }
-  .cluster-boundary {
+  .map-zone {
     position: absolute;
-    inset: 1.6rem 35% 1.6rem;
-    border: 1px dashed var(--tobari-diagnostic);
-    background: color-mix(in srgb, var(--tobari-diagnostic) 5%, transparent);
+    z-index: 0;
+    top: 1rem;
+    bottom: 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: color-mix(in srgb, var(--sl-color-gray-6) 58%, transparent);
   }
-  .cluster-boundary span {
+  .map-zone > span {
     position: absolute;
-    inset: -0.7rem auto auto 1rem;
-    padding-inline: 0.35rem;
-    background: var(--sl-color-gray-7);
-    color: var(--tobari-diagnostic);
-    font-family: var(--sl-font-mono);
-    font-size: 0.62rem;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-  .network-label {
-    position: absolute;
-    z-index: 1;
+    top: 0.55rem;
+    left: 0.65rem;
     color: var(--sl-color-gray-3);
     font-family: var(--sl-font-mono);
-    font-size: 0.6rem;
-    letter-spacing: 0.05em;
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.055em;
     text-transform: uppercase;
   }
-  .project-network {
-    inset: auto auto 1rem 3%;
+  .zone-workspace {
+    left: 1.5%;
+    width: 18%;
+    border-color: color-mix(
+      in srgb,
+      var(--tobari-network) 55%,
+      var(--sl-color-gray-5)
+    );
   }
-  .egress-network {
-    inset: auto 3% 1rem auto;
+  .zone-cluster {
+    left: 21.5%;
+    width: 57%;
+    border-style: dashed;
+    border-color: var(--tobari-diagnostic);
+    background: color-mix(in srgb, var(--tobari-diagnostic) 5%, transparent);
+  }
+  .zone-external {
+    left: 80.5%;
+    width: 18%;
+    border-color: color-mix(
+      in srgb,
+      var(--tobari-network) 55%,
+      var(--sl-color-gray-5)
+    );
+  }
+  .map-node {
+    position: absolute;
+    z-index: 5;
+    left: var(--lane-x);
+    top: 4.3rem;
+    width: 11.5rem;
+    min-height: 8.7rem;
+    margin: 0;
+    padding: 0.75rem;
+    transform: translateX(-50%);
+    border: 2px solid currentColor;
+    background: var(--sl-color-bg);
+    box-shadow: 0 0 0 0.22rem var(--sl-color-bg);
+  }
+  .node-workspace {
+    color: var(--tobari-network);
+    border-style: dashed;
+  }
+  .node-gateway {
+    color: var(--tobari-control);
+  }
+  .node-opa {
+    color: var(--tobari-trusted);
+  }
+  .node-broker {
+    color: var(--tobari-secret);
+    border-block-start-style: double;
+    border-block-start-width: 4px;
+  }
+  .node-upstream {
+    color: var(--tobari-network);
+    border-style: dashed;
+  }
+  .map-node.node-active {
+    outline: 3px solid currentColor;
+    outline-offset: 3px;
+  }
+  .node-location,
+  .node-network {
+    display: block;
+    font-family: var(--sl-font-mono);
+    font-size: 0.55rem;
+    font-weight: 750;
+    line-height: 1.35;
+  }
+  .node-location {
+    color: currentColor;
+  }
+  .node-network {
+    margin-top: 0.55rem;
+    padding-top: 0.45rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+    color: var(--sl-color-gray-3);
+  }
+  .map-node h3 {
+    margin: 0.45rem 0 0.25rem;
+    color: var(--sl-color-white);
+    font-size: var(--sl-text-sm);
+  }
+  .map-node p {
+    margin: 0;
+    color: var(--sl-color-gray-2);
+    font-size: 0.68rem;
+    line-height: 1.42;
+  }
+  .lifeline {
+    position: absolute;
+    z-index: 1;
+    left: var(--lane-x);
+    top: 13.3rem;
+    bottom: 2.4rem;
+    border-inline-start: 2px dashed var(--sl-color-gray-4);
+    transform: translateX(-1px);
   }
   .map-stage svg {
     position: absolute;
+    z-index: 2;
     inset: 0;
     width: 100%;
     height: 100%;
@@ -615,154 +989,122 @@ const ui = isJapanese
     stroke: context-stroke;
     stroke-width: 1.5;
   }
-  .conversation-route {
+  .message-route {
     fill: none;
     stroke: var(--sl-color-gray-3);
     stroke-width: 2;
     vector-effect: non-scaling-stroke;
   }
-  .route-credential {
+  .message-route.kind-control {
+    stroke: var(--tobari-trusted);
+  }
+  .message-route.kind-handle {
+    stroke: var(--tobari-secret);
     stroke-dasharray: 7 6;
   }
+  .message-route.kind-allowed {
+    stroke: var(--tobari-allowed);
+  }
+  .message-route.is-response {
+    opacity: 0.82;
+  }
+  .message-label {
+    position: absolute;
+    z-index: 4;
+    left: var(--message-x);
+    top: var(--message-y);
+    display: inline-flex;
+    max-width: 14.5rem;
+    gap: 0.4rem;
+    align-items: center;
+    transform: translate(-50%, -50%);
+    padding: 0.25rem 0.45rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: color-mix(in srgb, var(--sl-color-bg) 94%, transparent);
+    color: var(--sl-color-gray-2);
+    font-size: 0.64rem;
+    line-height: 1.25;
+    text-align: center;
+  }
+  .message-label strong {
+    display: grid;
+    flex: 0 0 auto;
+    width: 1.55rem;
+    height: 1.55rem;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--sl-color-gray-6);
+    color: var(--tobari-control);
+    font-family: var(--sl-font-mono);
+    font-size: 0.56rem;
+  }
+  .message-label.kind-handle {
+    border-color: color-mix(
+      in srgb,
+      var(--tobari-secret) 55%,
+      var(--sl-color-gray-5)
+    );
+  }
+  .message-label.kind-allowed {
+    border-color: color-mix(
+      in srgb,
+      var(--tobari-allowed) 55%,
+      var(--sl-color-gray-5)
+    );
+  }
+  .denied-branch,
   .direct-blocked {
     fill: none;
     stroke: var(--tobari-denied);
-    stroke-width: 2.5;
-    stroke-dasharray: 4 6;
-    opacity: 0.8;
+    stroke-width: 2.4;
+    stroke-dasharray: 5 6;
     vector-effect: non-scaling-stroke;
   }
+  .denied-label,
   .direct-blocked-label {
     position: absolute;
-    z-index: 1;
-    left: 50%;
-    top: 78%;
-    transform: translateX(-50%);
+    z-index: 4;
+    padding: 0.24rem 0.45rem;
+    border: 1px solid
+      color-mix(in srgb, var(--tobari-denied) 55%, var(--sl-color-gray-5));
+    background: var(--sl-color-bg);
     color: var(--tobari-denied);
     font-family: var(--sl-font-mono);
-    font-size: 0.64rem;
-    font-weight: 800;
+    font-size: 0.6rem;
+    font-weight: 750;
   }
-  [data-active-conversation="proxy"] .route-proxy,
-  [data-active-conversation="policy"] .route-policy,
-  [data-active-conversation="decision"] .route-decision,
-  [data-active-conversation="credential"] .route-credential,
-  [data-active-conversation="egress"] .route-egress {
-    stroke: var(--tobari-control);
-    stroke-width: 3.2;
-  }
-  .map-node {
-    position: absolute;
-    z-index: 2;
-    width: 12.5rem;
-    min-height: 7.5rem;
-    margin: 0;
-    padding: 0.9rem;
+  .denied-label {
+    left: 20.8%;
+    top: 51.8%;
+    max-width: 19rem;
     transform: translate(-50%, -50%);
-    border: 2px solid currentColor;
-    background: var(--sl-color-bg);
-    box-shadow: 0 0 0 0.3rem var(--sl-color-bg);
   }
-  .node-workspace {
-    left: 20%;
-    top: 50%;
-    color: var(--tobari-network);
-    border-style: dashed;
-  }
-  .node-gateway {
+  .direct-blocked-label {
     left: 50%;
-    top: 50%;
-    width: 13.75rem;
-    min-height: 9rem;
-    color: var(--tobari-control);
+    top: 94.9%;
+    transform: translate(-50%, -50%);
   }
-  .node-opa {
-    left: 50%;
-    top: 20%;
-    color: var(--tobari-trusted);
+  [data-active-conversation="proxy"] .phase-proxy,
+  [data-active-conversation="policy"] .phase-policy,
+  [data-active-conversation="decision"] .phase-decision,
+  [data-active-conversation="credential"] .phase-credential,
+  [data-active-conversation="egress"] .phase-egress {
+    opacity: 1;
   }
-  .node-broker {
-    left: 50%;
-    top: 80%;
-    color: var(--tobari-secret);
-    border-block-start-style: double;
-    border-block-start-width: 4px;
+  [data-active-conversation="proxy"] .message-route.phase-proxy,
+  [data-active-conversation="policy"] .message-route.phase-policy,
+  [data-active-conversation="decision"] .message-route.phase-decision,
+  [data-active-conversation="credential"] .message-route.phase-credential,
+  [data-active-conversation="egress"] .message-route.phase-egress {
+    stroke-width: 3.4;
   }
-  .node-upstream {
-    left: 80%;
-    top: 50%;
-    color: var(--tobari-network);
-    border-style: dashed;
-  }
-  .map-node.node-active {
-    outline: 3px solid currentColor;
-    outline-offset: 4px;
-  }
-  .node-kind {
-    display: inline-block;
-    padding: 0.12rem 0.35rem;
-    border: 1px solid currentColor;
-    border-radius: 999px;
-    font-family: var(--sl-font-mono);
-    font-size: 0.58rem;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-  .map-node h3 {
-    margin: 0.55rem 0 0.25rem;
+  [data-active-conversation="proxy"] .message-label.phase-proxy,
+  [data-active-conversation="policy"] .message-label.phase-policy,
+  [data-active-conversation="decision"] .message-label.phase-decision,
+  [data-active-conversation="credential"] .message-label.phase-credential,
+  [data-active-conversation="egress"] .message-label.phase-egress {
+    border-width: 2px;
     color: var(--sl-color-white);
-    font-size: var(--sl-text-base);
-  }
-  .map-node p {
-    margin: 0;
-    color: var(--sl-color-gray-2);
-    font-size: var(--sl-text-xs);
-    line-height: 1.45;
-  }
-  .conversation-number {
-    position: absolute;
-    z-index: 3;
-    display: grid;
-    width: 2rem;
-    height: 2rem;
-    place-items: center;
-    transform: translate(-50%, -50%);
-    border: 2px solid var(--tobari-control);
-    border-radius: 50%;
-    background: var(--sl-color-bg);
-    color: var(--tobari-control);
-    font-family: var(--sl-font-mono);
-    font-size: var(--sl-text-xs);
-    font-weight: 850;
-  }
-  .number-proxy {
-    left: 35%;
-    top: 50%;
-  }
-  .number-policy {
-    left: 46.5%;
-    top: 34.5%;
-  }
-  .number-decision {
-    left: 53.5%;
-    top: 34.5%;
-  }
-  .number-credential {
-    left: 50%;
-    top: 65.5%;
-  }
-  .number-egress {
-    left: 65%;
-    top: 50%;
-  }
-  [data-active-conversation="proxy"] .number-proxy,
-  [data-active-conversation="policy"] .number-policy,
-  [data-active-conversation="decision"] .number-decision,
-  [data-active-conversation="credential"] .number-credential,
-  [data-active-conversation="egress"] .number-egress {
-    background: var(--tobari-control);
-    color: var(--sl-color-bg);
   }
   .conversation-tabs {
     display: grid;
@@ -778,7 +1120,7 @@ const ui = isJapanese
   }
   .conversation-tabs button {
     width: 100%;
-    min-height: 5.6rem;
+    min-height: 5.9rem;
     padding: 0.8rem 0.9rem;
     border: 0;
     border-inline-end: 1px solid var(--sl-color-gray-5);
@@ -806,13 +1148,12 @@ const ui = isJapanese
   .conversation-tabs button span {
     color: var(--tobari-control);
     font-family: var(--sl-font-mono);
-    font-size: 0.62rem;
+    font-size: 0.6rem;
     font-weight: 800;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    line-height: 1.35;
   }
   .conversation-tabs button strong {
-    margin-top: 0.45rem;
+    margin-top: 0.42rem;
     font-size: var(--sl-text-xs);
   }
   .conversation-details {
@@ -820,7 +1161,7 @@ const ui = isJapanese
   }
   .conversation-details section {
     display: grid;
-    grid-template-columns: 11rem 1fr;
+    grid-template-columns: 12rem 1fr;
   }
   .conversation-details section[hidden] {
     display: none;
@@ -838,7 +1179,6 @@ const ui = isJapanese
     font-family: var(--sl-font-mono);
     font-size: 0.65rem;
     font-weight: 800;
-    text-transform: uppercase;
   }
   .conversation-details header strong {
     margin-top: 0.5rem;
@@ -868,7 +1208,7 @@ const ui = isJapanese
   }
   .map-transcript {
     margin: 0;
-    padding: 0.1rem 1rem;
+    padding: 0.1rem 1rem 0.8rem;
     border: 0;
     border-block-start: 1px solid var(--sl-color-gray-5);
   }
@@ -881,25 +1221,22 @@ const ui = isJapanese
     padding-inline-start: 1.35rem;
   }
   .map-transcript li > p {
-    margin-block: 0.25rem 0.5rem;
+    margin-block: 0.2rem 0.55rem;
   }
-  .map-transcript dl {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.5rem;
-  }
-  .map-transcript dl div {
-    padding: 0.6rem;
-    border: 1px solid var(--sl-color-gray-5);
-  }
-  .map-transcript dd {
-    margin: 0.25rem 0 0;
+  .transcript-denied,
+  .transcript-blocked {
+    margin: 0.6rem 0 0;
+    color: var(--tobari-denied);
+    font-size: var(--sl-text-sm);
   }
   .compact .map-stage {
-    height: 27rem;
+    height: 49.5rem;
   }
   .compact .map-node {
-    min-height: 6.8rem;
+    min-height: 8rem;
+  }
+  .compact .node-network {
+    display: none;
   }
   @media (max-width: 52rem) {
     .system-map figcaption {
@@ -911,7 +1248,12 @@ const ui = isJapanese
       margin-top: 0.7rem;
     }
     .conversation-tabs {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: 1fr;
+    }
+    .conversation-tabs button {
+      min-height: 0;
+      border-inline-end: 0;
+      border-block-end: 1px solid var(--sl-color-gray-5);
     }
     .conversation-details section {
       grid-template-columns: 1fr;
@@ -923,12 +1265,10 @@ const ui = isJapanese
     .conversation-details dl {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .map-transcript dl {
-      grid-template-columns: 1fr;
-    }
   }
   @media print {
     .map-scroll,
+    .map-legend,
     .conversation-tabs,
     .conversation-details {
       display: none;
