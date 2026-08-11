@@ -1,7 +1,9 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-async function expectContextAfterLaterHeading(page: import("@playwright/test").Page) {
+async function expectContextAfterLaterHeading(
+  page: import("@playwright/test").Page,
+) {
   const text = (await page.locator("main").innerText()).replace(/\s+/g, " ");
   const later = text.indexOf("あとで:");
   const context = text.indexOf("Context");
