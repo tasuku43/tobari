@@ -29,11 +29,11 @@ type RuntimePort interface {
 	ReadPolicyDenyRules(context.Context, tobari.State) (tobari.PolicyDenyRuleSet, error)
 	ApplyLearnedPolicyRules(
 		context.Context, tobari.State, []tobari.LearnedPolicyRule, []tobari.LearnedPolicyRule,
-	) error
+	) (tobari.PolicyActivationReceipt, error)
 	ApplyPolicyDenyRules(
 		context.Context, tobari.State, []tobari.LearnedPolicyRule,
 		[]tobari.PolicyDenyRule, []tobari.PolicyDenyRule,
-	) error
+	) (tobari.PolicyActivationReceipt, error)
 	ClusterDown(context.Context, tobari.State, bool) error
 }
 
@@ -42,7 +42,7 @@ type policyDecisionSetRuntimePort interface {
 		context.Context, tobari.State,
 		[]tobari.LearnedPolicyRule, []tobari.LearnedPolicyRule,
 		[]tobari.PolicyDenyRule, []tobari.PolicyDenyRule,
-	) (string, error)
+	) (tobari.PolicyActivationReceipt, error)
 }
 
 // clusterUpProgressRuntimePort is an optional extension of RuntimePort. The
@@ -1363,13 +1363,16 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 		Intent: intent, ExpectedCommand: "policy apply-reviewed", ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
-	activeRevision := ""
+	activation := tobari.PolicyActivationReceipt{}
 	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
 		var applyErr error
-		activeRevision, applyErr = runtime.ApplyPolicyDecisionSet(
+		activation, applyErr = runtime.ApplyPolicyDecisionSet(
 			actionContext, state, rules, updatedAllows, denyRules.Exact, updatedDenies,
 		)
-		return applyErr
+		if applyErr != nil {
+			return applyErr
+		}
+		return activation.Validate()
 	})
 	if err != nil {
 		if _, structured := fault.PublicCopy(err); structured {
@@ -1382,9 +1385,9 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 		)
 	}
 	result := tobari.PolicyReviewChange{
-		Task: tobari.TaskPolicyReviewApply, PolicyDirectory: state.PolicyDirectory,
+		Task: tobari.TaskPolicyReviewApply, PolicyDirectory: activation.PolicyDirectory,
 		AllowCount: allowCount, DenyCount: denyCount, Applied: true,
-		ActiveRevision: activeRevision, Decisions: receipt,
+		ActiveRevision: activation.ActiveRevision, Decisions: receipt,
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.PolicyReviewChange{}, fault.Wrap(
@@ -1478,15 +1481,17 @@ func validatePolicyMutationTarget(intent operation.Intent, kind, id string) erro
 func (s *Service) applyLearnedRules(
 	ctx context.Context, intent operation.Intent, expectedCommand string,
 	state tobari.State, expected, updated []tobari.LearnedPolicyRule,
-) error {
+) (tobari.PolicyActivationReceipt, error) {
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: expectedCommand, ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
-	return s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		actionErr := s.runtime.ApplyLearnedPolicyRules(actionContext, state, expected, updated)
+	receipt := tobari.PolicyActivationReceipt{}
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		var actionErr error
+		receipt, actionErr = s.runtime.ApplyLearnedPolicyRules(actionContext, state, expected, updated)
 		if actionErr == nil {
-			return nil
+			return receipt.Validate()
 		}
 		if _, structured := fault.PublicCopy(actionErr); structured {
 			return actionErr
@@ -1500,23 +1505,26 @@ func (s *Service) applyLearnedRules(
 			},
 		)
 	})
+	return receipt, err
 }
 
 func (s *Service) applyPolicyDenies(
 	ctx context.Context, intent operation.Intent, expectedCommand string, state tobari.State,
 	expectedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
-) error {
+) (tobari.PolicyActivationReceipt, error) {
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: expectedCommand, ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
 	}
-	return s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		actionErr := s.runtime.ApplyPolicyDenyRules(
+	receipt := tobari.PolicyActivationReceipt{}
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		var actionErr error
+		receipt, actionErr = s.runtime.ApplyPolicyDenyRules(
 			actionContext, state, expectedAllows, expectedDenies, updatedDenies,
 		)
 		if actionErr == nil {
-			return nil
+			return receipt.Validate()
 		}
 		if _, structured := fault.PublicCopy(actionErr); structured {
 			return actionErr
@@ -1530,6 +1538,7 @@ func (s *Service) applyPolicyDenies(
 			},
 		)
 	})
+	return receipt, err
 }
 
 // AllowPolicyCandidate records and activates one exact retained denial.
@@ -1597,11 +1606,12 @@ func (s *Service) AllowPolicyCandidate(
 			"exact learned policy is invalid", false, err,
 		)
 	}
-	if err := s.applyLearnedRules(ctx, intent, "policy allow", state, rules, updated); err != nil {
+	activation, err := s.applyLearnedRules(ctx, intent, "policy allow", state, rules, updated)
+	if err != nil {
 		return tobari.PolicyLearningChange{}, err
 	}
 	result := tobari.PolicyLearningChange{
-		Task: tobari.TaskPolicyAllow, PolicyDirectory: state.PolicyDirectory,
+		Task: tobari.TaskPolicyAllow, PolicyDirectory: activation.PolicyDirectory,
 		TargetID: id, Rule: rule, SourceRuleCount: 1, Applied: true,
 	}
 	if err := result.Validate(); err != nil {
@@ -1678,11 +1688,12 @@ func (s *Service) DenyPolicyCandidate(
 			fault.KindContract, "invalid_policy_deny", "exact policy deny is invalid", false, err,
 		)
 	}
-	if err := s.applyPolicyDenies(ctx, intent, "policy deny", state, rules, denyRules.Exact, updatedDenies); err != nil {
+	activation, err := s.applyPolicyDenies(ctx, intent, "policy deny", state, rules, denyRules.Exact, updatedDenies)
+	if err != nil {
 		return tobari.PolicyDenyChange{}, err
 	}
 	result := tobari.PolicyDenyChange{
-		Task: tobari.TaskPolicyDeny, PolicyDirectory: state.PolicyDirectory,
+		Task: tobari.TaskPolicyDeny, PolicyDirectory: activation.PolicyDirectory,
 		TargetID: id, Rule: rule, SourceRuleCount: 1, Applied: true,
 	}
 	if err := result.Validate(); err != nil {
@@ -1726,17 +1737,20 @@ func (s *Service) ResetPolicyRule(
 			"policy rule is stale, baseline-owned, or no longer current", false, err,
 		)
 	}
+	activation := tobari.PolicyActivationReceipt{}
 	if removed.Decision == tobari.PolicyDecisionAllow {
-		if err := s.applyLearnedRules(ctx, intent, "policy reset", state, rules, updatedRules); err != nil {
+		activation, err = s.applyLearnedRules(ctx, intent, "policy reset", state, rules, updatedRules)
+		if err != nil {
 			return tobari.PolicyRuleReset{}, err
 		}
 	} else {
-		if err := s.applyPolicyDenies(ctx, intent, "policy reset", state, rules, denyRules.Exact, updatedDenies); err != nil {
+		activation, err = s.applyPolicyDenies(ctx, intent, "policy reset", state, rules, denyRules.Exact, updatedDenies)
+		if err != nil {
 			return tobari.PolicyRuleReset{}, err
 		}
 	}
 	result := tobari.PolicyRuleReset{
-		Task: tobari.TaskPolicyReset, PolicyDirectory: state.PolicyDirectory,
+		Task: tobari.TaskPolicyReset, PolicyDirectory: activation.PolicyDirectory,
 		TargetID: id, Decision: removed.Decision, Applied: true,
 	}
 	if err := result.Validate(); err != nil {
@@ -1805,11 +1819,12 @@ func (s *Service) CompactPolicy(
 			"policy compaction is stale or no longer safe", false, err,
 		)
 	}
-	if err := s.applyLearnedRules(ctx, intent, "policy compact", state, rules, updated); err != nil {
+	activation, err := s.applyLearnedRules(ctx, intent, "policy compact", state, rules, updated)
+	if err != nil {
 		return tobari.PolicyLearningChange{}, err
 	}
 	result := tobari.PolicyLearningChange{
-		Task: tobari.TaskPolicyCompact, PolicyDirectory: state.PolicyDirectory,
+		Task: tobari.TaskPolicyCompact, PolicyDirectory: activation.PolicyDirectory,
 		TargetID: id, Rule: rule, SourceRuleCount: len(selected.SourceRuleIDs), Applied: true,
 	}
 	if err := result.Validate(); err != nil {

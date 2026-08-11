@@ -227,7 +227,10 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			results <- result{index: index, err: runtimeStore.ApplyLearnedPolicyRules(context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule})}
+			_, err := runtimeStore.ApplyLearnedPolicyRules(
+				context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
+			)
+			results <- result{index: index, err: err}
 		}()
 	}
 	wait.Wait()
@@ -257,7 +260,7 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 		t.Fatalf("first committed rules = %+v, error=%v", current, err)
 	}
 	updated := append(append([]tobari.LearnedPolicyRule{}, current...), rules[loser])
-	if err := runtimeStore.ApplyLearnedPolicyRules(context.Background(), stored, current, updated); err != nil {
+	if _, err := runtimeStore.ApplyLearnedPolicyRules(context.Background(), stored, current, updated); err != nil {
 		t.Fatalf("retry after rediscovery failed: %v", err)
 	}
 	latest, exists, err := runtimeStore.LoadState(context.Background())
@@ -282,7 +285,7 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	if restrictedDeny.ID >= defaultDeny.ID {
 		t.Fatal("could not construct reverse Context-order deny IDs")
 	}
-	if err := runtimeStore.ApplyPolicyDenyRules(
+	if _, err := runtimeStore.ApplyPolicyDenyRules(
 		context.Background(), latest, committed, []tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{defaultDeny},
 	); err != nil {
 		t.Fatalf("apply default deny: %v", err)
@@ -295,7 +298,7 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runtimeStore.ApplyPolicyDenyRules(
+	if _, err := runtimeStore.ApplyPolicyDenyRules(
 		context.Background(), latest, committed, denies.Exact, append(append([]tobari.PolicyDenyRule{}, denies.Exact...), restrictedDeny),
 	); err != nil {
 		t.Fatalf("apply restricted deny: %v", err)
@@ -308,7 +311,7 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	if err != nil || len(denies.Exact) != 2 || denies.Exact[0].ID != restrictedDeny.ID || denies.Exact[1].ID != defaultDeny.ID {
 		t.Fatalf("aggregate deny order = %+v, error=%v", denies.Exact, err)
 	}
-	if err := runtimeStore.ApplyPolicyDenyRules(
+	if _, err := runtimeStore.ApplyPolicyDenyRules(
 		context.Background(), latest, committed, denies.Exact, denies.Exact[1:],
 	); err != nil {
 		t.Fatalf("reset after deterministic cross-Context discovery: %v", err)
@@ -348,7 +351,7 @@ func TestApplyPolicyDecisionSetRejectsMultipleContextSourcesBeforeDocker(t *test
 	}
 }
 
-func TestApplyPolicyDecisionSetReturnsTheActivatedAggregateRevision(t *testing.T) {
+func TestApplyPolicyDecisionSetReturnsTheActivatedAggregateProjection(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
@@ -373,7 +376,7 @@ func TestApplyPolicyDecisionSetReturnsTheActivatedAggregateRevision(t *testing.T
 		t.Fatal(err)
 	}
 	rule := contextRuleFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/reviewed")
-	activeRevision, err := runtimeStore.ApplyPolicyDecisionSet(
+	receipt, err := runtimeStore.ApplyPolicyDecisionSet(
 		context.Background(), state,
 		[]tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
 		[]tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{},
@@ -389,12 +392,76 @@ func TestApplyPolicyDecisionSetReturnsTheActivatedAggregateRevision(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if activeRevision == "" || activeRevision == state.AggregateRevision ||
-		activeRevision != stored.AggregateRevision || activeRevision != freshProjection.Revision {
+	if err := receipt.Validate(); err != nil {
+		t.Fatalf("activation receipt: %v", err)
+	}
+	if receipt.ActiveRevision == state.AggregateRevision ||
+		receipt.ActiveRevision != stored.AggregateRevision || receipt.ActiveRevision != freshProjection.Revision ||
+		receipt.PolicyDirectory == state.PolicyDirectory || receipt.PolicyDirectory != stored.PolicyDirectory ||
+		receipt.PolicyDirectory != freshProjection.PolicyDirectory {
 		t.Fatalf(
-			"returned=%q original=%q stored=%q projection=%q",
-			activeRevision, state.AggregateRevision, stored.AggregateRevision, freshProjection.Revision,
+			"receipt=%+v original=%+v stored=%+v projection=%+v",
+			receipt, state, stored, freshProjection,
 		)
+	}
+}
+
+func TestSinglePolicyMutationsReturnTheActivatedAggregateProjection(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
+	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	manifest, _, err := runtimeStore.resolveContext("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := runtimeStore.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(root)
+	state.AggregateRevision = projection.Revision
+	state.ContextCount = projection.ContextCount
+	state.PolicyDirectory = projection.PolicyDirectory
+	state.CredentialConfig = projection.CredentialConfig
+	state.CredentialDir = projection.CredentialDirectory
+	if err := runtimeStore.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	allow := contextRuleFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/single-allow")
+	allowReceipt, err := runtimeStore.ApplyLearnedPolicyRules(
+		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{allow},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, configured, err := runtimeStore.LoadState(context.Background())
+	if err != nil || !configured {
+		t.Fatalf("load allow state: configured=%v err=%v", configured, err)
+	}
+	if err := allowReceipt.Validate(); err != nil || allowReceipt.PolicyDirectory != stored.PolicyDirectory ||
+		allowReceipt.ActiveRevision != stored.AggregateRevision || allowReceipt.PolicyDirectory == state.PolicyDirectory {
+		t.Fatalf("allow receipt=%+v stored=%+v validate=%v", allowReceipt, stored, err)
+	}
+
+	deny := contextDenyFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/single-deny")
+	denyReceipt, err := runtimeStore.ApplyPolicyDenyRules(
+		context.Background(), stored, []tobari.LearnedPolicyRule{allow},
+		[]tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{deny},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, configured, err := runtimeStore.LoadState(context.Background())
+	if err != nil || !configured {
+		t.Fatalf("load deny state: configured=%v err=%v", configured, err)
+	}
+	if err := denyReceipt.Validate(); err != nil || denyReceipt.PolicyDirectory != latest.PolicyDirectory ||
+		denyReceipt.ActiveRevision != latest.AggregateRevision || denyReceipt.PolicyDirectory == stored.PolicyDirectory {
+		t.Fatalf("deny receipt=%+v latest=%+v validate=%v", denyReceipt, latest, err)
 	}
 }
 
@@ -425,7 +492,7 @@ func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testi
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	rule := learnedRuleFixture(t, "/repos/cli/cli")
 
-	if err := runtime.ApplyLearnedPolicyRules(
+	if _, err := runtime.ApplyLearnedPolicyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
 	); err != nil {
 		t.Fatal(err)
@@ -472,7 +539,7 @@ func TestApplyLearnedPolicyRulesPreservesHostDataAndActivatesTestedCopy(t *testi
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("data.json mode = %v, error = %v", info.Mode().Perm(), err)
 	}
-	if err := runtime.ApplyLearnedPolicyRules(
+	if _, err := runtime.ApplyLearnedPolicyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{rule}, []tobari.LearnedPolicyRule{},
 	); err != nil {
 		t.Fatal(err)
@@ -496,7 +563,7 @@ func TestApplyLearnedPolicyRulesRejectsChangedDataBeforeDockerOrWrite(t *testing
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	stale := learnedRuleFixture(t, "/repos/cli/stale")
 
-	err = runtime.ApplyLearnedPolicyRules(
+	_, err = runtime.ApplyLearnedPolicyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{stale}, []tobari.LearnedPolicyRule{},
 	)
 	public, ok := fault.PublicCopy(err)
@@ -534,7 +601,7 @@ func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) 
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	rule := deniedRuleFixture(t, "/user/settings")
 
-	if err := runtime.ApplyPolicyDenyRules(
+	if _, err := runtime.ApplyPolicyDenyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{},
 		[]tobari.PolicyDenyRule{}, []tobari.PolicyDenyRule{rule},
 	); err != nil {
@@ -567,7 +634,7 @@ func TestApplyPolicyDenyRulesPreservesAllowsAndActivatesExactDeny(t *testing.T) 
 	if err != nil || len(read.Exact) != 1 || read.Exact[0].ID != rule.ID {
 		t.Fatalf("read deny rules = %+v, error = %v", read, err)
 	}
-	if err := runtime.ApplyPolicyDenyRules(
+	if _, err := runtime.ApplyPolicyDenyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.PolicyDenyRule{rule}, []tobari.PolicyDenyRule{},
 	); err != nil {
 		t.Fatal(err)
@@ -591,7 +658,7 @@ func TestApplyPolicyDenyRulesRejectsChangedDenySnapshotBeforeDockerOrWrite(t *te
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	rule := deniedRuleFixture(t, "/user/settings")
 
-	err = runtime.ApplyPolicyDenyRules(
+	_, err = runtime.ApplyPolicyDenyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{},
 		[]tobari.PolicyDenyRule{rule}, []tobari.PolicyDenyRule{},
 	)
@@ -618,7 +685,7 @@ func TestApplyLearnedPolicyRulesRejectsFailedPreflightBeforeWrite(t *testing.T) 
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	rule := learnedRuleFixture(t, "/repos/cli/cli")
 
-	err = runtime.ApplyLearnedPolicyRules(
+	_, err = runtime.ApplyLearnedPolicyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
 	)
 	public, ok := fault.PublicCopy(err)
@@ -653,7 +720,7 @@ func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	rule := learnedRuleFixture(t, "/repos/cli/cli")
 
-	err := runtime.ApplyLearnedPolicyRules(
+	_, err := runtime.ApplyLearnedPolicyRules(
 		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
 	)
 	public, ok := fault.PublicCopy(err)
@@ -710,7 +777,7 @@ func TestManagedPolicyDataRejectsAmbiguousOrUnsafeHostFiles(t *testing.T) {
 			runner := &recordingRunner{}
 			runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 			rule := learnedRuleFixture(t, "/repos/cli/cli")
-			err := runtime.ApplyLearnedPolicyRules(
+			_, err := runtime.ApplyLearnedPolicyRules(
 				context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
 			)
 			if err == nil || len(runner.outputs) != 0 {

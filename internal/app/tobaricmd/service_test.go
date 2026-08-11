@@ -30,6 +30,7 @@ type fakeRuntime struct {
 	denyCalls           int
 	decisionSetCalls    int
 	decisionSetRevision string
+	activationReceipt   tobari.PolicyActivationReceipt
 	execSeen            tobari.Instance
 	denials             []tobari.PolicyDenial
 	rules               []tobari.LearnedPolicyRule
@@ -211,31 +212,43 @@ func (f *fakeRuntime) ReadPolicyDenyRules(context.Context, tobari.State) (tobari
 }
 func (f *fakeRuntime) ApplyLearnedPolicyRules(
 	_ context.Context, _ tobari.State, _, updated []tobari.LearnedPolicyRule,
-) error {
+) (tobari.PolicyActivationReceipt, error) {
 	f.learnedCalls++
 	f.rules = append([]tobari.LearnedPolicyRule{}, updated...)
-	return nil
+	return f.policyActivationReceipt(), nil
 }
 func (f *fakeRuntime) ApplyPolicyDenyRules(
 	_ context.Context, _ tobari.State, _ []tobari.LearnedPolicyRule,
 	_ []tobari.PolicyDenyRule, updated []tobari.PolicyDenyRule,
-) error {
+) (tobari.PolicyActivationReceipt, error) {
 	f.denyCalls++
 	f.denyRules = append([]tobari.PolicyDenyRule{}, updated...)
-	return nil
+	return f.policyActivationReceipt(), nil
 }
 func (f *fakeRuntime) ApplyPolicyDecisionSet(
 	_ context.Context, _ tobari.State,
 	_ []tobari.LearnedPolicyRule, updatedAllows []tobari.LearnedPolicyRule,
 	_ []tobari.PolicyDenyRule, updatedDenies []tobari.PolicyDenyRule,
-) (string, error) {
+) (tobari.PolicyActivationReceipt, error) {
 	f.decisionSetCalls++
 	f.rules = append([]tobari.LearnedPolicyRule{}, updatedAllows...)
 	f.denyRules = append([]tobari.PolicyDenyRule{}, updatedDenies...)
 	if f.decisionSetRevision == "" {
 		f.decisionSetRevision = strings.Repeat("b", 64)
 	}
-	return f.decisionSetRevision, nil
+	receipt := f.policyActivationReceipt()
+	receipt.ActiveRevision = f.decisionSetRevision
+	return receipt, nil
+}
+
+func (f *fakeRuntime) policyActivationReceipt() tobari.PolicyActivationReceipt {
+	if f.activationReceipt.PolicyDirectory == "" {
+		f.activationReceipt.PolicyDirectory = filepath.Join(filepath.Dir(f.state.PolicyDirectory), "confirmed", "policy")
+	}
+	if f.activationReceipt.ActiveRevision == "" {
+		f.activationReceipt.ActiveRevision = strings.Repeat("c", 64)
+	}
+	return f.activationReceipt
 }
 func (f *fakeRuntime) TobariLogs(context.Context, tobari.Instance, tobari.LogRequest) ([]byte, error) {
 	return []byte("tobari\n"), nil
@@ -1030,7 +1043,8 @@ func TestAllowPolicyCandidateBindsReferenceBeforeApplying(t *testing.T) {
 		t.Fatal(err)
 	}
 	if runtime.learnedCalls != 1 || result.TargetID != candidate.ID ||
-		result.Rule.Match != tobari.PolicyMatchExact || !result.Applied {
+		result.Rule.Match != tobari.PolicyMatchExact || !result.Applied ||
+		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory {
 		t.Fatalf("result=%+v calls=%d", result, runtime.learnedCalls)
 	}
 
@@ -1045,6 +1059,32 @@ func TestAllowPolicyCandidateBindsReferenceBeforeApplying(t *testing.T) {
 	}
 	if runtime.learnedCalls != 1 {
 		t.Fatalf("mismatched target caused mutation: %d", runtime.learnedCalls)
+	}
+}
+
+func TestPolicyActivationReceiptFailureDoesNotMakeConfirmedMutationRetryable(t *testing.T) {
+	t.Parallel()
+	denial := validServiceDenial()
+	candidate, err := tobari.NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &fakeRuntime{
+		state:   testState(t.TempDir()),
+		denials: []tobari.PolicyDenial{denial},
+		activationReceipt: tobari.PolicyActivationReceipt{
+			PolicyDirectory: "relative/policy",
+			ActiveRevision:  strings.Repeat("d", 64),
+		},
+	}
+	_, err = New(runtime).AllowPolicyCandidate(
+		context.Background(),
+		policyLearningIntent("policy allow", tobari.PolicyCandidateKind, candidate.ID),
+		candidate.ID,
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "unclassified_mutation_outcome" || public.Retryable || runtime.learnedCalls != 1 {
+		t.Fatalf("fault=%#v mutation calls=%d", public, runtime.learnedCalls)
 	}
 }
 
@@ -1079,6 +1119,7 @@ func TestApplyPolicyReviewDecisionSetRevalidatesAndActivatesOnce(t *testing.T) {
 	if runtime.decisionSetCalls != 1 || len(runtime.rules) != 1 || len(runtime.denyRules) != 1 ||
 		result.AllowCount != 1 || result.DenyCount != 1 || !result.Applied ||
 		result.ActiveRevision != strings.Repeat("b", 64) || len(result.Decisions) != 2 ||
+		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory ||
 		result.Decisions[0].CandidateID != allowCandidate.ID ||
 		result.Decisions[1].CandidateID != denyCandidate.ID {
 		t.Fatalf("result=%+v calls=%d allows=%+v denies=%+v", result, runtime.decisionSetCalls, runtime.rules, runtime.denyRules)
@@ -1161,6 +1202,7 @@ func TestDenyPolicyCandidateBindsExactReferenceAndRemovesQueueItem(t *testing.T)
 		t.Fatal(err)
 	}
 	if runtime.denyCalls != 1 || result.TargetID != candidate.ID || !result.Applied ||
+		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory ||
 		len(runtime.denyRules) != 1 || !runtime.denyRules[0].Matches(
 		candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path,
 	) {
@@ -1221,7 +1263,8 @@ func TestPolicyRulesAndResetKeepAllowAndDenyReversible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resetAllow.Decision != tobari.PolicyDecisionAllow || !resetAllow.Applied || runtime.learnedCalls != 1 || len(runtime.rules) != 0 || len(runtime.denyRules) != 1 {
+	if resetAllow.Decision != tobari.PolicyDecisionAllow || !resetAllow.Applied || runtime.learnedCalls != 1 || len(runtime.rules) != 0 || len(runtime.denyRules) != 1 ||
+		resetAllow.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory {
 		t.Fatalf("allow reset=%+v learned calls=%d rules=%+v denies=%+v", resetAllow, runtime.learnedCalls, runtime.rules, runtime.denyRules)
 	}
 
@@ -1231,7 +1274,8 @@ func TestPolicyRulesAndResetKeepAllowAndDenyReversible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resetDeny.Decision != tobari.PolicyDecisionDeny || !resetDeny.Applied || runtime.denyCalls != 1 || len(runtime.denyRules) != 0 {
+	if resetDeny.Decision != tobari.PolicyDecisionDeny || !resetDeny.Applied || runtime.denyCalls != 1 || len(runtime.denyRules) != 0 ||
+		resetDeny.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory {
 		t.Fatalf("deny reset=%+v deny calls=%d denies=%+v", resetDeny, runtime.denyCalls, runtime.denyRules)
 	}
 	if report, err := service.PolicyRules(context.Background()); err != nil || len(report.Items) != 0 {
@@ -1291,7 +1335,8 @@ func TestPolicyCompactionRoundTripUsesCurrentOpaqueReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	if runtime.learnedCalls != 1 || result.TargetID != id ||
-		result.Rule.Match != tobari.PolicyMatchPrefix || result.SourceRuleCount != 3 {
+		result.Rule.Match != tobari.PolicyMatchPrefix || result.SourceRuleCount != 3 ||
+		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory {
 		t.Fatalf("result=%+v calls=%d", result, runtime.learnedCalls)
 	}
 	if _, err := New(runtime).CompactPolicy(

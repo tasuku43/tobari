@@ -616,7 +616,7 @@ func atomicWriteOwnerFile(path string, data []byte) error {
 func (r *Runtime) ApplyLearnedPolicyRules(
 	ctx context.Context, state tobari.State,
 	expected, updated []tobari.LearnedPolicyRule,
-) error {
+) (tobari.PolicyActivationReceipt, error) {
 	return r.applyPolicyData(ctx, state, expected, updated, nil, nil, false)
 }
 
@@ -627,7 +627,7 @@ func (r *Runtime) ApplyPolicyDenyRules(
 	ctx context.Context, state tobari.State,
 	expectedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
-) error {
+) (tobari.PolicyActivationReceipt, error) {
 	return r.applyPolicyData(ctx, state, expectedAllows, nil, expectedDenies, updatedDenies, true)
 }
 
@@ -636,30 +636,37 @@ func (r *Runtime) applyPolicyData(
 	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
 	checkDenySnapshot bool,
-) error {
+) (tobari.PolicyActivationReceipt, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return tobari.PolicyActivationReceipt{}, err
 	}
 	if err := state.Validate(); err != nil {
-		return err
+		return tobari.PolicyActivationReceipt{}, err
 	}
 	if strings.HasPrefix(state.PolicyDirectory, r.aggregateRoot()+string(filepath.Separator)) {
 		return r.applyAggregatePolicyData(
-			ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot, nil,
+			ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot,
 		)
 	}
+	receipt := tobari.PolicyActivationReceipt{
+		PolicyDirectory: state.PolicyDirectory,
+		ActiveRevision:  state.AggregateRevision,
+	}
+	if err := receipt.Validate(); err != nil {
+		return tobari.PolicyActivationReceipt{}, err
+	}
 	if err := tobari.ValidateLearnedPolicyRules(expectedAllows); err != nil {
-		return err
+		return tobari.PolicyActivationReceipt{}, err
 	}
 	if updatedAllows == nil {
 		updatedAllows = expectedAllows
 	}
 	if err := tobari.ValidateLearnedPolicyRules(updatedAllows); err != nil {
-		return err
+		return tobari.PolicyActivationReceipt{}, err
 	}
 	file, err := readPolicyData(state.PolicyDirectory)
 	if err != nil {
-		return fault.Wrap(
+		return tobari.PolicyActivationReceipt{}, fault.Wrap(
 			fault.KindRejected, "policy_data_invalid",
 			"host policy data is not safe for managed learning", false, err,
 		)
@@ -667,7 +674,7 @@ func (r *Runtime) applyPolicyData(
 	expectedAllows = append([]tobari.LearnedPolicyRule{}, expectedAllows...)
 	sort.Slice(expectedAllows, func(i, j int) bool { return expectedAllows[i].ID < expectedAllows[j].ID })
 	if !reflect.DeepEqual(file.rules, expectedAllows) {
-		return fault.New(
+		return tobari.PolicyActivationReceipt{}, fault.New(
 			fault.KindRejected, "policy_data_changed",
 			"learned policy rules changed after discovery", false,
 		)
@@ -683,16 +690,16 @@ func (r *Runtime) applyPolicyData(
 		Baseline: file.baselineDenyRules, Exact: updatedDenies,
 	}
 	if err := denyExpected.Validate(); err != nil {
-		return fault.Wrap(fault.KindRejected, "policy_data_invalid", "host policy deny data is invalid", false, err)
+		return tobari.PolicyActivationReceipt{}, fault.Wrap(fault.KindRejected, "policy_data_invalid", "host policy deny data is invalid", false, err)
 	}
 	if !reflect.DeepEqual(file.denyRules, expectedDenies) {
-		return fault.New(
+		return tobari.PolicyActivationReceipt{}, fault.New(
 			fault.KindRejected, "policy_data_changed",
 			"policy deny rules changed after discovery", false,
 		)
 	}
 	if err := denyUpdated.Validate(); err != nil {
-		return fault.Wrap(fault.KindContract, "invalid_policy_deny", "exact policy deny update is invalid", false, err)
+		return tobari.PolicyActivationReceipt{}, fault.Wrap(fault.KindContract, "invalid_policy_deny", "exact policy deny update is invalid", false, err)
 	}
 	data, err := file.withPolicyRules(updatedAllows, updatedDenies)
 	if err != nil {
@@ -702,20 +709,20 @@ func (r *Runtime) applyPolicyData(
 			code = "invalid_policy_deny"
 			message = "exact policy deny update is invalid"
 		}
-		return fault.Wrap(
+		return tobari.PolicyActivationReceipt{}, fault.Wrap(
 			fault.KindContract, code, message, false, err,
 		)
 	}
 	preflight, err := copyPolicyForPreflight(state.PolicyDirectory, data)
 	if err != nil {
-		return fault.Wrap(
+		return tobari.PolicyActivationReceipt{}, fault.Wrap(
 			fault.KindRejected, "policy_preflight_failed",
 			"candidate policy could not be prepared for testing", false, err,
 		)
 	}
 	defer func() { _ = os.RemoveAll(preflight) }()
 	if err := r.testPolicyDirectory(ctx, preflight); err != nil {
-		return fault.Wrap(
+		return tobari.PolicyActivationReceipt{}, fault.Wrap(
 			fault.KindRejected, "policy_preflight_failed",
 			"candidate policy failed OPA tests", false, err,
 		)
@@ -724,21 +731,21 @@ func (r *Runtime) applyPolicyData(
 		filepath.Join(state.PolicyDirectory, "data.json"), maxPolicyDataBytes,
 	)
 	if err != nil || !bytes.Equal(current, file.source) {
-		return fault.Wrap(
+		return tobari.PolicyActivationReceipt{}, fault.Wrap(
 			fault.KindRejected, "policy_data_changed",
 			"policy data changed while the candidate was being tested", false, err,
 		)
 	}
 	if err := atomicWriteOwnerFile(filepath.Join(state.PolicyDirectory, "data.json"), data); err != nil {
-		return fault.Wrap(
+		return tobari.PolicyActivationReceipt{}, fault.Wrap(
 			fault.KindInternal, "policy_write_failed",
 			"tested policy data could not be written atomically", false, err,
 		)
 	}
 	if err := r.activatePolicyRevision(ctx, state, policyAuthorityReduces(expectedAllows, updatedAllows, expectedDenies, updatedDenies)); err != nil {
-		return err
+		return tobari.PolicyActivationReceipt{}, err
 	}
-	return nil
+	return receipt, nil
 }
 
 func policyAuthorityReduces(
@@ -841,36 +848,36 @@ func (r *Runtime) applyAggregatePolicyData(
 	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
 	checkDenySnapshot bool,
-	activeRevision *string,
-) error {
+) (tobari.PolicyActivationReceipt, error) {
 	if updatedAllows == nil {
 		updatedAllows = expectedAllows
 	}
 	if !checkDenySnapshot {
 		currentDenies, err := r.ReadPolicyDenyRules(ctx, state)
 		if err != nil {
-			return err
+			return tobari.PolicyActivationReceipt{}, err
 		}
 		expectedDenies = currentDenies.Exact
 		updatedDenies = currentDenies.Exact
 	}
 	if err := tobari.ValidateLearnedPolicyRules(expectedAllows); err != nil {
-		return err
+		return tobari.PolicyActivationReceipt{}, err
 	}
 	if err := tobari.ValidateLearnedPolicyRules(updatedAllows); err != nil {
-		return err
+		return tobari.PolicyActivationReceipt{}, err
 	}
 	targetContexts, err := policyMutationContexts(expectedAllows, updatedAllows, expectedDenies, updatedDenies)
 	if err != nil {
-		return fault.Wrap(fault.KindContract, "invalid_policy_scope", "policy mutation Context scope is invalid", false, err)
+		return tobari.PolicyActivationReceipt{}, fault.Wrap(fault.KindContract, "invalid_policy_scope", "policy mutation Context scope is invalid", false, err)
 	}
 	if checkDenySnapshot && len(targetContexts) != 1 {
-		return fault.New(
+		return tobari.PolicyActivationReceipt{}, fault.New(
 			fault.KindRejected, "policy_review_scope_mixed",
 			"one reviewed Apply cannot span multiple Context policy sources", false,
 		)
 	}
-	return r.withPolicyProjectionLock(ctx, func() error {
+	receipt := tobari.PolicyActivationReceipt{}
+	err = r.withPolicyProjectionLock(ctx, func() error {
 		stored, configured, err := r.LoadState(ctx)
 		if err != nil || !configured {
 			return fault.Wrap(fault.KindRejected, "policy_state_changed", "shared policy state changed after discovery", false, err)
@@ -969,6 +976,16 @@ func (r *Runtime) applyAggregatePolicyData(
 		candidateState.PolicyDirectory = projection.PolicyDirectory
 		candidateState.CredentialConfig = projection.CredentialConfig
 		candidateState.CredentialDir = projection.CredentialDirectory
+		candidateReceipt := tobari.PolicyActivationReceipt{
+			PolicyDirectory: candidateState.PolicyDirectory,
+			ActiveRevision:  candidateState.AggregateRevision,
+		}
+		if err := candidateReceipt.Validate(); err != nil {
+			for _, update := range updates {
+				_ = atomicWriteOwnerFile(update.sourcePath, update.original)
+			}
+			return err
+		}
 		if err := r.activatePolicyRevision(
 			ctx, candidateState,
 			policyAuthorityReduces(expectedAllows, updatedAllows, expectedDenies, updatedDenies),
@@ -980,11 +997,10 @@ func (r *Runtime) applyAggregatePolicyData(
 			rollback()
 			return fmt.Errorf("persist aggregate policy activation: %w", err)
 		}
-		if activeRevision != nil {
-			*activeRevision = candidateState.AggregateRevision
-		}
+		receipt = candidateReceipt
 		return nil
 	})
+	return receipt, err
 }
 
 // ApplyPolicyDecisionSet records a bounded reviewed set in one Context source
@@ -994,10 +1010,8 @@ func (r *Runtime) ApplyPolicyDecisionSet(
 	ctx context.Context, state tobari.State,
 	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
-) (string, error) {
-	activeRevision := ""
-	err := r.applyAggregatePolicyData(
-		ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, true, &activeRevision,
+) (tobari.PolicyActivationReceipt, error) {
+	return r.applyAggregatePolicyData(
+		ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, true,
 	)
-	return activeRevision, err
 }

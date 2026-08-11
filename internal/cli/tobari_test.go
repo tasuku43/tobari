@@ -73,17 +73,17 @@ func (f *policyReviewRuntimeFake) ReadPolicyDenyRules(context.Context, tobari.St
 	}, nil
 }
 func (f *policyReviewRuntimeFake) ApplyLearnedPolicyRules(
-	context.Context, tobari.State, []tobari.LearnedPolicyRule, []tobari.LearnedPolicyRule,
-) error {
-	return nil
+	_ context.Context, state tobari.State, _ []tobari.LearnedPolicyRule, _ []tobari.LearnedPolicyRule,
+) (tobari.PolicyActivationReceipt, error) {
+	return policyReviewActivationReceipt(state), nil
 }
 func (f *policyReviewRuntimeFake) ApplyPolicyDenyRules(
-	_ context.Context, _ tobari.State, _ []tobari.LearnedPolicyRule,
+	_ context.Context, state tobari.State, _ []tobari.LearnedPolicyRule,
 	_ []tobari.PolicyDenyRule, updated []tobari.PolicyDenyRule,
-) error {
+) (tobari.PolicyActivationReceipt, error) {
 	f.denyCalls++
 	f.denyRules = append([]tobari.PolicyDenyRule{}, updated...)
-	return nil
+	return policyReviewActivationReceipt(state), nil
 }
 func (f *policyReviewRuntimeFake) ClusterDown(context.Context, tobari.State, bool) error { return nil }
 func TestDoctorDefaultsRootToCurrentDirectory(t *testing.T) {
@@ -133,23 +133,34 @@ type policyReviewRuntimeApplyingFake struct {
 }
 
 func (f *policyReviewRuntimeApplyingFake) ApplyLearnedPolicyRules(
-	_ context.Context, _ tobari.State, _ []tobari.LearnedPolicyRule, updated []tobari.LearnedPolicyRule,
-) error {
+	_ context.Context, state tobari.State, _ []tobari.LearnedPolicyRule, updated []tobari.LearnedPolicyRule,
+) (tobari.PolicyActivationReceipt, error) {
 	f.applyCalls++
 	f.rules = append([]tobari.LearnedPolicyRule{}, updated...)
-	return nil
+	return policyReviewActivationReceipt(state), nil
 }
 
 func (f *policyReviewRuntimeApplyingFake) ApplyPolicyDecisionSet(
-	_ context.Context, _ tobari.State,
+	_ context.Context, state tobari.State,
 	_ []tobari.LearnedPolicyRule, updatedAllows []tobari.LearnedPolicyRule,
 	_ []tobari.PolicyDenyRule, updatedDenies []tobari.PolicyDenyRule,
-) (string, error) {
+) (tobari.PolicyActivationReceipt, error) {
 	f.applyCalls++
 	f.rules = append([]tobari.LearnedPolicyRule{}, updatedAllows...)
 	f.denyRules = append([]tobari.PolicyDenyRule{}, updatedDenies...)
 	f.denyCalls += len(updatedDenies)
-	return strings.Repeat("b", 64), nil
+	return policyReviewActivationReceipt(state), nil
+}
+
+func policyReviewActivationReceipt(state tobari.State) tobari.PolicyActivationReceipt {
+	policyDirectory := state.PolicyDirectory
+	if policyDirectory == "" {
+		policyDirectory = "/tmp/policy"
+	}
+	return tobari.PolicyActivationReceipt{
+		PolicyDirectory: policyDirectory,
+		ActiveRevision:  strings.Repeat("b", 64),
+	}
 }
 func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) {
 	t.Parallel()

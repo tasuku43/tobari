@@ -1437,6 +1437,24 @@ func CompactLearnedPolicyRules(
 	return remaining, selected, prefixRule, nil
 }
 
+// PolicyActivationReceipt is the minimal authoritative result of a confirmed
+// aggregate activation. It is produced inside the activation boundary so a
+// caller never needs a fallible post-success state reload.
+type PolicyActivationReceipt struct {
+	PolicyDirectory string
+	ActiveRevision  string
+}
+
+func (r PolicyActivationReceipt) Validate() error {
+	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
+		return fmt.Errorf("policy activation directory is invalid")
+	}
+	if !policyRevisionPattern.MatchString(r.ActiveRevision) {
+		return fmt.Errorf("policy activation revision is invalid")
+	}
+	return nil
+}
+
 // PolicyLearningChange is a confirmed exact approval or compaction result.
 type PolicyLearningChange struct {
 	Task            string            `json:"task"`

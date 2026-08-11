@@ -946,6 +946,31 @@ func TestPolicyReviewChangeRequiresExactOrderedReceiptAndActiveRevision(t *testi
 	}
 }
 
+func TestPolicyActivationReceiptRequiresAuthoritativeProjectionFacts(t *testing.T) {
+	t.Parallel()
+	valid := PolicyActivationReceipt{
+		PolicyDirectory: "/var/lib/tobari/projections/active/policy",
+		ActiveRevision:  strings.Repeat("a", 64),
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid receipt: %v", err)
+	}
+	for name, mutate := range map[string]func(*PolicyActivationReceipt){
+		"relative directory": func(receipt *PolicyActivationReceipt) { receipt.PolicyDirectory = "relative/policy" },
+		"unclean directory":  func(receipt *PolicyActivationReceipt) { receipt.PolicyDirectory += "/../policy" },
+		"missing revision":   func(receipt *PolicyActivationReceipt) { receipt.ActiveRevision = "" },
+		"malformed revision": func(receipt *PolicyActivationReceipt) { receipt.ActiveRevision = strings.Repeat("g", 64) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			receipt := valid
+			mutate(&receipt)
+			if err := receipt.Validate(); err == nil {
+				t.Fatalf("receipt %+v was accepted", receipt)
+			}
+		})
+	}
+}
+
 func TestCurrentPolicyRulesListsReversibleAllowAndDenyDecisions(t *testing.T) {
 	t.Parallel()
 	allowCandidate, err := NewPolicyCandidate(validPolicyDenial())
