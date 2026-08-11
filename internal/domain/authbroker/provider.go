@@ -55,14 +55,16 @@ const (
 	// CredentialPrimarySecret is the schema-v1 static credential spelling. It
 	// remains valid only so owner manifests and existing built-ins keep their
 	// exact public contract.
-	CredentialPrimarySecret       CredentialKind = "primary_secret"
-	CredentialAWSSSOSession       CredentialKind = "aws_sso_session"
-	CredentialDatadogOAuthSession CredentialKind = "datadog_oauth_session" // #nosec G101 -- public credential-kind discriminator, not a credential.
+	CredentialPrimarySecret           CredentialKind = "primary_secret"
+	CredentialAWSSSOSession           CredentialKind = "aws_sso_session"
+	CredentialDatadogOAuthSession     CredentialKind = "datadog_oauth_session"      // #nosec G101 -- public credential-kind discriminator, not a credential.
+	CredentialOpenAICodexOAuthSession CredentialKind = "openai_codex_oauth_session" // #nosec G101 -- public credential-kind discriminator, not a credential.
 )
 
 func (k CredentialKind) Validate() error {
 	switch k {
-	case CredentialPrimarySecret, CredentialAWSSSOSession, CredentialDatadogOAuthSession:
+	case CredentialPrimarySecret, CredentialAWSSSOSession, CredentialDatadogOAuthSession,
+		CredentialOpenAICodexOAuthSession:
 		return nil
 	default:
 		return fmt.Errorf("provider credential kind is invalid: %q", k)
@@ -321,6 +323,16 @@ func validateProvider(p Provider) error {
 			return fmt.Errorf("provider %q: %w", p.ID, err)
 		}
 	}
+	if p.Credential.Kind == CredentialOpenAICodexOAuthSession {
+		if err := validateOpenAICodexWorkspaceProjection(p.WorkspaceProjections); err != nil {
+			return fmt.Errorf("provider %q: %w", p.ID, err)
+		}
+	}
+	if p.ID == "anthropic" || p.Acquisition.Helper == "claude-setup-token" {
+		if err := validateAnthropicClaudePlan(p); err != nil {
+			return fmt.Errorf("provider %q: %w", p.ID, err)
+		}
+	}
 	return nil
 }
 
@@ -360,9 +372,66 @@ func validateCredentialPlan(p Provider) error {
 				len(binding.SecretHeaders) != 1 || binding.SecretHeaders[0] != "authorization" {
 				return fmt.Errorf("datadog_oauth_session binding does not match the reviewed Datadog US1 bearer contract")
 			}
+		case CredentialOpenAICodexOAuthSession:
+			if p.ID != "openai" || p.DisplayName != "OpenAI account for Codex" ||
+				p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "codex-chatgpt-oauth" {
+				return fmt.Errorf("openai_codex_oauth_session is reserved for the reviewed openai/codex-chatgpt-oauth built-in plan")
+			}
+			if len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
+				return fmt.Errorf("openai_codex_oauth_session must declare exactly one header binding and no signing binding")
+			}
+			binding := p.HeaderBindings[0]
+			if binding.Target != (BindingTarget{Scheme: "https", Host: "chatgpt.com", Port: 443}) ||
+				binding.Source.Header != "authorization" || len(binding.Source.Formats) != 1 ||
+				binding.Source.Formats[0] != SourceFormatBearer ||
+				binding.Destination.Header != "authorization" ||
+				binding.Destination.Format != DestinationFormatBearer ||
+				binding.Destination.SecretField != CredentialOpenAICodexOAuthSession ||
+				strings.Join(binding.SecretHeaders, ",") != "authorization,chatgpt-account-id,x-openai-fedramp" {
+				return fmt.Errorf("openai_codex_oauth_session binding does not match the reviewed Codex ChatGPT contract")
+			}
 		default:
 			return fmt.Errorf("schema-v2 provider credential kind is invalid")
 		}
+	}
+	return nil
+}
+
+const openAICodexWorkspaceAuthTemplate = `{"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}","refresh_token":"","account_id":null},"last_refresh":"1970-01-01T00:00:00Z"}`
+
+func validateOpenAICodexWorkspaceProjection(projections []WorkspaceProjection) error {
+	if len(projections) != 1 {
+		return fmt.Errorf("openai_codex_oauth_session must declare exactly the reviewed Codex auth-file projection")
+	}
+	projection := projections[0]
+	if projection.Kind != WorkspaceProjectionCompleteFile || projection.Name != "" ||
+		projection.Path != ".codex/auth.json" || projection.Template != openAICodexWorkspaceAuthTemplate {
+		return fmt.Errorf("openai_codex_oauth_session projection does not match the reviewed Codex 0.146.0 contract")
+	}
+	return nil
+}
+
+func validateAnthropicClaudePlan(p Provider) error {
+	if p.SchemaVersion != LegacyProviderSchemaVersion || p.ID != "anthropic" ||
+		p.DisplayName != "Anthropic account for Claude Code" ||
+		p.Acquisition != (Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "claude-setup-token"}) ||
+		p.Credential.Kind != CredentialPrimarySecret || len(p.WorkspaceProjections) != 1 ||
+		len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
+		return fmt.Errorf("Claude setup-token must use the reviewed schema-v1 Anthropic built-in plan")
+	}
+	projection := p.WorkspaceProjections[0]
+	if projection.Kind != WorkspaceProjectionEnvironment || projection.Name != "CLAUDE_CODE_OAUTH_TOKEN" ||
+		projection.Path != "" || projection.Template != "${HANDLE}" {
+		return fmt.Errorf("Claude setup-token projection does not match the reviewed environment contract")
+	}
+	binding := p.HeaderBindings[0]
+	if binding.Target != (BindingTarget{Scheme: "https", Host: "api.anthropic.com", Port: 443}) ||
+		binding.Source.Header != "authorization" || len(binding.Source.Formats) != 1 ||
+		binding.Source.Formats[0] != SourceFormatBearer ||
+		binding.Destination.Header != "authorization" || binding.Destination.Format != DestinationFormatBearer ||
+		binding.Destination.SecretField != CredentialPrimarySecret ||
+		len(binding.SecretHeaders) != 1 || binding.SecretHeaders[0] != "authorization" {
+		return fmt.Errorf("Claude setup-token binding does not match the reviewed Anthropic bearer contract")
 	}
 	return nil
 }
@@ -611,7 +680,8 @@ func validateHeaderBinding(binding HeaderBinding) error {
 		return fmt.Errorf("header binding destination secret_field: %w", err)
 	}
 	if binding.Destination.SecretField != CredentialPrimarySecret &&
-		binding.Destination.SecretField != CredentialDatadogOAuthSession {
+		binding.Destination.SecretField != CredentialDatadogOAuthSession &&
+		binding.Destination.SecretField != CredentialOpenAICodexOAuthSession {
 		return fmt.Errorf("header binding destination must reference a reviewed header credential")
 	}
 	if len(binding.SecretHeaders) == 0 || len(binding.SecretHeaders) > maxSecretHeaders {

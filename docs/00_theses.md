@@ -225,8 +225,9 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   plans; owner manifests still contain no secrets, executable shell, refresh
   logic, or signer and remain single-secret protected-stdin imports.
 - Provider-native executables do not enter the Auth Broker image. Reviewed
-  GitHub, AWS, and Datadog pup acquisition drivers execute fixed argv against verified host
-  CLI identities in private temporary homes with sanitized environments. The
+  GitHub, AWS, Datadog pup, Codex, and Claude acquisition drivers execute fixed
+  argv against verified host CLI identities in private temporary homes with
+  sanitized environments. The
   GitHub driver is API-authentication-only, opens exactly the fixed device page
   or leaves the same manual URL, and configures no Git protocol or credential
   helper.
@@ -240,6 +241,10 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   home; pup alone opens the generated consent URL and owns the bounded loopback
   callback. Tobari accepts only strict default-session state and deletes the
   home on every outcome.
+  OpenAI runs the pinned Codex 0.146.0 native ChatGPT device flow and accepts
+  only strict managed file state. Claude runs pinned Claude Code 2.1.220
+  `setup-token`, captures one inference-only OAuth token without displaying it,
+  and has no refresh state. Both delete their isolated homes on every outcome.
 - One resident trusted-host companion uses the current Tobari executable's
   private same-binary mode. It reaches an unmounted Broker-private socket only
   through a fixed reverse `docker exec -i` stream protected by a root-key-
@@ -247,8 +252,8 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   container listener, mounts no host socket or provider home, accepts no
   repository-selected executable/argv, and is unreachable from Workspaces,
   Gateway, and OPA. Its only provider operation in this slice is the
-  post-policy AWS credential export; interactive GitHub/AWS/Datadog login runs directly
-  through context-bound host drivers.
+  post-policy AWS credential export; interactive GitHub/AWS/Datadog/OpenAI/
+  Anthropic login runs directly through context-bound host drivers.
 - The macOS root-key provider stores one installation key in Keychain. Linux
   uses an owner-only XDG state file and makes no host-user-compromise claim.
 - A recognized malformed, copied, stale, or mismatched Tobari handle fails
@@ -271,6 +276,13 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   configuration, not login state. The second is Datadog's fixed US1 pup OAuth
   state: after OPA allow Broker returns a still-valid bearer or performs one
   exact proxy-free, no-redirect token refresh behind a durable barrier.
+  The third is Codex 0.146.0's fixed ChatGPT OAuth state: Workspace receives a
+  version-pinned external-host compatibility shim containing only a handle;
+  after OPA allow Broker returns a still-valid bearer or performs one exact
+  proxy-free, no-redirect OpenAI refresh behind the same durable barrier, and
+  Gateway supplies Broker-owned account routing. Anthropic's fixed Claude
+  setup-token plan is non-renewable and resolves only its unexpired stored
+  inference token after allow.
   Arbitrary OAuth, manifest-selected helpers/
   signers, general TWG refresh, SigV4a, presigning, provider-operation
   inference, and Git credential helpers remain outside the slice.
@@ -285,7 +297,8 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   recovery, is unavailable to another Tobari, and is removed by exact delete.
   Broker tests prove encrypted Context ownership, project-specific handles,
   restart locking, rotation, revocation, and canary-free output.
-- Acquisition tests fix the GitHub, AWS, and pup host executable identity, argv,
+- Acquisition tests fix the GitHub, AWS, pup, Codex, and Claude host executable
+  identity, version, argv,
   environment, conventional non-project installation-root selection,
   control-safe visible output, checked private-home cleanup, purpose-limited
   fixed or parameterized browser target, manual fallback, cancellation, and

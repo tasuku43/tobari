@@ -17,6 +17,8 @@ COPY protocol.py /opt/tobari/authbroker/protocol.py
 COPY vault.py /opt/tobari/authbroker/vault.py
 COPY aws_sigv4.py /opt/tobari/authbroker/aws_sigv4.py
 COPY datadog_oauth.py /opt/tobari/authbroker/datadog_oauth.py
+COPY openai_codex_oauth.py /opt/tobari/authbroker/openai_codex_oauth.py
+COPY openai_refresh_transport.py /opt/tobari/authbroker/openai_refresh_transport.py
 COPY companion_protocol.py /opt/tobari/authbroker/companion_protocol.py
 COPY companion_bridge.py /opt/tobari/authbroker/companion_bridge.py
 COPY broker.py /opt/tobari/authbroker/broker.py
@@ -42,7 +44,9 @@ RUN python3 -c 'from cryptography.hazmat.primitives.ciphers.aead import AESGCM; 
     && chmod 0555 /opt/tobari/entrypoint.sh /usr/local/bin/tobari-auth-control \
     && test ! -e /usr/local/bin/gh \
     && test ! -e /usr/local/bin/aws \
-    && test ! -e /usr/local/bin/pup
+    && test ! -e /usr/local/bin/pup \
+    && test ! -e /usr/local/bin/codex \
+    && test ! -e /usr/local/bin/claude
 
 USER 1000:1000
 ENTRYPOINT ["/opt/tobari/entrypoint.sh"]

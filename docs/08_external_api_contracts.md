@@ -3,12 +3,13 @@
 Tobari's enforcement contract remains the generic L7 request crossing
 Gateway: ordinary HTTP identity, plus GraphQL operation type and canonical
 root field at an exact trusted-host-declared endpoint. Reviewed trusted-host
-drivers add four bounded provider-facing acquisition flows: fixed GitHub CLI
+drivers add six bounded provider-facing acquisition flows: fixed GitHub CLI
 device login, fixed AWS CLI IAM Identity Center login, explicit fixed AWS CLI
-console cross-device login, and fixed pup OAuth login for the default Datadog
-US1 organization. Auth Broker owns encrypted state,
-handles, revisions, Datadog refresh, and AWS signing; a resident private
-companion performs only post-policy AWS CLI credential export. This still adds
+console cross-device login, fixed pup OAuth login for the default Datadog US1
+organization, fixed Codex ChatGPT device login, and fixed Claude setup-token
+login. Auth Broker owns encrypted state, handles, revisions, Datadog/OpenAI
+refresh, and AWS signing; a resident private companion performs only
+post-policy AWS CLI credential export. This still adds
 no provider-specific policy operation or raw provider API surface.
 
 ## OPA input
@@ -117,6 +118,9 @@ response contains only the opaque revision and repeated normalized
 target/source/destination/redaction metadata. Deny sends no `resolve`; allow
 sends exactly one same-revision `resolve`, validates the full response, replaces
 only the declared destination header, and makes one upstream attempt.
+Anthropic uses this static path only at exact `https://api.anthropic.com:443`:
+the Workspace bearer is a project handle, Broker resolves the stored setup
+token only after allow, and no refresh operation exists.
 
 For the schema-2 Datadog plan, Gateway recognizes only an exact bearer handle
 at `https://api.datadoghq.com:443`, introspects the full declared schema-2
@@ -132,6 +136,27 @@ barrier is persisted before network execution and cleared only with a verified
 commit. An unknown outcome disables the credential until Datadog re-login or
 logout. Gateway receives only the selected access token and applies it to the
 declared Authorization header before one upstream attempt.
+
+For the schema-2 OpenAI plan, Gateway recognizes only an exact bearer handle at
+`https://chatgpt.com:443`. It removes the bearer and every caller-supplied
+`ChatGPT-Account-ID` or `X-OpenAI-FedRAMP` routing header before introspection,
+OPA, audit, or upstream processing. Deny performs no resolution or refresh.
+After allow, Broker selects an access token with more than five minutes
+remaining or performs one per-record single-flight refresh. When the
+access-token expiration is unreadable, `last_refresh + 8 days` is the fixed
+fallback threshold. Refresh is one
+JSON POST to exact `https://auth.openai.com/oauth/token` using the compiled
+public Codex client ID and encrypted refresh token, with system TLS, ambient
+proxies disabled, and redirects rejected. The canonical body crosses only
+stdin to one fixed isolated worker with an empty environment and 29-second
+socket bound; Broker starts a 30-second wall-clock deadline before spawn and
+kills and reaps the worker on timeout. Broker persists a durable task barrier
+before send, strictly validates the response and account
+continuity, and atomically replaces state at the same revision. Gateway
+receives the selected access token and validated non-secret account ID,
+injects the Broker-owned `chatgpt-account-id`, and makes one upstream attempt.
+An unknown outcome disables the credential until OpenAI re-login or logout;
+Workspace Codex never performs refresh.
 
 For the schema-2 AWS plan, Gateway accepts only an AWS4-HMAC-SHA256 header whose
 credential and security-token placeholders contain the same project handle,
@@ -158,7 +183,7 @@ signing perform no companion call until explicit AWS re-login or logout.
 Gateway receives only the final authorization/date/session-token fields and
 applies them atomically before one upstream attempt.
 
-Static secrets, Datadog OAuth tokens, and AWS role credentials are
+Static secrets, Datadog/OpenAI OAuth tokens, and AWS role credentials are
 request-local and never enter policy input, audit, denial output, logs, retry
 state, Workspace mounts, or the provider projection. AWS role credentials are
 never persisted.
@@ -176,11 +201,11 @@ default deadline so transport latency and bounded host/container clock offset
 cannot cross that hard maximum. Known pre-execution unavailability is HTTP 503
 `credential_broker_unavailable`. An explicit outcome-unknown result, a durable
 barrier, or loss/invalidity of the Broker response after `sign_sigv4` or a
-Datadog refresh send begins is non-retryable HTTP 409
+Datadog/OpenAI refresh send begins is non-retryable HTTP 409
 `credential_refresh_outcome_unknown`. Neither class
 permits fallback with the same handle. The SDK must not automatically replay
 that response. After the original request has settled, the user runs
-`auth status`: `broker_state=ready` with AWS or Datadog provider state `configured`
+`auth status`: `broker_state=ready` with AWS, Datadog, or OpenAI provider state `configured`
 means no upstream attempt was made and an explicit retry of the user task is
 safe; provider state `not_configured` means the durable barrier is present and
 requires provider re-login or logout, followed by Workspace re-entry. An
@@ -225,9 +250,9 @@ pending state. Gateway owns audit emission.
 ## Timeouts, attempts, redirect, and retry
 
 - OPA decision timeout: 2 seconds by default, configurable up to 10 seconds.
-- Same-record AWS or Datadog refresh lock wait: at most 1 second. Expiry is
+- Same-record AWS, Datadog, or OpenAI refresh lock wait: at most 1 second. Expiry is
   known pre-execution `credential_broker_unavailable`; no task barrier,
-  companion call, or Datadog refresh send has occurred.
+  companion call, or Datadog/OpenAI refresh send has occurred.
 - Auth Broker runtime timeout: 70 seconds by default, configurable from 70 to
   90 seconds so it remains outside the companion's 60-second terminal refresh
   bound and 5-second cancellation-resolution window.
@@ -380,6 +405,52 @@ Auth Broker control. Workspace, Gateway, OPA, and Broker image receive no pup
 executable or acquisition-time home. Cancellation, timeout, malformed state,
 or failed cleanup leaves the previous Context credential unchanged.
 
+`auth login --provider openai` is the fifth supported provider-facing
+acquisition flow. The trusted host resolves one canonical non-group/world-
+writable Codex executable, verifies exact output `codex-cli 0.146.0`, binds its
+SHA-256 identity, and runs exactly:
+
+```text
+codex login --device-auth -c 'cli_auth_credentials_store="file"' \
+  -c 'check_for_update_on_startup=false'
+```
+
+The driver uses owner-only temporary `HOME` and `CODEX_HOME`, removes ambient
+OpenAI/Codex credentials and proxy state, and lets Codex own its normal
+interactive device/browser exchange. It accepts only one canonical managed
+`auth.json` with `auth_mode: chatgpt`, null `OPENAI_API_KEY`, printable
+ID/access/refresh tokens, one account ID that matches the ID-token namespaced
+claim, non-FedRAMP state, and a canonical timestamp. The executable identity is
+rechecked, state is packed with its exact path/digest/version, and the temporary
+home is removed before Broker commit. Cancellation, timeout, version or schema
+drift, multiple/invalid account state, or cleanup failure preserves the prior
+credential. No ambient Codex state is read or modified.
+
+`auth login --provider anthropic` is the sixth supported provider-facing
+acquisition flow. The trusted host resolves one canonical non-group/world-
+writable Claude executable, verifies exact output `2.1.220 (Claude Code)`,
+and verifies its SHA-256 identity before and after the operation. It runs
+exactly:
+
+```text
+claude setup-token
+```
+
+The driver uses an owner-only temporary `HOME` and Claude configuration
+directory plus a private PTY required by the native flow. Its bounded parser
+retains all provider output through terminal and process completion; it does
+not stream raw provider bytes to the user. Only after the complete transcript
+and fixed success frame validate does the parser emit fixed allowlisted
+synthetic guidance and return exactly one printable token privately. That
+guidance never contains the setup token. Unknown controls, ambiguous framing,
+multiple candidates, executable drift, cancellation, timeout, or cleanup
+failure preserves the prior credential. The result is an inference setup
+token, not a general Claude credential store and not authority for Remote
+Control or claude.ai connectors. The digest protects the acquisition operation
+but is not persisted in Anthropic's static vault record. Its displayed one-year
+lifetime is a client-requested estimate, not a provider-issued server-expiry
+guarantee.
+
 ## Gateway audit
 
 Every validated ordinary allow/deny audit record uses `schema_version: 2` and contains
@@ -410,8 +481,8 @@ target/header-mismatched or structurally misplaced handle returns HTTP 403 with
 `credential_handle_invalid`. A locked or unavailable broker, socket timeout,
 malformed static response, inconsistent revision, or known pre-execution
 companion/refresh/signing failure returns HTTP 503 with
-`credential_broker_unavailable`. After an AWS companion operation or Datadog
-refresh is dispatched, an explicit outcome-unknown result, durable barrier, or
+`credential_broker_unavailable`. After an AWS companion operation or
+Datadog/OpenAI refresh is dispatched, an explicit outcome-unknown result, durable barrier, or
 lost/invalid Broker response returns non-retryable HTTP 409
 `credential_refresh_outcome_unknown`. Neither class permits an application
 upstream attempt or fallback with the handle. Every Tobari-looking marker
@@ -434,11 +505,21 @@ audit schema version `3`, decision fields,
 timeouts, attempt count, owner provider schema `1`, built-in/projection schema
 `2`, broker control/runtime schema `1`, private companion epoch/frame schema
 `1`, encrypted vault envelope schema `1` and payload schema `2`, handle prefix
-`tobari-h1_`, and Gateway/Auth Broker image
-API labels `3` for Gateway and `2` for Auth Broker are explicit pre-v1 compatibility boundaries. Valid schema-1 static
+`tobari-h1_`, and Gateway/Auth Broker image API labels `4` for Gateway and `3`
+for Auth Broker are explicit pre-v1 compatibility boundaries. Valid schema-1 static
 provider projections and vault payloads remain readable through their strict
 compatibility/migration paths. Gateway does not accept former OPA input shapes,
 incomplete decisions, or unknown broker frames.
+
+The reviewed immutable Gateway API-3/Auth Broker API-2 digests currently
+recorded in `versions.env` are historical publication facts. They predate and
+are incompatible with this API-4/API-3 source contract, so normal standard
+startup must reject them. The explicit `task build:dev` and `bin/tobari-dev`
+path plus the separately built applicable agent runtime can validate the
+canonical source until new immutable reviewed indexes are published and the
+pins advance; development images are not release authority.
+Codex and Claude runtime images remain local/CI-only pending redistribution and
+image-layer license review.
 Public auth backend values are exactly `macos_keychain|xdg_file`, and cluster
 status may additionally report `unavailable`; the infrastructure/doctor label
 `linux_xdg_file` is not a public JSON enum. The canonical schema, state-path,
@@ -465,9 +546,13 @@ synthetic provider manifest is pinned as `auth-provider.v1` in
 tests use synthetic JSON and mock host subprocess results. AWS tests use
 synthetic credential-process JSON, opaque cache fixtures, fake companion
 frames, and signing canaries. Datadog tests use strict synthetic pup state and
-fixed refresh-response fixtures. Live GitHub, AWS, and Datadog logins are
-manual release evidence and may not be recorded with tokens, SSO state, role
-credentials, signed headers, device codes, vaults, or raw authenticated output.
+fixed refresh-response fixtures. OpenAI tests use synthetic canonical Codex
+state, JWT claims, refresh responses, and account-routing canaries; Anthropic
+tests use synthetic PTY frames and token-shaped canaries. Live GitHub, AWS,
+Datadog, OpenAI, and Anthropic logins are manual release evidence and may not be
+recorded with tokens, SSO state, role credentials, signed headers, device or
+authorization codes, Codex/Claude credential files, setup tokens, handles,
+vaults, or raw authenticated output.
 
 ## Policy testing
 
@@ -478,7 +563,9 @@ all-root GraphQL authorization, Context/project-bound learned rules, null versus
 broker-provider authorization metadata, and managed profile binding. Gateway
 tests independently prove handle removal, deny-before-resolve/sign, exact
 static replacement, same-revision Datadog token selection/refresh only after
-allow, two-stage same-revision AWS signing after allow and
+allow, same-account OpenAI token selection/refresh and Broker-owned account
+header only after allow, Anthropic static resolution with no refresh, two-stage
+same-revision AWS signing after allow and
 complete-body hashing, zero companion calls on deny, one bounded host export on
 allow, stale refresh rejection, and fallback compatibility. Companion tests
 prove authenticated direction/sequence/replay/frame contracts and no listener
@@ -486,3 +573,9 @@ or host socket mount.
 Fallback tests require marker absence in every inspected URL/header position;
 audit tests require query/header omission, whole-path marker redaction, and
 non-learnable structural handle rejection.
+
+The automated integration validates the exact Codex `.codex/auth.json`
+projection and exercises its binding with direct synthetic Gateway requests.
+It does not execute Codex to claim client login-status recognition, verbatim
+handle forwarding, or absence of client refresh; those version-pinned
+compatibility observations remain isolated/manual release evidence.

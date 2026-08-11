@@ -149,6 +149,26 @@ class HostCompletedLoginTests(unittest.TestCase):
             },
         )
 
+        anthropic_args = control_parser().parse_args(
+            [
+                "login",
+                "--context-id",
+                CONTEXT,
+                "--provider",
+                "anthropic",
+                "--account-label",
+                "claude-user-inference",
+            ]
+        )
+        with mock.patch(
+            "authbroker.control.sys.stdin", BinaryInput(b"claude-token")
+        ):
+            anthropic, payload = control_request(anthropic_args)
+        self.assertEqual(payload, b"claude-token")
+        self.assertEqual(anthropic["provider"], "anthropic")
+        self.assertEqual(anthropic["account_label"], "claude-user-inference")
+        self.assertEqual(anthropic["secret_length"], len(payload))
+
         aws_args = control_parser().parse_args(
             [
                 "login",
@@ -194,6 +214,23 @@ class HostCompletedLoginTests(unittest.TestCase):
         ):
             control_request(arguments)
 
+        wrong_anthropic = control_parser().parse_args(
+            [
+                "login",
+                "--context-id",
+                CONTEXT,
+                "--provider",
+                "anthropic",
+                "--account-label",
+                "arbitrary-account",
+            ]
+        )
+        with (
+            mock.patch("authbroker.control.sys.stdin", BinaryInput(b"token")),
+            self.assertRaisesRegex(ProtocolError, "^invalid_request$"),
+        ):
+            control_request(wrong_anthropic)
+
     def test_dispatcher_commits_github_token_and_opaque_aws_driver_state(self) -> None:
         github = self.dispatcher.dispatch(
             {
@@ -207,6 +244,36 @@ class HostCompletedLoginTests(unittest.TestCase):
             b"github-token",
         )
         self.assertEqual(github["account_label"], "octo-user")
+
+        anthropic = self.dispatcher.dispatch(
+            {
+                "schema_version": 1,
+                "op": "login",
+                "context_id": CONTEXT,
+                "provider": "anthropic",
+                "account_label": "claude-user-inference",
+                "secret_length": len(b"claude-token"),
+            },
+            b"claude-token",
+        )
+        self.assertEqual(anthropic["account_label"], "claude-user-inference")
+        self.assertEqual(
+            decode_secret(
+                self.store.load(CONTEXT, KEY)["providers"]["anthropic"]["secret"]
+            ),
+            b"claude-token",
+        )
+
+        invalid_anthropic = {
+            "schema_version": 1,
+            "op": "login",
+            "context_id": CONTEXT,
+            "provider": "anthropic",
+            "account_label": "arbitrary-account",
+            "secret_length": len(b"claude-token"),
+        }
+        with self.assertRaisesRegex(BrokerError, "^invalid_request$"):
+            self.dispatcher.dispatch(invalid_anthropic, b"claude-token")
 
         aws = self.dispatcher.dispatch(
             {

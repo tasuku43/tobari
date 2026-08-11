@@ -44,6 +44,7 @@ type clusterUpProgressRunner struct {
 	events             []string
 	composeEnvironment []string
 	companionEpoch     string
+	networkConnections []runnerCall
 }
 
 func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, _ io.Writer) error {
@@ -70,6 +71,10 @@ func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []str
 }
 
 func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if len(args) >= 2 && args[0] == "network" && args[1] == "connect" {
+		r.networkConnections = append(r.networkConnections, runnerCall{args: append([]string{}, args...)})
+		return []byte{}, nil
+	}
 	if len(args) >= 2 && args[0] == "volume" && args[1] == "inspect" {
 		return []byte(ownerValue + "\n"), nil
 	}
@@ -171,6 +176,20 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 	} {
 		if strings.Count(joinedEnvironment, binding) != 1 {
 			t.Fatalf("compose environment lacks one verified %q binding: %s", binding, joinedEnvironment)
+		}
+	}
+	wantNetworkConnections := [][]string{
+		{"network", "connect", "--alias", "gateway", "tobari-control", gatewayContainer},
+		{"network", "connect", "--alias", "auth-broker", "tobari-control", authBrokerContainer},
+		{"network", "connect", "--alias", "gateway", "tobari-egress", gatewayContainer},
+		{"network", "connect", "--alias", "auth-broker", "tobari-egress", authBrokerContainer},
+	}
+	if len(runner.networkConnections) != len(wantNetworkConnections) {
+		t.Fatalf("shared network connections = %v", runner.networkConnections)
+	}
+	for index, want := range wantNetworkConnections {
+		if !slices.Equal(runner.networkConnections[index].args, want) {
+			t.Fatalf("shared network connection %d = %v, want %v", index, runner.networkConnections[index].args, want)
 		}
 	}
 }
@@ -1160,6 +1179,38 @@ func TestEnsureGatewayNetworkReconnectsAfterComposeReplacement(t *testing.T) {
 			}
 			if test.wantCalls == 2 {
 				want := []string{"network", "connect", "--alias", "gateway", "tobari-work-net", gatewayContainer}
+				if !slices.Equal(runner.outputs[1].args, want) {
+					t.Fatalf("reconnect argv = %v, want %v", runner.outputs[1].args, want)
+				}
+			}
+		})
+	}
+}
+
+func TestEnsureAuthBrokerNetworkReconnectsAfterComposeReplacement(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct {
+		networks  string
+		wantCalls int
+	}{
+		"already connected": {networks: `{"tobari-egress":{}}`, wantCalls: 1},
+		"reconnect":         {networks: `{"tobari-control":{}}`, wantCalls: 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &gatewayNetworkRunner{networks: test.networks}
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.ensureAuthBrokerNetwork(context.Background(), "tobari-egress"); err != nil {
+				t.Fatal(err)
+			}
+			if len(runner.outputs) != test.wantCalls {
+				t.Fatalf("Docker calls = %v, want %d", runner.outputs, test.wantCalls)
+			}
+			if test.wantCalls == 2 {
+				want := []string{"network", "connect", "--alias", "auth-broker", "tobari-egress", authBrokerContainer}
 				if !slices.Equal(runner.outputs[1].args, want) {
 					t.Fatalf("reconnect argv = %v, want %v", runner.outputs[1].args, want)
 				}

@@ -85,7 +85,7 @@ trusted host
   Tobari CLI ── Docker CLI ── Docker Engine
        │
        ├── fixed control exec/stdin ────────────────┐
-       ├── reviewed fixed host GitHub/AWS/pup login drivers
+       ├── reviewed fixed host GitHub/AWS/pup/Codex/Claude login drivers
        ├── private credential companion ── fixed host AWS refresh driver
        │       └── encrypted reverse docker exec ── Broker-private bridge
        ├── root A (rw) ── CWD-owned Tobari A ── internal network A ──┐
@@ -145,6 +145,11 @@ profile-injection design.
 - access to the reviewed Gateway and Auth Broker images when they are not
   already local; the
   explicit runtime build may also obtain its declared base image
+- for brokered OpenAI login, exact Codex 0.146.0 installed in a reviewed host
+  executable root; for brokered Anthropic login, exact Claude Code 2.1.220 in
+  such a root; and
+- an interactive trusted-host terminal and deliberate completion of the
+  provider's browser flow for either native account login
 
 Docker Desktop-specific APIs are not used. Colima, Lima-based Docker contexts,
 and standard Linux Docker Engine use the same Docker CLI adapter.
@@ -235,13 +240,27 @@ Prerequisites:
   base image if they are not already local. The explicit `runtime build` step
   may obtain its declared base image.
 
+Brokered OpenAI or Anthropic login additionally requires exact trusted-host
+Codex 0.146.0 or Claude Code 2.1.220, respectively, plus an interactive
+terminal and the user's deliberate browser action. The Workspace copy of an
+agent CLI is not a trusted acquisition helper.
+
 ### 1. Start from a project directory
 
 The directory below is synthetic and can be replaced with an existing project
 directory. Do not use the filesystem root, your home directory, or a Tobari
 configuration/state directory as a project root.
 
+This canonical source revision deliberately blocks the ordinary release binary
+until compatible reviewed Gateway API-4/Auth Broker API-3 image pins exist.
+For the source walkthrough, build the development images and bind the command
+name to the absolute development binary in the same host shell. A future
+compatible released binary skips these first three setup lines.
+
 ```sh
+task build:dev
+TOBARI_SOURCE_ROOT=$PWD
+tobari() { "$TOBARI_SOURCE_ROOT/bin/tobari-dev" "$@"; }
 mkdir -p quickstart-example
 cd quickstart-example
 tobari cluster up
@@ -255,9 +274,11 @@ the supported host root-key backend. Ordinary `tobari` entry does not repair or
 start the cluster. If a published image is unavailable, inspect
 the host with `tobari doctor` and retry `tobari cluster up`; `doctor` is a
 diagnostic recovery command, not a prerequisite for the normal path.
-For canonical Gateway or Auth Broker source development, use `task build:dev`
-and repeat this walkthrough with `bin/tobari-dev`. The normal binary continues
-to use the reviewed published digests.
+The command binding above keeps every later `tobari` example on the same
+development binary. The normal binary continues to use the historical reviewed
+published digests; in this source revision it rejects their API-3/API-2 labels
+because the source requires Gateway API 4 and Auth Broker API 3. The release
+gate rejects publication while that parity mismatch remains.
 
 ### 2. Observe a denied request inside Tobari
 
@@ -434,11 +455,11 @@ image on the next `tobari` entry without losing their home.
 - `credential_handle_invalid` (HTTP 403): leave and re-enter the Workspace to
   receive the current project-bound handle. `credential_broker_unavailable`
   (HTTP 503) is a known pre-execution class: use host-side `cluster up` for an
-  unavailable cluster/companion, or wait for a same-record AWS/Datadog
+  unavailable cluster/companion, or wait for a same-record AWS/Datadog/OpenAI
   operation to settle before a deliberate retry.
 - `credential_refresh_outcome_unknown` (HTTP 409): do not rely on caller automatic
   retry. After the request settles, run `tobari auth status`. If
-  `broker_state=ready` and the affected AWS or Datadog provider is `configured`,
+  `broker_state=ready` and the affected AWS, Datadog, or OpenAI provider is `configured`,
   Gateway made no upstream attempt and you may explicitly retry the task. If it
   is `not_configured`, re-login or logout that provider, then leave and re-enter
   the Workspace; that state identifies a durable refresh barrier.
@@ -599,10 +620,14 @@ not create a second lifecycle model. Legacy named state is not guessed or
 automatically migrated.
 
 The base runtime bundles the existing common work-tool baseline: Git, GitHub
-CLI, AWS CLI, curl, jq, Python, and SSH. Official agent variants
-such as Claude and Codex add only their agent-specific tool and dependencies.
+CLI, AWS CLI, curl, jq, Python, and SSH. The agent variants add exact Claude
+Code 2.1.220 or Codex 0.146.0 and their agent-specific dependencies.
 These images are convenience starting points; they do not change Tobari's
-isolation or lifecycle boundary. The base image is published on main pushes as
+isolation or lifecycle boundary. Build them locally with `task
+runtime:claude:build` or `task runtime:codex:build`; their version and runtime
+contracts are checked by the matching `runtime:*:check` tasks. Redistribution
+and image-layer license review remain pending, so these variants are local/CI
+artifacts and are not published agent images. The base image is published on main pushes as
 `ghcr.io/tasuku43/tobari/runtime:latest` and `:main`, plus an immutable commit tag. Tobari
 still validates any selected image locally and never pulls it implicitly.
 
@@ -913,7 +938,7 @@ Both forms preserve Auth Broker Context vaults and the installation root key.
 | `tobari context use --name NAME` | Change only the current/default Context without mutating existing Tobari or Docker |
 | `tobari runtime init [--format text\|json]` | Create the current Context's runtime/Dockerfile template |
 | `tobari runtime build [--format text\|json]` | Build, validate, and select the current Context runtime image |
-| `tobari auth login [--provider PROVIDER] [--method identity-center\|console] [--context NAME] [--format text\|json]` | Acquire one supported provider credential through a reviewed fixed trusted-host CLI driver; provider-option omission opens a terminal selector, AWS method omission uses IAM Identity Center, `console` selects AWS CLI console login, and Datadog uses default-organization US1 pup OAuth |
+| `tobari auth login [--provider PROVIDER] [--method identity-center\|console] [--context NAME] [--format text\|json]` | Acquire one supported provider credential through a reviewed fixed trusted-host CLI driver; provider-option omission opens a terminal selector, AWS method omission uses IAM Identity Center, `console` selects AWS CLI console login, Datadog uses default-organization US1 pup OAuth, OpenAI uses exact Codex 0.146.0 ChatGPT device OAuth, and Anthropic uses exact Claude Code 2.1.220 setup-token login |
 | `tobari auth import PROVIDER [--context NAME] [--format text\|json]` | Import one bounded opaque provider credential from protected non-terminal stdin only |
 | `tobari auth status [--context NAME] [--format text\|json]` | Inspect exhaustive secret-free provider and broker state for one Context |
 | `tobari auth logout PROVIDER [--context NAME] [--format text\|json]` | Remove one local Context/provider credential and revoke every issued handle without remote logout |
@@ -1123,7 +1148,9 @@ is isolated from other Tobaris, and is removed by exact `tobari delete`.
 
 The Auth Broker path instead acquires one typed credential on the trusted host
 for an explicit or current Context. Reviewed interactive built-ins are
-GitHub.com, two explicit AWS CLI methods, and Datadog US1 through pup OAuth:
+GitHub.com, two explicit AWS CLI methods, Datadog US1 through pup OAuth,
+OpenAI ChatGPT OAuth for Codex 0.146.0, and an Anthropic setup token for Claude
+Code 2.1.220:
 
 Omit `--provider PROVIDER` to choose among the installed reviewed login providers in a
 terminal. Supplying it keeps the invocation deterministic and skips the menu.
@@ -1132,7 +1159,7 @@ The AWS-only `--method` flag requires `--provider aws`.
 ```sh
 tobari cluster up
 tobari auth status --context default
-tobari auth login --context default # choose GitHub, AWS, or Datadog interactively
+tobari auth login --context default # choose one reviewed built-in interactively
 tobari auth login --provider github --context default
 tobari auth status --context default
 tobari                 # re-enter this Context's Workspace
@@ -1156,6 +1183,20 @@ tobari                 # re-enter to receive DD_ACCESS_TOKEN=<project handle>
 pup users --no-agent --read-only list
 exit
 tobari auth logout datadog --context default
+
+tobari auth login --provider openai --context default
+# Complete Codex's ChatGPT device login in the trusted-host browser flow.
+tobari                 # re-enter to receive the handle-only .codex/auth.json
+codex                  # exact Codex 0.146.0; requests still require OPA allow
+exit
+tobari auth logout openai --context default
+
+tobari auth login --provider anthropic --context default
+# Complete Claude's setup-token browser flow from the trusted-host PTY.
+tobari                 # re-enter to receive CLAUDE_CODE_OAUTH_TOKEN=<handle>
+claude                 # exact Claude Code 2.1.220; inference requires OPA allow
+exit
+tobari auth logout anthropic --context default
 ```
 
 `auth login --provider github` runs a reviewed fixed driver around the trusted host's
@@ -1187,6 +1228,30 @@ access token or performs one bounded, single-flight refresh against the fixed
 US1 token endpoint. Refresh state remains encrypted, and pup is not installed
 in Auth Broker.
 
+`auth login --provider openai` resolves exact trusted-host Codex 0.146.0,
+rechecks its executable digest, and runs it with fixed argv `login`,
+`--device-auth`, `-c`, `cli_auth_credentials_store="file"`, `-c`, and
+`check_for_update_on_startup=false` in an owner-only isolated `HOME` and
+`CODEX_HOME`. It strictly accepts only the
+reviewed file-backed ChatGPT OAuth state and removes that temporary home before
+commit. The Workspace receives a complete `.codex/auth.json` compatibility
+projection whose only credential-shaped value is the project-bound handle in
+`tokens.access_token`; it receives no OpenAI ID, access, or refresh token and
+cannot refresh. This projection uses Codex's upstream-internal
+`chatgptAuthTokens` shape and is intentionally supported only for 0.146.0;
+another Codex version fails closed until the shim is re-reviewed.
+
+`auth login --provider anthropic` resolves exact trusted-host Claude Code
+2.1.220 and runs fixed `claude setup-token` in an owner-only temporary home
+through a private bounded PTY. The parser forwards only recognized non-secret
+instructions and suppresses the captured token. The Workspace receives only
+`CLAUDE_CODE_OAUTH_TOKEN=<project handle>`; it receives no Anthropic token or
+Claude credential home. This plan supports first-party inference and local MCP,
+not Remote Control or claude.ai connectors. The setup token has no refresh
+path. Its displayed one-year lifetime is a client-requested estimate, not a
+provider-issued server-expiry guarantee; expiry or a provider 401 requires
+explicit re-login and Workspace re-entry.
+
 After `cluster up`, a resident private companion uses the same Tobari binary
 and an authenticated encrypted reverse `docker exec` channel to serve only
 reviewed credential-driver operations. It opens no host listener and mounts no
@@ -1210,9 +1275,12 @@ and Auth Broker
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`;
 moving tags remain development conveniences. These selected images include
 the earlier AWS Identity Center path but predate AWS console login and the
-Datadog request path now present in canonical source and tests. Those newer
-paths are not standard-cluster capabilities until reviewed immutable pins
-advance.
+Datadog request path, as well as the OpenAI and Anthropic plans now present in
+canonical source and tests. They are historical publication evidence and are
+incompatible with the current Gateway API-4/Auth Broker API-3 source contract.
+Standard startup must reject them. The new plans are available through
+`task build:dev` and `bin/tobari-dev` only until reviewed immutable pins
+advance; that development path is not release evidence.
 The real credential is encrypted at
 `auth/contexts/<context-id>/vault.enc`. macOS stores the installation root key
 in Keychain service `io.tobari.auth-root.v1`; Linux uses owner-only XDG state
@@ -1242,6 +1310,22 @@ returns one request-local bearer value for the exact header. Denial performs no
 Datadog token selection or refresh. A copied, stale, malformed, revoked, or
 mismatched handle fails with `credential_handle_invalid` and is never
 forwarded.
+
+For OpenAI, Gateway recognizes a bearer handle only at exact
+`https://chatgpt.com:443`, strips caller `Authorization`,
+`ChatGPT-Account-ID`, and `X-OpenAI-FedRAMP` routing material before policy,
+and denies FedRAMP state. After allow, Broker returns one current access token
+plus its validated non-secret account ID; Gateway injects the Broker-owned
+`chatgpt-account-id` and makes one attempt. Within the five-minute refresh
+window, Broker persists a no-replay barrier and performs one bounded,
+proxy-free, no-redirect refresh against exact
+`https://auth.openai.com/oauth/token`. A fixed isolated worker receives only
+the canonical body on stdin and is killed and reaped at the 30-second
+wall-clock deadline. The refresh preserves the credential revision and account
+identity. An unknown outcome requires OpenAI re-login or logout. For
+Anthropic, Gateway recognizes only exact bearer use at
+`https://api.anthropic.com:443`; Broker performs a static post-allow resolve and
+never refreshes.
 
 The built-in broker route authenticates GitHub API operations, not Git
 transport. `gh api`, `gh issue`, and `gh pr` use the projected handle. Public
@@ -1373,8 +1457,9 @@ cases.
   signing, SigV4a, AWS presigning/streaming/custom endpoints, or
   provider-operation policy semantics. Refreshable AWS CLI sessions acquired
   through IAM Identity Center or console login with bounded standard SigV4,
-  and the fixed Datadog US1 OAuth-session refresh path, are the only reviewed
-  dynamic plans.
+  the fixed Datadog US1 OAuth-session refresh path, and the fixed
+  Codex-0.146.0 OpenAI refresh path are the only reviewed dynamic plans.
+  Anthropic setup-token resolution is deliberately non-refreshing.
 
 ## Troubleshooting
 
@@ -1408,8 +1493,11 @@ Common failures:
   `mutation_output_write_failed`: the broker may have committed or confirmed
   completion could not be delivered. Do not repeat login, import, or logout;
   run `tobari auth status` and reconcile the selected Context first.
-- `auth_login_tty_required`: run trusted-host GitHub, AWS, or Datadog login
-  with interactive stdin and stderr. `invalid_credential_input` on terminal
+- `auth_login_tty_required`: run trusted-host GitHub, AWS, Datadog, OpenAI, or
+  Anthropic login with interactive stdin and stderr. OpenAI additionally
+  requires exact Codex 0.146.0 and Anthropic exact Claude Code 2.1.220 in a
+  reviewed host executable root; the Workspace binary is not a fallback.
+  `invalid_credential_input` on terminal
   stdin means import refused before reading; pipe or redirect a trusted
   no-echo source.
 - `root_key_missing_with_vault`: restore the original macOS Keychain item or
@@ -1423,11 +1511,11 @@ Common failures:
 - `credential_handle_invalid` (HTTP 403): leave and re-enter the selected
   Context's Workspace. `credential_broker_unavailable` (HTTP 503) is a known
   pre-execution class; reconcile host Broker/companion state when unavailable,
-  or wait for the current same-record AWS/Datadog operation to settle before a
+  or wait for the current same-record AWS/Datadog/OpenAI operation to settle before a
   deliberate retry.
 - `credential_refresh_outcome_unknown` (HTTP 409): do not replay the task;
   after it settles, run `tobari auth status`. Explicitly retry only when
-  `broker_state=ready` and the affected AWS or Datadog provider is `configured`;
+  `broker_state=ready` and the affected AWS, Datadog, or OpenAI provider is `configured`;
   for `not_configured`, re-login or logout that provider and re-enter first.
 - HTTPS certificate error: confirm the program honors `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, or `GIT_SSL_CAINFO`.
@@ -1492,9 +1580,9 @@ deny-before-resolution, fail-closed outages, CWD resolution, runtime recovery,
 typed denial recovery, tested host-policy activation, terminal exit behavior,
 concurrency, idempotency, and exact cleanup. Automated auth tests use only
 synthetic credentials; `task integration:test` is the required reproducible
-Auth Broker proof. Live GitHub, AWS, and Datadog logins are separate manual release
-scenarios, including no-print checks for projected GitHub, AWS, and Datadog
-handles, in
+Auth Broker proof. Live GitHub, AWS, Datadog, OpenAI, and Anthropic logins are
+separate manual release scenarios, including no-print checks for every
+projected handle, in
 [Agent Readiness Validation](docs/09_agent_readiness_validation.md).
 
 ## MVP exclusions

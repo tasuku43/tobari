@@ -64,4 +64,4 @@ Observed on 2026-08-10: help marks `provider` required and omission returns exit
 
 ## Glossary
 
-- Reviewed login provider: An installed built-in provider whose helper is closed over compiled Tobari behavior (`github`, `aws`, or `datadog`).
+- Reviewed login provider: An installed built-in provider whose helper is closed over compiled Tobari behavior (`github`, `aws`, `datadog`, `openai`, or `anthropic`).

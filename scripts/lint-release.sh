@@ -124,6 +124,15 @@ done
 scripts/test-check-environment.sh >/dev/null
 scripts/test-release-archive-entries.sh >/dev/null
 
+for required in \
+  'require_release_compatible_runtime_images' \
+  'GATEWAY_IMAGE_API' 'AUTH_BROKER_IMAGE_API'; do
+  grep -qF "$required" scripts/check.sh || {
+    echo "release gate is missing runtime image compatibility authority: $required" >&2
+    exit 1
+  }
+done
+
 for forbidden in 'HOMEBREW_GITHUB_API_TOKEN' 'api.github.com/repos/' 'Authorization: Bearer'; do
   if grep -R -F "$forbidden" Formula scripts/render-formula.sh .github/workflows/release.yml >/dev/null 2>&1; then
     echo "public release path contains private-asset behavior: $forbidden" >&2

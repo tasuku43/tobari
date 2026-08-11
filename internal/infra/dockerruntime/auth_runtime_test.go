@@ -326,8 +326,12 @@ func TestSupportsOnlyReviewedBuiltinAuthHelpers(t *testing.T) {
 		{name: "github", provider: authbroker.Provider{ID: "github", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}, want: true},
 		{name: "aws", provider: authbroker.Provider{ID: "aws", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "aws-sso"}}, want: true},
 		{name: "datadog", provider: authbroker.Provider{ID: "datadog", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "pup-oauth"}}, want: true},
+		{name: "openai", provider: authbroker.Provider{ID: "openai", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "codex-chatgpt-oauth"}}, want: true},
+		{name: "anthropic", provider: authbroker.Provider{ID: "anthropic", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "claude-setup-token"}}, want: true},
 		{name: "aws wrong helper", provider: authbroker.Provider{ID: "aws", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
 		{name: "datadog wrong helper", provider: authbroker.Provider{ID: "datadog", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
+		{name: "openai wrong helper", provider: authbroker.Provider{ID: "openai", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
+		{name: "anthropic wrong helper", provider: authbroker.Provider{ID: "anthropic", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
 		{name: "other reused helper", provider: authbroker.Provider{ID: "other", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "aws-sso"}}},
 		{name: "stdin import", provider: authbroker.Provider{ID: "github", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionStdinImport}}},
 	}

@@ -10,13 +10,17 @@ Docker topology for mediated HTTP and HTTPS. It covers the default tool-native
 passthrough credential route, the Auth Broker's project-bound opaque-handle
 route, and the retained static `managed` Gateway adapter.
 
-The model covers strict schema-1 static provider transformations and two
-reviewed schema-2 plans. AWS uses fixed trusted-host CLI login selected only
+The model covers strict schema-1 static provider transformations and the
+closed reviewed built-in plans. AWS uses fixed trusted-host CLI login selected only
 from conventional non-project installation roots, control-safe bounded login
 output, checked private-home cleanup, post-policy host CLI credential export
 through a resident private companion, and Broker-owned bounded SigV4. Datadog
 uses fixed trusted-host pup OAuth acquisition and Broker-owned post-policy
-selection or exact US1 refresh. It does not extend the product boundary to
+selection or exact US1 refresh. OpenAI uses exact Codex 0.146.0 device login,
+encrypted ChatGPT OAuth state, exact post-policy account routing, and one fixed
+refresh endpoint. Anthropic uses exact Claude Code 2.1.220 setup-token
+acquisition and post-policy static resolution without refresh. It does not
+extend the product boundary to
 arbitrary provider programs, manifest-selected refresh/signing, general TWG
 authentication, multiple accounts per Context, transparent proxying, or
 non-HTTP protocols.
@@ -28,7 +32,7 @@ Trusted:
 - the host user and OS, Docker Engine or its Linux VM, container runtime, and
   kernel;
 - Tobari CLI, embedded runtime assets, host lifecycle code, resident credential
-  companion, reviewed host GitHub/AWS/pup drivers, owner-only XDG state, and the
+  companion, reviewed host GitHub/AWS/pup/Codex/Claude drivers, owner-only XDG state, and the
   platform-defined host root-key backend;
 - Gateway and its private CA state, OPA and the activated Rego projection, and
   the owner-only principal registry;
@@ -65,7 +69,7 @@ an exact live broker binding, and an OPA allow.
 | OPA policy and decision API | Workspace reads, changes, or bypasses policy | Control network and read-only projection | OPA joins only control; Workspaces do not; OPA receives a validated read-only aggregate generated from host-owned Context sources |
 | Auth Broker control and runtime APIs | Workspace acquires or resolves a primary secret directly | Separate Unix sockets and mounts | Broker exposes no TCP listener and joins no Workspace network; host control uses a private control socket and only Gateway mounts the runtime socket |
 | Host credential companion | Workspace or network input turns refresh into host execution, replays a session, or reaches a listener | Private same-binary process plus authenticated reverse exec | No listener or host socket mount; fixed verified Broker container/exec argv; root-key-derived epoch, direction keys, strict sequence/frame/deadline schemas, and only the compiled reviewed AWS refresh operation |
-| Broker-owned Datadog refresh | Workspace input redirects OAuth refresh, uses ambient proxy state, or triggers refresh before allow | Fixed schema-2 plan and post-policy Broker boundary | Exact US1 HTTPS token endpoint, no redirect or ambient proxy, bounded strict form exchange, same-revision per-record single-flight, encrypted durable task barrier, and no refresh on OPA denial |
+| Broker-owned Datadog/OpenAI refresh | Workspace input redirects OAuth refresh, uses ambient proxy state, controls OpenAI account routing, or triggers refresh before allow | Fixed schema-2 plans and post-policy Broker boundary | Exact Datadog US1 or OpenAI token endpoint, no redirect or ambient proxy, bounded strict exchange, same-revision per-record single-flight, account continuity for OpenAI, encrypted durable task barriers, and no refresh on OPA denial |
 | Installation root key and encrypted Context vaults | Workspace obtains primary credentials or corrupts credential authority | Host root-key backend, authenticated encryption, and owner-only state | Broker starts locked; the 32-byte key enters through bounded stdin, stays in broker memory, and is never mounted into a Workspace; schema-1 vaults use AES-256-GCM with Context-bound associated data and checked atomic writes |
 | Project-bound broker capability | A copied, stale, or malformed handle resolves a real credential | Gateway recognition, principal registry, and Broker binding | Handle must match Context, project, provider, credential revision, exact HTTPS target, source syntax, destination transformation, and redaction binding; invalid markers fail closed without fallback |
 | Tool-owned authentication | Another Workspace reads or reuses it | Per-Workspace home and network | Tool state remains in that Workspace's exact home; all processes in the same Workspace may read it |
@@ -88,7 +92,9 @@ request. Auth Broker neither interprets method/path policy nor grants network
 permission; it validates and resolves an exact credential binding only when
 Gateway follows the broker protocol. For the reviewed AWS plan it owns
 encrypted opaque driver state, record/revision authority, and signing, and may
-request one temporary host-CLI role lease only after OPA allow.
+request one temporary host-CLI role lease only after OPA allow. For Datadog and
+OpenAI it owns the fixed post-allow token-selection/refresh plans; Anthropic is
+one same-revision static post-allow resolution.
 
 The body-free OPA schema includes the host-issued Context/project principal,
 scheme, host, port, method, raw path and path segments, multi-valued query,
@@ -273,7 +279,8 @@ fallback only when no marker appears in any inspected URL/header position.
 ### Credential acquisition versus network authority
 
 `auth login` and `auth import` acquire or replace one credential for one
-Context/provider. Login is limited to reviewed fixed host GitHub/AWS/pup drivers;
+Context/provider. Login is limited to reviewed fixed host
+GitHub/AWS/pup/Codex/Claude drivers;
 owner-controlled providers use protected non-terminal stdin import. Strict
 schema-1 manifests are non-executable declarations of handle projection and
 exact HTTPS/header transformation: they cannot name a shell command or add
@@ -287,7 +294,9 @@ fixed argv and a sanitized environment, and creates a private bounded temporary
 home. GitHub captures one API token and configures no Git transport. AWS packs
 opaque CLI cache state; request region remains separate Context/tool
 configuration. Datadog captures one strict default-US1 pup DCR client, token,
-and session state. Auth Broker contains no provider CLI or provider home. A
+and session state. Codex captures one strict non-FedRAMP ChatGPT OAuth session;
+Claude captures one inference setup token without forwarding it to visible
+output. Auth Broker contains no provider CLI or provider home. A
 manifest, repository, Workspace, request, or provider response cannot select a
 driver, executable path, argv, environment key, or shell.
 
@@ -310,6 +319,14 @@ redirect-rejecting refresh request to the US1 token endpoint. A strict response
 replaces encrypted state atomically; an unknown outcome remains barred until
 explicit Datadog re-login or logout.
 
+On OpenAI allow, Broker selects the same-revision access token and fixed
+account-routing value, refreshing only inside the reviewed time window with
+one bounded proxy-free, redirect-rejecting request to the exact token endpoint.
+It preserves account continuity and atomically commits state before returning.
+An unknown result remains barred until explicit OpenAI re-login or logout. On
+Anthropic allow, Broker resolves the same revision once for the exact API
+authority; no refresh or supplemental header exists.
+
 ### Companion replay, crash, or stale refresh
 
 An attacker replays a frame, skips a sequence, replaces the resident process,
@@ -322,16 +339,16 @@ partial, timed-out, or failed write closes the whole session before any later
 sequence number can be used. Close and invalidation interrupt blocked writes.
 The bridge parses, logs, and persists nothing.
 
-AWS and Datadog refresh are single-flight per credential record with a
+AWS, Datadog, and OpenAI refresh are single-flight per credential record with a
 one-second queue wait. Queue expiry is known pre-execution and creates no
 barrier or provider call. Broker atomically stores the task digest in the
-encrypted record before AWS host execution or Datadog HTTPS refresh and clears
+encrypted record before AWS host execution or Datadog/OpenAI HTTPS refresh and clears
 it only with the same correlated successful state commit.
 An unknown outcome therefore remains barred across Broker restart. Broker does
 not hold its installation-wide state mutex over host/provider I/O and rechecks record,
 revision, driver identity, and request/task digest before committing returned
 opaque state or using the temporary lease. Replacement or logout therefore
-wins. A companion disconnect or Datadog transport ambiguity after dispatch is
+wins. A companion disconnect or Datadog/OpenAI transport ambiguity after dispatch is
 outcome-unknown, maps to non-retryable
 HTTP 409, and is not blindly replayed. After the request settles, `auth status`
 distinguishes `broker_state=ready` with the affected provider `configured`, for which an
@@ -353,7 +370,7 @@ reason to create a replacement key. An unsafe key, invalid vault, locked Broker,
 known pre-dispatch socket failure, or unavailable Broker does not expose or
 forward a credential. Those pre-execution Broker-path failures return local
 503; an invalid handle binding returns local 403. A lost or invalid response
-after an AWS companion operation or Datadog refresh was dispatched returns
+after an AWS companion operation or Datadog/OpenAI refresh was dispatched returns
 non-retryable local 409 with a durable reconciliation barrier, never 503 replay
 permission.
 
@@ -472,7 +489,7 @@ protocols, multiple clusters or mutually untrusted tenants, a per-project
 static baseline, remote execution, filesystem overlays or root locks,
 process-level identity, stronger root-key isolation, additional executable
 host drivers, a host listener or socket mount, new credential shapes, any
-refresh/signing flow beyond the reviewed AWS and Datadog plans, general TWG
+refresh/signing flow beyond the reviewed AWS, Datadog, OpenAI, and Anthropic plans, general TWG
 authentication, multiple provider accounts, arbitrary provider operations, or
 provider-specific policy semantics. A demonstrated route from one Workspace to
 another, OPA, Auth Broker, the companion, or an external destination without

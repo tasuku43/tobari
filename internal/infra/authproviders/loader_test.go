@@ -16,15 +16,21 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projection.SchemaVersion != authbroker.ProviderSchemaVersion || len(projection.Providers) != 4 {
+	if projection.SchemaVersion != authbroker.ProviderSchemaVersion || len(projection.Providers) != 6 {
 		t.Fatalf("built-in projection = %#v", projection)
 	}
 	providers := make(map[string]authbroker.Provider, len(projection.Providers))
 	for _, provider := range projection.Providers {
 		providers[provider.ID] = provider
 	}
-	if BuiltinAWSProviderID != "aws" || BuiltinChatworkProviderID != "chatwork" || BuiltinDatadogProviderID != "datadog" {
-		t.Fatalf("tool provider IDs = %q, %q, %q", BuiltinAWSProviderID, BuiltinChatworkProviderID, BuiltinDatadogProviderID)
+	if BuiltinAnthropicProviderID != "anthropic" || BuiltinAWSProviderID != "aws" ||
+		BuiltinChatworkProviderID != "chatwork" || BuiltinDatadogProviderID != "datadog" ||
+		BuiltinOpenAIProviderID != "openai" {
+		t.Fatalf(
+			"tool provider IDs = %q, %q, %q, %q, %q",
+			BuiltinAnthropicProviderID, BuiltinAWSProviderID, BuiltinChatworkProviderID,
+			BuiltinDatadogProviderID, BuiltinOpenAIProviderID,
+		)
 	}
 	if BuiltinGitHubProviderID != "github" {
 		t.Fatalf("BuiltinGitHubProviderID = %q", BuiltinGitHubProviderID)
@@ -143,6 +149,76 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 	if datadogBindings != 1 {
 		t.Fatalf("Datadog normalized bindings = %#v", projection.HeaderBindings)
 	}
+
+	anthropic := providers[BuiltinAnthropicProviderID]
+	if anthropic.SchemaVersion != authbroker.LegacyProviderSchemaVersion ||
+		anthropic.DisplayName != "Anthropic account for Claude Code" ||
+		anthropic.Acquisition != (authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "claude-setup-token"}) ||
+		anthropic.Credential.Kind != authbroker.CredentialPrimarySecret || len(anthropic.WorkspaceProjections) != 1 ||
+		anthropic.WorkspaceProjections[0] != (authbroker.WorkspaceProjection{
+			Kind: authbroker.WorkspaceProjectionEnvironment, Name: "CLAUDE_CODE_OAUTH_TOKEN", Template: "${HANDLE}",
+		}) {
+		t.Fatalf("Anthropic provider plan = %#v", anthropic)
+	}
+	assertExactBearerBinding(t, projection, BuiltinAnthropicProviderID, "api.anthropic.com", authbroker.CredentialPrimarySecret,
+		[]string{"authorization"})
+
+	openai := providers[BuiltinOpenAIProviderID]
+	const openAIAuthTemplate = `{"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}","refresh_token":"","account_id":null},"last_refresh":"1970-01-01T00:00:00Z"}`
+	if openai.SchemaVersion != authbroker.ProviderSchemaVersion ||
+		openai.DisplayName != "OpenAI account for Codex" ||
+		openai.Acquisition != (authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "codex-chatgpt-oauth"}) ||
+		openai.Credential.Kind != authbroker.CredentialOpenAICodexOAuthSession || len(openai.WorkspaceProjections) != 1 ||
+		openai.WorkspaceProjections[0] != (authbroker.WorkspaceProjection{
+			Kind: authbroker.WorkspaceProjectionCompleteFile, Path: ".codex/auth.json", Template: openAIAuthTemplate,
+		}) {
+		t.Fatalf("OpenAI provider plan = %#v", openai)
+	}
+	assertExactBearerBinding(t, projection, BuiltinOpenAIProviderID, "chatgpt.com", authbroker.CredentialOpenAICodexOAuthSession,
+		[]string{"authorization", "chatgpt-account-id", "x-openai-fedramp"})
+	if len(projection.CompleteFiles) != 1 || projection.CompleteFiles[0].ProviderID != BuiltinOpenAIProviderID ||
+		projection.CompleteFiles[0].Path != ".codex/auth.json" || projection.CompleteFiles[0].Template != openAIAuthTemplate {
+		t.Fatalf("OpenAI complete-file projection = %#v", projection.CompleteFiles)
+	}
+}
+
+func assertExactBearerBinding(
+	t *testing.T,
+	projection authbroker.Projection,
+	providerID, host string,
+	credentialKind authbroker.CredentialKind,
+	secretHeaders []string,
+) {
+	t.Helper()
+	bindings := 0
+	for _, binding := range projection.HeaderBindings {
+		if binding.ProviderID != providerID {
+			continue
+		}
+		bindings++
+		if binding.Target != (authbroker.BindingTarget{Scheme: "https", Host: host, Port: 443}) ||
+			binding.Source != (authbroker.NormalizedBindingSource{Header: "authorization", Format: authbroker.SourceFormatBearer}) ||
+			binding.Destination != (authbroker.BindingDestination{
+				Header: "authorization", Format: authbroker.DestinationFormatBearer, SecretField: credentialKind,
+			}) || !slicesEqual(binding.SecretHeaders, secretHeaders) {
+			t.Fatalf("provider %q normalized binding = %#v", providerID, binding)
+		}
+	}
+	if bindings != 1 {
+		t.Fatalf("provider %q normalized bindings = %#v", providerID, projection.HeaderBindings)
+	}
+}
+
+func slicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 type importedHeaderExpectation struct {
@@ -214,15 +290,17 @@ func TestLoaderLoadsOwnerOnlyUserProvidersAndNormalizesThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projection.Providers) != 5 || projection.Providers[0].ID != "aws" ||
-		projection.Providers[1].ID != "chatwork" || projection.Providers[2].ID != "datadog" ||
-		projection.Providers[3].ID != "example-token" || projection.Providers[4].ID != "github" {
+	if len(projection.Providers) != 7 || projection.Providers[0].ID != "anthropic" ||
+		projection.Providers[1].ID != "aws" || projection.Providers[2].ID != "chatwork" ||
+		projection.Providers[3].ID != "datadog" || projection.Providers[4].ID != "example-token" ||
+		projection.Providers[5].ID != "github" || projection.Providers[6].ID != "openai" {
 		t.Fatalf("provider ordering = %#v", projection.Providers)
 	}
-	if len(projection.CompleteFiles) != 1 || projection.CompleteFiles[0].Path != ".config/example/auth.toml" {
+	if len(projection.CompleteFiles) != 2 || projection.CompleteFiles[0].Path != ".codex/auth.json" ||
+		projection.CompleteFiles[1].Path != ".config/example/auth.toml" {
 		t.Fatalf("complete-file projection = %#v", projection.CompleteFiles)
 	}
-	if strings.Join(projection.SecretHeaders, ",") != "authorization,x-amz-security-token,x-api-key,x-chatworktoken" {
+	if strings.Join(projection.SecretHeaders, ",") != "authorization,chatgpt-account-id,x-amz-security-token,x-api-key,x-chatworktoken,x-openai-fedramp" {
 		t.Fatalf("secret headers = %#v", projection.SecretHeaders)
 	}
 }
@@ -244,9 +322,10 @@ func TestLoaderUsesOnlyInjectedCanonicalDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projection.Providers) != 4 || projection.Providers[0].ID != BuiltinAWSProviderID ||
-		projection.Providers[1].ID != BuiltinChatworkProviderID ||
-		projection.Providers[2].ID != BuiltinDatadogProviderID || projection.Providers[3].ID != BuiltinGitHubProviderID {
+	if len(projection.Providers) != 6 || projection.Providers[0].ID != BuiltinAnthropicProviderID ||
+		projection.Providers[1].ID != BuiltinAWSProviderID || projection.Providers[2].ID != BuiltinChatworkProviderID ||
+		projection.Providers[3].ID != BuiltinDatadogProviderID || projection.Providers[4].ID != BuiltinGitHubProviderID ||
+		projection.Providers[5].ID != BuiltinOpenAIProviderID {
 		t.Fatalf("missing user directory projection = %#v", projection.Providers)
 	}
 }
@@ -339,9 +418,11 @@ func TestLoaderRejectsBuiltinOverrideUnreviewedHelperAndCollisions(t *testing.T)
 	fixture := syntheticFixture(t)
 	cases := map[string][]byte{
 		"builtin override":      bytes.Replace(fixture, []byte(`"id": "example-token"`), []byte(`"id": "github"`), 1),
+		"anthropic override":    bytes.Replace(fixture, []byte(`"id": "example-token"`), []byte(`"id": "anthropic"`), 1),
 		"aws override":          bytes.Replace(fixture, []byte(`"id": "example-token"`), []byte(`"id": "aws"`), 1),
 		"chatwork override":     bytes.Replace(fixture, []byte(`"id": "example-token"`), []byte(`"id": "chatwork"`), 1),
 		"datadog override":      bytes.Replace(fixture, []byte(`"id": "example-token"`), []byte(`"id": "datadog"`), 1),
+		"openai override":       bytes.Replace(fixture, []byte(`"id": "example-token"`), []byte(`"id": "openai"`), 1),
 		"unreviewed helper":     bytes.Replace(fixture, []byte(`"mode": "stdin_import"`), []byte(`"mode": "builtin_helper", "helper": "github-gh"`), 1),
 		"builtin env collision": bytes.Replace(fixture, []byte(`"name": "EXAMPLE_TOKEN"`), []byte(`"name": "GH_TOKEN"`), 1),
 		"unknown shell field":   bytes.Replace(fixture, []byte(`"mode": "stdin_import"`), []byte(`"mode": "stdin_import", "shell": "env"`), 1),

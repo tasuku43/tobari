@@ -141,6 +141,20 @@ func brokerLoginControlExpectation(arguments []string) (brokerControlExpectation
 		}
 		expectation.DriverID = arguments[8]
 		expectation.DriverRevision = arguments[10]
+	case "openai":
+		if len(arguments) != 11 || arguments[7] != "--driver-id" ||
+			arguments[9] != "--driver-revision" || expectation.AccountLabel == "" ||
+			authbroker.ValidateSecretFreeText("account label", expectation.AccountLabel, 128) != nil ||
+			arguments[8] != credentialhost.CodexDriverID ||
+			!hostDriverRevisionPattern.MatchString(arguments[10]) {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker OpenAI login arguments are invalid")
+		}
+		expectation.DriverID = arguments[8]
+		expectation.DriverRevision = arguments[10]
+	case "anthropic":
+		if len(arguments) != 7 || expectation.AccountLabel != credentialhost.ClaudeAccountLabel {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker Anthropic login arguments are invalid")
+		}
 	default:
 		return brokerControlExpectation{}, fmt.Errorf("Auth Broker login provider is invalid")
 	}

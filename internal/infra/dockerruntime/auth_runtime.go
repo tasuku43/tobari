@@ -239,7 +239,9 @@ func supportsBuiltinAuthHelper(provider authbroker.Provider) bool {
 	}
 	return (provider.ID == "github" && provider.Acquisition.Helper == "github-gh") ||
 		(provider.ID == "aws" && provider.Acquisition.Helper == "aws-sso") ||
-		(provider.ID == "datadog" && provider.Acquisition.Helper == "pup-oauth")
+		(provider.ID == "datadog" && provider.Acquisition.Helper == "pup-oauth") ||
+		(provider.ID == "openai" && provider.Acquisition.Helper == "codex-chatgpt-oauth") ||
+		(provider.ID == "anthropic" && provider.Acquisition.Helper == "claude-setup-token")
 }
 
 func classifyHostLoginError(err error, provider string, methods ...string) error {
@@ -260,6 +262,10 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 			name = "AWS"
 		} else if provider == "datadog" {
 			name = "Datadog pup"
+		} else if provider == "openai" {
+			name = "Codex"
+		} else if provider == "anthropic" {
+			name = "Claude Code"
 		}
 		return fault.New(
 			fault.KindUnavailable, code,
@@ -313,6 +319,60 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 			)
 		}
 		return classifyBrokerError(err, "auth login datadog")
+	}
+	if provider == "openai" {
+		if hostLoginTimedOut(err) {
+			return fault.New(
+				fault.KindRejected, "openai_login_timeout",
+				"The bounded Codex ChatGPT OAuth login timed out; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Start a new OpenAI login and complete device authorization within the bounded window."},
+			)
+		}
+		if hostLoginCancelled(err) {
+			return fault.New(
+				fault.KindRejected, "openai_login_cancelled",
+				"Codex ChatGPT OAuth login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host OpenAI login when ready."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrCodexExecutable) || errors.Is(err, credentialhost.ErrCodexVersion) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		}
+		if hostLoginFailureIsCredentialDriver(err) {
+			return fault.New(
+				fault.KindUnavailable, "openai_login_failed",
+				"Codex ChatGPT OAuth login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the isolated trusted-host Codex login after inspecting the failure."},
+			)
+		}
+		return classifyBrokerError(err, "auth login openai")
+	}
+	if provider == "anthropic" {
+		if hostLoginTimedOut(err) {
+			return fault.New(
+				fault.KindRejected, "anthropic_login_timeout",
+				"The bounded Claude setup-token login timed out; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Start a new Anthropic login and complete browser authorization within the bounded window."},
+			)
+		}
+		if hostLoginCancelled(err) {
+			return fault.New(
+				fault.KindRejected, "anthropic_login_cancelled",
+				"Claude setup-token login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host Anthropic login when ready."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrClaudeExecutable) || errors.Is(err, credentialhost.ErrClaudeVersion) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		}
+		if hostLoginFailureIsCredentialDriver(err) {
+			return fault.New(
+				fault.KindUnavailable, "anthropic_login_failed",
+				"Claude setup-token login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the isolated trusted-host Claude Code login after inspecting the failure."},
+			)
+		}
+		return classifyBrokerError(err, "auth login anthropic")
 	}
 	if provider != "aws" {
 		return classifyBrokerError(err, "auth login "+provider)

@@ -59,7 +59,7 @@ A thesis change is not complete when only `docs/00_theses.md` changed. Its conse
 11. **External calls are bounded and secret-free above infrastructure.** Propagate one context, declare pagination/call policy, and keep OAuth tokens, PATs, and credential-bearing types inside infrastructure.
 12. **External text remains untrusted data.** Visible projection protects terminal and TSV/JSON structure by distinguishing backslashes, controls/formats, and Unicode line separators; it does not filter printable prompt-like meaning. Opaque references bypass display projection and retain their exact validated value.
 13. **Semantics precede presentation.** Before rendering, validate the declared task identity and every request dimension that the task actually carries: target, parent, and/or scope. A scoped collection's task-owned result retains its declared scope even when empty. Preserve absent versus explicit empty/zero/false and bounded uncertainty whenever those distinctions affect interpretation, and validate returned opaque values against the reference kind required by their semantic field. Each interpretation-sensitive capability supplies task-owned conformance and negative-inference tests; presentation does not invent identity, relationships, completeness, or confidence from labels, order, proximity, quoting, or indentation.
-14. **Brokered credentials remain post-policy and project-bound.** A Workspace may receive only a versioned opaque handle bound to its stable Context, project, provider, credential revision, and exact HTTP binding; it never receives the brokered primary secret or root key. Gateway removes a recognized handle, performs non-secret introspection, asks OPA about the ordinary HTTP effect, resolves exactly once only after allow, and never forwards or falls back with an invalid handle. Provider manifests are strict non-secret schema-v1 data, not executable adapters or policy. Root keys, vaults, provider acquisition, handle issuance/resolution, and credential-bearing types remain infrastructure-owned.
+14. **Brokered credentials remain post-policy and project-bound.** A Workspace may receive only a versioned opaque handle bound to its stable Context, project, provider, credential revision, and exact HTTP binding; it never receives the brokered primary secret or root key. Gateway removes a recognized handle, performs non-secret introspection, asks OPA about the ordinary HTTP effect, resolves exactly once only after allow, and never forwards or falls back with an invalid handle. Owner-authored provider manifests remain strict non-secret schema-v1 stdin-import data, not executable adapters or policy. Reviewed built-ins may use only the closed schema-v1/schema-v2 helper, credential, refresh, signing, and projection plans pinned independently by Domain and Gateway. Root keys, vaults, provider acquisition, handle issuance/resolution, and credential-bearing types remain infrastructure-owned.
 
 ## Layer responsibilities
 
@@ -146,16 +146,18 @@ Observe runtime-only behavior before changing it. Add bounded diagnostics, repro
 6. Implement a concrete infrastructure adapter behind those ports.
 7. Register one complete `cli.CommandSpec` in `cli.Catalog` and derive routing, typed parsing, hierarchical human help, scoped agent help, capability, role, reference flow, output, prerequisites, and recovery metadata from it. Each input declares `value_kind`, `cardinality`, any omission default, numeric bounds, and explicit `requires`/`conflicts_with` relations; do not reimplement those facts in a handler switch. Keep the root agent index limited to path, namespace, summary, outcome, capability, effect, and role; verify detailed metadata and the executable argv grammar only in scoped help. Dash-prefixed flag values use the equals form and dash-prefixed positional values follow the positional-only marker. Declare delivery (`complete` or `paged`) separately from collection coverage (`not_applicable`, `exhaustive`, `bounded_window`, or `differential_window`); complete delivery does not imply exhaustive provider history. Complete delivery has no public pagination binding. Paged delivery is JSON-only, cannot use `not_applicable`, and binds one optional opaque cursor argument or flag to one same-kind, always-present top-level string cursor beside the JSON envelope, with typed `empty_cursor` completion.
 8. Declare `Effect`, `Intent`, `TargetRef`, and `Impact`. Bind create scope through `MutationContract.parent_input`; bind a write's existing target through `target_id_input` and any distinct scope through optional `parent_input`. Make missing, unbound, mismatched, or inconsistent values fail before the side effect.
-9. Provider-specific policy operations, arbitrary executable adapters, OAuth
-   refresh, signing, PAT discovery, and multiple-account selection remain
-   excluded. The supported authentication boundary is the strict schema-v1
-   provider manifest plus protected non-terminal stdin import, with the reviewed built-in
-   GitHub helper as the sole helper-backed provider. Extend that declarative
-   exact HTTPS/header contract when it can express the outcome; a new helper,
-   credential shape, refresh/signing flow, or provider API interpretation
-   requires prior thesis, product, architecture, security, public-boundary,
-   release, and harness decisions. Keep credential-bearing clients, root keys,
-   vaults, tokens, and provider acquisition types inside infrastructure.
+9. Provider-specific policy operations, arbitrary executable adapters, PAT
+   discovery, and multiple-account selection remain excluded. The supported
+   owner extension boundary is the strict schema-v1 provider manifest plus
+   protected non-terminal stdin import. Helper-backed GitHub, AWS, Datadog,
+   OpenAI, and Anthropic authentication exists only as the reviewed closed
+   built-in plans, including their exact refresh, signing, or no-refresh
+   semantics. Extend the declarative exact HTTPS/header contract when it can
+   express the outcome; a new helper, credential shape, refresh/signing flow,
+   or provider API interpretation requires prior thesis, product,
+   architecture, security, public-boundary, release, and harness decisions.
+   Keep credential-bearing clients, root keys, vaults, tokens, and provider
+   acquisition types inside infrastructure.
 10. Add unit, contract, opaque-reference round-trip, negative-path,
     hostile-output, recovery, and public-boundary tests in proportion to risk.
     For interpretation-sensitive results, include a presentation-independent

@@ -99,9 +99,11 @@ support promises before maintainers invite external users.
 - Verify dependency integrity, licenses, and known vulnerabilities.
 - For the Auth Broker image, verify canonical/snapshot equality, bridge and
   protocol tests, non-root construction, and absence of every provider CLI or
-  provider configuration file. Host GitHub/AWS/pup drivers are Go infrastructure,
-  not Broker image artifacts; tests and image layers must contain no live SSO
-  or console-login cache, token, temporary credential, or signed-request material.
+  provider configuration file. Host GitHub/AWS/pup/Codex/Claude drivers are Go
+  infrastructure, not Broker image artifacts; tests and image layers must
+  contain no live SSO or console-login cache, Codex `auth.json`, Claude state,
+  setup token, OAuth token set, temporary credential, or signed-request
+  material.
 - For the public base runtime, retain its pre-change GitHub CLI and AWS CLI
   artifact, publisher, redistribution, multi-architecture, and native-smoke
   checks. Verify `kubectl`, `cwk`, `pup`, and TWG only in the explicit local
@@ -138,7 +140,8 @@ image any authority beyond its declared root filesystem.
 The Auth Broker is a credential-bearing runtime, so its public image requires
 additional negative evidence: no credential, live account fixture, GitHub or
 AWS CLI configuration, SSO registration/client state, console login session or
-private key, access or refresh token,
+private key, Codex or Claude configuration, OpenAI ID/access/refresh token,
+Claude setup token, access or refresh token,
 role credential, root key, vault, runtime-issued handle, device code, signed
 authorization field, or authenticated output is present in source, layers,
 workflow artifacts, logs, or notices. Deterministic synthetic canaries are
@@ -224,10 +227,14 @@ Minimum first-public-push checklist:
 - [ ] Fixtures and docs contain only synthetic data.
 - [ ] Auth Broker source, image layers, tests, and manual validation evidence
       contain no real account material, SSO/token/role state, device code,
-      signed authorization field, handle, key, or vault.
+      Codex or Claude credential state, signed authorization field, handle,
+      key, or vault.
 - [ ] The published base's existing tool archives, checksums, licenses, notices,
       and both architectures were reviewed; toolbox-only `kubectl`, `cwk`,
       `pup`, and TWG are absent from published layers.
+- [ ] Codex and Claude runtime variants remain local/CI-only until their
+      redistribution terms and image-layer license inventories are approved;
+      a local build or passing version smoke test is not publication evidence.
 - [ ] Full history and artifacts passed secret and identifier review.
 - [ ] `task check`, `task security`, and `task public:check` passed.
 - [ ] A human reviewer approved publication.

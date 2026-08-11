@@ -15,6 +15,7 @@ grep -q '/run/tobari-auth/control' "$dockerfile"
 grep -q '/run/tobari-auth/companion' "$dockerfile"
 grep -q '^COPY companion_protocol\.py /opt/tobari/authbroker/companion_protocol\.py$' "$dockerfile"
 grep -q '^COPY companion_bridge\.py /opt/tobari/authbroker/companion_bridge\.py$' "$dockerfile"
+grep -q '^COPY openai_codex_oauth\.py /opt/tobari/authbroker/openai_codex_oauth\.py$' "$dockerfile"
 
 if grep -Eq '(github_auth|aws_sso|gh-checksums|github-cli|/run/tobari-auth/login)' "$dockerfile"; then
   echo "auth broker image still includes a provider CLI or broker-native provider helper" >&2
@@ -22,6 +23,9 @@ if grep -Eq '(github_auth|aws_sso|gh-checksums|github-cli|/run/tobari-auth/login
 fi
 grep -q 'test ! -e /usr/local/bin/gh' "$dockerfile"
 grep -q 'test ! -e /usr/local/bin/aws' "$dockerfile"
+grep -q 'test ! -e /usr/local/bin/pup' "$dockerfile"
+grep -q 'test ! -e /usr/local/bin/codex' "$dockerfile"
+grep -q 'test ! -e /usr/local/bin/claude' "$dockerfile"
 
 for removed in \
   authbroker/github_auth.py \

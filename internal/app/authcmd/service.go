@@ -16,11 +16,13 @@ import (
 )
 
 const (
-	BuiltinGitHubProviderID               = "github"
-	BuiltinAWSProviderID                  = "aws"
-	BuiltinDatadogProviderID              = "datadog"
-	LoginMethodIdentityCenter LoginMethod = "identity-center"
-	LoginMethodConsole        LoginMethod = "console"
+	BuiltinGitHubProviderID                = "github"
+	BuiltinAWSProviderID                   = "aws"
+	BuiltinDatadogProviderID               = "datadog"
+	BuiltinOpenAIProviderID                = "openai"
+	BuiltinAnthropicProviderID             = "anthropic"
+	LoginMethodIdentityCenter  LoginMethod = "identity-center"
+	LoginMethodConsole         LoginMethod = "console"
 )
 
 // LoginMethod selects one reviewed AWS CLI acquisition plan. The empty value
@@ -169,7 +171,9 @@ func normalizeLoginMethod(provider, method string) (LoginMethod, error) {
 }
 
 func supportsBuiltinLogin(provider string) bool {
-	return provider == BuiltinGitHubProviderID || provider == BuiltinAWSProviderID || provider == BuiltinDatadogProviderID
+	return provider == BuiltinGitHubProviderID || provider == BuiltinAWSProviderID ||
+		provider == BuiltinDatadogProviderID || provider == BuiltinOpenAIProviderID ||
+		provider == BuiltinAnthropicProviderID
 }
 
 func (s *Service) Import(

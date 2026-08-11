@@ -95,6 +95,8 @@ func TestAuthLoginCatalogSeparatesProviderToolAndAcquisitionMethod(t *testing.T)
 		!strings.Contains(login.Agent.Inputs[0].Description, "GitHub CLI (gh)") ||
 		!strings.Contains(login.Agent.Inputs[0].Description, "AWS CLI (aws)") ||
 		!strings.Contains(login.Agent.Inputs[0].Description, "datadog uses pup") ||
+		!strings.Contains(login.Agent.Inputs[0].Description, "openai uses Codex 0.146.0") ||
+		!strings.Contains(login.Agent.Inputs[0].Description, "anthropic uses Claude Code 2.1.220") ||
 		!strings.Contains(login.Agent.Inputs[0].Description, "not another tool") {
 		t.Fatalf("auth login provider input = %+v", login.Agent.Inputs)
 	}
@@ -110,7 +112,10 @@ func TestAuthLoginCatalogSeparatesProviderToolAndAcquisitionMethod(t *testing.T)
 		t.Fatalf("auth login method input = %+v", login.Agent.Inputs)
 	}
 	joinedPrerequisites := strings.Join(login.Agent.Prerequisites, "\n")
-	for _, want := range []string{"github", "aws", "trusted-host PATH", "access-portal start URL", "SSO region", "account ID", "role name", "request region"} {
+	for _, want := range []string{
+		"github", "aws", "openai", "anthropic", "Codex 0.146.0", "Claude Code 2.1.220",
+		"trusted-host PATH", "access-portal start URL", "SSO region", "account ID", "role name", "request region",
+	} {
 		if !strings.Contains(joinedPrerequisites, want) {
 			t.Fatalf("auth login prerequisites = %q, want %q", joinedPrerequisites, want)
 		}
@@ -119,6 +124,18 @@ func TestAuthLoginCatalogSeparatesProviderToolAndAcquisitionMethod(t *testing.T)
 		"github_cli_unavailable":        false,
 		"github_login_cancelled":        false,
 		"github_login_failed":           false,
+		"datadog_cli_unavailable":       false,
+		"datadog_login_cancelled":       false,
+		"datadog_login_timeout":         false,
+		"datadog_login_failed":          false,
+		"openai_cli_unavailable":        false,
+		"openai_login_cancelled":        false,
+		"openai_login_timeout":          false,
+		"openai_login_failed":           false,
+		"anthropic_cli_unavailable":     false,
+		"anthropic_login_cancelled":     false,
+		"anthropic_login_timeout":       false,
+		"anthropic_login_failed":        false,
 		"aws_cli_unavailable":           false,
 		"aws_console_login_unsupported": false,
 		"aws_console_config_invalid":    false,
@@ -139,6 +156,45 @@ func TestAuthLoginCatalogSeparatesProviderToolAndAcquisitionMethod(t *testing.T)
 		if !found {
 			t.Fatalf("auth login lacks %q", code)
 		}
+	}
+}
+
+func TestAuthLoginCatalogDeclaresPinnedAgentOAuthFaultRecovery(t *testing.T) {
+	t.Parallel()
+	login, found := DefaultCatalog().Lookup("auth login")
+	if !found {
+		t.Fatal("catalog lacks auth login")
+	}
+	type expectation struct {
+		kind       fault.Kind
+		nextAction string
+	}
+	want := map[string]expectation{
+		"openai_cli_unavailable":    {kind: fault.KindUnavailable, nextAction: "auth login"},
+		"openai_login_cancelled":    {kind: fault.KindRejected, nextAction: "auth login"},
+		"openai_login_timeout":      {kind: fault.KindRejected, nextAction: "auth login"},
+		"openai_login_failed":       {kind: fault.KindUnavailable, nextAction: "auth login"},
+		"anthropic_cli_unavailable": {kind: fault.KindUnavailable, nextAction: "auth login"},
+		"anthropic_login_cancelled": {kind: fault.KindRejected, nextAction: "auth login"},
+		"anthropic_login_timeout":   {kind: fault.KindRejected, nextAction: "auth login"},
+		"anthropic_login_failed":    {kind: fault.KindUnavailable, nextAction: "auth login"},
+	}
+	for _, declared := range login.Agent.Errors {
+		expected, ok := want[declared.Code]
+		if !ok {
+			continue
+		}
+		if declared.Kind != expected.kind || declared.Retryable || len(declared.NextActions) != 1 ||
+			declared.NextActions[0].Command != expected.nextAction {
+			t.Fatalf("auth login %q fault = %+v", declared.Code, declared)
+		}
+		delete(want, declared.Code)
+	}
+	if len(want) != 0 {
+		t.Fatalf("auth login lacks pinned agent OAuth faults: %v", want)
+	}
+	if !strings.Contains(login.Agent.Outcome, "trusted host") || strings.Contains(login.Agent.Outcome, "Workspace credential") {
+		t.Fatalf("auth login outcome = %q", login.Agent.Outcome)
 	}
 }
 

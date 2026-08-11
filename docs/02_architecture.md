@@ -8,7 +8,7 @@ host
       +-- fixed control exec/stdin --> tobari-auth-broker (locked)
       |                                      |
       |                               encrypted Context vaults
-      +-- reviewed fixed GitHub/AWS/pup login drivers --> provider HTTPS
+      +-- reviewed fixed GitHub/AWS/pup/Codex/Claude login drivers --> provider HTTPS
       |       `-- AWS method: identity-center or console (explicit)
       +-- private same-binary credential companion
       |       |-- reviewed fixed AWS refresh driver --> provider HTTPS
@@ -20,6 +20,7 @@ host
 internal control network:                              tobari-opa :8181 | Unix runtime socket
                                                                       tobari-auth-broker
 egress network:                                       Gateway and Auth Broker --> HTTPS
+                                                        `-- fixed OpenAI token refresh
 ```
 
 Each Tobari joins only its dedicated internal network. OPA joins only the
@@ -47,6 +48,33 @@ The Datadog registry contains one `datadog_pup_oauth` acquisition plan. It runs
 fixed host pup against US1 in an isolated home and commits strict opaque state.
 After policy allow, Broker resolves a valid token locally or refreshes only at
 the exact US1 OAuth token endpoint; pup remains absent from the Broker image.
+
+The OpenAI registry contains one `openai_codex_oauth_session` acquisition plan.
+The host driver accepts exactly Codex 0.146.0, runs only fixed
+`login --device-auth` argv with the reviewed file-credential-store and
+no-update configuration overrides under isolated `HOME` and `CODEX_HOME`, and
+commits strict canonical ChatGPT OAuth state bound to the executable digest. Workspace
+reconciliation writes one complete version-pinned `.codex/auth.json` shim whose
+only variable value is the project handle in `tokens.access_token`. After OPA
+allow, Broker selects a valid same-record access token or performs the one
+compiled refresh-token grant at exactly `https://auth.openai.com/oauth/token`;
+Codex remains absent from Broker. A readable access-token expiry opens the
+refresh window at five minutes; an unreadable expiry uses eight days after
+`last_refresh`. The fixed refresh is one proxy-free, no-redirect request behind
+a per-record lock and durable no-replay barrier. Broker gives the canonical
+request body to one fixed isolated Python transport worker over stdin; the
+parent enforces the 30-second wall-clock deadline and kills and reaps the worker
+on timeout, including DNS, TLS, or trickle stalls. The result preserves the
+grant revision and requires account continuity before atomic state replacement.
+
+The Anthropic registry contains one inference-only `primary_secret` plan. The
+host driver accepts exactly Claude Code 2.1.220, runs only
+`claude setup-token` through a private PTY and isolated home, suppresses the
+captured token from visible output, and stores it under the fixed
+`claude-user-inference` label. Workspace reconciliation projects only
+`CLAUDE_CODE_OAUTH_TOKEN=<project handle>`. Broker performs static post-policy
+resolution for `api.anthropic.com:443`; it has no Anthropic refresh operation,
+and Claude remains absent from Broker.
 
 For HTTPS, Tobari connects to the HTTP proxy and sends `CONNECT host:443`.
 Gateway responds, terminates client TLS with the installation CA, evaluates the
@@ -323,19 +351,25 @@ Authentication failure, replay, gap, oversized frame, duplicate session, or
 disconnect closes the session. `cluster down` drains bounded in-flight work and
 then closes the exec stream as Compose teardown removes the Broker container.
 
-The reviewed GitHub, AWS, and pup drivers keep interactive provider-native execution on the
-trusted host. Each resolves and hashes one host executable, uses fixed argv and
-a sanitized environment, reconstructs only a private bounded temporary home,
-and deletes it on every outcome. The GitHub driver recognizes only the fixed
-device URL and requests no Git protocol. The AWS driver runs either the fixed
-Identity Center device-code flow or the explicit fixed console cross-device
-remote flow and later the fixed credential-export command; its cache bytes
-return to Auth Broker only as opaque encrypted state. No URL, executable,
-argument, environment key, or driver supplied by a provider manifest,
-repository, Workspace, or request can alter that behavior. Request region is
+The reviewed GitHub, AWS, pup, Codex, and Claude drivers keep interactive
+provider-native execution on the trusted host. Each resolves and hashes one
+host executable from the conventional non-project trusted installation roots,
+uses fixed argv and a sanitized environment, reconstructs only a private
+bounded temporary home, and deletes it on every outcome. The GitHub driver
+recognizes only the fixed device URL and requests no Git protocol. The AWS
+driver runs either the fixed Identity Center device-code flow or the explicit
+fixed console cross-device remote flow and later the fixed credential-export
+command; its cache bytes return to Auth Broker only as opaque encrypted state.
+Codex must report exactly `codex-cli 0.146.0`; Claude must report exactly
+`2.1.220 (Claude Code)`. Both are rechecked against the same canonical
+non-group/world-writable executable identity after acquisition. No URL,
+executable, argument, environment key, or driver supplied by a provider
+manifest, repository, Workspace, request, or project `PATH` can alter that
+behavior. A Workspace copy is never an acquisition fallback. Request region is
 separate Context/tool configuration and is not part of login state. Repository
-`.git/config` and user-authored global Git/AWS configuration remain inside the
-project/Workspace boundary. The
+`.git/config` and Workspace-authored Git/AWS/Codex/Claude configuration remain
+inside the project/Workspace boundary; ambient host provider configuration is
+never read by these drivers. The
 separate Context Git identity fallback contains only safely re-encoded
 `user.name` and `user.email`; it grants no authentication or signing authority.
 
@@ -375,14 +409,18 @@ recipe starts from it, while explicit local or custom bases do not receive a
 registry-pull request.
 
 The first Claude and Codex variants are build-only children under
-`runtimes/claude` and `runtimes/codex`. Each downloads a pinned official agent
-release, verifies its per-architecture checksum, and inherits the base user,
-entrypoint, and lifetime command. Codex uses the official standalone package,
-which keeps its CLI companion binaries and Linux sandbox resources together.
-Agent executables and package resources live in image-owned `/usr/local/bin`
-and `/opt/tobari` paths; `/var/lib/tobari` contains only per-Tobari home state
-and is safe to replace with the persistent home bind. Their workflows do not
-publish agent tags until redistribution and license review is complete.
+`runtimes/claude` and `runtimes/codex`, pinned respectively to Claude Code
+2.1.220 and Codex 0.146.0. Each downloads a pinned official agent release,
+verifies its per-architecture checksum, and inherits the base user, entrypoint,
+and lifetime command. A Context-owned custom recipe may compose the reviewed
+local artifacts so both `claude --version` and `codex --version` work in the
+same Workspace; it does not turn either Workspace executable into a trusted
+host login helper. Codex uses the official standalone package, which keeps its
+CLI companion binaries and Linux sandbox resources together. Agent executables
+and package resources live in image-owned `/usr/local/bin` and `/opt/tobari`
+paths; `/var/lib/tobari` contains only per-Tobari home state and is safe to
+replace with the persistent home bind. Their workflows do not publish agent
+tags until redistribution and license review is complete.
 
 The root resolver obtains the desired image from the stored Context identity's
 strict manifest on each runtime reconciliation. Before the default Context exists, the
@@ -665,6 +703,14 @@ client request headers
      token endpoint, commits refreshed state, and returns one bearer value;
      Gateway validates the same revision, replaces only the declared
      destination header, and makes one upstream attempt
+  -> on an OpenAI Codex allow, Gateway has already removed Authorization,
+     ChatGPT-Account-ID, and X-OpenAI-FedRAMP; Broker selects or refreshes the
+     same-revision access token after policy, returns its validated account ID
+     as the sole supplemental header, and Gateway injects bearer authorization
+     plus broker-owned ChatGPT-Account-ID for one chatgpt.com attempt
+  -> on an Anthropic Claude allow, Broker resolves the same-revision static
+     setup token and Gateway replaces only Authorization for one
+     api.anthropic.com attempt; there is no refresh or supplemental header
   -> otherwise strip control headers, then forward client authentication or
      apply the managed profile once after allow
   -> enable ordinary request-body streaming; forward an allowed buffered
@@ -815,7 +861,8 @@ the interactive process. Lifecycle operations return structured state after
 confirmed completion; unclassified post-mutation errors are non-retryable and
 direct the user to `status` for reconciliation.
 Auth mutations use the same structured-outcome rule. A failed or cancelled
-GitHub, AWS, or pup host driver leaves the previous Context credential unchanged; an
+GitHub, AWS, pup, Codex, or Claude host driver leaves the previous Context
+credential unchanged; an
 `auth_mutation_outcome_unknown`, `unclassified_mutation_outcome`, or
 `mutation_output_write_failed` result is non-retryable and directs the user to
 `auth status` before another auth mutation. Confirmed login/import/logout output
@@ -842,7 +889,9 @@ or row order.
   rotation/revocation, and fallback adapters.
 - Companion and host-driver tests cover private same-binary startup, exact
   reverse-exec argv/container identity, authenticated framing, no-listener/
-  no-mount topology, fixed GitHub/AWS/pup CLI commands, post-policy refresh,
-  bounded single-flight state update, encrypted no-replay barrier,
-  cancellation settlement, blocked-peer teardown, and stale-result rejection.
+  no-mount topology, fixed GitHub/AWS/pup/Codex/Claude CLI commands, pinned
+  client-version and executable identity, token-suppressing Claude PTY parsing,
+  strict Codex auth-state parsing, post-policy refresh, bounded single-flight
+  state update, encrypted no-replay barrier, cancellation settlement,
+  blocked-peer teardown, and stale-result rejection.
 - Docker integration tests prove actual network topology and lifecycle.

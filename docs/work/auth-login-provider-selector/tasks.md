@@ -26,7 +26,7 @@
 ## Verify
 
 - [x] Focused tests pass. Evidence: `go test ./internal/cli ./internal/app/authcmd`; `go test -race ./internal/cli ./internal/app/authcmd`; `go test ./...`; `go test -race ./...`; `go vet ./...`; `task contracts:check`; `task security`; `go mod tidy -diff`; `git diff --check`.
-- [ ] `task check` passes. Evidence: on 2026-08-10 the gate passed repository, architecture, contract, PTY, runtime, source-snapshot, and site source/locale-route checks, then stopped at `check:locales`; the latest direct check reports 23 missing Japanese counterparts in the concurrent site-localization worktree.
+- [ ] `task check` passes. Evidence: after rebasing onto `origin/main`, the gate passes repository and architecture checks, then stops because the separately maintained English and Japanese GitHub Pages JSON-schema table markers are missing or invalid. This packet does not modify `docs/architecture-site/**`.
 - [x] Agent-readiness path has zero undeclared external processing. Evidence: catalog parser/help tests cover explicit and omitted forms; omitted selection uses one typed local `auth status` read and the existing login use case with no external parser.
 - [x] Generated diff and repository status are understood. Evidence: site generation check passed before the unrelated locale-parity failure; unrelated localization and site-refresh paths remain untouched.
 

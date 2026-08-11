@@ -71,11 +71,12 @@ Unix socket paths, Gateway/Auth Broker image labels, and preservation of each
 Tobari home volume by default. `cluster down` and `cluster down --purge` also
 preserve encrypted Context vaults and the installation root key; purge adds
 only shared CA-volume removal.
-This slice uses Gateway image API label 3 and Auth Broker image API label 2, Gateway OPA input
+The current source contract uses Gateway image API label 4 and Auth Broker
+image API label 3, Gateway OPA input
 schema 5, cluster status JSON schema 5 (including nullable unconfigured
-resources and always-present `credential_companion_state`), Context report
-JSON schema 7, and auth command JSON schema 2. Broker protocols and private
-companion epoch/frames remain
+resources and always-present
+`credential_companion_state`), Context report JSON schema 7, and auth command
+JSON schema 2. Broker protocols and private companion epoch/frames remain
 schema 1. Owner static provider
 manifests remain schema 1; reviewed built-ins and the normalized projection
 support schema 2. The encrypted vault keeps its schema-1 envelope and migrates
@@ -128,14 +129,18 @@ provider-CLI absence, and the private bridge/protocol suite. Pull requests run
 the Python tests and cache-only
 multi-architecture build without package-write permission. The main-push job
 alone publishes the GHCR manifest. No login, credential, account fixture,
-device code, SSO client/token state, role credential, signed authorization
-field, handle, root key, vault, or authenticated output is a release artifact.
+device or authorization code, SSO client/token state, Codex `auth.json`, Claude
+setup token, OpenAI ID/access/refresh token, role credential, signed
+authorization field, handle, root key, vault, or authenticated output is a
+release artifact.
 
 The first Claude and Codex agent-image slices are build-only: their
 pull-request and main-push workflows validate the pinned parent, agent release
 checksums, multi-architecture build, and inherited runtime contract without
-publishing an agent tag. Public agent publication remains blocked until the
-agent redistribution terms and image-layer license review are recorded.
+publishing an agent tag. Their OCI/runtime metadata uses `NOASSERTION` while
+the lock records `license_review: pending`; it must not imply that the bundled
+agent layer is MIT-licensed. Public agent publication remains blocked until
+the agent redistribution terms and image-layer license review are recorded.
 
 The current publication boundary therefore has one supported runtime family
 edge: the base image may use its reviewed moving development channels and
@@ -207,13 +212,19 @@ image, private protocol, host-driver, and topology checks used by `task check`
 and `task runtime:test`. The required reproducible synthetic Auth Broker proof
 is delegated explicitly to `task integration:test`;
 the manual transcript does not duplicate that synthetic manipulation. Release
-also requires the trusted-host GitHub and both AWS login-method scenarios in
+also requires the trusted-host GitHub, OpenAI Codex, Anthropic Claude, Datadog,
+and both AWS login-method scenarios in
 [Agent Readiness Validation](09_agent_readiness_validation.md), including the
 no-print assertion that `gh auth token --hostname github.com` equals the exact
 projected `GH_TOKEN` handle, that console mode rejects AWS CLI older than 2.32
 before provider login, and that the three AWS credential variables equal
-one handle before the allowed API calls. Those scenarios record only
-secret-free pass/fail outcomes and never become repository fixtures. An
+one handle before the allowed API calls. OpenAI and Anthropic validation
+requires exact trusted-host Codex 0.146.0 and Claude Code 2.1.220 executables,
+respectively, an interactive terminal, and deliberate completion of each
+provider's browser flow. Those scenarios record only secret-free pass/fail
+outcomes and never become repository fixtures; OAuth tokens, setup tokens,
+authorization/device codes, provider credential files, handles, and raw
+authenticated transcripts are forbidden fixtures. An
 implementation handoff may report the reviewed image evidence, but release
 completion still requires those manual trusted-host scenarios and every
 release gate; image publication alone is insufficient.

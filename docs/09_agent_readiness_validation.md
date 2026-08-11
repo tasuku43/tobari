@@ -18,9 +18,10 @@ performs one exact allow or deny action, and the agent retries only after that
 action succeeds. The same catalog owns runtime initialization and build as
 explicit host-side actions. It also owns Auth Broker login/import/status/logout:
 the trusted host selects one Context/provider, while a Workspace receives only
-the resulting project-bound handle on re-entry. No official Codex or Claude
-Code plugin, MCP server, or generic executor is required for this local
-outcome.
+the resulting project-bound handle on re-entry. The closed OpenAI and
+Anthropic pairings use exact Codex 0.146.0 and Claude Code 2.1.220 without an
+additional plugin, MCP server, or generic executor. Their runtime images remain
+local/CI-only pending redistribution and image-layer license review.
 
 A future integration should be a thin skill or wrapper over scoped catalog
 help and existing commands. It must not copy command metadata, create a second
@@ -46,8 +47,8 @@ journey is the product baseline to improve:
 | Shell presentation | `config shell`, then enter a new session | A Context inherits exported `PS1` by default or independently selects one of four allowlisted shell variables without inheriting arbitrary host environment or startup files |
 | Git identity | `config git`, then enter the matching root | A Context optionally supplies only a lower-precedence `user.name`/`user.email` pair without copying Git files, authentication, signing, helpers, executable settings, or arbitrary keys |
 | Runtime customization | `runtime init`, edit the current Context Dockerfile, `runtime build` | The user gets a Context-specific runtime image without naming an image or editing the Context manifest; failed builds preserve the previous image and other Contexts are unchanged |
-| Context authentication | `auth status`; built-in `auth login [--provider PROVIDER]` with terminal selection on omission and explicit AWS `identity-center|console`; protected non-terminal stdin `auth import`; `auth logout` | Reviewed fixed host CLI drivers acquire GitHub/AWS/Datadog state. Omitted provider selection uses the typed installed collection and requires one explicit human choice without exposing credential state. Each current built-in displays its one supported Workspace client tool as automatically selected, preserving Provider then Tool as separate concepts without a redundant second prompt; AWS method remains a third acquisition axis. A private resident companion refreshes strict AWS state and Broker directly refreshes the fixed Datadog DCR session, each only after exact OPA allow. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing static secrets, OAuth state, temporary credentials, or signing keys |
-| Context-specific work tools | Published-base `gh` and `aws`; optional locally built toolbox adds `kubectl`, `cwk`, `pup`, and `twg` | Public-base contents stay unchanged; local artifacts have pinned identity and license inventory. Datadog pup has exact US1 OAuth login and refresh authority; static examples retain explicit no-refresh limits and general TWG remains unsupported |
+| Context authentication | `auth status`; built-in `auth login [--provider PROVIDER]` with terminal selection on omission and explicit AWS `identity-center|console`; protected non-terminal stdin `auth import`; `auth logout` | Reviewed fixed host CLI drivers acquire GitHub/AWS/Datadog/OpenAI/Anthropic state. Omitted provider selection uses the typed installed collection and requires one explicit human choice without exposing credential state. Each current built-in displays its one supported Workspace client tool as automatically selected, preserving Provider then Tool as separate concepts without a redundant second prompt; AWS method remains a third acquisition axis. A private resident companion refreshes strict AWS state, while Broker directly refreshes the fixed Datadog and Codex-0.146.0 OpenAI sessions only after exact OPA allow; Anthropic setup-token resolution never refreshes. The user sees only secret-free state/revision/account metadata, re-enters to receive a project-bound handle, and can revoke every handle without exposing static secrets, OAuth state, temporary credentials, or signing keys |
+| Context-specific work tools | Published-base `gh` and `aws`; optional locally built toolbox adds `kubectl`, `cwk`, `pup`, and `twg`; local agent runtimes add Codex 0.146.0 or Claude Code 2.1.220 | Public-base contents stay unchanged; local artifacts have pinned identity and license inventory. Datadog pup and OpenAI Codex have exact closed refresh authority, Anthropic has explicit no-refresh semantics, static examples retain their no-refresh limits, and general TWG remains unsupported |
 | Recovery and cleanup | `tobari`, `status`, `delete`, and `cluster down` | Reuse, recovery, and removal are obvious, CWD-local, reversible, and ownership-checked |
 
 The table is a review baseline, not a claim that the desired command count is
@@ -122,55 +123,59 @@ human text only and does not revise JSON or TSV schemas.
 Run against a clean Docker Engine with a synthetic root:
 
 ```sh
-go run ./cmd/tobari help --format agent
-go run ./cmd/tobari help cluster --format agent
-go run ./cmd/tobari help tobari --format agent
-go run ./cmd/tobari help status --format agent
-go run ./cmd/tobari help config --format agent
-go run ./cmd/tobari help config shell --format agent
-go run ./cmd/tobari help config git --format agent
-go run ./cmd/tobari help auth --format agent
-go run ./cmd/tobari help auth login --format agent
-go run ./cmd/tobari help auth import --format agent
-go run ./cmd/tobari help auth status --format agent
-go run ./cmd/tobari help auth logout --format agent
-go build -o /tmp/tobari ./cmd/tobari
-go run ./cmd/tobari context show --format json
-go run ./cmd/tobari context list --format json
-go run ./cmd/tobari config shell --variable PS1 --source inherit --format json
-go run ./cmd/tobari config git --source literal --name "Tobari User" --email tobari@example.com --format json
-go run ./cmd/tobari context use --name default --format json # changes only the current default without starting Docker
-go run ./cmd/tobari cluster up
-go run ./cmd/tobari auth status --format json
-(cd /absolute/test/root && /tmp/tobari doctor --format json) # optional diagnostics after cluster bootstrap
-(cd /absolute/test/root && /tmp/tobari)
-(mkdir -p /absolute/test/root/root && cd /absolute/test/root/root && /tmp/tobari)
-(cd /absolute/test/root && /tmp/tobari status --format json)
-(cd /absolute/test/root && /tmp/tobari list --format json)
-go run ./cmd/tobari cluster denials --tail 100 --format json
-go run ./cmd/tobari context create --name restricted --format json
-go run ./cmd/tobari cluster up # safely activates the new all-Context projection
-(cd /absolute/test/root && /tmp/tobari --context restricted) # same root, different logical Tobari
-go run ./cmd/tobari context use --name restricted --format json # changes only the omitted-Context default
-go run ./cmd/tobari context use --name default --format json
-go run ./cmd/tobari runtime init
+task build:dev
+TOBARI_BIN="$(pwd)/bin/tobari-dev"
+"$TOBARI_BIN" help --format agent
+"$TOBARI_BIN" help cluster --format agent
+"$TOBARI_BIN" help tobari --format agent
+"$TOBARI_BIN" help status --format agent
+"$TOBARI_BIN" help config --format agent
+"$TOBARI_BIN" help config shell --format agent
+"$TOBARI_BIN" help config git --format agent
+"$TOBARI_BIN" help auth --format agent
+"$TOBARI_BIN" help auth login --format agent
+"$TOBARI_BIN" help auth import --format agent
+"$TOBARI_BIN" help auth status --format agent
+"$TOBARI_BIN" help auth logout --format agent
+"$TOBARI_BIN" context show --format json
+"$TOBARI_BIN" context list --format json
+"$TOBARI_BIN" config shell --variable PS1 --source inherit --format json
+"$TOBARI_BIN" config git --source literal --name "Tobari User" --email tobari@example.com --format json
+"$TOBARI_BIN" context use --name default --format json # changes only the current default without starting Docker
+"$TOBARI_BIN" cluster up
+"$TOBARI_BIN" auth status --format json
+(cd /absolute/test/root && "$TOBARI_BIN" doctor --format json) # optional diagnostics after cluster bootstrap
+(cd /absolute/test/root && "$TOBARI_BIN")
+(mkdir -p /absolute/test/root/root && cd /absolute/test/root/root && "$TOBARI_BIN")
+(cd /absolute/test/root && "$TOBARI_BIN" status --format json)
+(cd /absolute/test/root && "$TOBARI_BIN" list --format json)
+"$TOBARI_BIN" cluster denials --tail 100 --format json
+"$TOBARI_BIN" context create --name restricted --format json
+"$TOBARI_BIN" cluster up # safely activates the new all-Context projection
+(cd /absolute/test/root && "$TOBARI_BIN" --context restricted) # same root, different logical Tobari
+"$TOBARI_BIN" context use --name restricted --format json # changes only the omitted-Context default
+"$TOBARI_BIN" context use --name default --format json
+"$TOBARI_BIN" runtime init
 # edit the current Context's runtime/Dockerfile
-go run ./cmd/tobari runtime build --format json
-(cd /absolute/test/root && /tmp/tobari) # reconciles an existing Workspace to the new runtime image
-go run ./cmd/tobari policy review --tail 100
-go run ./cmd/tobari policy candidates --tail 100 --format json
-go run ./cmd/tobari policy allow --id PCY_ID
-go run ./cmd/tobari policy compactions --format json
+"$TOBARI_BIN" runtime build --format json
+(cd /absolute/test/root && "$TOBARI_BIN") # reconciles an existing Workspace to the new runtime image
+"$TOBARI_BIN" policy review --tail 100
+"$TOBARI_BIN" policy candidates --tail 100 --format json
+"$TOBARI_BIN" policy allow --id PCY_ID
+"$TOBARI_BIN" policy compactions --format json
 task integration:test # required reproducible synthetic Auth Broker proof
-(cd /absolute/test/root && /tmp/tobari delete --context restricted)
-(cd /absolute/test/root && /tmp/tobari delete --context default)
-go run ./cmd/tobari cluster down --purge
+(cd /absolute/test/root && "$TOBARI_BIN" delete --context restricted)
+(cd /absolute/test/root && "$TOBARI_BIN" delete --context default)
+"$TOBARI_BIN" cluster down --purge
 ```
 
-Run the ordinary scenario with the official binary and its reviewed Gateway
-and Auth Broker manifest digests. Use the `task build:dev` output
-`bin/tobari-dev` only when the scenario deliberately validates unpublished
-canonical source; development-image success is not official-image evidence.
+Run an ordinary released scenario with its mutually compatible official binary
+and reviewed Gateway/Auth Broker manifest digests only after `task
+release:check` accepts their API parity. This source revision expects
+Gateway API 4 and Auth Broker API 3, while the historical pins remain API 3 and
+API 2 and must be rejected by standard startup; therefore the canonical source
+transcript above deliberately uses `bin/tobari-dev`. Build the applicable agent
+runtime separately. Development-image success is not official-image evidence.
 The required scenario delegates synthetic credential, handle, broker, and
 Gateway manipulation to `task integration:test`; the surrounding manual CLI
 transcript does not reproduce those synthetic operations.
@@ -296,12 +301,18 @@ rules exist. The transcript must prove:
   opaque cache state; request region is separate Context/tool configuration.
   Datadog login uses one verified host pup with fixed US1 argv and a private
   file-backed OAuth home, then persists only strict encrypted DCR client,
-  token, and default-session state. Auth Broker contains neither provider CLI
-  nor persistent provider home.
+  token, and default-session state. OpenAI login requires exact verified
+  trusted-host Codex 0.146.0 with fixed argv `login`, `--device-auth`, `-c`,
+  `cli_auth_credentials_store="file"`, `-c`, and
+  `check_for_update_on_startup=false`, plus a private
+  file-backed home; Anthropic requires exact Claude Code 2.1.220, fixed `claude
+  setup-token`, and a private bounded PTY that never prints the captured token.
+  Auth Broker contains no provider CLI or persistent provider home, and the
+  Workspace copy of either agent is never an acquisition fallback.
 - Cluster readiness includes one private same-binary host companion over an
   authenticated encrypted reverse `docker exec` channel. It opens no listener
-  and mounts no host socket. OPA denial causes zero companion or Datadog
-  refresh calls; post-policy AWS and fixed Datadog refresh are per-record
+  and mounts no host socket. OPA denial causes zero companion, Datadog, or
+  OpenAI refresh calls; post-policy AWS and fixed Datadog/OpenAI refresh are per-record
   single-flight with a finite lock wait. Broker
   persists an encrypted task barrier before host execution, so unknown outcomes
   survive restart without replay; stale results after rotation or logout are
@@ -320,6 +331,18 @@ rules exist. The transcript must prove:
   when no Tobari handle marker exists in any inspected URL/header position;
   copied, malformed, misplaced, ambiguous, stale, revoked, or binding-mismatched
   markers fail as `credential_handle_invalid` without fallback or forwarding.
+- OpenAI Workspace reconciliation creates only the exact Codex-0.146.0
+  `.codex/auth.json` compatibility projection with the handle in
+  `tokens.access_token`; it projects no OAuth token or account ID and performs
+  no Workspace-side refresh. Gateway strips caller OpenAI account/FedRAMP
+  routing headers before OPA and injects only the Broker-owned validated
+  account header after allow. Anthropic projects only
+  `CLAUDE_CODE_OAUTH_TOKEN=<handle>`, resolves only at exact
+  `api.anthropic.com:443` after allow, and never refreshes.
+  Automated integration validates the exact projection and direct synthetic
+  Gateway request only; pinned Codex login-status recognition, verbatim handle
+  forwarding, and no client refresh are recorded isolated observations and
+  manual release checks, not automated client-compatibility claims.
 - `list` retains an explicitly exhaustive local collection, including empty,
   and reports Context with diagnostic IDs. Same-root/different-Context rows are
   distinguishable without making IDs routine action inputs.
@@ -492,7 +515,8 @@ At minimum, exercise:
   activation;
 - empty/oversized credential stdin, provider acquisition mismatch, project- or
   temporary-selected, missing, writable, or changed host executable, hostile
-  control-bearing provider output, cancelled GitHub/AWS/Datadog login, invalid
+  control-bearing provider output, cancelled
+  GitHub/AWS/Datadog/OpenAI/Anthropic login, invalid
   account/status or credential-process capture, and setup/success cleanup
   failure while the
   previous credential remains unchanged; terminal import must perform no read,
@@ -508,13 +532,22 @@ At minimum, exercise:
   oversized responses, stale completion, and unknown network outcomes while
   the previous credential remains unchanged or is disabled for explicit
   reconciliation;
+- missing, changed, writable, or wrong-version Codex/Claude host executables;
+  Codex state with duplicate/unknown fields, noncanonical timestamps, missing
+  or mismatched account claims, FedRAMP, malformed JWTs, or oversized secrets;
+  OpenAI refresh redirects, proxy use, changed account identity, malformed
+  response, stale completion, and unknown outcomes; Claude PTY frames with
+  unknown controls, ambiguous or multiple token candidates, token echo,
+  timeout, cancellation, or failed cleanup; every failure preserves the prior
+  credential unless a post-send OpenAI barrier requires explicit
+  reconciliation;
 - corrupted, wrong-Context, or unsupported-version encrypted vaults without
   revealing ciphertext or secret data;
 - copied, malformed, ambiguous, stale, rotated, revoked, wrong-Context,
   wrong-project, wrong-provider, wrong-target, wrong-header, wrong-revision, and
   structurally misplaced handles before upstream I/O, with fallback allowed
   only when no Tobari marker appears anywhere inspected;
-- OPA denial with zero companion, broker resolve, Datadog refresh, AWS refresh,
+- OPA denial with zero companion, broker resolve, Datadog/OpenAI refresh, AWS refresh,
   role-credential, or signing
   calls; unsupported SigV4a, presign, streaming/chunked/event, custom-endpoint,
   ambiguous-header, changed-length, and over-limit requests; any
@@ -607,6 +640,91 @@ Do not save tokens, device codes, handles, root keys, vaults, host `gh` config, 
 terminal capture, or authenticated API responses. Manual evidence cannot prove
 future provider availability or account authorization; it covers only the
 reviewed release candidate and environment.
+
+## Manual OpenAI Codex OAuth validation
+
+Before publishing an OpenAI-capable Gateway/Auth Broker release candidate, a
+reviewer uses a disposable normal ChatGPT account, exact trusted-host Codex
+0.146.0, an interactive terminal, and a local Codex runtime containing the same
+version. Record only secret-free pass/fail outcomes outside the repository:
+
+```sh
+codex --version # exactly codex-cli 0.146.0 on the trusted host
+tobari cluster up
+tobari auth login --provider openai --context default
+# Deliberately complete Codex's ordinary ChatGPT device/browser flow.
+tobari auth status --context default --format json
+(cd /absolute/test/root && tobari) # re-enter to receive the handle projection
+# Inside that Workspace, without printing the file or handle:
+python3 - <<'PY'
+import json, os
+from pathlib import Path
+
+auth = json.loads((Path(os.environ["CODEX_HOME"]) / "auth.json").read_text())
+assert set(auth) == {"auth_mode", "OPENAI_API_KEY", "tokens", "last_refresh"}
+assert auth["auth_mode"] == "chatgptAuthTokens"
+assert auth["OPENAI_API_KEY"] is None
+assert set(auth["tokens"]) == {"id_token", "access_token", "refresh_token", "account_id"}
+assert auth["tokens"]["id_token"] == "e30.e30.x"
+assert auth["tokens"]["access_token"].startswith("tobari-h1_")
+assert auth["tokens"]["refresh_token"] == ""
+assert auth["tokens"]["account_id"] is None
+assert auth["last_refresh"] == "1970-01-01T00:00:00Z"
+PY
+codex exec --skip-git-repo-check "Return exactly OK." >/dev/null
+# Repeat after the provider access token enters its five-minute refresh window.
+codex exec --skip-git-repo-check "Return exactly OK." >/dev/null
+exit
+tobari auth logout openai --context default --format json
+(cd /absolute/test/root && tobari) # reconcile the revoked projection
+```
+
+The reviewer first proves one denied inference causes zero Broker resolution,
+refresh, account-header injection, and upstream attempts, then explicitly
+allows the exact effect. The first allowed request uses only the handle
+projection; the later request proves one same-revision Broker refresh and
+Broker-owned `chatgpt-account-id` injection. Caller-supplied
+`ChatGPT-Account-ID` and `X-OpenAI-FedRAMP` are stripped before policy, and
+FedRAMP login state is rejected. Logout revokes the old handle. No Workspace
+refresh is observed. Do not save `auth.json`, ID/access/refresh tokens,
+account IDs, device codes, handles, browser URLs, raw terminal capture, or
+authenticated responses.
+
+## Manual Anthropic Claude setup-token validation
+
+Before publishing an Anthropic-capable Gateway/Auth Broker release candidate,
+a reviewer uses a disposable Anthropic account, exact trusted-host Claude Code
+2.1.220, an interactive terminal, and a local Claude runtime containing the
+same version. Record only secret-free pass/fail outcomes outside the
+repository:
+
+```sh
+claude --version # exactly 2.1.220 (Claude Code) on the trusted host
+tobari cluster up
+tobari auth login --provider anthropic --context default
+# Deliberately complete Claude's setup-token browser flow in the private PTY.
+tobari auth status --context default --format json
+(cd /absolute/test/root && tobari) # re-enter to receive the handle projection
+# Inside that Workspace, without printing the handle:
+case "${CLAUDE_CODE_OAUTH_TOKEN-}" in tobari-h1_*) ;; *) exit 1 ;; esac
+test -z "${ANTHROPIC_API_KEY+x}"
+test -z "${ANTHROPIC_AUTH_TOKEN+x}"
+claude -p "Return exactly OK." >/dev/null
+exit
+# Rotate deliberately; there is no refresh operation.
+tobari auth login --provider anthropic --context default
+tobari auth logout anthropic --context default --format json
+(cd /absolute/test/root && tobari) # reconcile the revoked projection
+```
+
+The reviewer proves one denied inference causes zero Broker resolution and
+upstream attempts, then explicitly allows the exact
+`https://api.anthropic.com:443` effect. The allowed request succeeds with only
+the handle environment projection. Re-login rotates the setup token and
+handles; no refresh request occurs. Logout revokes the latest handle. Remote
+Control and claude.ai connectors are not exercised or claimed. Do not save the
+setup token, handles, provider credential files, browser URLs, raw PTY/terminal
+capture, or authenticated responses.
 
 ## Manual Datadog pup OAuth validation
 
@@ -708,8 +826,8 @@ custom endpoints, or every AWS service.
 
 ## Evidence
 
-The image prerequisite is satisfied by an anonymously retrievable Gateway
-API-3 index built from source revision
+Historical released-image evidence consists of an anonymously retrievable
+Gateway API-3 index built from source revision
 `328196221c5be2861b67ec51339d0184b04c6b31` and Auth Broker API-2 index built
 from source revision `a3fedb66ad5a72c19d6721f3f8da49852882ced8`, each for Linux
 amd64/arm64 with reviewed API/role labels, non-root `1000:1000` users, and
@@ -717,8 +835,18 @@ entrypoints. Routine startup pins Gateway
 `sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878`
 and Auth Broker
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`
-in `versions.env`. This image evidence does not replace the manual trusted-host
-scenarios or release gates below.
+in `versions.env`. This historical image evidence does not replace the manual
+trusted-host scenarios or release gates below.
+
+Those indexes remain historical API-3/API-2 publication evidence. They predate
+and are incompatible with the current Gateway API-4/Auth Broker API-3 source
+contract, including the OpenAI and Anthropic plans, so standard startup from
+this source must reject them. `task build:dev` and `bin/tobari-dev` provide the
+shared-component local validation path; build the applicable agent runtime
+separately. These remain the explicit path until new immutable reviewed indexes
+are published and `versions.env` advances; development images are not official
+image evidence. Codex and Claude runtime images likewise remain local/CI-only
+pending redistribution and image-layer license review.
 
 ```sh
 task check

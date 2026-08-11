@@ -41,6 +41,7 @@ HANDLE_PATTERN = re.compile(r"^tobari-h1_[A-Za-z0-9_-]{43}$")
 HANDLE_MARKER = "tobari-h"
 PROVIDER_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 REVISION_PATTERN = re.compile(r"^revision_[!-~]{1,119}$")
+OPENAI_ACCOUNT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 HOST_PATTERN = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)"
     r"(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$"
@@ -167,7 +168,11 @@ def _validate_destination(value: Any) -> dict[str, Any]:
     output_format = destination.get("format")
     if (
         output_format not in DESTINATION_FORMATS
-        or destination.get("secret_field") not in {"primary_secret", "datadog_oauth_session"}
+        or destination.get("secret_field") not in {
+            "primary_secret",
+            "datadog_oauth_session",
+            "openai_codex_oauth_session",
+        }
     ):
         raise BrokerCredentialUnavailable("provider projection is invalid")
     return {
@@ -321,7 +326,11 @@ def _validate_provider(
     if schema_version == LEGACY_PROVIDER_SCHEMA_VERSION:
         valid_credential = credential_kind == "primary_secret"
     else:
-        valid_credential = credential_kind in {"aws_sso_session", "datadog_oauth_session"}
+        valid_credential = credential_kind in {
+            "aws_sso_session",
+            "datadog_oauth_session",
+            "openai_codex_oauth_session",
+        }
     if not valid_credential:
         raise BrokerCredentialUnavailable("provider projection is invalid")
 
@@ -418,6 +427,51 @@ def _validate_provider(
             )
     if checked_raw != raw_bindings or checked_raw != sorted(checked_raw, key=_raw_binding_sort_key):
         raise BrokerCredentialUnavailable("provider projection is invalid")
+    if schema_version == LEGACY_PROVIDER_SCHEMA_VERSION and any(
+        binding["destination"]["secret_field"] != "primary_secret"
+        for binding in normalized
+    ):
+        raise BrokerCredentialUnavailable("provider projection is invalid")
+    if provider_id == "anthropic" or acquisition.get("helper") == "claude-setup-token":
+        if (
+            schema_version != LEGACY_PROVIDER_SCHEMA_VERSION
+            or provider_id != "anthropic"
+            or display_name != "Anthropic account for Claude Code"
+            or mode != "builtin_helper"
+            or acquisition.get("helper") != "claude-setup-token"
+            or credential_kind != "primary_secret"
+            or environment
+            != [
+                {
+                    "provider_id": "anthropic",
+                    "name": "CLAUDE_CODE_OAUTH_TOKEN",
+                    "template": "${HANDLE}",
+                }
+            ]
+            or complete_files
+            or normalized
+            != [
+                {
+                    "provider_id": "anthropic",
+                    "target": {
+                        "scheme": "https",
+                        "host": "api.anthropic.com",
+                        "port": 443,
+                    },
+                    "source": {
+                        "header": "authorization",
+                        "format": "bearer",
+                    },
+                    "destination": {
+                        "header": "authorization",
+                        "format": "bearer",
+                        "secret_field": "primary_secret",
+                    },
+                    "secret_headers": ["authorization"],
+                }
+            ]
+        ):
+            raise BrokerCredentialUnavailable("provider projection is invalid")
     signing_bindings: list[dict[str, Any]] = []
     if schema_version == PROVIDER_SCHEMA_VERSION:
         raw_signing = provider.get("signing_bindings", [])
@@ -455,6 +509,41 @@ def _validate_provider(
                     {"provider_id": "datadog", "name": "DD_SITE", "template": "datadoghq.com"},
                 ]
                 or complete_files
+            ):
+                raise BrokerCredentialUnavailable("provider projection is invalid")
+        elif credential_kind == "openai_codex_oauth_session":
+            if (
+                provider_id != "openai"
+                or display_name != "OpenAI account for Codex"
+                or mode != "builtin_helper"
+                or acquisition.get("helper") != "codex-chatgpt-oauth"
+                or signing_bindings
+                or normalized != [{
+                    "provider_id": "openai",
+                    "target": {"scheme": "https", "host": "chatgpt.com", "port": 443},
+                    "source": {"header": "authorization", "format": "bearer"},
+                    "destination": {
+                        "header": "authorization",
+                        "format": "bearer",
+                        "secret_field": "openai_codex_oauth_session",
+                    },
+                    "secret_headers": [
+                        "authorization",
+                        "chatgpt-account-id",
+                        "x-openai-fedramp",
+                    ],
+                }]
+                or environment
+                or complete_files != [{
+                    "provider_id": "openai",
+                    "path": ".codex/auth.json",
+                    "template": (
+                        '{"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,'
+                        '"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}",'
+                        '"refresh_token":"","account_id":null},'
+                        '"last_refresh":"1970-01-01T00:00:00Z"}'
+                    ),
+                }]
             ):
                 raise BrokerCredentialUnavailable("provider projection is invalid")
         elif signing_bindings:
@@ -672,7 +761,8 @@ def call_broker(path: str, request: dict[str, Any], timeout: float) -> dict[str,
         raise BrokerCredentialUnavailable("credential broker request is too large")
 
     refresh_capable_request = request.get("op") == "sign_sigv4" or (
-        request.get("op") == "resolve" and request.get("provider") == "datadog"
+        request.get("op") == "resolve"
+        and request.get("provider") in {"datadog", "openai"}
     )
     send_started = False
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -976,7 +1066,12 @@ def _validate_broker_metadata(
     binding: dict[str, Any],
     *,
     include_secret: bool,
-) -> tuple[str, bytes | None]:
+) -> tuple[str, bytes | None, dict[str, str]]:
+    openai_codex = (
+        binding["provider_id"] == "openai"
+        and binding["destination"]["secret_field"]
+        == "openai_codex_oauth_session"
+    )
     expected = {
         "schema_version",
         "ok",
@@ -989,6 +1084,8 @@ def _validate_broker_metadata(
     }
     if include_secret:
         expected.add("secret")
+        if openai_codex:
+            expected.add("supplemental_headers")
     if set(response) != expected:
         raise BrokerCredentialUnavailable("credential broker returned invalid data")
     revision = response.get("revision")
@@ -1003,7 +1100,7 @@ def _validate_broker_metadata(
     ):
         raise BrokerCredentialUnavailable("credential broker returned inconsistent data")
     if not include_secret:
-        return revision, None
+        return revision, None, {}
     secret_document = _exact_keys(
         response.get("secret"), {"field", "encoding", "value"}, "credential broker secret"
     )
@@ -1031,7 +1128,21 @@ def _validate_broker_metadata(
         or any(byte < 0x20 or byte == 0x7F for byte in secret)
     ):
         raise BrokerCredentialUnavailable("credential broker returned invalid data")
-    return revision, secret
+    supplemental_headers: dict[str, str] = {}
+    if openai_codex:
+        supplemental = _exact_keys(
+            response.get("supplemental_headers"),
+            {"chatgpt-account-id"},
+            "credential broker supplemental headers",
+        )
+        account_id = supplemental.get("chatgpt-account-id")
+        if (
+            not isinstance(account_id, str)
+            or OPENAI_ACCOUNT_ID_PATTERN.fullmatch(account_id) is None
+        ):
+            raise BrokerCredentialUnavailable("credential broker returned invalid data")
+        supplemental_headers = {"chatgpt-account-id": account_id}
+    return revision, secret, supplemental_headers
 
 
 def _validate_signing_introspection(
@@ -1204,15 +1315,14 @@ class _BrokerRequest:
                 "policy selected an incompatible static credential profile"
             )
         response = self.broker_call(self._request("resolve"))
-        revision, secret = _validate_broker_metadata(
+        revision, secret, supplemental_headers = _validate_broker_metadata(
             response, self.binding, include_secret=True
         )
         if revision != self.revision or secret is None:
             raise BrokerCredentialUnavailable("credential broker returned inconsistent data")
-        source = self.binding["source"]["header"]
         destination = self.binding["destination"]["header"]
-        request.headers.pop(source, None)
-        request.headers.pop(destination, None)
+        for header in self.binding["secret_headers"]:
+            request.headers.pop(header, None)
         for header in {"proxy-authorization"} | set(CONTROL_HEADERS):
             request.headers.pop(header, None)
         value = secret.decode("latin-1")
@@ -1233,6 +1343,8 @@ class _BrokerRequest:
         else:
             raise BrokerCredentialUnavailable("credential broker binding is invalid")
         request.headers[destination] = rendered
+        for header, header_value in supplemental_headers.items():
+            request.headers[header] = header_value
         return None
 
 
@@ -1464,10 +1576,11 @@ class BrokeredCredentialAdapter:
             )
             return _FallbackRequest(fallback, set(projection["secret_headers"]))
         candidate, binding = selected
-        # Remove every copy of the recognized source before crossing either the
-        # broker or OPA boundary.  It cannot subsequently enter mitmproxy logs,
-        # an audit event, a denial body, or an upstream request on failure.
-        request.headers.pop(candidate.header, None)
+        # Remove every secret-sensitive header in the exact binding before
+        # crossing either the broker or OPA boundary. This includes caller-
+        # supplied routing headers that only the broker may restore after allow.
+        for header in binding["secret_headers"]:
+            request.headers.pop(header, None)
         introspection = self._call(
             {
                 "schema_version": BROKER_SCHEMA_VERSION,
@@ -1481,7 +1594,7 @@ class BrokeredCredentialAdapter:
                 "source_format": binding["source"]["format"],
             }
         )
-        revision, _ = _validate_broker_metadata(
+        revision, _, _ = _validate_broker_metadata(
             introspection, binding, include_secret=False
         )
         return _BrokerRequest(

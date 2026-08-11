@@ -147,7 +147,16 @@ func TestBrokerControlLoginExpectationsRequireExactProviderShape(t *testing.T) {
 		"--provider", "datadog", "--account-label", credentialhost.PupAccountLabel,
 		"--driver-id", credentialhost.PupDriverID, "--driver-revision", testAWSDriverRevision,
 	}
-	for _, arguments := range [][]string{validGitHub, validAWS, validAWSConsole, validDatadog} {
+	validOpenAI := []string{
+		"login", "--context-id", testBrokerContextID,
+		"--provider", "openai", "--account-label", "account-synthetic-123",
+		"--driver-id", credentialhost.CodexDriverID, "--driver-revision", testAWSDriverRevision,
+	}
+	validAnthropic := []string{
+		"login", "--context-id", testBrokerContextID,
+		"--provider", "anthropic", "--account-label", credentialhost.ClaudeAccountLabel,
+	}
+	for _, arguments := range [][]string{validGitHub, validAWS, validAWSConsole, validDatadog, validOpenAI, validAnthropic} {
 		expectation, err := brokerControlExpectationFor(arguments)
 		if err != nil {
 			t.Fatalf("brokerControlExpectationFor(%v): %v", arguments, err)
@@ -168,6 +177,10 @@ func TestBrokerControlLoginExpectationsRequireExactProviderShape(t *testing.T) {
 		{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_sso", "--driver-revision", "UPPER"},
 		{"login", "--context-id", testBrokerContextID, "--provider", "datadog", "--account-label", "other", "--driver-id", credentialhost.PupDriverID, "--driver-revision", testAWSDriverRevision},
 		{"login", "--context-id", testBrokerContextID, "--provider", "datadog", "--account-label", credentialhost.PupAccountLabel, "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
+		{"login", "--context-id", testBrokerContextID, "--provider", "openai", "--account-label", "account-synthetic-123"},
+		{"login", "--context-id", testBrokerContextID, "--provider", "openai", "--account-label", "account-synthetic-123", "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
+		{"login", "--context-id", testBrokerContextID, "--provider", "anthropic", "--account-label", "other"},
+		{"login", "--context-id", testBrokerContextID, "--provider", "anthropic", "--account-label", credentialhost.ClaudeAccountLabel, "--driver-id", credentialhost.ClaudeDriverID, "--driver-revision", testAWSDriverRevision},
 		{"login", "--context-id", testBrokerContextID, "--provider", "example", "--account-label", "example"},
 	} {
 		if _, err := brokerControlExpectationFor(arguments); err == nil {

@@ -39,7 +39,7 @@ Tobari already owns the installed-provider inventory.
 - [x] Explicit `--provider` invocations remain deterministic before the provider-native interactive flow, and the former positional form is rejected.
 - [x] Redirected omission, cancellation, invalid/empty selection state, and `--method` without a provider fail before provider login mutation.
 - [x] No credential, handle, vault, root-key, provider executable, or external destination boundary changes.
-- [ ] Focused tests and `task check` pass. Focused and full Go/race tests plus `task security` pass; the full gate is blocked by 23 missing Japanese counterparts in the concurrent site-localization worktree.
+- [ ] Focused tests and `task check` pass. Focused and full implementation Go/race tests plus `task security` pass; the full gate is blocked by the separately maintained GitHub Pages JSON-schema table markers.
 
 ## Governing documents
 

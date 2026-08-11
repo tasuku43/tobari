@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 	"github.com/tasuku43/tobari/internal/infra/terminal"
 )
@@ -49,12 +50,13 @@ func newPathHostCLIResolver() pathHostCLIResolver {
 	return pathHostCLIResolver{lookPath: exec.LookPath}
 }
 
-// Resolve accepts only the three source-reviewed driver names and an absolute,
+// Resolve accepts only the five source-reviewed driver names and an absolute,
 // canonical, non-writable executable under a conventional host installation
 // root. PATH may select among those installations, but a relative, project,
 // home-local, or temporary directory cannot become provider authority.
 func (r pathHostCLIResolver) Resolve(name string) (string, error) {
-	if r.lookPath == nil || (name != "gh" && name != "aws" && name != "pup") {
+	if r.lookPath == nil ||
+		(name != "gh" && name != "aws" && name != "pup" && name != "codex" && name != "claude") {
 		return "", hostCLIUnavailableError{provider: name}
 	}
 	selected, err := r.lookPath(name)
@@ -142,6 +144,22 @@ type hostConsoleCredentialAcquirer interface {
 
 type hostPupCredentialAcquirer interface {
 	LoginPup(context.Context, string, io.Reader, credentialhost.VisibleOutput) (hostCredentialPayload, error)
+}
+
+type hostCodexCredentialAcquirer interface {
+	LoginCodex(
+		context.Context,
+		string,
+		credentialhost.CodexLoginStreams,
+	) (hostCredentialPayload, error)
+}
+
+type hostClaudeCredentialAcquirer interface {
+	LoginClaude(
+		context.Context,
+		string,
+		credentialhost.ClaudeLoginStreams,
+	) (hostCredentialPayload, error)
 }
 
 // hostLoginProfileReader owns interactive, context-bounded collection of the
@@ -276,12 +294,16 @@ func (r osHostLoginProfileReader) ReadAWSConsoleProfile(
 type osHostCredentialAcquirer struct {
 	github *credentialhost.GitHubDriver
 	aws    *credentialhost.Driver
+	codex  *credentialhost.CodexDriver
+	claude *credentialhost.ClaudeDriver
 }
 
 func newOSHostCredentialAcquirer() *osHostCredentialAcquirer {
 	return &osHostCredentialAcquirer{
 		github: credentialhost.NewGitHubDriver(nil),
 		aws:    credentialhost.NewDriver(nil),
+		codex:  credentialhost.NewCodexDriver(nil),
+		claude: credentialhost.NewClaudeDriver(nil),
 	}
 }
 
@@ -376,6 +398,48 @@ func (a *osHostCredentialAcquirer) LoginPup(
 	return hostCredentialPayload{
 		secret: encoded, accountLabel: credentialhost.PupAccountLabel, driverID: state.DriverID(),
 		driverRevision: state.DriverRevision(),
+	}, nil
+}
+
+func (a *osHostCredentialAcquirer) LoginCodex(
+	ctx context.Context,
+	executable string,
+	streams credentialhost.CodexLoginStreams,
+) (hostCredentialPayload, error) {
+	if a == nil || a.codex == nil {
+		return hostCredentialPayload{}, credentialhost.ErrCodexLoginSetup
+	}
+	state, err := a.codex.Login(ctx, executable, streams)
+	if err != nil {
+		return hostCredentialPayload{}, err
+	}
+	defer state.Clear()
+	encoded, err := state.Encode()
+	if err != nil {
+		return hostCredentialPayload{}, err
+	}
+	return hostCredentialPayload{
+		secret: encoded, accountLabel: state.AccountLabel(), driverID: state.DriverID(),
+		driverRevision: state.DriverRevision(),
+	}, nil
+}
+
+func (a *osHostCredentialAcquirer) LoginClaude(
+	ctx context.Context,
+	executable string,
+	streams credentialhost.ClaudeLoginStreams,
+) (hostCredentialPayload, error) {
+	if a == nil || a.claude == nil {
+		return hostCredentialPayload{}, credentialhost.ErrClaudeLoginSetup
+	}
+	credential, err := a.claude.Login(ctx, executable, streams)
+	if err != nil {
+		return hostCredentialPayload{}, err
+	}
+	defer credential.Clear()
+	return hostCredentialPayload{
+		secret: credential.Token(), accountLabel: credential.AccountLabel(),
+		driverID: credential.DriverID(), driverRevision: credential.DriverRevision(),
 	}, nil
 }
 
@@ -497,6 +561,26 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 				return writeErr
 			},
 		)
+	case "openai":
+		acquirer, ok := r.credentialHost.(hostCodexCredentialAcquirer)
+		if !ok {
+			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+		}
+		payload, err = acquirer.LoginCodex(
+			loginContext, executable,
+			credentialhost.CodexLoginStreams{
+				Stdin: input, Stdout: visible, Stderr: visible,
+			},
+		)
+	case "anthropic":
+		acquirer, ok := r.credentialHost.(hostClaudeCredentialAcquirer)
+		if !ok {
+			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+		}
+		payload, err = acquirer.LoginClaude(
+			loginContext, executable,
+			credentialhost.ClaudeLoginStreams{Stdin: input, Output: visible},
+		)
 	default:
 		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
 	}
@@ -520,7 +604,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 		"--provider", provider,
 		"--account-label", payload.accountLabel,
 	}
-	if provider == "aws" || provider == "datadog" {
+	if provider == "aws" || provider == "datadog" || provider == "openai" {
 		arguments = append(
 			arguments,
 			"--driver-id", payload.driverID,
@@ -538,6 +622,10 @@ func providerHostExecutable(provider string) string {
 		return "aws"
 	case "datadog":
 		return "pup"
+	case "openai":
+		return "codex"
+	case "anthropic":
+		return "claude"
 	default:
 		return ""
 	}
@@ -699,6 +787,19 @@ func validateHostCredentialPayload(provider string, payload hostCredentialPayloa
 			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {
 			return errHostCredentialResult
 		}
+	case "openai":
+		if payload.accountLabel == "" ||
+			authbroker.ValidateSecretFreeText("account label", payload.accountLabel, 128) != nil ||
+			payload.driverID != credentialhost.CodexDriverID ||
+			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {
+			return errHostCredentialResult
+		}
+	case "anthropic":
+		if payload.accountLabel != credentialhost.ClaudeAccountLabel ||
+			payload.driverID != credentialhost.ClaudeDriverID ||
+			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {
+			return errHostCredentialResult
+		}
 	default:
 		return errHostCredentialResult
 	}
@@ -706,11 +807,15 @@ func validateHostCredentialPayload(provider string, payload hostCredentialPayloa
 }
 
 func hostLoginTimedOut(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded)
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) ||
+		errors.Is(err, credentialhost.ErrCodexLoginTimeout)
 }
 
 func hostLoginCancelled(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, credentialhost.ErrGitHubLoginCancelled)
+	return errors.Is(err, context.Canceled) ||
+		errors.Is(err, credentialhost.ErrGitHubLoginCancelled) ||
+		errors.Is(err, credentialhost.ErrCodexLoginCancelled) ||
+		errors.Is(err, credentialhost.ErrClaudeLoginCancelled)
 }
 
 func hostLoginFailureIsCredentialDriver(err error) bool {
@@ -731,6 +836,26 @@ func hostLoginFailureIsCredentialDriver(err error) bool {
 		errors.Is(err, credentialhost.ErrInvalidCache) ||
 		errors.Is(err, credentialhost.ErrPupLoginFailed) ||
 		errors.Is(err, credentialhost.ErrInvalidPupState) ||
+		errors.Is(err, credentialhost.ErrCodexExecutable) ||
+		errors.Is(err, credentialhost.ErrCodexVersion) ||
+		errors.Is(err, credentialhost.ErrCodexLoginSetup) ||
+		errors.Is(err, credentialhost.ErrCodexLoginStreams) ||
+		errors.Is(err, credentialhost.ErrCodexLoginFailed) ||
+		errors.Is(err, credentialhost.ErrCodexOutputLimit) ||
+		errors.Is(err, credentialhost.ErrCodexVisibleOutput) ||
+		errors.Is(err, credentialhost.ErrCodexAuthCapture) ||
+		errors.Is(err, credentialhost.ErrCodexLoginCleanup) ||
+		errors.Is(err, credentialhost.ErrInvalidCodexCredential) ||
+		errors.Is(err, credentialhost.ErrClaudeExecutable) ||
+		errors.Is(err, credentialhost.ErrClaudeVersion) ||
+		errors.Is(err, credentialhost.ErrClaudeLoginSetup) ||
+		errors.Is(err, credentialhost.ErrClaudeTTYRequired) ||
+		errors.Is(err, credentialhost.ErrClaudeLoginFailed) ||
+		errors.Is(err, credentialhost.ErrClaudeOutputLimit) ||
+		errors.Is(err, credentialhost.ErrClaudeOutputFraming) ||
+		errors.Is(err, credentialhost.ErrClaudeTokenCapture) ||
+		errors.Is(err, credentialhost.ErrClaudeVisibleOutput) ||
+		errors.Is(err, credentialhost.ErrClaudeLoginCleanup) ||
 		errors.Is(err, errLoginVisibleOutputLimit) ||
 		errors.Is(err, errHostLoginPrompt) ||
 		errors.Is(err, errHostCredentialResult)

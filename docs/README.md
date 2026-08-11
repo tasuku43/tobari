@@ -40,9 +40,11 @@ The following are deliberate product boundaries, not unfinished work:
   licensing, support, and provenance decisions are accepted. See
   [Release Model](06_release.md).
 - Provider-specific policy operations, arbitrary helper code, general TWG
-  login/refresh, and multiple-account selection remain excluded. The sole
-  dynamic plan is reviewed host AWS CLI credential export after exact OPA allow
-  followed by Broker-owned bounded SigV4. See [Authentication
+  login/refresh, and multiple-account selection remain excluded. The closed
+  reviewed dynamic plans are host AWS CLI credential export plus Broker-owned
+  bounded SigV4, fixed Datadog US1 OAuth refresh, and fixed Codex 0.146.0
+  OpenAI OAuth refresh, all after exact OPA allow. Anthropic setup-token
+  resolution is static and never refreshes. See [Authentication
   handling](07_authentication.md).
 - Simplifying explicit cluster bootstrap remains a product hypothesis under
   the bounded-autonomy thesis, not an unreviewed command change. See

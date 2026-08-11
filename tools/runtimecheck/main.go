@@ -16,26 +16,27 @@ import (
 )
 
 const (
-	baseDockerfile    = "runtimes/base/Dockerfile"
-	baseEntrypoint    = "runtimes/base/entrypoint.sh"
-	baseAWSKey        = "runtimes/base/aws-cli-public-key.asc"
-	claudeDockerfile  = "runtimes/claude/Dockerfile"
-	claudeRuntimeJSON = "runtimes/claude/runtime.json"
-	claudeLockJSON    = "runtimes/claude/runtime.lock.json"
-	codexDockerfile   = "runtimes/codex/Dockerfile"
-	codexRuntimeJSON  = "runtimes/codex/runtime.json"
-	codexLockJSON     = "runtimes/codex/runtime.lock.json"
-	snapshotDir       = "internal/infra/runtimeassets/assets/tobari"
-	baseRuntimeJSON   = "runtimes/base/runtime.json"
-	baseLockJSON      = "runtimes/base/runtime.lock.json"
-	manifestJSON      = "runtimes/manifest.json"
-	versionsEnv       = "internal/infra/runtimeassets/assets/versions.env"
-	canonicalSource   = "https://github.com/tasuku43/tobari"
-	canonicalLicense  = "MIT"
-	canonicalUser     = "tobari"
-	canonicalRuntime  = "1"
-	canonicalLife     = "sleep infinity"
-	canonicalPackage  = "tobari/runtime"
+	baseDockerfile        = "runtimes/base/Dockerfile"
+	baseEntrypoint        = "runtimes/base/entrypoint.sh"
+	baseAWSKey            = "runtimes/base/aws-cli-public-key.asc"
+	claudeDockerfile      = "runtimes/claude/Dockerfile"
+	claudeRuntimeJSON     = "runtimes/claude/runtime.json"
+	claudeLockJSON        = "runtimes/claude/runtime.lock.json"
+	codexDockerfile       = "runtimes/codex/Dockerfile"
+	codexRuntimeJSON      = "runtimes/codex/runtime.json"
+	codexLockJSON         = "runtimes/codex/runtime.lock.json"
+	snapshotDir           = "internal/infra/runtimeassets/assets/tobari"
+	baseRuntimeJSON       = "runtimes/base/runtime.json"
+	baseLockJSON          = "runtimes/base/runtime.lock.json"
+	manifestJSON          = "runtimes/manifest.json"
+	versionsEnv           = "internal/infra/runtimeassets/assets/versions.env"
+	canonicalSource       = "https://github.com/tasuku43/tobari"
+	canonicalLicense      = "MIT"
+	canonicalAgentLicense = "NOASSERTION"
+	canonicalUser         = "tobari"
+	canonicalRuntime      = "1"
+	canonicalLife         = "sleep infinity"
+	canonicalPackage      = "tobari/runtime"
 )
 
 var digestReference = regexp.MustCompile(`^debian@sha256:[0-9a-f]{64}$`)
@@ -306,6 +307,7 @@ func validate(root string) (string, error) {
 		"COPY aws-cli-public-key.asc /tmp/aws-cli-public-key.asc",
 		"io.tobari.runtime-api=\"1\"",
 		"io.tobari.runtime-lifetime-command=\"sleep infinity\"",
+		"org.opencontainers.image.licenses=\"" + canonicalLicense + "\"",
 		"org.opencontainers.image.source=\"" + canonicalSource + "\"",
 		"COPY --from=fetcher /opt/aws-cli /opt/aws-cli",
 		"COPY --from=fetcher /out/gh /usr/local/bin/gh",
@@ -375,7 +377,7 @@ func validateClaude(root string) (string, error) {
 	if !sameStrings(metadata.Architectures, []string{"linux/amd64", "linux/arm64"}) || !sameStrings(metadata.Tools, []string{"claude"}) {
 		return "", errors.New("Claude runtime metadata has an unexpected architecture or tool set")
 	}
-	if metadata.Source != canonicalSource || metadata.License != canonicalLicense {
+	if metadata.Source != canonicalSource || metadata.License != canonicalAgentLicense {
 		return "", errors.New("Claude runtime metadata has an invalid public source or license")
 	}
 
@@ -445,6 +447,7 @@ func validateClaude(root string) (string, error) {
 		"install -m 0755 /tmp/claude-code/claude /usr/local/bin/claude",
 		"io.tobari.runtime-api=\"1\"",
 		"io.tobari.runtime-lifetime-command=\"sleep infinity\"",
+		"org.opencontainers.image.licenses=\"" + canonicalAgentLicense + "\"",
 		"ENV HOME=/var/lib/tobari",
 		"ENV PATH=\"/usr/local/bin:${PATH}\"",
 		"ENV DISABLE_AUTOUPDATER=1",
@@ -496,7 +499,7 @@ func validateCodex(root string) (string, error) {
 	if !sameStrings(metadata.Architectures, []string{"linux/amd64", "linux/arm64"}) || !sameStrings(metadata.Tools, []string{"codex"}) {
 		return "", errors.New("Codex runtime metadata has an unexpected architecture or tool set")
 	}
-	if metadata.Source != canonicalSource || metadata.License != canonicalLicense {
+	if metadata.Source != canonicalSource || metadata.License != canonicalAgentLicense {
 		return "", errors.New("Codex runtime metadata has an invalid public source or license")
 	}
 
@@ -567,6 +570,7 @@ func validateCodex(root string) (string, error) {
 		"jq -er '.entrypoint' \"${release_dir}/codex-package.json\"",
 		"io.tobari.runtime-api=\"1\"",
 		"io.tobari.runtime-lifetime-command=\"sleep infinity\"",
+		"org.opencontainers.image.licenses=\"" + canonicalAgentLicense + "\"",
 		"ENV HOME=/var/lib/tobari",
 		"ENV CODEX_HOME=/var/lib/tobari/.codex",
 		"ENV PATH=\"/usr/local/bin:${PATH}\"",

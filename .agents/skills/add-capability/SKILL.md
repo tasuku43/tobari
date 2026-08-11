@@ -236,12 +236,14 @@ mutation as safe to repeat. A non-retryable mutation `rate_limited` recovery is
 also read-only. Treat positive `retry_after` as timing evidence independent of
 the `retryable` replay decision, and render an absent rate window as unknown.
 
-## 5. Keep external API adapters out of the MVP
+## 5. Keep undeclared external API adapters out of the MVP
 
 Read `docs/07_authentication.md` and `docs/08_external_api_contracts.md`.
 Tobari authorizes generic HTTP effects at Gateway and does not expose a
-provider-specific API adapter, OAuth flow, PAT discovery, or account-selection
-command.
+provider-specific user-task API adapter, PAT discovery, or account-selection
+command. Authentication is limited to the exact closed built-in acquisition
+plans accepted by the governing ADRs plus protected schema-v1 stdin import;
+those plans do not create a generic OAuth or provider-operation surface.
 
 Adding one is a thesis, product-contract, architecture, and security change
 before it is a capability implementation. Accept the new trust boundary first,

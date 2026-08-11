@@ -94,7 +94,9 @@ runs in the pinned image environment and covers strict schema-1 control/runtime
 protocols, locked startup, the schema-1 envelope/schema-2 encrypted payload,
 strict static-record migration, Context/project-bound handles, AWS device and
 opaque host-driver state, companion refresh coordination, SigV4 signing,
-restart unlock, rotation, logout, and secret-free failures. The image check
+strict Codex OAuth state/account continuity and fixed refresh, static Claude
+setup-token resolution, restart unlock, rotation, logout, and secret-free
+failures. The image check
 validates provider-CLI absence, Docker labels, fixed entrypoint, and non-root
 user. Its workflow builds
 both supported architectures; pull requests are validation/cache-only, while
@@ -111,18 +113,24 @@ ordinary immutable-image checks as Gateway.
 Companion coverage is split across Go and Python without creating a public
 command surface. Go tests fix private same-binary bootstrap, exact verified
 Broker container/`docker exec` argv, root-key-derived epoch preparation,
-process lifetime, fixed host GitHub/AWS/pup driver argv/environment, executable
-identity, private-home cleanup, cancellation, output/state bounds, and redacted
-errors. Python tests fix the Broker-private bridge, authenticated handshake,
+process lifetime, fixed host GitHub/AWS/pup/Codex/Claude driver
+argv/environment, executable identity, pinned Codex/Claude version, private-home
+cleanup, cancellation, output/state bounds, Codex auth-file parsing, Claude PTY
+token suppression, and redacted errors. Python tests fix the Broker-private
+bridge, authenticated handshake,
 direction keys, exact sequence/replay/gap rules, frame limits, closed message
 set, duplicate/replacement/disconnect behavior, cancellation, and no-content
 logging. Integration proves no host listener, host socket mount, Workspace
 route, Gateway route, or OPA route reaches the companion.
 
 The focused Claude and Codex runtime checks validate their pinned agent
-artifacts and inherited contract. Their local build fixtures also replace
-`/var/lib/tobari` with a temporary home mount and execute the agent commands,
-so an image-layer executable cannot silently depend on the persistent home.
+artifacts at Claude Code 2.1.220 and Codex 0.146.0 and their inherited contract.
+Their local build fixtures also replace `/var/lib/tobari` with a temporary home
+mount and execute the agent commands, so an image-layer executable cannot
+silently depend on the persistent home. A Context custom-runtime smoke test may
+compose both local artifacts and run both version commands. None of these
+checks authorizes publication: agent tags stay local while redistribution and
+license review is pending.
 
 Direct invocation is supported for automation:
 
@@ -221,12 +229,13 @@ Auth Broker readiness is split deliberately. The required agent-readiness
 scenario delegates its reproducible synthetic authentication proof to `task
 integration:test`; that command is required evidence, not an optional adjacent
 check. It uses synthetic credentials, mocked host GitHub/AWS/pup CLI results,
-fixed Datadog refresh fixtures, a fake companion, and local HTTP fixtures and
+mocked pinned Codex/Claude CLI results, fixed Datadog/OpenAI refresh fixtures,
+synthetic JWT/account claims, a fake companion, and local HTTP fixtures and
 makes no live provider call. The manual transcript does not
 duplicate synthetic broker manipulation.
 
-A release candidate also receives manual trusted-host GitHub, AWS, and Datadog
-validations. Run
+A release candidate also receives manual trusted-host GitHub, AWS, Datadog,
+OpenAI, and Anthropic validations. Run
 `auth login --provider github` with a test account, inspect secret-free `auth status`, and
 re-enter a Context-bound Workspace. Inside it, perform the following no-print
 shape and equality checks before the allowed API request:
@@ -254,6 +263,28 @@ temporary lease expires to prove post-policy automatic refresh while the
 upstream session remains renewable. Logout and prove the old handle fails.
 Record only pass/fail and secret-free account/session metadata; never retain
 SSO/login state, temporary credentials, handles, codes, or signed headers.
+
+For OpenAI, first require the trusted-host `codex --version` output to be
+exactly `codex-cli 0.146.0`, then run `auth login --provider openai` with a
+disposable non-FedRAMP ChatGPT account. Re-enter the Workspace and, without
+printing file contents, prove `.codex/auth.json` has the fixed
+`chatgptAuthTokens` shape, its `tokens.access_token` starts with `tobari-h1_`,
+and its refresh token is empty. Verify policy denial makes no refresh or
+authenticated upstream attempt, allow one exact bounded Codex inference, and
+exercise one near-expiry refresh with account continuity. Logout, prove the old
+handle fails, and prove re-login rotates the projection. Record no auth file,
+JWT, account ID, token, code, handle, response body, or raw transcript.
+
+For Anthropic, first require trusted-host `claude --version` output to be
+exactly `2.1.220 (Claude Code)`, then run
+`auth login --provider anthropic` with a disposable account. Verify the visible
+host transcript never contains the captured setup token. Re-enter the
+Workspace and, without printing the value, prove only
+`CLAUDE_CODE_OAUTH_TOKEN` has a `tobari-h1_` handle while
+`ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are absent. Verify policy denial
+makes no resolution call, allow one bounded inference, rotate by explicit
+re-login, then logout and prove both stale handles fail. Record no setup token,
+code, handle, response body, provider auth file, or raw transcript.
 
 ## Harness components
 
@@ -574,16 +605,26 @@ The test suite has complementary levels:
   barriers, restart-safe no-replay, bounded per-record single-flight waiting,
   stale refresh rejection, transient role credentials, and same-revision
   SigV4 signing, strict encrypted Datadog pup OAuth state, post-policy token
-  selection, fixed refresh exchange, and outcome-unknown barriers. Tests use
-  synthetic values and make no network call.
-- GitHub/AWS/Datadog acquisition UX tests split the trusted host and Broker boundaries:
+  selection, fixed refresh exchange, strict canonical Codex OAuth state,
+  ID-token account/FedRAMP validation, five-minute/eight-day refresh selection,
+  exact OpenAI refresh request, isolated worker argv/stdin/empty environment,
+  parent wall-clock timeout with kill/reap, and account continuity,
+  same-revision atomic replacement, static Claude resolution, and
+  outcome-unknown barriers. Tests
+  use synthetic values and make no network call.
+- GitHub/AWS/Datadog/OpenAI/Anthropic acquisition UX tests split the trusted
+  host and Broker boundaries:
   canonical executable/digest selection, fixed argv, sanitized environment,
   bounded control-safe streams/state, checked private-home cleanup, and cancellation preserve the
   prior credential on failure. GitHub output recognizes only the fixed device
   URL and its argv contains no Git protocol or credential-setup request. AWS
   uses only fixed device-code login and typed credential-export argv; login
   state excludes request region. Datadog uses fixed US1 pup login and strict
-  file-backed state capture. No provider CLI exists in the Broker image.
+  file-backed state capture. OpenAI requires exact Codex 0.146.0, fixed device
+  login, isolated state capture, and strict account-bound auth JSON. Anthropic
+  requires exact Claude Code 2.1.220, fixed `setup-token`, a private PTY, and
+  exact single-token framing whose token never reaches visible output. No
+  provider CLI exists in the Broker image.
 - Workspace auth projection tests prove one configured Context credential
   produces distinct project-bound handles, injects only declared environment
   or complete-file data, refuses to overwrite unowned/modified/symlinked files,
@@ -598,6 +639,11 @@ The test suite has complementary levels:
   copied/stale/malformed/misplaced/ambiguous/mismatched handle rejection,
   non-learnable structural denials, broker-unavailable failure, and fallback
   only when every inspected URL/header position contains no Tobari marker.
+  OpenAI cases additionally strip authorization, account, and FedRAMP headers
+  before OPA, prove zero refresh on deny, require the sole Broker-owned
+  `chatgpt-account-id` supplemental header after allow, and reject every
+  alternate supplemental shape. Anthropic cases prove one post-allow static
+  bearer replacement and no refresh path.
 - Guided-policy projection tests prove a Context owns `data.json` only, stale
   Context-local Rego cannot change the aggregate revision or evaluator, the
   shared evaluator makes first brokered use learnable until an exact rule is
@@ -740,20 +786,23 @@ Every strong statement should identify its enforcement path.
 | Context shell environment boundary | Fixed allowlist and source-enum domain tests, explicit-empty preservation, schema-1–3 migration to inherited PS1 and schema-4 exact-setting preservation, zero-I/O rejection for arbitrary names and ambiguous values, owner-only atomic update tests, complete Context report output, exact child-exec environment assertions, missing-export fallback, Bash-quote and bounded inherited-value canaries, and host-credential non-copy assertions |
 | Context Git identity boundary | Atomic pair/source domain tests, schema-4 shell-setting preservation and opt-in default migration, exact two-key global Git argv with an absolute executable and exact `HOME`/optional `XDG_CONFIG_HOME` plus fixed-control environment allowlist, project-owned config-directory and `PATH`/loader/shell-startup canaries, timeout/output/framing/unsafe-value bounds, malicious local-include exclusion, private atomic config encoding, symlink and existing-file size checks, read-only directory mount and system-scope precedence, excluded helper/signing/auth/path keys, absent/incomplete-pair behavior, and secret-/personal-data-free faults and fixtures |
 | Context runtime build boundary | Fixed current-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv including official-base refresh versus local-base behavior, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and bound-Context next-entry reconciliation coverage |
-| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, canonical-source unit tests, stable Gateway labels, immutable digest/platform/entrypoint preflight, non-root host-UID-independent Dockerfile, and pull-request/main workflow permission separation |
-| Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence, stable API/role labels, immutable digest/platform/entrypoint preflight, non-root Dockerfile, and pull-request/main workflow permission separation |
+| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, canonical-source unit tests, source API-4/role labels, immutable digest/platform/entrypoint preflight, explicit historical published API-3 separation, non-root host-UID-independent Dockerfile, and pull-request/main workflow permission separation |
+| Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-3/role labels, immutable digest/platform/entrypoint preflight, explicit historical published API-2 separation, non-root Dockerfile, and pull-request/main workflow permission separation |
 | Context-owned encrypted credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/Context AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
 | Doctor remains observational | Fixed dependency-matrix, direct-blocker, complete-report, schema-2 renderer/agent-contract, fail/warn exit, cancellation, Docker-argv allowlist, host-only policy-source validation, content-aware fresh/legacy no-migration snapshots, and zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
 | Every declared read remains observational | Dynamic public-catalog handler coverage, per-command fresh-XDG before/after snapshots, zero Docker-mutation argv, lockless fresh lifecycle reads, read-only/concurrent fixtures, legacy no-migration reads, fail-closed unsafe state, and bounded cleanup of only a pre-existing validated journal |
 | Project-bound broker handles | Full Context/project/provider/revision/target/header round trips, hash-only live index assertions, copied/stale/rotated/revoked negative tests, exact Context-wide eligibility and next-entry semantics, and Workspace projection reconciliation |
+| Pinned agent OAuth projections | Exact-key/byte tests for the Codex 0.146.0 complete `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`, direct synthetic Gateway bearer/account-header checks, Claude `CLAUDE_CODE_OAUTH_TOKEN=${HANDLE}`-only environment checks, API-key/auth-token absence, modified/symlinked-file refusal, and version-drift rejection; an isolated network-disabled client observation records login-status and verbatim-handle behavior but remains a required manual release replay rather than an automated artifact claim |
 | Broker fallback requires marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and passthrough/managed fallback tests with no marker anywhere inspected |
 | Post-policy credential resolution | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve on deny, one same-revision resolve after allow, exact header replacement, and no-secret canaries |
 | Credential companion boundary | Private same-binary bootstrap, exact verified-container reverse-exec argv, root-key-derived epoch, authenticated direction/sequence/replay/size tests, closed driver message set, no-listener/no-socket-mount topology, receipt-only cancel acknowledgments, terminal-result settlement, bounded peer-not-reading writes and teardown, drain/disconnect behavior, redacted failures, and no channel key/FD inheritance by driver children |
 | Post-policy AWS signing | Strict placeholder/scope/authority recognition, body-free OPA input, zero companion/refresh/sign on deny, bounded body capture after allow, exact authority/method/path/query/header snapshot comparison before refresh, mutation canaries with zero sign calls, one fixed host credential export, bounded per-record single-flight, pre-call encrypted task barrier, restart-safe outcome-unknown rejection, non-retryable HTTP 409 mapping, stale-result rejection, published SigV4 vectors, exactly one same-revision sign/forward, and fail-closed presign/SigV4a/stream/custom-endpoint canaries |
 | Post-policy Datadog OAuth | Exact schema-2 US1 bearer binding, zero token selection/refresh on deny, same-revision resolve after allow, five-minute refresh window, strict fixed-endpoint/no-proxy/no-redirect exchange, bounded response, per-record single-flight, pre-call encrypted task barrier, restart-safe outcome-unknown rejection, non-retryable HTTP 409 mapping, stale-result rejection, and exactly one token replacement/forward |
-| Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, identity-checked private nonblocking terminal input with Darwin/Linux real-PTY cancellation/deadline, readiness-flush/EAGAIN, inherited-flag isolation, noncanonical VMIN/VTIME rejection, complete-profile coverage, and zero driver/Broker calls, conventional non-project host installation-root selection, canonical GitHub/AWS/pup executable identity, fixed argv and environment, control-safe provider-output projection, strict default-US1 pup state capture, exact fixed-URL and region-bound AWS console URL recognition with duplicate/cross-region rejection and manual fallback, checked private-home cleanup including setup and successful acquisition, TTY enforcement, complete fault inventory, all non-retryable mutation-unknown reconciliation paths, cancellation/failure preservation, required synthetic integration proof, and manual live exact-handle validation |
-| Provider and client-tool distinction | Catalog/help and selector tests name the provider first, expose the sole current supported Workspace client tool as automatically selected, and keep AWS acquisition method separate; bilingual static-site tests retain the complete GitHub/`gh`, AWS/`aws`, Datadog/`pup`, and Chatwork/`cwk` map without implying a `--tool`, general plugin authority, or network permission |
+| Post-policy OpenAI Codex OAuth | Exact schema-2 `chatgpt.com:443` bearer binding, pre-OPA authorization/account/FedRAMP stripping, zero selection/refresh on deny, five-minute JWT and eight-day fallback refresh boundaries, one fixed proxy-free/no-redirect token exchange through a stdin-only empty-environment worker, parent-enforced 30-second wall-clock kill/reap, bounded response, ID-token account continuity, per-record single-flight, pre-call encrypted task barrier, restart-safe outcome-unknown rejection, same-revision atomic replacement, Broker-owned sole `chatgpt-account-id` supplemental header, and exactly one bearer/account injection and forward |
+| Post-policy Anthropic Claude OAuth | Exact `api.anthropic.com:443` bearer binding, zero resolution on deny, same-revision static resolution after allow, no refresh/supplemental-header path, and exactly one token replacement/forward |
+| Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, identity-checked private nonblocking terminal input with Darwin/Linux real-PTY cancellation/deadline, readiness-flush/EAGAIN, inherited-flag isolation, noncanonical VMIN/VTIME rejection, complete-profile coverage, and zero driver/Broker calls, conventional non-project host installation-root selection, canonical GitHub/AWS/pup/Codex/Claude executable identity, exact 0.146.0/2.1.220 version checks, fixed argv and environment, control-safe provider-output projection, strict default-US1 pup and Codex state capture, secret-suppressing Claude private-PTY framing, exact fixed-URL and region-bound AWS console URL recognition with duplicate/cross-region rejection and manual fallback, checked private-home cleanup including setup and successful acquisition, TTY enforcement, complete fault inventory, all non-retryable mutation-unknown reconciliation paths, cancellation/failure preservation, required synthetic integration proof, and manual live exact-handle validation |
+| Provider and client-tool distinction | Catalog/help and selector tests name the provider first, expose the sole current supported Workspace client tool as automatically selected, and keep AWS acquisition method separate; static-site tests retain the complete GitHub/`gh`, AWS/`aws`, Datadog/`pup`, OpenAI/`codex`, Anthropic/`claude`, and Chatwork/`cwk` map without implying a `--tool`, general plugin authority, or network permission |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/host/port/method/path candidate aggregation with latest/count and legacy-count compatibility, Context-scoped reference validation, single-reference allow/deny/reset round trips, bounded typed TTY staging with one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, GraphQL compaction rejection, raw-body privacy canaries, and zero-upstream integration |

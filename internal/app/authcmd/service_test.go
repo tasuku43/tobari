@@ -350,7 +350,22 @@ func TestLoginRejectsUnsupportedHelperBeforeRuntime(t *testing.T) {
 }
 
 func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
-	for _, provider := range []string{BuiltinGitHubProviderID, BuiltinAWSProviderID, BuiltinDatadogProviderID} {
+	if BuiltinGitHubProviderID != "github" || BuiltinAWSProviderID != "aws" ||
+		BuiltinDatadogProviderID != "datadog" || BuiltinOpenAIProviderID != "openai" ||
+		BuiltinAnthropicProviderID != "anthropic" {
+		t.Fatalf(
+			"built-in provider IDs = %q/%q/%q/%q/%q",
+			BuiltinGitHubProviderID, BuiltinAWSProviderID, BuiltinDatadogProviderID,
+			BuiltinOpenAIProviderID, BuiltinAnthropicProviderID,
+		)
+	}
+	for _, provider := range []string{
+		BuiltinGitHubProviderID,
+		BuiltinAWSProviderID,
+		BuiltinDatadogProviderID,
+		BuiltinOpenAIProviderID,
+		BuiltinAnthropicProviderID,
+	} {
 		t.Run(provider, func(t *testing.T) {
 			fake := &authRuntimeFake{
 				result:        mutationObservation(validAuthResultForProvider(authbroker.TaskLogin, provider)),
@@ -373,6 +388,31 @@ func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
 			}
 			if fake.method != wantMethod {
 				t.Fatalf("login method = %q, want %q", fake.method, wantMethod)
+			}
+		})
+	}
+}
+
+func TestLoginRejectsAWSMethodForEveryNonAWSBuiltinBeforeTerminalInspection(t *testing.T) {
+	for _, provider := range []string{
+		BuiltinGitHubProviderID,
+		BuiltinDatadogProviderID,
+		BuiltinOpenAIProviderID,
+		BuiltinAnthropicProviderID,
+	} {
+		t.Run(provider, func(t *testing.T) {
+			fake := &authRuntimeFake{inputTerminal: true, errorTerminal: true}
+			_, err := New(fake).Login(
+				context.Background(), authIntent("auth login"), "default", provider,
+				string(LoginMethodConsole), strings.NewReader(""), io.Discard,
+			)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != "auth_login_method_not_applicable" || fake.loginCalls != 0 ||
+				fake.inputTerminalCalls != 0 || fake.errorTerminalCalls != 0 {
+				t.Fatalf(
+					"provider %q method fault/calls = %+v/%d/%d/%d",
+					provider, public, fake.loginCalls, fake.inputTerminalCalls, fake.errorTerminalCalls,
+				)
 			}
 		})
 	}

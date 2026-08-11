@@ -33,11 +33,13 @@ process in it, coding agents, project files, Workspace home, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
 
-The reviewed GitHub, AWS, and pup host drivers are trusted, purpose-limited CLI side
-effects. They select a canonical host executable and bind its SHA-256 identity,
-construct only fixed argv, use sanitized environments and private temporary
-homes, and accept no Workspace, repository, manifest, or request-selected
-executable or argument. GitHub recognizes only the fixed
+The reviewed GitHub, AWS, pup, Codex, and Claude host drivers are trusted,
+purpose-limited CLI side effects. They select a canonical host executable that
+is not writable by group or world from conventional non-project installation
+roots, bind its SHA-256 identity, construct only fixed argv, use sanitized
+environments and private temporary homes, and accept no Workspace, repository,
+manifest, project `PATH`, or request-selected executable or argument. GitHub
+recognizes only the fixed
 `https://github.com/login/device` browser target. AWS runs only the explicitly
 selected fixed IAM Identity Center device flow or fixed console-based
 cross-device login, plus typed credential export. Console browser opening
@@ -47,6 +49,14 @@ neither AWS flow starts a callback listener or reads ambient AWS state.
 Datadog pup runs only fixed US1 OAuth argv with a sanitized environment and
 private file backend. pup owns the generated consent URL and loopback callback;
 Tobari accepts only the fixed port allowlist and strict default-session files.
+Codex must report exactly `codex-cli 0.146.0`, runs only fixed
+`login --device-auth` argv with reviewed file-store and no-update overrides
+under isolated `HOME` and `CODEX_HOME`, and yields only strict canonical
+ChatGPT OAuth state. Claude must report exactly
+`2.1.220 (Claude Code)`, runs only `claude setup-token` in an isolated home and
+private PTY, and yields exactly one inference setup token through a parser that
+does not forward it to visible output. Both drivers revalidate the executable
+identity after acquisition and delete the private home on every outcome.
 
 The host Git identity reader is a separate trusted, purpose-limited CLI side
 effect. It accepts one canonical Workspace root and can request only global
@@ -64,10 +74,11 @@ host root B (rw) ---> Tobari B --+                       |
                 no cross-route                           +-- post-allow runtime socket
                                                                   |
 host CLI --fixed control exec/stdin--> locked Auth Broker --encrypted Context vaults
-host CLI --reviewed fixed GitHub/AWS/pup login drivers--> provider HTTPS
+host CLI --reviewed fixed GitHub/AWS/pup/Codex/Claude login drivers--> provider HTTPS
 host companion --encrypted reverse docker exec--> Broker-private bridge socket
       |-- reviewed fixed AWS refresh driver --> provider HTTPS
 Auth Broker --exact proxy-free Datadog token refresh--> api.datadoghq.com:443
+Auth Broker --exact proxy-free OpenAI token refresh--> auth.openai.com:443
 host CLI --two fixed global Git reads--> validated identity scalars --> Workspace fallback
 ```
 
@@ -88,7 +99,9 @@ image-owned byte-pump and an unmounted Broker-private socket.
   environment, plus real brokered credentials in encrypted Context vaults,
   the installation root key, purpose-derived companion sessions, opaque AWS
   CLI cache state, encrypted pup OAuth state, request-local AWS role leases and
-  Datadog access tokens, and reserved managed-adapter
+  Datadog access tokens, encrypted Codex ChatGPT OAuth state, request-local
+  OpenAI access tokens and account-routing values, Claude inference setup
+  tokens, and reserved managed-adapter
   material.
 - OPA policy, decision API, and Gateway management surface.
 - Denial of direct Internet connectivity.
@@ -201,11 +214,13 @@ a source of host mounts, host credentials, capabilities, network routes, or life
 policy, and registry provenance does not replace local runtime compatibility
 validation.
 
-The current Claude and Codex image slices are build-only and contain no
-credentials or agent configuration. Their workflows verify the versioned
-release packages against the checked-in per-architecture checksums and have no
-package-write permission; public publication remains gated on third-party
-redistribution and license review.
+The current Claude Code 2.1.220 and Codex 0.146.0 image slices are build-only
+and contain no credentials or agent configuration. A Context-owned custom
+recipe may compose the reviewed local artifacts, but its Workspace binaries
+remain untrusted and cannot serve as host OAuth helpers. Their workflows verify
+the versioned release packages against the checked-in per-architecture
+checksums and have no package-write permission; public publication remains
+gated on third-party redistribution and license review.
 
 The public base retains its pre-change GitHub CLI and AWS CLI artifact
 inventory and associated integrity/license checks. `kubectl`, `cwk`, `pup`,
@@ -256,6 +271,14 @@ image path cannot replace that authority in a normal binary. The writable Contex
 mount, Gateway-visible runtime-socket mount, private control/companion tmpfs,
 and provider projection are distinct paths. The image contains no provider CLI,
 credential, provider configuration, handle, root key, or vault.
+
+The current canonical capability advances `io.tobari.gateway-api` from 3 to 4
+and `io.tobari.auth-broker-api` from 2 to 3. Those labels make the
+supplemental account-header response and dynamic OpenAI state fail closed
+against either older component. The API-4/API-3 images are contributor-local
+until reviewed immutable multi-architecture pins advance; the published API-3
+Gateway and API-2 Broker remain separate historical artifacts without this
+capability.
 
 All resources carry `io.tobari.owner=default`; per-Tobari resources also carry
 the exact stable Tobari ID and a resource role. Destructive lifecycle code
@@ -410,6 +433,15 @@ home. Identity Center and console login use distinct strict state schemas and
 driver IDs; companion refresh rejects a mismatch before provider execution.
 Datadog state is interpreted only by the fixed Broker-owned US1 plan; it is
 never materialized into a Workspace or provider CLI inside Broker.
+OpenAI state is the strict `openai_codex_oauth_session` union: schema 1,
+canonical executable path/digest/version, `auth_mode=chatgpt`, null API-key
+field, ID/access/refresh tokens, matching account ID, and RFC3339Nano refresh
+time. The namespaced ID-token account claim is mandatory, FedRAMP is rejected,
+and the executable digest must equal the record driver revision. Anthropic is a
+schema-1 primary-secret record with the fixed non-secret account label
+`claude-user-inference`; it stores only the captured inference setup token and
+no refresh state. Neither provider's primary state is materialized in a
+Workspace or Broker-side provider home.
 All parent directories, files, ownership, modes, and symlink status are checked
 before use; updates use a durable atomic replace. The broker starts locked and
 retains the 32-byte installation root key only in memory. macOS stores that key
@@ -474,19 +506,39 @@ performs one same-record refresh at the exact proxy-free, no-redirect US1 token
 endpoint. It atomically commits the same-revision state before returning one
 request-local bearer value. A task-digest barrier prevents automatic replay
 when the refresh outcome is unknown.
+For OpenAI, Gateway removes caller-supplied `Authorization`,
+`ChatGPT-Account-ID`, and `X-OpenAI-FedRAMP` before non-secret introspection and
+OPA. Denial makes zero token-selection, refresh, or account-routing calls.
+After allow, Broker returns a valid same-revision access token plus exactly one
+validated non-secret `chatgpt-account-id` supplemental value. Gateway injects
+that broker-owned account header and bearer authorization only for one
+`chatgpt.com:443` upstream attempt. Broker refreshes only inside five minutes
+of a readable expiry, or eight days after `last_refresh` when expiry is
+unreadable, using one proxy-free, no-redirect POST to exactly
+`https://auth.openai.com/oauth/token` with the fixed Codex 0.146.0 public
+client ID `app_EMoamEEZ73f0CkXaXp7hrann`. One isolated fixed-argv worker receives
+only the canonical request body on stdin; the Broker parent starts the deadline
+before spawn and kills and reaps that worker at the 30-second wall-clock bound.
+It preserves omitted fields, requires ID-token account continuity, and
+atomically commits same-revision state. A
+task-digest barrier prevents automatic replay when the refresh outcome is
+unknown. For Anthropic, denial
+makes zero resolution calls and allow permits one same-revision static token
+resolution for `api.anthropic.com:443`; there is no refresh or supplemental
+header.
 A
 copied, malformed, stale, revoked, ambiguous,
 or mismatched handle returns secret-free HTTP 403
 `credential_handle_invalid`; a locked, unavailable, timed-out, or invalid
 broker returns HTTP 503 `credential_broker_unavailable`. Neither failure falls
 back to forwarding the handle. An explicit or post-dispatch transport-unknown
-AWS companion operation or Datadog refresh returns HTTP 409
+AWS companion operation, Datadog refresh, or OpenAI refresh returns HTTP 409
 `credential_refresh_outcome_unknown`, which is outside automatic retry and
 likewise never forwards the request.
 Because this code also covers loss of a successful Broker response, recovery
 consults `auth status` after the request settles: `broker_state=ready` with
-the affected AWS or Datadog provider `configured` permits an explicit user
-retry because Gateway made no application upstream attempt, while
+the affected AWS, Datadog, or OpenAI provider `configured` permits an explicit
+user retry because Gateway made no application upstream attempt, while
 `not_configured` identifies the durable barrier and requires re-login or
 logout. More
 precisely, configured passthrough or
@@ -510,16 +562,23 @@ bounded handle templates, exact HTTPS/header transformations, and enumerated
 built-in-only credential plans; it rejects target/projection collisions and
 prohibits user manifests from overriding built-ins or selecting a helper,
 refresher, signer, executable, argv, or environment. Auth Broker contains no
-provider CLI. The built-in GitHub, AWS, and Datadog drivers execute on the trusted host,
-resolve one canonical executable identity, use fixed argv and sanitized
-environments, and delete private temporary homes on every outcome. GitHub asks
+provider CLI. The built-in GitHub, AWS, Datadog, OpenAI, and Anthropic drivers
+execute on the trusted host, resolve one canonical executable identity, use
+fixed argv and sanitized environments, and delete private temporary homes on
+every outcome. GitHub asks
 for no Git protocol and recognizes only its fixed device URL. AWS performs one
 fixed Identity Center device login, one fixed console-based remote login, or
 typed credential export. Broker encrypts the opaque
 AWS cache between calls; temporary role credentials exist only while Broker
 signs one authorized request. The fixed Datadog plan encrypts pup OAuth state
 and refreshes it only after allow against the exact US1 token endpoint with no
-ambient proxy or redirect. User providers use protected non-terminal
+ambient proxy or redirect. OpenAI accepts only the reviewed Codex 0.146.0 state
+and exact `chatgpt.com:443` bearer plan; Anthropic accepts only the Claude Code
+2.1.220 inference setup token and exact `api.anthropic.com:443` bearer plan.
+The OpenAI complete-file projection is the fixed external-host
+`chatgptAuthTokens` compatibility shim with only the project handle in
+`tokens.access_token`; the Anthropic projection is only
+`CLAUDE_CODE_OAUTH_TOKEN=<project handle>`. User providers use protected non-terminal
 stdin import only. A terminal stream is refused before reading. Non-terminal
 bytes are read after public Context/provider argument, intent, and mutation
 validation; infrastructure validates the selected existing Context, installed
@@ -533,8 +592,9 @@ per Context, provider SDK operation inference, remote logout/revocation, Git
 credential helpers, GitHub App tokens, SigV4a, presigning, AWS streaming
 signatures, and process-level identity are not implemented. Refreshable AWS CLI
 sessions acquired through IAM Identity Center or AWS console login plus
-standard bounded SigV4, and the fixed Datadog US1 OAuth-session refresh plan,
-are the only reviewed dynamic plans;
+standard bounded SigV4, the fixed Datadog US1 OAuth-session refresh plan, and
+the fixed Codex 0.146.0 ChatGPT OAuth-session refresh plan are the only reviewed
+dynamic plans. Claude's reviewed setup-token plan is static and inference-only;
 general TWG login/refresh remains unsupported. The
 optional `session` value remains caller
 metadata, not authentication. Gateway performs all selected credential
@@ -722,7 +782,7 @@ each resulting request is independently authorized.
 
 Gateway applies a finite broker-socket timeout and performs at most one
 introspection plus one post-allow static resolution, AWS signing operation, or
-Datadog token selection/refresh operation.
+Datadog/OpenAI token selection/refresh operation.
 It never retries, calls the companion, resolves, refreshes, obtains role
 credentials, or signs on deny. The built-in GitHub host driver runs one fixed
 `gh auth login`, followed by one bounded active-account status capture and one
@@ -761,6 +821,32 @@ from terminal stdin. Tobari accepts only the resulting profile's validated
 `login_session` ARN/account match and one bounded canonical JSON login cache.
 The companion later materializes that exact state and uses the same fixed
 credential export; AWS CLI owns refresh while its refresh token remains valid.
+
+The OpenAI host driver performs one five-second exact-version check and one
+bounded native `login --device-auth` attempt with the two fixed reviewed
+configuration overrides in an isolated file-backed home. It accepts only the
+canonical reviewed `auth.json`, verifies the
+namespaced account claim and non-FedRAMP state, rechecks the executable digest,
+and submits the state to Broker only after private-home cleanup succeeds.
+Broker refresh is one POST with a 64 KiB response cap at the fixed OpenAI token
+endpoint, with ambient proxies and redirects disabled. A fixed isolated worker
+has a 29-second socket bound while its parent enforces a 30-second total
+wall-clock bound, kills and reaps it on timeout, and never places the request
+body in argv, environment, stderr, or an exception. It does not retry. A
+pre-call encrypted barrier plus account-continuity and same-revision checks make
+an uncertain result require explicit OpenAI re-login or logout.
+
+The Anthropic host driver performs one exact-version check and one bounded
+`claude setup-token` attempt through a private PTY. Its parser retains all
+provider output inside the bounded terminal model through process completion;
+no raw provider bytes cross the visible boundary while the flow is active.
+After the complete transcript and reviewed success frame validate, it emits
+only fixed allowlisted synthetic guidance, returns exactly one printable token
+privately, and clears retained token bytes on every result. The setup token is
+never part of that guidance. Unknown controls, multiple candidates,
+output/state bounds, cancellation, deadline, executable change, or cleanup
+failure cause zero Broker mutation. Broker never calls Anthropic to refresh
+that token; provider rejection or expiry requires explicit re-login.
 
 Inherited Git identity reconciliation performs at most two host Git calls, one
 per exact key, with one attempt and a finite timeout each. It performs no
@@ -818,10 +904,13 @@ reference-bound mutation.
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution or Broker Git authority | Conventional non-project installation-root selection, canonical executable identity, fixed argv/environment, control-safe visible projection, exact fixed-URL and region-bound AWS console URL recognition, duplicate/cross-region/hostile rejection, manual fallback, checked private-home cleanup, cancellation, and no-Git-protocol tests |
+| Codex OAuth state cannot enter a Workspace or select its own authority | Exact 0.146.0 host-version/digest checks, isolated-home strict auth-state parsing, fixed complete-file shim tests, exact `chatgpt.com:443` binding, alternate-authority/FedRAMP rejection, and no-Workspace-refresh canaries |
+| OpenAI account routing cannot bypass policy or be caller controlled | Pre-OPA stripping of authorization/account/FedRAMP headers, zero resolve/refresh on deny, Broker-owned post-allow account-ID response validation, same-revision replacement, exact fixed refresh request, fixed worker argv/stdin/empty-environment and wall-clock kill/reap tests, account-continuity checks, and durable outcome-unknown tests |
+| Claude setup tokens cannot enter visible output or Workspace state | Exact 2.1.220 host-version/digest checks, private-PTY parser tests that hold all provider bytes until exact-frame validation, reject raw/redrawn/chunk-split token echoes with zero visible bytes, strict single-token framing, `CLAUDE_CODE_OAUTH_TOKEN` handle-only projection, exact `api.anthropic.com:443` binding, and no-refresh canaries |
 | AWS CLI session state and temporary credentials cannot enter a Workspace | Encrypted SSO/console opaque-driver-state tests, private-home bounds, driver/state mismatch rejection, companion refresh/revision tests, project-binding checks, and secret-free output/log canaries |
 | AWS denial cannot trigger a companion call, refresh, role acquisition, or signing | Gateway two-stage call-order tests and Broker same-revision signing checks |
 | Companion transport cannot become a host service or arbitrary executor | Same-binary bootstrap, exact container/exec argv, no-listener/no-socket-mount assertions, authenticated replay/gap/size tests, closed driver registry, and child environment/FD canaries |
-| Published tools retain reviewed identity and redistribution evidence | Base-runtime baseline checks for GitHub CLI and AWS CLI; optional local toolbox locks for kubectl, cwk, pup, and local-only TWG |
+| Published tools retain reviewed identity and redistribution evidence | Base-runtime baseline checks for GitHub CLI and AWS CLI; optional local toolbox locks for kubectl, cwk, pup, and local-only TWG; Claude/Codex agent tags remain unpublished while redistribution review is pending |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
 | Broker fallback cannot accept a Tobari-looking handle | Marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
 | Cluster cleanup preserves authentication authority until explicit logout | Down/purge tests proving vault and root-key preservation plus exact logout/revocation tests |
@@ -858,7 +947,13 @@ Container bases distributed by Tobari and CI actions are pinned to immutable
 versions or digests recorded in source. User-selected local images are neither
 distributed nor trusted by Tobari; their selector is persisted as user
 configuration. Third-party licenses are reviewed. Tests use synthetic
-credentials and `example.com` identities only. Publication still requires
+credentials, synthetic JWT claims, fake provider CLIs, fixed clocks, intercepted
+local refresh requests, and `example.com` identities only. Real OpenAI or
+Anthropic OAuth, the documented OpenAI near-expiry refresh, Claude rotation,
+logout, and stale-handle rejection are manual release checks; natural provider
+expiry and provider-generated 401 recovery are not release evidence until an
+executable procedure is accepted. Tokens, codes, handles, and authenticated
+transcripts are never repository fixtures. Publication still requires
 `task security` and `task public:check`; neither replaces a human history and
 confidentiality review. The canonical Gateway source is the public `gateway/`
 tree; its embedded snapshot is byte-checked against the current source, while
@@ -881,7 +976,11 @@ and the Auth Broker digest is
 `sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1`.
 Those selected images implement the earlier AWS Identity Center path. Current
 canonical source and tests also contain AWS console login and the Datadog
-request path, but those changes postdate the selected image revisions. Source
-and selected runtime identity are therefore separate facts until reviewed
-immutable pins advance; source/snapshot equality does not silently replace a
-running or newly reconciled standard cluster image.
+request path plus the Gateway API-4/Auth Broker API-3 Codex and Claude OAuth
+paths, but those changes postdate the selected image revisions. Source and
+selected runtime identity are therefore separate facts until reviewed immutable
+pins advance; source/snapshot equality does not silently replace a running or
+newly reconciled standard cluster image. Likewise, the checked local Claude
+Code 2.1.220 and Codex 0.146.0 runtime recipes establish integrity and test
+identity only; their agent artifacts remain unpublished while redistribution
+and license review is pending.

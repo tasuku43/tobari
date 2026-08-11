@@ -12,7 +12,7 @@ LABEL io.tobari.runtime-api="1" \
       org.opencontainers.image.title="Tobari Claude runtime" \
       org.opencontainers.image.description="Tobari-compatible runtime with Claude Code" \
       org.opencontainers.image.source="https://github.com/tasuku43/tobari" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="NOASSERTION" \
       org.opencontainers.image.version="claude.${CLAUDE_CODE_VERSION}-base.${CLAUDE_BASE_VERSION}-r1"
 
 ENV HOME=/var/lib/tobari

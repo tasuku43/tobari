@@ -62,6 +62,14 @@ func authLoginProviderOption(status authbroker.ProviderStatus) configurationWiza
 		option = configurationWizardOption{
 			label: "Datadog", description: "Tool: pup, selected automatically. Login: reviewed US1 OAuth flow.", value: provider,
 		}
+	case authcmd.BuiltinOpenAIProviderID:
+		option = configurationWizardOption{
+			label: "OpenAI", description: "Tool: Codex 0.146.0, selected automatically. Login: reviewed ChatGPT device OAuth flow.", value: provider,
+		}
+	case authcmd.BuiltinAnthropicProviderID:
+		option = configurationWizardOption{
+			label: "Anthropic", description: "Tool: Claude Code 2.1.220, selected automatically. Login: reviewed inference setup-token OAuth flow.", value: provider,
+		}
 	default:
 		option = configurationWizardOption{label: safeExternalText(provider), value: provider}
 	}

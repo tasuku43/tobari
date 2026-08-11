@@ -10,7 +10,12 @@ from typing import Any
 from . import SCHEMA_VERSION
 from .daemon import DEFAULT_CONTROL_SOCKET
 from .protocol import MAX_SECRET_BYTES, ProtocolError, call_unix_socket
-from .vault import AWS_DRIVER_IDS, PUP_DRIVER_ID
+from .vault import (
+    AWS_DRIVER_IDS,
+    CLAUDE_ACCOUNT_LABEL,
+    OPENAI_CODEX_DRIVER_ID,
+    PUP_DRIVER_ID,
+)
 
 
 def _read_stdin(limit: int, exact: int | None = None) -> bytes:
@@ -53,8 +58,13 @@ def _request(arguments: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
         )
         return base, secret
     if arguments.operation == "login":
-        if arguments.provider == "github":
+        if arguments.provider in {"github", "anthropic"}:
             if arguments.driver_id is not None or arguments.driver_revision is not None:
+                raise ProtocolError("invalid_request")
+            if (
+                arguments.provider == "anthropic"
+                and arguments.account_label != CLAUDE_ACCOUNT_LABEL
+            ):
                 raise ProtocolError("invalid_request")
             secret = _read_stdin(MAX_SECRET_BYTES)
             base.update(
@@ -82,6 +92,22 @@ def _request(arguments: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
             return base, state
         if arguments.provider == "datadog":
             if arguments.driver_id != PUP_DRIVER_ID or arguments.driver_revision is None:
+                raise ProtocolError("invalid_request")
+            state = _read_stdin(MAX_SECRET_BYTES)
+            base.update(
+                context_id=arguments.context_id,
+                provider=arguments.provider,
+                account_label=arguments.account_label,
+                driver_id=arguments.driver_id,
+                driver_revision=arguments.driver_revision,
+                state_length=len(state),
+            )
+            return base, state
+        if arguments.provider == "openai":
+            if (
+                arguments.driver_id != OPENAI_CODEX_DRIVER_ID
+                or arguments.driver_revision is None
+            ):
                 raise ProtocolError("invalid_request")
             state = _read_stdin(MAX_SECRET_BYTES)
             base.update(
@@ -131,7 +157,11 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--context-id", required=True)
         command.add_argument("--provider", required=True)
     login = subparsers.add_parser("login")
-    login.add_argument("--provider", required=True, choices=("github", "aws", "datadog"))
+    login.add_argument(
+        "--provider",
+        required=True,
+        choices=("github", "aws", "datadog", "openai", "anthropic"),
+    )
     login.add_argument("--context-id", required=True)
     login.add_argument("--account-label", required=True)
     login.add_argument("--driver-id")

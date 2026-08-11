@@ -188,34 +188,65 @@ run_security() {
 }
 
 run_release() {
-  require_pinned_auth_broker_image
-  ./scripts/lint-release.sh
+	require_release_compatible_runtime_images
+	./scripts/lint-release.sh
   go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 }
 
 run_public() {
   go run ./tools/repoguard --scope public
   go run ./tools/contractlint
-  require_pinned_auth_broker_image
+	require_pinned_runtime_images
   ./scripts/check-site.sh public
 }
 
 load_runtime_versions() {
   # shellcheck disable=SC1091
   source internal/infra/runtimeassets/assets/versions.env
-  [[ -n ${OPA_IMAGE:-} && -n ${MITMPROXY_IMAGE:-} && -n ${GATEWAY_IMAGE:-} &&
-    -n ${AUTH_BROKER_IMAGE:-} && -n ${DEBIAN_IMAGE:-} ]] || {
+	[[ -n ${OPA_IMAGE:-} && -n ${MITMPROXY_IMAGE:-} && -n ${GATEWAY_IMAGE:-} &&
+		-n ${GATEWAY_IMAGE_API:-} && -n ${AUTH_BROKER_IMAGE:-} &&
+		-n ${AUTH_BROKER_IMAGE_API:-} && -n ${DEBIAN_IMAGE:-} ]] || {
     echo "runtime image references are incomplete" >&2
     return 1
   }
 }
 
-require_pinned_auth_broker_image() {
-  load_runtime_versions
-  if [[ ! $AUTH_BROKER_IMAGE =~ ^ghcr\.io/tasuku43/tobari/auth-broker@sha256:[0-9a-f]{64}$ ]]; then
+require_pinned_runtime_images() {
+	load_runtime_versions
+	if [[ ! $GATEWAY_IMAGE =~ ^ghcr\.io/tasuku43/tobari/gateway@sha256:[0-9a-f]{64}$ ]]; then
+		echo "Gateway image must be the reviewed immutable ghcr.io/tasuku43/tobari/gateway manifest digest" >&2
+		return 1
+	fi
+	if [[ ! $AUTH_BROKER_IMAGE =~ ^ghcr\.io/tasuku43/tobari/auth-broker@sha256:[0-9a-f]{64}$ ]]; then
     echo "Auth Broker image must be the reviewed immutable ghcr.io/tasuku43/tobari/auth-broker manifest digest" >&2
-    return 1
-  fi
+		return 1
+	fi
+	if [[ ! $GATEWAY_IMAGE_API =~ ^[1-9][0-9]*$ || ! $AUTH_BROKER_IMAGE_API =~ ^[1-9][0-9]*$ ]]; then
+		echo "Gateway and Auth Broker image API authorities must be positive integers" >&2
+		return 1
+	fi
+}
+
+require_release_compatible_runtime_images() {
+	require_pinned_runtime_images
+	local gateway_source_api auth_broker_source_api
+	gateway_source_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
+	auth_broker_source_api=$(sed -n 's/.*io\.tobari\.auth-broker-api="\([1-9][0-9]*\)".*/\1/p' authbroker/Dockerfile)
+	if [[ ! $gateway_source_api =~ ^[1-9][0-9]*$ || ! $auth_broker_source_api =~ ^[1-9][0-9]*$ ]]; then
+		echo "could not derive exact Gateway/Auth Broker source API labels" >&2
+		return 1
+	fi
+	if [[ $GATEWAY_IMAGE_API != "$gateway_source_api" ||
+		$AUTH_BROKER_IMAGE_API != "$auth_broker_source_api" ]]; then
+		cat >&2 <<EOF
+release blocked: reviewed runtime image pins are incompatible with this source
+  Gateway pin API: $GATEWAY_IMAGE_API; source requires: $gateway_source_api
+  Auth Broker pin API: $AUTH_BROKER_IMAGE_API; source requires: $auth_broker_source_api
+Publish and independently review compatible immutable indexes, then advance
+GATEWAY_IMAGE, GATEWAY_IMAGE_API, AUTH_BROKER_IMAGE, and AUTH_BROKER_IMAGE_API together.
+EOF
+		return 1
+	fi
 }
 
 run_policy() {

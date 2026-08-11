@@ -110,8 +110,8 @@ non-learnable and cannot become policy candidates.
   request binding. A provider is not the Workspace client that uses it.
 - **Workspace client tool:** the CLI or other client inside a Workspace that
   receives provider-declared handle projection and emits the authenticated
-  request shape. `gh`, `aws`, `pup`, and `cwk` are current client-tool examples;
-  their names do not grant provider or network authority.
+  request shape. `gh`, `aws`, `pup`, `codex`, `claude`, and `cwk` are current
+  client-tool examples; their names do not grant provider or network authority.
 - **supported Provider-Tool pairing:** one reviewed combination of credential
   provider, Workspace client tool, acquisition mode, handle projection, and
   exact request binding. The current built-in pairings each support one client
@@ -130,12 +130,17 @@ non-learnable and cannot become policy candidates.
   The Datadog provider stores strict encrypted pup OAuth client/token state
   acquired through the fixed US1 host flow; only a post-policy access token is
   request-local and near-expiry state refreshes automatically.
+  The OpenAI provider stores strict encrypted Codex 0.146.0 ChatGPT OAuth state;
+  only a post-policy access token and account-routing header are request-local,
+  and near-expiry state refreshes automatically. The Anthropic provider stores
+  one Claude Code 2.1.220 inference-only setup token with no refresh state.
 - **credential companion:** one resident trusted-host process entered through
   the current Tobari executable's private same-binary mode. It accepts only the
   reviewed post-policy AWS refresh operation and exchanges bounded
   authenticated frames with an unmounted Broker-private socket over a reverse
-  `docker exec` stream. Interactive GitHub/AWS/Datadog login runs through direct
-  context-bound host drivers, not companion RPC. The companion has no public
+  `docker exec` stream. Interactive GitHub/AWS/Datadog/OpenAI/Anthropic login
+  runs through direct context-bound host drivers, not companion RPC. The
+  companion has no public
   command, host listener, provider-selected executable, or Workspace-visible
   secret surface.
 - **Workspace credential handle:** a versioned random opaque value bound to one
@@ -219,7 +224,7 @@ The public commands are:
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
-| `auth login [--provider PROVIDER] [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; provider-option omission opens a terminal selector over installed reviewed login providers, each current built-in displays its sole supported Workspace client tool as automatically selected, AWS method omission preserves the fixed IAM Identity Center device flow, `console` selects fixed cross-device AWS CLI local-development login, and Datadog selects fixed default-organization US1 pup OAuth |
+| `auth login [--provider PROVIDER] [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; provider-option omission opens a terminal selector over installed reviewed login providers, each current built-in displays its sole supported Workspace client tool as automatically selected, AWS method omission preserves the fixed IAM Identity Center device flow, `console` selects fixed cross-device AWS CLI local-development login, Datadog selects fixed default-organization US1 pup OAuth, OpenAI selects pinned Codex ChatGPT device OAuth, and Anthropic selects pinned Claude inference setup-token OAuth |
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
 | `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection plus bounded Context-scoped Workspace projection freshness and coverage without reading secrets |
 | `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles when present, or report confirmed `no_change` when already absent, without contacting the provider |
@@ -322,7 +327,8 @@ undeclared Docker mutation by the CLI.
 - Authentication commands accept only an existing Context name and installed
   provider ID. `auth login` accepts the provider through optional
   `--provider`: when omitted, interactive terminal stdin and stderr present only
-  the installed reviewed built-in `github`, `aws`, and `datadog` login
+  the installed reviewed built-in `github`, `aws`, `datadog`, `openai`, and
+  `anthropic` login
   providers for the selected Context and require one explicit choice. A
   supplied provider skips that status read and menu. The omitted-provider flow
   binds login to the Context returned by the status snapshot, so a concurrent
@@ -338,7 +344,17 @@ undeclared Docker mutation by the CLI.
   opens only the exact region-bound AWS authorization URL when possible, and
   leaves that same URL for manual cross-device completion. Datadog uses fixed
   host pup OAuth for US1, with pup-owned browser consent and loopback callback
-  in an isolated file-backed home. Auth Broker
+  in an isolated file-backed home. OpenAI uses pinned Codex 0.146.0 native
+  ChatGPT device login with fixed `login --device-auth` argv plus only the
+  reviewed file-credential-store and no-update configuration overrides in an
+  isolated file-backed home. Anthropic uses pinned Claude Code 2.1.220 by
+  running exactly `claude setup-token` in an isolated private home and PTY,
+  capturing one inference token without printing it. The corresponding
+  canonical host executable must report exactly `codex-cli 0.146.0` or
+  `2.1.220 (Claude Code)`, remain non-group/world-writable, and resolve from a
+  conventional non-project trusted installation root. A Workspace binary,
+  project `PATH`, ambient provider home, or newer version is not a login
+  fallback. Auth Broker
   configures no Git or AWS CLI state in a Workspace and contains no provider
   CLI executable. `auth import` accepts a non-empty
   credential of at most
@@ -350,6 +366,30 @@ undeclared Docker mutation by the CLI.
   value or Tobari environment input. Every successful auth mutation requires
   existing Workspaces to be re-entered before their environment or
   complete-file handle projection can change.
+- OpenAI projects one Tobari-owned complete `.codex/auth.json` whose exact
+  external-host `chatgptAuthTokens` compatibility shape contains fixed sentinel
+  values and the project-bound handle only as `tokens.access_token`:
+
+  ```json
+  {"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}","refresh_token":"","account_id":null},"last_refresh":"1970-01-01T00:00:00Z"}
+  ```
+
+  This is a deliberately unstable, version-pinned Codex 0.146.0 shim, not an
+  OpenAI credential file or an upstream compatibility promise. It binds only
+  HTTPS `chatgpt.com:443` with bearer input. Gateway removes caller-supplied
+  `Authorization`, `ChatGPT-Account-ID`, and `X-OpenAI-FedRAMP` before OPA;
+  after allow, Broker returns the same-revision access token and validated
+  non-secret account ID, and Gateway alone injects `Authorization: Bearer` and
+  `ChatGPT-Account-ID` for one upstream attempt. FedRAMP and alternate
+  authorities are rejected. Workspace Codex never receives or refreshes the
+  provider session.
+- Anthropic projects only
+  `CLAUDE_CODE_OAUTH_TOKEN=${HANDLE}`. It does not project
+  `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, the setup token, or Claude's
+  private login store. Its one exact binding is bearer HTTPS
+  `api.anthropic.com:443`; Broker resolves the static inference token only after
+  allow and never refreshes it. The supported outcome is first-party inference
+  and local MCP. Remote Control and claude.ai connectors remain unsupported.
 - `runtime init` creates the current Context's owner-only
   `runtime/Dockerfile`. The template starts from
   `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
@@ -416,10 +456,13 @@ undeclared Docker mutation by the CLI.
   `latest` and `main` development channels; registry publication is not
   implied by local image selection, and Tobari never pulls the published image
   implicitly during ordinary startup.
-- Official agent images are complete compatible variants in the same runtime
-  family, with tags such as
-  `claude.2.1.34-base.0.1.0-r1`. They add the agent tool and only its
-  agent-specific dependencies; they do not create a second authority boundary.
+- Agent-image recipes are complete compatible variants in the same runtime
+  family. The current local recipes pin Claude Code 2.1.220 and Codex 0.146.0;
+  a Context-owned custom recipe may compose those reviewed local artifacts so
+  both version commands work in its Workspace. They add the agent tools and
+  only their agent-specific dependencies; they do not create a second
+  authority boundary. No Claude or Codex agent tag is published until the
+  corresponding redistribution and license review is complete.
 - Project metadata does not select or alter the runtime image. Workspaces use
   their permanently bound Context image when created and again when their runtime container
   is reconciled by root entry, or an explicitly supplied `--image` for the
@@ -913,8 +956,11 @@ open and no-Git behavior. AWS uses either a fixed validated IAM Identity Center
 profile/device flow or a fixed AWS CLI 2.32-or-newer console-based remote flow.
 Datadog uses fixed `pup --no-agent auth login --site datadoghq.com`, accepts
 only strict default-session state, and removes the isolated home afterward.
-Both print only bounded, control-safe guidance; their opaque cache and selected
-session commit only into the encrypted Context
+OpenAI uses fixed pinned Codex device login and accepts only strict managed
+ChatGPT state. Anthropic uses fixed pinned Claude `setup-token`, captures one
+bounded inference-only token from the reviewed terminal frame, and exposes no
+refresh state. All print only bounded, control-safe guidance; their opaque
+state or selected token commits only into the encrypted Context
 vault. Neither driver reads an ambient provider home or writes project or
 Workspace CLI configuration; Auth Broker contains no provider CLI. Import
 rejects terminal stdin before reading and reads bounded non-terminal input only
@@ -935,7 +981,17 @@ an unknown result requires AWS re-login rather than replay. Datadog resolve
 uses the same per-record lock and encrypted barrier after OPA allow; it returns
 a token with more than five minutes remaining or calls only the exact fixed
 US1 OAuth token endpoint without ambient proxies or redirects. An uncertain
-refresh requires Datadog re-login rather than replay. Logout
+refresh requires Datadog re-login rather than replay. OpenAI resolve uses the
+same lock and barrier after OPA allow; it returns a token outside the
+five-minute refresh window or makes one bounded 30-second JSON POST to exactly
+`https://auth.openai.com/oauth/token`, using the fixed Codex 0.146.0 public
+client ID and refresh-token grant without ambient proxies or redirects. It
+preserves omitted token fields, requires the refreshed account identity to
+match, and atomically commits same-revision state before returning. When access
+token expiry cannot be read, eight days after `last_refresh` is the conservative
+refresh boundary. An uncertain refresh leaves the durable barrier and requires
+OpenAI re-login or logout rather than replay. Anthropic performs no refresh and
+requires explicit re-login before expiry or after provider rejection. Logout
 atomically removes that record and its handles without contacting the provider.
 One credential is Context/provider-owned, every permanently bound project is
 eligible for a distinct handle only on its next matching Workspace entry, and
@@ -998,8 +1054,9 @@ commands or transport escape hatches. In particular, Tobari does not promise to
 control non-proxy-aware traffic semantically; it prevents all direct egress and
 supports HTTP/HTTPS through the explicit proxy only.
 The built-in slice supports one GitHub.com credential, one configured
-refreshable AWS CLI session, and one default-organization Datadog US1 pup OAuth
-session per Context. It does not add provider-specific policy
+refreshable AWS CLI session, one default-organization Datadog US1 pup OAuth
+session, one pinned Codex ChatGPT OAuth session, and one pinned Claude
+inference-only setup token per Context. It does not add provider-specific policy
 semantics, multiple accounts per provider, remote revocation, Git credential
 helpers, GitHub App tokens, arbitrary or manifest-selected OAuth, manifest-selected refresh/signing,
 SigV4a, query presigning, AWS streaming signatures, custom AWS endpoints, or a

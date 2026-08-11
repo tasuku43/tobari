@@ -645,7 +645,7 @@ else
     --entrypoint sh "$mitmproxy_image" -eu -c '
       openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
         -subj /CN=api.synthetic.example \
-        -addext subjectAltName=DNS:api.synthetic.example,DNS:sts.us-east-1.amazonaws.com \
+        -addext subjectAltName=DNS:api.synthetic.example,DNS:sts.us-east-1.amazonaws.com,DNS:chatgpt.com,DNS:api.anthropic.com \
         -addext basicConstraints=critical,CA:TRUE \
         -addext keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign \
         -addext extendedKeyUsage=serverAuth \
@@ -693,11 +693,15 @@ assert_component_resource_bounds tobari-auth-broker 1000000000 536870912 128
 [[ $(docker ps -a --filter name='^/tobari-gateway$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Gateway"
 [[ $(docker ps -a --filter name='^/tobari-opa$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one OPA"
 [[ $(docker ps -a --filter name='^/tobari-auth-broker$' --format '{{.Names}}' | wc -l | tr -d ' ') == 1 ]] || fail "cluster did not create exactly one Auth Broker"
+[[ $(docker inspect --format '{{index .Config.Labels "io.tobari.gateway-api"}}' tobari-gateway) == 4 ]] ||
+  fail "Gateway did not expose image API 4"
+[[ $(docker inspect --format '{{index .Config.Labels "io.tobari.auth-broker-api"}}' tobari-auth-broker) == 3 ]] ||
+  fail "Auth Broker did not expose image API 3"
 [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' tobari-auth-broker) == true ]] ||
   fail "Auth Broker root filesystem is writable"
 [[ $(docker inspect --format '{{join .HostConfig.CapDrop ","}}' tobari-auth-broker) == ALL ]] ||
   fail "Auth Broker did not drop every capability"
-for provider_cli in gh aws; do
+for provider_cli in gh aws pup codex claude; do
   if docker exec tobari-auth-broker python3 -c \
     'import shutil,sys; raise SystemExit(0 if shutil.which(sys.argv[1]) else 1)' \
     "$provider_cli" >/dev/null 2>&1; then
@@ -708,6 +712,12 @@ wait_network_membership tobari-control tobari-auth-broker ||
   fail "Auth Broker is not attached to the shared control network"
 wait_network_membership tobari-egress tobari-auth-broker ||
   fail "Auth Broker is not attached to the login egress network"
+docker network disconnect -f tobari-egress tobari-auth-broker >/dev/null
+start_cluster >/dev/null
+wait_network_membership tobari-control tobari-auth-broker ||
+  fail "Auth Broker lost the shared control network during egress reconciliation"
+wait_network_membership tobari-egress tobari-auth-broker ||
+  fail "Auth Broker did not rejoin the login egress network"
 created_context=$(run_tobari context create --name restricted --image "$custom_image" --format json)
 assert_contains "$created_context" '"cluster":"requires_reconcile"' "running Context creation"
 start_cluster >/dev/null
@@ -810,6 +820,75 @@ synthetic_aws_login=$(printf '%s' "$synthetic_aws_state" | docker exec -i \
 assert_contains "$synthetic_aws_login" '"ok":true' "synthetic AWS host-driver login"
 assert_contains "$synthetic_aws_login" '"provider":"aws"' "synthetic AWS host-driver login"
 
+# Seed deterministic host-driver results for the reviewed OpenAI and Anthropic
+# plans. The fixtures avoid live OAuth while preserving the same strict Broker
+# control inputs produced by the trusted-host Codex and Claude drivers.
+synthetic_openai_account=acct-synthetic-integration
+synthetic_openai_driver_revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+synthetic_openai_id_token=$(python3 -c '
+import base64,json,sys
+account=sys.argv[1]
+encode=lambda value: base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+header=encode(json.dumps({"alg":"none","typ":"JWT"},separators=(",", ":")).encode())
+payload=encode(json.dumps({"https://api.openai.com/auth":{"chatgpt_account_id":account,"chatgpt_account_is_fedramp":False},"exp":4102444800},separators=(",", ":")).encode())
+signature=encode(b"synthetic-id-signature")
+print(f"{header}.{payload}.{signature}")
+' "$synthetic_openai_account")
+synthetic_openai_access_token=$(python3 -c '
+import base64,json
+encode=lambda value: base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+header=encode(json.dumps({"alg":"none","typ":"JWT"},separators=(",", ":")).encode())
+payload=encode(json.dumps({"exp":4102444800,"sub":"synthetic-integration"},separators=(",", ":")).encode())
+signature=encode(b"synthetic-access-signature")
+print(f"{header}.{payload}.{signature}")
+')
+synthetic_openai_refresh_token=dummy-openai-refresh-canary-0123456789
+synthetic_openai_state=$(python3 -c '
+import json,sys
+revision,account,id_value,access_value,refresh_value=sys.argv[1:]
+state={
+    "schema_version":1,
+    "codex_executable":{"path":"/usr/local/bin/codex","sha256":revision,"version":"0.146.0"},
+    "auth":{
+        "auth_mode":"chatgpt",
+        "OPENAI_API_KEY":None,
+        "tokens":{
+            "id_token":
+                id_value,
+            "access_token":
+                access_value,
+            "refresh_token":
+                refresh_value,
+            "account_id":account,
+        },
+        "last_refresh":"2026-08-10T00:00:00Z",
+    },
+}
+sys.stdout.write(json.dumps(state,ensure_ascii=False,separators=(",", ":")))
+' "$synthetic_openai_driver_revision" "$synthetic_openai_account" \
+  "$synthetic_openai_id_token" "$synthetic_openai_access_token" \
+  "$synthetic_openai_refresh_token")
+synthetic_openai_login=$(printf '%s' "$synthetic_openai_state" | docker exec -i \
+  --user "$(id -u):$(id -g)" tobari-auth-broker \
+  python3 -m authbroker.control login \
+  --context-id "$default_context_id" \
+  --provider openai \
+  --account-label "$synthetic_openai_account" \
+  --driver-id openai_codex_chatgpt_oauth \
+  --driver-revision "$synthetic_openai_driver_revision")
+assert_contains "$synthetic_openai_login" '"ok":true' "synthetic OpenAI Codex OAuth login"
+assert_contains "$synthetic_openai_login" '"provider":"openai"' "synthetic OpenAI Codex OAuth login"
+
+synthetic_anthropic_token=sk-ant-oat01-synthetic-anthropic-canary-0123456789
+synthetic_anthropic_login=$(printf '%s' "$synthetic_anthropic_token" | docker exec -i \
+  --user "$(id -u):$(id -g)" tobari-auth-broker \
+  python3 -m authbroker.control login \
+  --context-id "$default_context_id" \
+  --provider anthropic \
+  --account-label claude-user-inference)
+assert_contains "$synthetic_anthropic_login" '"ok":true' "synthetic Anthropic Claude OAuth login"
+assert_contains "$synthetic_anthropic_login" '"provider":"anthropic"' "synthetic Anthropic Claude OAuth login"
+
 default_auth_import=$(printf '%s' "$synthetic_default_secret" | \
   run_tobari auth import "$synthetic_provider" --context default --format json)
 restricted_auth_import=$(printf '%s' "$synthetic_restricted_secret" | \
@@ -830,8 +909,16 @@ assert_contains "$default_auth_status" '"provider":"synthetic-ci","state":"confi
   "default Context auth status"
 assert_contains "$default_auth_status" '"provider":"aws","state":"configured"' \
   "default Context AWS auth status"
+assert_contains "$default_auth_status" '"provider":"openai","state":"configured"' \
+  "default Context OpenAI auth status"
+assert_contains "$default_auth_status" '"provider":"anthropic","state":"configured"' \
+  "default Context Anthropic auth status"
 assert_contains "$restricted_auth_status" '"provider":"synthetic-ci","state":"configured"' \
   "restricted Context auth status"
+assert_contains "$restricted_auth_status" '"provider":"openai","state":"not_configured"' \
+  "restricted Context OpenAI auth status"
+assert_contains "$restricted_auth_status" '"provider":"anthropic","state":"not_configured"' \
+  "restricted Context Anthropic auth status"
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
 container_nested_root="/var/lib/tobari/${work_nested_root#"$test_root/user/"}"
 enter_tobari_at "$work_root"
@@ -944,12 +1031,45 @@ work_auth_handle=$(run_project printenv SYNTHETIC_TOKEN)
 restricted_auth_handle=$(run_restricted_project printenv SYNTHETIC_TOKEN)
 other_auth_handle=$(run_other_project printenv SYNTHETIC_TOKEN)
 work_aws_handle=$(run_project printenv AWS_ACCESS_KEY_ID)
+work_anthropic_handle=$(run_project printenv CLAUDE_CODE_OAUTH_TOKEN)
+work_openai_handle=$(run_project python3 -c '
+import json
+path="/var/lib/tobari/.codex/auth.json"
+with open(path,encoding="utf-8") as source:
+    document=json.load(source)
+assert list(document) == ["auth_mode","OPENAI_API_KEY","tokens","last_refresh"]
+assert document["auth_mode"] == "chatgptAuthTokens"
+assert document["OPENAI_API_KEY"] is None
+assert document["last_refresh"] == "1970-01-01T00:00:00Z"
+tokens=document["tokens"]
+assert list(tokens) == ["id_token","access_token","refresh_token","account_id"]
+assert tokens["id_token"] == "e30.e30.x"
+assert tokens["refresh_token"] == ""
+assert tokens["account_id"] is None
+print(tokens["access_token"])
+')
 for projected_handle in "$work_auth_handle" "$restricted_auth_handle" "$other_auth_handle"; do
   [[ $projected_handle =~ ^tobari-h1_[A-Za-z0-9_-]{43}$ ]] ||
     fail "Workspace did not receive one versioned opaque authentication handle"
 done
 [[ $work_aws_handle =~ ^tobari-h1_[A-Za-z0-9_-]{43}$ ]] ||
   fail "Workspace did not receive one versioned opaque AWS authentication handle"
+[[ $work_anthropic_handle =~ ^tobari-h1_[A-Za-z0-9_-]{43}$ ]] ||
+  fail "Workspace did not receive one versioned opaque Anthropic authentication handle"
+[[ $work_openai_handle =~ ^tobari-h1_[A-Za-z0-9_-]{43}$ ]] ||
+  fail "Workspace did not receive one versioned opaque OpenAI authentication handle"
+[[ $work_anthropic_handle != "$work_openai_handle" ]] ||
+  fail "Anthropic and OpenAI projections reused one Workspace handle"
+[[ $(run_project stat -c '%a:%u' /var/lib/tobari/.codex/auth.json) == "600:$(id -u)" ]] ||
+  fail "OpenAI Workspace projection is not one owner-only complete auth file"
+if run_restricted_project test -e /var/lib/tobari/.codex/auth.json; then
+  fail "OpenAI Workspace projection crossed the Context boundary"
+fi
+# CLAUDE_CODE_OAUTH_TOKEN expands inside the restricted Workspace.
+# shellcheck disable=SC2016
+if run_restricted_project sh -c 'test -n "${CLAUDE_CODE_OAUTH_TOKEN-}"'; then
+  fail "Anthropic Workspace projection crossed the Context boundary"
+fi
 [[ $(run_project printenv AWS_SECRET_ACCESS_KEY) == "$work_aws_handle" ]] ||
   fail "Workspace AWS secret-access-key projection did not contain the opaque handle"
 [[ $(run_project printenv AWS_SESSION_TOKEN) == "$work_aws_handle" ]] ||
@@ -965,7 +1085,10 @@ for project_network in "$work_network" "$restricted_network" "$other_network"; d
     fail "Auth Broker joined Workspace network $project_network"
   fi
 done
-for credential_canary in "$synthetic_default_secret" "$synthetic_restricted_secret"; do
+for credential_canary in \
+  "$synthetic_default_secret" "$synthetic_restricted_secret" \
+  "$synthetic_openai_id_token" "$synthetic_openai_access_token" \
+  "$synthetic_openai_refresh_token" "$synthetic_anthropic_token"; do
   if docker inspect "$work_container" "$restricted_container" "$other_container" | \
     grep -F "$credential_canary" >/dev/null; then
     fail "Docker inspection exposed a synthetic real credential"
@@ -1092,6 +1215,8 @@ docker run -d \
   --network "$auth_network" \
   --network-alias api.synthetic.example \
   --network-alias sts.us-east-1.amazonaws.com \
+  --network-alias chatgpt.com \
+  --network-alias api.anthropic.com \
   --read-only \
   --cap-drop ALL \
   --security-opt no-new-privileges:true \
@@ -1105,6 +1230,8 @@ docker run -d \
 wait_listening "$auth_mock_name" 443
 wait_network_connection tobari-gateway api.synthetic.example 443
 wait_network_connection tobari-gateway sts.us-east-1.amazonaws.com 443
+wait_network_connection tobari-gateway chatgpt.com 443
+wait_network_connection tobari-gateway api.anthropic.com 443
 
 plain_response=$(run_project curl -fsS http://mock-upstream:8080/allowed)
 assert_contains "$plain_response" '"authorization_present":false' "allowed HTTP response"
@@ -1115,6 +1242,12 @@ work_auth_handle=$(run_project printenv SYNTHETIC_TOKEN)
 restricted_auth_handle=$(run_restricted_project printenv SYNTHETIC_TOKEN)
 other_auth_handle=$(run_other_project printenv SYNTHETIC_TOKEN)
 work_aws_handle=$(run_project printenv AWS_ACCESS_KEY_ID)
+work_anthropic_handle=$(run_project printenv CLAUDE_CODE_OAUTH_TOKEN)
+work_openai_handle=$(run_project python3 -c '
+import json
+with open("/var/lib/tobari/.codex/auth.json",encoding="utf-8") as source:
+    print(json.load(source)["tokens"]["access_token"])
+')
 
 default_vault="$test_root/state/tobari/auth/contexts/$default_context_id/vault.enc"
 python3 - "$default_vault" "$(id -u)" <<'PY'
@@ -1203,6 +1336,92 @@ assert_contains "$body_only_handle_response" '"method":"GET"' \
   "body-only handle upstream method"
 assert_contains "$body_only_handle_response" '"path":"/brokered-default"' \
   "body-only handle upstream path"
+
+# Exercise the complete non-live Codex and Claude broker paths. Keeping the
+# vault unreadable during each first request proves OPA denial precedes token
+# selection; exact learned allows then expose only provider-owned header
+# digests at the synthetic upstream.
+chmod 000 "$default_vault"
+set +e
+synthetic_openai_denial=$(run_project curl -sS -w $'\n%{http_code}' \
+  -H "Authorization: Bearer $work_openai_handle" \
+  -H 'chatgpt-account-id: caller-forged-account' \
+  -H 'x-openai-fedramp: true' \
+  https://chatgpt.com/synthetic-codex-oauth)
+synthetic_openai_denial_curl_status=$?
+# CLAUDE_CODE_OAUTH_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
+synthetic_anthropic_denial=$(run_project sh -c \
+  'curl -sS -w "\n%{http_code}" -H "Authorization: Bearer $CLAUDE_CODE_OAUTH_TOKEN" https://api.anthropic.com/synthetic-claude-oauth')
+synthetic_anthropic_denial_curl_status=$?
+set -e
+chmod 0600 "$default_vault"
+[[ $synthetic_openai_denial_curl_status == 0 ]] ||
+  fail "synthetic OpenAI denial failed before receiving an HTTP decision"
+[[ $synthetic_anthropic_denial_curl_status == 0 ]] ||
+  fail "synthetic Anthropic denial failed before receiving an HTTP decision"
+[[ ${synthetic_openai_denial##*$'\n'} == 403 ]] ||
+  fail "synthetic OpenAI request did not return policy denial"
+[[ ${synthetic_anthropic_denial##*$'\n'} == 403 ]] ||
+  fail "synthetic Anthropic request did not return policy denial"
+assert_contains "${synthetic_openai_denial%$'\n'*}" '"error":"policy_denied"' \
+  "synthetic OpenAI deny-before-resolution response"
+assert_contains "${synthetic_anthropic_denial%$'\n'*}" '"error":"policy_denied"' \
+  "synthetic Anthropic deny-before-resolution response"
+if docker logs "$auth_mock_name" 2>&1 | grep -E \
+  '"/(synthetic-codex-oauth|synthetic-claude-oauth)"' >/dev/null; then
+  fail "policy-denied OpenAI or Anthropic request reached the synthetic upstream"
+fi
+
+broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
+synthetic_openai_candidate_id=$(candidate_id_for_effect \
+  "$work_id" chatgpt.com GET /synthetic-codex-oauth <<<"$broker_candidates")
+synthetic_anthropic_candidate_id=$(candidate_id_for_effect \
+  "$work_id" api.anthropic.com GET /synthetic-claude-oauth <<<"$broker_candidates")
+synthetic_openai_allow=$(run_tobari policy allow --id "$synthetic_openai_candidate_id")
+synthetic_anthropic_allow=$(run_tobari policy allow --id "$synthetic_anthropic_candidate_id")
+assert_contains "$synthetic_openai_allow" 'Policy rule updated' \
+  "synthetic OpenAI policy approval"
+assert_contains "$synthetic_openai_allow" \
+  'chatgpt.com:443 GET /synthetic-codex-oauth' \
+  "synthetic OpenAI policy approval target"
+assert_contains "$synthetic_anthropic_allow" 'Policy rule updated' \
+  "synthetic Anthropic policy approval"
+assert_contains "$synthetic_anthropic_allow" \
+  'api.anthropic.com:443 GET /synthetic-claude-oauth' \
+  "synthetic Anthropic policy approval target"
+
+synthetic_openai_response=$(run_project curl -fsS \
+  -H "Authorization: Bearer $work_openai_handle" \
+  -H 'chatgpt-account-id: caller-forged-account' \
+  -H 'x-openai-fedramp: true' \
+  https://chatgpt.com/synthetic-codex-oauth)
+synthetic_openai_auth_digest=$(printf 'Bearer %s' "$synthetic_openai_access_token" | \
+  shasum -a 256 | awk '{print $1}')
+synthetic_openai_account_digest=$(printf '%s' "$synthetic_openai_account" | \
+  shasum -a 256 | awk '{print $1}')
+assert_contains "$synthetic_openai_response" \
+  "\"authorization_sha256\":\"$synthetic_openai_auth_digest\"" \
+  "synthetic OpenAI bearer replacement"
+assert_contains "$synthetic_openai_response" '"chatgpt_account_id_present":true' \
+  "synthetic OpenAI account routing"
+assert_contains "$synthetic_openai_response" \
+  "\"chatgpt_account_id_sha256\":\"$synthetic_openai_account_digest\"" \
+  "synthetic OpenAI Broker-owned account routing"
+assert_contains "$synthetic_openai_response" '"openai_fedramp_header_present":false' \
+  "synthetic OpenAI caller routing-header removal"
+
+# CLAUDE_CODE_OAUTH_TOKEN expands inside the Workspace.
+# shellcheck disable=SC2016
+synthetic_anthropic_response=$(run_project sh -c \
+  'curl -fsS -H "Authorization: Bearer $CLAUDE_CODE_OAUTH_TOKEN" https://api.anthropic.com/synthetic-claude-oauth')
+synthetic_anthropic_auth_digest=$(printf 'Bearer %s' "$synthetic_anthropic_token" | \
+  shasum -a 256 | awk '{print $1}')
+assert_contains "$synthetic_anthropic_response" \
+  "\"authorization_sha256\":\"$synthetic_anthropic_auth_digest\"" \
+  "synthetic Anthropic bearer replacement"
+assert_contains "$synthetic_anthropic_response" '"chatgpt_account_id_present":false' \
+  "synthetic Anthropic header isolation"
 
 # SYNTHETIC_TOKEN expands inside the Workspace.
 # shellcheck disable=SC2016
@@ -1915,9 +2134,10 @@ final_policy_diagnostics=$(run_tobari policy candidates --tail 1000 --format jso
 final_mock_logs=$(docker logs "$mock_name" 2>&1)
 final_auth_mock_logs=$(docker logs "$auth_mock_name" 2>&1)
 diagnostic_surface=$(printf '%s\n' \
-  "$synthetic_aws_login" "$default_auth_import" "$restricted_auth_import" \
-  "$ready_auth_status_before_noop" "$synthetic_noop_logout" "$ready_auth_status_after_noop" \
-  "$final_default_auth_status" "$final_restricted_auth_status" \
+	"$synthetic_aws_login" "$synthetic_openai_login" "$synthetic_anthropic_login" \
+	"$default_auth_import" "$restricted_auth_import" \
+	"$ready_auth_status_before_noop" "$synthetic_noop_logout" "$ready_auth_status_after_noop" \
+	"$final_default_auth_status" "$final_restricted_auth_status" \
   "$final_context_status" "$final_cluster_status" "$final_doctor_status" \
   "$final_gateway_logs" "$final_broker_logs" "$final_opa_logs" \
   "$final_policy_diagnostics" "$final_mock_logs" "$final_auth_mock_logs")
@@ -1925,6 +2145,9 @@ for authentication_canary in \
   "$synthetic_default_secret" "$synthetic_restricted_secret" \
   "$synthetic_aws_access_key" "$synthetic_aws_secret_key" \
   "$synthetic_aws_session_token" "$work_aws_handle" \
+  "$synthetic_openai_id_token" "$synthetic_openai_access_token" \
+  "$synthetic_openai_refresh_token" "$synthetic_anthropic_token" \
+  "$work_openai_handle" "$work_anthropic_handle" \
   "$work_auth_handle" "$restricted_auth_handle" "$other_auth_handle"; do
   if [[ $diagnostic_surface == *"$authentication_canary"* ]]; then
     fail "CLI, Gateway, Broker, OPA, policy, or upstream diagnostics exposed authentication material"

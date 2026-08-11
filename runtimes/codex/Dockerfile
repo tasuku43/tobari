@@ -12,7 +12,7 @@ LABEL io.tobari.runtime-api="1" \
       org.opencontainers.image.title="Tobari Codex runtime" \
       org.opencontainers.image.description="Tobari-compatible runtime with Codex CLI" \
       org.opencontainers.image.source="https://github.com/tasuku43/tobari" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="NOASSERTION" \
       org.opencontainers.image.version="codex.${CODEX_VERSION}-base.${CODEX_BASE_VERSION}-r1"
 
 ENV HOME=/var/lib/tobari

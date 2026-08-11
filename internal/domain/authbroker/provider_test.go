@@ -61,6 +61,48 @@ func syntheticAWSProvider() Provider {
 	}
 }
 
+func syntheticOpenAICodexProvider() Provider {
+	return Provider{
+		SchemaVersion: ProviderSchemaVersion,
+		ID:            "openai",
+		DisplayName:   "OpenAI account for Codex",
+		Acquisition:   Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "codex-chatgpt-oauth"},
+		Credential:    Credential{Kind: CredentialOpenAICodexOAuthSession},
+		WorkspaceProjections: []WorkspaceProjection{{
+			Kind: WorkspaceProjectionCompleteFile, Path: ".codex/auth.json", Template: openAICodexWorkspaceAuthTemplate,
+		}},
+		HeaderBindings: []HeaderBinding{{
+			Target: BindingTarget{Scheme: "https", Host: "chatgpt.com", Port: 443},
+			Source: BindingSource{Header: "authorization", Formats: []SourceFormat{SourceFormatBearer}},
+			Destination: BindingDestination{
+				Header: "authorization", Format: DestinationFormatBearer, SecretField: CredentialOpenAICodexOAuthSession,
+			},
+			SecretHeaders: []string{"authorization", "chatgpt-account-id", "x-openai-fedramp"},
+		}},
+	}
+}
+
+func syntheticAnthropicClaudeProvider() Provider {
+	return Provider{
+		SchemaVersion: LegacyProviderSchemaVersion,
+		ID:            "anthropic",
+		DisplayName:   "Anthropic account for Claude Code",
+		Acquisition:   Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "claude-setup-token"},
+		Credential:    Credential{Kind: CredentialPrimarySecret},
+		WorkspaceProjections: []WorkspaceProjection{{
+			Kind: WorkspaceProjectionEnvironment, Name: "CLAUDE_CODE_OAUTH_TOKEN", Template: "${HANDLE}",
+		}},
+		HeaderBindings: []HeaderBinding{{
+			Target: BindingTarget{Scheme: "https", Host: "api.anthropic.com", Port: 443},
+			Source: BindingSource{Header: "authorization", Formats: []SourceFormat{SourceFormatBearer}},
+			Destination: BindingDestination{
+				Header: "authorization", Format: DestinationFormatBearer, SecretField: CredentialPrimarySecret,
+			},
+			SecretHeaders: []string{"authorization"},
+		}},
+	}
+}
+
 func providerJSON(t *testing.T, provider Provider) []byte {
 	t.Helper()
 	data, err := json.Marshal(provider)
@@ -185,6 +227,155 @@ func TestProviderV2ValidatesClosedCredentialPlans(t *testing.T) {
 			mutate(&provider)
 			if err := provider.Validate(); err == nil {
 				t.Fatal("Provider.Validate accepted an unreviewed schema-v2 credential plan")
+			}
+		})
+	}
+}
+
+func TestOpenAICodexProviderPublishesOnlyTheReviewedOAuthShim(t *testing.T) {
+	provider := syntheticOpenAICodexProvider()
+	if err := provider.Validate(); err != nil {
+		t.Fatalf("Provider.Validate rejected reviewed OpenAI Codex plan: %v", err)
+	}
+	projection, err := NormalizeProviders([]Provider{provider})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projection.Environment) != 0 || len(projection.CompleteFiles) != 1 ||
+		projection.CompleteFiles[0] != (CompleteFileProjection{
+			ProviderID: "openai", Path: ".codex/auth.json", Template: openAICodexWorkspaceAuthTemplate,
+		}) {
+		t.Fatalf("OpenAI Workspace projection = %#v", projection)
+	}
+	if len(projection.HeaderBindings) != 1 {
+		t.Fatalf("OpenAI normalized bindings = %#v", projection.HeaderBindings)
+	}
+	binding := projection.HeaderBindings[0]
+	if binding.ProviderID != "openai" ||
+		binding.Target != (BindingTarget{Scheme: "https", Host: "chatgpt.com", Port: 443}) ||
+		binding.Source != (NormalizedBindingSource{Header: "authorization", Format: SourceFormatBearer}) ||
+		binding.Destination != (BindingDestination{
+			Header: "authorization", Format: DestinationFormatBearer, SecretField: CredentialOpenAICodexOAuthSession,
+		}) || strings.Join(binding.SecretHeaders, ",") != "authorization,chatgpt-account-id,x-openai-fedramp" {
+		t.Fatalf("OpenAI normalized binding = %#v", binding)
+	}
+	if strings.Join(projection.SecretHeaders, ",") != "authorization,chatgpt-account-id,x-openai-fedramp" {
+		t.Fatalf("OpenAI secret headers = %#v", projection.SecretHeaders)
+	}
+}
+
+func TestOpenAICodexProviderRejectsUnreviewedPlansAndCredentialProjection(t *testing.T) {
+	cases := map[string]func(*Provider){
+		"legacy schema":     func(p *Provider) { p.SchemaVersion = LegacyProviderSchemaVersion },
+		"impostor provider": func(p *Provider) { p.ID = "openai-alt" },
+		"different display name": func(p *Provider) {
+			p.DisplayName = "OpenAI account"
+		},
+		"different helper":      func(p *Provider) { p.Acquisition.Helper = "codex-login" },
+		"stdin acquisition":     func(p *Provider) { p.Acquisition = Acquisition{Mode: AcquisitionStdinImport} },
+		"static credential":     func(p *Provider) { p.Credential.Kind = CredentialPrimarySecret },
+		"additional projection": func(p *Provider) { p.WorkspaceProjections = append(p.WorkspaceProjections, p.WorkspaceProjections[0]) },
+		"environment projection": func(p *Provider) {
+			p.WorkspaceProjections[0] = WorkspaceProjection{Kind: WorkspaceProjectionEnvironment, Name: "CODEX_TOKEN", Template: "${HANDLE}"}
+		},
+		"different auth path": func(p *Provider) { p.WorkspaceProjections[0].Path = ".config/codex/auth.json" },
+		"API key projection": func(p *Provider) {
+			p.WorkspaceProjections[0].Template = strings.Replace(openAICodexWorkspaceAuthTemplate, `"OPENAI_API_KEY":null`, `"OPENAI_API_KEY":"${HANDLE}"`, 1)
+		},
+		"real-looking ID token": func(p *Provider) {
+			p.WorkspaceProjections[0].Template = strings.Replace(openAICodexWorkspaceAuthTemplate, `"id_token":"e30.e30.x"`, `"id_token":"private-canary"`, 1)
+		},
+		"projected refresh token": func(p *Provider) {
+			p.WorkspaceProjections[0].Template = strings.Replace(openAICodexWorkspaceAuthTemplate, `"refresh_token":""`, `"refresh_token":"${HANDLE}"`, 1)
+		},
+		"API authority":         func(p *Provider) { p.HeaderBindings[0].Target.Host = "api.openai.com" },
+		"insecure authority":    func(p *Provider) { p.HeaderBindings[0].Target.Scheme = "http" },
+		"custom port":           func(p *Provider) { p.HeaderBindings[0].Target.Port = 8443 },
+		"alternate source":      func(p *Provider) { p.HeaderBindings[0].Source.Header = "x-api-key" },
+		"raw source":            func(p *Provider) { p.HeaderBindings[0].Source.Formats = []SourceFormat{SourceFormatRaw} },
+		"raw destination":       func(p *Provider) { p.HeaderBindings[0].Destination.Format = DestinationFormatRaw },
+		"missing account strip": func(p *Provider) { p.HeaderBindings[0].SecretHeaders = []string{"authorization", "x-openai-fedramp"} },
+		"missing FedRAMP strip": func(p *Provider) { p.HeaderBindings[0].SecretHeaders = []string{"authorization", "chatgpt-account-id"} },
+		"reordered strip set": func(p *Provider) {
+			p.HeaderBindings[0].SecretHeaders = []string{"chatgpt-account-id", "authorization", "x-openai-fedramp"}
+		},
+		"additional binding": func(p *Provider) { p.HeaderBindings = append(p.HeaderBindings, p.HeaderBindings[0]) },
+		"signing plan": func(p *Provider) {
+			p.SigningBindings = cloneProvider(syntheticAWSProvider()).SigningBindings
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			provider := cloneProvider(syntheticOpenAICodexProvider())
+			mutate(&provider)
+			if err := provider.Validate(); err == nil {
+				t.Fatal("Provider.Validate accepted an unreviewed OpenAI Codex OAuth plan")
+			}
+		})
+	}
+}
+
+func TestAnthropicClaudeProviderPublishesOnlyTheReviewedSetupTokenPlan(t *testing.T) {
+	provider := syntheticAnthropicClaudeProvider()
+	if err := provider.Validate(); err != nil {
+		t.Fatalf("Provider.Validate rejected reviewed Anthropic Claude plan: %v", err)
+	}
+	projection, err := NormalizeProviders([]Provider{provider})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projection.Environment) != 1 || projection.Environment[0] != (EnvironmentProjection{
+		ProviderID: "anthropic", Name: "CLAUDE_CODE_OAUTH_TOKEN", Template: "${HANDLE}",
+	}) || len(projection.CompleteFiles) != 0 {
+		t.Fatalf("Anthropic Workspace projection = %#v", projection)
+	}
+	if len(projection.HeaderBindings) != 1 {
+		t.Fatalf("Anthropic normalized bindings = %#v", projection.HeaderBindings)
+	}
+	binding := projection.HeaderBindings[0]
+	if binding.ProviderID != "anthropic" ||
+		binding.Target != (BindingTarget{Scheme: "https", Host: "api.anthropic.com", Port: 443}) ||
+		binding.Source != (NormalizedBindingSource{Header: "authorization", Format: SourceFormatBearer}) ||
+		binding.Destination != (BindingDestination{
+			Header: "authorization", Format: DestinationFormatBearer, SecretField: CredentialPrimarySecret,
+		}) || strings.Join(binding.SecretHeaders, ",") != "authorization" {
+		t.Fatalf("Anthropic normalized binding = %#v", binding)
+	}
+}
+
+func TestAnthropicClaudeProviderRejectsImpostorsAndRawSecretChannels(t *testing.T) {
+	cases := map[string]func(*Provider){
+		"behavioral schema":      func(p *Provider) { p.SchemaVersion = ProviderSchemaVersion },
+		"impostor provider":      func(p *Provider) { p.ID = "anthropic-alt" },
+		"different display name": func(p *Provider) { p.DisplayName = "Anthropic account" },
+		"different helper":       func(p *Provider) { p.Acquisition.Helper = "claude-login" },
+		"stdin acquisition":      func(p *Provider) { p.Acquisition = Acquisition{Mode: AcquisitionStdinImport} },
+		"OAuth session kind":     func(p *Provider) { p.Credential.Kind = CredentialOpenAICodexOAuthSession },
+		"additional projection":  func(p *Provider) { p.WorkspaceProjections = append(p.WorkspaceProjections, p.WorkspaceProjections[0]) },
+		"API key environment":    func(p *Provider) { p.WorkspaceProjections[0].Name = "ANTHROPIC_API_KEY" },
+		"auth token environment": func(p *Provider) { p.WorkspaceProjections[0].Name = "ANTHROPIC_AUTH_TOKEN" },
+		"raw setup token":        func(p *Provider) { p.WorkspaceProjections[0].Template = "private-canary" },
+		"credential file": func(p *Provider) {
+			p.WorkspaceProjections[0] = WorkspaceProjection{Kind: WorkspaceProjectionCompleteFile, Path: ".claude/auth.json", Template: "${HANDLE}"}
+		},
+		"different authority": func(p *Provider) { p.HeaderBindings[0].Target.Host = "console.anthropic.com" },
+		"insecure authority":  func(p *Provider) { p.HeaderBindings[0].Target.Scheme = "http" },
+		"custom port":         func(p *Provider) { p.HeaderBindings[0].Target.Port = 8443 },
+		"alternate source":    func(p *Provider) { p.HeaderBindings[0].Source.Header = "x-api-key" },
+		"raw source":          func(p *Provider) { p.HeaderBindings[0].Source.Formats = []SourceFormat{SourceFormatRaw} },
+		"raw destination":     func(p *Provider) { p.HeaderBindings[0].Destination.Format = DestinationFormatRaw },
+		"additional secret":   func(p *Provider) { p.HeaderBindings[0].SecretHeaders = []string{"authorization", "x-api-key"} },
+		"additional binding":  func(p *Provider) { p.HeaderBindings = append(p.HeaderBindings, p.HeaderBindings[0]) },
+		"signing plan": func(p *Provider) {
+			p.SigningBindings = cloneProvider(syntheticAWSProvider()).SigningBindings
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			provider := cloneProvider(syntheticAnthropicClaudeProvider())
+			mutate(&provider)
+			if err := provider.Validate(); err == nil {
+				t.Fatal("Provider.Validate accepted an unreviewed Anthropic Claude setup-token plan")
 			}
 		})
 	}

@@ -29,6 +29,7 @@ HEADER_PATTERN = re.compile(r"^[!#$%&'*+.^_`|~0-9a-z-]{1,64}$")
 ACCOUNT_LABEL_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?$"
 )
+OPENAI_ACCOUNT_LABEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 AWS_ACCOUNT_LABEL_PATTERN = re.compile(r"^[0-9]{12}$")
 DRIVER_REVISION_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 TASK_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -39,10 +40,13 @@ LEGACY_PAYLOAD_SCHEMA_VERSION = 1
 STATIC_CREDENTIAL_KIND = "static_primary_secret"
 AWS_SSO_CREDENTIAL_KIND = "aws_sso_session"
 DATADOG_OAUTH_CREDENTIAL_KIND = "datadog_oauth_session"
+OPENAI_CODEX_OAUTH_CREDENTIAL_KIND = "openai_codex_oauth_session"
 AWS_DRIVER_ID = "aws_cli_sso"
 AWS_CONSOLE_DRIVER_ID = "aws_cli_console_login"
 AWS_DRIVER_IDS = frozenset({AWS_DRIVER_ID, AWS_CONSOLE_DRIVER_ID})
 PUP_DRIVER_ID = "datadog_pup_oauth"
+OPENAI_CODEX_DRIVER_ID = "openai_codex_chatgpt_oauth"
+CLAUDE_ACCOUNT_LABEL = "claude-user-inference"
 
 
 class VaultError(Exception):
@@ -218,7 +222,11 @@ def _validate_stored_header_binding(binding: Any, provider: str) -> None:
             "bearer",
             "token",
         }
-        or destination.get("secret_field") not in {"primary_secret", DATADOG_OAUTH_CREDENTIAL_KIND}
+        or destination.get("secret_field") not in {
+            "primary_secret",
+            DATADOG_OAUTH_CREDENTIAL_KIND,
+            OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
+        }
     ):
         raise VaultError("vault_invalid")
     if (
@@ -294,10 +302,31 @@ def _validate_stored_binding(binding: Any, provider: str) -> str:
         }:
             raise VaultError("vault_invalid")
         return DATADOG_OAUTH_CREDENTIAL_KIND
+    if secret_field == OPENAI_CODEX_OAUTH_CREDENTIAL_KIND:
+        if provider != "openai" or binding != {
+            "provider_id": "openai",
+            "target": {"scheme": "https", "host": "chatgpt.com", "port": 443},
+            "source": {"header": "authorization", "format": "bearer"},
+            "destination": {
+                "header": "authorization",
+                "format": "bearer",
+                "secret_field": OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
+            },
+            "secret_headers": [
+                "authorization", "chatgpt-account-id", "x-openai-fedramp"
+            ],
+        }:
+            raise VaultError("vault_invalid")
+        return OPENAI_CODEX_OAUTH_CREDENTIAL_KIND
     return STATIC_CREDENTIAL_KIND
 
 
-def _validate_common_record(record: Any) -> tuple[str | None, dict[str, Any]]:
+def _validate_common_record(
+    record: Any,
+    *,
+    account_pattern: re.Pattern[str] = ACCOUNT_LABEL_PATTERN,
+    max_account_label: int = 64,
+) -> tuple[str | None, dict[str, Any]]:
     if not isinstance(record, dict):
         raise VaultError("vault_invalid")
     for field in ("record_id", "revision"):
@@ -313,8 +342,8 @@ def _validate_common_record(record: Any) -> tuple[str | None, dict[str, Any]]:
     if account_label is not None and (
         not isinstance(account_label, str)
         or not account_label
-        or len(account_label) > 64
-        or not ACCOUNT_LABEL_PATTERN.fullmatch(account_label)
+        or len(account_label) > max_account_label
+        or not account_pattern.fullmatch(account_label)
     ):
         raise VaultError("vault_invalid")
     handles = record.get("handles")
@@ -428,6 +457,37 @@ def _validate_v2_record(provider: str, record: Any) -> None:
             or isinstance(generation, bool) or not isinstance(generation, int)
             or generation < 0 or generation > (1 << 63) - 1
             or (barrier is not None and (not isinstance(barrier, str) or TASK_DIGEST_PATTERN.fullmatch(barrier) is None))
+        ):
+            raise VaultError("vault_invalid")
+        state = decode_secret(record.get("state"))
+        if not state or len(state) > MAX_DRIVER_STATE_BYTES:
+            raise VaultError("vault_invalid")
+    elif credential_kind == OPENAI_CODEX_OAUTH_CREDENTIAL_KIND:
+        if provider != "openai" or set(record) != {
+            "credential_kind", "record_id", "revision", "account_label",
+            "driver_id", "driver_revision", "state_generation",
+            "refresh_task_digest", "state", "handles",
+        }:
+            raise VaultError("vault_invalid")
+        account_label, handles = _validate_common_record(
+            record,
+            account_pattern=OPENAI_ACCOUNT_LABEL_PATTERN,
+            max_account_label=128,
+        )
+        generation = record.get("state_generation")
+        barrier = record.get("refresh_task_digest")
+        if (
+            not isinstance(account_label, str)
+            or OPENAI_ACCOUNT_LABEL_PATTERN.fullmatch(account_label) is None
+            or record.get("driver_id") != OPENAI_CODEX_DRIVER_ID
+            or not isinstance(record.get("driver_revision"), str)
+            or DRIVER_REVISION_PATTERN.fullmatch(record["driver_revision"]) is None
+            or isinstance(generation, bool) or not isinstance(generation, int)
+            or generation < 0 or generation > (1 << 63) - 1
+            or (barrier is not None and (
+                not isinstance(barrier, str)
+                or TASK_DIGEST_PATTERN.fullmatch(barrier) is None
+            ))
         ):
             raise VaultError("vault_invalid")
         state = decode_secret(record.get("state"))
@@ -560,6 +620,36 @@ def new_datadog_oauth_record(
         raise VaultError("invalid_driver_revision")
     return {
         "credential_kind": DATADOG_OAUTH_CREDENTIAL_KIND,
+        "record_id": "record_" + secrets.token_urlsafe(18),
+        "revision": "revision_" + secrets.token_urlsafe(18),
+        "account_label": account_label,
+        "driver_id": driver_id,
+        "driver_revision": driver_revision,
+        "state_generation": 0,
+        "refresh_task_digest": None,
+        "state": encode_secret(state),
+        "handles": {},
+    }
+
+
+def new_openai_codex_oauth_record(
+    state: bytes, *, account_label: str, driver_id: str, driver_revision: str
+) -> dict[str, Any]:
+    if not isinstance(state, bytes) or not state or len(state) > MAX_DRIVER_STATE_BYTES:
+        raise VaultError("invalid_secret")
+    if (
+        not isinstance(account_label, str)
+        or OPENAI_ACCOUNT_LABEL_PATTERN.fullmatch(account_label) is None
+        or driver_id != OPENAI_CODEX_DRIVER_ID
+    ):
+        raise VaultError("invalid_driver")
+    if (
+        not isinstance(driver_revision, str)
+        or DRIVER_REVISION_PATTERN.fullmatch(driver_revision) is None
+    ):
+        raise VaultError("invalid_driver_revision")
+    return {
+        "credential_kind": OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
         "record_id": "record_" + secrets.token_urlsafe(18),
         "revision": "revision_" + secrets.token_urlsafe(18),
         "account_label": account_label,

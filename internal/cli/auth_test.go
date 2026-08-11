@@ -295,6 +295,8 @@ func TestAuthLoginAndLogoutDispatchThroughFixedMutationHandlers(t *testing.T) {
 		{name: "github login", args: []string{"auth", "login", "--provider=github", "--format=json"}, provider: "github", result: authCLIResult(authbroker.TaskLogin)},
 		{name: "aws login", args: []string{"auth", "login", "--provider=aws", "--format=json"}, provider: "aws", method: "identity-center", result: authCLIResultForProvider(authbroker.TaskLogin, "aws")},
 		{name: "aws console login", args: []string{"auth", "login", "--provider=aws", "--method=console", "--format=json"}, provider: "aws", method: "console", result: authCLIResultForProvider(authbroker.TaskLogin, "aws")},
+		{name: "openai login", args: []string{"auth", "login", "--provider=openai", "--format=json"}, provider: "openai", result: authCLIResultForProvider(authbroker.TaskLogin, "openai")},
+		{name: "anthropic login", args: []string{"auth", "login", "--provider=anthropic", "--format=json"}, provider: "anthropic", result: authCLIResultForProvider(authbroker.TaskLogin, "anthropic")},
 		{name: "logout", args: []string{"auth", "logout", "github", "--format=json"}, provider: "github", result: authCLILogoutResult()},
 	}
 	for _, test := range tests {
@@ -320,10 +322,12 @@ func TestAuthLoginOmittedProviderSelectsInstalledReviewedProviderBeforeMutation(
 		status.Context, status.ContextID, []authbroker.WorkspaceActivationItem{},
 	)
 	status.Providers = []authbroker.ProviderStatus{
+		{Provider: authcmd.BuiltinAnthropicProviderID, State: authbroker.ProviderCredentialNotConfigured},
 		{Provider: authcmd.BuiltinAWSProviderID, State: authbroker.ProviderCredentialNotConfigured},
 		{Provider: "chatwork", State: authbroker.ProviderCredentialNotConfigured},
 		{Provider: authcmd.BuiltinDatadogProviderID, State: authbroker.ProviderCredentialNotConfigured},
 		{Provider: authcmd.BuiltinGitHubProviderID, State: authbroker.ProviderCredentialNotConfigured},
+		{Provider: authcmd.BuiltinOpenAIProviderID, State: authbroker.ProviderCredentialNotConfigured},
 	}
 	result := authCLIResultForProvider(authbroker.TaskLogin, authcmd.BuiltinDatadogProviderID)
 	result.Context = status.Context
@@ -351,7 +355,7 @@ func TestAuthLoginOmittedProviderSelectsInstalledReviewedProviderBeforeMutation(
 	if runtime.statusCalls != 1 || runtime.loginCalls != 1 || runtime.provider != authcmd.BuiltinDatadogProviderID ||
 		runtime.contextName != status.Context || runtime.method != "" || selector.calls != 1 || selector.contextName != status.Context ||
 		!reflect.DeepEqual(selector.providers, []authbroker.ProviderStatus{
-			status.Providers[0], status.Providers[2], status.Providers[3],
+			status.Providers[0], status.Providers[1], status.Providers[3], status.Providers[4], status.Providers[5],
 		}) {
 		t.Fatalf(
 			"status/login/provider/context/method/selector = %d/%d/%q/%q/%q/%d/%q/%v",

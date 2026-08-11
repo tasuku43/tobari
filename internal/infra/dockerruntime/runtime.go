@@ -580,6 +580,10 @@ func (r *Runtime) clusterUpWithProgressMode(
 				recordAttemptError("Gateway did not rejoin the shared cluster network; inspect cluster status.")
 				return err
 			}
+			if err := r.ensureAuthBrokerNetwork(ctx, sharedNetwork); err != nil {
+				recordAttemptError("Auth Broker did not rejoin the shared cluster network; inspect cluster status.")
+				return err
+			}
 		}
 		return nil
 	}); err != nil {
@@ -1179,28 +1183,42 @@ func equalStrings(left, right []string) bool {
 }
 
 func (r *Runtime) ensureGatewayNetwork(ctx context.Context, network string) error {
+	return r.ensureClusterContainerNetwork(ctx, gatewayContainer, "Gateway", "gateway", network)
+}
+
+func (r *Runtime) ensureAuthBrokerNetwork(ctx context.Context, network string) error {
+	return r.ensureClusterContainerNetwork(ctx, authBrokerContainer, "Auth Broker", "auth-broker", network)
+}
+
+func (r *Runtime) ensureClusterContainerNetwork(
+	ctx context.Context,
+	container string,
+	component string,
+	alias string,
+	network string,
+) error {
 	output, err := r.runner.Output(
 		ctx,
-		[]string{"inspect", "--format", "{{json .NetworkSettings.Networks}}", gatewayContainer},
+		[]string{"inspect", "--format", "{{json .NetworkSettings.Networks}}", container},
 		os.Environ(),
 	)
 	if err != nil {
-		return fmt.Errorf("inspect Gateway networks: %w: %s", err, boundedDiagnostic(output))
+		return fmt.Errorf("inspect %s networks: %w: %s", component, err, boundedDiagnostic(output))
 	}
 	var networks map[string]json.RawMessage
 	if err := json.Unmarshal(bytes.TrimSpace(output), &networks); err != nil {
-		return fmt.Errorf("decode Gateway networks: %w", err)
+		return fmt.Errorf("decode %s networks: %w", component, err)
 	}
 	if _, connected := networks[network]; connected {
 		return nil
 	}
 	output, err = r.runner.Output(
 		ctx,
-		[]string{"network", "connect", "--alias", "gateway", network, gatewayContainer},
+		[]string{"network", "connect", "--alias", alias, network, container},
 		os.Environ(),
 	)
 	if err != nil {
-		return fmt.Errorf("connect Gateway to Tobari network: %w: %s", err, boundedDiagnostic(output))
+		return fmt.Errorf("connect %s to Tobari network: %w: %s", component, err, boundedDiagnostic(output))
 	}
 	return nil
 }

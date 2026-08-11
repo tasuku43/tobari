@@ -1,7 +1,7 @@
 """Secret-safe integration upstream for Tobari.
 
-The response exposes only a digest and presence bit for Authorization. Logs
-contain request shape but never headers or bodies.
+The response exposes only digests and presence bits for reviewed authentication
+headers. Logs contain request shape but never headers or bodies.
 """
 
 from __future__ import annotations
@@ -105,6 +105,7 @@ class Handler(BaseHTTPRequestHandler):
     def _reply(self, include_body: bool = True, body_already_read: bool = False) -> None:
         request_body = b"" if body_already_read else self._discard_request_body()
         authorization = self.headers.get("authorization")
+        chatgpt_account_id = self.headers.get("chatgpt-account-id")
         placeholder_present = self.headers.get("x-synthetic-auth") is not None
         document = {
             "authorization_present": authorization is not None,
@@ -112,6 +113,15 @@ class Handler(BaseHTTPRequestHandler):
                 hashlib.sha256(authorization.encode("utf-8")).hexdigest()
                 if authorization is not None
                 else None
+            ),
+            "chatgpt_account_id_present": chatgpt_account_id is not None,
+            "chatgpt_account_id_sha256": (
+                hashlib.sha256(chatgpt_account_id.encode("utf-8")).hexdigest()
+                if chatgpt_account_id is not None
+                else None
+            ),
+            "openai_fedramp_header_present": (
+                self.headers.get("x-openai-fedramp") is not None
             ),
             "placeholder_present": placeholder_present,
             "method": self.command,

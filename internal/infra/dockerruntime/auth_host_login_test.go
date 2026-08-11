@@ -47,6 +47,44 @@ type fakeHostCredentialAcquirer struct {
 	pupPath        string
 	pupVisible     []byte
 	pupCalls       int
+	codexPayload   hostCredentialPayload
+	codexErr       error
+	codexPath      string
+	codexStreams   credentialhost.CodexLoginStreams
+	codexCalls     int
+	claudePayload  hostCredentialPayload
+	claudeErr      error
+	claudePath     string
+	claudeStreams  credentialhost.ClaudeLoginStreams
+	claudeCalls    int
+}
+
+func (a *fakeHostCredentialAcquirer) LoginCodex(
+	_ context.Context,
+	path string,
+	streams credentialhost.CodexLoginStreams,
+) (hostCredentialPayload, error) {
+	a.codexCalls++
+	a.codexPath = path
+	a.codexStreams = streams
+	if streams.Stdout != nil {
+		_, _ = streams.Stdout.Write([]byte("Complete device authorization in your browser\n"))
+	}
+	return a.codexPayload, a.codexErr
+}
+
+func (a *fakeHostCredentialAcquirer) LoginClaude(
+	_ context.Context,
+	path string,
+	streams credentialhost.ClaudeLoginStreams,
+) (hostCredentialPayload, error) {
+	a.claudeCalls++
+	a.claudePath = path
+	a.claudeStreams = streams
+	if streams.Output != nil {
+		_, _ = streams.Output.Write([]byte("Complete Claude authorization in your browser\n"))
+	}
+	return a.claudePayload, a.claudeErr
 }
 
 func (a *fakeHostCredentialAcquirer) LoginPup(
@@ -336,6 +374,96 @@ func TestHostDatadogLoginCommitsOnlyCanonicalPupState(t *testing.T) {
 	}
 }
 
+func TestHostOpenAILoginCommitsOnlyCanonicalCodexState(t *testing.T) {
+	state := []byte(`{"schema_version":1,"opaque":"codex-oauth-canary"}`)
+	resolver := &fakeHostCLIResolver{path: "/opt/homebrew/bin/codex"}
+	acquirer := &fakeHostCredentialAcquirer{codexPayload: hostCredentialPayload{
+		secret: state, accountLabel: "account-synthetic-123",
+		driverID: credentialhost.CodexDriverID, driverRevision: strings.Repeat("f", 64),
+	}}
+	runner := &hostLoginDockerRunner{response: `{"schema_version":1,"ok":true,"provider":"openai","revision":"` + strings.Repeat("a", 64) + `","account_label":"account-synthetic-123"}`}
+	runtime := &Runtime{
+		runner: runner, browser: &recordingBrowser{}, hostCLIs: resolver,
+		credentialHost: acquirer, hostLoginProfiles: immediateHostLoginProfileReader{},
+	}
+	var visible bytes.Buffer
+	response, err := runtime.runHostCredentialLoginOnTTY(
+		context.Background(), hostLoginContextID, "openai",
+		strings.NewReader("trusted terminal input"), &visible,
+	)
+	if err != nil || response.Provider != "openai" || response.AccountLabel == nil ||
+		*response.AccountLabel != "account-synthetic-123" {
+		t.Fatalf("response=%+v error=%v", response, err)
+	}
+	if !reflect.DeepEqual(resolver.names, []string{"codex"}) || acquirer.codexPath != resolver.path ||
+		acquirer.codexCalls != 1 || acquirer.codexStreams.Stdin == nil ||
+		acquirer.codexStreams.Stdout == nil || acquirer.codexStreams.Stderr == nil {
+		t.Fatalf("resolver=%v path=%q calls=%d streams=%+v", resolver.names, acquirer.codexPath, acquirer.codexCalls, acquirer.codexStreams)
+	}
+	wantTail := []string{
+		"login", "--context-id", hostLoginContextID,
+		"--provider", "openai", "--account-label", "account-synthetic-123",
+		"--driver-id", credentialhost.CodexDriverID,
+		"--driver-revision", strings.Repeat("f", 64),
+	}
+	if len(runner.args) < len(wantTail) ||
+		!reflect.DeepEqual(runner.args[len(runner.args)-len(wantTail):], wantTail) ||
+		string(runner.input) != `{"schema_version":1,"opaque":"codex-oauth-canary"}` {
+		t.Fatalf("OpenAI Broker argv/state = %#v/%q", runner.args, runner.input)
+	}
+	if !strings.Contains(visible.String(), "device authorization") ||
+		strings.Contains(visible.String(), "codex-oauth-canary") {
+		t.Fatalf("visible output = %q", visible.String())
+	}
+	if bytes.Contains(state, []byte("codex-oauth-canary")) {
+		t.Fatal("Codex OAuth state was not cleared after Broker commit")
+	}
+}
+
+func TestHostAnthropicLoginCommitsOnlyCapturedClaudeToken(t *testing.T) {
+	token := []byte("sk-ant-oat01-synthetic-token-canary")
+	resolver := &fakeHostCLIResolver{path: "/usr/local/bin/claude"}
+	acquirer := &fakeHostCredentialAcquirer{claudePayload: hostCredentialPayload{
+		secret: token, accountLabel: credentialhost.ClaudeAccountLabel,
+		driverID: credentialhost.ClaudeDriverID, driverRevision: strings.Repeat("e", 64),
+	}}
+	runner := &hostLoginDockerRunner{response: `{"schema_version":1,"ok":true,"provider":"anthropic","revision":"` + strings.Repeat("b", 64) + `","account_label":"` + credentialhost.ClaudeAccountLabel + `"}`}
+	runtime := &Runtime{
+		runner: runner, browser: &recordingBrowser{}, hostCLIs: resolver,
+		credentialHost: acquirer, hostLoginProfiles: immediateHostLoginProfileReader{},
+	}
+	var visible bytes.Buffer
+	response, err := runtime.runHostCredentialLoginOnTTY(
+		context.Background(), hostLoginContextID, "anthropic",
+		strings.NewReader("trusted terminal input"), &visible,
+	)
+	if err != nil || response.Provider != "anthropic" || response.AccountLabel == nil ||
+		*response.AccountLabel != credentialhost.ClaudeAccountLabel {
+		t.Fatalf("response=%+v error=%v", response, err)
+	}
+	if !reflect.DeepEqual(resolver.names, []string{"claude"}) || acquirer.claudePath != resolver.path ||
+		acquirer.claudeCalls != 1 || acquirer.claudeStreams.Stdin == nil ||
+		acquirer.claudeStreams.Output == nil {
+		t.Fatalf("resolver=%v path=%q calls=%d streams=%+v", resolver.names, acquirer.claudePath, acquirer.claudeCalls, acquirer.claudeStreams)
+	}
+	wantTail := []string{
+		"login", "--context-id", hostLoginContextID,
+		"--provider", "anthropic", "--account-label", credentialhost.ClaudeAccountLabel,
+	}
+	if len(runner.args) < len(wantTail) ||
+		!reflect.DeepEqual(runner.args[len(runner.args)-len(wantTail):], wantTail) ||
+		string(runner.input) != "sk-ant-oat01-synthetic-token-canary" {
+		t.Fatalf("Anthropic Broker argv/token = %#v/%q", runner.args, runner.input)
+	}
+	if !strings.Contains(visible.String(), "Claude authorization") ||
+		strings.Contains(visible.String(), "synthetic-token-canary") {
+		t.Fatalf("visible output = %q", visible.String())
+	}
+	if bytes.Contains(token, []byte("synthetic-token-canary")) {
+		t.Fatal("Claude setup token was not cleared after Broker commit")
+	}
+}
+
 func TestHostAWSLoginPromptsFourFieldsAndCommitsOpaqueState(t *testing.T) {
 	state := []byte(`{"schema_version":1,"opaque":"sso-cache-canary"}`)
 	resolver := &fakeHostCLIResolver{path: "/usr/local/bin/aws"}
@@ -448,10 +576,13 @@ func TestHostAcquisitionFailureDoesNotBeginBrokerMutation(t *testing.T) {
 		{provider: "github", failure: credentialhost.ErrGitHubLoginFailed},
 		{provider: "aws", input: "https://example.awsapps.com/start\nus-east-1\n123456789012\nDeveloper\n", failure: credentialhost.ErrCommandFailed},
 		{provider: "datadog", failure: credentialhost.ErrPupLoginFailed},
+		{provider: "openai", failure: credentialhost.ErrCodexLoginFailed},
+		{provider: "anthropic", failure: credentialhost.ErrClaudeLoginFailed},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
 			acquirer := &fakeHostCredentialAcquirer{
 				githubErr: test.failure, awsErr: test.failure, pupErr: test.failure,
+				codexErr: test.failure, claudeErr: test.failure,
 			}
 			runner := &hostLoginDockerRunner{}
 			runtime := &Runtime{

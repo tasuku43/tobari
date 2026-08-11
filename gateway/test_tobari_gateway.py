@@ -158,6 +158,74 @@ class GatewayTests(unittest.TestCase):
         }
 
     @staticmethod
+    def anthropic_claude_provider_projection():
+        provider = {
+            "schema_version": 1,
+            "id": "anthropic",
+            "display_name": "Anthropic account for Claude Code",
+            "acquisition": {
+                "mode": "builtin_helper",
+                "helper": "claude-setup-token",
+            },
+            "credential": {"kind": "primary_secret"},
+            "workspace_projections": [
+                {
+                    "kind": "env",
+                    "name": "CLAUDE_CODE_OAUTH_TOKEN",
+                    "template": "${HANDLE}",
+                }
+            ],
+            "header_bindings": [
+                {
+                    "target": {
+                        "scheme": "https",
+                        "host": "api.anthropic.com",
+                        "port": 443,
+                    },
+                    "source": {
+                        "header": "authorization",
+                        "formats": ["bearer"],
+                    },
+                    "destination": {
+                        "header": "authorization",
+                        "format": "bearer",
+                        "secret_field": "primary_secret",
+                    },
+                    "secret_headers": ["authorization"],
+                }
+            ],
+        }
+        normalized = {
+            "provider_id": "anthropic",
+            "target": {
+                "scheme": "https",
+                "host": "api.anthropic.com",
+                "port": 443,
+            },
+            "source": {"header": "authorization", "format": "bearer"},
+            "destination": {
+                "header": "authorization",
+                "format": "bearer",
+                "secret_field": "primary_secret",
+            },
+            "secret_headers": ["authorization"],
+        }
+        return {
+            "schema_version": 1,
+            "providers": [provider],
+            "environment": [
+                {
+                    "provider_id": "anthropic",
+                    "name": "CLAUDE_CODE_OAUTH_TOKEN",
+                    "template": "${HANDLE}",
+                }
+            ],
+            "complete_files": [],
+            "header_bindings": [normalized],
+            "secret_headers": ["authorization"],
+        }
+
+    @staticmethod
     def static_tool_provider_projection():
         providers = [
             {
@@ -282,6 +350,89 @@ class GatewayTests(unittest.TestCase):
             "header_bindings": [normalized],
             "signing_bindings": [],
             "secret_headers": ["authorization"],
+        }
+
+    @staticmethod
+    def openai_codex_oauth_provider_projection():
+        auth_template = (
+            '{"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,'
+            '"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}",'
+            '"refresh_token":"","account_id":null},'
+            '"last_refresh":"1970-01-01T00:00:00Z"}'
+        )
+        provider = {
+            "schema_version": 2,
+            "id": "openai",
+            "display_name": "OpenAI account for Codex",
+            "acquisition": {
+                "mode": "builtin_helper",
+                "helper": "codex-chatgpt-oauth",
+            },
+            "credential": {"kind": "openai_codex_oauth_session"},
+            "workspace_projections": [
+                {
+                    "kind": "complete_file",
+                    "path": ".codex/auth.json",
+                    "template": auth_template,
+                }
+            ],
+            "header_bindings": [
+                {
+                    "target": {
+                        "scheme": "https",
+                        "host": "chatgpt.com",
+                        "port": 443,
+                    },
+                    "source": {
+                        "header": "authorization",
+                        "formats": ["bearer"],
+                    },
+                    "destination": {
+                        "header": "authorization",
+                        "format": "bearer",
+                        "secret_field": "openai_codex_oauth_session",
+                    },
+                    "secret_headers": [
+                        "authorization",
+                        "chatgpt-account-id",
+                        "x-openai-fedramp",
+                    ],
+                }
+            ],
+        }
+        normalized = {
+            "provider_id": "openai",
+            "target": {"scheme": "https", "host": "chatgpt.com", "port": 443},
+            "source": {"header": "authorization", "format": "bearer"},
+            "destination": {
+                "header": "authorization",
+                "format": "bearer",
+                "secret_field": "openai_codex_oauth_session",
+            },
+            "secret_headers": [
+                "authorization",
+                "chatgpt-account-id",
+                "x-openai-fedramp",
+            ],
+        }
+        return {
+            "schema_version": 2,
+            "providers": [provider],
+            "environment": [],
+            "complete_files": [
+                {
+                    "provider_id": "openai",
+                    "path": ".codex/auth.json",
+                    "template": auth_template,
+                }
+            ],
+            "header_bindings": [normalized],
+            "signing_bindings": [],
+            "secret_headers": [
+                "authorization",
+                "chatgpt-account-id",
+                "x-openai-fedramp",
+            ],
         }
 
     @staticmethod
@@ -614,10 +765,76 @@ class GatewayTests(unittest.TestCase):
         ambiguous = json.loads(json.dumps(self.provider_projection))
         ambiguous["header_bindings"].append(ambiguous["header_bindings"][0])
         invalid_documents.append(ambiguous)
+        mismatched_secret_kind = json.loads(json.dumps(self.provider_projection))
+        mismatched_secret_kind["providers"][0]["header_bindings"][0]["destination"][
+            "secret_field"
+        ] = "openai_codex_oauth_session"
+        for binding in mismatched_secret_kind["header_bindings"]:
+            binding["destination"]["secret_field"] = "openai_codex_oauth_session"
+        invalid_documents.append(mismatched_secret_kind)
         for document in invalid_documents:
             with self.subTest(document=document):
                 with self.assertRaises(BrokerCredentialUnavailable):
                     validate_provider_projection(document)
+
+    def test_anthropic_claude_projection_is_closed_and_self_consistent(self):
+        projection = self.anthropic_claude_provider_projection()
+        self.assertEqual(validate_provider_projection(projection), projection)
+
+        def alternate_helper(value):
+            value["providers"][0]["acquisition"]["helper"] = "claude-login"
+
+        def alternate_provider(value):
+            value["providers"][0]["id"] = "anthropic-alt"
+            value["environment"][0]["provider_id"] = "anthropic-alt"
+            value["header_bindings"][0]["provider_id"] = "anthropic-alt"
+
+        def alternate_display_name(value):
+            value["providers"][0]["display_name"] = "Anthropic account"
+
+        def alternate_environment(value):
+            provider = value["providers"][0]
+            provider["workspace_projections"][0]["name"] = "ANTHROPIC_AUTH_TOKEN"
+            value["environment"][0]["name"] = "ANTHROPIC_AUTH_TOKEN"
+
+        def alternate_host(value):
+            provider_binding = value["providers"][0]["header_bindings"][0]
+            normalized_binding = value["header_bindings"][0]
+            provider_binding["target"]["host"] = "api.anthropic.example.com"
+            normalized_binding["target"]["host"] = "api.anthropic.example.com"
+
+        def alternate_header(value):
+            for binding in (
+                value["providers"][0]["header_bindings"][0],
+                value["header_bindings"][0],
+            ):
+                binding["source"]["header"] = "x-api-key"
+                binding["destination"]["header"] = "x-api-key"
+                binding["secret_headers"] = ["x-api-key"]
+            value["secret_headers"] = ["x-api-key"]
+
+        def alternate_format(value):
+            provider_binding = value["providers"][0]["header_bindings"][0]
+            normalized_binding = value["header_bindings"][0]
+            provider_binding["source"]["formats"] = ["token"]
+            provider_binding["destination"]["format"] = "token"
+            normalized_binding["source"]["format"] = "token"
+            normalized_binding["destination"]["format"] = "token"
+
+        for label, mutate in (
+            ("helper", alternate_helper),
+            ("provider", alternate_provider),
+            ("display name", alternate_display_name),
+            ("environment", alternate_environment),
+            ("host", alternate_host),
+            ("header", alternate_header),
+            ("format", alternate_format),
+        ):
+            with self.subTest(label=label):
+                invalid = json.loads(json.dumps(projection))
+                mutate(invalid)
+                with self.assertRaises(BrokerCredentialUnavailable):
+                    validate_provider_projection(invalid)
 
     def test_static_tool_provider_projection_is_exact_and_self_consistent(self):
         projection = self.static_tool_provider_projection()
@@ -734,6 +951,262 @@ class GatewayTests(unittest.TestCase):
             json.loads(flow.response.content),
             {"error": "credential_refresh_outcome_unknown"},
         )
+
+    def test_openai_codex_oauth_projection_is_closed_and_self_consistent(self):
+        projection = self.openai_codex_oauth_provider_projection()
+        self.assertEqual(validate_provider_projection(projection), projection)
+        with_explicit_empty_signing = json.loads(json.dumps(projection))
+        with_explicit_empty_signing["providers"][0]["signing_bindings"] = []
+        self.assertEqual(
+            validate_provider_projection(with_explicit_empty_signing),
+            with_explicit_empty_signing,
+        )
+        for label, mutate in (
+            (
+                "display name",
+                lambda value: value["providers"][0].update(
+                    display_name="OpenAI account"
+                ),
+            ),
+            (
+                "helper",
+                lambda value: value["providers"][0]["acquisition"].update(
+                    helper="command"
+                ),
+            ),
+            (
+                "kind",
+                lambda value: value["providers"][0]["credential"].update(
+                    kind="primary_secret"
+                ),
+            ),
+            (
+                "target",
+                lambda value: value["providers"][0]["header_bindings"][0][
+                    "target"
+                ].update(host="api.openai.com"),
+            ),
+            (
+                "projection path",
+                lambda value: value["providers"][0]["workspace_projections"][0].update(
+                    path=".config/openai/auth.json"
+                ),
+            ),
+            (
+                "projection template",
+                lambda value: value["providers"][0]["workspace_projections"][0].update(
+                    template="${HANDLE}"
+                ),
+            ),
+            (
+                "secret headers",
+                lambda value: value["providers"][0]["header_bindings"][0].update(
+                    secret_headers=["authorization"]
+                ),
+            ),
+        ):
+            with self.subTest(label=label):
+                invalid = json.loads(json.dumps(projection))
+                mutate(invalid)
+                with self.assertRaises(BrokerCredentialUnavailable):
+                    validate_provider_projection(invalid)
+
+    def test_openai_codex_headers_are_broker_owned_and_injected_only_after_allow(self):
+        import base64
+
+        self.provider_projection = self.openai_codex_oauth_provider_projection()
+        flow = self.flow("https://chatgpt.com/backend-api/codex/responses", "POST")
+        flow.request.headers["authorization"] = f"Bearer {self.handle}"
+        flow.request.headers["chatgpt-account-id"] = "caller-account"
+        flow.request.headers["x-openai-fedramp"] = "true"
+        calls = []
+        events = []
+
+        def broker_call(request):
+            events.append(request["op"])
+            calls.append(request)
+            self.assertNotIn("authorization", flow.request.headers)
+            self.assertNotIn("chatgpt-account-id", flow.request.headers)
+            self.assertNotIn("x-openai-fedramp", flow.request.headers)
+            binding = self.provider_projection["header_bindings"][0]
+            response = {
+                "schema_version": 1,
+                "ok": True,
+                "provider": "openai",
+                "revision": "revision_example",
+                "target": binding["target"],
+                "source": binding["source"],
+                "destination": binding["destination"],
+                "secret_headers": binding["secret_headers"],
+            }
+            if request["op"] == "resolve":
+                response["secret"] = {
+                    "field": "openai_codex_oauth_session",
+                    "encoding": "base64url",
+                    "value": base64.urlsafe_b64encode(
+                        self.real_token.encode()
+                    ).rstrip(b"=").decode(),
+                }
+                response["supplemental_headers"] = {
+                    "chatgpt-account-id": "acct-0123456789"
+                }
+            return response
+
+        captured = {}
+
+        def allow(_url, policy_input, _timeout):
+            events.append("policy")
+            captured.update(policy_input)
+            self.assertEqual([item["op"] for item in calls], ["introspect"])
+            return gateway.Decision(True, "allowed", None, 403, False)
+
+        addon = self.broker_gateway(broker_call)
+        with mock.patch.object(gateway, "query_opa", side_effect=allow):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+
+        self.assertEqual(events, ["introspect", "policy", "resolve"])
+        self.assertEqual(
+            captured["authorization"],
+            {"requested_profile": None, "broker_provider": "openai"},
+        )
+        for header in (
+            "authorization",
+            "chatgpt-account-id",
+            "x-openai-fedramp",
+        ):
+            self.assertNotIn(header, captured["request"]["headers"])
+        self.assertEqual(
+            flow.request.headers["authorization"], f"Bearer {self.real_token}"
+        )
+        self.assertEqual(
+            flow.request.headers["chatgpt-account-id"], "acct-0123456789"
+        )
+        self.assertNotIn("x-openai-fedramp", flow.request.headers)
+
+    def test_openai_codex_denial_never_resolves_or_forwards_routing_headers(self):
+        self.provider_projection = self.openai_codex_oauth_provider_projection()
+        flow = self.flow("https://chatgpt.com/backend-api/codex/responses", "POST")
+        flow.request.headers["authorization"] = f"Bearer {self.handle}"
+        flow.request.headers["chatgpt-account-id"] = "caller-account"
+        flow.request.headers["x-openai-fedramp"] = "true"
+        calls = []
+
+        def broker_call(request):
+            calls.append(request)
+            binding = self.provider_projection["header_bindings"][0]
+            return {
+                "schema_version": 1,
+                "ok": True,
+                "provider": "openai",
+                "revision": "revision_example",
+                "target": binding["target"],
+                "source": binding["source"],
+                "destination": binding["destination"],
+                "secret_headers": binding["secret_headers"],
+            }
+
+        addon = self.broker_gateway(broker_call)
+        captured = {}
+
+        def deny(_url, policy_input, _timeout):
+            captured.update(policy_input)
+            return gateway.Decision(False, "denied", None, 403, True)
+
+        with mock.patch.object(gateway, "query_opa", side_effect=deny):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+        self.assertEqual([request["op"] for request in calls], ["introspect"])
+        for header in (
+            "authorization",
+            "chatgpt-account-id",
+            "x-openai-fedramp",
+        ):
+            self.assertNotIn(header, flow.request.headers)
+            self.assertNotIn(header, captured["request"]["headers"])
+
+    def test_openai_codex_resolve_requires_exact_broker_account_header(self):
+        import base64
+
+        invalid_supplements = (
+            None,
+            {},
+            {"chatgpt-account-id": "acct-0123456789", "x-extra": "value"},
+            {"chatgpt-account-id": "bad account"},
+            {"chatgpt-account-id": "account\nvalue"},
+        )
+        for supplement in invalid_supplements:
+            with self.subTest(supplement=supplement):
+                self.provider_projection = self.openai_codex_oauth_provider_projection()
+                flow = self.flow(
+                    "https://chatgpt.com/backend-api/codex/responses", "POST"
+                )
+                flow.request.headers["authorization"] = f"Bearer {self.handle}"
+
+                def broker_call(request):
+                    binding = self.provider_projection["header_bindings"][0]
+                    response = {
+                        "schema_version": 1,
+                        "ok": True,
+                        "provider": "openai",
+                        "revision": "revision_example",
+                        "target": binding["target"],
+                        "source": binding["source"],
+                        "destination": binding["destination"],
+                        "secret_headers": binding["secret_headers"],
+                    }
+                    if request["op"] == "resolve":
+                        response["secret"] = {
+                            "field": "openai_codex_oauth_session",
+                            "encoding": "base64url",
+                            "value": base64.urlsafe_b64encode(
+                                self.real_token.encode()
+                            ).rstrip(b"=").decode(),
+                        }
+                        if supplement is not None:
+                            response["supplemental_headers"] = supplement
+                    return response
+
+                addon = self.broker_gateway(broker_call)
+                with mock.patch.object(
+                    gateway,
+                    "query_opa",
+                    return_value=gateway.Decision(
+                        True, "allowed", None, 403, False
+                    ),
+                ):
+                    with redirect_stdout(io.StringIO()):
+                        addon.requestheaders(flow)
+                self.assertEqual(flow.response.status_code, 503)
+                self.assertEqual(
+                    json.loads(flow.response.content),
+                    {"error": "credential_broker_unavailable"},
+                )
+                self.assertNotIn("authorization", flow.request.headers)
+                self.assertNotIn("chatgpt-account-id", flow.request.headers)
+
+    def test_non_openai_resolve_rejects_supplemental_headers(self):
+        flow = self.flow("https://api.github.com/user", "GET")
+        flow.request.headers["authorization"] = f"Bearer {self.handle}"
+
+        def broker_call(request):
+            response = self.broker_response(request)
+            if request["op"] == "resolve":
+                response["supplemental_headers"] = {
+                    "chatgpt-account-id": "acct-0123456789"
+                }
+            return response
+
+        addon = self.broker_gateway(broker_call)
+        with mock.patch.object(
+            gateway,
+            "query_opa",
+            return_value=gateway.Decision(True, "allowed", None, 403, False),
+        ):
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+        self.assertEqual(flow.response.status_code, 503)
+        self.assertNotIn("authorization", flow.request.headers)
 
     def test_aws_sigv4_handle_is_signed_only_after_policy_and_complete_body(self):
         self.provider_projection = self.aws_provider_projection()
@@ -1178,6 +1651,30 @@ class GatewayTests(unittest.TestCase):
                 call_broker(
                     "/run/tobari-auth/runtime/broker.sock",
                     {"schema_version": 1, "op": "sign_sigv4"},
+                    70.0,
+                )
+
+    def test_post_send_openai_resolve_transport_loss_is_outcome_unknown(self):
+        class FailingSocket:
+            def settimeout(self, _timeout):
+                pass
+
+            def connect(self, _path):
+                pass
+
+            def sendall(self, _payload):
+                raise TimeoutError("synthetic timeout")
+
+            def close(self):
+                pass
+
+        with mock.patch.object(
+            broker_module.socket, "socket", return_value=FailingSocket()
+        ):
+            with self.assertRaises(BrokerCredentialOutcomeUnknown):
+                call_broker(
+                    "/run/tobari-auth/runtime/broker.sock",
+                    {"schema_version": 1, "op": "resolve", "provider": "openai"},
                     70.0,
                 )
 
