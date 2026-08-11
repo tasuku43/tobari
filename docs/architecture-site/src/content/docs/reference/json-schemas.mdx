@@ -16,23 +16,24 @@ footer.
 
 <!-- public-cli-json-schemas:start -->
 
-| Surface | Envelope | Current schema |
-| --- | --- | ---: |
-| Structured error | `error` | 1 |
-| Agent help (`view: index` and input-selected `view: scope`) | `commands` | 9 |
-| Version | `build_identity` | 1 |
-| Doctor report | `report` | 2 |
-| Context list | `contexts` | 4 |
-| Context report (show/create/use/config/runtime results) | `context` | 8 |
-| Cluster status | `cluster` | 5 |
-| Cluster denials | `denials` | 4 |
-| Policy candidates | `policy_candidates` | 5 |
-| Policy review | `policy_review` | 5 |
-| Policy rules | `policy_rules` | 3 |
-| Policy compactions | `policy_compactions` | 3 |
-| Authentication result and status | `auth` | 4 |
-| Workspace list | `tobari` | 2 |
-| Workspace status | `status` | 4 |
+| Surface                                                     | Envelope             | Current schema |
+| ----------------------------------------------------------- | -------------------- | -------------: |
+| Structured error                                            | `error`              |              1 |
+| Agent help (`view: index` and input-selected `view: scope`) | `commands`           |              9 |
+| Version                                                     | `build_identity`     |              1 |
+| Doctor report                                               | `report`             |              2 |
+| Context list                                                | `contexts`           |              4 |
+| Context report (show/create/use/config/runtime results)     | `context`            |              8 |
+| Cluster status                                              | `cluster`            |              5 |
+| Cluster denials                                             | `denials`            |              4 |
+| Policy candidates                                           | `policy_candidates`  |              5 |
+| Policy review                                               | `policy_review`      |              5 |
+| Policy rules                                                | `policy_rules`       |              3 |
+| Policy compactions                                          | `policy_compactions` |              3 |
+| Authentication result and status                            | `auth`               |              4 |
+| Workspace list                                              | `tobari`             |              2 |
+| Workspace status                                            | `status`             |              4 |
+
 <!-- public-cli-json-schemas:end -->
 
 Exact fields, optionality, output formats, and command coverage are generated in
@@ -58,20 +59,20 @@ authentication interpretation. It is not a byte-for-byte rendering of
 
 ## Important persisted host contracts
 
-| State | Current contract |
-| --- | --- |
-| Context manifest | Schema 5 |
-| Root index and Workspace instance | Schema 2 |
-| Shared cluster state | Schema 3 |
-| Project principal registry | Schema 2 |
-| Guided policy data | `tobari.schema_version` 2 |
-| Aggregate policy projection marker | Schema 1 |
-| Owner provider manifest | Schema 1 |
-| Reviewed built-in provider manifest | Schema 1 or 2 |
-| Normalized provider projection | Schema 2 |
-| Encrypted Context vault | Envelope 1; payload 2 |
-| Workspace authentication file registry | Schema 1 |
-| Base runtime metadata | Schema 1 |
+| State                                  | Current contract          |
+| -------------------------------------- | ------------------------- |
+| Context manifest                       | Schema 5                  |
+| Root index and Workspace instance      | Schema 2                  |
+| Shared cluster state                   | Schema 3                  |
+| Project principal registry             | Schema 2                  |
+| Guided policy data                     | `tobari.schema_version` 2 |
+| Aggregate policy projection marker     | Schema 1                  |
+| Owner provider manifest                | Schema 1                  |
+| Reviewed built-in provider manifest    | Schema 1 or 2             |
+| Normalized provider projection         | Schema 2                  |
+| Encrypted Context vault                | Envelope 1; payload 2     |
+| Workspace authentication file registry | Schema 1                  |
+| Base runtime metadata                  | Schema 1                  |
 
 The Context vault can contain typed static credentials, opaque AWS state,
 Datadog OAuth state, OpenAI Codex OAuth state, Anthropic static-token state,
@@ -81,17 +82,17 @@ summarizes its state.
 
 ## Gateway, OPA, audit, and Broker contracts
 
-| Boundary | Current contract | Important rule |
-| --- | ---: | --- |
-| Gateway credential configuration | Schema 2 | Contains managed projection metadata, not policy authority. |
-| Gateway → OPA decision input | Schema 5 | Host-derived principal and normalized HTTP attributes; no ordinary body or client secret header. |
-| Guided/Advanced source policy | Source schema 4 | Legacy source schema 3 is accepted only for migration; aggregate output is runtime schema 5. |
-| Gateway audit line | Schema 2 | Bounded, secret-free decision evidence. |
-| Learnable-denial navigation response | Schema 1 | Fixed host-review guidance; no candidate ID, query, body, or secret. |
-| Broker control protocol | Schema 1 | Bounded newline-delimited JSON on the host control socket. |
-| Broker runtime protocol | Schema 1 | Non-secret introspection followed, after allow, by a declared static resolve, Datadog/OpenAI token action, or AWS signing result. |
-| Private host companion frames | Schema 1 | Authenticated, direction-bound, strictly sequenced frames for the compiled AWS operation. |
-| Workspace Broker handle | Handle version 1 | Opaque `tobari-h1_…` bytes; never decode them into authority. |
+| Boundary                             | Current contract | Important rule                                                                                                                    |
+| ------------------------------------ | ---------------: | --------------------------------------------------------------------------------------------------------------------------------- |
+| Gateway credential configuration     |         Schema 2 | Contains managed projection metadata, not policy authority.                                                                       |
+| Gateway → OPA decision input         |         Schema 5 | Host-derived principal and normalized HTTP attributes; no ordinary body or client secret header.                                  |
+| Guided/Advanced source policy        |  Source schema 4 | Legacy source schema 3 is accepted only for migration; aggregate output is runtime schema 5.                                      |
+| Gateway audit line                   |         Schema 2 | Bounded, secret-free decision evidence.                                                                                           |
+| Learnable-denial navigation response |         Schema 1 | Fixed host-review guidance; no candidate ID, query, body, or secret.                                                              |
+| Broker control protocol              |         Schema 1 | Bounded newline-delimited JSON on the host control socket.                                                                        |
+| Broker runtime protocol              |         Schema 1 | Non-secret introspection followed, after allow, by a declared static resolve, Datadog/OpenAI token action, or AWS signing result. |
+| Private host companion frames        |         Schema 1 | Authenticated, direction-bound, strictly sequenced frames for the compiled AWS operation.                                         |
+| Workspace Broker handle              | Handle version 1 | Opaque `tobari-h1_…` bytes; never decode them into authority.                                                                     |
 
 OPA returns a decision. Gateway owns the external connection and fails closed
 when the decision is unavailable or malformed.
