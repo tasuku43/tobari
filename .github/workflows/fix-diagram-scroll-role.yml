@@ -1,0 +1,68 @@
+name: Fix diagram scroll role
+
+on:
+  push:
+    branches:
+      - agent/diagram-language-pass
+    paths:
+      - .github/workflows/fix-diagram-scroll-role.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: agent/diagram-language-pass
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: docs/architecture-site/package-lock.json
+      - name: Add accessible region roles
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("docs/architecture-site/src/components/ConceptDiagram.astro"): (
+                  '<div class="flow-map-scroll" tabindex="0" aria-label={ui.mapLabel}>',
+                  '<div class="flow-map-scroll" tabindex="0" role="region" aria-label={ui.mapLabel}>',
+              ),
+              Path("docs/architecture-site/src/components/SystemMap.astro"): (
+                  '<div class="map-scroll" tabindex="0" aria-label={ui.scrollableMap}>',
+                  '<div class="map-scroll" tabindex="0" role="region" aria-label={ui.scrollableMap}>',
+              ),
+          }
+
+          for path, (old, new) in replacements.items():
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one match in {path}, found {count}")
+              path.write_text(text.replace(old, new))
+          PY
+      - name: Select the repository-pinned npm version
+        run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
+      - name: Install locked dependencies
+        working-directory: docs/architecture-site
+        run: npm ci
+      - name: Format changed components
+        working-directory: docs/architecture-site
+        run: >-
+          npm run format:write --
+          src/components/ConceptDiagram.astro
+          src/components/SystemMap.astro
+      - name: Remove this one-use workflow and commit the fix
+        run: |
+          rm .github/workflows/fix-diagram-scroll-role.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/architecture-site/src/components/ConceptDiagram.astro \
+                  docs/architecture-site/src/components/SystemMap.astro \
+                  .github/workflows/fix-diagram-scroll-role.yml
+          git commit -m "fix: label scrollable diagrams as regions"
+          git push origin HEAD:agent/diagram-language-pass
