@@ -7,6 +7,7 @@ test("mental model locates components and follows one request in time order", as
   await page.goto("ja/how-it-works/mental-model/");
   const map = page.locator("tobari-system-map").first();
 
+  await expect(map.locator(".map-scroll")).toHaveAttribute("role", "region");
   await expect(map.locator(".map-zone")).toHaveCount(3);
   await expect(map.locator(".lifeline")).toHaveCount(5);
   await expect(map.locator("[data-message-route]")).toHaveCount(9);
@@ -26,6 +27,10 @@ test("concept diagrams put locations and route labels inside the map", async ({
   await page.goto("ja/how-it-works/https-and-tls/");
   const tls = page.locator('[data-diagram="tls-split"]');
 
+  await expect(tls.locator(".flow-map-scroll")).toHaveAttribute(
+    "role",
+    "region",
+  );
   await expect(tls.locator(".flow-region")).toHaveCount(3);
   await expect(tls.locator(".route-label")).toHaveCount(7);
   await expect(tls.locator(".node-region")).toHaveCount(4);
