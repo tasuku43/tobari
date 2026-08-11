@@ -1,8 +1,91 @@
 ---
 title: カスタムランタイムを用意する
-description: 実際のリポジトリで Tobari を使う前に、コーディングエージェントと開発ツールを Context 管理のランタイムへ追加します。
+description: Tobari の最小ベースランタイムに、実際に使うコーディングエージェントと開発ツールを追加し、Workspace 内で確認します。
 ---
 
-import RuntimeSetupWalkthrough from "../../../../components/RuntimeSetupWalkthrough.astro";
+クイックスタートでは、意図的に `curl` だけを使いました。標準ベースランタイムは Tobari の通信境界を体験するには十分ですが、実際の開発環境ではありません。
 
-<RuntimeSetupWalkthrough />
+最初は Tobari の初期設定をそのまま使い、次の流れだけを覚えます。
+
+1. ランタイム用の Dockerfile を作る
+2. エージェントと開発ツールを追加する
+3. イメージをビルドして検査する
+4. 実際のプロジェクトへ入り、エージェントを確認する
+
+この段階では、設定を切り替える仕組みを学ぶ必要はありません。
+
+## 1. ランタイム用の Dockerfile を作る
+
+信頼するホストで実行します。
+
+```sh
+tobari runtime init
+```
+
+Tobari が管理する Dockerfile を作り、そのパスを表示します。このコマンドだけでは、イメージのビルドや使用するランタイムの変更は行いません。
+
+すでにレシピがある場合は、再初期化せず既存のファイルを編集します。管理対象のパスが分からなくなった場合の確認方法は、[ランタイムの詳細設定](../../guides/runtime-customization/)で説明します。
+
+## 2. エージェントと開発ツールを追加する
+
+Tobari が表示した Dockerfile を開きます。生成済みのベース、エントリーポイント、最後の `USER tobari` は維持してください。インストール処理は、生成済みの `USER root` と `USER tobari` の間へ追加します。
+
+最小構成は次のようになります。
+
+```dockerfile
+# Keep the generated FROM line.
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       nodejs npm ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install your coding agent using its official method.
+# RUN ...
+
+USER tobari
+```
+
+利用するエージェントとプロジェクトに必要なものだけを追加します。可能な範囲でバージョンを固定してください。アクセストークン、クラウド認証情報、ホスト側の認証ファイル、非公開のパッケージ設定はイメージへ入れません。
+
+## 3. ランタイムをビルドして検査する
+
+```sh
+tobari runtime build
+```
+
+Tobari がイメージをビルドし、ランタイムとして必要なインターフェースを検査します。互換性のあるビルドに成功した場合だけ、次に Workspace へ入るとき新しいランタイムが使われます。失敗した場合は、それまでのランタイムが変わりません。
+
+`runtime build` はホスト上で Docker ビルドを実行します。Dockerfile がビルド中に行うダウンロードは Workspace のポリシーレビューを通らないため、ベースイメージと取得元を確認してください。
+
+## 4. 実際のプロジェクトへ入り、エージェントを確認する
+
+クイックスタートの後片付けで共有クラスターを停止している場合があるため、プロジェクトへ入る前に起動しておきます。
+
+```sh
+tobari cluster up
+cd /path/to/your/project
+tobari
+
+# Inside the Workspace
+command -v <agent-command>
+<agent-command> --version
+```
+
+プレースホルダーは、実際にインストールしたコマンドへ置き換えてください。Workspace 内でエージェントと必要な開発ツールを利用できれば、このステップは完了です。
+
+そのプロジェクトに以前のランタイムを使う Workspace がある場合は、入室時に作業コンテナだけを置き換えることがあります。プロジェクトファイル、Workspace の永続ホーム、学習済みポリシーは残ります。
+
+実行ファイルを追加しても、**認証は完了しません**。また、**外部通信の許可も増えません**。
+
+## 次へ: インストールしたツールの認証を設定する
+
+[ツールの認証を設定する](../authentication-setup/)へ進みます。実際の作業で必要なアカウントと外部サービスだけを設定します。
+
+## あとで: 設定を分ける必要が出たら
+
+最初は一つの初期設定だけで Tobari を学び、使えます。その後、用途ごとにランタイム、認証設定、ポリシーモードを分けたくなることがあります。Tobari では、それらを **Context** という単位で分けて管理できます。
+
+必要になった段階で[設定を分ける（Context）](../../guides/contexts/)を読んでください。Context は、最初のランタイムを作るための前提知識ではありません。

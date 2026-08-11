@@ -1,8 +1,91 @@
 ---
 title: Prepare a custom runtime
-description: Install a coding agent and project toolchain into a Context-owned runtime before using Tobari on a real repository.
+description: Add the coding agent and project tools you actually use to Tobari's minimal base runtime, then verify them inside a Workspace.
 ---
 
-import RuntimeSetupWalkthrough from "../../../components/RuntimeSetupWalkthrough.astro";
+Quickstart deliberately used only `curl`. The standard base runtime is enough to experience Tobari's network boundary, but it is not a development environment.
 
-<RuntimeSetupWalkthrough />
+For the first setup, keep Tobari's defaults and learn only this path:
+
+1. create the runtime Dockerfile;
+2. add the coding agent and project tools;
+3. build and validate the image; and
+4. enter a real project and verify the agent.
+
+You do not need to learn configuration switching yet.
+
+## 1. Create the runtime Dockerfile
+
+Run this on the trusted host:
+
+```sh
+tobari runtime init
+```
+
+Tobari creates its managed Dockerfile and reports the path. This command does not build an image or change the runtime in use.
+
+If the recipe already exists, keep and edit that file instead of initializing it again. The [runtime customization details](../../guides/runtime-customization/) cover recovery when you no longer know the managed path.
+
+## 2. Add the agent and project tools
+
+Open the Dockerfile path printed by Tobari. Keep the generated base, entrypoint, and final `USER tobari`. Add installation commands between the generated `USER root` and `USER tobari` lines.
+
+A minimal shape looks like this:
+
+```dockerfile
+# Keep the generated FROM line.
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       nodejs npm ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install your coding agent using its official method.
+# RUN ...
+
+USER tobari
+```
+
+Install only what the selected agent and project need. Pin versions where practical. Do not put access tokens, cloud credentials, host credential files, or private package-manager configuration into the image.
+
+## 3. Build and validate the runtime
+
+```sh
+tobari runtime build
+```
+
+Tobari builds the image and verifies that it satisfies the runtime interface. A compatible successful build is used on the next Workspace entry. A failed build leaves the previous runtime in place.
+
+`runtime build` runs a Docker build on the host. Downloads performed by the Dockerfile do not pass through Workspace policy review, so review the base image and every download source used during the build.
+
+## 4. Enter a real project and verify the agent
+
+The Quickstart cleanup may have stopped the shared cluster, so make sure it is running before entering the project:
+
+```sh
+tobari cluster up
+cd /path/to/your/project
+tobari
+
+# Inside the Workspace
+command -v <agent-command>
+<agent-command> --version
+```
+
+Replace the placeholder with the executable you installed. The agent and required project tools should now be available inside the Workspace.
+
+If the project already had a Workspace using the previous runtime, entry may replace only its work container. Project files, the persistent Workspace home, and learned policy remain.
+
+Installing the executable does **not** authenticate it and does **not** grant outbound network permission.
+
+## Next: authenticate the tools you installed
+
+Continue to [Authenticate your tools](../authentication-setup/). Configure only the accounts and external services your actual workflow needs.
+
+## Later: separate configurations when you need them
+
+One default setup is enough to learn and use Tobari initially. Later, you may want different runtimes, authentication sets, or policy modes for different jobs. Tobari groups those settings into named **Contexts**.
+
+Learn [Contexts and separate configurations](../../guides/contexts/) when that need appears. Context is not prerequisite knowledge for this first runtime build.

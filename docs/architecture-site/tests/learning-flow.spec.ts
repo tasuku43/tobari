@@ -66,13 +66,20 @@ test.describe("task-first documentation flow", () => {
     await page.goto("start/runtime-setup/");
 
     await expect(
+      page.getByRole("heading", { name: "1. Create the runtime Dockerfile" }),
+    ).toBeVisible();
+    await expect(
       page.getByRole("heading", {
-        name: "Quickstart verifies policy control; it does not install a coding agent",
+        name: "4. Enter a real project and verify the agent",
       }),
     ).toBeVisible();
-    await expect(page.locator(".runtime-flow > li")).toHaveCount(5);
-    await expect(page.locator(".runtime-steps > li")).toHaveCount(5);
     await expect(page.locator(".learning-badge-step")).toHaveText("3 / 11");
+    await expect(
+      page.getByRole("main").getByRole("link", {
+        name: "Authenticate your tools",
+        exact: true,
+      }),
+    ).toHaveAttribute("href", /authentication-setup\/$/);
   });
 
   test("learning pages show current position and the next learning goal", async ({

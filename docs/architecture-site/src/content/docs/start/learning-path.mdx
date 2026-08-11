@@ -1,119 +1,94 @@
 ---
 title: Learning path
-description: An eleven-step route from the first policy review and custom runtime setup to Tobari's exact security and recovery boundaries.
+description: "Learn Tobari in the order you need it: policy loop, usable runtime, authentication, internal model, and only then advanced configuration."
 ---
 
-Use this route to move from a minimal policy exercise to a usable coding-agent environment, then into the architecture and security model. The order is intentional: Quickstart proves that communication control works, and the next step installs the agent and project toolchain required for real work.
+The first goal is not to understand every Tobari concept. It is to complete one useful workflow with as few new concepts as possible.
 
-No prior Tobari knowledge is required. Installation is the only operational prerequisite. Each step links to the full explanation instead of repeating it here.
+Start with the default setup. First experience the policy loop, then make the runtime useful, then authenticate the tools you actually need. Only after that should you expand into the internal architecture, security boundaries, recovery behavior, and configuration switching.
 
-## Five levels of understanding
+## Five learning stages
 
-1. **Purpose and first proof:** what Tobari controls, followed by one real denial and host-side review.
-2. **Usable environment:** a Context-owned runtime containing the coding agent and project toolchain.
-3. **Sequences:** Workspace lifecycle, HTTP/HTTPS, policy review, and credential use in time order.
-4. **Boundaries and failure:** who owns identity and state, what fails closed, and what Tobari does not protect.
-5. **Exact specification:** Catalog-generated CLI, schemas, paths, versions, faults, implementation, and tests.
+1. **See the boundary:** run one request, observe a denial, review it on the host, and retry deliberately.
+2. **Make it useful:** add the coding agent and project toolchain, then authenticate them.
+3. **Understand the mechanism:** follow one HTTP/HTTPS request and the policy loop in detail.
+4. **Understand the boundary:** learn credential paths, guarantees, failure behavior, and recovery.
+5. **Split configurations when needed:** learn Contexts, alternate runtimes, and stricter policy only after the default workflow is familiar.
 
 ## Recommended eleven-step route
 
-### 1. What Tobari controls
+### 1. Understand what Tobari controls
 
-Read [Overview](../overview/). Be able to say what authority the agent receives, what remains on the trusted host, and which outbound effects Tobari mediates.
+Read [Overview](../overview/). You only need the top-level boundary: what the Workspace can access, what remains on the trusted host, and why outbound HTTP/HTTPS goes through Gateway.
 
-### 2. Run the minimal policy exercise
+### 2. Experience the policy loop
 
-Complete the [Quickstart](../quickstart/). It intentionally uses `curl` from the standard base runtime so you can observe denial, host review, exact allow, and deliberate retry without first choosing a coding agent.
+Complete the [Quickstart](../quickstart/). It intentionally uses `curl` from the minimal base runtime so you can experience denial, host review, exact allow, and a deliberate new request without first choosing a coding agent.
 
-Quickstart does **not** install or verify an agent. Treat it as proof of the policy loop, not completion of the working environment.
+### 3. Build the runtime you actually need
 
-### 3. Prepare the runtime you will actually use
+Follow [Prepare a custom runtime](../runtime-setup/). Add your coding agent and project tools, run `tobari runtime build`, enter a real project, and verify the agent executable inside the Workspace.
 
-Follow [Prepare a custom runtime](../runtime-setup/). Add the coding-agent executable, its language runtime, and the project toolchain to the current Context's managed Dockerfile. Build and validate it, then verify the agent command inside a real project Workspace.
+Keep the default Tobari setup. Configuration switching is not part of this step.
 
-Do not continue to real repository work until that command succeeds. The standard base runtime is intentionally minimal.
+### 4. Authenticate the tools you installed
 
-### 4. Learn the five-part mental model
+Follow [Authenticate your tools](../authentication-setup/). Complete the agent's own login when it manages its credentials, and use Tobari's host-side authentication for supported external providers when appropriate.
 
-Read [Mental model](../../how-it-works/mental-model/). Learn Workspace, Gateway, OPA, Auth Broker, and Upstream without yet expanding every implementation detail.
+Login and network permission remain separate. A newly authenticated API request can still be denied and reviewed exactly as in Quickstart.
 
-### 5. Understand Workspace lifecycle
+At this point, the first-use loop is complete: you can start normal work with the default setup.
 
-Read [Workspace lifecycle](../../how-it-works/workspace-lifecycle/). Distinguish `exit`, `delete`, runtime replacement, `cluster down`, and `cluster down --purge`.
+### 5. Learn the core components
 
-### 6. Follow one outbound request
+Read [Mental model](../../how-it-works/mental-model/). Now that the workflow is familiar, learn what Workspace, Gateway, OPA, Auth Broker, and the destination each do.
 
-Read [Request journey](../../how-it-works/request-journey/) and [HTTPS and TLS](../../how-it-works/https-and-tls/). Follow principal derivation, body-free OPA input, allow or deny, the separately owned upstream connection, and the two TLS sessions used for HTTPS inspection.
+### 6. Follow one request precisely
 
-### 7. Review policy deliberately
+Read [Request journey](../../how-it-works/request-journey/) and [HTTPS and TLS](../../how-it-works/https-and-tls/). Follow the numbered path from the Workspace, through policy evaluation, to the separately created upstream connection.
 
-Read [Policy learning](../../how-it-works/policy-learning/) and [First denial](../first-denial/). Explain exact rules, opaque references, all-or-nothing activation, and why the original request is never replayed automatically.
+### 7. Understand policy review in detail
 
-### 8. Configure authentication separately
+Read [Policy learning](../../how-it-works/policy-learning/) and [First denial](../first-denial/). Learn exact rules, opaque references, complete-policy validation, and why Tobari never automatically replays the original request.
 
-Read [Credentials](../../how-it-works/credentials/) and the [Authentication guide](../../guides/authentication/). Keep three concerns separate: the tools installed in the runtime, authentication to an external service, and authorization for one HTTP effect.
+### 8. Understand credentials and security guarantees
 
-### 9. Read guarantees with their limits
+Read [Credentials](../../how-it-works/credentials/), [Authentication details](../../guides/authentication/), [Guarantees and limitations](../../security/guarantees-and-limitations/), and [Trust boundaries](../../security/trust-boundaries/).
 
-Read [Guarantees and limitations](../../security/guarantees-and-limitations/) and [Trust boundaries](../../security/trust-boundaries/). For every claim, identify its preconditions, enforcing component, failure behavior, and excluded scope.
+This is where you expand from "I can use it" to "I can explain what it guarantees and why."
 
-### 10. Learn state and recovery
+### 9. Understand lifetime and recovery
 
-Read [State and recovery](../../how-it-works/state-and-recovery/) and [Troubleshooting](../../guides/troubleshooting/). Explain which state survives shell exit, runtime replacement, service failure, Workspace deletion, and cluster cleanup.
+Read [Workspace lifecycle](../../how-it-works/workspace-lifecycle/), [State and recovery](../../how-it-works/state-and-recovery/), and [Troubleshooting](../../guides/troubleshooting/). Distinguish shell exit, work-container replacement, Workspace deletion, service failure, and cluster cleanup.
 
-### 11. Complete the understanding check
+### 10. Learn Contexts only when you need separate configurations
 
-Complete the [Understanding check](../understanding-check/). Open an answer only after explaining the scenario aloud or in writing.
+If one default setup is enough, you can postpone this step.
+
+Read [Contexts and separate configurations](../../guides/contexts/) when you need different runtimes, authentication sets, or policy modes for different jobs. Then use [Workspace, Context, cluster](../../how-it-works/workspace-context-cluster/), [Runtime customization details](../../guides/runtime-customization/), and [Advanced policy](../../guides/advanced-policy/) for the exact behavior.
+
+Context is introduced here deliberately. It solves a real need once you have more than one configuration; it is not prerequisite knowledge for the first successful run.
+
+### 11. Check your understanding
+
+Complete the [Understanding check](../understanding-check/). You should be able to explain both the first-use workflow and the security boundary before opening the prepared answers.
 
 ## When to use Reference
 
-Reference pages answer precise operational questions after the model is understood:
+Use Reference when you need an exact command contract, schema, path, version, or failure code. Do not start there unless you already know which part of the workflow you are trying to inspect.
 
-- [CLI](../../reference/cli/) is generated from `cli.Catalog`.
-- [Runtime image contract](../../reference/runtime-image-contract/) defines the exact image labels, user, entrypoint, build, and selection rules.
-- [Configuration and state](../../reference/configuration-and-state/) lists exact stores and lifetimes.
-- [Provider manifest](../../reference/provider-manifest/) separates owner-controlled strict schema 1 from the reviewed built-in schema-2 plans.
-- [Faults and recovery](../../reference/faults-and-recovery/) maps codes to safe actions.
-- [Component versions](../../reference/component-versions/) is generated from repository authorities.
-
-Do not use a path, schema, or image label as a substitute for understanding ownership. For example, knowing the runtime Dockerfile path does not explain why a successful build changes a Context selection only after compatibility validation, or why existing Workspaces observe that selection on their next entry.
-
-## If a link describes something unexpected
-
-Stop and return to the immediately preceding page:
-
-- if Quickstart seems to prove that an agent is installed, return to [Prepare a custom runtime](../runtime-setup/);
-- if Workspace and container seem interchangeable, return to [Workspace, Context, cluster](../../how-it-works/workspace-context-cluster/);
-- if login seems to create network permission, return to [Credentials](../../how-it-works/credentials/);
-- if OPA appears to forward traffic, return to [Request journey](../../how-it-works/request-journey/); and
-- if “encrypted” sounds like a complete security claim, return to [Credential security](../../security/credential-security/).
-
-## Source references
-
-- [Project theses governing the learning model](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/00_theses.md)
-- [Product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
-- [Context runtime implementation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/context_runtime.go)
-- [Architecture](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
-- [Security model](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
+- [CLI](../../reference/cli/) for exact command behavior.
+- [Runtime image contract](../../reference/runtime-image-contract/) for compatibility requirements.
+- [Configuration and state](../../reference/configuration-and-state/) for stores and lifetimes.
+- [Provider manifest](../../reference/provider-manifest/) for provider contracts.
+- [Faults and recovery](../../reference/faults-and-recovery/) for exact failure handling.
 
 ## Summary
 
-The practical order is: prove the policy loop, prepare a usable runtime, verify the agent inside a real Workspace, and only then expand into architecture, credentials, security boundaries, and recovery. This prevents a successful `curl` exercise from being mistaken for a usable coding-agent environment.
+The default learning order is:
 
-## Check your understanding
+**policy loop → runtime → authentication → normal work → mechanism → security → recovery → optional configuration switching**.
 
-<details>
-<summary>Why does runtime setup come immediately after Quickstart?</summary>
+That order is intentional. A concept appears only when the user has a reason to need it.
 
-Quickstart verifies the network-control loop with `curl`, but the base runtime intentionally contains no coding agent. A real repository is usable only after the current Context selects a compatible image containing the agent and required toolchain.
-
-</details>
-
-<details>
-<summary>Does installing an agent in the image grant authentication or network permission?</summary>
-
-No. Runtime contents, service authentication, and HTTP authorization are separate controls.
-
-</details>
-
-**Next:** begin with [Overview](../overview/) or, if you have already verified the boundary, continue to [Quickstart](../quickstart/).
+**Next:** start with [Overview](../overview/) or continue directly to [Quickstart](../quickstart/) if the top-level boundary is already clear.
