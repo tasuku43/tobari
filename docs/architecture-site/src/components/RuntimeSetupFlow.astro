@@ -1,0 +1,305 @@
+---
+const isJapanese = Astro.locals.starlightRoute.locale === "ja";
+
+const ui = isJapanese
+  ? {
+      title: "カスタムランタイムが Workspace に反映されるまで",
+      intro:
+        "Dockerfile の編集だけでは実行環境は変わりません。信頼するホストでレシピを作り、ビルドと互換性検査を通して Context に選択し、次の入室時に Workspace の作業コンテナを調整します。",
+      reading:
+        "番号順に、誰が操作し、どの状態が更新されるかを追います。",
+      steps: [
+        {
+          from: "信頼するホスト",
+          to: "Context",
+          title: "使う Context を確認する",
+          detail:
+            "ランタイムはプロジェクトではなく Context に結び付きます。同じ Context を使う Workspace が、次の入室時に同じ選択を参照します。",
+          kind: "control",
+        },
+        {
+          from: "Context",
+          to: "Dockerfile",
+          title: "管理対象のレシピを初期化する",
+          detail:
+            "Tobari が所有者専用のランタイムディレクトリと Dockerfile を作ります。既存レシピは上書きしません。",
+          kind: "persistent",
+        },
+        {
+          from: "Dockerfile",
+          to: "候補イメージ",
+          title: "エージェントと開発ツールを追加する",
+          detail:
+            "コーディングエージェント、言語処理系、ビルドツールをイメージへ入れます。認証情報は入れません。",
+          kind: "trusted",
+        },
+        {
+          from: "候補イメージ",
+          to: "Context",
+          title: "ビルド、検証、選択を行う",
+          detail:
+            "Tobari がイメージをビルドし、ランタイム契約を検査します。成功したイメージだけを Context の選択へ反映します。",
+          kind: "allowed",
+        },
+        {
+          from: "Context",
+          to: "Workspace",
+          title: "次の入室で作業コンテナを調整する",
+          detail:
+            "必要ならコンテナだけを作り直します。Workspace の識別情報、永続ホーム、ポリシー、プロジェクトファイルは維持します。",
+          kind: "network",
+        },
+      ],
+    }
+  : {
+      title: "How a custom runtime reaches a Workspace",
+      intro:
+        "Editing the Dockerfile alone does not change the work environment. On the trusted host, create the recipe, build and validate it, select it for the Context, and let the next Workspace entry reconcile the work container.",
+      reading:
+        "Follow the numbers to see who acts and which state changes.",
+      steps: [
+        {
+          from: "Trusted host",
+          to: "Context",
+          title: "Confirm the Context",
+          detail:
+            "Runtime selection belongs to a Context, not directly to one project. Workspaces bound to that Context consult the same selection on their next entry.",
+          kind: "control",
+        },
+        {
+          from: "Context",
+          to: "Dockerfile",
+          title: "Initialize the managed recipe",
+          detail:
+            "Tobari creates an owner-only runtime directory and Dockerfile. It never overwrites an existing recipe.",
+          kind: "persistent",
+        },
+        {
+          from: "Dockerfile",
+          to: "Candidate image",
+          title: "Add the agent and development tools",
+          detail:
+            "Install the coding agent, language runtimes, and build tools in the image. Do not put credentials in it.",
+          kind: "trusted",
+        },
+        {
+          from: "Candidate image",
+          to: "Context",
+          title: "Build, validate, and select",
+          detail:
+            "Tobari builds the image and checks the runtime contract. Only a compatible image is selected for the Context.",
+          kind: "allowed",
+        },
+        {
+          from: "Context",
+          to: "Workspace",
+          title: "Reconcile on the next entry",
+          detail:
+            "Tobari recreates only the work container when needed. Workspace identity, persistent home, policy, and project files remain.",
+          kind: "network",
+        },
+      ],
+    };
+---
+
+<figure class="runtime-setup-flow" data-runtime-setup-flow>
+  <figcaption>
+    <p class="flow-eyebrow">{isJapanese ? "導入の順序" : "Setup order"}</p>
+    <h2>{ui.title}</h2>
+    <p>{ui.intro}</p>
+    <p class="flow-reading">{ui.reading}</p>
+  </figcaption>
+
+  <ol>
+    {
+      ui.steps.map((step, index) => (
+        <li class={`kind-${step.kind}`}>
+          <div class="route">
+            <span>{step.from}</span>
+            <b aria-hidden="true">→</b>
+            <span>{step.to}</span>
+          </div>
+          <div class="step-copy">
+            <span class="step-number">{String(index + 1).padStart(2, "0")}</span>
+            <h3>{step.title}</h3>
+            <p>{step.detail}</p>
+          </div>
+        </li>
+      ))
+    }
+  </ol>
+</figure>
+
+<style>
+  @layer starlight.components {
+    .runtime-setup-flow {
+      margin-block: 2rem;
+      padding: clamp(1rem, 2.5vw, 1.5rem);
+      border: 1px solid var(--sl-color-gray-5);
+      border-radius: 1rem;
+      background: color-mix(in srgb, var(--sl-color-bg) 93%, var(--sl-color-gray-6));
+    }
+
+    .runtime-setup-flow figcaption {
+      max-width: 52rem;
+    }
+
+    .runtime-setup-flow figcaption h2 {
+      margin-block: 0.25rem 0.65rem;
+    }
+
+    .runtime-setup-flow figcaption > p {
+      margin-block: 0.35rem;
+    }
+
+    .flow-eyebrow {
+      color: var(--sl-color-text-accent);
+      font-size: var(--sl-text-sm);
+      font-weight: 750;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .flow-reading {
+      color: var(--sl-color-gray-2);
+      font-size: var(--sl-text-sm);
+    }
+
+    .runtime-setup-flow ol {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(11.5rem, 1fr));
+      gap: 0.8rem;
+      margin: 1.4rem 0 0;
+      padding: 0 0 0.4rem;
+      list-style: none;
+      overflow-x: auto;
+      scroll-snap-type: x proximity;
+    }
+
+    .runtime-setup-flow li {
+      position: relative;
+      min-height: 15rem;
+      padding: 0.9rem;
+      border: 1px solid var(--sl-color-gray-5);
+      border-radius: 0.8rem;
+      background: var(--sl-color-bg);
+      scroll-snap-align: start;
+    }
+
+    .runtime-setup-flow li:not(:last-child)::after {
+      position: absolute;
+      z-index: 2;
+      top: 2.65rem;
+      right: -0.68rem;
+      width: 1.35rem;
+      height: 1.35rem;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      background: var(--sl-color-bg);
+      content: "→";
+      display: grid;
+      place-items: center;
+      font-size: 0.8rem;
+      font-weight: 800;
+    }
+
+    .runtime-setup-flow .route {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+      min-height: 3.5rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--sl-color-gray-5);
+      color: var(--sl-color-gray-2);
+      font-size: var(--sl-text-xs);
+      font-weight: 700;
+    }
+
+    .runtime-setup-flow .route span:last-child {
+      text-align: end;
+    }
+
+    .runtime-setup-flow .step-copy {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.25rem 0.65rem;
+      align-items: start;
+      margin-top: 0.8rem;
+    }
+
+    .runtime-setup-flow .step-number {
+      grid-row: 1 / span 2;
+      display: grid;
+      place-items: center;
+      width: 2rem;
+      height: 2rem;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      font-size: var(--sl-text-xs);
+      font-weight: 800;
+    }
+
+    .runtime-setup-flow h3 {
+      margin: 0.1rem 0 0;
+      font-size: var(--sl-text-lg);
+    }
+
+    .runtime-setup-flow .step-copy p {
+      grid-column: 2;
+      margin: 0.35rem 0 0;
+      color: var(--sl-color-gray-2);
+      font-size: var(--sl-text-sm);
+    }
+
+    .runtime-setup-flow .kind-control,
+    .runtime-setup-flow .kind-persistent {
+      --flow-accent: var(--sl-color-purple-high);
+    }
+
+    .runtime-setup-flow .kind-trusted {
+      --flow-accent: var(--sl-color-green-high);
+    }
+
+    .runtime-setup-flow .kind-allowed {
+      --flow-accent: var(--sl-color-blue-high);
+    }
+
+    .runtime-setup-flow .kind-network {
+      --flow-accent: var(--sl-color-orange-high);
+    }
+
+    .runtime-setup-flow .step-number,
+    .runtime-setup-flow li:not(:last-child)::after,
+    .runtime-setup-flow .route b {
+      color: var(--flow-accent, var(--sl-color-text-accent));
+    }
+
+    @media (max-width: 50rem) {
+      .runtime-setup-flow ol {
+        grid-template-columns: 1fr;
+        overflow: visible;
+      }
+
+      .runtime-setup-flow li {
+        min-height: 0;
+      }
+
+      .runtime-setup-flow li:not(:last-child)::after {
+        top: auto;
+        right: 50%;
+        bottom: -1.08rem;
+        transform: translateX(50%) rotate(90deg);
+      }
+    }
+
+    @media (forced-colors: active) {
+      .runtime-setup-flow,
+      .runtime-setup-flow li,
+      .runtime-setup-flow .step-number,
+      .runtime-setup-flow li:not(:last-child)::after {
+        border-color: CanvasText;
+      }
+    }
+  }
+</style>
