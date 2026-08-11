@@ -522,7 +522,10 @@ heading, aligned detail rows, semantic colors, explicit empty states, and an
 exact next action where one is useful. `doctor` defaults to this view;
 `tobari doctor --format tsv` remains available for tab-separated consumers.
 Help, JSON, agent help, and logs keep their respective machine or raw data
-contracts and never receive terminal styling.
+contracts and never receive terminal styling. `NO_COLOR` and redirected text
+remove ANSI styling only; they retain the same headings, fields, empty-state
+scope and bounds, and Next guidance. Running a bare canonical namespace such as
+`tobari policy` opens its catalog-derived namespace help.
 
 Then run the primary operation from the project directory. It requires the
 cluster to be configured and ready, and creates or reuses only the project

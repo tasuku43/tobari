@@ -203,11 +203,7 @@ func (p *clusterUpProgress) writeLineLocked(marker, label string, newline bool, 
 	if p.interactive {
 		_, _ = fmt.Fprint(p.out, "\r\x1b[2K")
 	}
-	if p.color {
-		_, _ = fmt.Fprint(p.out, applyStyleToken(true, token, marker))
-	} else {
-		_, _ = fmt.Fprint(p.out, marker)
-	}
+	_, _ = fmt.Fprint(p.out, applyStyleToken(p.color, token, marker))
 	_, _ = fmt.Fprint(p.out, " ", label)
 	if newline {
 		_, _ = fmt.Fprintln(p.out)

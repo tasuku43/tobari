@@ -108,7 +108,7 @@ func TestNoArgsDispatchesThePrimaryRootOutcome(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "kind: internal") || !strings.Contains(stderr.String(), "code: missing_runtime") {
+	if !humanOutputHasRow(stderr.String(), "Kind", "internal") || !humanOutputHasRow(stderr.String(), "Code", "missing_runtime") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -118,7 +118,7 @@ func TestUnknownCommandUsesUsageExitCode(t *testing.T) {
 	if code := runCLI(command, []string{"missing"}); code != ExitUsage {
 		t.Fatalf("Run(missing) code = %d, want %d", code, ExitUsage)
 	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: unknown_command") {
+	if stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "unknown_command") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }
@@ -231,7 +231,7 @@ func TestRemovedSampleNamespaceIsUnknown(t *testing.T) {
 	if code := runCLI(command, []string{"sample", "list"}); code != ExitUsage {
 		t.Fatalf("removed sample namespace code = %d, want %d", code, ExitUsage)
 	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: unknown_command") {
+	if stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "unknown_command") {
 		t.Fatalf("removed sample namespace stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }
@@ -241,7 +241,7 @@ func TestRetiredLifecycleCommandExplainsCWDReplacement(t *testing.T) {
 	if code := runCLI(command, []string{"attach", "--name", "old"}); code != ExitUsage {
 		t.Fatalf("Run(attach) code = %d, want %d", code, ExitUsage)
 	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: retired_command") ||
+	if stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "retired_command") ||
 		!strings.Contains(stderr.String(), "Run `tobari` from the project directory") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
@@ -263,10 +263,10 @@ func TestHumanRootRecoveryActionIsExecutable(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "next_action: tobari — Create a Tobari from the current project directory.") {
+	if !humanOutputHasRow(stderr.String(), "Next", "tobari — Create a Tobari from the current project directory.") {
 		t.Fatalf("stderr = %q, want executable root recovery", stderr.String())
 	}
-	if strings.Contains(stderr.String(), "next_action: tobari tobari") {
+	if strings.Contains(stderr.String(), "Next           tobari tobari") {
 		t.Fatalf("stderr duplicated executable name: %q", stderr.String())
 	}
 }
@@ -342,7 +342,7 @@ func TestDoctorFailureUsesRejectedExitAndStructuredRecovery(t *testing.T) {
 	if code := runCLI(command, []string{"doctor"}); code != ExitRejected {
 		t.Fatalf("Run(doctor) code = %d, want %d", code, ExitRejected)
 	}
-	if !strings.Contains(stdout.String(), "runtime        fail") || !strings.Contains(stderr.String(), "code: diagnostic_failed") {
+	if !strings.Contains(stdout.String(), "runtime        fail") || !humanOutputHasRow(stderr.String(), "Code", "diagnostic_failed") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }
@@ -366,7 +366,7 @@ func TestRunContextRejectsNilContextWithoutDownstreamCall(t *testing.T) {
 	if code := command.RunContext(nil, []string{"doctor"}); code != ExitContract {
 		t.Fatalf("RunContext(nil) code = %d, want %d", code, ExitContract)
 	}
-	if inspector.calls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: missing_context") {
+	if inspector.calls != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "missing_context") {
 		t.Fatalf("calls = %d, stdout = %q, stderr = %q", inspector.calls, stdout.String(), stderr.String())
 	}
 }
@@ -379,7 +379,7 @@ func TestCanceledContextStopsBeforeDownstreamCall(t *testing.T) {
 	if code := command.RunContext(ctx, []string{"doctor"}); code != ExitCanceled {
 		t.Fatalf("RunContext() code = %d, stderr = %q", code, stderr.String())
 	}
-	if inspector.calls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: operation_canceled") {
+	if inspector.calls != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "operation_canceled") {
 		t.Fatalf("calls = %d, stdout = %q, stderr = %q", inspector.calls, stdout.String(), stderr.String())
 	}
 }
@@ -404,7 +404,7 @@ func TestEmitChecksCancellationImmediatelyBeforeStdout(t *testing.T) {
 	if code := command.emitResult(ctx, []byte("must-not-be-written\n")); code != ExitCanceled {
 		t.Fatalf("emit() code = %d, stderr = %q", code, stderr.String())
 	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: operation_canceled") {
+	if stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "operation_canceled") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }
@@ -435,11 +435,11 @@ func TestEmitMutationResultStillRequiresCompleteWrite(t *testing.T) {
 	if code := command.emitResult(ctx, []byte("confirmed mutation result\n")); code != ExitInternal {
 		t.Fatalf("emitMutationResult() code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "code: mutation_output_write_failed") ||
-		!strings.Contains(stderr.String(), "retryable: false") ||
-		!strings.Contains(stderr.String(), "next_action: "+ProgramName+" items list") ||
-		strings.Contains(stderr.String(), "code: operation_canceled") ||
-		strings.Contains(stderr.String(), "next_action: "+ProgramName+" items update") {
+	if !humanOutputHasRow(stderr.String(), "Code", "mutation_output_write_failed") ||
+		!humanOutputHasRow(stderr.String(), "Retryable", "no") ||
+		!humanOutputHasRow(stderr.String(), "Next", ProgramName+" items list — Reconcile the confirmed mutation result without repeating the mutation.") ||
+		humanOutputHasRow(stderr.String(), "Code", "operation_canceled") ||
+		strings.Contains(stderr.String(), ProgramName+" items update") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -479,10 +479,10 @@ func TestCatalogBoundMutationFinalizerCannotBeDowngradedByHandler(t *testing.T) 
 		if code := command.RunContext(ctx, []string{"items", "update", "--id=-opaque-item"}); code != ExitInternal {
 			t.Fatalf("RunContext() code = %d, stderr = %q", code, stderr.String())
 		}
-		if !strings.Contains(stderr.String(), "code: mutation_output_write_failed") ||
-			!strings.Contains(stderr.String(), "retryable: false") ||
-			!strings.Contains(stderr.String(), "next_action: "+ProgramName+" items list") ||
-			strings.Contains(stderr.String(), "code: undeclared_fault_contract") {
+		if !humanOutputHasRow(stderr.String(), "Code", "mutation_output_write_failed") ||
+			!humanOutputHasRow(stderr.String(), "Retryable", "no") ||
+			!humanOutputHasRow(stderr.String(), "Next", ProgramName+" items list — Reconcile the confirmed mutation result without repeating the mutation.") ||
+			humanOutputHasRow(stderr.String(), "Code", "undeclared_fault_contract") {
 			t.Fatalf("stderr = %q", stderr.String())
 		}
 	})
@@ -585,7 +585,7 @@ func TestRateLimitTimingPresentationDoesNotAuthorizeRetry(t *testing.T) {
 		Message:   "The provider rate limit was reached.",
 		Retryable: true,
 	})
-	if !strings.Contains(string(unknown), "retry_after: unknown") {
+	if !humanOutputHasRow(string(unknown), "Retry after", "unknown") {
 		t.Fatalf("rate-limit text timing = %q", unknown)
 	}
 	nonRateLimit := renderTextError(errorPayload{
@@ -594,7 +594,7 @@ func TestRateLimitTimingPresentationDoesNotAuthorizeRetry(t *testing.T) {
 		Message:   "The provider is unavailable.",
 		Retryable: true,
 	})
-	if !strings.Contains(string(nonRateLimit), "retry_after: none") {
+	if !humanOutputHasRow(string(nonRateLimit), "Retry after", "none") {
 		t.Fatalf("non-rate-limit text timing = %q", nonRateLimit)
 	}
 
@@ -794,7 +794,7 @@ func TestSuccessWriterFailureIsNotReportedAsSuccess(t *testing.T) {
 	if code := runCLI(command, []string{"version"}); code != ExitInternal {
 		t.Fatalf("short write code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "code: output_write_failed") {
+	if !humanOutputHasRow(stderr.String(), "Code", "output_write_failed") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 
@@ -827,7 +827,7 @@ func TestDoctorOversizeReturnsNoStdout(t *testing.T) {
 	if code := runCLI(command, []string{"doctor"}); code != ExitContract {
 		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
 	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: output_contract_exceeded") {
+	if stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "output_contract_exceeded") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }

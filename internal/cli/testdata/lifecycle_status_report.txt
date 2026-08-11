@@ -1,5 +1,8 @@
-Tobari exists at /workspace/example-project
-Context: toolbox
-Runtime: ready
-Session: attached
-Next: tobari --context toolbox
+✓ Tobari ready
+  Root           /workspace/example-project
+  Context        toolbox
+  Runtime        ready
+  Session        attached
+  ID             01912345-6789-7abc-8def-0123456789ab
+  Home           /var/lib/tobari/projects/01912345-6789-7abc-8def-0123456789ab/home
+  Next           tobari --context toolbox — Enter the current directory's Tobari.

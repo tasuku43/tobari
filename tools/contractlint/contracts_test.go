@@ -273,6 +273,18 @@ func TestSchemaFixtureDigestIsByteExact(t *testing.T) {
 	assertIssuesContain(t, issues, "sha256 mismatch")
 }
 
+func TestSchemaFixtureOptionalCorpusMeasurementsAreChecked(t *testing.T) {
+	root := t.TempDir()
+	fixture := []byte("{\"schema_version\":1}\n")
+	writeFixture(t, root, "testdata/corpus.json", fixture)
+	wrongBytes, noCases := len(fixture)+1, 0
+	issues := validateSchemas(root, []schemaFixture{{
+		ID: "presentation.corpus.v1", Path: "testdata/corpus.json", SHA256: digest(fixture),
+		Bytes: &wrongBytes, Cases: &noCases, Provenance: "Synthetic corpus.", License: "MIT",
+	}})
+	assertIssuesContain(t, issues, "byte count mismatch", "cases must be positive")
+}
+
 func writeJSON(t *testing.T, root, relative string, value any) {
 	t.Helper()
 	data, err := json.MarshalIndent(value, "", "  ")

@@ -225,7 +225,7 @@ func TestAuthImportRejectsInteractiveTerminalBeforeReadOrRuntimeMutation(t *test
 			input.readCalls, runtime.importCalls, runtime.secret, stdout.String(),
 		)
 	}
-	if runtime.inputTerminalCalls != 1 || !strings.Contains(stderr.String(), "code: invalid_credential_input") ||
+	if runtime.inputTerminalCalls != 1 || !humanOutputHasRow(stderr.String(), "Code", "invalid_credential_input") ||
 		strings.Contains(stderr.String(), "synthetic-secret-canary") {
 		t.Fatalf("terminal stdin check/error = %d/%q", runtime.inputTerminalCalls, stderr.String())
 	}
@@ -332,7 +332,7 @@ func TestAuthLoginOmittedProviderRejectsRedirectedTerminalBeforeStatusOrMutation
 			runtime.statusCalls, runtime.loginCalls, selector.calls, stdout.String(),
 		)
 	}
-	if !strings.Contains(stderr.String(), "code: auth_login_tty_required") {
+	if !humanOutputHasRow(stderr.String(), "Code", "auth_login_tty_required") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -354,7 +354,7 @@ func TestAuthLoginOmittedProviderCancellationPerformsNoMutation(t *testing.T) {
 			runtime.statusCalls, runtime.loginCalls, selector.calls, stdout.String(),
 		)
 	}
-	if !strings.Contains(stderr.String(), "code: operation_canceled") {
+	if !humanOutputHasRow(stderr.String(), "Code", "operation_canceled") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -376,7 +376,7 @@ func TestAuthLoginOmittedProviderRejectsSelectionOutsideSnapshotBeforeMutation(t
 			runtime.statusCalls, runtime.loginCalls, selector.calls, stdout.String(),
 		)
 	}
-	if !strings.Contains(stderr.String(), "code: invalid_auth_result") {
+	if !humanOutputHasRow(stderr.String(), "Code", "invalid_auth_result") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -400,7 +400,7 @@ func TestAuthLoginOmittedProviderRejectsCollectionWithoutReviewedLoginProvider(t
 			runtime.statusCalls, runtime.loginCalls, selector.calls, stdout.String(),
 		)
 	}
-	if !strings.Contains(stderr.String(), "code: provider_login_unsupported") {
+	if !humanOutputHasRow(stderr.String(), "Code", "provider_login_unsupported") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -420,7 +420,7 @@ func TestAuthLoginRejectsRedirectedTerminalBeforeRuntimeMutation(t *testing.T) {
 			runtime.loginCalls, runtime.inputTerminalCalls, runtime.errorTerminalCalls, stdout.String(),
 		)
 	}
-	if !strings.Contains(stderr.String(), "code: auth_login_tty_required") ||
+	if !humanOutputHasRow(stderr.String(), "Code", "auth_login_tty_required") ||
 		!strings.Contains(stderr.String(), "help auth login") {
 		t.Fatalf("terminal error = %q", stderr.String())
 	}
@@ -445,7 +445,7 @@ func TestAuthImportRejectsExplicitEmptyContextBeforeReadingStdin(t *testing.T) {
 	if code := runCLI(command, []string{"auth", "import", "github", "--context="}); code != ExitUsage {
 		t.Fatalf("auth import code = %d, stderr = %q", code, stderr.String())
 	}
-	if len(runtime.secret) != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "code: invalid_context_name") {
+	if len(runtime.secret) != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "invalid_context_name") {
 		t.Fatalf("empty Context crossed stdin/runtime boundary: secret=%q stdout=%q stderr=%q", runtime.secret, stdout.String(), stderr.String())
 	}
 }

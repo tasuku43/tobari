@@ -55,6 +55,8 @@ type schemaFixture struct {
 	ID         string `json:"id"`
 	Path       string `json:"path"`
 	SHA256     string `json:"sha256"`
+	Bytes      *int   `json:"bytes,omitempty"`
+	Cases      *int   `json:"cases,omitempty"`
 	Provenance string `json:"provenance"`
 	License    string `json:"license"`
 }
@@ -234,6 +236,15 @@ func validateSchemas(root string, entries []schemaFixture) []issue {
 				Path:    location,
 				Message: fmt.Sprintf("sha256 mismatch for %q: manifest has %s, computed %s; review the fixture change and update the digest deliberately", entry.Path, entry.SHA256, actualText),
 			})
+		}
+		if entry.Bytes != nil && *entry.Bytes != len(fixture) {
+			issues = append(issues, issue{
+				Path:    location,
+				Message: fmt.Sprintf("byte count mismatch for %q: manifest has %d, computed %d", entry.Path, *entry.Bytes, len(fixture)),
+			})
+		}
+		if entry.Cases != nil && *entry.Cases < 1 {
+			issues = append(issues, issue{Path: location, Message: "cases must be positive when declared"})
 		}
 	}
 	return issues

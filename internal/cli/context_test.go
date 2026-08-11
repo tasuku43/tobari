@@ -414,7 +414,7 @@ func TestConfigRejectsExplicitEmptyContextBeforeInspectionOrMutation(t *testing.
 				t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 			}
 			if fake.showCalls != 0 || fake.configureCalls != 0 || fake.configureGitCalls != 0 || stdout.Len() != 0 ||
-				!strings.Contains(stderr.String(), "code: "+test.wantCode) {
+				!humanOutputHasRow(stderr.String(), "Code", test.wantCode) {
 				t.Fatalf(
 					"show/shell/Git/stdout/stderr = %d/%d/%d/%q/%q",
 					fake.showCalls, fake.configureCalls, fake.configureGitCalls, stdout.String(), stderr.String(),
@@ -570,7 +570,7 @@ func TestConfigWizardCancellationLeavesConfigurationUnchanged(t *testing.T) {
 			fake.showCalls, fake.configureCalls, fake.configureGitCalls, stdout.String(),
 		)
 	}
-	if !strings.Contains(stderr.String(), "code: operation_canceled") {
+	if !humanOutputHasRow(stderr.String(), "Code", "operation_canceled") {
 		t.Fatalf("canceled wizard stderr = %q", stderr.String())
 	}
 }
@@ -595,7 +595,7 @@ func TestConfigWizardPreservesCancellationWhileLoadingCurrentState(t *testing.T)
 			fake.showCalls, fake.configureCalls, fake.configureGitCalls, stdout.String(),
 		)
 	}
-	if !strings.Contains(stderr.String(), "code: operation_canceled") {
+	if !humanOutputHasRow(stderr.String(), "Code", "operation_canceled") {
 		t.Fatalf("pre-wizard cancellation stderr = %q", stderr.String())
 	}
 }

@@ -109,7 +109,7 @@ func TestNoColorSuppressesANSIWithoutRemovingStateMeaning(t *testing.T) {
 	if strings.Contains(stderr.String(), "\x1b[") {
 		t.Fatalf("NO_COLOR stderr contains ANSI: %q", stderr.String())
 	}
-	for _, want := range []string{"error:", "Unknown command", "next_action:"} {
+	for _, want := range []string{"Command failed", "Unknown command", "Next"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("NO_COLOR stderr %q lacks semantic canary %q", stderr.String(), want)
 		}

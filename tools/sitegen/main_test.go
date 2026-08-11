@@ -272,10 +272,10 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 		t, providerSource, `(?m)^\s*LegacyProviderSchemaVersion\s*=\s*([0-9]+)`,
 	)
 	catalogSource := committedForTest(t, root, "internal/cli/runtime_catalog.go")
-	wantContextReportSchema := captureIntForTest(
-		t, catalogSource,
-		`JSONEnvelope:\s*"context",\s*JSONSchemaVersion:\s*([0-9]+)`,
-	)
+	wantContextReportSchema, err := contextReportSchemaVersion(catalogSource)
+	if err != nil {
+		t.Fatalf("derive committed Context report schema: %v", err)
+	}
 	if wantContextSchema < 1 || wantContextReportSchema < 1 || wantProviderSchema < 1 || wantOwnerProviderSchema < 1 {
 		t.Fatalf(
 			"HEAD public schema authorities must be positive: Context manifest=%d report=%d owner provider=%d projection=%d",
@@ -305,6 +305,17 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 		if got := schemaForTest(t, document, contract).Version; got != want {
 			t.Errorf("%s schema = %d, want HEAD authority %d", contract, got, want)
 		}
+	}
+}
+
+func TestContextReportSchemaDerivationAllowsInterposedCatalogFields(t *testing.T) {
+	source := []byte(`JSONEnvelope: "context", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 7,`)
+	got, err := contextReportSchemaVersion(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 7 {
+		t.Fatalf("Context report schema = %d, want 7", got)
 	}
 }
 

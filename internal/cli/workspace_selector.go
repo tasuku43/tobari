@@ -453,9 +453,19 @@ func finishSelectorScreen(out io.Writer, lines int) {
 }
 
 func readSelectorKey(ctx context.Context, in io.Reader) (selectorKey, error) {
+	for {
+		key, err := readSelectorKeyOnce(ctx, in)
+		if errors.Is(err, errSelectorTimeout) || (err == nil && key.kind == selectorKeyNone) {
+			continue
+		}
+		return key, err
+	}
+}
+
+func readSelectorKeyOnce(ctx context.Context, in io.Reader) (selectorKey, error) {
 	value, err := readSelectorByte(ctx, in)
 	if errors.Is(err, errSelectorTimeout) {
-		return selectorKey{kind: selectorKeyNone}, nil
+		return selectorKey{}, errSelectorTimeout
 	}
 	if errors.Is(err, errSelectorEOF) {
 		return selectorKey{kind: selectorKeyCancel}, nil

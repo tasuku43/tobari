@@ -837,7 +837,7 @@ func TestInvalidCatalogFailsBeforeDispatch(t *testing.T) {
 	if called {
 		t.Fatal("handler ran for an invalid catalog")
 	}
-	if !strings.Contains(stderr.String(), "code: invalid_catalog") {
+	if !humanOutputHasRow(stderr.String(), "Code", "invalid_catalog") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

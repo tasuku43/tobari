@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/app/authcmd"
@@ -120,18 +121,22 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 
 	commandArgs = normalizeRootAlias(commandArgs)
 	commandArgs = normalizeTrailingHelpAlias(c.catalog, commandArgs)
+	commandArgs = normalizeBareNamespace(c.catalog, commandArgs)
 	command, rest, found := c.catalog.Match(commandArgs)
 	if !found {
 		if message, retired := retiredCommandMessage(commandArgs); retired {
 			return c.failUsage(ctx, "retired_command", message, "tobari", "Run the root command from the project directory.")
 		}
-		return c.failUsage(
-			ctx,
-			"unknown_command",
-			fmt.Sprintf("Unknown command %q.", strings.Join(commandArgs, " ")),
-			"help",
-			"Discover an exact command path or namespace.",
-		)
+		suggestions := catalogCommandSuggestions(c.catalog, strings.Join(commandArgs, " "))
+		message := fmt.Sprintf("Unknown command %q.", boundedHumanCommand(strings.Join(commandArgs, " ")))
+		recovery := "help"
+		reason := "Discover an exact command path or namespace."
+		if len(suggestions) > 0 {
+			message += " Did you mean " + strings.Join(suggestions, ", ") + "?"
+			recovery = "help " + suggestions[0]
+			reason = "Inspect the nearest exact catalog command or namespace."
+		}
+		return c.failUsage(ctx, "unknown_command", message, recovery, reason)
 	}
 	ctx = withCommandPath(ctx, command.Path)
 	if err := ctx.Err(); err != nil {
@@ -208,6 +213,112 @@ func normalizeTrailingHelpAlias(catalog Catalog, args []string) []string {
 		return args
 	}
 	return append([]string{"help"}, args[:len(args)-1]...)
+}
+
+// normalizeBareNamespace turns only a catalog-proven canonical namespace into
+// its existing help selector. User argv is never appended to a recovery path.
+func normalizeBareNamespace(catalog Catalog, args []string) []string {
+	selector := strings.Join(args, " ")
+	commands, exact := catalog.Select(selector)
+	if selector == "" || exact || len(commands) == 0 {
+		return args
+	}
+	return append([]string{"help"}, strings.Fields(selector)...)
+}
+
+const (
+	maxCommandSuggestions  = 3
+	maxUnknownCommandRunes = 96
+)
+
+type commandSuggestion struct {
+	selector string
+	score    int
+	order    int
+}
+
+func catalogCommandSuggestions(catalog Catalog, attempted string) []string {
+	attempted = boundedHumanCommand(attempted)
+	candidates := catalogSuggestionSelectors(catalog)
+	ranked := make([]commandSuggestion, 0, len(candidates))
+	for index, candidate := range candidates {
+		distance := editDistance([]rune(attempted), []rune(candidate))
+		limit := 2
+		if len([]rune(candidate)) >= 12 {
+			limit = 3
+		}
+		if strings.HasPrefix(candidate, attempted) || strings.HasPrefix(attempted, candidate) {
+			limit++
+		}
+		if distance <= limit {
+			ranked = append(ranked, commandSuggestion{selector: candidate, score: distance, order: index})
+		}
+	}
+	sort.SliceStable(ranked, func(left, right int) bool {
+		if ranked[left].score != ranked[right].score {
+			return ranked[left].score < ranked[right].score
+		}
+		return ranked[left].order < ranked[right].order
+	})
+	if len(ranked) > maxCommandSuggestions {
+		ranked = ranked[:maxCommandSuggestions]
+	}
+	result := make([]string, len(ranked))
+	for index, suggestion := range ranked {
+		result[index] = suggestion.selector
+	}
+	return result
+}
+
+func catalogSuggestionSelectors(catalog Catalog) []string {
+	selectors := make([]string, 0, len(catalog.Commands())*2)
+	seen := make(map[string]struct{})
+	for _, command := range catalog.Commands() {
+		if boundary := strings.IndexByte(command.Path, ' '); boundary > 0 {
+			namespace := command.Path[:boundary]
+			if _, found := seen[namespace]; !found {
+				seen[namespace] = struct{}{}
+				selectors = append(selectors, namespace)
+			}
+		}
+		if _, found := seen[command.Path]; !found {
+			seen[command.Path] = struct{}{}
+			selectors = append(selectors, command.Path)
+		}
+	}
+	return selectors
+}
+
+func boundedHumanCommand(value string) string {
+	projected := []rune(safeExternalText(value))
+	if len(projected) <= maxUnknownCommandRunes {
+		return string(projected)
+	}
+	return string(projected[:maxUnknownCommandRunes-1]) + "…"
+}
+
+func editDistance(left, right []rune) int {
+	previous := make([]int, len(right)+1)
+	for index := range previous {
+		previous[index] = index
+	}
+	for leftIndex, leftRune := range left {
+		current := make([]int, len(right)+1)
+		current[0] = leftIndex + 1
+		for rightIndex, rightRune := range right {
+			cost := 1
+			if leftRune == rightRune {
+				cost = 0
+			}
+			current[rightIndex+1] = min(
+				current[rightIndex]+1,
+				previous[rightIndex+1]+1,
+				previous[rightIndex]+cost,
+			)
+		}
+		previous = current
+	}
+	return previous[len(right)]
 }
 
 func normalizeRootAlias(args []string) []string {

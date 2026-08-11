@@ -603,6 +603,17 @@ free of ANSI styling. Cursor-control sequences used by bounded interactive
 selectors remain a separate terminal mechanism and do not define visual
 styles.
 
+Human text is built in three independent stages. Task-owned typed results first
+select a `humanOutput` document containing headings, rows, sections, empty-state
+scope/bounds, and exact recovery. The style projection may then add only the
+six semantic ANSI tokens; it cannot select, remove, reorder, or rename document
+content. The terminal interaction state machine independently owns cursor
+movement, redraw eligibility, and restoration. Its reader absorbs idle VTIME
+polls without returning a render event, while input, selection changes,
+completion, and cancellation remain observable state transitions. Catalog
+selection supplies bare-namespace normalization and deterministic typo
+suggestions, so routing and recovery do not create a second command registry.
+
 ## Gateway request flow
 
 ```text

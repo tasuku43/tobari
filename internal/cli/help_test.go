@@ -885,7 +885,7 @@ func TestHelpRejectsUnknownSelectorsAndFormats(t *testing.T) {
 		if code := runCLI(command, args); code != ExitUsage {
 			t.Errorf("Run(%v) code = %d, want %d", args, code, ExitUsage)
 		}
-		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "error:") {
+		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "Command failed") {
 			t.Errorf("Run(%v) stdout = %q, stderr = %q", args, stdout.String(), stderr.String())
 		}
 	}

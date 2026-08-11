@@ -95,6 +95,27 @@ capture boundary does not teach a blind child the scenario route and does not
 turn a piped replay into human success. Run its contract test with
 `python3 scripts/test-pty-evidence.py`.
 
+## Human presentation foundation evidence
+
+The canonical synthetic corpus is
+`internal/cli/testdata/human-presentation-foundation-fixture.json` (SHA-256
+`c4776692325ce2f6c4d707118d9072661a1dcb43fac29b815711af4d253e9fc6`,
+1,290 bytes, five cases). Its presentation-independent answer key is
+`internal/cli/testdata/human-presentation-foundation-answer-key.json` (SHA-256
+`223ec64482852ce774bd7555da85e2535168118e50b25e716121cc2669666301`,
+1,624 bytes, five cases). Both pins are recorded in `.harness/schemas.json`.
+The answer key fixes lifecycle, scoped-empty, warning, failure, and cancel facts,
+exact Next argv, and negative-inference canaries. Each supported answer requires
+one task invocation and zero external processing steps.
+
+`TestPinnedHumanPresentationCorpusDrivesEveryTerminalMode` proves that colored
+TTY, `NO_COLOR` TTY, and redirected text retain the same semantic document after
+ANSI removal. The catalog-wide and AST checks reject undeclared or
+style-dependent human structure; raw-selector tests inject repeated idle polls
+and require one initial render and one terminal restoration; policy review and
+rules cancellation prove exit 11 with zero action calls. This evidence changes
+human text only and does not revise JSON or TSV schemas.
+
 ## Required scenario
 
 Run against a clean Docker Engine with a synthetic root:

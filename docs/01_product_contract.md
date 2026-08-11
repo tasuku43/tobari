@@ -540,8 +540,10 @@ presentation layer, never to an individual command renderer.
 Terminal styling is applied only when the corresponding output stream is an
 interactive terminal and `NO_COLOR` is absent. Redirected text and any
 invocation with `NO_COLOR` present contain no ANSI style sequences and preserve
-the established non-interactive structure. Markers, words, and layout carry
-the same status meaning without color. `doctor` defaults to this human text
+the exact same headings, markers, field order, scoped empty state, bounds, and
+Next guidance. `NO_COLOR` selects no alternate terse or tabular renderer.
+Markers, words, and layout carry the same status meaning without color.
+`doctor` defaults to this human text
 view; `doctor --format tsv` remains the tab-separated projection for scripts,
 and JSON/agent help remain schema contracts.
 Empty collections are explicit rather than silent. Opaque IDs remain byte-for-
@@ -549,6 +551,17 @@ byte exact, while external evidence remains subject to the existing safe text
 projection before it is displayed. Root, namespace, and exact human help use
 the same hierarchy; `--format agent` is machine-readable JSON and never receives
 terminal styling.
+
+A bare canonical namespace such as `policy` is shorthand for its existing
+catalog-derived namespace help. Unknown commands may show at most three stable
+edit-distance suggestions derived only from exact catalog paths and canonical
+namespaces; recovery remains one exact catalog help selector and never appends
+unchecked argv. A deliberate pre-action cancellation is a neutral `Canceled`
+outcome on stderr with exit 11 and no success or danger treatment. It performs
+no mutation; a confirmed mutation keeps its existing reconciliation contract.
+Raw selectors render once initially and only after an input or selection-state
+change, not for an idle terminal-read poll, and restore terminal state exactly
+once when they finish.
 When `cluster up` runs with an interactive stderr terminal, it may also render
 bounded fixed-step startup progress on stderr. The progress uses terminal
 control sequences and color only for that terminal presentation; it carries no

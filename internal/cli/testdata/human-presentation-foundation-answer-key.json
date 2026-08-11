@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "routine_success": {
+    "task_invocations": 1,
+    "external_processing_steps": 0
+  },
+  "cases": [
+    {
+      "name": "lifecycle",
+      "task": "status",
+      "required_facts": ["Tobari ready", "toolbox", "01912345-6789-7abc-8def-0123456789ab", "/state/example-project/home"],
+      "exact_next_argv": ["tobari", "--context", "toolbox"],
+      "unsupported_inferences": ["another Context has the same Workspace identity"]
+    },
+    {
+      "name": "scoped_empty_collection",
+      "task": "policy candidates",
+      "required_facts": ["No policy candidates", "/config/example/policy", "200 Gateway lines"],
+      "exact_next_argv": ["tobari", "cluster", "denials"],
+      "unsupported_inferences": ["the provider has no older denial history"]
+    },
+    {
+      "name": "warning",
+      "task": "doctor",
+      "required_facts": ["Environment check", "runtime", "warn", "optional acceleration is unavailable"],
+      "exact_next_argv": [],
+      "unsupported_inferences": ["a warning is a failed diagnostic"]
+    },
+    {
+      "name": "failure",
+      "task": "cluster status",
+      "required_facts": ["Command failed", "cluster_not_running", "unavailable"],
+      "exact_next_argv": ["tobari", "cluster", "up"],
+      "unsupported_inferences": ["the failed operation mutated cluster state"]
+    },
+    {
+      "name": "cancel",
+      "task": "policy review",
+      "required_facts": ["Canceled", "operation_canceled", "canceled"],
+      "exact_next_argv": ["tobari", "policy", "review"],
+      "unsupported_inferences": ["the operation succeeded", "a mutation was attempted"]
+    }
+  ]
+}

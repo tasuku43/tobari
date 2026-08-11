@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "lifecycle": {
+    "task": "tobari.status",
+    "exists": true,
+    "root": "/workspace/example-project",
+    "id": "01912345-6789-7abc-8def-0123456789ab",
+    "home": "/state/example-project/home",
+    "context_id": "018bcfe5-687b-7000-8000-000000000099",
+    "context": "toolbox",
+    "runtime": "ready",
+    "attachment": "detached"
+  },
+  "empty_policy_candidates": {
+    "task": "policy.candidates",
+    "policy": "/config/example/policy",
+    "window_lines": 200,
+    "items": []
+  },
+  "warning": {
+    "checks": [
+      {
+        "name": "runtime",
+        "status": "warn",
+        "detail": "optional acceleration is unavailable"
+      }
+    ]
+  },
+  "failure": {
+    "kind": "unavailable",
+    "code": "cluster_not_running",
+    "message": "The cluster is not running.",
+    "retryable": false,
+    "retry_after": null,
+    "next_actions": [
+      {
+        "command": "cluster up",
+        "reason": "Start the shared cluster."
+      }
+    ]
+  },
+  "cancel": {
+    "kind": "canceled",
+    "code": "operation_canceled",
+    "message": "The operation was canceled.",
+    "retryable": true,
+    "retry_after": null,
+    "next_actions": [
+      {
+        "command": "policy review",
+        "reason": "Retry when the caller is ready."
+      }
+    ]
+  }
+}

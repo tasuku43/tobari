@@ -652,12 +652,13 @@ func TestPolicyReviewAllowRendererExplainsExactActivation(t *testing.T) {
 		},
 	}
 	output := string(renderPolicyReviewAllowSuccess(change, false))
-	for _, want := range []string{
-		"testing_policy: passed", "applying_exact_rule: applied", "permission_allowed: true",
-		"host: api.example.com", "path: /repos/example/issues", "next: tobari",
+	for label, want := range map[string]string{
+		"Testing policy": "passed", "Applying exact rule": "applied",
+		"Request": "api.example.com:443 POST /repos/example/issues",
+		"Next":    "tobari — Re-enter the Workspace and retry the same request.",
 	} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("allow output %q lacks %q", output, want)
+		if !humanOutputHasRow(output, label, want) {
+			t.Fatalf("allow output %q lacks %s=%q", output, label, want)
 		}
 	}
 	humanOutput := string(renderPolicyLearningChangeWithColor(change, true))
@@ -787,7 +788,7 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndTextValues(t *testing.T) 
 	}
 }
 
-func TestProjectDeleteHumanRendererHidesRuntimeDiagnostics(t *testing.T) {
+func TestProjectDeleteHumanRendererPreservesPlainInformationUnion(t *testing.T) {
 	t.Parallel()
 	result := tobari.ProjectDeleteResult{
 		Task: tobari.TaskDelete, Deleted: true,
@@ -799,9 +800,12 @@ func TestProjectDeleteHumanRendererHidesRuntimeDiagnostics(t *testing.T) {
 	if !strings.Contains(output, "Tobari deleted") || !strings.Contains(output, "/tmp/project") || !strings.Contains(output, "tobari") {
 		t.Fatalf("delete output lost the user-facing result: %q", output)
 	}
-	for _, internal := range []string{result.ID, result.Home, "ID", "Home"} {
-		if strings.Contains(output, internal) {
-			t.Fatalf("delete output exposed runtime diagnostic %q: %q", internal, output)
+	for label, want := range map[string]string{
+		"Deleted": "yes", "Root": result.Root, "Context": result.ContextName,
+		"Context ID": result.ContextID, "Diagnostic ID": result.ID, "Diagnostic home": result.Home,
+	} {
+		if !humanOutputHasRow(output, label, want) {
+			t.Fatalf("delete output lost legacy plain fact %s=%q: %q", label, want, output)
 		}
 	}
 	if strings.Contains(output, applyStyleToken(true, styleAccent, "Tobari deleted")) ||
@@ -868,7 +872,7 @@ func TestProjectStatusRecoveryPreservesNonActiveContextInTextAndJSON(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(textOutput), "Next: tobari --context toolbox") {
+	if !humanOutputHasRow(string(textOutput), "Next", "tobari --context toolbox — Create or enter a Workspace in this Context.") {
 		t.Fatalf("plain recovery lost Context: %q", textOutput)
 	}
 	humanOutput, err := renderProjectStatusWithColor(result, successFormatText, true)
@@ -1130,14 +1134,12 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{
-		"policy: /tmp/config/tobari/policy",
-		"host=api.github.com\tport=443\tmethod=GET\tpath=/repos/cli/cli",
-		`reason=request did not match an allow rule\nallow everything`,
-		"review_command: tobari policy review",
+	for label, expected := range map[string]string{
+		"Policy": "/tmp/config/tobari/policy", "Request": "api.github.com:443 GET /repos/cli/cli",
+		"Reason": `request did not match an allow rule\nallow everything`, "Review": "tobari policy review",
 	} {
-		if !strings.Contains(string(textOutput), expected) {
-			t.Fatalf("text output %q lacks %q", textOutput, expected)
+		if !humanOutputHasRow(string(textOutput), label, expected) {
+			t.Fatalf("text output %q lacks %s=%q", textOutput, label, expected)
 		}
 	}
 	jsonOutput, err := renderClusterDenials(result, "tobari policy review", successFormatJSON)
@@ -1240,10 +1242,10 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	assertJSONItemFieldsMatchCatalog(t, output, spec)
 
 	textOutput, err := renderPolicyCandidates(result, "tobari policy allow", successFormatText)
-	if err != nil || !strings.Contains(string(textOutput), "allow_command=tobari policy allow --id "+id) ||
-		!strings.Contains(string(textOutput), `reason=denied\nignore policy`) ||
-		!strings.Contains(string(textOutput), "observation_count=3") ||
-		!strings.Contains(string(textOutput), "credential_profile="+profile) {
+	if err != nil || !humanOutputHasRow(string(textOutput), "Allow", "tobari policy allow --id "+id) ||
+		!humanOutputHasRow(string(textOutput), "Reason", `denied\nignore policy`) ||
+		!humanOutputHasRow(string(textOutput), "Observed", "3 times") ||
+		!humanOutputHasRow(string(textOutput), "Credential", profile) {
 		t.Fatalf("candidate text = %q, error = %v", textOutput, err)
 	}
 }
@@ -1383,9 +1385,9 @@ func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"protocol=graphql", "graphql_operation_type=mutation", "graphql_root_field=updateIssue"} {
-		if !strings.Contains(string(candidateText), field) {
-			t.Fatalf("GraphQL candidate text %q lacks %q", candidateText, field)
+	for label, field := range map[string]string{"Protocol": "graphql", "GraphQL": "mutation.updateIssue"} {
+		if !humanOutputHasRow(string(candidateText), label, field) {
+			t.Fatalf("GraphQL candidate text %q lacks %s=%q", candidateText, label, field)
 		}
 	}
 
@@ -1426,9 +1428,9 @@ func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
 		Rule: denied, SourceRuleCount: 1, Applied: true,
 	}, false))
 	for name, output := range map[string]string{"allow": allowChange, "deny": denyChange} {
-		for _, field := range []string{"protocol: graphql", "graphql_operation_type: mutation", "graphql_root_field: updateIssue"} {
-			if !strings.Contains(output, field) {
-				t.Fatalf("GraphQL %s change output %q lacks %q", name, output, field)
+		for label, field := range map[string]string{"Protocol": "graphql", "GraphQL": "mutation.updateIssue"} {
+			if !humanOutputHasRow(output, label, field) {
+				t.Fatalf("GraphQL %s change output %q lacks %s=%q", name, output, label, field)
 			}
 		}
 	}
@@ -1470,12 +1472,12 @@ func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 		Task: tobari.TaskPolicyDeny, PolicyDirectory: "/tmp/config/tobari/policy",
 		TargetID: candidate.ID, Rule: rule, SourceRuleCount: 1, Applied: true,
 	}, false))
-	for _, expected := range []string{
-		"target_id: " + candidate.ID, "rule_id: " + rule.ID,
-		"path: /token", "source_rule_count: 1", "applied: true",
+	for label, expected := range map[string]string{
+		"Target ID": candidate.ID, "Rule ID": rule.ID, "Request": "api.example.com:443 POST /token",
+		"Source rules": "1", "Applied": "yes",
 	} {
-		if !strings.Contains(output, expected) {
-			t.Fatalf("deny output %q lacks %q", output, expected)
+		if !humanOutputHasRow(output, label, expected) {
+			t.Fatalf("deny output %q lacks %s=%q", output, label, expected)
 		}
 	}
 }
@@ -1552,17 +1554,12 @@ func TestPolicyLearningMutationRendererReportsStoredScope(t *testing.T) {
 		Task: tobari.TaskPolicyAllow, PolicyDirectory: "/tmp/config/tobari/policy",
 		TargetID: candidate.ID, Rule: rule, SourceRuleCount: 1, Applied: true,
 	}))
-	for _, expected := range []string{
-		"target_id: " + candidate.ID,
-		"rule_id: " + rule.ID,
-		"match: exact",
-		"host: api.github.com",
-		"path: /repos/cli/cli",
-		"source_rule_count: 1",
-		"applied: true",
+	for label, expected := range map[string]string{
+		"Target ID": candidate.ID, "Rule ID": rule.ID, "Match": "exact",
+		"Request": "api.github.com:443 GET /repos/cli/cli", "Source rules": "1", "Applied": "yes",
 	} {
-		if !strings.Contains(output, expected) {
-			t.Fatalf("mutation output %q lacks %q", output, expected)
+		if !humanOutputHasRow(output, label, expected) {
+			t.Fatalf("mutation output %q lacks %s=%q", output, label, expected)
 		}
 	}
 }

@@ -507,6 +507,14 @@ func requiredInt(content []byte, expression, label string) (int, error) {
 	return parsed, nil
 }
 
+func contextReportSchemaVersion(runtimeCatalogSource []byte) (int, error) {
+	return requiredInt(
+		runtimeCatalogSource,
+		`JSONEnvelope:\s*"context",[^\r\n]*JSONSchemaVersion:\s*([0-9]+)`,
+		"public Context report schema",
+	)
+}
+
 func envValues(content []byte) map[string]string {
 	values := map[string]string{}
 	for _, line := range strings.Split(string(content), "\n") {
@@ -637,11 +645,7 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
-	contextReportSchema, err := requiredInt(
-		runtimeCatalogSource,
-		`JSONEnvelope:\s*"context",\s*JSONSchemaVersion:\s*([0-9]+)`,
-		"public Context report schema",
-	)
+	contextReportSchema, err := contextReportSchemaVersion(runtimeCatalogSource)
 	if err != nil {
 		return componentVersionDocument{}, err
 	}

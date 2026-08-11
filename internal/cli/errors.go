@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 )
@@ -214,54 +213,33 @@ func renderTextError(payload errorPayload) []byte {
 }
 
 func renderTextErrorWithColor(payload errorPayload, color bool) []byte {
-	if color {
-		output := newHumanOutput(true)
-		output.heading("✗", "Command failed", styleDanger)
-		output.row("Message", escapeTSVCell(payload.Message), styleDanger)
-		output.row("Kind", string(payload.Kind), styleText)
-		output.row("Code", payload.Code, styleText)
-		retryToken := styleText
-		if payload.Retryable {
-			retryToken = styleWarning
-		}
-		output.row("Retryable", humanBool(payload.Retryable), retryToken)
-		if payload.RetryAfter == nil {
-			if payload.Kind == fault.KindRateLimited {
-				output.row("Retry after", "unknown", styleWarning)
-			} else {
-				output.row("Retry after", "none", styleText)
-			}
-		} else {
-			output.row("Retry after", *payload.RetryAfter, styleWarning)
-		}
-		for _, action := range payload.NextActions {
-			output.next(action.Command, action.Reason)
-		}
-		return output.bytes()
+	output := newHumanOutput(color)
+	heading, marker, stateToken, messageToken := "Command failed", "✗", styleDanger, styleDanger
+	if payload.Kind == fault.KindCanceled {
+		heading, marker, stateToken, messageToken = "Canceled", "·", styleMuted, styleText
 	}
-
-	var output strings.Builder
-	fmt.Fprintf(&output, "error: %s\n", applyStyleToken(color, styleDanger, escapeTSVCell(payload.Message)))
-	fmt.Fprintf(&output, "kind: %s\n", applyStyleToken(color, styleText, string(payload.Kind)))
-	fmt.Fprintf(&output, "code: %s\n", applyStyleToken(color, styleText, payload.Code))
-	fmt.Fprintf(&output, "retryable: %t\n", payload.Retryable)
+	output.heading(marker, heading, stateToken)
+	output.row("Message", escapeTSVCell(payload.Message), messageToken)
+	output.row("Kind", string(payload.Kind), styleText)
+	output.row("Code", payload.Code, styleText)
+	retryToken := styleText
+	if payload.Retryable && payload.Kind != fault.KindCanceled {
+		retryToken = styleWarning
+	}
+	output.row("Retryable", humanBool(payload.Retryable), retryToken)
 	if payload.RetryAfter == nil {
 		if payload.Kind == fault.KindRateLimited {
-			fmt.Fprintln(&output, "retry_after: unknown")
+			output.row("Retry after", "unknown", styleWarning)
 		} else {
-			fmt.Fprintln(&output, "retry_after: none")
+			output.row("Retry after", "none", styleText)
 		}
 	} else {
-		fmt.Fprintf(&output, "retry_after: %s\n", *payload.RetryAfter)
+		output.row("Retry after", *payload.RetryAfter, styleWarning)
 	}
 	for _, action := range payload.NextActions {
-		fmt.Fprintf(
-			&output, "next_action: %s — %s\n",
-			applyStyleToken(color, styleAccent, recoveryCommand(action.Command)),
-			applyStyleToken(color, styleText, escapeTSVCell(action.Reason)),
-		)
+		output.next(action.Command, action.Reason)
 	}
-	return []byte(output.String())
+	return output.bytes()
 }
 
 func recoveryCommand(command string) string {

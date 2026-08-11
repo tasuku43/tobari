@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -181,7 +180,7 @@ func runPolicyReview(
 			return c.fail(ctx, selectErr)
 		}
 		if decision.Canceled {
-			return c.emitResult(ctx, renderPolicyReviewCanceled(humanStyleAllowed(ctx, c, c.Out)))
+			return c.fail(ctx, context.Canceled)
 		}
 		if decision.Apply {
 			if len(staged) == 0 {
@@ -296,7 +295,7 @@ func runPolicyRules(
 			return c.fail(ctx, selectErr)
 		}
 		if decision.Canceled {
-			return c.emitResult(ctx, renderPolicyRulesCanceled(humanStyleAllowed(ctx, c, c.Out)))
+			return c.fail(ctx, context.Canceled)
 		}
 		if !policyRuleContainsID(result, decision.RuleID) {
 			return c.fail(ctx, fault.New(
@@ -944,7 +943,7 @@ func renderPolicyCandidatesWithColor(
 		}
 		return append(output, '\n'), nil
 	}
-	if color && format == successFormatText {
+	if format == successFormatText {
 		return renderPolicyCandidatesHuman(result, allowCommand, color), nil
 	}
 	var output bytes.Buffer
@@ -991,7 +990,11 @@ func policyCandidateOutputs(
 func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowCommand string, color bool) []byte {
 	if len(result.Items) == 0 {
 		output := newHumanOutput(color)
-		output.empty("No policy candidates", "No retained denied request is ready for approval.", "cluster denials", "Inspect the recent bounded denial evidence.")
+		output.heading("○", "No policy candidates", styleMuted)
+		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
+		output.row("Details", "No retained denied request is ready for approval.", styleText)
+		output.next("cluster denials", "Inspect the recent bounded denial evidence.")
 		return output.bytes()
 	}
 	output := newHumanOutput(color)
@@ -1001,12 +1004,14 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Candidate %d", index+1))
 		output.row("Context", safeExternalText(item.ContextName), styleText)
+		output.row("Context ID", item.ContextID, styleText)
 		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
 		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
 		output.row("Request", request, styleText)
 		writePolicyGraphQLIdentity(output, item.PolicyProtocolIdentity)
-		output.row("ID", item.ID, styleText)
-		output.row("Project", safeExternalText(item.ProjectID), styleText)
+		output.row("Candidate ID", item.ID, styleText)
+		output.row("Project ID", safeExternalText(item.ProjectID), styleText)
+		output.row("Protocol", safeExternalText(item.EffectiveProtocol()), styleText)
 		output.row("Observed", policyCandidateObservationText(item), styleText)
 		output.row("Latest", safeExternalText(item.ObservedAt), styleText)
 		output.row("Reason", safeExternalText(item.Reason), styleDanger)
@@ -1059,11 +1064,10 @@ func renderPolicyReviewHuman(
 ) []byte {
 	if len(result.Items) == 0 {
 		output := newHumanOutput(color)
-		output.empty(
-			"No pending network permissions",
-			"No retained exact permission is waiting for host review.",
-			"", "",
-		)
+		output.heading("○", "No pending network permissions", styleMuted)
+		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
+		output.row("Details", "No retained exact permission is waiting for host review.", styleText)
 		return output.bytes()
 	}
 	output := newHumanOutput(color)
@@ -1104,14 +1108,6 @@ func writePolicyGraphQLIdentity(output *humanOutput, identity tobari.PolicyProto
 	}
 }
 
-func renderPolicyReviewCanceled(color bool) []byte {
-	output := newHumanOutput(color)
-	output.heading("·", "Permission review canceled", styleMuted)
-	output.row("Changed", "No permissions changed.", styleText)
-	output.next("policy review", "Review pending permissions when you are ready.")
-	return output.bytes()
-}
-
 func renderPolicyReviewChange(result tobari.PolicyReviewChange, color bool) []byte {
 	var output bytes.Buffer
 	fmt.Fprintln(&output, applyStyleToken(color, styleSuccess, "✓ Reviewed permissions applied"))
@@ -1137,7 +1133,7 @@ func renderPolicyRulesWithCommands(
 		}
 		return append(output, '\n'), nil
 	}
-	if color && format == successFormatText {
+	if format == successFormatText {
 		return renderPolicyRulesHuman(result, resetCommand, color), nil
 	}
 	var output bytes.Buffer
@@ -1177,11 +1173,10 @@ func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []po
 func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string, color bool) []byte {
 	if len(result.Items) == 0 {
 		output := newHumanOutput(color)
-		output.empty(
-			"No learned policy decisions",
-			"No current Allow or exact Deny decision is active.",
-			"policy review", "Review retained denied permissions when one needs a decision.",
-		)
+		output.heading("○", "No learned policy decisions", styleMuted)
+		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		output.row("Details", "No current Allow or exact Deny decision is active.", styleText)
+		output.next("policy review", "Review retained denied permissions when one needs a decision.")
 		return output.bytes()
 	}
 	output := newHumanOutput(color)
@@ -1209,10 +1204,22 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string,
 			output.row("Request", policyRuleRequest(item), styleText)
 			writePolicyGraphQLIdentity(output, item.PolicyProtocolIdentity)
 			output.row("Context", safeExternalText(item.ContextName), styleText)
+			output.row("Context ID", item.ContextID, styleText)
 			output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
-			output.row("ID", item.ID, styleText)
+			output.row("Rule ID", item.ID, styleText)
 			output.row("Match", safeExternalText(item.Match), styleText)
-			output.row("Project", safeExternalText(item.ProjectID), styleText)
+			output.row("Project ID", safeExternalText(item.ProjectID), styleText)
+			output.row("Protocol", safeExternalText(item.EffectiveProtocol()), styleText)
+			if len(item.Examples) > 0 {
+				values := make([]string, len(item.Examples))
+				for index, value := range item.Examples {
+					values[index] = safeExternalText(value)
+				}
+				output.row("Examples", strings.Join(values, ", "), styleText)
+			}
+			if len(item.SourceCandidates) > 0 {
+				output.row("Source IDs", strings.Join(item.SourceCandidates, ", "), styleText)
+			}
 			output.row("Reset", resetCommand+" --id "+item.ID, styleAccent)
 		}
 	}
@@ -1220,52 +1227,19 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string,
 	return output.bytes()
 }
 
-func renderPolicyRulesCanceled(color bool) []byte {
+func renderPolicyRuleResetWithColor(result tobari.PolicyRuleReset, color bool) []byte {
 	output := newHumanOutput(color)
-	output.heading("·", "Policy decision review canceled", styleMuted)
-	output.row("Changed", "No policy decisions changed.", styleText)
-	output.next("policy rules", "Inspect current learned decisions when you are ready.")
+	output.heading("✓", "Policy decision reset", styleSuccess)
+	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	output.row("Target", result.TargetID, styleText)
+	output.row("Removed", safeExternalText(result.Decision), styleText)
+	output.row("Default deny", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
+	output.next("policy review", "Review the retained denied effect again before granting a new decision.")
 	return output.bytes()
 }
 
-func renderPolicyRuleResetWithColor(result tobari.PolicyRuleReset, color bool) []byte {
-	if color {
-		output := newHumanOutput(true)
-		output.heading("✓", "Policy decision reset", styleSuccess)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
-		output.row("Target", result.TargetID, styleText)
-		output.row("Removed", safeExternalText(result.Decision), styleText)
-		output.row("Default deny", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
-		output.next("policy review", "Review the retained denied effect again before granting a new decision.")
-		return output.bytes()
-	}
-	var output bytes.Buffer
-	fmt.Fprintf(&output, "policy: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.PolicyDirectory)))
-	fmt.Fprintf(&output, "target_id: %s\n", applyStyleToken(color, styleText, result.TargetID))
-	fmt.Fprintf(&output, "decision: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Decision)))
-	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
-	fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "next: tobari policy review"))
-	return output.Bytes()
-}
-
 func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bool) []byte {
-	if !color {
-		var output bytes.Buffer
-		fmt.Fprintln(&output, "testing_policy: passed")
-		fmt.Fprintln(&output, "applying_exact_rule: applied")
-		fmt.Fprintln(&output, "permission_allowed: true")
-		fmt.Fprintln(&output, "host: "+applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Host)))
-		fmt.Fprintln(&output, "port: "+strconv.Itoa(result.Rule.Port))
-		fmt.Fprintln(&output, "method: "+applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Method)))
-		fmt.Fprintln(&output, "path: "+applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Path)))
-		fmt.Fprintln(&output, "protocol: "+applyStyleToken(color, styleText, escapeTSVCell(result.Rule.EffectiveProtocol())))
-		fmt.Fprintln(&output, "graphql_operation_type: "+applyStyleToken(color, styleText, escapeTSVCell(result.Rule.GraphQLOperationType)))
-		fmt.Fprintln(&output, "graphql_root_field: "+applyStyleToken(color, styleText, escapeTSVCell(result.Rule.GraphQLRootField)))
-		fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "next: tobari"))
-		return output.Bytes()
-	}
-
-	output := newHumanOutput(true)
+	output := newHumanOutput(color)
 	output.heading("✓", "Permission allowed", styleSuccess)
 	output.row("Testing policy", "passed", styleSuccess)
 	output.row("Applying exact rule", "applied", styleSuccess)
@@ -1336,7 +1310,7 @@ func renderPolicyCompactionsWithColor(
 		}
 		return append(output, '\n'), nil
 	}
-	if color && format == successFormatText {
+	if format == successFormatText {
 		return renderPolicyCompactionsHuman(result, compactCommand, color), nil
 	}
 	var output bytes.Buffer
@@ -1357,7 +1331,10 @@ func renderPolicyCompactionsWithColor(
 func renderPolicyCompactionsHuman(result tobari.PolicyCompactionReport, compactCommand string, color bool) []byte {
 	if len(result.Items) == 0 {
 		output := newHumanOutput(color)
-		output.empty("No policy compactions", "No compatible exact rules are ready to be compacted.", "policy candidates", "Review the current exact policy candidates.")
+		output.heading("○", "No policy compactions", styleMuted)
+		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		output.row("Details", "No compatible exact rules are ready to be compacted.", styleText)
+		output.next("policy candidates", "Review the current exact policy candidates.")
 		return output.bytes()
 	}
 	output := newHumanOutput(color)
@@ -1366,11 +1343,12 @@ func renderPolicyCompactionsHuman(result tobari.PolicyCompactionReport, compactC
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Compaction %d", index+1))
 		output.row("Context", safeExternalText(item.ContextName), styleText)
+		output.row("Context ID", item.ContextID, styleText)
 		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
 		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.PathPrefix))
 		output.row("Request", request, styleText)
-		output.row("ID", item.ID, styleText)
-		output.row("Project", safeExternalText(item.ProjectID), styleText)
+		output.row("Compaction ID", item.ID, styleText)
+		output.row("Project ID", safeExternalText(item.ProjectID), styleText)
 		output.row("Source rules", fmt.Sprintf("%d", len(item.SourceRuleIDs)), styleText)
 		examples := make([]string, len(item.Examples))
 		for exampleIndex, example := range item.Examples {
@@ -1388,89 +1366,53 @@ func renderPolicyLearningChange(result tobari.PolicyLearningChange) []byte {
 }
 
 func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, color bool) []byte {
-	if color {
-		output := newHumanOutput(true)
-		marker, title, token := "✓", "Policy rule updated", styleSuccess // #nosec G101 -- human-readable status text contains no credential.
-		if !result.Applied {
-			marker, title, token = "!", "Policy rule recorded", styleWarning // #nosec G101 -- human-readable status text contains no credential.
-		}
-		output.heading(marker, title, token)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
-		output.row("Target", result.TargetID, styleText)
-		output.row("Rule", result.Rule.ID, styleText)
-		output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
-		output.row("Tobari", safeExternalText(result.Rule.ProjectRoot), styleText)
-		output.row("Match", safeExternalText(result.Rule.Match), styleText)
-		output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port, safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path)), styleText)
-		writePolicyGraphQLIdentity(output, result.Rule.PolicyProtocolIdentity)
-		output.row("Project", safeExternalText(result.Rule.ProjectID), styleText)
-		output.row("Source rules", fmt.Sprintf("%d", result.SourceRuleCount), styleText)
-		output.row("Applied", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
-		if result.Task == tobari.TaskPolicyAllow {
-			output.next("tobari", "Re-enter the Workspace and retry the same request.")
-		} else {
-			output.next("cluster status", "Verify the shared policy component after the change.")
-		}
-		return output.bytes()
+	output := newHumanOutput(color)
+	marker, title, token := "✓", "Policy rule updated", styleSuccess // #nosec G101 -- human-readable status text contains no credential.
+	if !result.Applied {
+		marker, title, token = "!", "Policy rule recorded", styleWarning // #nosec G101 -- human-readable status text contains no credential.
 	}
-	var output bytes.Buffer
-	fmt.Fprintf(&output, "policy: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.PolicyDirectory)))
-	fmt.Fprintf(&output, "target_id: %s\n", applyStyleToken(color, styleText, result.TargetID))
-	fmt.Fprintf(&output, "rule_id: %s\n", applyStyleToken(color, styleText, result.Rule.ID))
-	fmt.Fprintf(&output, "context_id: %s\n", result.Rule.ContextID)
-	fmt.Fprintf(&output, "context: %s\n", escapeTSVCell(result.Rule.ContextName))
-	fmt.Fprintf(&output, "project_root: %s\n", escapeTSVCell(result.Rule.ProjectRoot))
-	fmt.Fprintf(&output, "match: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Match)))
-	fmt.Fprintf(&output, "project_id: %s\n", applyStyleToken(color, styleText, result.Rule.ProjectID))
-	fmt.Fprintf(&output, "host: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Host)))
-	fmt.Fprintf(&output, "port: %d\n", result.Rule.Port)
-	fmt.Fprintf(&output, "method: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Method)))
-	fmt.Fprintf(&output, "path: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Path)))
-	fmt.Fprintf(&output, "protocol: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.EffectiveProtocol())))
-	fmt.Fprintf(&output, "graphql_operation_type: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.GraphQLOperationType)))
-	fmt.Fprintf(&output, "graphql_root_field: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.GraphQLRootField)))
-	fmt.Fprintf(&output, "source_rule_count: %d\n", result.SourceRuleCount)
-	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
-	return output.Bytes()
+	output.heading(marker, title, token)
+	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	output.row("Target ID", result.TargetID, styleText)
+	output.row("Rule ID", result.Rule.ID, styleText)
+	output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
+	output.row("Context ID", result.Rule.ContextID, styleText)
+	output.row("Tobari", safeExternalText(result.Rule.ProjectRoot), styleText)
+	output.row("Match", safeExternalText(result.Rule.Match), styleText)
+	output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port, safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path)), styleText)
+	writePolicyGraphQLIdentity(output, result.Rule.PolicyProtocolIdentity)
+	output.row("Project ID", safeExternalText(result.Rule.ProjectID), styleText)
+	output.row("Protocol", safeExternalText(result.Rule.EffectiveProtocol()), styleText)
+	output.row("Source rules", fmt.Sprintf("%d", result.SourceRuleCount), styleText)
+	output.row("Applied", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
+	if result.Task == tobari.TaskPolicyAllow {
+		output.next("tobari", "Re-enter the Workspace and retry the same request.")
+	} else {
+		output.next("cluster status", "Verify the shared policy component after the change.")
+	}
+	return output.bytes()
 }
 
 func renderPolicyDenyChangeWithColor(result tobari.PolicyDenyChange, color bool) []byte {
-	if color {
-		output := newHumanOutput(true)
-		output.heading("✓", "Permission denied", styleSuccess)
-		output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
-		output.row("Tobari", safeExternalText(result.Rule.ProjectRoot), styleText)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
-		output.row("Target", result.TargetID, styleText)
-		output.row("Rule", result.Rule.ID, styleText)
-		output.row("Request", fmt.Sprintf(
-			"%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port,
-			safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
-		), styleText)
-		writePolicyGraphQLIdentity(output, result.Rule.PolicyProtocolIdentity)
-		output.row("Project", safeExternalText(result.Rule.ProjectID), styleText)
-		output.row("Applied", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
-		output.next("policy review", "Review the remaining pending permissions.")
-		return output.bytes()
-	}
-	var output bytes.Buffer
-	fmt.Fprintf(&output, "policy: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.PolicyDirectory)))
-	fmt.Fprintf(&output, "target_id: %s\n", applyStyleToken(color, styleText, result.TargetID))
-	fmt.Fprintf(&output, "rule_id: %s\n", applyStyleToken(color, styleText, result.Rule.ID))
-	fmt.Fprintf(&output, "context_id: %s\n", result.Rule.ContextID)
-	fmt.Fprintf(&output, "context: %s\n", escapeTSVCell(result.Rule.ContextName))
-	fmt.Fprintf(&output, "project_root: %s\n", escapeTSVCell(result.Rule.ProjectRoot))
-	fmt.Fprintf(&output, "project_id: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.ProjectID)))
-	fmt.Fprintf(&output, "host: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Host)))
-	fmt.Fprintf(&output, "port: %d\n", result.Rule.Port)
-	fmt.Fprintf(&output, "method: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Method)))
-	fmt.Fprintf(&output, "path: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.Path)))
-	fmt.Fprintf(&output, "protocol: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.EffectiveProtocol())))
-	fmt.Fprintf(&output, "graphql_operation_type: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.GraphQLOperationType)))
-	fmt.Fprintf(&output, "graphql_root_field: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Rule.GraphQLRootField)))
-	fmt.Fprintf(&output, "source_rule_count: %d\n", result.SourceRuleCount)
-	fmt.Fprintf(&output, "applied: %t\n", result.Applied)
-	return output.Bytes()
+	output := newHumanOutput(color)
+	output.heading("✓", "Permission denied", styleSuccess)
+	output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
+	output.row("Tobari", safeExternalText(result.Rule.ProjectRoot), styleText)
+	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+	output.row("Target ID", result.TargetID, styleText)
+	output.row("Rule ID", result.Rule.ID, styleText)
+	output.row("Context ID", result.Rule.ContextID, styleText)
+	output.row("Request", fmt.Sprintf(
+		"%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port,
+		safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
+	), styleText)
+	writePolicyGraphQLIdentity(output, result.Rule.PolicyProtocolIdentity)
+	output.row("Project ID", safeExternalText(result.Rule.ProjectID), styleText)
+	output.row("Protocol", safeExternalText(result.Rule.EffectiveProtocol()), styleText)
+	output.row("Source rules", fmt.Sprintf("%d", result.SourceRuleCount), styleText)
+	output.row("Applied", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
+	output.next("policy review", "Review the remaining pending permissions.")
+	return output.bytes()
 }
 
 func renderClusterDenials(
@@ -1518,7 +1460,7 @@ func renderClusterDenialsWithReviewCommand(
 		}
 		return append(output, '\n'), nil
 	}
-	if color && format == successFormatText {
+	if format == successFormatText {
 		return renderClusterDenialsHuman(result, reviewCommand, color), nil
 	}
 	var output bytes.Buffer
@@ -1543,7 +1485,11 @@ func renderClusterDenialsWithReviewCommand(
 func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string, color bool) []byte {
 	if len(result.Items) == 0 {
 		output := newHumanOutput(color)
-		output.empty("No policy denials", "The selected Gateway log window contains no denied requests.", "policy candidates", "Check whether a new denied request has been retained.")
+		output.heading("○", "No policy denials", styleMuted)
+		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
+		output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
+		output.row("Details", "The selected Gateway log window contains no denied requests.", styleText)
+		output.next("policy candidates", "Check whether a new denied request has been retained.")
 		return output.bytes()
 	}
 	output := newHumanOutput(color)
@@ -1554,12 +1500,14 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Denial %d", index+1))
 		output.row("Context", safeExternalText(item.ContextName), styleText)
+		output.row("Context ID", item.ContextID, styleText)
 		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
 		output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path)), styleText)
 		writePolicyGraphQLIdentity(output, item.PolicyProtocolIdentity)
 		output.row("Timestamp", safeExternalText(item.Timestamp), styleText)
 		output.row("Request ID", item.RequestID, styleText)
-		output.row("Project", safeExternalText(item.ProjectID), styleText)
+		output.row("Project ID", safeExternalText(item.ProjectID), styleText)
+		output.row("Protocol", safeExternalText(item.EffectiveProtocol()), styleText)
 		output.row("Status", fmt.Sprintf("%d", item.StatusCode), styleDanger)
 		output.row("Reason", safeExternalText(item.Reason), styleDanger)
 		learnable := "no"
@@ -1778,7 +1726,7 @@ func renderTobariListWithColor(result tobari.ListResult, format successFormat, c
 		}
 		return append(output, '\n'), nil
 	}
-	if color && format == successFormatText {
+	if format == successFormatText {
 		if len(result.Items) == 0 {
 			output := newHumanOutput(color)
 			output.empty("No Tobari attached", "The shared cluster has no attached Tobari.", "tobari", "Create or enter a Tobari from the current project directory.")
@@ -1848,7 +1796,7 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 		}
 		return append(output, '\n'), nil
 	}
-	if color && format == successFormatText {
+	if format == successFormatText {
 		if !result.Exists {
 			output := newHumanOutput(color)
 			output.heading("○", "No Workspace in selected Context", styleMuted)
@@ -1927,7 +1875,7 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 		}
 		return append(output, '\n'), nil
 	}
-	if color && format == successFormatText {
+	if format == successFormatText {
 		if len(items) == 0 {
 			empty := newHumanOutput(color)
 			empty.empty("No Workspaces", "No Workspace state is configured.", "tobari", "Create or enter a Workspace from the current directory.")
@@ -1960,55 +1908,40 @@ func renderProjectDelete(result tobari.ProjectDeleteResult) []byte {
 }
 
 func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool) []byte {
-	if color {
-		output := newHumanOutput(true)
-		marker, title, token := "✓", "Tobari deleted", styleSuccess
-		if !result.Deleted {
-			marker, title, token = "!", "Tobari not deleted", styleWarning // #nosec G101 -- human-readable status text contains no credential.
-		}
-		output.heading(marker, title, token)
-		output.row("Root", safeExternalText(result.Root), styleText)
-		output.row("Context", safeExternalText(result.ContextName), styleText)
-		if result.Deleted {
-			output.next("tobari", "Create or enter a Tobari from this project directory.")
-		}
-		return output.bytes()
+	output := newHumanOutput(color)
+	marker, title, token := "✓", "Tobari deleted", styleSuccess
+	if !result.Deleted {
+		marker, title, token = "!", "Tobari not deleted", styleWarning // #nosec G101 -- human-readable status text contains no credential.
 	}
-	var output bytes.Buffer
-	fmt.Fprintf(&output, "deleted: %t\n", result.Deleted)
-	fmt.Fprintf(&output, "root: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Root)))
-	fmt.Fprintf(&output, "context: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.ContextName)))
-	fmt.Fprintf(&output, "context_id: %s\n", result.ContextID)
-	fmt.Fprintf(&output, "id: %s\n", applyStyleToken(color, styleText, result.ID))
-	fmt.Fprintf(&output, "home: %s\n", applyStyleToken(color, styleText, escapeTSVCell(result.Home)))
-	return output.Bytes()
+	output.heading(marker, title, token)
+	output.row("Deleted", humanBool(result.Deleted), humanOutcomeBoolToken(result.Deleted))
+	output.row("Root", safeExternalText(result.Root), styleText)
+	output.row("Context", safeExternalText(result.ContextName), styleText)
+	output.row("Context ID", result.ContextID, styleText)
+	output.row("Diagnostic ID", result.ID, styleText)
+	output.row("Diagnostic home", safeExternalText(result.Home), styleText)
+	if result.Deleted {
+		output.next("tobari", "Create or enter a Tobari from this project directory.")
+	}
+	return output.bytes()
 }
 
 func renderAttachResult(instance tobari.Instance, color bool) []byte {
-	if color {
-		output := newHumanOutput(true)
-		output.heading("✓", "Tobari attached", styleSuccess)
-		output.row("Name", safeExternalText(instance.Name), styleText)
-		output.row("Root", safeExternalText(instance.Root), styleText)
-		output.row("Image", safeExternalText(instance.Image), styleText)
-		output.next("list", "Review configured Tobari projects.")
-		return output.bytes()
-	}
-	var output bytes.Buffer
-	fmt.Fprintf(&output, "name: %s\n", applyStyleToken(color, styleText, escapeTSVCell(instance.Name)))
-	fmt.Fprintf(&output, "root: %s\n", applyStyleToken(color, styleText, escapeTSVCell(instance.Root)))
-	fmt.Fprintf(&output, "image: %s\n", applyStyleToken(color, styleText, escapeTSVCell(instance.Image)))
-	return output.Bytes()
+	output := newHumanOutput(color)
+	output.heading("✓", "Tobari attached", styleSuccess)
+	output.row("Name", safeExternalText(instance.Name), styleText)
+	output.row("Root", safeExternalText(instance.Root), styleText)
+	output.row("Image", safeExternalText(instance.Image), styleText)
+	output.next("list", "Review configured Tobari projects.")
+	return output.bytes()
 }
 
 func renderDetachedResult(color bool) []byte {
-	if color {
-		output := newHumanOutput(true)
-		output.heading("✓", "Tobari detached", styleSuccess)
-		output.next("list", "Review the remaining configured Tobari projects.")
-		return output.bytes()
-	}
-	return []byte(applyStyleToken(color, styleSuccess, "detached: true") + "\n")
+	output := newHumanOutput(color)
+	output.heading("✓", "Tobari detached", styleSuccess)
+	output.row("Detached", "yes", styleSuccess)
+	output.next("list", "Review the remaining configured Tobari projects.")
+	return output.bytes()
 }
 
 func renderSafeLogs(raw []byte, style bool) []byte {

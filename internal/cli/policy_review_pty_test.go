@@ -68,8 +68,12 @@ func TestPolicyReviewPTYChild(t *testing.T) {
 		caseName, code, runtimeFake.applyCalls, runtimeFake.denyCalls,
 		candidateID, sourceCandidate, denyCandidate,
 	)
-	if code != ExitOK {
-		t.Fatalf("policy review returned %d", code)
+	wantCode := ExitOK
+	if strings.Contains(caseName, "cancel") {
+		wantCode = ExitCanceled
+	}
+	if code != wantCode {
+		t.Fatalf("policy review returned %d, want %d", code, wantCode)
 	}
 }
 
@@ -136,9 +140,9 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output := runPolicyReviewPTYChild(t, test.name, test.input)
-			if !strings.Contains(output, "Permission review canceled") ||
+			if !strings.Contains(output, "Canceled") ||
 				!strings.Contains(output, "\x1b[?25h") ||
-				!strings.Contains(output, "apply_calls=0 deny_calls=0") {
+				!strings.Contains(output, "code=11 apply_calls=0 deny_calls=0") {
 				t.Fatalf("non-mutating PTY output = %q", output)
 			}
 			if strings.Contains(output, "Permission allowed") || strings.Contains(output, "Permission denied") {
@@ -190,14 +194,14 @@ func TestPolicyReviewDirectDetailActionRealPTYAndCancellation(t *testing.T) {
 		{
 			name:     "back-then-cancel",
 			input:    "1|q|q",
-			marker:   "case=back-then-cancel code=0 apply_calls=0 deny_calls=0",
-			wantText: []string{"Permission review canceled", "Changed", "No permissions changed."},
+			marker:   "case=back-then-cancel code=11 apply_calls=0 deny_calls=0",
+			wantText: []string{"Canceled"},
 		},
 		{
 			name:     "invalid-detail-key-then-cancel",
 			input:    "1|x|q|q",
-			marker:   "case=invalid-detail-key-then-cancel code=0 apply_calls=0 deny_calls=0",
-			wantText: []string{"Press a to allow exact, d to deny exact, or q to go back.", "Permission review canceled", "No permissions changed."},
+			marker:   "case=invalid-detail-key-then-cancel code=11 apply_calls=0 deny_calls=0",
+			wantText: []string{"Press a to allow exact, d to deny exact, or q to go back.", "Canceled"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

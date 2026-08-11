@@ -351,7 +351,7 @@ supersede it explicitly. A migration must not check boxes automatically.
 Contract lint validates the executable catalog before checking two repository ledgers:
 
 - [`.harness/capabilities.json`](../.harness/capabilities.json) records supported and deliberately unsupported user capabilities without copying command paths. Each public capability ID must appear in at least one `AgentContract.CapabilityID`, every catalog capability must be public, and an `internal`, `deferred`, or `excluded` entry must remain absent from the catalog and explain why.
-- [`.harness/schemas.json`](../.harness/schemas.json) pins publishable external-schema fixtures by repository-relative path and exact SHA-256 digest. Each entry also records provenance and license. An explicit empty array is valid before the project adopts an external schema.
+- [`.harness/schemas.json`](../.harness/schemas.json) pins publishable external-schema and conformance fixtures by repository-relative path and exact SHA-256 digest. Each entry also records provenance and license; a corpus may additionally pin its exact byte and case counts. An explicit empty array is valid before the project adopts an external schema or conformance corpus.
 
 Both ledgers are strict JSON and must themselves be regular files reached without symbolic links. Unknown or duplicate object keys, duplicate IDs, malformed lowercase dot IDs, trailing values, and implicit `null` lists fail. Capability command paths remain owned only by the catalog; adding them to the ledger creates forbidden duplication rather than useful documentation.
 
@@ -416,12 +416,20 @@ The test suite has complementary levels:
   repeatability, dependency/conflict, duplicate scalar, and syntax drift. The
   exact six semantic style tokens are tested with styling enabled and disabled;
   `NO_COLOR` and non-TTY tests reject ANSI style sequences, while marker and
-  wording canaries prove status remains distinguishable without color. Catalog
+  wording canaries prove status remains distinguishable without color. A
+  ledger-pinned typed fixture and presentation-independent answer key drive
+  lifecycle, scoped-empty, warning, failure, and pre-action-cancel renderers
+  through colored TTY, `NO_COLOR` TTY, and redirected text. Their checks fix
+  required facts, exact Next argv, unsupported-inference canaries, one task
+  invocation, and zero external processing. Catalog
   validation rejects every text-producing command that omits the shared
   semantic-token presentation declaration. The
   Workspace selector tests cover the dependency-free raw key state machine,
-  bounded scrolling, terminal restoration, English status rendering, and
-  ANSI-free numbered-input fallback. Interactive entry tests preserve the
+  bounded scrolling, no redraw during repeated idle VTIME polls, exactly-once
+  terminal restoration, English status rendering, and ANSI-free numbered-input
+  fallback. Catalog routing tests cover bare canonical namespace help plus no
+  more than three deterministic, exact-selector typo suggestions. Interactive
+  entry tests preserve the
   child exit status, assert that the Workspace remains logically existing
   after the child returns, and keep the resume/delete summary on host stderr
   rather than child stdout.
@@ -680,7 +688,7 @@ Every strong statement should identify its enforcement path.
 | Build and resolver identity | Pure identity validation, exact version text/JSON tests, standard/dev build-tag resolver fixtures, artifact metadata inspection, and a zero-progress/zero-Docker API-mismatch preflight test |
 | Finite domain state | Types, constructors, and table-driven negative tests |
 | Catalog completeness | Whole-catalog contract tests |
-| Semantic terminal presentation | Exact six-token rendering tests, catalog-wide text-presentation declarations, `NO_COLOR`/non-TTY ANSI-free tests, color-independent state canaries, and AST lint that rejects direct ANSI SGR outside the shared style layer |
+| Semantic terminal presentation | Ledger-pinned typed fixture and answer key across colored TTY, `NO_COLOR` TTY, redirected text, scoped empty, warning, failure, and neutral pre-action cancellation; exact six-token rendering tests; catalog-wide text-presentation declarations; idle-selector redraw/restoration tests; bounded catalog-derived namespace/suggestion tests; and AST lint that rejects style-dependent structure or direct ANSI SGR outside the shared style layer |
 | Output delivery versus collection coverage | Independent finite enums and catalog tests, including complete bounded/differential windows and paged exhaustive traversal |
 | Operationally closed supported outcome | Reviewed agent-readiness transcript with zero undeclared external reconstruction, plus task-owned deterministic-composition tests and declared field extraction |
 | Request-bound semantic result | Per-capability domain/application tests for declared task identity and every applicable request dimension, including scope, state, contextual-kind, empty-result, no-partial-result, and negative-inference fixtures where applicable |
