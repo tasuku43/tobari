@@ -4,109 +4,101 @@ const t = <T,>(english: T, japanese: T) => (isJapanese ? japanese : english);
 const withBase = (path: string) =>
   `${import.meta.env.BASE_URL}${isJapanese ? "ja/" : ""}${path.replace(/^\//, "")}`;
 
-const flow = t(
-  [
-    ["Tobari", "runtime init", "Create the managed Dockerfile"],
-    ["Dockerfile", "edit", "Add the coding agent and project tools"],
-    ["Tobari", "runtime build", "Build and validate the image"],
-    ["Project", "tobari", "Enter the Workspace with the new runtime"],
-    ["Workspace", "agent --version", "Verify the executable"],
-  ],
-  [
-    ["Tobari", "runtime init", "管理対象の Dockerfile を作る"],
-    ["Dockerfile", "編集", "エージェントと開発ツールを追加する"],
-    ["Tobari", "runtime build", "イメージをビルドして検査する"],
-    ["プロジェクト", "tobari", "新しいランタイムで Workspace に入る"],
-    ["Workspace", "agent --version", "実行ファイルを確認する"],
-  ],
-);
-
 const steps = t(
   [
     {
-      title: "Create the runtime Dockerfile",
-      location: "Trusted host",
+      title: "Create the managed Dockerfile",
       command: `tobari runtime init`,
       expected:
-        "Tobari creates its managed runtime Dockerfile and reports the path. Creating the file does not build or switch the runtime yet.",
+        "Tobari creates the runtime Dockerfile and reports its path. Nothing is built or switched yet.",
       note:
-        "If the recipe already exists, keep it and edit that file. If you no longer know its path, `tobari context show` can report it; you do not need to learn Contexts to finish this setup.",
+        "If the recipe already exists, keep and edit that file instead of initializing it again. The detailed runtime guide covers recovery when you no longer know the managed path.",
     },
     {
-      title: "Add the coding agent and the tools your project needs",
-      location: "Edit the Dockerfile on the trusted host",
+      title: "Add the coding agent and project tools",
       command: `<editor> <Dockerfile path printed by Tobari>`,
       expected:
-        "Keep the generated base, entrypoint, and final `USER tobari`. Add package and agent installation commands between the generated `USER root` and `USER tobari` lines.",
+        "Keep the generated base, entrypoint, and final `USER tobari`. Add installation commands between `USER root` and `USER tobari`.",
       note:
-        "Pin versions where practical. Do not put access tokens, cloud credentials, host credential files, or private package-manager configuration into the image.",
+        "Pin versions where practical. Do not put tokens, cloud credentials, host credential files, or private package-manager configuration into the image.",
     },
     {
       title: "Build and validate the runtime",
-      location: "Trusted host",
       command: `tobari runtime build`,
       expected:
-        "Tobari builds the image and checks the runtime interface. Only a successful compatible build becomes the runtime used on the next Workspace entry; a failed build leaves the previous runtime in place.",
+        "Tobari builds the image and checks the runtime interface. A compatible successful build is used on the next Workspace entry; a failed build leaves the previous runtime in place.",
       note:
-        "This Docker build runs on the host. Network access performed by the Dockerfile is not reviewed by the Workspace HTTP policy, so review the base image and every download used during the build.",
+        "The build runs on the host. Downloads performed by the Dockerfile do not pass through Workspace policy review, so review the base image and download sources.",
     },
     {
       title: "Enter a real project and verify the agent",
-      location: "Trusted host → Workspace",
       command: `cd /path/to/your/project\ntobari\n\n# Inside the Workspace\ncommand -v <agent-command>\n<agent-command> --version`,
       expected:
-        "The coding-agent executable and the project toolchain are available inside the Workspace. If an existing Workspace used the previous runtime, Tobari may replace only its work container during entry.",
+        "The agent executable and project toolchain are available inside the Workspace. If the runtime changed, an existing Workspace may replace only its work container during entry.",
       note:
-        "Replace the placeholders with the command you installed. Installing an executable does not authenticate it and does not grant outbound network permission; those are the next steps.",
+        "Installing the executable does not authenticate it and does not grant outbound network permission. Configure authentication next.",
     },
   ],
   [
     {
       title: "ランタイム用の Dockerfile を作る",
-      location: "信頼するホスト",
       command: `tobari runtime init`,
       expected:
-        "Tobari が管理するランタイム用 Dockerfile を作り、そのパスを表示します。この時点では、まだイメージをビルドしたり、使用するランタイムを切り替えたりしません。",
+        "Tobari がランタイム用 Dockerfile を作り、そのパスを表示します。この時点では、まだビルドも切り替えも行いません。",
       note:
-        "すでに Dockerfile がある場合は、そのファイルをそのまま編集します。保存場所が分からない場合だけ `tobari context show` で確認できます。ここで Context の仕組みを理解する必要はありません。",
+        "すでに Dockerfile がある場合は、再初期化せず既存のファイルを編集します。管理対象のパスが分からなくなった場合の確認方法は、ランタイムの詳細設定で扱います。",
     },
     {
-      title: "エージェントと必要な開発ツールを追加する",
-      location: "信頼するホストで Dockerfile を編集",
+      title: "エージェントと開発ツールを追加する",
       command: `<エディタ> <Tobari が表示した Dockerfile のパス>`,
       expected:
-        "生成済みのベース、エントリーポイント、最後の `USER tobari` は維持します。パッケージやエージェントのインストール処理を、生成済みの `USER root` と `USER tobari` の間へ追加します。",
+        "生成済みのベース、エントリーポイント、最後の `USER tobari` を維持し、`USER root` と `USER tobari` の間にインストール処理を追加します。",
       note:
-        "可能な範囲でバージョンを固定してください。アクセストークン、クラウド認証情報、ホスト側の認証ファイル、非公開のパッケージ設定はイメージへ入れません。",
+        "可能な範囲でバージョンを固定します。トークン、クラウド認証情報、ホスト側の認証ファイル、非公開のパッケージ設定はイメージへ入れません。",
     },
     {
       title: "ランタイムをビルドして検査する",
-      location: "信頼するホスト",
       command: `tobari runtime build`,
       expected:
-        "Tobari がイメージをビルドし、ランタイムとして必要なインターフェースを検査します。互換性のあるビルドに成功した場合だけ、次に Workspace へ入るとき新しいランタイムが使われます。失敗した場合は、それまでのランタイムが変わりません。",
+        "Tobari がイメージをビルドし、ランタイムとして必要なインターフェースを検査します。互換性のあるビルドに成功した場合だけ、次の Workspace 入室で新しいランタイムが使われます。失敗した場合は、それまでのランタイムが変わりません。",
       note:
-        "この Docker ビルドはホスト上で実行されます。Dockerfile がビルド中に行う通信は Workspace の HTTP ポリシーレビューを通らないため、ベースイメージとダウンロード先を確認してください。",
+        "ビルドはホスト上で実行されます。Dockerfile がビルド中に行うダウンロードは Workspace のポリシーレビューを通らないため、ベースイメージと取得元を確認します。",
     },
     {
       title: "実際のプロジェクトへ入り、エージェントを確認する",
-      location: "信頼するホスト → Workspace",
       command: `cd /path/to/your/project\ntobari\n\n# Workspace 内\ncommand -v <エージェントのコマンド>\n<エージェントのコマンド> --version`,
       expected:
-        "Workspace 内でコーディングエージェントと必要な開発ツールを利用できます。既存 Workspace が以前のランタイムを使っていた場合は、入室時に作業コンテナだけを置き換えることがあります。",
+        "Workspace 内でエージェントと必要な開発ツールを利用できます。ランタイムが変わった既存 Workspace では、入室時に作業コンテナだけを置き換えることがあります。",
       note:
-        "プレースホルダーは、実際にインストールしたコマンドへ置き換えてください。実行ファイルを追加しても認証は完了せず、外部通信の許可も増えません。次にその設定を行います。",
+        "実行ファイルを追加しても認証は完了せず、外部通信の許可も増えません。次に認証を設定します。",
     },
   ],
 );
 
-const dockerfileExample = `# Keep the generated FROM line.\n\nUSER root\n\nRUN apt-get update \\\n    && apt-get install -y --no-install-recommends \\\n       nodejs npm ripgrep \\\n    && rm -rf /var/lib/apt/lists/*\n\n# Install the coding agent using its official, version-pinned method.\n# RUN ...\n\nUSER tobari`;
+const flow = t(
+  [
+    "Create Dockerfile",
+    "Add agent and tools",
+    "Build and validate",
+    "Enter project",
+    "Verify agent",
+  ],
+  [
+    "Dockerfile を作る",
+    "エージェントとツールを追加",
+    "ビルドして検査",
+    "プロジェクトへ入る",
+    "エージェントを確認",
+  ],
+);
+
+const dockerfileExample = `# Keep the generated FROM line.\n\nUSER root\n\nRUN apt-get update \\\n    && apt-get install -y --no-install-recommends \\\n       nodejs npm ripgrep \\\n    && rm -rf /var/lib/apt/lists/*\n\n# Install your coding agent using its official method.\n# RUN ...\n\nUSER tobari`;
 ---
 
 <div class="runtime-onboarding">
   <section class="runtime-core">
-    <p class="runtime-eyebrow">
-      {t("Step 2: make the Workspace useful", "次のステップ：実作業できる環境を作る")}
+    <p class="eyebrow">
+      {t("Make the Workspace useful", "実作業できる環境を作る")}
     </p>
     <h2>
       {
@@ -116,66 +108,39 @@ const dockerfileExample = `# Keep the generated FROM line.\n\nUSER root\n\nRUN a
         )
       }
     </h2>
-    <p class="runtime-lead">
+    <p class="lead">
       {
         t(
-          "Quickstart deliberately uses only `curl`. The standard base runtime is enough to learn Tobari's network boundary, but it is not a complete development environment. For the first setup, keep Tobari's default configuration and build one runtime that contains the agent and tools you actually use.",
-          "クイックスタートでは、意図的に `curl` だけを使いました。標準ベースランタイムは Tobari の通信境界を試すには十分ですが、実際の開発環境ではありません。最初は Tobari の初期設定をそのまま使い、利用するエージェントと開発ツールを入れたランタイムを一つ作ります。",
+          "Quickstart deliberately uses only `curl`. The standard base runtime is enough to learn Tobari's network boundary, but it is not a development environment. Keep the default setup for now and build one runtime containing the agent and tools you actually use.",
+          "クイックスタートでは意図的に `curl` だけを使いました。標準ベースランタイムは Tobari の通信境界を試すには十分ですが、開発環境ではありません。ここでは初期設定をそのまま使い、利用するエージェントと開発ツールを入れたランタイムを一つ作ります。",
         )
       }
     </p>
-    <p class="runtime-focus">
-      <strong>{t("What to learn here:", "ここで覚えること：")}</strong>
-      {
-        t(
-          " Dockerfile → build → Workspace. You do not need to learn configuration switching yet.",
-          " Dockerfile を作る → ビルドする → Workspace で使う。この段階では設定の切り替え方を覚える必要はありません。",
-        )
-      }
+    <p class="focus">
+      <strong>{t("Learn only this:", "ここで覚えるのはこれだけです：")}</strong>
+      {t(
+        " Dockerfile → build → Workspace.",
+        " Dockerfile を作る → ビルドする → Workspace で使う。",
+      )}
     </p>
 
-    <section class="runtime-flow" aria-labelledby="runtime-flow-title">
-      <h3 id="runtime-flow-title">
-        {t("From recipe to a usable Workspace", "Dockerfile から実用できる Workspace まで")}
-      </h3>
+    <section class="runtime-flow" aria-label={t("Runtime setup flow", "ランタイム導入の流れ")}>
       <ol>
-        {
-          flow.map(([from, via, label], index) => (
-            <li>
-              <span class="runtime-flow-number">{index + 1}</span>
-              <p class="runtime-flow-route">
-                <strong>{from}</strong><b aria-hidden="true">→</b><code>{via}</code>
-              </p>
-              <p>{label}</p>
-            </li>
-          ))
-        }
+        {flow.map((label, index) => <li><span>{index + 1}</span><strong>{label}</strong></li>)}
       </ol>
     </section>
 
     <section class="runtime-steps">
-      <h3>{t("Do this once for your first runtime", "最初のランタイムを作る")}</h3>
+      <h3>{t("Build your first usable runtime", "最初の実用ランタイムを作る")}</h3>
       <ol>
         {
           steps.map((step, index) => (
             <li class="runtime-step">
-              <header>
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <div>
-                  <h4>{step.title}</h4>
-                  <p>{step.location}</p>
-                </div>
-              </header>
+              <header><span>{String(index + 1).padStart(2, "0")}</span><h4>{step.title}</h4></header>
               <pre><code>{step.command}</code></pre>
               <dl>
-                <div>
-                  <dt>{t("Expected", "期待する結果")}</dt>
-                  <dd>{step.expected}</dd>
-                </div>
-                <div>
-                  <dt>{t("Note", "補足")}</dt>
-                  <dd>{step.note}</dd>
-                </div>
+                <div><dt>{t("Expected", "期待する結果")}</dt><dd>{step.expected}</dd></div>
+                <div><dt>{t("Note", "補足")}</dt><dd>{step.note}</dd></div>
               </dl>
             </li>
           ))
@@ -183,15 +148,13 @@ const dockerfileExample = `# Keep the generated FROM line.\n\nUSER root\n\nRUN a
       </ol>
     </section>
 
-    <details class="runtime-dockerfile">
+    <details class="dockerfile-example">
       <summary>{t("Minimal Dockerfile shape", "Dockerfile の最小例")}</summary>
       <p>
-        {
-          t(
-            "Keep the lines generated by Tobari and add only the tools you need. The exact agent installation command depends on the agent you choose.",
-            "Tobari が生成した行は維持し、必要なツールだけを追加します。エージェントのインストール方法は、利用するエージェントの公式手順に従ってください。",
-          )
-        }
+        {t(
+          "Keep Tobari's generated lines and add only what the selected agent and project need.",
+          "Tobari が生成した行を維持し、利用するエージェントとプロジェクトに必要なものだけを追加します。",
+        )}
       </p>
       <pre><code>{dockerfileExample}</code></pre>
     </details>
@@ -199,12 +162,10 @@ const dockerfileExample = `# Keep the generated FROM line.\n\nUSER root\n\nRUN a
     <aside class="runtime-next">
       <strong>{t("Next: authenticate the tools you installed", "次へ：インストールしたツールの認証を設定する")}</strong>
       <p>
-        {
-          t(
-            "The executable now exists, but it still has no account credentials. Configure the authentication required by the agent and external services before normal work.",
-            "実行ファイルは使えるようになりましたが、アカウントの認証はまだです。通常の作業へ進む前に、エージェントや外部サービスに必要な認証を設定します。",
-          )
-        }
+        {t(
+          "The executable now exists, but account credentials are still separate. Configure the authentication required by the agent and external services before normal work.",
+          "実行ファイルは使えるようになりましたが、アカウントの認証は別です。通常の作業へ進む前に、エージェントや外部サービスに必要な認証を設定します。",
+        )}
       </p>
       <a href={withBase("/start/authentication-setup/")}>
         {t("Set up tool authentication", "ツールの認証を設定する")} →
@@ -215,12 +176,10 @@ const dockerfileExample = `# Keep the generated FROM line.\n\nUSER root\n\nRUN a
   <aside class="runtime-advanced">
     <h3>{t("Later, when you need more than one setup", "あとで、設定を使い分けたくなったら")}</h3>
     <p>
-      {
-        t(
-          "Tobari can keep different runtimes, policy modes, and authentication settings in named Contexts. That concept is intentionally not required for the first working setup. Learn it only when you need to switch environments or make one of them stricter.",
-          "Tobari では、ランタイム、ポリシーモード、認証設定を Context という単位で分けて切り替えられます。ただし、最初の一連の導入では必要ありません。環境を複数に分けたい、用途ごとに権限を厳しくしたい、という必要が出た段階で学べば十分です。",
-        )
-      }
+      {t(
+        "Tobari can group different runtimes, policy modes, and authentication settings into named Contexts. Learn that concept only when you need to switch environments or make one setup stricter.",
+        "Tobari では、ランタイム、ポリシーモード、認証設定を Context という単位で分けて切り替えられます。環境を複数に分けたい、用途ごとに権限を厳しくしたい、という必要が出た段階で学べば十分です。",
+      )}
     </p>
     <a href={withBase("/guides/contexts/")}>
       {t("Learn Contexts when you need them", "必要になったら Context を学ぶ")} →
@@ -229,197 +188,33 @@ const dockerfileExample = `# Keep the generated FROM line.\n\nUSER root\n\nRUN a
 </div>
 
 <style>
-  .runtime-onboarding {
-    display: grid;
-    gap: 2rem;
-  }
-
-  .runtime-core,
-  .runtime-advanced {
-    min-width: 0;
-  }
-
-  .runtime-eyebrow {
-    margin: 0 0 0.45rem;
-    font-size: 0.78rem;
-    font-weight: 750;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--sl-color-text-accent);
-  }
-
-  .runtime-core > h2 {
-    margin: 0;
-    font-size: clamp(1.55rem, 4vw, 2.25rem);
-    line-height: 1.15;
-  }
-
-  .runtime-lead {
-    max-width: 48rem;
-    margin-top: 1rem;
-    font-size: 1.04rem;
-  }
-
-  .runtime-focus,
-  .runtime-next,
-  .runtime-advanced {
-    border: 1px solid var(--sl-color-gray-5);
-    border-radius: 0.8rem;
-    padding: 1rem 1.1rem;
-    background: var(--sl-color-bg-nav);
-  }
-
-  .runtime-flow,
-  .runtime-steps,
-  .runtime-dockerfile,
-  .runtime-next {
-    margin-top: 2rem;
-  }
-
-  .runtime-flow > ol {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(10rem, 1fr));
-    gap: 0.7rem;
-    padding: 0;
-    list-style: none;
-    overflow-x: auto;
-  }
-
-  .runtime-flow li {
-    position: relative;
-    min-width: 10rem;
-    border-top: 2px solid var(--sl-color-accent);
-    padding: 1rem 0.8rem 0.8rem;
-    background: color-mix(in srgb, var(--sl-color-bg-nav) 85%, transparent);
-  }
-
-  .runtime-flow-number {
-    display: inline-grid;
-    width: 1.75rem;
-    height: 1.75rem;
-    place-items: center;
-    border: 1px solid var(--sl-color-accent);
-    border-radius: 50%;
-    font-size: 0.75rem;
-    font-weight: 750;
-  }
-
-  .runtime-flow-route {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.35rem;
-    margin: 0.75rem 0 0.35rem;
-  }
-
-  .runtime-flow li > p:last-child {
-    margin: 0;
-    font-size: 0.9rem;
-  }
-
-  .runtime-steps > ol {
-    display: grid;
-    gap: 1rem;
-    padding: 0;
-    list-style: none;
-  }
-
-  .runtime-step {
-    border: 1px solid var(--sl-color-gray-5);
-    border-radius: 0.8rem;
-    padding: 1rem;
-  }
-
-  .runtime-step header {
-    display: flex;
-    gap: 0.85rem;
-    align-items: flex-start;
-  }
-
-  .runtime-step header > span {
-    display: inline-grid;
-    min-width: 2rem;
-    height: 2rem;
-    place-items: center;
-    border-radius: 0.45rem;
-    background: var(--sl-color-accent-low);
-    font-size: 0.78rem;
-    font-weight: 800;
-  }
-
-  .runtime-step h4,
-  .runtime-step header p {
-    margin: 0;
-  }
-
-  .runtime-step header p {
-    margin-top: 0.15rem;
-    color: var(--sl-color-gray-2);
-    font-size: 0.85rem;
-  }
-
-  .runtime-step pre {
-    margin: 0.9rem 0;
-  }
-
-  .runtime-step dl,
-  .runtime-step dl > div {
-    display: grid;
-    gap: 0.3rem;
-  }
-
-  .runtime-step dl {
-    gap: 0.8rem;
-    margin: 0;
-  }
-
-  .runtime-step dt {
-    font-weight: 750;
-  }
-
-  .runtime-step dd {
-    margin: 0;
-  }
-
-  .runtime-dockerfile {
-    border-top: 1px solid var(--sl-color-gray-5);
-    padding-top: 1rem;
-  }
-
-  .runtime-dockerfile summary {
-    cursor: pointer;
-    font-weight: 750;
-  }
-
-  .runtime-next {
-    border-left: 3px solid var(--sl-color-accent);
-  }
-
-  .runtime-next p,
-  .runtime-advanced p {
-    margin: 0.45rem 0 0.7rem;
-  }
-
-  .runtime-advanced {
-    background: transparent;
-  }
-
-  .runtime-advanced h3 {
-    margin: 0;
-    font-size: 1rem;
-  }
-
+  .runtime-onboarding { display: grid; gap: 2rem; }
+  .runtime-core, .runtime-advanced { min-width: 0; }
+  .eyebrow { margin: 0 0 .45rem; font-size: .78rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; color: var(--sl-color-text-accent); }
+  .runtime-core > h2 { margin: 0; font-size: clamp(1.55rem, 4vw, 2.25rem); line-height: 1.15; }
+  .lead { max-width: 48rem; margin-top: 1rem; font-size: 1.04rem; }
+  .focus, .runtime-next, .runtime-advanced { border: 1px solid var(--sl-color-gray-5); border-radius: .8rem; padding: 1rem 1.1rem; background: var(--sl-color-bg-nav); }
+  .runtime-flow, .runtime-steps, .dockerfile-example, .runtime-next { margin-top: 2rem; }
+  .runtime-flow ol { display: grid; grid-template-columns: repeat(5, minmax(9rem, 1fr)); gap: .6rem; padding: 0; list-style: none; overflow-x: auto; }
+  .runtime-flow li { min-width: 9rem; border-top: 2px solid var(--sl-color-accent); padding: .8rem; }
+  .runtime-flow li span { display: block; margin-bottom: .4rem; font-size: .75rem; color: var(--sl-color-text-accent); }
+  .runtime-steps > ol { display: grid; gap: 1rem; padding: 0; list-style: none; }
+  .runtime-step { border: 1px solid var(--sl-color-gray-5); border-radius: .8rem; padding: 1rem; }
+  .runtime-step header { display: flex; gap: .7rem; align-items: center; }
+  .runtime-step header span { font-size: .75rem; font-weight: 800; color: var(--sl-color-text-accent); }
+  .runtime-step h4 { margin: 0; }
+  .runtime-step pre { margin: .9rem 0; }
+  .runtime-step dl, .runtime-step dl > div { display: grid; gap: .3rem; }
+  .runtime-step dl { gap: .75rem; margin: 0; }
+  .runtime-step dt { font-weight: 750; }
+  .runtime-step dd { margin: 0; }
+  .dockerfile-example { border-top: 1px solid var(--sl-color-gray-5); padding-top: 1rem; }
+  .dockerfile-example summary { cursor: pointer; font-weight: 750; }
+  .runtime-next { border-left: 3px solid var(--sl-color-accent); }
+  .runtime-next p, .runtime-advanced p { margin: .45rem 0 .7rem; }
+  .runtime-advanced { background: transparent; }
+  .runtime-advanced h3 { margin: 0; font-size: 1rem; }
   @media (max-width: 42rem) {
-    .runtime-flow > ol {
-      grid-template-columns: none;
-      grid-auto-flow: column;
-      grid-auto-columns: minmax(15rem, 82vw);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .runtime-onboarding * {
-      scroll-behavior: auto !important;
-    }
+    .runtime-flow ol { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(14rem, 78vw); }
   }
 </style>
