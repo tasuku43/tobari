@@ -1,22 +1,23 @@
 name: Temporary flow diagram rollout
 
 on:
-  push:
-    branches:
-      - agent/use-flow-diagrams
+  pull_request:
+    paths:
+      - .github/workflows/temporary-flow-diagrams.yml
+      - .github/flow-payload/**
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: ${{ github.event.head_commit.message != 'docs: adopt request-flow diagrams' }}
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Check out branch
+      - name: Check out pull request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           persist-credentials: true
 
@@ -64,4 +65,4 @@ jobs:
           rm -rf .github/flow-payload .github/workflows/temporary-flow-diagrams.yml
           git add -A
           git commit -m "docs: adopt request-flow diagrams"
-          git push origin "HEAD:${{ github.ref_name }}"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
