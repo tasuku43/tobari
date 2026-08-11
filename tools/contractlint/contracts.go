@@ -109,7 +109,7 @@ func validatePublicJSONSchemaTables(root string, catalog cli.Catalog) ([]issue, 
 func validatePublicJSONSchemaTableFiles(root string, paths []string, expected map[publicCLISchema]struct{}) ([]issue, error) {
 	var issues []issue
 	for _, relative := range paths {
-		encoded, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		encoded, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative))) // #nosec G304 -- this unexported validator receives only the fixed public schema-document set above or test-owned temporary paths.
 		if err != nil {
 			return nil, err
 		}
