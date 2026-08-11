@@ -13,11 +13,11 @@ This guide compares the three supported paths, shows the reviewed built-in broke
 
 ## Compare the three paths
 
-| Path                     | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                     | Main limit                                                              |
-| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace              |
+| Path                     | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                     | Main limit                                                                     |
+| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Tool-native passthrough  | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace                     |
 | Auth Broker              | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Introspects without secret, asks OPA, then resolves, refreshes, or signs after allow | Exact reviewed bindings, including GitHub, AWS, Datadog, OpenAI, and Anthropic |
-| Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                                               | Validates Context/project/host profile and injects after allow                       | Static reviewed adapter; not a general provider program                 |
+| Retained managed adapter | Owner-only Context host store                                   | No managed primary secret                                               | Validates Context/project/host profile and injects after allow                       | Static reviewed adapter; not a general provider program                        |
 
 No path changes the OPA rule requirement. “The request is authenticated” and “this Context/project/method/path may connect” are different claims.
 
@@ -27,8 +27,8 @@ No path changes the OPA rule requirement. “The request is authenticated” and
   Anthropic/Claude Code plans. The reviewed published digests selected by the
   ordinary build are one generation older. Tobari rejects that mismatch before
   cluster mutation. To exercise this checkout, use the explicit development
-  resolver documented in [Install](../../start/install/) rather than replacing
-  a reviewed digest with a moving image tag.
+  resolver documented in [Install](../../start/install/) rather than replacing a
+  reviewed digest with a moving image tag.
 </aside>
 
 ## Tool-native authentication
