@@ -122,6 +122,109 @@ func TestUnknownCommandUsesUsageExitCode(t *testing.T) {
 	}
 }
 
+func TestLifecycleInvocationContextNormalizesPrefixAndRejectsDuplicates(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"tobari", "status", "delete"} {
+		command, found := DefaultCatalog().Lookup(path)
+		if !found {
+			t.Fatalf("%s command is absent", path)
+		}
+		t.Run(path, func(t *testing.T) {
+			for _, test := range []struct {
+				name string
+				root string
+				rest []string
+				want string
+			}{
+				{name: "omitted"},
+				{name: "prefix", root: "toolbox", want: "toolbox"},
+				{name: "command local", rest: []string{"--context", "toolbox"}, want: "toolbox"},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					normalized := normalizeLifecycleContextInput(command, test.root, test.rest)
+					inputs, err := parseCommandInputs(command, normalized)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if got := inputs.One("--context"); got != test.want {
+						t.Fatalf("normalized Context = %q, want %q (argv=%v)", got, test.want, normalized)
+					}
+				})
+			}
+
+			duplicates := normalizeLifecycleContextInput(command, "toolbox", []string{"--context", "default"})
+			if _, err := parseCommandInputs(command, duplicates); err == nil || !strings.Contains(err.Error(), "may be specified only once") {
+				t.Fatalf("duplicate normalized Context error = %v (argv=%v)", err, duplicates)
+			}
+		})
+	}
+}
+
+func TestInvocationContextPrefixRemainsOutsideNonLifecycleCommands(t *testing.T) {
+	t.Parallel()
+	command, found := DefaultCatalog().Lookup("auth status")
+	if !found {
+		t.Fatal("auth status command is absent")
+	}
+	rest := []string{"--context", "default"}
+	got := normalizeLifecycleContextInput(command, "fallback", rest)
+	if strings.Join(got, "\x00") != strings.Join(rest, "\x00") {
+		t.Fatalf("non-lifecycle argv = %v, want %v", got, rest)
+	}
+}
+
+func TestLifecyclePrefixAndCommandLocalPlacementReachHandlerIdentically(t *testing.T) {
+	t.Parallel()
+	var seen []string
+	spec := utilitySpec("probe")
+	spec.Args = "[--context <name>]"
+	spec.Agent.CapabilityID = "tobari.lifecycle"
+	spec.Agent.Inputs = []CommandInput{lifecycleContextInput()}
+	spec.handler = func(_ context.Context, _ *CLI, _ CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
+		seen = append(seen, inputs.One("--context"))
+		return ExitOK
+	}
+	command := newCLI(strings.NewReader(""), io.Discard, io.Discard, NewCatalog(spec), nil)
+	if code := command.RunContext(context.Background(), []string{"--context", "toolbox", "probe"}); code != ExitOK {
+		t.Fatalf("prefix code = %d", code)
+	}
+	if code := command.RunContext(context.Background(), []string{"probe", "--context", "toolbox"}); code != ExitOK {
+		t.Fatalf("command-local code = %d", code)
+	}
+	if strings.Join(seen, ",") != "toolbox,toolbox" {
+		t.Fatalf("handler Contexts = %v", seen)
+	}
+}
+
+func TestLifecycleContextDuplicateAndEmptyFailBeforeHandler(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	spec := utilitySpec("probe")
+	spec.Args = "[--context <name>]"
+	spec.Agent.CapabilityID = "tobari.lifecycle"
+	spec.Agent.Inputs = []CommandInput{lifecycleContextInput()}
+	spec.handler = func(context.Context, *CLI, CommandSpec, operation.Intent, ParsedInputs) int {
+		calls++
+		return ExitOK
+	}
+	for _, args := range [][]string{
+		{"probe", "--context="},
+		{"probe", "--context", ""},
+		{"--context=", "probe"},
+		{"--context", "", "probe"},
+		{"--context", "toolbox", "probe", "--context", "default"},
+	} {
+		var stderr bytes.Buffer
+		command := newCLI(strings.NewReader(""), io.Discard, &stderr, NewCatalog(spec), nil)
+		if code := command.RunContext(context.Background(), args); code != ExitUsage {
+			t.Fatalf("args=%v code=%d stderr=%q", args, code, stderr.String())
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("invalid Context reached handler %d times", calls)
+	}
+}
+
 func TestRemovedSampleNamespaceIsUnknown(t *testing.T) {
 	command, stdout, stderr := newTestCLI(passingInspector("unused"))
 	if code := runCLI(command, []string{"sample", "list"}); code != ExitUsage {

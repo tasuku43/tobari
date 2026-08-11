@@ -137,6 +137,7 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 	if err := ctx.Err(); err != nil {
 		return c.fail(ctx, err)
 	}
+	rest = normalizeLifecycleContextInput(command, options.ContextName, rest)
 	inputs, err := parseCommandInputs(command, rest)
 	if err != nil {
 		var nextActions []fault.NextAction
@@ -170,6 +171,17 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 		}
 	}
 	return command.handler(ctx, c, command, intent, inputs)
+}
+
+// normalizeLifecycleContextInput makes both accepted lifecycle placements one
+// catalog-owned value before the single typed argv parse. Prefix plus
+// command-local placement intentionally becomes a duplicate parser error.
+func normalizeLifecycleContextInput(command CommandSpec, rootContext string, rest []string) []string {
+	normalized := append([]string{}, rest...)
+	if rootContext == "" || command.Agent.CapabilityID != "tobari.lifecycle" {
+		return normalized
+	}
+	return append([]string{"--context", rootContext}, normalized...)
 }
 
 func retiredCommandMessage(args []string) (string, bool) {

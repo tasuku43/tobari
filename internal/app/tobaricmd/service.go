@@ -88,8 +88,8 @@ type ProjectRuntimePort interface {
 
 type contextAwareProjectRuntimePort interface {
 	ResolveContext(context.Context, string) (tobari.ContextManifest, error)
-	ResolveProjectInContext(context.Context, string, string) (tobari.ProjectInstance, bool, error)
-	CreateProjectInContext(context.Context, string, string) (tobari.ProjectInstance, error)
+	ResolveBoundProject(context.Context, string, tobari.ContextManifest) (tobari.ProjectInstance, bool, error)
+	CreateBoundProject(context.Context, string, tobari.ContextManifest) (tobari.ProjectInstance, error)
 	ValidateProjectRuntimeForContext(context.Context, tobari.State, string) error
 }
 
@@ -283,13 +283,18 @@ func (s *Service) resolveExecutionContext(ctx context.Context, name string) (tob
 	if aware, ok := s.runtime.(contextAwareProjectRuntimePort); ok && !portcheck.IsNil(aware) {
 		manifest, err := aware.ResolveContext(ctx, name)
 		if err != nil {
-			return tobari.ContextManifest{}, fault.Wrap(fault.KindInvalidInput, "context_not_found", "the selected Context is unavailable", false, err,
+			return tobari.ContextManifest{}, fault.Wrap(fault.KindNotFound, "context_not_found", "the selected Context is unavailable", false, err,
 				fault.NextAction{Command: "context list", Reason: "Choose an existing Context."})
+		}
+		if err := manifest.Validate(); err != nil {
+			return tobari.ContextManifest{}, fault.Wrap(fault.KindContract, "invalid_context_binding", "the selected Context binding is invalid", false, err,
+				fault.NextAction{Command: "context list", Reason: "Inspect the Context catalog before selecting a Workspace."})
 		}
 		return manifest, nil
 	}
 	if name != "" && name != tobari.DefaultContextName {
-		return tobari.ContextManifest{}, fault.New(fault.KindInvalidInput, "context_not_found", "the selected Context is unavailable", false)
+		return tobari.ContextManifest{}, fault.New(fault.KindNotFound, "context_not_found", "the selected Context is unavailable", false,
+			fault.NextAction{Command: "context list", Reason: "Choose an existing Context."})
 	}
 	return tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
 		Name: tobari.DefaultContextName, AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
@@ -298,16 +303,26 @@ func (s *Service) resolveExecutionContext(ctx context.Context, name string) (tob
 
 func resolveProjectForContext(ctx context.Context, project ProjectRuntimePort, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, bool, error) {
 	if aware, ok := project.(contextAwareProjectRuntimePort); ok && !portcheck.IsNil(aware) {
-		return aware.ResolveProjectInContext(ctx, cwd, manifest.Name)
+		return aware.ResolveBoundProject(ctx, cwd, manifest)
 	}
 	return project.ResolveProject(ctx, cwd)
 }
 
 func createProjectForContext(ctx context.Context, project ProjectRuntimePort, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, error) {
 	if aware, ok := project.(contextAwareProjectRuntimePort); ok && !portcheck.IsNil(aware) {
-		return aware.CreateProjectInContext(ctx, cwd, manifest.Name)
+		return aware.CreateBoundProject(ctx, cwd, manifest)
 	}
 	return project.CreateProject(ctx, cwd)
+}
+
+func validateResolvedProjectContext(instance tobari.ProjectInstance, manifest tobari.ContextManifest) error {
+	if instance.ContextID == manifest.ID && instance.ContextName == manifest.Name {
+		return nil
+	}
+	return fault.New(
+		fault.KindContract, "context_binding_stale", "Workspace Context binding is stale", false,
+		fault.NextAction{Command: "doctor", Reason: "Inspect Context and Workspace state."},
+	)
 }
 
 func validateProjectRuntimeForContext(ctx context.Context, project ProjectRuntimePort, state tobari.State, manifest tobari.ContextManifest) error {
@@ -468,15 +483,15 @@ func (s *Service) EnterProjectInContext(
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
+	manifest, err := s.resolveExecutionContext(ctx, contextName)
+	if err != nil {
+		return 0, err
+	}
 	cwd, err := s.runtime.CurrentDirectory(ctx)
 	if err != nil {
 		return 0, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
 	if _, err := s.readyCluster(ctx); err != nil {
-		return 0, err
-	}
-	manifest, err := s.resolveExecutionContext(ctx, contextName)
-	if err != nil {
 		return 0, err
 	}
 	selection, choice, err := s.chooseWorkspace(ctx, project, cwd, manifest, in, errOut)
@@ -571,25 +586,42 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 	if err != nil {
 		return tobari.ProjectStatus{}, err
 	}
-	cwd, err := s.runtime.CurrentDirectory(ctx)
-	if err != nil {
-		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
-	}
 	manifest, err := s.resolveExecutionContext(ctx, contextName)
 	if err != nil {
 		return tobari.ProjectStatus{}, err
+	}
+	cwd, err := s.runtime.CurrentDirectory(ctx)
+	if err != nil {
+		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
 	instance, found, err := resolveProjectForContext(ctx, project, cwd, manifest)
 	if err != nil {
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
 	}
 	if !found {
-		result := tobari.ProjectStatus{Task: tobari.TaskStatus, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown}
+		result := tobari.ProjectStatus{
+			Task: tobari.TaskStatus, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown,
+			ContextID: manifest.ID, ContextName: manifest.Name, Attachment: tobari.AttachmentNotApplicable,
+		}
 		return result, result.Validate()
+	}
+	if err := validateResolvedProjectContext(instance, manifest); err != nil {
+		return tobari.ProjectStatus{}, err
 	}
 	diagnostic, err := project.InspectProjectRuntime(ctx, instance)
 	if err != nil {
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInternal, "runtime_status_failed", "project runtime status could not be read", false, err)
+	}
+	attached, err := project.ProjectSessionAttached(ctx, instance)
+	if err != nil {
+		return tobari.ProjectStatus{}, fault.Wrap(
+			fault.KindInternal, "session_status_failed", "Workspace attachment status could not be read", false, err,
+			fault.NextAction{Command: "status", Reason: "Inspect the selected Workspace runtime again."},
+		)
+	}
+	attachment := tobari.AttachmentDetached
+	if attached {
+		attachment = tobari.AttachmentAttached
 	}
 	home, err := project.ProjectHome(ctx, instance)
 	if err != nil {
@@ -598,6 +630,7 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 	result := tobari.ProjectStatus{
 		Task: tobari.TaskStatus, Exists: true, Root: instance.Root, ID: instance.ID,
 		Home: home, ContextID: instance.ContextID, ContextName: instance.ContextName, Runtime: diagnostic,
+		Attachment: attachment,
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindContract, "invalid_status_contract", "project status is invalid", false, err)
@@ -673,6 +706,18 @@ func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, fo
 }
 
 func (s *Service) DeleteProjectInContext(ctx context.Context, intent operation.Intent, contextName string, force bool) (tobari.ProjectDeleteResult, error) {
+	return s.DeleteProjectWithContextBinding(ctx, intent, contextName, "", force)
+}
+
+// DeleteProjectWithContextBinding rejects a changed Context authority when a
+// caller previously rendered a destructive preview for expectedContextID.
+func (s *Service) DeleteProjectWithContextBinding(
+	ctx context.Context,
+	intent operation.Intent,
+	contextName string,
+	expectedContextID string,
+	force bool,
+) (tobari.ProjectDeleteResult, error) {
 	project, err := s.projectRuntime()
 	if err != nil {
 		return tobari.ProjectDeleteResult{}, err
@@ -680,16 +725,22 @@ func (s *Service) DeleteProjectInContext(ctx context.Context, intent operation.I
 	if err := s.validateProjectIntent(intent, operation.EffectWrite); err != nil {
 		return tobari.ProjectDeleteResult{}, err
 	}
+	manifest, err := s.resolveExecutionContext(ctx, contextName)
+	if err != nil {
+		return tobari.ProjectDeleteResult{}, err
+	}
+	if expectedContextID != "" && manifest.ID != expectedContextID {
+		return tobari.ProjectDeleteResult{}, fault.New(
+			fault.KindContract, "context_binding_stale", "the selected Context changed after the delete preview", false,
+			fault.NextAction{Command: "delete", Reason: "Review the newly selected target before retrying force deletion."},
+		)
+	}
 	cwd, err := s.runtime.CurrentDirectory(ctx)
 	if err != nil {
 		return tobari.ProjectDeleteResult{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
 	var instance tobari.ProjectInstance
 	var home string
-	manifest, err := s.resolveExecutionContext(ctx, contextName)
-	if err != nil {
-		return tobari.ProjectDeleteResult{}, err
-	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite,
 		ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact,
@@ -704,6 +755,9 @@ func (s *Service) DeleteProjectInContext(ctx context.Context, intent operation.I
 		if !found {
 			return fault.New(fault.KindNotFound, "project_not_found", "no Tobari exists for the current directory", false,
 				fault.NextAction{Command: "tobari", Reason: "Create a Tobari from the current project directory."})
+		}
+		if err := validateResolvedProjectContext(instance, manifest); err != nil {
+			return err
 		}
 		home, err = project.ProjectHome(lifecycleContext, instance)
 		if err != nil {

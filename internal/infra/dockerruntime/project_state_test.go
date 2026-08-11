@@ -87,6 +87,46 @@ func TestSameCanonicalRootCanOwnIndependentTobariInDifferentContexts(t *testing.
 	}
 }
 
+func TestBoundContextManifestSelectsSameRootWorkspaceWithoutNameRediscovery(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	defaultManifest, err := runtime.ResolveContext(context.Background(), tobari.DefaultContextName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.CreateContext(context.Background(), "toolbox", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+		t.Fatal(err)
+	}
+	toolboxManifest, err := runtime.ResolveContext(context.Background(), "toolbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultProject, err := runtime.CreateBoundProject(context.Background(), root, defaultManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolboxProject, err := runtime.CreateBoundProject(context.Background(), root, toolboxManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		manifest tobari.ContextManifest
+		wantID   string
+	}{
+		{manifest: defaultManifest, wantID: defaultProject.ID},
+		{manifest: toolboxManifest, wantID: toolboxProject.ID},
+	} {
+		got, found, err := runtime.ResolveBoundProject(context.Background(), root, test.manifest)
+		if err != nil || !found || got.ID != test.wantID || got.ContextID != test.manifest.ID {
+			t.Fatalf("ResolveBoundProject(%s) = (%+v, %t, %v), want %s", test.manifest.Name, got, found, err, test.wantID)
+		}
+	}
+}
+
 func TestCreateProjectAllowsExplicitNestedWorkspaceCreation(t *testing.T) {
 	t.Parallel()
 	runtime := newProjectStateRuntime(t)

@@ -438,6 +438,13 @@ The test suite has complementary levels:
   verified as session detachment, not Workspace deletion; detached `delete` is
   the normal external cleanup path and `delete --force` is the explicit
   attached-session override.
+- Lifecycle target-safety tests exercise both Context flag placements for root
+  entry, status, and delete; reject duplicate, explicit-empty, unknown, and
+  stale selectors before handler, Workspace, or Docker I/O; bind a force
+  preview to its displayed stable Context ID; retain Context scope for an empty
+  status; and prove same-root/different-Context selection through a bound
+  manifest. Frozen typed status, answer-key, and text fixtures verify schema-3
+  Context/attachment/next-argv semantics and the complete delete impact.
 - Logical lifecycle tests inject interruptions at home, instance, root-index,
   runtime, and deletion boundaries; they prove journals recover without
   duplicate IDs and diagnose orphaned one-sided records. Shared-state tests
@@ -651,6 +658,7 @@ Every strong statement should identify its enforcement path.
 | Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, and zero-downstream-call cancellation tests |
 | Session-versus-Workspace lifecycle | Child exit-status preservation, host stderr guidance, stdout/stderr ownership, logical-state-after-exit, and explicit delete tests |
 | Attached-session deletion guard | Docker Exec ID observation, guard-before-delete negative tests, force override, and stable structured fault/help contract |
+| Context-bound lifecycle target safety | Prefix/post-command equivalence, duplicate/empty parser rejection, unknown/stale zero-I/O counters, stable-manifest same-root selection, preview-ID mismatch rejection, explicit attachment states, exact Context-preserving recovery argv, and frozen presentation evidence |
 | One Workspace per canonical root/Context pair | Domain duplicate-index validation, pair-hash/index checks, repeated explicit-create rejection, same-root/different-Context creation, and concurrent explicit-create convergence |
 | Custom image isolation | Runtime-API inspection plus exact create-argv and Docker integration tests |
 | Agent executable/home separation | Runtimechecker path assertions, local image builds with a home overlay, and Tobari smoke tests for each agent command |

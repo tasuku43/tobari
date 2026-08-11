@@ -254,12 +254,18 @@ type projectRuntimeFake struct {
 	sessionCalls    int
 	sessionAttached bool
 	sessionErr      error
+	cwdCalls        int
+	listCalls       int
+	runtimeCalls    int
 }
 
-func (f *projectRuntimeFake) CurrentDirectory(context.Context) (string, error) { return f.cwd, nil }
-func (f *projectRuntimeFake) IsTerminal(io.Writer) bool                        { return f.terminal }
-func (f *projectRuntimeFake) IsInputTerminal(io.Reader) bool                   { return f.terminal }
-func (f *projectRuntimeFake) InsideProject(context.Context) bool               { return f.inside }
+func (f *projectRuntimeFake) CurrentDirectory(context.Context) (string, error) {
+	f.cwdCalls++
+	return f.cwd, nil
+}
+func (f *projectRuntimeFake) IsTerminal(io.Writer) bool          { return f.terminal }
+func (f *projectRuntimeFake) IsInputTerminal(io.Reader) bool     { return f.terminal }
+func (f *projectRuntimeFake) InsideProject(context.Context) bool { return f.inside }
 func (f *projectRuntimeFake) ResolveProject(context.Context, string) (tobari.ProjectInstance, bool, error) {
 	f.resolveCalls++
 	if f.resolved.ID != "" {
@@ -275,6 +281,7 @@ func (f *projectRuntimeFake) CreateProject(context.Context, string) (tobari.Proj
 	return f.project, nil
 }
 func (f *projectRuntimeFake) ListProjects(context.Context) ([]tobari.ProjectInstance, error) {
+	f.listCalls++
 	if f.projects != nil {
 		return append([]tobari.ProjectInstance{}, f.projects...), nil
 	}
@@ -295,6 +302,7 @@ func (f *projectRuntimeFake) EnsureProjectRuntime(_ context.Context, _ tobari.St
 	return instance, nil
 }
 func (f *projectRuntimeFake) InspectProjectRuntime(context.Context, tobari.ProjectInstance) (tobari.RuntimeDiagnostic, error) {
+	f.runtimeCalls++
 	return tobari.RuntimeDiagnosticMissing, nil
 }
 func (f *projectRuntimeFake) ProjectSessionAttached(context.Context, tobari.ProjectInstance) (bool, error) {
@@ -610,8 +618,114 @@ func TestProjectStatusPreservesExistsWhenRuntimeIsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Exists || result.Runtime != tobari.RuntimeDiagnosticMissing || fake.resolveCalls != 1 {
+	if !result.Exists || result.Runtime != tobari.RuntimeDiagnosticMissing || result.Attachment != tobari.AttachmentDetached ||
+		fake.resolveCalls != 1 || fake.sessionCalls != 1 {
 		t.Fatalf("status=%+v calls=%d", result, fake.resolveCalls)
+	}
+}
+
+func TestLifecycleUnknownContextFailsBeforeCWDWorkspaceOrDockerObservation(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		run  func(*Service) error
+	}{
+		{name: "status", run: func(service *Service) error {
+			_, err := service.ProjectStatusInContext(context.Background(), "missing")
+			return err
+		}},
+		{name: "delete", run: func(service *Service) error {
+			_, err := service.DeleteProjectInContext(context.Background(), projectWriteIntent("delete"), "missing", false)
+			return err
+		}},
+		{name: "enter", run: func(service *Service) error {
+			_, err := service.EnterProjectInContext(
+				context.Background(), projectCreateIntent("tobari"), "missing",
+				bytes.NewReader(nil), io.Discard, io.Discard,
+			)
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &projectRuntimeFake{
+				fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+				cwd:         "/tmp/project", terminal: true, found: true, project: testProjectInstance(),
+			}
+			err := test.run(New(fake))
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Kind != fault.KindNotFound || public.Code != "context_not_found" {
+				t.Fatalf("error=%v public=%+v", err, public)
+			}
+			if fake.cwdCalls != 0 || fake.resolveCalls != 0 || fake.listCalls != 0 || fake.runtimeCalls != 0 ||
+				fake.sessionCalls != 0 || fake.loadStateCalls != 0 || fake.inspectCalls != 0 || fake.deleteCalls != 0 {
+				t.Fatalf("unknown Context crossed lifecycle boundary: %+v runtime=%+v", fake, fake.fakeRuntime)
+			}
+		})
+	}
+}
+
+func TestProjectStatusPreservesRequestedContextScopeWhenWorkspaceIsAbsent(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", found: false, project: testProjectInstance(),
+	}
+	result, err := New(fake).ProjectStatusInContext(context.Background(), tobari.DefaultContextName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Exists || result.ContextName != tobari.DefaultContextName || result.ContextID == "" ||
+		result.Attachment != tobari.AttachmentNotApplicable || result.Runtime != tobari.RuntimeDiagnosticUnknown {
+		t.Fatalf("absent scoped status = %+v", result)
+	}
+	if fake.resolveCalls != 1 || fake.runtimeCalls != 0 || fake.sessionCalls != 0 {
+		t.Fatalf("absent status calls resolve/runtime/session = %d/%d/%d", fake.resolveCalls, fake.runtimeCalls, fake.sessionCalls)
+	}
+}
+
+func TestLifecycleStaleContextBindingFailsBeforeRuntimeObservationOrDelete(t *testing.T) {
+	t.Parallel()
+	stale := testProjectInstance()
+	stale.ContextName = "toolbox"
+	for _, test := range []struct {
+		name string
+		run  func(*Service) error
+	}{
+		{name: "status", run: func(service *Service) error {
+			_, err := service.ProjectStatusInContext(context.Background(), tobari.DefaultContextName)
+			return err
+		}},
+		{name: "delete", run: func(service *Service) error {
+			_, err := service.DeleteProjectInContext(context.Background(), projectWriteIntent("delete"), tobari.DefaultContextName, true)
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &projectRuntimeFake{fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", found: true, project: stale}
+			err := test.run(New(fake))
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Kind != fault.KindContract || public.Code != "context_binding_stale" {
+				t.Fatalf("error=%v public=%+v", err, public)
+			}
+			if fake.runtimeCalls != 0 || fake.sessionCalls != 0 || fake.deleteCalls != 0 {
+				t.Fatalf("stale binding crossed runtime boundary: runtime/session/delete=%d/%d/%d", fake.runtimeCalls, fake.sessionCalls, fake.deleteCalls)
+			}
+		})
+	}
+}
+
+func TestDeletePreviewContextIDMismatchFailsBeforeCWDOrWorkspaceLookup(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", found: true, project: testProjectInstance()}
+	_, err := New(fake).DeleteProjectWithContextBinding(
+		context.Background(), projectWriteIntent("delete"), tobari.DefaultContextName,
+		"01912345-6789-7abc-8def-0123456789ff", true,
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindContract || public.Code != "context_binding_stale" {
+		t.Fatalf("error=%v public=%+v", err, public)
+	}
+	if fake.cwdCalls != 0 || fake.resolveCalls != 0 || fake.runtimeCalls != 0 || fake.deleteCalls != 0 {
+		t.Fatalf("changed preview binding crossed lifecycle boundary: %+v", fake)
 	}
 }
 

@@ -821,13 +821,14 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/project/home",
 		Runtime:   tobari.RuntimeDiagnosticReady,
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
+		Attachment: tobari.AttachmentDetached,
 	}
 	output, err := renderProjectStatusWithColor(result, successFormatText, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	value := string(output)
-	for _, label := range []string{"Root", "Runtime", "ID", "Home", "Next"} {
+	for _, label := range []string{"Root", "Runtime", "Session", "ID", "Home", "Next"} {
 		padded := fmt.Sprintf("%-*s", humanOutputLabelWidth, label)
 		if !strings.Contains(value, applyStyleToken(true, styleMuted, padded)) {
 			t.Fatalf("status output %q lacks muted label %q", value, label)
@@ -836,7 +837,7 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 	for _, want := range []string{
 		applyStyleToken(true, styleSuccess, "✓"),
 		applyStyleToken(true, styleSuccess, "ready"),
-		applyStyleToken(true, styleAccent, "tobari"),
+		applyStyleToken(true, styleAccent, "tobari --context default"),
 	} {
 		if !strings.Contains(value, want) {
 			t.Fatalf("status output %q lacks %q", value, want)
@@ -846,6 +847,56 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 		for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
 			if strings.Contains(value, applyStyleToken(true, token, ordinary)) {
 				t.Fatalf("status ordinary value %q used %s: %q", ordinary, token, value)
+			}
+		}
+	}
+}
+
+func TestProjectStatusRecoveryPreservesNonActiveContextInTextAndJSON(t *testing.T) {
+	t.Parallel()
+	result := tobari.ProjectStatus{
+		Task: tobari.TaskStatus, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown,
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "toolbox",
+		Attachment: tobari.AttachmentNotApplicable,
+	}
+	textOutput, err := renderProjectStatusWithColor(result, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(textOutput), "Next: tobari --context toolbox") {
+		t.Fatalf("plain recovery lost Context: %q", textOutput)
+	}
+	humanOutput, err := renderProjectStatusWithColor(result, successFormatText, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(humanOutput), applyStyleToken(true, styleAccent, "tobari --context toolbox")) {
+		t.Fatalf("human recovery lost Context: %q", humanOutput)
+	}
+	jsonOutput, err := renderProjectStatusWithColor(result, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document projectStatusDocument
+	if err := json.Unmarshal(jsonOutput, &document); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := document.Status.NextArgv, []string{"tobari", "--context", "toolbox"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("JSON next argv = %q, want %q", got, want)
+	}
+}
+
+func TestLifecycleScopedHelpPublishesBothContextPlacements(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"tobari", "status", "delete"} {
+		command, found := DefaultCatalog().Lookup(path)
+		if !found {
+			t.Fatalf("catalog lacks %q", path)
+		}
+		help := string(renderCommandHelp(command))
+		for _, placement := range []string{"tobari --context toolbox status", "tobari status --context toolbox"} {
+			if !strings.Contains(help, placement) {
+				t.Fatalf("scoped help for %q lacks placement %q:\n%s", path, placement, help)
 			}
 		}
 	}

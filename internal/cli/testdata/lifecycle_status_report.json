@@ -1,0 +1,11 @@
+{
+  "task": "tobari.status",
+  "exists": true,
+  "root": "/workspace/example-project",
+  "id": "01912345-6789-7abc-8def-0123456789ab",
+  "home": "/var/lib/tobari/projects/01912345-6789-7abc-8def-0123456789ab/home",
+  "context_id": "01912345-6789-7abc-8def-0123456789ad",
+  "context": "toolbox",
+  "runtime": "ready",
+  "attachment": "attached"
+}

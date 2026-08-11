@@ -49,6 +49,7 @@ func TestProjectStatusKeepsLogicalExistenceSeparateFromRuntimeDiagnostic(t *test
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/home",
 		Runtime:   RuntimeDiagnosticMissing,
 		ContextID: testContextID, ContextName: DefaultContextName,
+		Attachment: AttachmentDetached,
 	}
 	if err := status.Validate(); err != nil {
 		t.Fatalf("ProjectStatus.Validate() error = %v", err)
@@ -57,7 +58,11 @@ func TestProjectStatusKeepsLogicalExistenceSeparateFromRuntimeDiagnostic(t *test
 		t.Fatalf("status = %+v", status)
 	}
 
-	notExists := ProjectStatus{Task: TaskStatus, Runtime: RuntimeDiagnosticUnknown}
+	notExists := ProjectStatus{
+		Task: TaskStatus, Runtime: RuntimeDiagnosticUnknown,
+		ContextID: testContextID, ContextName: DefaultContextName,
+		Attachment: AttachmentNotApplicable,
+	}
 	if err := notExists.Validate(); err != nil {
 		t.Fatalf("not-existing ProjectStatus.Validate() error = %v", err)
 	}
@@ -70,6 +75,7 @@ func TestProjectStatusAcceptsIncompleteLogicalStateDiagnostic(t *testing.T) {
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/home",
 		Runtime:   RuntimeDiagnosticIncomplete,
 		ContextID: testContextID, ContextName: DefaultContextName,
+		Attachment: AttachmentDetached,
 	}
 	if err := status.Validate(); err != nil {
 		t.Fatalf("ProjectStatus.Validate() error = %v", err)

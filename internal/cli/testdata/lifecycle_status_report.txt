@@ -1,0 +1,5 @@
+Tobari exists at /workspace/example-project
+Context: toolbox
+Runtime: ready
+Session: attached
+Next: tobari --context toolbox

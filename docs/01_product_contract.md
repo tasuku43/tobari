@@ -190,9 +190,9 @@ The public commands are:
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, provider-manifest, root-key/vault, broker/project-handle, managed-secret, port, and residue diagnostics without repairing state |
 | `cluster up` | act, fixed target | create | Validate all Context policy/provider inputs and image contracts, reconcile Gateway, OPA, and Auth Broker, unlock the broker, and start its resident host credential companion |
 | `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it, and leave it reusable after `exit` |
-| `status [--context NAME]` | utility | read | Inspect the nearest current-directory Tobari in the explicit or current Context and its diagnostic runtime state |
+| `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
-| `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Tobari in the explicit or current Context when detached; use `--force` to override an attached-session guard |
+| `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
 | `cluster status [--format text|json]` | utility | read | Inspect three-service and companion health, loaded Context count, aggregate revision, policy/provider projection integrity, root-key backend, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|auth-broker|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential or handle output |
@@ -219,6 +219,13 @@ The public commands are:
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
 | `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection and broker state for one Context without reading secrets |
 | `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles without contacting the provider |
+
+For the CWD lifecycle commands `tobari`, `status`, and `delete`, one non-empty
+invocation Context may appear before or after the command path: for example,
+`tobari --context toolbox status` and `tobari status --context toolbox` are
+equivalent. Omission resolves the current Context without changing it;
+duplicate or explicit-empty placement is invalid. After name resolution, the
+stable Context ID is authoritative for the remainder of the operation.
 
 `cluster status --format json` uses output schema 4. Its `cluster` object keeps
 the three shared container components and adds always-present secret-free
@@ -418,15 +425,20 @@ undeclared Docker mutation by the CLI.
 - CWD-local lifecycle operations use one command-bound `tool_local` current
   directory target plus the explicit or current Context selector; they do not
   accept an ID or root selector. Context selection is resolved to a stable ID
-  before mutation and never guesses a different same-root Tobari.
+  before CWD/Workspace or Docker observation and never guesses a different
+  same-root Workspace. A force-delete preview binds the subsequent mutation to
+  the stable Context ID it displayed and fails closed if that authority changes.
 - `delete` removes that nearest Context-bound target without `--force` when no session is
   attached. An attached session returns `project_session_attached` and leaves
   state untouched; `--force` is the explicit override.
 
 ## Output and exit contract
 
-Human output is concise text. Cluster status JSON is schema version 3; list and
-Workspace status JSON remain schema version 2. Cluster denials are schema
+Human output is concise text. Cluster status JSON is schema version 3; list
+JSON remains schema version 2 and Workspace status JSON is schema version 3.
+Workspace status always reports the selected Context ID/name, logical
+existence, runtime diagnostic, attachment observation, and exact Context-bound
+next argv. Cluster denials are schema
 version 3 and Context reports are schema
 version 6 with a complete four-item shell-environment inventory, complete Git
 identity policy, and explicit secret-free Auth Broker/provider state. Policy
@@ -550,11 +562,16 @@ Detached session + Workspace exists
 Workspace absent
 ```
 
-`status` and `delete` continue to resolve the nearest canonical Workspace
-containing the host current directory. When several ancestor Workspaces exist,
+`status` and `delete` resolve one stable Context before the nearest canonical
+Workspace containing the host current directory. Status distinguishes logical
+absence from an existing Workspace whose runtime is missing, and reports
+`attached`, `detached`, or `not_applicable` directly rather than inferring it
+from labels or presentation order. When several ancestor Workspaces exist,
 run the destructive command from a directory whose nearest Workspace is the
 one intended for removal. If that Workspace has an attached session, add
-`--force` only when terminating that session is intentional.
+`--force` only when terminating that session and removing its persistent home
+and tool-owned authentication state is intentional; the mounted project root
+and its files remain outside deletion.
 
 | Exit | Meaning |
 |---:|---|

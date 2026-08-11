@@ -110,6 +110,19 @@ func (r *Runtime) ResolveProject(ctx context.Context, cwd string) (tobari.Projec
 }
 
 func (r *Runtime) ResolveProjectInContext(ctx context.Context, cwd, contextName string) (tobari.ProjectInstance, bool, error) {
+	manifest, _, err := r.resolveContext(contextName)
+	if err != nil {
+		return tobari.ProjectInstance{}, false, err
+	}
+	return r.ResolveBoundProject(ctx, cwd, manifest)
+}
+
+// ResolveBoundProject consumes the already resolved stable Context binding;
+// lifecycle selection must not rediscover a display-name selector.
+func (r *Runtime) ResolveBoundProject(ctx context.Context, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, bool, error) {
+	if err := manifest.Validate(); err != nil {
+		return tobari.ProjectInstance{}, false, err
+	}
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
 		return tobari.ProjectInstance{}, false, err
@@ -118,10 +131,6 @@ func (r *Runtime) ResolveProjectInContext(ctx context.Context, cwd, contextName 
 		instance tobari.ProjectInstance
 		found    bool
 	)
-	manifest, _, err := r.resolveContext(contextName)
-	if err != nil {
-		return tobari.ProjectInstance{}, false, err
-	}
 	err = r.withProjectLock(ctx, func() error {
 		if err := r.reconcileProjectJournal(); err != nil {
 			return err
@@ -302,15 +311,24 @@ func (r *Runtime) CreateProject(ctx context.Context, cwd string) (tobari.Project
 }
 
 func (r *Runtime) CreateProjectInContext(ctx context.Context, cwd, contextName string) (tobari.ProjectInstance, error) {
+	manifest, _, err := r.resolveContext(contextName)
+	if err != nil {
+		return tobari.ProjectInstance{}, err
+	}
+	return r.CreateBoundProject(ctx, cwd, manifest)
+}
+
+// CreateBoundProject creates only for the stable Context binding resolved by
+// the application before lifecycle state selection.
+func (r *Runtime) CreateBoundProject(ctx context.Context, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, error) {
+	if err := manifest.Validate(); err != nil {
+		return tobari.ProjectInstance{}, err
+	}
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
 		return tobari.ProjectInstance{}, err
 	}
 	var instance tobari.ProjectInstance
-	manifest, _, err := r.resolveContext(contextName)
-	if err != nil {
-		return tobari.ProjectInstance{}, err
-	}
 	err = r.withProjectLock(ctx, func() error {
 		if err := r.reconcileProjectJournal(); err != nil {
 			return err

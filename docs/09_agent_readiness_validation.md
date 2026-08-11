@@ -294,9 +294,17 @@ rules exist. The transcript must prove:
 - `list` retains an explicitly exhaustive local collection, including empty,
   and reports Context with diagnostic IDs. Same-root/different-Context rows are
   distinguishable without making IDs routine action inputs.
-- `status` and `delete` resolve the explicit or current Context plus nearest
-  canonical ancestor; `tobari` enters an exact pair directly and explicitly
-  chooses among ancestor roots. Deletion never guesses another Context.
+- `tobari`, `status`, and `delete` accept either one prefix or command-local
+  non-empty Context selector through the same catalog input. Scoped help shows
+  both exact forms; duplicate, empty, unknown, or stale selectors fail before
+  Workspace or Docker I/O. Resolution binds one stable Context ID before the
+  nearest canonical ancestor is selected, so same-root Contexts remain
+  distinct and deletion never guesses another Context.
+- Status schema 3 reports selected Context ID/name even when no Workspace
+  exists, explicit attachment observation when it does, and exact
+  Context-preserving next argv. One scoped-help request plus one status
+  invocation requires zero source inspection, joins, or external
+  reconstruction.
 - A child terminal exit leaves the logical Tobari existing for reuse, emits the
   host-side resume/delete guidance on stderr, and does not introduce a stopped
   state; detached `tobari delete` removes it, while `tobari delete --force`

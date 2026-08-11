@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "task": "tobari.status",
+  "target": {
+    "root": "/workspace/example-project",
+    "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
+    "context_id": "01912345-6789-7abc-8def-0123456789ad",
+    "context_name": "toolbox",
+    "attachment": "attached"
+  },
+  "same_root_other_context": {
+    "root": "/workspace/example-project",
+    "workspace_id": "01912345-6789-7abc-8def-0123456789ac",
+    "context_id": "01912345-6789-7abc-8def-0123456789ae",
+    "context_name": "default"
+  },
+  "exact_next_argv": [
+    "tobari",
+    "--context",
+    "toolbox"
+  ],
+  "force_delete": {
+    "removes": [
+      "owned_runtime",
+      "persistent_home",
+      "tool_owned_authentication"
+    ],
+    "preserves": [
+      "project_root",
+      "project_files"
+    ],
+    "overrides_only": "attached_session_guard"
+  },
+  "routine_success": {
+    "task_invocations": 1,
+    "external_reconstruction_steps": 0
+  },
+  "negative_cases": [
+    "explicit_empty_rejected_before_handler",
+    "unknown_context_rejected_before_workspace_io",
+    "stale_context_binding_rejected_before_runtime_io",
+    "duplicate_context_rejected_before_handler",
+    "absent_workspace_retains_context_scope"
+  ],
+  "unsupported_inferences": [
+    "filesystem_isolation_between_overlapping_roots",
+    "credential_values",
+    "runtime_absence_means_workspace_absence"
+  ]
+}

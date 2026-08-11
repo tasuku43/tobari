@@ -320,7 +320,7 @@ func projectEnterSpec() CommandSpec {
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
 			Outcome:      "Choose an ancestor Workspace or explicitly create one at the current directory, recover its runtime, and enter an interactive session; exit leaves the Workspace existing for reuse and delete removes it explicitly",
-			Inputs:       []CommandInput{executionContextInput()}, Output: noOutput(),
+			Inputs:       []CommandInput{lifecycleContextInput()}, Output: noOutput(),
 			Prerequisites: []string{
 				"The current directory is an accessible project directory.",
 				"The caller is attached to an interactive terminal.",
@@ -346,8 +346,8 @@ func statusSpec() CommandSpec {
 		Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Report whether a Tobari exists for the current directory and its recoverable runtime diagnostic",
-			Inputs:       []CommandInput{executionContextInput(), formatInput()},
+			Outcome:      "Report the bound Context, whether logical Workspace state exists for the current directory, its recoverable runtime diagnostic, and attached or detached session observation",
+			Inputs:       []CommandInput{lifecycleContextInput(), formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
@@ -356,17 +356,23 @@ func statusSpec() CommandSpec {
 					{Name: "id", Type: OutputFieldTypeString, Description: "Diagnostic stable logical ID when one exists."},
 					{Name: "home", Type: OutputFieldTypeString, Description: "Diagnostic per-Tobari XDG home path when one exists."},
 					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic; incomplete means the logical state record is missing and must be deleted before recreation."},
-					{Name: "context", Type: OutputFieldTypeString, Description: "Context display name bound to this Tobari."},
-					{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority identity bound to this Tobari."},
+					{Name: "attachment", Type: OutputFieldTypeString, Description: "Transient session observation: attached or detached when the Workspace exists, and not_applicable when it does not."},
+					{Name: "context", Type: OutputFieldTypeString, Description: "Selected invocation Context display name, including when no Workspace exists."},
+					{Name: "context_id", Type: OutputFieldTypeString, Description: "Selected stable Context authority identity, including when no Workspace exists."},
+					{Name: "next_argv", Type: OutputFieldTypeArray, Description: "Exact argv that re-enters this same Context-bound lifecycle target without depending on the current Context."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-				JSONEnvelope: "status", JSONSchemaVersion: 2,
+				JSONEnvelope: "status", JSONSchemaVersion: 3,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("status", true,
+				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindContract, "invalid_context_binding", false, "context list", "Inspect the Context catalog before selecting a Workspace."),
+				declaredCommandError(fault.KindContract, "context_binding_stale", false, "doctor", "Inspect Context and Workspace state."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local CWD-owned state."),
 				declaredCommandError(fault.KindInternal, "runtime_status_failed", false, "status", "Inspect the selected project's runtime."),
+				declaredCommandError(fault.KindInternal, "session_status_failed", false, "status", "Inspect the selected Workspace runtime again."),
 				declaredCommandError(fault.KindContract, "invalid_status_contract", false, "help status", "Repair the CWD status contract."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
@@ -381,11 +387,11 @@ func deleteSpec() CommandSpec {
 		Args: "[--context <name>] [--force]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Delete one nearest CWD-owned Tobari when detached; reject attached sessions unless --force overrides the guard",
-			Inputs: []CommandInput{executionContextInput(), {
+			Outcome:      "Delete one nearest Context-bound CWD Workspace, its exact owned runtime resources, persistent home, and tool-owned authentication state when detached; reject attached sessions unless --force overrides only that guard, while preserving the mounted project root",
+			Inputs: []CommandInput{lifecycleContextInput(), {
 				Name: "--force", Source: InputSourceFlag, Required: false,
 				ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
-				Description: "Override the attached-session safety guard and delete anyway.", AllowedValues: []string{}, DefaultValue: stringPointer("false"),
+				Description: "Override only the attached-session safety guard and terminate that session while deleting the disclosed Context-bound Workspace, persistent home, and tool-owned authentication state.", AllowedValues: []string{}, DefaultValue: stringPointer("false"),
 			}},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -399,9 +405,12 @@ func deleteSpec() CommandSpec {
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 			},
-			Prerequisites: []string{"The target is the nearest CWD-owned Tobari; without --force, no session is attached."},
+			Prerequisites: []string{"The target is the nearest Workspace in the explicit or current Context; its mounted project root is preserved.", "Without --force, no session is attached; --force terminates any attached session while deleting the persistent home and tool-owned authentication state."},
 			FixedTarget:   fixedCurrentDirectoryTarget(),
 			Errors: mutationCommandErrors("delete", "status",
+				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindContract, "invalid_context_binding", false, "context list", "Inspect the Context catalog before selecting a Workspace."),
+				declaredCommandError(fault.KindContract, "context_binding_stale", false, "delete", "Review the newly selected target before retrying force deletion."),
 				declaredCommandError(fault.KindRejected, "project_session_attached", false, "delete", "Exit the attached session, then retry; use --force only when terminating it is intentional."),
 				declaredCommandError(fault.KindNotFound, "project_not_found", false, "tobari", "Create a Tobari from the current project directory."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
@@ -1250,6 +1259,14 @@ func executionContextInput() CommandInput {
 	}
 }
 
+func lifecycleContextInput() CommandInput {
+	input := executionContextInput()
+	minimumLength := int64(1)
+	input.MinimumLength = &minimumLength
+	input.Description = "Non-empty Context display name for this invocation; both `tobari --context toolbox status` and `tobari status --context toolbox` are accepted, omission uses the current Context without changing it, and duplicate placement is rejected."
+	return input
+}
+
 func contextImageInput() CommandInput {
 	return CommandInput{
 		Name: "--image", Source: InputSourceFlag, Required: false,
@@ -1300,6 +1317,9 @@ func projectEnterErrors() []CommandError {
 		}
 	}
 	return append(filtered,
+		declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+		declaredCommandError(fault.KindContract, "invalid_context_binding", false, "context list", "Inspect the Context catalog before selecting a Workspace."),
+		declaredCommandError(fault.KindContract, "context_binding_stale", false, "doctor", "Inspect Context and Workspace state."),
 		declaredCommandError(fault.KindInvalidInput, "tty_required", false, "help tobari", "Run the root command from an interactive terminal."),
 		declaredCommandError(fault.KindRejected, "already_inside", false, "help tobari", "Exit the current Tobari before entering another session."),
 		declaredCommandError(fault.KindUnavailable, "cluster_not_configured", false, "cluster up", "Create the shared cluster explicitly before entering a Tobari."),

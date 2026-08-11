@@ -557,13 +557,19 @@ active exec sessions and rejects when one is attached; `--force` is the
 explicit override.
 Neither operation accepts an ID or arbitrary root selector. Root entry,
 status, and delete accept a Context name only as a host-side selector resolved
-to stable identity before target selection.
+to stable identity before CWD, Workspace-state, or Docker observation. Prefix
+and command-local spellings normalize through the same catalog input; empty,
+duplicate, unknown, invalid, or stale bindings fail before downstream
+lifecycle I/O. A force-delete preview carries the resolved Context ID back into
+the mutation boundary, which rejects a changed authority instead of
+rediscovering or falling back to the current Context.
 All mutations use complete intent and impact declarations before Docker
 execution. Ordinary runtime reconciliation needs no human approval;
 ordinary deletion requires no attached session, while `--force` overrides that
 guard. Runtime image reconciliation validates the bound Context image before
 mutating Docker resources and preserves the selected XDG home; deletion affects
-only the selected XDG home and exact owned resources. Shared
+only the selected XDG home, tool-owned authentication state, and exact owned
+runtime resources; it never removes the mounted project root. Shared
 CA purge remains separate
 and only follows an empty instance repository. It removes the shared CA
 volumes, not encrypted Context vaults or the installation root key.

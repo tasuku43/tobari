@@ -520,8 +520,15 @@ though it has no argv path words. Handlers receive parsed inputs and call one
 application service. `tobari` and `delete` declare complete fixed-target
 mutation impacts; `tobari` keeps its target fixed to the canonical CWD even
 when its selected Workspace root is an ancestor. `status` resolves the same CWD
-target. `list` reports IDs as diagnostic fields but no public lifecycle action
-consumes them. The dependency-free terminal capability is an infrastructure
+target. For those three lifecycle commands, the dispatcher normalizes the
+prefix or command-local Context spelling into the command's one catalog input;
+the typed parser rejects duplicates and explicit empty values. Application
+resolves that selector to one validated manifest before CWD or Workspace
+selection, and infrastructure receives the bound manifest rather than
+rediscovering its display name. Status and force-delete preview retain that
+stable Context identity through presentation and exact follow-up argv. `list`
+reports IDs as diagnostic fields but no public lifecycle action consumes them.
+The dependency-free terminal capability is an infrastructure
 adapter used only by the CLI's human selector; a line-input fallback keeps
 raw-mode availability out of the public command contract.
 

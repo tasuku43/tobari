@@ -64,6 +64,28 @@ func TestCatalogOwnedParserPreservesTypesCardinalityAndPresence(t *testing.T) {
 	}
 }
 
+func TestCatalogOwnedParserRejectsTextBelowCatalogMinimumLength(t *testing.T) {
+	t.Parallel()
+	minimum := int64(1)
+	spec := utilitySpec("probe")
+	spec.Args = "[--context <name>]"
+	spec.Agent.Inputs = []CommandInput{{
+		Name: "--context", Source: InputSourceFlag, ValueKind: InputValueText,
+		Cardinality: InputCardinalitySingle, Description: "Non-empty Context name.",
+		AllowedValues: []string{}, MinimumLength: &minimum,
+	}}
+	if err := NewCatalog(spec).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseCommandInputs(spec, []string{"--context="}); err == nil || !strings.Contains(err.Error(), "at least 1 byte") {
+		t.Fatalf("empty bounded text error = %v", err)
+	}
+	inputs, err := parseCommandInputs(spec, []string{"--context", "a"})
+	if err != nil || inputs.One("--context") != "a" {
+		t.Fatalf("one-byte bounded text = %q, %v", inputs.One("--context"), err)
+	}
+}
+
 func TestCatalogOwnedParserRejectsInvalidInvocationBeforeHandler(t *testing.T) {
 	minimum := int64(1)
 	maximum := int64(5)
