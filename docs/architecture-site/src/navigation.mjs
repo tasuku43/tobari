@@ -20,6 +20,11 @@ export const navigationGroups = [
       "カスタムランタイムを用意する",
       "/start/runtime-setup/",
     ),
+    item(
+      "Authenticate your tools",
+      "ツールの認証を設定する",
+      "/start/authentication-setup/",
+    ),
     item("First denial", "最初の拒否", "/start/first-denial/"),
     item("Learning path", "学習ガイド", "/start/learning-path/"),
     item(
@@ -93,13 +98,21 @@ export const navigationGroups = [
     ),
   ]),
   group("Guides", "ガイド", [
-    item("Contexts", "Context", "/guides/contexts/"),
+    item(
+      "Contexts and separate configurations",
+      "設定を分ける（Context）",
+      "/guides/contexts/",
+    ),
     item(
       "Runtime customization details",
       "ランタイムの詳細設定",
       "/guides/runtime-customization/",
     ),
-    item("Authentication", "認証", "/guides/authentication/"),
+    item(
+      "Authentication details",
+      "認証の詳細",
+      "/guides/authentication/",
+    ),
     item("Policy review", "ポリシーレビュー", "/guides/policy-review/"),
     item("Advanced policy", "高度なポリシー", "/guides/advanced-policy/"),
     item("Colima and Lima", "Colima と Lima", "/guides/colima-and-lima/"),
