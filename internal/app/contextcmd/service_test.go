@@ -125,7 +125,7 @@ func contextReport(task, name string) tobari.ContextReport {
 		authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerReady, Providers: []tobari.ContextAuthProvider{}}
 	}
 	return tobari.ContextReport{
-		Task: task, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: task == tobari.TaskContextUse,
+		Task: task, ContextState: tobari.ContextObservationPersisted, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: task == tobari.TaskContextUse,
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
 		PolicyMode:       tobari.ContextPolicyModeGuided,
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),

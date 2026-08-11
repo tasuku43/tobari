@@ -7,6 +7,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 func runAuthLogin(
@@ -220,9 +221,10 @@ func selectedAuthContext(ctx context.Context, inputs ParsedInputs) (string, erro
 }
 
 type authResultProjection struct {
+	ContextState        tobari.ContextObservationState `json:"context_state"`
 	Provider            string                         `json:"provider"`
 	Context             string                         `json:"context"`
-	ContextID           string                         `json:"context_id"`
+	ContextID           *string                        `json:"context_id"`
 	Configured          bool                           `json:"configured"`
 	AccountLabel        *string                        `json:"account_label"`
 	StorageBackend      authbroker.StorageBackend      `json:"storage_backend"`
@@ -237,8 +239,9 @@ type authResultDocument struct {
 }
 
 type authStatusProjection struct {
+	ContextState        tobari.ContextObservationState `json:"context_state"`
 	Context             string                         `json:"context"`
-	ContextID           string                         `json:"context_id"`
+	ContextID           *string                        `json:"context_id"`
 	StorageBackend      authbroker.StorageBackend      `json:"storage_backend"`
 	BrokerState         authbroker.BrokerState         `json:"broker_state"`
 	Providers           []authProviderStatusProjection `json:"providers"`
@@ -258,6 +261,13 @@ type authStatusDocument struct {
 	Auth          authStatusProjection `json:"auth"`
 }
 
+func optionalDisplay(value *string, absent string) string {
+	if value == nil {
+		return absent
+	}
+	return *value
+}
+
 func renderAuthResult(result authbroker.Result, format successFormat, color bool) ([]byte, error) {
 	if err := result.Validate(); err != nil {
 		return nil, fault.Wrap(
@@ -270,13 +280,13 @@ func renderAuthResult(result authbroker.Result, format successFormat, color bool
 		)
 	}
 	projection := authResultProjection{
-		Provider: result.Provider, Context: result.Context, ContextID: result.ContextID,
+		ContextState: result.ContextState, Provider: result.Provider, Context: result.Context, ContextID: optionalString(result.ContextID),
 		Configured: result.Configured, AccountLabel: result.AccountLabel,
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
 		CredentialRevision: optionalString(result.CredentialRevision), WorkspaceActivation: result.WorkspaceActivation,
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON(authResultCommand(result.Task), authResultDocument{SchemaVersion: 2, Auth: projection})
+		output, err := marshalCommandJSON(authResultCommand(result.Task), authResultDocument{SchemaVersion: 3, Auth: projection})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Authentication output could not be encoded.", false, err)
 		}
@@ -304,13 +314,13 @@ func renderAuthStatus(result authbroker.StatusResult, format successFormat, colo
 		})
 	}
 	projection := authStatusProjection{
-		Context: result.Context, ContextID: result.ContextID,
+		ContextState: result.ContextState, Context: result.Context, ContextID: optionalString(result.ContextID),
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
 		Providers:           providers,
 		WorkspaceActivation: result.WorkspaceActivation,
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("auth status", authStatusDocument{SchemaVersion: 2, Auth: projection})
+		output, err := marshalCommandJSON("auth status", authStatusDocument{SchemaVersion: 3, Auth: projection})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Authentication status output could not be encoded.", false, err)
 		}
@@ -335,7 +345,8 @@ func renderAuthResultText(result authResultProjection, color bool) []byte {
 		output.heading("○", "Context credential not configured", styleMuted)
 	}
 	output.row("Context", safeExternalText(result.Context), styleText)
-	output.row("Context ID", result.ContextID, styleText)
+	output.row("Context state", string(result.ContextState), humanStatusToken(string(result.ContextState)))
+	output.row("Context ID", optionalDisplay(result.ContextID, "not initialized"), styleText)
 	provider := result.Provider
 	if provider == "" {
 		provider = "none"
@@ -365,7 +376,8 @@ func renderAuthStatusText(result authStatusProjection, color bool) []byte {
 	output := newHumanOutput(color)
 	output.heading("○", "Context authentication status", styleText)
 	output.row("Context", safeExternalText(result.Context), styleText)
-	output.row("Context ID", result.ContextID, styleText)
+	output.row("Context state", string(result.ContextState), humanStatusToken(string(result.ContextState)))
+	output.row("Context ID", optionalDisplay(result.ContextID, "not initialized"), styleText)
 	output.row("Storage", string(result.StorageBackend), styleText)
 	output.row("Broker", string(result.BrokerState), humanStatusToken(string(result.BrokerState)))
 	output.row("Workspaces", string(result.WorkspaceActivation.State), humanStatusToken(string(result.WorkspaceActivation.State)))

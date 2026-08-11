@@ -1808,15 +1808,16 @@ func renderTobariListWithColor(result tobari.ListResult, format successFormat, c
 }
 
 type projectStatusOutput struct {
-	Exists     bool     `json:"exists"`
-	Root       string   `json:"root"`
-	ID         string   `json:"id"`
-	Home       string   `json:"home"`
-	Context    string   `json:"context"`
-	ContextID  string   `json:"context_id"`
-	Runtime    string   `json:"runtime"`
-	Attachment string   `json:"attachment"`
-	NextArgv   []string `json:"next_argv"`
+	ContextState tobari.ContextObservationState `json:"context_state"`
+	Exists       bool                           `json:"exists"`
+	Root         string                         `json:"root"`
+	ID           string                         `json:"id"`
+	Home         string                         `json:"home"`
+	Context      string                         `json:"context"`
+	ContextID    *string                        `json:"context_id"`
+	Runtime      string                         `json:"runtime"`
+	Attachment   string                         `json:"attachment"`
+	NextArgv     []string                       `json:"next_argv"`
 }
 
 type projectStatusDocument struct {
@@ -1833,15 +1834,15 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 		return nil, fault.Wrap(fault.KindContract, "invalid_status_contract", "project status is invalid", false, err)
 	}
 	value := projectStatusOutput{
-		Exists: result.Exists, Root: safeExternalText(result.Root), ID: result.ID,
-		Home: safeExternalText(result.Home), Context: safeExternalText(result.ContextName), ContextID: result.ContextID,
+		ContextState: result.ContextState, Exists: result.Exists, Root: safeExternalText(result.Root), ID: result.ID,
+		Home: safeExternalText(result.Home), Context: safeExternalText(result.ContextName), ContextID: optionalString(result.ContextID),
 		Runtime: string(result.Runtime), Attachment: string(result.Attachment),
 		NextArgv: []string{ProgramName, "--context", result.ContextName},
 	}
 	nextCommand := strings.Join(value.NextArgv, " ")
 	nextRecovery := strings.Join(value.NextArgv[1:], " ")
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("status", projectStatusDocument{SchemaVersion: 3, Status: value})
+		output, err := marshalCommandJSON("status", projectStatusDocument{SchemaVersion: 4, Status: value})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project status JSON could not be encoded", false, err)
 		}
@@ -1852,7 +1853,8 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 			output := newHumanOutput(color)
 			output.heading("○", "No Workspace in selected Context", styleMuted)
 			output.row("Context", safeExternalText(result.ContextName), styleText)
-			output.row("Context ID", result.ContextID, styleText)
+			output.row("Context state", string(result.ContextState), humanStatusToken(string(result.ContextState)))
+			output.row("Context ID", optionalDisplay(value.ContextID, "not initialized"), styleText)
 			output.row("Session", string(result.Attachment), styleMuted)
 			output.next(nextRecovery, "Create or enter a Workspace in this Context.")
 			return output.bytes(), nil

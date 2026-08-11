@@ -551,6 +551,9 @@ func TestLoadStateMigratesVerifiedSingleContextProjects(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if err := runtime.ensureContextStore(); err != nil {
+		t.Fatal(err)
+	}
 	contexts, err := runtime.ListContexts(context.Background())
 	if err != nil || len(contexts.Items) != 1 {
 		t.Fatalf("ListContexts() = %+v, error=%v", contexts, err)

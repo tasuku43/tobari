@@ -362,9 +362,21 @@ func runRuntimeBuild(
 type contextListDocument struct {
 	SchemaVersion int `json:"schema_version"`
 	Contexts      struct {
-		Active string                  `json:"active"`
-		Items  []tobari.ContextSummary `json:"items"`
+		ContextState tobari.ContextObservationState `json:"context_state"`
+		Active       string                         `json:"active"`
+		Items        []contextSummaryJSONProjection `json:"items"`
 	} `json:"contexts"`
+}
+
+type contextSummaryJSONProjection struct {
+	ID            *string                        `json:"id"`
+	Name          string                         `json:"name"`
+	ContextState  tobari.ContextObservationState `json:"context_state"`
+	Active        bool                           `json:"active"`
+	AgentProfile  string                         `json:"agent_profile"`
+	Image         string                         `json:"image"`
+	PolicyMode    tobari.ContextPolicyMode       `json:"policy_mode"`
+	RuntimeStatus tobari.ContextRuntimeStatus    `json:"runtime_status,omitempty"`
 }
 
 type contextReportDocument struct {
@@ -374,7 +386,8 @@ type contextReportDocument struct {
 
 type contextReportJSONProjection struct {
 	Task             string                                  `json:"task"`
-	ID               string                                  `json:"id"`
+	ContextState     tobari.ContextObservationState          `json:"context_state"`
+	ID               *string                                 `json:"id"`
 	Name             string                                  `json:"name"`
 	Active           bool                                    `json:"active"`
 	AgentProfile     string                                  `json:"agent_profile"`
@@ -382,7 +395,7 @@ type contextReportJSONProjection struct {
 	PolicyMode       tobari.ContextPolicyMode                `json:"policy_mode"`
 	ShellEnvironment []tobari.ContextShellEnvironmentSetting `json:"shell_environment"`
 	GitIdentity      tobari.ContextGitIdentitySetting        `json:"git_identity"`
-	Stores           tobari.ContextStorePaths                `json:"stores"`
+	Stores           *tobari.ContextStorePaths               `json:"stores"`
 	Runtime          tobari.ContextRuntimeReport             `json:"runtime"`
 	Cluster          tobari.ContextClusterStatus             `json:"cluster"`
 	Authentication   contextAuthenticationJSONProjection     `json:"authentication"`
@@ -413,17 +426,25 @@ func contextReportJSONDocument(result tobari.ContextReport) contextReportDocumen
 		}
 	}
 	return contextReportDocument{
-		SchemaVersion: 7,
+		SchemaVersion: 8,
 		Context: contextReportJSONProjection{
-			Task: result.Task, ID: result.ID, Name: result.Name, Active: result.Active,
+			Task: result.Task, ContextState: result.ContextState, ID: optionalString(result.ID), Name: result.Name, Active: result.Active,
 			AgentProfile: result.AgentProfile, Image: result.Image, PolicyMode: result.PolicyMode,
-			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: result.Stores,
+			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: optionalContextStores(result),
 			Runtime: result.Runtime, Cluster: result.Cluster,
 			Authentication: contextAuthenticationJSONProjection{
 				BrokerState: result.Authentication.BrokerState, Providers: providers,
 			},
 		},
 	}
+}
+
+func optionalContextStores(result tobari.ContextReport) *tobari.ContextStorePaths {
+	if result.ContextState == tobari.ContextObservationSyntheticDefault {
+		return nil
+	}
+	stores := result.Stores
+	return &stores
 }
 
 func contextReportCommand(task string) string {
@@ -440,9 +461,16 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		return nil, fault.Wrap(fault.KindContract, "invalid_context_list", "Context list is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		document := contextListDocument{SchemaVersion: 3}
+		document := contextListDocument{SchemaVersion: 4}
+		document.Contexts.ContextState = result.ContextState
 		document.Contexts.Active = result.Active
-		document.Contexts.Items = append([]tobari.ContextSummary{}, result.Items...)
+		document.Contexts.Items = make([]contextSummaryJSONProjection, 0, len(result.Items))
+		for _, item := range result.Items {
+			document.Contexts.Items = append(document.Contexts.Items, contextSummaryJSONProjection{
+				ID: optionalString(item.ID), Name: item.Name, ContextState: item.ContextState, Active: item.Active,
+				AgentProfile: item.AgentProfile, Image: item.Image, PolicyMode: item.PolicyMode, RuntimeStatus: item.RuntimeStatus,
+			})
+		}
 		output, err := marshalCommandJSON("context list", document)
 		if err != nil {
 			return nil, err
@@ -451,6 +479,7 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 	}
 	var output strings.Builder
 	writeStyledLine(&output, color, "Current Context:", safeExternalText(result.Active), styleText)
+	writeStyledLine(&output, color, "Context state:", string(result.ContextState), humanStatusToken(string(result.ContextState)))
 	output.WriteString("\n")
 	output.WriteString(applyStyleToken(color, styleAccent, "Contexts:"))
 	output.WriteString("\n")
@@ -495,6 +524,7 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 
 	var output strings.Builder
 	writeStyledLine(&output, color, "Context:", safeExternalText(result.Name), styleText)
+	writeStyledLine(&output, color, "Context state:", string(result.ContextState), humanStatusToken(string(result.ContextState)))
 	writeStyledLine(&output, color, "Active:", fmt.Sprintf("%t", result.Active), styleText)
 	writeStyledLine(&output, color, "Image:", safeExternalText(result.Image), styleText)
 	writeStyledLine(&output, color, "Agent profile:", safeExternalText(result.AgentProfile), styleText)
@@ -568,9 +598,11 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 			writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari cluster up`, then `tobari`", " from a project directory.")
 		}
 	}
-	writeStyledLine(&output, color, "Policy:", safeExternalText(result.Stores.PolicyDirectory), styleText)
-	writeStyledLine(&output, color, "Credential metadata:", safeExternalText(result.Stores.CredentialConfig), styleText)
-	writeStyledLine(&output, color, "Credential directory:", safeExternalText(result.Stores.CredentialDirectory), styleText)
+	if result.ContextState != tobari.ContextObservationSyntheticDefault {
+		writeStyledLine(&output, color, "Policy:", safeExternalText(result.Stores.PolicyDirectory), styleText)
+		writeStyledLine(&output, color, "Credential metadata:", safeExternalText(result.Stores.CredentialConfig), styleText)
+		writeStyledLine(&output, color, "Credential directory:", safeExternalText(result.Stores.CredentialDirectory), styleText)
+	}
 	return []byte(output.String())
 }
 

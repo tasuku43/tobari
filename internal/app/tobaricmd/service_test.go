@@ -286,6 +286,7 @@ type projectRuntimeFake struct {
 	cwdCalls        int
 	listCalls       int
 	runtimeCalls    int
+	observeErr      error
 }
 
 func (f *projectRuntimeFake) CurrentDirectory(context.Context) (string, error) {
@@ -301,6 +302,28 @@ func (f *projectRuntimeFake) ResolveProject(context.Context, string) (tobari.Pro
 		return f.resolved, f.found, nil
 	}
 	return f.project, f.found, nil
+}
+func (f *projectRuntimeFake) ObserveContext(_ context.Context, name string) (tobari.ContextObservation, error) {
+	if f.observeErr != nil {
+		return tobari.ContextObservation{}, f.observeErr
+	}
+	if name == "missing" {
+		return tobari.ContextObservation{}, tobari.ErrContextNotFound
+	}
+	if name == "" {
+		name = tobari.DefaultContextName
+	}
+	manifest := tobari.ContextManifest{
+		SchemaVersion: tobari.ContextSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
+		Name: name, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		PolicyMode: tobari.ContextPolicyModeGuided,
+	}
+	return tobari.ContextObservation{
+		State: tobari.ContextObservationPersisted, Name: name, Manifest: &manifest,
+	}, nil
+}
+func (f *projectRuntimeFake) ObserveBoundProject(ctx context.Context, cwd string, _ tobari.ContextManifest) (tobari.ProjectInstance, bool, error) {
+	return f.ResolveProject(ctx, cwd)
 }
 func (f *projectRuntimeFake) CreateProject(context.Context, string) (tobari.ProjectInstance, error) {
 	f.createCalls++
@@ -650,6 +673,21 @@ func TestProjectStatusPreservesExistsWhenRuntimeIsMissing(t *testing.T) {
 	if !result.Exists || result.Runtime != tobari.RuntimeDiagnosticMissing || result.Attachment != tobari.AttachmentDetached ||
 		fake.resolveCalls != 1 || fake.sessionCalls != 1 {
 		t.Fatalf("status=%+v calls=%d", result, fake.resolveCalls)
+	}
+}
+
+func TestProjectStatusDoesNotMisclassifyUnsafeContextObservationAsNotFound(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", observeErr: errors.New("Context manifest is unsafe"),
+	}
+	_, err := New(fake).ProjectStatus(context.Background())
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindInternal || public.Code != "context_read_failed" {
+		t.Fatalf("unsafe Context observation = %v, public=%+v", err, public)
+	}
+	if fake.cwdCalls != 0 || fake.resolveCalls != 0 || fake.runtimeCalls != 0 {
+		t.Fatalf("unsafe Context observation crossed later read boundaries: %+v", fake)
 	}
 }
 

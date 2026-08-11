@@ -162,6 +162,10 @@ non-learnable and cannot become policy candidates.
   by trust boundary.
 - **current Context:** only the default Context used when an invocation omits
   an explicit Context; it is not shared enforcement authority.
+- **synthetic default:** the display-only `default` selection returned by an
+  omitted-Context read before any Context is persisted. It has no stable ID or
+  store authority and cannot bind a mutation; explicitly naming an absent
+  `default` Context returns not found.
 - **Context runtime recipe:** the selected Context's owner-only
   `runtime/Dockerfile`. It is the source for an explicit host-side custom
   runtime build; it is not project metadata and it is never mounted into a
@@ -207,8 +211,8 @@ The public commands are:
 | `policy reset --id ID` | act, reference bound | write | Remove one learned decision and leave its effect at default deny |
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
-| `context list [--format text|json]` | utility | read | List named Contexts with stable IDs and identify the current default |
-| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's agent, policy, managed-adapter store references, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
+| `context list [--format text|json]` | utility | read | List persisted or unmigrated named Contexts and report the current selection as persisted, legacy-unmigrated, or a display-only synthetic default |
+| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, agent, policy, managed-adapter store references, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced]` | act, fixed target | create | Create one named Context with a runtime image and separate owner-only stores |
@@ -444,17 +448,17 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Agent help (`view: index` and input-selected `view: scope`) | `commands` | 9 |
 | Version | `build_identity` | 1 |
 | Doctor report | `report` | 1 |
-| Context list | `contexts` | 3 |
-| Context report (show/create/use/config/runtime results) | `context` | 7 |
+| Context list | `contexts` | 4 |
+| Context report (show/create/use/config/runtime results) | `context` | 8 |
 | Cluster status | `cluster` | 5 |
 | Cluster denials | `denials` | 4 |
 | Policy candidates | `policy_candidates` | 5 |
 | Policy review | `policy_review` | 5 |
 | Policy rules | `policy_rules` | 3 |
 | Policy compactions | `policy_compactions` | 3 |
-| Authentication result and status | `auth` | 2 |
+| Authentication result and status | `auth` | 3 |
 | Workspace list | `tobari` | 2 |
-| Workspace status | `status` | 3 |
+| Workspace status | `status` | 4 |
 <!-- public-cli-json-schemas:end -->
 
 Workspace status always reports the selected Context ID/name, logical
@@ -665,6 +669,14 @@ observation.
 Configuration is resolved from
 `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` on both macOS and Linux:
 
+A declared read observes these paths without creating them. On a fresh
+installation, omitted Context selection may return `synthetic_default` with
+JSON `null` for Context ID and stores; it does not create `contexts/active.json`
+or a manifest. Schema-1/2 Contexts without IDs report `legacy_unmigrated` and
+remain byte-for-byte unchanged until the first authorized create/write
+revalidates and atomically migrates them. Unsafe or corrupt existing state
+fails closed instead of becoming synthetic state.
+
 - `config.json`: schema-v1 default Tobari image selector;
 - `contexts/<name>/context.json`: host-owned schema-v5 Context manifest with a
   stable UUIDv7 Context ID, the named agent profile, compatible Tobari runtime
@@ -776,6 +788,13 @@ first activate a complete deny-all transition revision. Host-authored edits rema
 advanced, explicit workflow.
 
 ## Side effects
+
+Catalog-declared reads create no Tobari-owned XDG files or Docker resources,
+including on first use and under concurrent observation. They may remove only
+a pre-existing, validated mutation journal while completing its bounded
+recovery under an already existing or recovery-required lock; they never
+create state merely to observe it. Context, policy, credential, auth, project,
+and lock initialization belongs to declared create/write outcomes.
 
 `runtime init` creates the current Context's owner-only runtime directory and
 template without changing image selection. `runtime build` executes the
@@ -934,7 +953,10 @@ The pre-v1.0 `context shell configure` path is replaced by `config shell`
 without an alias. Context manifest schema 4 migrates atomically to schema 5,
 preserving its stable ID, runtime recipe, and exact shell overrides while
 adding no Git identity. Context report schema advanced from 5 to 6 for that
-projection and now advances from 6 to 7 for nullable absent credential facts.
+projection, from 6 to 7 for nullable absent credential facts, and now to 8 for
+explicit Context persistence state and nullable pre-authority identity/stores.
+Context list advances to schema 4, auth result/status to schema 3, and Workspace
+status to schema 4 for the same no-fake-authority boundary.
 Command names, resource labels, state schema, OPA input version, audit schema,
 Gateway decision schema, policy data and policy output schemas, auth JSON schema 2, provider/projection schemas 1 and
 2, broker protocol schema 1, private companion epoch/frame schema 1, vault

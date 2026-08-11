@@ -94,6 +94,11 @@ type contextAwareProjectRuntimePort interface {
 	ValidateProjectRuntimeForContext(context.Context, tobari.State, string) error
 }
 
+type contextObservationProjectRuntimePort interface {
+	ObserveContext(context.Context, string) (tobari.ContextObservation, error)
+	ObserveBoundProject(context.Context, string, tobari.ContextManifest) (tobari.ProjectInstance, bool, error)
+}
+
 // WorkspaceSelector is the presentation boundary for an ambiguous CWD
 // selection. Application code owns the typed snapshot and validates the
 // returned choice; CLI owns the human interaction implementation.
@@ -300,6 +305,33 @@ func (s *Service) resolveExecutionContext(ctx context.Context, name string) (tob
 	return tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
 		Name: tobari.DefaultContextName, AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
 		PolicyMode: tobari.ContextPolicyModeGuided}, nil
+}
+
+func (s *Service) observeExecutionContext(ctx context.Context, name string) (tobari.ContextObservation, error) {
+	if aware, ok := s.runtime.(contextObservationProjectRuntimePort); ok && !portcheck.IsNil(aware) {
+		observed, err := aware.ObserveContext(ctx, name)
+		if err != nil {
+			if errors.Is(err, tobari.ErrContextNotFound) {
+				return tobari.ContextObservation{}, fault.Wrap(fault.KindNotFound, "context_not_found", "the selected Context is unavailable", false, err,
+					fault.NextAction{Command: "context list", Reason: "Choose an existing Context."})
+			}
+			return tobari.ContextObservation{}, fault.Wrap(fault.KindInternal, "context_read_failed", "the selected Context could not be observed safely", false, err,
+				fault.NextAction{Command: "doctor", Reason: "Inspect the host Context stores."})
+		}
+		return observed, nil
+	}
+	manifest, err := s.resolveExecutionContext(ctx, name)
+	if err != nil {
+		return tobari.ContextObservation{}, err
+	}
+	return tobari.ContextObservation{State: tobari.ContextObservationPersisted, Name: manifest.Name, Manifest: &manifest}, nil
+}
+
+func observeProjectForContext(ctx context.Context, project ProjectRuntimePort, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, bool, error) {
+	if aware, ok := project.(contextObservationProjectRuntimePort); ok && !portcheck.IsNil(aware) {
+		return aware.ObserveBoundProject(ctx, cwd, manifest)
+	}
+	return resolveProjectForContext(ctx, project, cwd, manifest)
 }
 
 func resolveProjectForContext(ctx context.Context, project ProjectRuntimePort, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, bool, error) {
@@ -587,7 +619,7 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 	if err != nil {
 		return tobari.ProjectStatus{}, err
 	}
-	manifest, err := s.resolveExecutionContext(ctx, contextName)
+	observed, err := s.observeExecutionContext(ctx, contextName)
 	if err != nil {
 		return tobari.ProjectStatus{}, err
 	}
@@ -595,13 +627,22 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 	if err != nil {
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
-	instance, found, err := resolveProjectForContext(ctx, project, cwd, manifest)
+	if observed.State != tobari.ContextObservationPersisted {
+		result := tobari.ProjectStatus{
+			Task: tobari.TaskStatus, ContextState: observed.State, Exists: false,
+			Runtime: tobari.RuntimeDiagnosticUnknown, ContextName: observed.Name,
+			Attachment: tobari.AttachmentNotApplicable,
+		}
+		return result, result.Validate()
+	}
+	manifest := *observed.Manifest
+	instance, found, err := observeProjectForContext(ctx, project, cwd, manifest)
 	if err != nil {
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
 	}
 	if !found {
 		result := tobari.ProjectStatus{
-			Task: tobari.TaskStatus, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown,
+			Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown,
 			ContextID: manifest.ID, ContextName: manifest.Name, Attachment: tobari.AttachmentNotApplicable,
 		}
 		return result, result.Validate()
@@ -629,7 +670,7 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project home path could not be resolved", false, err)
 	}
 	result := tobari.ProjectStatus{
-		Task: tobari.TaskStatus, Exists: true, Root: instance.Root, ID: instance.ID,
+		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: true, Root: instance.Root, ID: instance.ID,
 		Home: home, ContextID: instance.ContextID, ContextName: instance.ContextName, Runtime: diagnostic,
 		Attachment: attachment,
 	}
@@ -640,7 +681,9 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 }
 
 // ProjectList observes every locally indexed logical Tobari and its runtime
-// diagnostics. It does not create, repair, or delete any entry.
+// diagnostics. It does not create, repair, or delete any logical entry; the
+// infrastructure may only serialize bounded cleanup of a pre-existing
+// validated interruption journal.
 func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, error) {
 	project, err := s.projectRuntime()
 	if err != nil {
@@ -654,7 +697,11 @@ func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, er
 	if err != nil {
 		return tobari.ProjectListResult{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
 	}
-	manifest, err := s.resolveExecutionContext(ctx, "")
+	result := tobari.ProjectListResult{Task: tobari.TaskProjectList, Items: make([]tobari.ProjectListItem, 0, len(instances))}
+	if len(instances) == 0 {
+		return result, result.Validate()
+	}
+	observed, err := s.observeExecutionContext(ctx, "")
 	if err != nil {
 		return tobari.ProjectListResult{}, err
 	}
@@ -668,17 +715,18 @@ func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, er
 			ContextName:   instance.ContextName,
 		})
 	}
-	currentIndexes, err := tobari.RootIndexesForContext(indexes, manifest.ID)
-	if err != nil {
-		return tobari.ProjectListResult{}, fault.Wrap(fault.KindContract, "invalid_list_contract", "project list Context scope is invalid", false, err)
-	}
-	current, found, err := tobari.NearestRoot(cwd, currentIndexes)
-	if err != nil {
-		return tobari.ProjectListResult{}, fault.Wrap(fault.KindContract, "invalid_list_contract", "project list selection is invalid", false, err)
-	}
-	result := tobari.ProjectListResult{Task: tobari.TaskProjectList, Items: make([]tobari.ProjectListItem, 0, len(instances))}
-	if found {
-		result.CurrentID = current.InstanceID
+	if observed.State == tobari.ContextObservationPersisted {
+		currentIndexes, scopeErr := tobari.RootIndexesForContext(indexes, observed.Manifest.ID)
+		if scopeErr != nil {
+			return tobari.ProjectListResult{}, fault.Wrap(fault.KindContract, "invalid_list_contract", "project list Context scope is invalid", false, scopeErr)
+		}
+		current, found, selectionErr := tobari.NearestRoot(cwd, currentIndexes)
+		if selectionErr != nil {
+			return tobari.ProjectListResult{}, fault.Wrap(fault.KindContract, "invalid_list_contract", "project list selection is invalid", false, selectionErr)
+		}
+		if found {
+			result.CurrentID = current.InstanceID
+		}
 	}
 	for _, instance := range instances {
 		diagnostic, diagnosticErr := project.InspectProjectRuntime(ctx, instance)

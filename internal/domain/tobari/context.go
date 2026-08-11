@@ -46,6 +46,57 @@ const (
 	MaxContextGitIdentityValueBytes = 4096
 )
 
+// ContextObservationState distinguishes durable Context authority from
+// display-only first-use defaults and stored manifests that still require an
+// authorized migration. Only Persisted may supply authority to a mutation.
+type ContextObservationState string
+
+const (
+	ContextObservationPersisted        ContextObservationState = "persisted"
+	ContextObservationSyntheticDefault ContextObservationState = "synthetic_default"
+	ContextObservationLegacyUnmigrated ContextObservationState = "legacy_unmigrated"
+)
+
+func (s ContextObservationState) Validate() error {
+	switch s {
+	case ContextObservationPersisted, ContextObservationSyntheticDefault, ContextObservationLegacyUnmigrated:
+		return nil
+	default:
+		return fmt.Errorf("Context observation state is invalid: %q", s)
+	}
+}
+
+// ContextObservation carries authority only when State is persisted. Display
+// names for fresh or legacy state cannot be passed to a mutation as a stable
+// Context binding.
+type ContextObservation struct {
+	State    ContextObservationState
+	Name     string
+	Manifest *ContextManifest
+}
+
+func (o ContextObservation) Validate() error {
+	if err := o.State.Validate(); err != nil {
+		return err
+	}
+	if err := ValidateName(o.Name); err != nil {
+		return err
+	}
+	if o.State == ContextObservationPersisted {
+		if o.Manifest == nil || o.Manifest.Name != o.Name {
+			return fmt.Errorf("persisted Context observation lacks its authoritative manifest")
+		}
+		return o.Manifest.Validate()
+	}
+	if o.Manifest != nil {
+		return fmt.Errorf("non-persisted Context observation cannot carry authority")
+	}
+	if o.State == ContextObservationSyntheticDefault && o.Name != DefaultContextName {
+		return fmt.Errorf("synthetic Context observation must select the default display name")
+	}
+	return nil
+}
+
 var (
 	ErrContextExists        = errors.New("Context already exists")
 	ErrContextNotFound      = errors.New("Context does not exist")
@@ -642,16 +693,23 @@ func (p ContextStorePaths) Validate() error {
 
 // ContextSummary is one item in the complete local Context collection.
 type ContextSummary struct {
-	ID            string               `json:"id"`
-	Name          string               `json:"name"`
-	Active        bool                 `json:"active"`
-	AgentProfile  string               `json:"agent_profile"`
-	Image         string               `json:"image"`
-	PolicyMode    ContextPolicyMode    `json:"policy_mode"`
-	RuntimeStatus ContextRuntimeStatus `json:"runtime_status,omitempty"`
+	ID            string                  `json:"id"`
+	Name          string                  `json:"name"`
+	ContextState  ContextObservationState `json:"context_state"`
+	Active        bool                    `json:"active"`
+	AgentProfile  string                  `json:"agent_profile"`
+	Image         string                  `json:"image"`
+	PolicyMode    ContextPolicyMode       `json:"policy_mode"`
+	RuntimeStatus ContextRuntimeStatus    `json:"runtime_status,omitempty"`
 }
 
 func (s ContextSummary) Validate() error {
+	if err := s.ContextState.Validate(); err != nil {
+		return err
+	}
+	if s.ContextState == ContextObservationSyntheticDefault {
+		return fmt.Errorf("synthetic default is not a configured Context item")
+	}
 	manifest := ContextManifest{
 		SchemaVersion: ContextSchemaVersion,
 		ID:            s.ID,
@@ -660,7 +718,17 @@ func (s ContextSummary) Validate() error {
 		Image:         s.Image,
 		PolicyMode:    s.PolicyMode,
 	}
-	if err := manifest.Validate(); err != nil {
+	if s.ContextState == ContextObservationLegacyUnmigrated {
+		if s.ID != "" {
+			return fmt.Errorf("legacy unmigrated Context cannot claim a stable ID")
+		}
+		if err := ValidateName(s.Name); err != nil {
+			return err
+		}
+		if s.AgentProfile == "" || s.Image == "" || s.PolicyMode.Validate() != nil {
+			return fmt.Errorf("legacy unmigrated Context display metadata is invalid")
+		}
+	} else if err := manifest.Validate(); err != nil {
 		return err
 	}
 	if s.RuntimeStatus != "" {
@@ -675,14 +743,18 @@ func (s ContextSummary) Validate() error {
 // represented by an explicit non-nil Items collection, although a valid
 // installation always contains the default Context.
 type ContextListResult struct {
-	Task   string           `json:"task"`
-	Active string           `json:"active"`
-	Items  []ContextSummary `json:"items"`
+	Task         string                  `json:"task"`
+	ContextState ContextObservationState `json:"context_state"`
+	Active       string                  `json:"active"`
+	Items        []ContextSummary        `json:"items"`
 }
 
 func (r ContextListResult) Validate() error {
 	if r.Task != TaskContextList || r.Items == nil || r.Active == "" {
 		return fmt.Errorf("context list task or scope is invalid")
+	}
+	if err := r.ContextState.Validate(); err != nil {
+		return err
 	}
 	if err := ValidateName(r.Active); err != nil {
 		return fmt.Errorf("active context: %w", err)
@@ -702,7 +774,16 @@ func (r ContextListResult) Validate() error {
 			if item.Name != r.Active {
 				return fmt.Errorf("active context does not match the active item")
 			}
+			if item.ContextState != r.ContextState {
+				return fmt.Errorf("active context state does not match the list observation state")
+			}
 		}
+	}
+	if r.ContextState == ContextObservationSyntheticDefault {
+		if r.Active != DefaultContextName || activeCount != 0 || len(r.Items) != 0 {
+			return fmt.Errorf("synthetic default Context list cannot claim an active configured Context")
+		}
+		return nil
 	}
 	if _, exists := seen[r.Active]; !exists || activeCount != 1 {
 		return fmt.Errorf("context list must contain exactly one active context")
@@ -799,6 +880,7 @@ func (a ContextAuthentication) Validate(observed bool) error {
 // ContextReport is the complete selected Context view.
 type ContextReport struct {
 	Task             string                           `json:"task"`
+	ContextState     ContextObservationState          `json:"context_state"`
 	ID               string                           `json:"id"`
 	Name             string                           `json:"name"`
 	Active           bool                             `json:"active"`
@@ -818,19 +900,44 @@ func (r ContextReport) Validate() error {
 		r.Task != TaskConfigShell && r.Task != TaskConfigGit && r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
 		return fmt.Errorf("context report task is invalid")
 	}
-	manifest := ContextManifest{
-		SchemaVersion: ContextSchemaVersion,
-		ID:            r.ID,
-		Name:          r.Name,
-		AgentProfile:  r.AgentProfile,
-		Image:         r.Image,
-		PolicyMode:    r.PolicyMode,
-	}
-	if err := manifest.Validate(); err != nil {
+	if err := r.ContextState.Validate(); err != nil {
 		return err
 	}
-	if err := r.Stores.Validate(); err != nil {
-		return err
+	if r.ContextState == ContextObservationSyntheticDefault {
+		if r.Task != TaskContextShow || r.Name != DefaultContextName || !r.Active || r.ID != "" || r.Stores != (ContextStorePaths{}) {
+			return fmt.Errorf("synthetic default Context report claims persisted authority")
+		}
+		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil {
+			return fmt.Errorf("synthetic default Context display metadata is invalid")
+		}
+	} else if r.ContextState == ContextObservationLegacyUnmigrated {
+		if r.Task != TaskContextShow || r.ID != "" {
+			return fmt.Errorf("legacy unmigrated Context report claims stable authority")
+		}
+		if err := ValidateName(r.Name); err != nil {
+			return err
+		}
+		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil {
+			return fmt.Errorf("legacy unmigrated Context display metadata is invalid")
+		}
+		if err := r.Stores.Validate(); err != nil {
+			return err
+		}
+	} else {
+		manifest := ContextManifest{
+			SchemaVersion: ContextSchemaVersion,
+			ID:            r.ID,
+			Name:          r.Name,
+			AgentProfile:  r.AgentProfile,
+			Image:         r.Image,
+			PolicyMode:    r.PolicyMode,
+		}
+		if err := manifest.Validate(); err != nil {
+			return err
+		}
+		if err := r.Stores.Validate(); err != nil {
+			return err
+		}
 	}
 	if err := r.Runtime.Validate(); err != nil {
 		return err

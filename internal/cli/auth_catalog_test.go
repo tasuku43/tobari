@@ -224,7 +224,7 @@ func TestAuthImportDeclaresRequiredStdinWithoutArgvOrEnvironmentSecret(t *testin
 
 func TestAuthCommandsPublishOneSecretFreeSchema(t *testing.T) {
 	wantMutationFields := []string{
-		"provider", "context", "context_id", "configured", "account_label",
+		"provider", "context", "context_state", "context_id", "configured", "account_label",
 		"storage_backend", "broker_state", "credential_revision", "workspace_activation",
 	}
 	for _, path := range []string{"auth login", "auth import", "auth logout"} {
@@ -237,7 +237,7 @@ func TestAuthCommandsPublishOneSecretFreeSchema(t *testing.T) {
 			gotFields = append(gotFields, field.Name)
 		}
 		if !reflect.DeepEqual(gotFields, wantMutationFields) || spec.Agent.Output.JSONEnvelope != "auth" ||
-			spec.Agent.Output.JSONSchemaVersion != 2 || spec.Agent.Output.CollectionCoverage != CollectionCoverageNotApplicable {
+			spec.Agent.Output.JSONSchemaVersion != 3 || spec.Agent.Output.CollectionCoverage != CollectionCoverageNotApplicable {
 			t.Fatalf("%s output = %+v", path, spec.Agent.Output)
 		}
 		for _, forbidden := range []string{"credential", "secret", "token", "handle", "vault", "root_key"} {
@@ -257,9 +257,9 @@ func TestAuthCommandsPublishOneSecretFreeSchema(t *testing.T) {
 	for _, field := range status.Agent.Output.Fields {
 		gotStatusFields = append(gotStatusFields, field.Name)
 	}
-	wantStatusFields := []string{"context", "context_id", "storage_backend", "broker_state", "providers", "workspace_activation"}
+	wantStatusFields := []string{"context", "context_state", "context_id", "storage_backend", "broker_state", "providers", "workspace_activation"}
 	if !reflect.DeepEqual(gotStatusFields, wantStatusFields) || status.Agent.Output.JSONEnvelope != "auth" ||
-		status.Agent.Output.JSONSchemaVersion != 2 || status.Agent.Output.CollectionCoverage != CollectionCoverageExhaustive {
+		status.Agent.Output.JSONSchemaVersion != 3 || status.Agent.Output.CollectionCoverage != CollectionCoverageExhaustive {
 		t.Fatalf("auth status output = %+v", status.Agent.Output)
 	}
 }

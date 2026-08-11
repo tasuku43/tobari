@@ -77,15 +77,16 @@ func (o AttachmentObservation) Validate(exists bool) error {
 // ProjectStatus is the CWD-scoped lifecycle result. Exists is the only
 // user-facing logical lifecycle bit; Runtime is diagnostic detail.
 type ProjectStatus struct {
-	Task        string                `json:"task"`
-	Exists      bool                  `json:"exists"`
-	Root        string                `json:"root,omitempty"`
-	ID          string                `json:"id,omitempty"`
-	Home        string                `json:"home,omitempty"`
-	ContextID   string                `json:"context_id,omitempty"`
-	ContextName string                `json:"context,omitempty"`
-	Runtime     RuntimeDiagnostic     `json:"runtime"`
-	Attachment  AttachmentObservation `json:"attachment"`
+	Task         string                  `json:"task"`
+	ContextState ContextObservationState `json:"context_state"`
+	Exists       bool                    `json:"exists"`
+	Root         string                  `json:"root,omitempty"`
+	ID           string                  `json:"id,omitempty"`
+	Home         string                  `json:"home,omitempty"`
+	ContextID    string                  `json:"context_id,omitempty"`
+	ContextName  string                  `json:"context,omitempty"`
+	Runtime      RuntimeDiagnostic       `json:"runtime"`
+	Attachment   AttachmentObservation   `json:"attachment"`
 }
 
 func (s ProjectStatus) Validate() error {
@@ -98,8 +99,17 @@ func (s ProjectStatus) Validate() error {
 	if err := s.Attachment.Validate(s.Exists); err != nil {
 		return err
 	}
-	if err := ValidateContextID(s.ContextID); err != nil {
+	if err := s.ContextState.Validate(); err != nil {
 		return err
+	}
+	if s.ContextState == ContextObservationSyntheticDefault || s.ContextState == ContextObservationLegacyUnmigrated {
+		if s.Exists || s.ContextID != "" || (s.ContextState == ContextObservationSyntheticDefault && s.ContextName != DefaultContextName) {
+			return fmt.Errorf("non-persisted project status claims persisted authority")
+		}
+	} else {
+		if err := ValidateContextID(s.ContextID); err != nil {
+			return err
+		}
 	}
 	if err := ValidateName(s.ContextName); err != nil {
 		return fmt.Errorf("project Context name: %w", err)

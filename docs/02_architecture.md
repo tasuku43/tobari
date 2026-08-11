@@ -143,6 +143,16 @@ the current/default Context used when an invocation omits a selector; it does
 not mutate existing records or Docker. Project runtime reconciliation resolves
 the stored Context ID and uses that Context's runtime image and agent profile.
 
+Context and project stores expose separate observation and ensure/mutation
+paths. Observation never initializes directories, manifests, active markers,
+credentials, policy, or lock files. A missing omitted Context becomes a typed
+display-only synthetic default; legacy state is projected without migration;
+only a validated create/write path may re-read under its mutation lock and
+atomically initialize or migrate it. Project observation opens an existing
+lock when present and otherwise remains lockless. A pre-existing validated
+project journal is the narrow exception: observation acquires the recovery
+lock, completes bounded cleanup, and then reads the remaining logical state.
+
 Cluster state records one content-addressed projection revision and loaded
 Context count, not an active enforcement Context. `cluster up` builds the
 projection from all authoritative Context policy and credential sources,
@@ -160,8 +170,9 @@ Cluster status schema 5 projects all three component states plus
 always-present secret-free `credential_companion_state`
 (`ready|prepared|absent|unavailable`). The companion field is host-process/
 channel readiness, not a fourth Compose service
-or credential state. Context report schema 7 exposes the complete Context
-shell-environment and Git identity policies plus broker and installed-provider state without
+or credential state. Context report schema 8 exposes explicit Context
+persistence state, nullable pre-authority ID/stores, the complete Context
+shell-environment and Git identity policies, plus broker and installed-provider state without
 returning a vault path/content, root key, primary secret, or handle. Public Linux backend values are `xdg_file`; the
 infrastructure/doctor detail `linux_xdg_file` is not a public JSON enum. The
 canonical schema/path/backend table is in

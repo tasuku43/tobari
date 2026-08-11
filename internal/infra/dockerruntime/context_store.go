@@ -39,6 +39,11 @@ type activeContextDocument struct {
 	Name string `json:"name"`
 }
 
+type observedContext struct {
+	state    tobari.ContextObservationState
+	manifest tobari.ContextManifest
+}
+
 func (r *Runtime) contextsDirectory() string {
 	return filepath.Join(r.configDirectory, "contexts")
 }
@@ -147,6 +152,9 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 	}, true); err != nil {
 		return err
 	}
+	if err := r.upgradeLegacyContextManifests(); err != nil {
+		return err
+	}
 	if _, err := os.Lstat(r.activeContextPath()); errors.Is(err, os.ErrNotExist) {
 		if err := r.writeActiveContext(tobari.DefaultContextName); err != nil {
 			return fmt.Errorf("initialize active Context: %w", err)
@@ -154,9 +162,6 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 	} else if err != nil {
 		return fmt.Errorf("inspect active Context: %w", err)
 	} else if _, err := r.readActiveContext(); err != nil {
-		return err
-	}
-	if err := r.upgradeLegacyContextManifests(); err != nil {
 		return err
 	}
 	return nil
@@ -476,6 +481,72 @@ func (r *Runtime) activeContext() (tobari.ContextManifest, tobari.ContextStorePa
 	return manifest, paths, nil
 }
 
+func (r *Runtime) observeActiveContextName() (string, error) {
+	name, err := r.readActiveContext()
+	if errors.Is(err, os.ErrNotExist) {
+		return tobari.DefaultContextName, nil
+	}
+	return name, err
+}
+
+// observeContext never initializes the Context catalog or commits a legacy
+// migration. A synthetic default is display state only and carries no stable
+// authority manifest.
+func (r *Runtime) observeContext(name string) (observedContext, error) {
+	explicit := name != ""
+	if !explicit {
+		var err error
+		name, err = r.observeActiveContextName()
+		if err != nil {
+			return observedContext{}, err
+		}
+	}
+	manifest, err := r.readContextManifestRaw(name)
+	if errors.Is(err, tobari.ErrContextNotFound) {
+		if explicit || name != tobari.DefaultContextName {
+			return observedContext{}, err
+		}
+		image, imageErr := r.configuredDefaultImage()
+		if imageErr != nil {
+			return observedContext{}, imageErr
+		}
+		return observedContext{
+			state: tobari.ContextObservationSyntheticDefault,
+			manifest: tobari.ContextManifest{
+				SchemaVersion: tobari.ContextSchemaVersion, Name: tobari.DefaultContextName,
+				AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: tobari.ContextPolicyModeGuided,
+				ShellEnvironment: tobari.InitialContextShellEnvironment(),
+			},
+		}, nil
+	}
+	if err != nil {
+		return observedContext{}, err
+	}
+	state := tobari.ContextObservationLegacyUnmigrated
+	if manifest.SchemaVersion == tobari.ContextSchemaVersion ||
+		((manifest.SchemaVersion == tobari.LegacyContextSchemaVersion3 || manifest.SchemaVersion == tobari.LegacyContextSchemaVersion4) && manifest.ID != "") {
+		state = tobari.ContextObservationPersisted
+	}
+	return observedContext{state: state, manifest: manifest}, nil
+}
+
+// ObserveContext exposes only a validated stable manifest as authority.
+func (r *Runtime) ObserveContext(ctx context.Context, name string) (tobari.ContextObservation, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.ContextObservation{}, err
+	}
+	observed, err := r.observeContext(name)
+	if err != nil {
+		return tobari.ContextObservation{}, err
+	}
+	result := tobari.ContextObservation{State: observed.state, Name: observed.manifest.Name}
+	if observed.state == tobari.ContextObservationPersisted {
+		manifest := observed.manifest
+		result.Manifest = &manifest
+	}
+	return result, result.Validate()
+}
+
 // resolveContext resolves an explicit display name to its trusted manifest, or
 // uses the current Context only when the caller omitted a name.
 func (r *Runtime) resolveContext(name string) (tobari.ContextManifest, tobari.ContextStorePaths, error) {
@@ -544,26 +615,36 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 	if err := ctx.Err(); err != nil {
 		return tobari.ContextListResult{}, err
 	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextListResult{}, err
-	}
-	active, err := r.readActiveContext()
+	active, err := r.observeActiveContextName()
 	if err != nil {
 		return tobari.ContextListResult{}, err
 	}
 	entries, err := os.ReadDir(r.contextsDirectory())
+	if errors.Is(err, os.ErrNotExist) {
+		// A legacy installation-wide config may still select the display image.
+		// Validate it so unsafe or corrupt stored input does not become a clean
+		// synthetic first-use observation.
+		if _, imageErr := r.configuredDefaultImage(); imageErr != nil {
+			return tobari.ContextListResult{}, imageErr
+		}
+		result := tobari.ContextListResult{
+			Task: tobari.TaskContextList, ContextState: tobari.ContextObservationSyntheticDefault,
+			Active: tobari.DefaultContextName, Items: []tobari.ContextSummary{},
+		}
+		return result, result.Validate()
+	}
 	if err != nil {
 		return tobari.ContextListResult{}, err
 	}
 	items := make([]tobari.ContextSummary, 0)
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			return tobari.ContextListResult{}, fmt.Errorf("Context directory contains a symbolic link")
 		}
-		manifest, err := r.readContextManifest(entry.Name())
+		if !entry.IsDir() {
+			continue
+		}
+		manifest, err := r.readContextManifestRaw(entry.Name())
 		if err != nil {
 			return tobari.ContextListResult{}, err
 		}
@@ -571,14 +652,27 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 		if err != nil {
 			return tobari.ContextListResult{}, err
 		}
+		state := tobari.ContextObservationLegacyUnmigrated
+		id := ""
+		if manifest.SchemaVersion == tobari.ContextSchemaVersion ||
+			((manifest.SchemaVersion == tobari.LegacyContextSchemaVersion3 || manifest.SchemaVersion == tobari.LegacyContextSchemaVersion4) && manifest.ID != "") {
+			state, id = tobari.ContextObservationPersisted, manifest.ID
+		}
 		items = append(items, tobari.ContextSummary{
-			ID: manifest.ID, Name: manifest.Name, Active: manifest.Name == active,
+			ID: id, Name: manifest.Name, ContextState: state, Active: manifest.Name == active,
 			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
 			RuntimeStatus: runtimeReport.Status,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	result := tobari.ContextListResult{Task: tobari.TaskContextList, Active: active, Items: items}
+	activeState := tobari.ContextObservationSyntheticDefault
+	for _, item := range items {
+		if item.Active {
+			activeState = item.ContextState
+			break
+		}
+	}
+	result := tobari.ContextListResult{Task: tobari.TaskContextList, ContextState: activeState, Active: active, Items: items}
 	if err := result.Validate(); err != nil {
 		return tobari.ContextListResult{}, err
 	}
@@ -590,21 +684,18 @@ func (r *Runtime) ShowContext(ctx context.Context, name string) (tobari.ContextR
 	if err := ctx.Err(); err != nil {
 		return tobari.ContextReport{}, err
 	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextReport{}, err
-	}
-	active, err := r.readActiveContext()
+	observed, err := r.observeContext(name)
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
-	if name == "" {
-		name = active
-	}
-	manifest, err := r.readContextManifest(name)
+	active, err := r.observeActiveContextName()
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
-	return r.contextReport(ctx, tobari.TaskContextShow, manifest, active)
+	if observed.state == tobari.ContextObservationPersisted {
+		return r.contextReport(ctx, tobari.TaskContextShow, observed.manifest, active)
+	}
+	return r.nonPersistedContextReport(observed, active)
 }
 
 // ConfigureContextShell atomically updates one staged set of distinct

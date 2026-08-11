@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -38,7 +40,7 @@ func (r *contextSwitchRunner) Output(_ context.Context, args, _ []string) ([]byt
 		if err != nil {
 			return nil, err
 		}
-		return []byte(fmt.Sprintf(`{"RepoDigests":[%q],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"3","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`, versions["GATEWAY_IMAGE"])), nil
+		return []byte(fmt.Sprintf(`{"RepoDigests":[%q],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"4","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`, versions["GATEWAY_IMAGE"])), nil
 	}
 	if len(args) > 0 && args[0] == "version" {
 		return []byte(`{"Os":"linux","Arch":"arm64"}`), nil
@@ -71,6 +73,233 @@ func newContextSwitchRuntime(t *testing.T, runner *contextSwitchRunner) *Runtime
 		t.Fatal(err)
 	}
 	return runtime
+}
+
+func TestFreshObservationsCreateNoTobariOwnedFilesOrDockerCalls(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &contextSwitchRunner{}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := runtime.ListContexts(context.Background()); err != nil ||
+		result.ContextState != tobari.ContextObservationSyntheticDefault || len(result.Items) != 0 {
+		t.Fatalf("ListContexts() = %+v, %v", result, err)
+	}
+	if result, err := runtime.ShowContext(context.Background(), ""); err != nil ||
+		result.ContextState != tobari.ContextObservationSyntheticDefault || result.ID != "" {
+		t.Fatalf("ShowContext() = %+v, %v", result, err)
+	}
+	if result, err := runtime.AuthStatus(context.Background(), ""); err != nil ||
+		result.ContextState != tobari.ContextObservationSyntheticDefault || result.ContextID != "" {
+		t.Fatalf("AuthStatus() = %+v, %v", result, err)
+	}
+	if projects, err := runtime.ListProjects(context.Background()); err != nil || len(projects) != 0 {
+		t.Fatalf("ListProjects() = %+v, %v", projects, err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("fresh observation created durable paths: %+v", entries)
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("fresh observation made Docker calls: %+v", runner.runs)
+	}
+}
+
+func snapshotOwnedTree(t *testing.T, root string) []string {
+	t.Helper()
+	var snapshot []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		entry := relative + "|" + info.Mode().String()
+		if info.Mode().IsRegular() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			entry += "|" + string(data)
+		}
+		snapshot = append(snapshot, entry)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(snapshot)
+	return snapshot
+}
+
+func TestFreshObservationsAreConcurrentAndReadOnlyXDGCompatible(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	config, state, data := filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data")
+	for _, directory := range []string{config, state, data} {
+		if err := os.Mkdir(directory, 0o500); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime, err := newRuntimeWithData(config, state, data, &contextSwitchRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotOwnedTree(t, root)
+	const readers = 24
+	errorsSeen := make(chan error, readers*4)
+	var wait sync.WaitGroup
+	for index := 0; index < readers; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			if _, err := runtime.ListContexts(context.Background()); err != nil {
+				errorsSeen <- err
+			}
+			if _, err := runtime.ShowContext(context.Background(), ""); err != nil {
+				errorsSeen <- err
+			}
+			if _, err := runtime.AuthStatus(context.Background(), ""); err != nil {
+				errorsSeen <- err
+			}
+			if _, err := runtime.ListProjects(context.Background()); err != nil {
+				errorsSeen <- err
+			}
+		}()
+	}
+	wait.Wait()
+	close(errorsSeen)
+	for err := range errorsSeen {
+		t.Errorf("concurrent read failed: %v", err)
+	}
+	if after := snapshotOwnedTree(t, root); !reflect.DeepEqual(after, before) {
+		t.Fatalf("read-only concurrent observations changed XDG state\nbefore=%v\nafter=%v", before, after)
+	}
+}
+
+func TestExplicitFreshDefaultIsNotSyntheticAuthority(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &contextSwitchRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ShowContext(context.Background(), tobari.DefaultContextName); !errors.Is(err, tobari.ErrContextNotFound) {
+		t.Fatalf("explicit fresh default = %v, want context not found", err)
+	}
+	if _, err := runtime.AuthStatus(context.Background(), tobari.DefaultContextName); err == nil {
+		t.Fatal("explicit fresh default auth status unexpectedly succeeded")
+	}
+	if entries, err := os.ReadDir(root); err != nil || len(entries) != 0 {
+		t.Fatalf("explicit missing observation changed root: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestLegacyContextObservationDoesNotMigrateUntilMutation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &contextSwitchRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtime.contextDirectory(tobari.DefaultContextName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := tobari.ContextManifest{
+		SchemaVersion: tobari.LegacyContextSchemaVersion2, Name: tobari.DefaultContextName,
+		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided,
+	}
+	if err := writeAtomicJSON(runtime.contextManifestPath(legacy.Name), legacy); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotOwnedTree(t, root)
+	listed, err := runtime.ListContexts(context.Background())
+	if err != nil || listed.ContextState != tobari.ContextObservationLegacyUnmigrated || len(listed.Items) != 1 ||
+		listed.Items[0].ContextState != tobari.ContextObservationLegacyUnmigrated || listed.Items[0].ID != "" {
+		t.Fatalf("legacy ListContexts() = %+v, %v", listed, err)
+	}
+	shown, err := runtime.ShowContext(context.Background(), "")
+	if err != nil || shown.ContextState != tobari.ContextObservationLegacyUnmigrated || shown.ID != "" {
+		t.Fatalf("legacy ShowContext() = %+v, %v", shown, err)
+	}
+	if after := snapshotOwnedTree(t, root); !reflect.DeepEqual(after, before) {
+		t.Fatalf("legacy reads committed migration\nbefore=%v\nafter=%v", before, after)
+	}
+	if _, err := runtime.CreateContext(context.Background(), "tools", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+		t.Fatalf("authorized mutation failed: %v", err)
+	}
+	migrated, err := runtime.readContextManifest(tobari.DefaultContextName)
+	if err != nil || migrated.SchemaVersion != tobari.ContextSchemaVersion || migrated.ID == "" {
+		t.Fatalf("first mutation did not migrate legacy Context: %+v, %v", migrated, err)
+	}
+}
+
+func TestCorruptStoredContextFailsClosedWithoutWrites(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &contextSwitchRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtime.contextDirectory(tobari.DefaultContextName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtime.contextManifestPath(tobari.DefaultContextName), []byte("{not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotOwnedTree(t, root)
+	if _, err := runtime.ListContexts(context.Background()); err == nil {
+		t.Fatal("corrupt Context list unexpectedly succeeded")
+	}
+	if _, err := runtime.ShowContext(context.Background(), ""); err == nil {
+		t.Fatal("corrupt Context show unexpectedly succeeded")
+	}
+	if after := snapshotOwnedTree(t, root); !reflect.DeepEqual(after, before) {
+		t.Fatalf("corrupt Context observation changed state\nbefore=%v\nafter=%v", before, after)
+	}
+}
+
+func TestListContextsRejectsExtraSymbolicLinkWithoutWrites(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &contextSwitchRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.CreateContext(
+		context.Background(), "fixture", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided,
+	); err != nil {
+		t.Fatalf("initialize valid default Context fixture: %v", err)
+	}
+	linkTarget := t.TempDir()
+	linkPath := filepath.Join(runtime.contextsDirectory(), "extra-link")
+	if err := os.Symlink(linkTarget, linkPath); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotOwnedTree(t, root)
+	if _, err := runtime.ListContexts(context.Background()); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("ListContexts() error = %v, want symbolic-link rejection", err)
+	}
+	if after := snapshotOwnedTree(t, root); !reflect.DeepEqual(after, before) {
+		t.Fatalf("unsafe Context list changed state\nbefore=%v\nafter=%v", before, after)
+	}
 }
 
 func contextSwitchState(runtime *Runtime, name string, root string) tobari.State {
@@ -392,6 +621,12 @@ func TestContextSchemaThreeMigrationPreservesIdentityAndEnablesPS1Inheritance(t 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if raw, err := runtime.readContextManifestRaw("project-tools"); err != nil || raw.SchemaVersion != tobari.LegacyContextSchemaVersion3 {
+		t.Fatalf("read committed schema migration: %+v, %v", raw, err)
+	}
+	if err := runtime.ensureContextStore(); err != nil {
+		t.Fatal(err)
+	}
 	upgraded, err := runtime.readContextManifest("project-tools")
 	if err != nil {
 		t.Fatal(err)
@@ -431,6 +666,12 @@ func TestContextSchemaFourMigrationPreservesIdentityRuntimeAndShellOverrides(t *
 
 	shown, err := runtime.ShowContext(context.Background(), "project-tools")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := runtime.readContextManifestRaw("project-tools"); err != nil || raw.SchemaVersion != tobari.LegacyContextSchemaVersion4 {
+		t.Fatalf("read committed schema migration: %+v, %v", raw, err)
+	}
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
 	upgraded, err := runtime.readContextManifest("project-tools")
@@ -484,6 +725,9 @@ func TestContextStoreMigratesLegacyStoresAndPersistsRuntimeImage(t *testing.T) {
 	runtime, err := newRuntime(config, filepath.Join(root, "state"), &recordingRunner{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err := runtime.ensureContextStore(); err != nil {
+		t.Fatalf("ensureContextStore() error = %v", err)
 	}
 	contexts, err := runtime.ListContexts(context.Background())
 	if err != nil {
@@ -572,7 +816,7 @@ func TestLegacyGuidedPolicyDataMigrationRejectsSymlinkDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ListContexts(context.Background()); err == nil ||
+	if err := runtime.ensureContextStore(); err == nil ||
 		!strings.Contains(err.Error(), "legacy policy store must be an owner-only directory") {
 		t.Fatalf("unsafe legacy policy directory was accepted: %v", err)
 	}

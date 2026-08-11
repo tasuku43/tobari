@@ -430,6 +430,13 @@ name prefix or broad Docker query as authority.
   logical state so an interrupted multi-file write cannot remain authoritative.
   The root command is the single deliberate ensure-and-enter runtime
   reconciliation path.
+- Every catalog-declared read is observational on first use and during ordinary
+  operation: it creates no Tobari-owned configuration, state, lock, policy,
+  credential, key, vault, or Docker resource. Missing state remains explicit
+  absence or a display-only synthetic default without stable authority. The
+  sole read-side mutation is bounded cleanup of a pre-existing validated
+  interruption journal, which may create the project recovery lock only to
+  serialize that cleanup; reads never create the journal itself.
 
 ### Mechanical enforcement
 

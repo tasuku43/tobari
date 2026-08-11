@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const (
@@ -109,16 +111,17 @@ func (a WorkspaceActivation) Validate() error {
 // logout. A nil AccountLabel means the provider did not make an account label
 // available; it never stands for the primary secret.
 type Result struct {
-	Task                string              `json:"task"`
-	Provider            string              `json:"provider"`
-	Context             string              `json:"context"`
-	ContextID           string              `json:"context_id"`
-	Configured          bool                `json:"configured"`
-	AccountLabel        *string             `json:"account_label"`
-	StorageBackend      StorageBackend      `json:"storage_backend"`
-	BrokerState         BrokerState         `json:"broker_state"`
-	CredentialRevision  string              `json:"credential_revision"`
-	WorkspaceActivation WorkspaceActivation `json:"workspace_activation"`
+	Task                string                         `json:"task"`
+	ContextState        tobari.ContextObservationState `json:"context_state"`
+	Provider            string                         `json:"provider"`
+	Context             string                         `json:"context"`
+	ContextID           string                         `json:"context_id"`
+	Configured          bool                           `json:"configured"`
+	AccountLabel        *string                        `json:"account_label"`
+	StorageBackend      StorageBackend                 `json:"storage_backend"`
+	BrokerState         BrokerState                    `json:"broker_state"`
+	CredentialRevision  string                         `json:"credential_revision"`
+	WorkspaceActivation WorkspaceActivation            `json:"workspace_activation"`
 }
 
 func (r Result) Validate() error {
@@ -126,6 +129,9 @@ func (r Result) Validate() error {
 	case TaskLogin, TaskImport, TaskLogout:
 	default:
 		return fmt.Errorf("auth result task is invalid: %q", r.Task)
+	}
+	if r.ContextState != tobari.ContextObservationPersisted {
+		return fmt.Errorf("auth mutation result requires a persisted Context")
 	}
 	if !contextNamePattern.MatchString(r.Context) {
 		return fmt.Errorf("auth result Context name is invalid")
@@ -251,13 +257,14 @@ func (s ProviderStatus) Validate() error {
 // StatusResult is the complete provider-status collection for one stable
 // Context. Providers is non-nil even when the available provider set is empty.
 type StatusResult struct {
-	Task                string              `json:"task"`
-	Context             string              `json:"context"`
-	ContextID           string              `json:"context_id"`
-	StorageBackend      StorageBackend      `json:"storage_backend"`
-	BrokerState         BrokerState         `json:"broker_state"`
-	Providers           []ProviderStatus    `json:"providers"`
-	WorkspaceActivation WorkspaceActivation `json:"workspace_activation"`
+	Task                string                         `json:"task"`
+	ContextState        tobari.ContextObservationState `json:"context_state"`
+	Context             string                         `json:"context"`
+	ContextID           string                         `json:"context_id"`
+	StorageBackend      StorageBackend                 `json:"storage_backend"`
+	BrokerState         BrokerState                    `json:"broker_state"`
+	Providers           []ProviderStatus               `json:"providers"`
+	WorkspaceActivation WorkspaceActivation            `json:"workspace_activation"`
 }
 
 func (r StatusResult) Validate() error {
@@ -267,7 +274,15 @@ func (r StatusResult) Validate() error {
 	if !contextNamePattern.MatchString(r.Context) {
 		return fmt.Errorf("auth status Context name is invalid")
 	}
-	if !contextIDPattern.MatchString(r.ContextID) {
+	if err := r.ContextState.Validate(); err != nil {
+		return err
+	}
+	if r.ContextState == tobari.ContextObservationSyntheticDefault || r.ContextState == tobari.ContextObservationLegacyUnmigrated {
+		if (r.ContextState == tobari.ContextObservationSyntheticDefault && r.Context != tobari.DefaultContextName) ||
+			r.ContextID != "" || r.BrokerState != BrokerStateUnavailable {
+			return fmt.Errorf("non-persisted auth status claims persisted Context authority")
+		}
+	} else if !contextIDPattern.MatchString(r.ContextID) {
 		return fmt.Errorf("auth status Context ID is invalid")
 	}
 	if err := r.StorageBackend.Validate(); err != nil {

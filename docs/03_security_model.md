@@ -544,6 +544,17 @@ OPA authorization, and upstream I/O.
 
 ## Mutation policy
 
+An `EffectRead` has no first-use initialization authority. Missing XDG state is
+reported as absence or a display-only synthetic default without a Context ID;
+it cannot authorize a Workspace, credential, policy, key, vault, or Docker
+operation. Legacy reads do not migrate, and corrupt or unsafe stored input
+fails closed. The only read-side filesystem mutation is bounded cleanup of a
+pre-existing validated mutation journal; that exceptional path may create the
+project recovery lock only to serialize cleanup, but a read never creates the
+journal itself. Fresh and ordinary reads create no lock. First durable
+initialization and migration remain behind a fully validated create/write
+intent.
+
 `runtime init` is a host-only create of one owner-only recipe directory.
 `runtime build` is a host-only write against the current Context runtime target;
 its Docker build context is fixed to that recipe directory, and its image

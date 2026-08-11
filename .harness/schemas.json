@@ -23,8 +23,8 @@
   {
     "id": "human-presentation-foundation.fixture.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-fixture.json",
-    "sha256": "c4776692325ce2f6c4d707118d9072661a1dcb43fac29b815711af4d253e9fc6",
-    "bytes": 1290,
+    "sha256": "34bc39ba4260683b6c12cb6a8c2694f63b543590129863664e72e63d9e5fc4b6",
+    "bytes": 1324,
     "cases": 5,
     "provenance": "Repository-authored synthetic typed fixture for human presentation across styled, NO_COLOR, redirected, empty, warning, failure, and cancellation modes.",
     "license": "MIT"

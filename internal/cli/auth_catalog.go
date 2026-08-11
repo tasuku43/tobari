@@ -181,6 +181,7 @@ func authResultOutput() CommandOutput {
 		Fields: []OutputField{
 			{Name: "provider", Type: OutputFieldTypeString, Description: "Requested provider ID."},
 			{Name: "context", Type: OutputFieldTypeString, Description: "Context display name selected by this task; it is not authority."},
+			{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted Context authority for this mutation.", Enum: []string{"persisted"}},
 			{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Context authority identity."},
 			{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether this Context currently has the reported provider credential."},
 			{Name: "account_label", Type: OutputFieldTypeString, Description: "Secret-free provider account label when known, otherwise null.", Nullable: true},
@@ -190,7 +191,7 @@ func authResultOutput() CommandOutput {
 			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Explicit activation state and guidance that credential ownership is Context-wide, each permanently bound project receives a distinct handle, and existing sessions must leave and re-enter.", Fields: workspaceActivationOutputFields()},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
+		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 3,
 	}
 }
 
@@ -199,7 +200,8 @@ func authStatusOutput() CommandOutput {
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "context", Type: OutputFieldTypeString, Description: "Context display name selected by this task; it is not authority."},
-			{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Context authority identity."},
+			{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority, a display-only synthetic default, or legacy state awaiting migration.", Enum: []string{"persisted", "synthetic_default", "legacy_unmigrated"}},
+			{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Context authority identity, or null before authority is persisted.", Nullable: true},
 			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for encrypted Context vaults.", Enum: []string{"macos_keychain", "xdg_file"}},
 			{Name: "broker_state", Type: OutputFieldTypeString, Description: "Observed locked, ready, or unavailable Auth Broker state.", Enum: []string{"locked", "ready", "unavailable"}},
 			{Name: "providers", Type: OutputFieldTypeArray, Description: "Complete installed provider collection with explicit configured, not_configured, or unavailable state plus configuration, account-label, and credential-revision facts.", SemanticScope: "Every installed provider for the selected Context at one observation.", Items: &OutputField{
@@ -214,7 +216,7 @@ func authStatusOutput() CommandOutput {
 			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "When any provider is configured, guidance that credential ownership is Context-wide, each permanently bound project receives a distinct handle, and existing sessions must leave and re-enter.", Fields: workspaceActivationOutputFields()},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
+		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 3,
 	}
 }
 

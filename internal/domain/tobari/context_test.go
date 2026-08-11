@@ -229,7 +229,7 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 	manifest := validContextManifest()
 	manifest.Runtime = &ContextRuntimeRecipe{Kind: ContextRuntimeKindDockerfile, File: ContextRuntimeRecipeFile, BaseReference: OfficialRuntimeBase}
 	contextReport := ContextReport{
-		Task: TaskRuntimeBuild, ID: manifest.ID, Name: manifest.Name, Active: true,
+		Task: TaskRuntimeBuild, ContextState: ContextObservationPersisted, ID: manifest.ID, Name: manifest.Name, Active: true,
 		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
 		Cluster: ContextClusterStatusNotApplicable,
 		Stores: ContextStorePaths{
@@ -250,7 +250,7 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 func TestContextReportAcceptsConfigurationTasksAndRequiresCompleteGitIdentity(t *testing.T) {
 	manifest := validContextManifest()
 	base := ContextReport{
-		ID: manifest.ID, Name: manifest.Name, AgentProfile: manifest.AgentProfile,
+		ContextState: ContextObservationPersisted, ID: manifest.ID, Name: manifest.Name, AgentProfile: manifest.AgentProfile,
 		Image: manifest.Image, PolicyMode: manifest.PolicyMode,
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
 		GitIdentity:      DefaultContextGitIdentityReport(),
@@ -303,22 +303,78 @@ func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {
 
 func TestContextListRequiresOneMatchingActiveItem(t *testing.T) {
 	items := []ContextSummary{
-		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided},
-		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced},
+		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided},
+		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ContextState: ContextObservationPersisted, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced},
 	}
-	result := ContextListResult{Task: TaskContextList, Active: "default", Items: items}
+	result := ContextListResult{Task: TaskContextList, ContextState: ContextObservationPersisted, Active: "default", Items: items}
 	if err := result.Validate(); err != nil {
 		t.Fatalf("valid Context list rejected: %v", err)
 	}
 
 	items[0].Active = false
-	if err := (ContextListResult{Task: TaskContextList, Active: "default", Items: items}).Validate(); err == nil {
+	if err := (ContextListResult{Task: TaskContextList, ContextState: ContextObservationPersisted, Active: "default", Items: items}).Validate(); err == nil {
 		t.Fatal("Context list without an active item was accepted")
 	}
 	items[0].Active = true
 	items[1].Active = true
-	if err := (ContextListResult{Task: TaskContextList, Active: "default", Items: items}).Validate(); err == nil {
+	if err := (ContextListResult{Task: TaskContextList, ContextState: ContextObservationPersisted, Active: "default", Items: items}).Validate(); err == nil {
 		t.Fatal("Context list with two active items was accepted")
+	}
+}
+
+func TestContextListAllowsOnlyExplicitSyntheticDefaultWithoutAuthority(t *testing.T) {
+	t.Parallel()
+	result := ContextListResult{
+		Task: TaskContextList, ContextState: ContextObservationSyntheticDefault,
+		Active: DefaultContextName, Items: []ContextSummary{},
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("synthetic Context list = %v", err)
+	}
+	result.Items = []ContextSummary{{
+		ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultContextName,
+		ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile,
+		Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided,
+	}}
+	if err := result.Validate(); err == nil {
+		t.Fatal("synthetic Context list accepted a configured item")
+	}
+}
+
+func TestContextListRequiresTopLevelStateToMatchActiveItem(t *testing.T) {
+	t.Parallel()
+	result := ContextListResult{
+		Task: TaskContextList, ContextState: ContextObservationLegacyUnmigrated,
+		Active: DefaultContextName,
+		Items: []ContextSummary{{
+			ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultContextName,
+			ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile,
+			Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided,
+		}},
+	}
+	if err := result.Validate(); err == nil {
+		t.Fatal("Context list accepted a top-level state different from its active item")
+	}
+}
+
+func TestSyntheticContextReportCannotClaimAuthorityOrStores(t *testing.T) {
+	t.Parallel()
+	report := ContextReport{
+		Task: TaskContextShow, ContextState: ContextObservationSyntheticDefault,
+		Name: DefaultContextName, Active: true, AgentProfile: DefaultProfile,
+		Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided,
+		ShellEnvironment: DefaultContextShellEnvironmentReport(),
+		GitIdentity:      DefaultContextGitIdentityReport(),
+		Runtime:          ContextRuntimeReport{Kind: ContextRuntimeKindOfficial, Status: ContextRuntimeStatusOfficial, BaseReference: OfficialRuntimeBase},
+		Cluster:          ContextClusterStatusNotApplicable,
+		Authentication:   ContextAuthentication{BrokerState: ContextAuthBrokerUnavailable, Providers: []ContextAuthProvider{}},
+	}
+	if err := report.Validate(); err != nil {
+		t.Fatalf("synthetic Context report = %v", err)
+	}
+	report.ID = "018bcfe5-687b-7000-8000-000000000000"
+	if err := report.Validate(); err == nil {
+		t.Fatal("synthetic Context report accepted an authority ID")
 	}
 }
 

@@ -410,6 +410,12 @@ The test suite has complementary levels:
   and reject paged plus `not_applicable`. Renderer fixtures reject an omitted,
   null, or non-string cursor.
 - Infrastructure tests fix protocol conversion and boundary failure.
+- A catalog-derived first-use canary executes every public `EffectRead` handler
+  with a separate fresh XDG tree, compares the complete owned tree before and
+  after, and rejects Docker mutation argv. Companion fixtures cover read-only
+  XDG directories, concurrent reads, synthetic absence, legacy read-without-
+  migration followed by mutation-owned migration, corrupt-state fail-closed,
+  and the sole pre-existing-journal cleanup exception without record loss.
 - CLI tests fix routing, help, rendering, exit behavior, the catalog-owned typed
   argv parser, and the distinction among absent, defaulted, and explicitly
   supplied values. Negative fixtures cover type/range/enumeration,
@@ -448,8 +454,9 @@ The test suite has complementary levels:
   Auth additions specifically pin cluster status schema 5 with nullable
   unconfigured resources and always-present
   `credential_companion_state=ready|prepared|absent|unavailable`, Context report
-  schema 7, and auth
-  result/status schema 2, including the complete shell
+  schema 8, Context list schema 4, Workspace status schema 4, and auth
+  result/status schema 3, including explicit Context persistence state, null
+  pre-authority IDs/stores, the complete shell
   environment inventory, atomic Git identity policy, explicit empty literal
   values, explicit empty provider collections, and null account labels.
   Help's catalog fields describe root `view: index`; separate exact-key tests
@@ -481,7 +488,7 @@ The test suite has complementary levels:
   stale selectors before handler, Workspace, or Docker I/O; bind a force
   preview to its displayed stable Context ID; retain Context scope for an empty
   status; and prove same-root/different-Context selection through a bound
-  manifest. Frozen typed status, answer-key, and text fixtures verify schema-3
+  manifest. Frozen typed status, answer-key, and text fixtures verify schema-4
   Context/attachment/next-argv semantics and the complete delete impact.
 - Logical lifecycle tests inject interruptions at home, instance, root-index,
   runtime, and deletion boundaries; they prove journals recover without
@@ -713,8 +720,8 @@ Every strong statement should identify its enforcement path.
 | Shared runtime resource bounds | Fixed project create-argv, resource-aware spec hash, and Docker HostConfig integration assertions |
 | Context runtime boundary | Context manifest tests, compatibility validation, ignored-project-metadata regression, existing-Workspace image reconciliation tests, and failure-before-state-update tests |
 | Portable policy activation | Pre-mutation OPA tests, exact OPA and volume owner-label checks, fixed networkless builder and same-volume publisher argv, exact active revision, stable OPA identity, invalid-bundle retention, and Docker integration |
-| Context composition and selection | Stable-ID manifest/domain tests, catalog effect/target contracts, owner-only atomic store tests, current-default-only selection, permanent Tobari binding, safe/ambiguous legacy migration fixtures, and agent-readiness transcript |
-| Context configuration interaction boundary | Catalog-derived `config shell`/`config git` help and argv dependencies, removed old path, complete-direct versus wholly-omitted staged-editor mode tests, explicit-empty Context plus partial direct input and redirected/non-TTY/JSON editor rejection before mutation, raw-terminal and English line fallback, complete current/pending rendering, multi-row Shell staging with one atomic write, exact task/selected-Context correlation for reads, shown-Context binding across concurrent default changes, exact task/Context/applied-setting/cluster correlation for mutation results, pre-Apply discard, terminal restoration, stdout/stderr separation, fixed-target invoker coverage, and exact schema-6 Context result keys |
+| Context composition and selection | Stable-ID manifest/domain tests, catalog effect/target contracts, owner-only atomic store tests, current-default-only selection, explicit synthetic/legacy/persisted observation state, first-use zero-write and concurrent/read-only XDG canaries, mutation-owned migration, permanent Tobari binding, safe/ambiguous legacy migration fixtures, and agent-readiness transcript |
+| Context configuration interaction boundary | Catalog-derived `config shell`/`config git` help and argv dependencies, removed old path, complete-direct versus wholly-omitted staged-editor mode tests, explicit-empty Context plus partial direct input and redirected/non-TTY/JSON editor rejection before mutation, raw-terminal and English line fallback, complete current/pending rendering, multi-row Shell staging with one atomic write, exact task/selected-Context correlation for reads, shown-Context binding across concurrent default changes, exact task/Context/applied-setting/cluster correlation for mutation results, pre-Apply discard, terminal restoration, stdout/stderr separation, fixed-target invoker coverage, and exact schema-8 Context result keys |
 | Context shell environment boundary | Fixed allowlist and source-enum domain tests, explicit-empty preservation, schema-1–3 migration to inherited PS1 and schema-4 exact-setting preservation, zero-I/O rejection for arbitrary names and ambiguous values, owner-only atomic update tests, complete Context report output, exact child-exec environment assertions, missing-export fallback, Bash-quote and bounded inherited-value canaries, and host-credential non-copy assertions |
 | Context Git identity boundary | Atomic pair/source domain tests, schema-4 shell-setting preservation and opt-in default migration, exact two-key global Git argv with an absolute executable and exact `HOME`/optional `XDG_CONFIG_HOME` plus fixed-control environment allowlist, project-owned config-directory and `PATH`/loader/shell-startup canaries, timeout/output/framing/unsafe-value bounds, malicious local-include exclusion, private atomic config encoding, symlink and existing-file size checks, read-only directory mount and system-scope precedence, excluded helper/signing/auth/path keys, absent/incomplete-pair behavior, and secret-/personal-data-free faults and fixtures |
 | Context runtime build boundary | Fixed current-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv including official-base refresh versus local-base behavior, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and bound-Context next-entry reconciliation coverage |
@@ -723,6 +730,7 @@ Every strong statement should identify its enforcement path.
 | Context-owned encrypted credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/Context AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
 | Doctor remains observational | Complete-report and fail/warn exit tests plus zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
+| Every declared read remains observational | Dynamic public-catalog handler coverage, per-command fresh-XDG before/after snapshots, zero Docker-mutation argv, lockless fresh lifecycle reads, read-only/concurrent fixtures, legacy no-migration reads, fail-closed unsafe state, and bounded cleanup of only a pre-existing validated journal |
 | Project-bound broker handles | Full Context/project/provider/revision/target/header round trips, hash-only live index assertions, copied/stale/rotated/revoked negative tests, exact Context-wide eligibility and next-entry semantics, and Workspace projection reconciliation |
 | Broker fallback requires marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and passthrough/managed fallback tests with no marker anywhere inspected |
 | Post-policy credential resolution | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve on deny, one same-revision resolve after allow, exact header replacement, and no-secret canaries |

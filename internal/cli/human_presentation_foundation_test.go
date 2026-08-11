@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	humanPresentationFixtureSHA256 = "c4776692325ce2f6c4d707118d9072661a1dcb43fac29b815711af4d253e9fc6"
+	humanPresentationFixtureSHA256 = "34bc39ba4260683b6c12cb6a8c2694f63b543590129863664e72e63d9e5fc4b6"
 	humanPresentationAnswerSHA256  = "223ec64482852ce774bd7555da85e2535168118e50b25e716121cc2669666301"
 )
 
@@ -230,7 +230,7 @@ func (r *idlePollThenInput) Read(buffer []byte) (int, error) {
 func TestHumanTextStructureDoesNotDependOnANSIStyle(t *testing.T) {
 	t.Parallel()
 	status := tobari.ProjectStatus{
-		Task: tobari.TaskStatus, Exists: true, Root: "/workspace/example-project",
+		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: true, Root: "/workspace/example-project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/state/example/home",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "toolbox",
 		Runtime: tobari.RuntimeDiagnosticReady, Attachment: tobari.AttachmentDetached,
@@ -341,7 +341,7 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 		{name: "cluster denials", plain: denialPlain, styled: denialStyled, required: []string{"No policy denials", policyDirectory, "200 Gateway lines"}},
 		{name: "attached Tobari", plain: listPlain, styled: listStyled, required: []string{"No Tobari attached", "shared cluster"}},
 		{name: "Workspaces", plain: projectPlain, styled: projectStyled, required: []string{"No Workspaces", "No Workspace state is configured"}},
-		{name: "auth providers", plain: renderAuthStatusText(authStatusProjection{Context: "toolbox", ContextID: "018bcfe5-687b-7000-8000-000000000099", Providers: []authProviderStatusProjection{}}, false), styled: renderAuthStatusText(authStatusProjection{Context: "toolbox", ContextID: "018bcfe5-687b-7000-8000-000000000099", Providers: []authProviderStatusProjection{}}, true), required: []string{"No authentication providers installed", "toolbox", "explicitly empty"}},
+		{name: "auth providers", plain: renderAuthStatusText(authStatusProjection{Context: "toolbox", ContextID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, false), styled: renderAuthStatusText(authStatusProjection{Context: "toolbox", ContextID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, true), required: []string{"No authentication providers installed", "toolbox", "explicitly empty"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

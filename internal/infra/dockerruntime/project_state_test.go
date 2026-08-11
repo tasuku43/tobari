@@ -448,6 +448,53 @@ func TestProjectJournalReconcilesInterruptedCreateAndDelete(t *testing.T) {
 	}
 }
 
+func TestListProjectsOnlyCleansPreExistingCompletedJournal(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, created, err := runtime.ResolveOrCreateProject(context.Background(), root)
+	if err != nil || !created {
+		t.Fatalf("create fixture project = %+v, created=%t, err=%v", instance, created, err)
+	}
+	journal := projectJournal{
+		SchemaVersion: projectJournalSchema, Operation: projectOpCreate,
+		ProjectID: instance.ID, Root: instance.Root, ContextID: instance.ContextID, Phase: projectPhaseIndex,
+	}
+	if err := runtime.writeProjectJournal(journal); err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(runtime.stateDirectory, "project.lock")
+	if err := os.Remove(lockPath); err != nil {
+		t.Fatalf("remove fixture project lock: %v", err)
+	}
+	if _, err := os.Lstat(lockPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("fixture project lock still exists before observation: %v", err)
+	}
+	statePath, err := runtime.projectStatePath(instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexPath, err := runtime.rootIndexPath(instance.Root, instance.ContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects, err := runtime.ListProjects(context.Background())
+	if err != nil || len(projects) != 1 || projects[0].ID != instance.ID {
+		t.Fatalf("ListProjects() = %+v, %v", projects, err)
+	}
+	if _, err := os.Lstat(runtime.projectJournalPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("completed pre-existing journal remains: %v", err)
+	}
+	for _, path := range []string{statePath, indexPath, lockPath} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("journal cleanup removed durable state %s: %v", path, err)
+		}
+	}
+}
+
 func TestResolveProjectFindsOneSidedLogicalRecordsForRecovery(t *testing.T) {
 	t.Parallel()
 	tests := map[string]func(*testing.T, *Runtime, tobari.ProjectInstance){

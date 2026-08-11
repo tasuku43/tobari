@@ -1,13 +1,17 @@
 package authbroker
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
+)
 
 const testContextID = "01912345-6789-7abc-8def-0123456789ad"
 
 func configuredResult(task string) Result {
 	account := "octocat"
 	return Result{
-		Task: task, Provider: "github", Context: "default", ContextID: testContextID,
+		Task: task, ContextState: tobari.ContextObservationPersisted, Provider: "github", Context: "default", ContextID: testContextID,
 		Configured: true, AccountLabel: &account, StorageBackend: StorageBackendXDGFile,
 		BrokerState: BrokerStateReady, CredentialRevision: "sha256:abcdef0123456789",
 		WorkspaceActivation: WorkspaceActivation{State: WorkspaceActivationReentryRequired, Guidance: ContextAuthActivationGuidance},
@@ -22,7 +26,7 @@ func TestResultValidatesConfiguredMutations(t *testing.T) {
 		}
 	}
 	logout := Result{
-		Task: TaskLogout, Provider: "github", Context: "default", ContextID: testContextID,
+		Task: TaskLogout, ContextState: tobari.ContextObservationPersisted, Provider: "github", Context: "default", ContextID: testContextID,
 		StorageBackend: StorageBackendMacOSKeychain, BrokerState: BrokerStateReady,
 		WorkspaceActivation: WorkspaceActivation{
 			State: WorkspaceActivationReentryRequired, Guidance: ContextAuthRemovalGuidance,
@@ -68,7 +72,7 @@ func TestResultRejectsIdentityStateAndSecretFreeTextDrift(t *testing.T) {
 func TestStatusResultValidatesCompleteProviderCollection(t *testing.T) {
 	account := "octocat"
 	result := StatusResult{
-		Task: TaskStatus, Context: "default", ContextID: testContextID,
+		Task: TaskStatus, ContextState: tobari.ContextObservationPersisted, Context: "default", ContextID: testContextID,
 		StorageBackend: StorageBackendXDGFile, BrokerState: BrokerStateLocked,
 		Providers: []ProviderStatus{
 			{Provider: "example-token", State: ProviderCredentialUnavailable},
@@ -108,6 +112,23 @@ func TestStatusResultValidatesCompleteProviderCollection(t *testing.T) {
 	result.BrokerState = BrokerStateLocked
 	if err := result.Validate(); err == nil {
 		t.Fatal("StatusResult.Validate accepted configured provider while broker is locked")
+	}
+}
+
+func TestStatusResultAllowsSyntheticDefaultWithoutContextAuthority(t *testing.T) {
+	t.Parallel()
+	result := StatusResult{
+		Task: TaskStatus, ContextState: tobari.ContextObservationSyntheticDefault,
+		Context: tobari.DefaultContextName, StorageBackend: StorageBackendXDGFile,
+		BrokerState: BrokerStateUnavailable, Providers: []ProviderStatus{},
+		WorkspaceActivation: WorkspaceActivation{State: WorkspaceActivationNotApplicable},
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("synthetic status = %v", err)
+	}
+	result.ContextID = testContextID
+	if err := result.Validate(); err == nil {
+		t.Fatal("synthetic status accepted Context authority")
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/tasuku43/tobari/internal/app/authcmd"
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 type authCLIRuntime struct {
@@ -109,7 +110,8 @@ func authCLIResult(task string) authbroker.Result {
 func authCLIResultForProvider(task, provider string) authbroker.Result {
 	label := "octocat"
 	return authbroker.Result{
-		Task: task, Provider: provider, Context: "default",
+		ContextState: tobari.ContextObservationPersisted,
+		Task:         task, Provider: provider, Context: "default",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: true,
 		AccountLabel: &label, StorageBackend: authbroker.StorageBackendXDGFile,
 		BrokerState:        authbroker.BrokerStateReady,
@@ -139,7 +141,7 @@ func authCLIStatusResult(configured bool) authbroker.StatusResult {
 		}
 	}
 	return authbroker.StatusResult{
-		Task: authbroker.TaskStatus, Context: "default",
+		Task: authbroker.TaskStatus, ContextState: tobari.ContextObservationPersisted, Context: "default",
 		ContextID:      "018bcfe5-687b-7000-8000-000000000099",
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		Providers: []authbroker.ProviderStatus{{
@@ -152,13 +154,35 @@ func authCLIStatusResult(configured bool) authbroker.StatusResult {
 
 func authCLILogoutResult() authbroker.Result {
 	return authbroker.Result{
-		Task: authbroker.TaskLogout, Provider: authcmd.BuiltinGitHubProviderID, Context: "default",
+		ContextState: tobari.ContextObservationPersisted,
+		Task:         authbroker.TaskLogout, Provider: authcmd.BuiltinGitHubProviderID, Context: "default",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: false,
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		WorkspaceActivation: authbroker.WorkspaceActivation{
 			State:    authbroker.WorkspaceActivationReentryRequired,
 			Guidance: authbroker.ContextAuthRemovalGuidance,
 		},
+	}
+}
+
+func TestSyntheticAuthStatusJSONHasNoContextAuthority(t *testing.T) {
+	t.Parallel()
+	result := authbroker.StatusResult{
+		Task: authbroker.TaskStatus, ContextState: tobari.ContextObservationSyntheticDefault,
+		Context: tobari.DefaultContextName, StorageBackend: authbroker.StorageBackendXDGFile,
+		BrokerState: authbroker.BrokerStateUnavailable, Providers: []authbroker.ProviderStatus{},
+		WorkspaceActivation: authbroker.WorkspaceActivation{State: authbroker.WorkspaceActivationNotApplicable},
+	}
+	encoded, err := renderAuthStatus(result, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document authStatusDocument
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != 3 || document.Auth.ContextState != tobari.ContextObservationSyntheticDefault || document.Auth.ContextID != nil {
+		t.Fatalf("synthetic auth status claims Context authority: %+v", document)
 	}
 }
 
@@ -190,7 +214,7 @@ func TestAuthImportReadsSecretOnlyFromStdinAndEmitsSecretFreeJSON(t *testing.T) 
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if string(document["schema_version"]) != "2" {
+	if string(document["schema_version"]) != "3" {
 		t.Fatalf("schema_version = %s", document["schema_version"])
 	}
 	var auth map[string]json.RawMessage
@@ -203,7 +227,7 @@ func TestAuthImportReadsSecretOnlyFromStdinAndEmitsSecretFreeJSON(t *testing.T) 
 	}
 	sort.Strings(gotFields)
 	wantFields := []string{
-		"account_label", "broker_state", "configured", "context", "context_id",
+		"account_label", "broker_state", "configured", "context", "context_id", "context_state",
 		"credential_revision", "provider", "storage_backend", "workspace_activation",
 	}
 	if !reflect.DeepEqual(gotFields, wantFields) {

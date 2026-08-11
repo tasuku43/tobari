@@ -1,4 +1,5 @@
 Context: review
+Context state: persisted
 Active: false
 Image: ghcr.io/tasuku43/tobari/runtime:latest
 Agent profile: default

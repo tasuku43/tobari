@@ -11,6 +11,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 type authRuntimeFake struct {
@@ -94,7 +95,8 @@ func validAuthResult(task string) authbroker.Result {
 func validAuthResultForProvider(task, provider string) authbroker.Result {
 	label := "octocat"
 	return authbroker.Result{
-		Task: task, Provider: provider, Context: "default",
+		ContextState: tobari.ContextObservationPersisted,
+		Task:         task, Provider: provider, Context: "default",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: true,
 		AccountLabel: &label, StorageBackend: authbroker.StorageBackendXDGFile,
 		BrokerState:        authbroker.BrokerStateReady,
@@ -115,7 +117,8 @@ func unconfiguredAuthResult(task, provider string) authbroker.Result {
 		}
 	}
 	return authbroker.Result{
-		Task: task, Provider: provider, Context: "default",
+		ContextState: tobari.ContextObservationPersisted,
+		Task:         task, Provider: provider, Context: "default",
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: false,
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		WorkspaceActivation: activation,
@@ -140,7 +143,7 @@ func authStatusResult(contextName string, configured bool) authbroker.StatusResu
 		}
 	}
 	return authbroker.StatusResult{
-		Task: authbroker.TaskStatus, Context: contextName,
+		Task: authbroker.TaskStatus, ContextState: tobari.ContextObservationPersisted, Context: contextName,
 		ContextID:      "018bcfe5-687b-7000-8000-000000000099",
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		Providers: []authbroker.ProviderStatus{{

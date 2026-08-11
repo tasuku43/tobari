@@ -211,7 +211,7 @@ func contextCLIReport(task, name string, active bool, image string, mode tobari.
 		authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerReady, Providers: []tobari.ContextAuthProvider{}}
 	}
 	return tobari.ContextReport{
-		Task: task, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
+		Task: task, ContextState: tobari.ContextObservationPersisted, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
 		Image: image, PolicyMode: mode, Cluster: tobari.ContextClusterStatusNotApplicable,
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
@@ -243,7 +243,7 @@ func TestContextShellConfigurePreservesSourceAndExplicitEmptyValue(t *testing.T)
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("config shell JSON = %q, error = %v", stdout.String(), err)
 	}
-	if document.SchemaVersion != 7 || fake.configureCalls != 1 || fake.lastShellChange.Value == nil ||
+	if document.SchemaVersion != 8 || fake.configureCalls != 1 || fake.lastShellChange.Value == nil ||
 		*fake.lastShellChange.Value != "" || document.Context.Task != tobari.TaskConfigShell {
 		t.Fatalf("configure document/call = %+v / %d %+v", document, fake.configureCalls, fake.lastShellChange)
 	}
@@ -303,7 +303,7 @@ func TestConfigGitDirectPreservesLiteralPairWithoutWizardRead(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("config git JSON = %q, error = %v", stdout.String(), err)
 	}
-	if document.SchemaVersion != 7 || document.Context.Task != tobari.TaskConfigGit ||
+	if document.SchemaVersion != 8 || document.Context.Task != tobari.TaskConfigGit ||
 		document.Context.GitIdentity.Source != tobari.ContextGitIdentityLiteral {
 		t.Fatalf("config git document = %+v", document)
 	}
@@ -600,7 +600,7 @@ func TestConfigWizardPreservesCancellationWhileLoadingCurrentState(t *testing.T)
 	}
 }
 
-func TestContextReportJSONSchemaSevenDeclaresExactContextKeys(t *testing.T) {
+func TestContextReportJSONSchemaEightDeclaresExactContextKeys(t *testing.T) {
 	report := contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)
 	encoded, err := renderContextReport(report, successFormatJSON, false)
 	if err != nil {
@@ -611,14 +611,14 @@ func TestContextReportJSONSchemaSevenDeclaresExactContextKeys(t *testing.T) {
 		t.Fatalf("JSON = %q, error = %v", encoded, err)
 	}
 	var version int
-	if err := json.Unmarshal(outer["schema_version"], &version); err != nil || version != 7 {
+	if err := json.Unmarshal(outer["schema_version"], &version); err != nil || version != 8 {
 		t.Fatalf("schema version = %d, error = %v", version, err)
 	}
 	var contextFields map[string]json.RawMessage
 	if err := json.Unmarshal(outer["context"], &contextFields); err != nil {
 		t.Fatalf("context envelope = %q, error = %v", outer["context"], err)
 	}
-	want := []string{"active", "agent_profile", "authentication", "cluster", "git_identity", "id", "image", "name", "policy_mode", "runtime", "shell_environment", "stores", "task"}
+	want := []string{"active", "agent_profile", "authentication", "cluster", "context_state", "git_identity", "id", "image", "name", "policy_mode", "runtime", "shell_environment", "stores", "task"}
 	got := make([]string, 0, len(contextFields))
 	for name := range contextFields {
 		got = append(got, name)
@@ -638,11 +638,65 @@ func TestContextReportJSONSchemaSevenDeclaresExactContextKeys(t *testing.T) {
 	}
 }
 
+func TestSyntheticAndLegacyContextJSONNeverInventAuthority(t *testing.T) {
+	t.Parallel()
+	syntheticReport := tobari.ContextReport{
+		Task: tobari.TaskContextShow, ContextState: tobari.ContextObservationSyntheticDefault,
+		Name: tobari.DefaultContextName, Active: true, AgentProfile: tobari.DefaultProfile,
+		Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided,
+		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
+		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
+		Runtime: tobari.ContextRuntimeReport{
+			Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial,
+			BaseReference: tobari.OfficialRuntimeBase,
+		},
+		Cluster: tobari.ContextClusterStatusNotApplicable,
+		Authentication: tobari.ContextAuthentication{
+			BrokerState: tobari.ContextAuthBrokerUnavailable, Providers: []tobari.ContextAuthProvider{},
+		},
+	}
+	encoded, err := renderContextReport(syntheticReport, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report contextReportDocument
+	if err := json.Unmarshal(encoded, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.SchemaVersion != 8 || report.Context.ContextState != tobari.ContextObservationSyntheticDefault ||
+		report.Context.ID != nil || report.Context.Stores != nil {
+		t.Fatalf("synthetic Context JSON claims authority: %+v", report)
+	}
+
+	legacy := tobari.ContextListResult{
+		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationLegacyUnmigrated,
+		Active: tobari.DefaultContextName,
+		Items: []tobari.ContextSummary{{
+			Name: tobari.DefaultContextName, ContextState: tobari.ContextObservationLegacyUnmigrated,
+			Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+			PolicyMode: tobari.ContextPolicyModeGuided,
+		}},
+	}
+	encoded, err = renderContextList(legacy, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list contextListDocument
+	if err := json.Unmarshal(encoded, &list); err != nil {
+		t.Fatal(err)
+	}
+	if list.SchemaVersion != 4 || list.Contexts.ContextState != tobari.ContextObservationLegacyUnmigrated ||
+		len(list.Contexts.Items) != 1 || list.Contexts.Items[0].ID != nil ||
+		list.Contexts.Items[0].ContextState != tobari.ContextObservationLegacyUnmigrated {
+		t.Fatalf("legacy Context JSON claims authority: %+v", list)
+	}
+}
+
 func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	fake.list = tobari.ContextListResult{
-		Task: tobari.TaskContextList, Active: "default",
-		Items: []tobari.ContextSummary{{ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default", Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided}},
+		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationPersisted, Active: "default",
+		Items: []tobari.ContextSummary{{ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default", ContextState: tobari.ContextObservationPersisted, Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided}},
 	}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
@@ -794,7 +848,7 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &initDocument); err != nil {
 		t.Fatalf("runtime init JSON = %q, error = %v", stdout.String(), err)
 	}
-	if initDocument.SchemaVersion != 7 || initDocument.Context.Task != tobari.TaskRuntimeInit {
+	if initDocument.SchemaVersion != 8 || initDocument.Context.Task != tobari.TaskRuntimeInit {
 		t.Fatalf("runtime init document = %+v", initDocument)
 	}
 	for _, retained := range []string{
@@ -832,6 +886,7 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 func runtimeInitReportFixture() tobari.ContextReport {
 	return tobari.ContextReport{
 		Task:             tobari.TaskRuntimeInit,
+		ContextState:     tobari.ContextObservationPersisted,
 		ID:               "018bcfe5-687b-7000-8000-000000000099",
 		Name:             "default",
 		Active:           true,

@@ -162,10 +162,12 @@ func contextListSpec() CommandSpec {
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "active", Type: OutputFieldTypeString, Description: "Name of the host-selected current Context used when Context is omitted."},
+					{Name: "context_state", Type: OutputFieldTypeString, Description: "Whether the selected/default Context is persisted authority, a display-only synthetic default, or legacy state awaiting migration.", Enum: []string{"persisted", "synthetic_default", "legacy_unmigrated"}},
 					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with current-default state, stable ID, image, agent profile, policy mode, and runtime status.", SemanticScope: "All locally configured Contexts at one observation.", Items: &OutputField{
 						Type: OutputFieldTypeObject, Description: "One configured Context.", Fields: []OutputField{
-							{Name: "id", Type: OutputFieldTypeString, Description: "Stable Context authority identity."},
+							{Name: "id", Type: OutputFieldTypeString, Description: "Stable Context authority identity, or null for an unmigrated legacy Context.", Nullable: true},
 							{Name: "name", Type: OutputFieldTypeString, Description: "Human Context name."},
+							{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority or legacy state awaiting migration.", Enum: []string{"persisted", "legacy_unmigrated"}},
 							{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the current default."},
 							{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only agent profile reference."},
 							{Name: "image", Type: OutputFieldTypeString, Description: "Selected compatible runtime image."},
@@ -175,7 +177,7 @@ func contextListSpec() CommandSpec {
 					}},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "contexts", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 3,
+				JSONEnvelope: "contexts", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 4,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("context list", true,
@@ -361,6 +363,7 @@ func statusSpec() CommandSpec {
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
+					{Name: "context_state", Type: OutputFieldTypeString, Description: "Whether the selected/default Context is persisted authority, a display-only synthetic default, or legacy state awaiting migration.", Enum: []string{"persisted", "synthetic_default", "legacy_unmigrated"}},
 					{Name: "exists", Type: OutputFieldTypeBoolean, Description: "Whether logical Tobari state exists for the current directory."},
 					{Name: "root", Type: OutputFieldTypeString, Description: "Nearest canonical project root when one exists."},
 					{Name: "id", Type: OutputFieldTypeString, Description: "Diagnostic stable logical ID when one exists."},
@@ -368,11 +371,11 @@ func statusSpec() CommandSpec {
 					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic; incomplete means the logical state record is missing and must be deleted before recreation."},
 					{Name: "attachment", Type: OutputFieldTypeString, Description: "Transient session observation: attached or detached when the Workspace exists, and not_applicable when it does not."},
 					{Name: "context", Type: OutputFieldTypeString, Description: "Selected invocation Context display name, including when no Workspace exists."},
-					{Name: "context_id", Type: OutputFieldTypeString, Description: "Selected stable Context authority identity, including when no Workspace exists."},
+					{Name: "context_id", Type: OutputFieldTypeString, Description: "Selected stable Context authority identity, or null before a Context is persisted.", Nullable: true},
 					{Name: "next_argv", Type: OutputFieldTypeArray, Description: "Exact argv that re-enters this same Context-bound lifecycle target without depending on the current Context.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One exact argv token."}},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-				JSONEnvelope: "status", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 3,
+				JSONEnvelope: "status", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 4,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("status", true,
@@ -1328,7 +1331,8 @@ func contextReportOutput() CommandOutput {
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "task", Type: OutputFieldTypeString, Description: "Declared Context task identity for this report."},
-			{Name: "id", Type: OutputFieldTypeString, Description: "Stable host-issued Context identity."},
+			{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority, a display-only synthetic default, or legacy state awaiting migration.", Enum: []string{"persisted", "synthetic_default", "legacy_unmigrated"}},
+			{Name: "id", Type: OutputFieldTypeString, Description: "Stable host-issued Context identity, or null before authority is persisted.", Nullable: true},
 			{Name: "name", Type: OutputFieldTypeString, Description: "Named Context identifier."},
 			{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the current/default selection for omitted Context input."},
 			{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only shared agent profile reference."},
@@ -1346,7 +1350,7 @@ func contextReportOutput() CommandOutput {
 				{Name: "name", Type: OutputFieldTypeString, Description: "Literal Git user name, or null.", Nullable: true},
 				{Name: "email", Type: OutputFieldTypeString, Description: "Literal Git user email, or null.", Nullable: true},
 			}},
-			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved policy, managed-credential, and runtime recipe paths; secret values are never included.", Fields: []OutputField{
+			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved paths, or null for a synthetic default; secret values are never included.", Nullable: true, Fields: []OutputField{
 				{Name: "policy_directory", Type: OutputFieldTypeString, Description: "Canonical Context policy directory."},
 				{Name: "credential_config", Type: OutputFieldTypeString, Description: "Canonical managed credential metadata file."},
 				{Name: "credential_directory", Type: OutputFieldTypeString, Description: "Canonical managed credential directory."},
@@ -1375,7 +1379,7 @@ func contextReportOutput() CommandOutput {
 			}},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "context", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 7,
+		JSONEnvelope: "context", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 8,
 	}
 }
 

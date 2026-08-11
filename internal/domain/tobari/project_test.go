@@ -45,7 +45,7 @@ func TestProjectInstanceDoesNotRequireRuntimeResources(t *testing.T) {
 func TestProjectStatusKeepsLogicalExistenceSeparateFromRuntimeDiagnostic(t *testing.T) {
 	t.Parallel()
 	status := ProjectStatus{
-		Task: TaskStatus, Exists: true, Root: "/tmp/project",
+		Task: TaskStatus, ContextState: ContextObservationPersisted, Exists: true, Root: "/tmp/project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/home",
 		Runtime:   RuntimeDiagnosticMissing,
 		ContextID: testContextID, ContextName: DefaultContextName,
@@ -59,7 +59,7 @@ func TestProjectStatusKeepsLogicalExistenceSeparateFromRuntimeDiagnostic(t *test
 	}
 
 	notExists := ProjectStatus{
-		Task: TaskStatus, Runtime: RuntimeDiagnosticUnknown,
+		Task: TaskStatus, ContextState: ContextObservationPersisted, Runtime: RuntimeDiagnosticUnknown,
 		ContextID: testContextID, ContextName: DefaultContextName,
 		Attachment: AttachmentNotApplicable,
 	}
@@ -68,10 +68,26 @@ func TestProjectStatusKeepsLogicalExistenceSeparateFromRuntimeDiagnostic(t *test
 	}
 }
 
+func TestProjectStatusAllowsSyntheticDefaultOnlyForAbsentWorkspace(t *testing.T) {
+	t.Parallel()
+	status := ProjectStatus{
+		Task: TaskStatus, ContextState: ContextObservationSyntheticDefault,
+		ContextName: DefaultContextName, Runtime: RuntimeDiagnosticUnknown,
+		Attachment: AttachmentNotApplicable,
+	}
+	if err := status.Validate(); err != nil {
+		t.Fatalf("synthetic absent status = %v", err)
+	}
+	status.ContextID = testContextID
+	if err := status.Validate(); err == nil {
+		t.Fatal("synthetic absent status accepted authority ID")
+	}
+}
+
 func TestProjectStatusAcceptsIncompleteLogicalStateDiagnostic(t *testing.T) {
 	t.Parallel()
 	status := ProjectStatus{
-		Task: TaskStatus, Exists: true, Root: "/tmp/project",
+		Task: TaskStatus, ContextState: ContextObservationPersisted, Exists: true, Root: "/tmp/project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/home",
 		Runtime:   RuntimeDiagnosticIncomplete,
 		ContextID: testContextID, ContextName: DefaultContextName,

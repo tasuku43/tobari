@@ -145,6 +145,27 @@ func (r *Runtime) ResolveBoundProject(ctx context.Context, cwd string, manifest 
 	return instance, found, nil
 }
 
+// ObserveBoundProject selects logical state without creating a lock file. A
+// pre-existing journal is the sole read-side exception: it is reconciled under
+// the project lock so interrupted multi-file state cannot remain authoritative.
+func (r *Runtime) ObserveBoundProject(ctx context.Context, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, bool, error) {
+	if err := manifest.Validate(); err != nil {
+		return tobari.ProjectInstance{}, false, err
+	}
+	resolved, err := r.ResolveProjectRoot(ctx, cwd)
+	if err != nil {
+		return tobari.ProjectInstance{}, false, err
+	}
+	var instance tobari.ProjectInstance
+	var found bool
+	err = r.withProjectObservation(ctx, func() error {
+		var resolveErr error
+		instance, found, resolveErr = r.resolveProjectUnlocked(resolved, manifest.ID)
+		return resolveErr
+	})
+	return instance, found, err
+}
+
 func (r *Runtime) resolveProjectUnlocked(cwd, contextID string) (tobari.ProjectInstance, bool, error) {
 	indexes, err := r.listRootIndexes()
 	if err != nil {
@@ -655,10 +676,7 @@ func (r *Runtime) ListProjects(ctx context.Context) ([]tobari.ProjectInstance, e
 		return nil, err
 	}
 	var instances []tobari.ProjectInstance
-	err := r.withProjectLock(ctx, func() error {
-		if err := r.reconcileProjectJournal(); err != nil {
-			return err
-		}
+	err := r.withProjectObservation(ctx, func() error {
 		indexes, err := r.listRootIndexes()
 		if err != nil {
 			return err
@@ -873,6 +891,61 @@ func (r *Runtime) withProjectLock(ctx context.Context, action func() error) erro
 		}
 	}
 	defer unlockProjectFile(file)
+	return action()
+}
+
+func (r *Runtime) withProjectObservation(ctx context.Context, action func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(r.projectJournalPath()); err == nil {
+		return r.withProjectLock(ctx, func() error {
+			if err := r.reconcileProjectJournal(); err != nil {
+				return err
+			}
+			return action()
+		})
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect project journal: %w", err)
+	}
+	path := filepath.Join(r.stateDirectory, "project.lock")
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return action()
+	}
+	if err != nil {
+		return fmt.Errorf("inspect project lock: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("project lock is not a regular file")
+	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0) // #nosec G304 -- validated existing fixed state child; observation never creates it.
+	if err != nil {
+		return fmt.Errorf("open project lock: %w", err)
+	}
+	defer file.Close()
+	for {
+		acquired, lockErr := tryLockProjectFile(file)
+		if lockErr != nil {
+			return fmt.Errorf("lock project state: %w", lockErr)
+		}
+		if acquired {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	defer unlockProjectFile(file)
+	if _, err := os.Lstat(r.projectJournalPath()); err == nil {
+		if err := r.reconcileProjectJournal(); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect project journal: %w", err)
+	}
 	return action()
 }
 

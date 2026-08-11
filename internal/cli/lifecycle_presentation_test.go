@@ -115,8 +115,8 @@ func TestLifecyclePresentationEvidenceKeepsOneContextBoundTarget(t *testing.T) {
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 3 || !reflect.DeepEqual(document.Status.NextArgv, answer.ExactNextArgv) ||
-		document.Status.ContextID != answer.Target.ContextID || document.Status.Attachment != answer.Target.Attachment {
+	if document.SchemaVersion != 4 || !reflect.DeepEqual(document.Status.NextArgv, answer.ExactNextArgv) ||
+		document.Status.ContextID == nil || *document.Status.ContextID != answer.Target.ContextID || document.Status.Attachment != answer.Target.Attachment {
 		t.Fatalf("structured status lost target or recovery: %+v", document)
 	}
 

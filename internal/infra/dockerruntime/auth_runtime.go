@@ -14,6 +14,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 )
 
@@ -418,8 +419,14 @@ func (r *Runtime) ImportAuth(
 }
 
 func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroker.StatusResult, error) {
-	manifest, err := r.resolveAuthContext(ctx, contextName)
+	observed, err := r.observeContext(contextName)
 	if err != nil {
+		if errors.Is(err, tobari.ErrContextNotFound) {
+			return authbroker.StatusResult{}, fault.New(
+				fault.KindNotFound, "context_not_found", "The selected Context does not exist.", false,
+				fault.NextAction{Command: "context list", Reason: "Choose an existing Context before using authentication."},
+			)
+		}
 		return authbroker.StatusResult{}, err
 	}
 	projection, err := r.loadAuthProviders()
@@ -431,7 +438,8 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 		return authbroker.StatusResult{}, classifyRootKeyError(err)
 	}
 	result := authbroker.StatusResult{
-		Task: authbroker.TaskStatus, Context: manifest.Name, ContextID: manifest.ID,
+		Task: authbroker.TaskStatus, ContextState: observed.state,
+		Context: observed.manifest.Name, ContextID: observed.manifest.ID,
 		StorageBackend: backend, BrokerState: authbroker.BrokerStateUnavailable,
 		Providers:           []authbroker.ProviderStatus{},
 		WorkspaceActivation: authbroker.WorkspaceActivation{State: authbroker.WorkspaceActivationNotApplicable},
@@ -451,6 +459,10 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 		}
 		return result, nil
 	}
+	if observed.state != tobari.ContextObservationPersisted {
+		return validate()
+	}
+	manifest := observed.manifest
 	if _, configured, stateErr := r.LoadState(ctx); stateErr != nil {
 		return authbroker.StatusResult{}, stateErr
 	} else if !configured {
@@ -553,7 +565,8 @@ func buildAuthResult(
 		guidance = authbroker.ContextAuthRemovalGuidance
 	}
 	result := authbroker.Result{
-		Task: task, Provider: provider, Context: contextName, ContextID: contextID,
+		ContextState: tobari.ContextObservationPersisted,
+		Task:         task, Provider: provider, Context: contextName, ContextID: contextID,
 		Configured: configured, StorageBackend: backend, BrokerState: authbroker.BrokerStateReady,
 		WorkspaceActivation: authbroker.WorkspaceActivation{
 			State:    authbroker.WorkspaceActivationReentryRequired,

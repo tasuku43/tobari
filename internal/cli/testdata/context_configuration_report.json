@@ -1,5 +1,6 @@
 {
   "task": "config.git",
+  "context_state": "persisted",
   "id": "018bcfe5-687b-7000-8000-000000000099",
   "name": "review",
   "active": false,

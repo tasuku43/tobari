@@ -1,5 +1,6 @@
 {
   "task": "tobari.status",
+  "context_state": "persisted",
   "exists": true,
   "root": "/workspace/example-project",
   "id": "01912345-6789-7abc-8def-0123456789ab",

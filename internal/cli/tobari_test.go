@@ -910,7 +910,7 @@ func TestProjectDeleteHumanRendererPreservesPlainInformationUnion(t *testing.T) 
 func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 	t.Parallel()
 	result := tobari.ProjectStatus{
-		Task: tobari.TaskStatus, Exists: true, Root: "/tmp/project",
+		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: true, Root: "/tmp/project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/project/home",
 		Runtime:   tobari.RuntimeDiagnosticReady,
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
@@ -948,7 +948,7 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 func TestProjectStatusRecoveryPreservesNonActiveContextInTextAndJSON(t *testing.T) {
 	t.Parallel()
 	result := tobari.ProjectStatus{
-		Task: tobari.TaskStatus, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown,
+		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown,
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "toolbox",
 		Attachment: tobari.AttachmentNotApplicable,
 	}
@@ -976,6 +976,27 @@ func TestProjectStatusRecoveryPreservesNonActiveContextInTextAndJSON(t *testing.
 	}
 	if got, want := document.Status.NextArgv, []string{"tobari", "--context", "toolbox"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("JSON next argv = %q, want %q", got, want)
+	}
+}
+
+func TestSyntheticProjectStatusJSONHasNoContextAuthority(t *testing.T) {
+	t.Parallel()
+	result := tobari.ProjectStatus{
+		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationSyntheticDefault,
+		ContextName: tobari.DefaultContextName, Runtime: tobari.RuntimeDiagnosticUnknown,
+		Attachment: tobari.AttachmentNotApplicable,
+	}
+	encoded, err := renderProjectStatus(result, successFormatJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document projectStatusDocument
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != 4 || document.Status.ContextState != tobari.ContextObservationSyntheticDefault ||
+		document.Status.ContextID != nil || document.Status.Exists {
+		t.Fatalf("synthetic lifecycle status claims Context authority: %+v", document)
 	}
 }
 
