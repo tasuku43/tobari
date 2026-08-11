@@ -6,14 +6,13 @@ description: Generated tool, image, runtime API, CLI, and schema identities from
 import ComponentVersions from "../../../components/ComponentVersions.astro";
 import componentVersions from "../../../generated/component-versions.json";
 
-This reference records the exact tool, image, runtime API, CLI, schema, and
-source identities declared by the documentation snapshot. The table is
-generated from repository-owned version sources; prose on this page does not
-duplicate those values.
+This reference records the tool, image, runtime API, CLI, schema, and source
+identities declared by the product snapshot used for this documentation. The
+table is generated from repository-owned sources rather than copied into prose.
 
-Software versions, OCI selectors, immutable digests, runtime API versions, JSON
-schema versions, and source commits identify different contracts. The notes
-below explain which kind of identity each row carries.
+A software version, OCI tag, immutable digest, runtime API, JSON schema, source
+commit, and executable build identity answer different questions. Keep those
+identities separate when comparing the site with a local installation.
 
 ## Generated version and identity table
 
@@ -25,30 +24,27 @@ below explain which kind of identity each row carries.
 | ---------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------- |
 | Tool version           | Which Go, OPA, mitmproxy, or other build input is selected.      | Which local image bytes Docker currently has.                         |
 | OCI tag                | Which registry channel or human selector is requested.           | Immutability. A tag can move.                                         |
-| OCI digest             | Which content-addressed manifest is selected.                    | Whether the local runtime satisfies Tobari's compatibility interface. |
+| OCI digest             | Which content-addressed manifest is selected.                    | Whether it satisfies the API required by this source.                 |
 | Runtime API            | Whether a work image declares the supported Workspace interface. | Whether every package in the image is trusted or current.             |
+| Service API            | Whether Gateway or Auth Broker implements the required contract. | Whether the image was reviewed and published as a release.            |
 | Schema version         | Which exact JSON surface shape is in use.                        | Compatibility of another surface with the same number.                |
-| CLI version and commit | Which release/source identity was embedded in the executable.    | The current branch name or a release that was not built.              |
+| CLI build identity     | Which source, resolver, and service APIs the executable selects. | The current branch name or a release that was not built.              |
 | Documentation commit   | Which repository snapshot supports this page.                    | A later state of `main`.                                              |
 
 ## Repository sources
 
 The generator reads, at minimum:
 
-- `go.mod` for the selected Go language/toolchain contract;
+- `go.mod` for the selected Go language and toolchain contract;
 - `internal/infra/runtimeassets/assets/versions.env` for embedded shared
   component versions and pinned image identities;
 - canonical runtime metadata below `runtimes/base/`;
 - exported runtime API and schema constants in the owning Go packages;
 - the CLI Catalog for public JSON output schema versions; and
-- the source-build and release-injection contract for public CLI version
-  information.
+- the source-build and release-injection contract for CLI build identity.
 
-Generated output is checked for drift. Updating a governing version without
-regenerating the reference must fail the site check.
-Product-version inputs are read from the committed source snapshot, so an
-unfinished uncommitted experiment cannot silently become published version
-evidence.
+Generation is checked for drift. Updating an owning source without regenerating
+the reference fails the site check.
 
 ## Tags and digests are not interchangeable
 
@@ -58,145 +54,110 @@ The default runtime selector is:
   <code>{componentVersions.runtime.default_selector}</code>
 </pre>
 
-It is a moving development tag. The string is useful as a default source
-selector, but it is not immutable evidence. When Tobari builds a Context-owned
-runtime, it inspects and stores the resulting local image digest separately.
+This is a moving development tag. It selects a source channel, but is not
+immutable evidence. When Tobari builds a Context-owned runtime, it inspects the
+resulting local image and stores its resolved digest separately.
 
-Shared infrastructure settings for OPA, mitmproxy/Gateway, Auth Broker, and
-base images use the fields declared in `versions.env`. Where a digest is
-present, that digest is the immutable image identity; a neighboring human tag
-or version remains descriptive.
-
-The Gateway and Auth Broker also have canonical source trees and byte-checked
-embedded snapshots. Source/snapshot equality is independent from the base
-image digest: both must be correct for a reviewed build.
+Shared infrastructure uses the values declared in `versions.env`. When a digest
+is present, it identifies immutable registry content. A neighboring tag or
+human version remains descriptive. Gateway and Auth Broker source trees are
+also checked against their embedded snapshots; that source equality is a
+separate requirement from image identity.
 
 ## Current service API compatibility
 
-The generated Gateway API 4 and Auth Broker API 3 rows describe the interfaces required by the current source. The Gateway/Auth Broker digests in the component table are the historical API 3 / API 2 publications selected by `versions.env`. These are different kinds of identity.
+The generated **Gateway API 4** and **Auth Broker API 3** rows describe the
+interfaces required by the current source. The Gateway and Auth Broker digests
+currently selected by `versions.env` are the historical API 3 and API 2
+publications. Required API and selected image identity are different contracts.
 
-A standard binary rejects that mismatch before startup. To exercise this source, run `task build:dev` and inspect `bin/tobari-dev version --format json` for the `development` resolver and compatible selected APIs. Development images are not publication authority.
-
-## CLI version behavior
-
-A source build prints `dev`. It may also include a commit when build flags
-supply one. Release automation injects the validated release SemVer and source
-commit. This reference reports what the source and build metadata actually
-declare; it does not derive a release number from a Git branch, tag-like
-directory, or documentation version.
-
-Use:
+A standard binary rejects that mismatch before startup. To exercise this source
+snapshot, build the repository-owned development images and CLI:
 
 ```console
-tobari version --format json
+task build:dev
+bin/tobari-dev version --format json
 ```
 
-to inspect the executable you are actually running. Compare that result with
-the documentation provenance at the bottom of this page before using source
-links as evidence for local behavior.
+The result must identify the `development` resolver, required and selected
+service APIs, and a compatible pair. Development images are not publication
+authority; a future release must use reviewed immutable indexes that implement
+the required APIs.
+
+## CLI build identity
+
+`version --format json` is the authoritative machine-readable view of the
+executable you are running. It includes:
+
+- CLI version and source commit;
+- resolver channel and whether the source is a development source;
+- required and selected Gateway API;
+- required and selected Auth Broker API;
+- the combined compatibility result; and
+- the exact development build command and binary when recovery requires them.
+
+A plain source build may still carry the human version label `dev`, but that
+label alone is not enough to establish runtime compatibility. Compare the full
+build identity with the documentation provenance before treating linked source
+as evidence for local behavior.
 
 ## Failure and limits
 
 - A missing or malformed governing value makes generation fail; the site does
   not display `unknown` as if it were verified.
-- A digest verifies selected content identity, not license compliance,
-  runtime health, policy correctness, or the absence of vulnerabilities.
-- A declared version does not prove that a local Docker cache contains that
+- A digest identifies selected content. It does not prove license compliance,
+  runtime health, policy correctness, or absence of vulnerabilities.
+- A declared version does not prove that the local Docker cache contains the
   image. Startup preflight resolves and inspects required images.
-- The runtime selector can move between builds. Reproducible evidence must
-  retain the resolved digest.
-- Schema versions are scoped to their surface. Do not compare them as product
-  release numbers.
+- A runtime selector can move. Reproducible evidence must retain the resolved
+  digest.
+- Schema numbers are scoped to one surface and are not product release numbers.
+- A compatible development pair proves interface compatibility, not release
+  publication or independent review.
 
 ## Evidence
 
-- Go module:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/go.mod`}
-  >
-    `go.mod`
-  </a>
-- Embedded component identities:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/runtimeassets/assets/versions.env`}
-  >
-    `versions.env`
-  </a>
-- Base runtime metadata:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/runtimes/base/runtime.json`}
-  >
-    `runtime.json`
-  </a>
-- Generator:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_BUILD_COMMIT__}/tools/sitegen/main.go`}
-  >
-    `tools/sitegen/main.go`
-  </a>
-- Runtime API constants:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/tobari.go`}
-  >
-    `internal/domain/tobari/tobari.go`
-  </a>
-- CLI version source:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/version.go`}
-  >
-    `internal/cli/version.go`
-  </a>
-- Source/snapshot drift tests:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/runtimeassets/assets_test.go`}
-  >
-    runtime asset tests
-  </a>
-  ,
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/gateway_image_test.go`}
-  >
-    Gateway image tests
-  </a>
-  , and
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/authbroker_image_test.go`}
-  >
-    Auth Broker image tests
-  </a>
+- Go module: <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/go.mod`}><code>go.mod</code></a>
+- Embedded component identities: <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/runtimeassets/assets/versions.env`}><code>versions.env</code></a>
+- Base runtime metadata: <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/runtimes/base/runtime.json`}><code>runtime.json</code></a>
+- Generator: <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_BUILD_COMMIT__}/tools/sitegen/main.go`}><code>tools/sitegen/main.go</code></a>
+- Runtime and service API constants: <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/tobari.go`}><code>internal/domain/tobari/tobari.go</code></a>
+- CLI build-identity projection: <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/version.go`}><code>internal/cli/version.go</code></a>
+- Runtime source and image checks: <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/runtimeassets/assets_test.go`}>runtime asset tests</a>, <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/gateway_image_test.go`}>Gateway image tests</a>, and <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/authbroker_image_test.go`}>Auth Broker image tests</a>
 
 ## Summary
 
-Versions describe compatibility or a named release. Tags select channels.
-Digests identify immutable OCI content. The generated table keeps these
-meanings separate and ties every value to this documentation commit.
+Versions describe named software or interfaces. Tags select channels. Digests
+identify immutable OCI content. The build identity explains which resolver and
+service APIs a particular executable will use. The generated table keeps these
+meanings separate and ties each source-owned value to this documentation
+snapshot.
 
 ## Check your understanding
-
-You should now be able to explain why displaying `runtime:latest` in an
-“immutable identity” column would be incorrect.
 
 <details>
   <summary>Does OPA's software version identify the Gateway image?</summary>
 
 No. They are separate components and identities. The generated table reports
-each from its governing source.
+each from its owning source.
 
 </details>
 
 <details>
-  <summary>What does a source-built `tobari version` normally report?</summary>
+  <summary>What does <code>tobari version --format json</code> identify?</summary>
 
-`dev`, with an optional source commit only when the build supplied it.
-Release builds inject the validated release identity.
+It identifies the CLI and source, selected resolver, required and selected
+Gateway/Auth Broker APIs, their compatibility, and the exact development
+recovery command when applicable.
 
 </details>
 
 <details>
-  <summary>Does a pinned image digest prove the image is compatible as a Workspace runtime?</summary>
+  <summary>Does a pinned image digest prove that the image is compatible with the current source?</summary>
 
-No. Tobari separately inspects the runtime API label, lifetime capability,
-user, and entrypoint.
+No. Tobari separately inspects the declared API and other runtime or service
+contracts. The current historical Gateway/Auth Broker pins are immutable but do
+not implement the APIs required by this source.
 
 </details>
 
