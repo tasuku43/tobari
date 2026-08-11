@@ -1,114 +1,99 @@
 ---
 title: Learning path
-description: A ten-step route from Tobari's purpose to its exact security and recovery boundaries.
+description: Start with installation, the quickstart, and a custom runtime, then proceed through requests, authentication, security, and recovery in 10 stages.
 ---
 
-Use this path to learn Tobari from its user-facing outcome to its exact security and recovery boundaries. It begins with one outbound request, then adds lifecycle, policy, credentials, and failure behavior before moving into reference material.
+This path starts by running Tobari and then making it useful for real work. The quickstart uses only `curl` to demonstrate denial and review. Immediately afterward, you prepare a custom runtime containing the coding agent and project tools before reading the deeper architecture and security material.
 
-No prerequisite is required. Each step links to the full explanation instead of duplicating it here.
+The standard base runtime is the foundation for checking the boundary and building a custom image. It does not include a coding agent. Completing the quickstart alone does not necessarily produce a usable development environment.
 
-## Five levels of understanding
+## Five stages that build setup and understanding
 
-The path is grouped into five levels:
+1. **Install:** verify the CLI and trusted-host prerequisites, then enter the first Workspace.
+2. **Make it usable:** review the first denial and add the agent and development tools to a custom runtime.
+3. **Follow the processing path:** trace one request across Workspace, Gateway, OPA, Auth Broker, and upstream.
+4. **Authentication, boundaries, and recovery:** understand credentials, guarantees, exclusions, and surviving state.
+5. **Exact reference:** consult Catalog-generated CLI contracts, schemas, storage, versions, fault codes, and implementation.
 
-1. **Purpose:** what task Tobari closes for a developer.
-2. **Minimum model:** Workspace → Gateway → Upstream, with OPA and Auth Broker beside Gateway.
-3. **Sequences:** Workspace entry, HTTP/HTTPS, denial review, and credential use in time order.
-4. **Boundaries and failure:** who owns identity and state, what fails closed, and what Tobari does not protect.
-5. **Exact specification:** Catalog-generated CLI, schemas, paths, versions, faults, and evidence.
+## Recommended 10-step path
 
-## Recommended ten-step route
+### 1. Confirm the scope and install
 
-### 1. What Tobari is
+Read the [overview](../overview/) to identify what Tobari controls and what remains outside the boundary. Then complete [installation](../install/) and verify the CLI, Docker, and trusted-host prerequisites.
 
-Read [Overview](../overview/). Be able to say what authority the agent receives and what outbound effect remains controlled.
+### 2. Complete the quickstart and first policy review
 
-### 2. The five-part mental model
+Use the [quickstart](../quickstart/) to see an undeclared request denied, reviewed on the host, allowed exactly, and issued again as a new request.
 
-Read [Mental model](../../how-it-works/mental-model/). Learn only Workspace, Gateway, OPA, Auth Broker, and Upstream.
+Then read [first denial](../first-denial/) to understand the retained information, the dimensions fixed by an exact rule, and why Tobari never replays the original request.
 
-### 3. Workspace lifecycle
+### 3. Prepare a custom runtime
 
-Read [Workspace lifecycle](../../how-it-works/workspace-lifecycle/). Distinguish `exit`, `delete`, runtime loss, `cluster down`, and `cluster down --purge`.
+Use [custom runtime setup](../../guides/runtime-customization/) to create the Dockerfile managed by the current Context and add the coding agent and project tools.
 
-### 4. One outbound request
+At this point you can enter a real repository and start the selected agent. Review the agent's external requests through the same policy flow used in the quickstart.
 
-Read [Request journey](../../how-it-works/request-journey/). Follow principal derivation, body-free OPA input, allow/deny, separate upstream connection, and secret-free audit.
+### 4. Organize the five components
 
-### 5. HTTPS and TLS
+Read the [mental model](../../how-it-works/mental-model/) to identify what Workspace, Gateway, OPA, Auth Broker, and upstream each execute and which authority each lacks.
 
-Read [HTTPS and TLS](../../how-it-works/https-and-tls/). Explain `CONNECT`, Workspace-side TLS termination, and the separately verified upstream TLS connection.
+### 5. Separate Workspace lifetime from container lifetime
 
-### 6. Policy denial and review
+Read [Workspace lifecycle](../../how-it-works/workspace-lifecycle/) to distinguish `exit`, container recreation after a runtime change, `delete`, `cluster down`, and `cluster down --purge`.
 
-Read [Policy learning](../../how-it-works/policy-learning/) and [First denial](../first-denial/). Explain exact rules, opaque references, all-or-nothing activation, and deliberate retry.
+### 6. Follow one HTTP/HTTPS request
 
-### 7. Authentication and credentials
+Read the [request journey](../../how-it-works/request-journey/) and follow one request from Workspace through Gateway and OPA to upstream.
 
-Read [Credentials](../../how-it-works/credentials/) and the [Authentication guide](../../guides/authentication/). Keep authentication separate from authorization.
+Then read [HTTPS and TLS](../../how-it-works/https-and-tls/) to see `CONNECT`, Workspace-side TLS, policy evaluation, and the separate upstream TLS session as one processing path.
 
-### 8. Security guarantees and limitations
+### 7. Understand how policy grows
 
-Read [Guarantees and limitations](../../security/guarantees-and-limitations/) and [Trust boundaries](../../security/trust-boundaries/). For every claim, identify its preconditions and trusted enforcement point.
+Read [policy learning](../../how-it-works/policy-learning/) to connect retained denial data, opaque references, exact allow or deny decisions, complete-policy validation, and explicit compaction.
 
-### 9. State and recovery
+### 8. Separate authentication from network permission
 
-Read [State and recovery](../../how-it-works/state-and-recovery/) and [Troubleshooting](../../guides/troubleshooting/). Explain what each destructive-looking command actually preserves.
+Read [credentials](../../how-it-works/credentials/) and the [authentication guide](../../guides/authentication/). Logging into an external service and allowing an HTTP request are separate authorities.
 
-### 10. Final understanding check
+Login state stored by a coding agent in the Workspace home is not isolated from other processes in the same Workspace. Auth Broker protects only credentials that use an explicitly supported broker path.
 
-Complete the [Understanding check](../understanding-check/). Open an answer only after explaining the scenario aloud or in writing.
+### 9. Review guarantees, exclusions, and recovery
 
-## When to use Reference
+Read [guarantees and limitations](../../security/guarantees-and-limitations/) and [trust boundaries](../../security/trust-boundaries/) to pair each guarantee with its prerequisites and exclusions.
 
-Reference pages answer precise operational questions after the model is understood:
+Use [state and recovery](../../how-it-works/state-and-recovery/) and [troubleshooting](../../guides/troubleshooting/) to understand what survives exit, container recreation, failure, and deletion, and which recovery action is safe.
+
+### 10. Check your understanding
+
+Complete the [understanding check](../understanding-check/). Before opening an answer, explain which component decides, where processing stops, and which state remains.
+
+## When to use the reference
+
+Use the reference after the first working setup and basic boundary are clear.
 
 - [CLI](../../reference/cli/) is generated from `cli.Catalog`.
-- [Configuration and state](../../reference/configuration-and-state/) lists exact stores and lifetimes.
-- [Provider manifest](../../reference/provider-manifest/) separates
-  owner-controlled strict schema 1 from the reviewed built-in schema-2 plans.
-- [Faults and recovery](../../reference/faults-and-recovery/) maps codes to safe actions.
-- [Component versions](../../reference/component-versions/) is generated from repository authorities.
+- [Runtime image contract](../../reference/runtime-image-contract/) defines the required user, labels, entrypoint, architecture, and other custom-image properties.
+- [Configuration and state](../../reference/configuration-and-state/) lists storage, ownership, and lifetime.
+- [Faults and recovery](../../reference/faults-and-recovery/) maps fault codes to safe next actions.
+- [Component versions](../../reference/component-versions/) shows the artifacts actually selected at runtime.
 
-Do not use a path or schema detail as a substitute for understanding ownership.
-For example, knowing where `vault.enc` lives does not explain why OPA deny
-prevents static resolution, AWS companion/signing work, and Datadog token
-selection or refresh.
+## Where to return when something is unclear
 
-## If a link describes something unexpected
+- If the agent command is missing, return to [custom runtime setup](../../guides/runtime-customization/).
+- If Workspace and the work container appear to be the same thing, return to [Workspace lifecycle](../../how-it-works/workspace-lifecycle/).
+- If OPA appears to forward traffic, return to the [request journey](../../how-it-works/request-journey/).
+- If login appears to grant network permission, return to [credentials](../../how-it-works/credentials/).
+- If “encrypted” appears to mean complete protection, return to [credential security](../../security/credential-security/).
 
-Stop and return to the immediately preceding conceptual page. In particular:
+## Inspect the implementation
 
-- if Workspace and container seem interchangeable, return to [Workspace, Context, cluster](../../how-it-works/workspace-context-cluster/);
-- if login seems to create network permission, return to [Credentials](../../how-it-works/credentials/);
-- if OPA appears to forward traffic, return to [Request journey](../../how-it-works/request-journey/); and
-- if “encrypted” sounds like a complete security claim, return to [Credential security](../../security/credential-security/).
-
-## Source evidence
-
-- [Project theses governing the learning model](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/00_theses.md)
+- [Documentation-order design principles](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/00_theses.md)
 - [Product contract](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/01_product_contract.md)
 - [Architecture](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
 - [Security model](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/03_security_model.md)
 
 ## Summary
 
-Learn Tobari from outcome to sequence to boundary to specification. The order is intentional: it prevents Docker details, credential schemas, or fault codes from hiding who has authority at each step.
+First use the quickstart to confirm the boundary, then add the agent and development tools to a custom runtime. After that, study requests, authentication, security, and recovery. This sequence produces a usable environment early while still building a precise model of who owns each authority.
 
-## Check your understanding
-
-<details>
-<summary>Where should you look first if you know a fault code but do not understand why the request crosses Gateway?</summary>
-
-Read the mental model and request journey before the fault reference. Recovery is safer when you understand which component owns the failed step.
-
-</details>
-
-<details>
-<summary>When should you read the complete provider manifest schema?</summary>
-
-After understanding the three credential paths and the authentication/authorization separation. The schema is level-5 reference detail.
-
-</details>
-
-**Next:** begin with [Overview](../overview/) or, if you followed the path already, take the [Understanding check](../understanding-check/).
+**Next:** begin with the [overview](../overview/).
