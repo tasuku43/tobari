@@ -34,7 +34,7 @@ Shared data    ${XDG_DATA_HOME:-$HOME/.local/share}/tobari
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `config.json`                                              | 互換スキーマ `v1`。デフォルト Context のイメージを初回だけ設定                                                                                                                     |
 | `contexts/active.json`                                     | 現在のデフォルト Context 名。Context 指定を省略したときの既定値を選ぶだけで、リクエストの権限にはならない                                                                          |
-| `contexts/<name>/context.json`                             | **保存用 Context マニフェストのスキーマ 4**。安定した Context ID、エージェントプロファイル、選択中のイメージ、ポリシーモード、限定的なシェル設定、任意のランタイムビルド情報を保持 |
+| `contexts/<name>/context.json`                             | **保存用 Context マニフェストのスキーマ 5**。安定した Context ID、エージェントプロファイル、選択中のイメージ、ポリシーモード、限定的なシェル設定、任意のランタイムビルド情報を保持 |
 | `contexts/<name>/runtime/Dockerfile`                       | `runtime init` が作成する、任意の所有者専用ビルド定義。編集しただけではイメージを選択しない                                                                                        |
 | `contexts/<name>/policy/data.json`                         | Context が所有する境界と、学習済みの許可・拒否データ                                                                                                                               |
 | `contexts/<name>/policy/tobari.rego` と `tobari_test.rego` | Advanced ポリシー用。Guided ポリシーでは、レビュー済みの組み込み評価器を使用                                                                                                       |
@@ -43,7 +43,7 @@ Shared data    ${XDG_DATA_HOME:-$HOME/.local/share}/tobari
 | `principal-registry/principals.json`                       | ホストが発行するプリンシパル台帳（principal registry）のスキーマ 2。ディレクトリごと Gateway へ読み取り専用でマウント                                                              |
 
 保存用マニフェストと公開出力を混同しないでください。`context show` などの Context 結果
-コマンドは、**公開 Context レポートのスキーマ 6**を出力します。これは各タスクが所有する、
+コマンドは、**公開 Context レポートのスキーマ 8**を出力します。これは各タスクが所有する、
 秘密情報を除いた公開用データです。バージョンは、永続化した Context マニフェストとは独立して
 変更できます。
 
