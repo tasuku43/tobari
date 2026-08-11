@@ -19,6 +19,7 @@ export interface DiagramNode {
 }
 
 export interface DiagramEdge {
+  id?: string;
   from: string;
   to: string;
   label: string;
@@ -104,58 +105,60 @@ export const diagrams: Record<string, DiagramDefinition> = {
   "detailed-network": {
     title: "Supported Docker network topology",
     description:
-      "Each Workspace has an internal project network. Gateway has one interface on that network and another on egress. OPA has control only; Auth Broker has control and egress but no project-network interface.",
+      "A request starts on one internal project network. Gateway is the only component that also joins egress; policy and credential control use a separate control network.",
     nodes: [
       {
         id: "process",
         label: "Workspace process",
-        detail: "Inside a runtime container on one internal project network.",
+        detail: "Runs inside a runtime container on one project network.",
         kind: "untrusted",
       },
       {
         id: "projectnet",
         label: "Dedicated internal network",
-        detail: "No Docker-provided external route.",
+        detail:
+          "Carries Workspace proxy traffic and has no Docker-provided external route.",
         kind: "trusted",
         shape: "boundary",
       },
       {
         id: "gateway",
         label: "Gateway",
-        detail: "Only component attached to both project network and egress.",
+        detail:
+          "The only component attached to both the project network and egress.",
         kind: "network",
       },
       {
         id: "controlnet",
         label: "Control network",
-        detail: "Gateway ↔ OPA and Gateway ↔ Broker sockets/control paths.",
+        detail: "Carries Gateway ↔ OPA and Gateway ↔ Auth Broker traffic.",
         kind: "control",
         shape: "boundary",
       },
       {
         id: "opa",
         label: "OPA",
-        detail: "No external connection is needed to decide policy.",
+        detail: "Decides policy without an external connection.",
         kind: "control",
       },
       {
         id: "broker",
         label: "Auth Broker",
-        detail: "Shared, locked service; no project-network interface.",
+        detail: "Uses control and egress, but never joins a project network.",
         kind: "secret",
       },
       {
         id: "egress",
         label: "Egress network",
         detail:
-          "Gateway/Broker host external connections within their declared roles.",
+          "Carries authorized external connections owned by Gateway or Broker.",
         kind: "network",
         shape: "boundary",
       },
       {
         id: "upstream",
         label: "DNS and upstream",
-        detail: "External destination reached by Gateway, not Workspace.",
+        detail: "Reached by Gateway, not directly by Workspace.",
         kind: "untrusted",
       },
     ],
@@ -163,37 +166,54 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         from: "process",
         to: "projectnet",
-        label: "HTTP proxy traffic",
+        label: "HTTP/HTTPS proxy traffic enters the project network",
         kind: "network",
       },
       {
         from: "projectnet",
         to: "gateway",
-        label: "interface identifies principal",
+        label: "Gateway receives the request on the project-specific interface",
         kind: "trusted",
       },
       {
         from: "process",
         to: "upstream",
-        label: "direct route absent",
+        label: "No supported direct route exists",
         kind: "denied",
         style: "blocked",
       },
-      { from: "gateway", to: "opa", label: "decision", kind: "control" },
       {
         from: "gateway",
+        to: "controlnet",
+        label:
+          "Policy and credential control traffic stays on the control network",
+        kind: "control",
+      },
+      {
+        from: "controlnet",
+        to: "opa",
+        label: "Body-free policy input and one allow or deny result",
+        kind: "control",
+      },
+      {
+        from: "controlnet",
         to: "broker",
-        label: "Unix socket",
+        label: "Handle introspection; credential work only after allow",
         kind: "handle",
         style: "dashed",
       },
       {
         from: "gateway",
         to: "egress",
-        label: "authorized connection",
+        label: "Gateway opens an external connection only after authorization",
         kind: "allowed",
       },
-      { from: "egress", to: "upstream", label: "DNS/TCP/TLS", kind: "network" },
+      {
+        from: "egress",
+        to: "upstream",
+        label: "DNS, TCP, and TLS reach the selected destination",
+        kind: "network",
+      },
     ],
   },
   "workspace-context-cluster": {
@@ -366,68 +386,91 @@ export const diagrams: Record<string, DiagramDefinition> = {
     ],
   },
   "tls-split": {
-    title: "HTTPS is two verified TLS connections",
+    title: "One HTTPS request crosses two TLS sessions",
     description:
-      "CONNECT reaches the HTTP proxy. Gateway terminates Workspace-side TLS with the Tobari CA, authorizes decrypted HTTP attributes, then creates a separately verified TLS connection upstream.",
+      "The client first creates a TLS session with Gateway. Gateway can then authorize the decrypted HTTP request and, only after allow, create a separate verified TLS session to the destination.",
     nodes: [
       {
         id: "workspace",
         label: "Workspace client",
-        detail: "Trusts the Tobari CA for supported proxy-aware HTTPS.",
+        detail:
+          "Uses the HTTP proxy and trusts the Tobari CA for the Gateway-side TLS session.",
         kind: "untrusted",
-      },
-      {
-        id: "tlsa",
-        label: "TLS connection A",
-        detail: "Client ↔ Gateway; begins after CONNECT.",
-        kind: "network",
-        shape: "boundary",
       },
       {
         id: "gateway",
         label: "Gateway",
-        detail: "Terminates A, sees HTTP decision attributes, enforces OPA.",
+        detail:
+          "Terminates client-side TLS, owns the upstream connection, and enforces the decision.",
         kind: "trusted",
       },
       {
-        id: "tlsb",
-        label: "TLS connection B",
-        detail: "Gateway ↔ upstream; normal upstream certificate validation.",
-        kind: "network",
-        shape: "boundary",
+        id: "opa",
+        label: "OPA",
+        detail:
+          "Decides the normalized HTTP effect without receiving the request body.",
+        kind: "control",
       },
       {
         id: "upstream",
-        label: "HTTPS upstream",
+        label: "HTTPS destination",
         detail:
-          "Receives TLS from Gateway, not plaintext across the final hop.",
+          "Receives a separately connected and certificate-verified TLS session from Gateway.",
         kind: "untrusted",
       },
     ],
     edges: [
       {
+        id: "connect",
         from: "workspace",
-        to: "tlsa",
-        label: "CONNECT, then encrypted HTTP",
+        to: "gateway",
+        label: "CONNECT example.com:443 reaches the HTTP proxy",
         kind: "network",
       },
       {
-        from: "tlsa",
+        id: "workspace-tls",
+        from: "workspace",
         to: "gateway",
-        label: "Tobari-issued leaf certificate",
+        label: "TLS session 1 starts with a Tobari-issued leaf certificate",
         kind: "trusted",
       },
       {
+        id: "policy-query",
         from: "gateway",
-        to: "tlsb",
-        label: "only after allow",
+        to: "opa",
+        label:
+          "Gateway sends scheme, host, port, method, and path—not the body",
+        kind: "control",
+      },
+      {
+        id: "policy-result",
+        from: "opa",
+        to: "gateway",
+        label: "OPA returns one allow or deny decision",
+        kind: "control",
+      },
+      {
+        id: "upstream-connect",
+        from: "gateway",
+        to: "upstream",
+        label: "After allow, Gateway resolves the destination and opens TCP",
         kind: "allowed",
       },
       {
-        from: "tlsb",
+        id: "upstream-tls",
+        from: "gateway",
         to: "upstream",
-        label: "verified upstream TLS",
+        label:
+          "TLS session 2 verifies the destination certificate independently",
         kind: "network",
+      },
+      {
+        id: "https-forward",
+        from: "gateway",
+        to: "upstream",
+        label:
+          "Gateway forwards HTTP over session 2; the response returns through both sessions",
+        kind: "allowed",
       },
     ],
   },
@@ -482,6 +525,18 @@ export const diagrams: Record<string, DiagramDefinition> = {
         to: "registry",
         label: "atomic registration",
         kind: "trusted",
+      },
+      {
+        from: "host",
+        to: "network",
+        label: "creates the project-specific internal network",
+        kind: "trusted",
+      },
+      {
+        from: "network",
+        to: "gateway",
+        label: "selects the receiving interface for this project",
+        kind: "network",
       },
       {
         from: "registry",

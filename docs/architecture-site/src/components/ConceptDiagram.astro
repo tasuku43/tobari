@@ -1,5 +1,6 @@
 ---
-import { diagrams, type DiagramKind } from "../data/diagrams";
+import { diagramLayouts } from "../data/diagramLayouts";
+import { diagrams, type DiagramEdge, type DiagramKind } from "../data/diagrams";
 import { diagramsJa } from "../data/diagrams.ja";
 
 interface Props {
@@ -7,286 +8,526 @@ interface Props {
   headingLevel?: 2 | 3;
 }
 
+interface Point {
+  x: number;
+  y: number;
+}
+
 const { name, headingLevel = 2 } = Astro.props;
 const isJapanese = Astro.locals.starlightRoute.locale === "ja";
 const localizedDiagrams = isJapanese ? diagramsJa : diagrams;
 const diagram = localizedDiagrams[name];
+const layout = diagramLayouts[name];
 if (!diagram) throw new Error(`Unknown Tobari diagram: ${String(name)}`);
+if (!layout) throw new Error(`Missing Tobari diagram layout: ${String(name)}`);
 const Heading = `h${headingLevel}` as "h2" | "h3";
+const markerKey = String(name).replace(/[^a-z0-9_-]/gi, "-");
+const arrowMarker = `flow-arrow-${markerKey}`;
+const blockedMarker = `flow-blocked-${markerKey}`;
+
 const kindLabels: Record<DiagramKind, string> = isJapanese
   ? {
-      trusted: "信頼する領域",
-      untrusted: "信頼しない領域",
-      control: "制御",
+      trusted: "ホストが管理",
+      untrusted: "信頼しない入力",
+      control: "判断・制御",
       network: "通信",
       persistent: "永続状態",
       secret: "秘密情報",
-      handle: "秘密ではないハンドル",
-      allowed: "許可",
+      handle: "不透明なハンドル",
+      allowed: "許可後",
       denied: "拒否",
-      diagnostic: "診断情報",
+      diagnostic: "確認・診断",
     }
   : {
-      trusted: "Trusted",
-      untrusted: "Untrusted",
-      control: "Control",
+      trusted: "Host-owned",
+      untrusted: "Untrusted input",
+      control: "Decision / control",
       network: "Network",
-      persistent: "Persistent",
-      secret: "Secret",
-      handle: "Non-secret handle",
-      allowed: "Allowed",
+      persistent: "Persistent state",
+      secret: "Secret material",
+      handle: "Opaque handle",
+      allowed: "After allow",
       denied: "Denied",
-      diagnostic: "Diagnostic",
+      diagnostic: "Review / diagnostic",
+    };
+const modeLabels = isJapanese
+  ? {
+      sequence: "処理の順序",
+      relationship: "関係を読む順序",
+      state: "状態の遷移",
+    }
+  : {
+      sequence: "Processing order",
+      relationship: "Relationship order",
+      state: "State transitions",
     };
 const ui = isJapanese
   ? {
-      conceptual: "概念図：",
-      conceptualNote:
-        "実行時の構成と障害時の動作は、リンク先の詳細ページで確認してください。",
-      connections: "接続関係",
-      transcript: "この図をテキストで読む",
-      meaning: "分類",
-      separator: "：",
-      sentenceEnd: "。",
+      reading:
+        "箱の分類ではなく、番号付きの矢印を追って、何がどこへ移動するかを確認します。",
+      steps: "番号順に読む",
+      blocked: "ここで停止",
+      conceptual: "この図は理解のために経路を単純化しています。",
     }
   : {
-      conceptual: "Conceptual view:",
-      conceptualNote:
-        "follow the linked detail page for runtime topology and failure semantics.",
-      connections: "Connections",
-      transcript: "Read this diagram as text",
-      meaning: "Meaning",
-      separator: ": ",
-      sentenceEnd: ".",
+      reading:
+        "Follow the numbered arrows to see what moves where; the boxes only anchor each component or state.",
+      steps: "Read in number order",
+      blocked: "stops here",
+      conceptual: "This view simplifies the route for explanation.",
     };
+
+const nodeById = Object.fromEntries(
+  diagram.nodes.map((node) => [node.id, node]),
+);
+
+const edgePairKey = (edge: DiagramEdge) =>
+  edge.from === edge.to
+    ? `self:${edge.from}`
+    : [edge.from, edge.to].sort().join("|");
+const edgeGroups = new Map<string, number[]>();
+diagram.edges.forEach((edge, index) => {
+  const key = edgePairKey(edge);
+  edgeGroups.set(key, [...(edgeGroups.get(key) ?? []), index]);
+});
+
+const intersectBox = (
+  center: Point,
+  target: Point,
+  width: number,
+  height: number,
+): Point => {
+  const dx = target.x - center.x;
+  const dy = target.y - center.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const ux = dx / length;
+  const uy = dy / length;
+  const scale =
+    1 / Math.max(Math.abs(ux) / (width / 2), Math.abs(uy) / (height / 2));
+  return { x: center.x + ux * scale, y: center.y + uy * scale };
+};
+
+const quadraticPoint = (
+  start: Point,
+  control: Point,
+  end: Point,
+  t: number,
+): Point => {
+  const inverse = 1 - t;
+  return {
+    x:
+      inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
+    y:
+      inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * end.y,
+  };
+};
+
+const routeGeometry = (edge: DiagramEdge, index: number) => {
+  const fromPosition = layout.nodes[edge.from];
+  const toPosition = layout.nodes[edge.to];
+  if (!fromPosition || !toPosition) {
+    throw new Error(
+      `Missing node position for ${String(name)} edge ${edge.from} -> ${edge.to}`,
+    );
+  }
+  const fromCenter = { x: fromPosition.x, y: fromPosition.y };
+  const toCenter = { x: toPosition.x, y: toPosition.y };
+  const fromWidth = fromPosition.width ?? 190;
+  const fromHeight = fromPosition.height ?? 96;
+  const toWidth = toPosition.width ?? 190;
+  const toHeight = toPosition.height ?? 96;
+
+  if (edge.from === edge.to) {
+    const loopWidth = Math.max(72, fromWidth * 0.45);
+    const loopHeight = Math.max(82, fromHeight * 0.92);
+    const start = {
+      x: fromCenter.x + fromWidth * 0.28,
+      y: fromCenter.y - fromHeight / 2,
+    };
+    const end = {
+      x: fromCenter.x - fromWidth * 0.28,
+      y: fromCenter.y - fromHeight / 2,
+    };
+    const top = fromCenter.y - fromHeight / 2 - loopHeight;
+    return {
+      path: `M ${start.x} ${start.y} C ${start.x + loopWidth} ${top}, ${end.x - loopWidth} ${top}, ${end.x} ${end.y}`,
+      marker: { x: fromCenter.x, y: top + 9 },
+    };
+  }
+
+  const group = edgeGroups.get(edgePairKey(edge)) ?? [index];
+  const positionInGroup = group.indexOf(index);
+  const curveOffset = (positionInGroup - (group.length - 1) / 2) * 58;
+  const [stableFromId, stableToId] = [edge.from, edge.to].sort();
+  const stableFrom = layout.nodes[stableFromId];
+  const stableTo = layout.nodes[stableToId];
+  const stableDx = stableTo.x - stableFrom.x;
+  const stableDy = stableTo.y - stableFrom.y;
+  const stableLength = Math.hypot(stableDx, stableDy) || 1;
+  const perpendicular = {
+    x: -stableDy / stableLength,
+    y: stableDx / stableLength,
+  };
+  const control = {
+    x: (fromCenter.x + toCenter.x) / 2 + perpendicular.x * curveOffset,
+    y: (fromCenter.y + toCenter.y) / 2 + perpendicular.y * curveOffset,
+  };
+  const startTarget = curveOffset === 0 ? toCenter : control;
+  const endTarget = curveOffset === 0 ? fromCenter : control;
+  const start = intersectBox(fromCenter, startTarget, fromWidth, fromHeight);
+  const end = intersectBox(toCenter, endTarget, toWidth, toHeight);
+  const marker =
+    curveOffset === 0
+      ? { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
+      : quadraticPoint(start, control, end, 0.5);
+  return {
+    path:
+      curveOffset === 0
+        ? `M ${start.x} ${start.y} L ${end.x} ${end.y}`
+        : `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`,
+    marker,
+  };
+};
+
+const routes = diagram.edges.map((edge, index) => ({
+  edge,
+  index,
+  ...routeGeometry(edge, index),
+}));
+const stageMinWidth = Math.max(720, Math.round(layout.width * 0.72));
 ---
 
-<figure class="concept-diagram" data-diagram={name}>
+<figure
+  class="concept-diagram"
+  data-diagram={name}
+  data-flow-mode={layout.mode}
+>
   <figcaption>
+    <span class="diagram-eyebrow">{modeLabels[layout.mode]}</span>
     <Heading>{diagram.title}</Heading>
     <p>{diagram.description}</p>
-    {
-      diagram.conceptual && (
-        <p class="concept-note">
-          <strong>{ui.conceptual}</strong> {ui.conceptualNote}
-        </p>
-      )
-    }
+    <p class="diagram-reading">{ui.reading}</p>
+    {diagram.conceptual && <p class="concept-note">{ui.conceptual}</p>}
   </figcaption>
-  <div
-    class="diagram-canvas"
-    role="img"
-    aria-label={`${diagram.title}. ${diagram.description}`}
-  >
-    <div class="diagram-nodes">
-      {
-        diagram.nodes.map((node) => (
-          <article
-            class:list={[
-              "diagram-node",
-              `kind-${node.kind}`,
-              `shape-${node.shape || "box"}`,
-            ]}
+
+  <div class="flow-map-scroll" tabindex="0">
+    <div
+      class="flow-map-stage"
+      style={`--flow-min-width:${stageMinWidth}px;--flow-aspect:${layout.width}/${layout.height};`}
+      aria-hidden="true"
+    >
+      <svg
+        viewBox={`0 0 ${layout.width} ${layout.height}`}
+        preserveAspectRatio="none"
+      >
+        <defs>
+          <marker
+            id={arrowMarker}
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
           >
-            <span class="kind-label">{kindLabels[node.kind]}</span>
-            <h3>{node.label}</h3>
-            <p>{node.detail}</p>
-          </article>
-        ))
+            <path d="M 0 0 L 10 5 L 0 10 z"></path>
+          </marker>
+          <marker
+            id={blockedMarker}
+            viewBox="0 0 12 12"
+            refX="8"
+            refY="6"
+            markerWidth="8"
+            markerHeight="8"
+            orient="auto"
+          >
+            <path d="M 3 1 L 3 11 M 7 1 L 7 11"></path>
+          </marker>
+        </defs>
+        {
+          routes.map(({ edge, path, marker, index }) => (
+            <g
+              class:list={[
+                "flow-route",
+                `kind-${edge.kind}`,
+                edge.style && `route-${edge.style}`,
+              ]}
+            >
+              <path
+                d={path}
+                marker-end={`url(#${edge.style === "blocked" ? blockedMarker : arrowMarker})`}
+              />
+              <g
+                class="route-number"
+                transform={`translate(${marker.x} ${marker.y})`}
+              >
+                <circle r="17" />
+                <text text-anchor="middle" dominant-baseline="central">
+                  {index + 1}
+                </text>
+              </g>
+            </g>
+          ))
+        }
+      </svg>
+
+      {
+        diagram.nodes.map((node) => {
+          const position = layout.nodes[node.id];
+          if (!position) return null;
+          return (
+            <article
+              class:list={[
+                "flow-node",
+                `kind-${node.kind}`,
+                `shape-${node.shape || "box"}`,
+              ]}
+              data-node={node.id}
+              style={`--node-x:${(position.x / layout.width) * 100}%;--node-y:${(position.y / layout.height) * 100}%;--node-width:${((position.width ?? 190) / layout.width) * 100}%;`}
+            >
+              <span>{kindLabels[node.kind]}</span>
+              <h3>{node.label}</h3>
+              <p>{node.detail}</p>
+            </article>
+          );
+        })
       }
     </div>
-    <ol class="diagram-edges" aria-label={ui.connections}>
-      {
-        diagram.edges.map((edge) => (
-          <li
-            class:list={[`kind-${edge.kind}`, `edge-${edge.style || "solid"}`]}
-          >
-            <span class="edge-from">
-              {diagram.nodes.find(({ id }) => id === edge.from)?.label ||
-                edge.from}
-            </span>
-            <span class="edge-arrow" aria-hidden="true">
-              {edge.style === "blocked" ? "⊣" : "→"}
-            </span>
-            <span class="edge-to">
-              {diagram.nodes.find(({ id }) => id === edge.to)?.label || edge.to}
-            </span>
-            <span class="edge-label">{edge.label}</span>
-            <span class="edge-kind">{kindLabels[edge.kind]}</span>
-          </li>
-        ))
-      }
-    </ol>
   </div>
-  <details class="diagram-transcript">
-    <summary>{ui.transcript}</summary>
-    <ol>
+
+  <section class="flow-step-section" aria-label={ui.steps}>
+    <h3>{ui.steps}</h3>
+    <ol class="flow-step-list">
       {
-        diagram.edges.map((edge) => (
-          <li>
-            <strong>
-              {diagram.nodes.find(({ id }) => id === edge.from)?.label ||
-                edge.from}
-            </strong>
-            {" → "}
-            <strong>
-              {diagram.nodes.find(({ id }) => id === edge.to)?.label || edge.to}
-            </strong>
-            {ui.separator}
-            {edge.label}
-            {ui.sentenceEnd}{" "}
-            <span class="transcript-kind">
-              {ui.meaning}
-              {ui.separator}
-              {kindLabels[edge.kind]}
-              {ui.sentenceEnd}
+        diagram.edges.map((edge, index) => (
+          <li
+            class:list={[
+              `kind-${edge.kind}`,
+              edge.style && `route-${edge.style}`,
+            ]}
+          >
+            <span class="step-number">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <div>
+              <strong>
+                {nodeById[edge.from]?.label ?? edge.from}
+                <span aria-hidden="true">
+                  {edge.style === "blocked" ? " ⊣ " : " → "}
+                </span>
+                {nodeById[edge.to]?.label ?? edge.to}
+              </strong>
+              <p>{edge.label}</p>
+            </div>
+            <span class="step-kind">
+              {edge.style === "blocked" ? ui.blocked : kindLabels[edge.kind]}
             </span>
           </li>
         ))
       }
     </ol>
-  </details>
+  </section>
 </figure>
 
 <style>
   .concept-diagram {
     margin: 2rem 0;
-    padding: clamp(1rem, 3vw, 1.5rem);
     border: 1px solid var(--sl-color-gray-5);
-    border-radius: 0.15rem;
     background: var(--sl-color-gray-7);
+  }
+  .concept-diagram figcaption {
+    padding: clamp(1rem, 3vw, 1.35rem);
+    border-block-end: 1px solid var(--sl-color-gray-5);
+  }
+  .diagram-eyebrow {
+    color: var(--tobari-control);
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xs);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
   .concept-diagram figcaption h2,
   .concept-diagram figcaption h3 {
-    margin: 0 0 0.35rem;
+    margin: 0.25rem 0 0.35rem;
   }
   .concept-diagram figcaption > p {
-    margin: 0.3rem 0;
+    max-width: 65rem;
+    margin: 0.3rem 0 0;
     color: var(--sl-color-gray-2);
   }
-  .concept-note {
+  .diagram-reading {
     font-size: var(--sl-text-sm);
   }
-  .diagram-canvas {
-    margin-top: 1.2rem;
+  .concept-note {
+    font-size: var(--sl-text-xs);
   }
-  .diagram-nodes {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
-    gap: 0.7rem;
+  .flow-map-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
   }
-  .diagram-nodes > * {
+  .flow-map-stage {
+    position: relative;
+    width: 100%;
+    min-width: var(--flow-min-width);
+    aspect-ratio: var(--flow-aspect);
+    overflow: hidden;
+    background-image:
+      linear-gradient(var(--sl-color-gray-6) 1px, transparent 1px),
+      linear-gradient(90deg, var(--sl-color-gray-6) 1px, transparent 1px);
+    background-size: 2rem 2rem;
+  }
+  .flow-map-stage svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
     height: 100%;
+    overflow: visible;
+  }
+  .flow-map-stage marker path {
+    fill: context-stroke;
+    stroke: context-stroke;
+    stroke-width: 1.5;
+  }
+  .flow-route {
+    color: var(--sl-color-gray-3);
+  }
+  .flow-route > path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.35;
+    vector-effect: non-scaling-stroke;
+  }
+  .flow-route.route-dashed > path {
+    stroke-dasharray: 8 6;
+  }
+  .flow-route.route-blocked > path {
+    stroke-dasharray: 4 5;
+    stroke-width: 3;
+  }
+  .route-number circle {
+    fill: var(--sl-color-bg);
+    stroke: currentColor;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+  }
+  .route-number text {
+    fill: currentColor;
+    font-family: var(--sl-font-mono);
+    font-size: 14px;
+    font-weight: 850;
+  }
+  .flow-node {
+    position: absolute;
+    z-index: 2;
+    left: var(--node-x);
+    top: var(--node-y);
+    width: min(var(--node-width), 13.5rem);
+    min-height: 6rem;
     margin: 0;
-  }
-  [data-diagram="code-layers"] .diagram-nodes {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .diagram-node {
-    display: grid;
-    grid-template-rows: auto auto 1fr;
-    min-width: 0;
-    min-height: 9.5rem;
-    padding: 0.8rem;
-    border: 2px solid currentColor;
+    padding: 0.75rem 0.8rem;
+    transform: translate(-50%, -50%);
+    border: 1.5px solid currentColor;
     background: var(--sl-color-bg);
+    box-shadow: 0 0 0 0.28rem var(--sl-color-bg);
   }
-  .diagram-node.kind-untrusted,
-  .diagram-node.kind-handle,
-  .diagram-node.kind-diagnostic {
+  .flow-node.kind-untrusted,
+  .flow-node.kind-handle,
+  .flow-node.kind-diagnostic,
+  .flow-node.shape-boundary {
     border-style: dashed;
   }
-  .diagram-node.kind-secret,
-  .diagram-node.kind-persistent {
+  .flow-node.kind-secret,
+  .flow-node.kind-persistent,
+  .flow-node.shape-store {
     border-block-start-style: double;
     border-block-start-width: 4px;
   }
-  .diagram-node.kind-denied {
-    border-style: double;
-  }
-  .diagram-node.shape-store {
-    border-radius: 1rem 1rem 0.25rem 0.25rem;
-    box-shadow: inset 0 0.32rem 0 -0.16rem currentColor;
-  }
-  .diagram-node.shape-boundary {
-    border-style: dashed;
-  }
-  .diagram-node h3 {
-    margin: 0.3rem 0 0;
-    color: inherit;
-    font-size: var(--sl-text-base);
-  }
-  .diagram-node p {
-    margin: 0.35rem 0 0;
-    color: var(--sl-color-gray-2);
-    font-size: var(--sl-text-sm);
-  }
-  .kind-label,
-  .edge-kind {
+  .flow-node > span {
     display: inline-block;
-    width: fit-content;
-    padding: 0.12rem 0.35rem;
-    border: 1px solid currentColor;
-    border-radius: 999px;
-    font-size: 0.68rem;
+    color: inherit;
+    font-family: var(--sl-font-mono);
+    font-size: 0.58rem;
     font-weight: 800;
-    line-height: 1.2;
     letter-spacing: 0.05em;
     text-transform: uppercase;
   }
-  .diagram-edges {
+  .flow-node h3 {
+    margin: 0.25rem 0 0;
+    color: inherit;
+    font-size: var(--sl-text-sm);
+    line-height: 1.25;
+  }
+  .flow-node p {
+    display: -webkit-box;
+    margin: 0.3rem 0 0;
+    overflow: hidden;
+    color: var(--sl-color-gray-2);
+    font-size: 0.68rem;
+    line-height: 1.4;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+  .flow-step-section {
+    padding: 1rem clamp(1rem, 3vw, 1.35rem) 1.25rem;
+    border-block-start: 1px solid var(--sl-color-gray-5);
+  }
+  .flow-step-section > h3 {
+    margin: 0 0 0.7rem;
+    color: var(--sl-color-gray-3);
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xs);
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+  .flow-step-list {
     display: grid;
     gap: 0.45rem;
-    margin: 1rem 0 0;
+    margin: 0;
     padding: 0;
     list-style: none;
   }
-  .diagram-edges li {
+  .flow-step-list li {
     display: grid;
-    grid-template-columns:
-      minmax(7rem, 1fr) auto minmax(7rem, 1fr) minmax(11rem, 2fr)
-      auto;
-    align-items: center;
-    gap: 0.5rem;
+    grid-template-columns: 2.4rem minmax(0, 1fr) auto;
+    gap: 0.7rem;
+    align-items: start;
     min-width: 0;
-    padding: 0.55rem 0.7rem;
-    border-inline-start: 0.3rem solid currentColor;
+    padding: 0.65rem 0.75rem;
+    border-inline-start: 0.24rem solid currentColor;
     background: var(--sl-color-gray-6);
+  }
+  .flow-step-list li.route-dashed {
+    border-inline-start-style: dashed;
+  }
+  .flow-step-list li.route-blocked {
+    border-inline-start-style: double;
+  }
+  .step-number {
+    color: inherit;
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xs);
+    font-weight: 850;
+  }
+  .flow-step-list strong {
+    display: block;
+    color: var(--sl-color-white);
     font-size: var(--sl-text-sm);
   }
-  .diagram-edges li.edge-dashed {
-    border-inline-start-style: dashed;
-  }
-  .diagram-edges li.edge-blocked {
-    border-inline-start-style: double;
-    text-decoration-color: currentColor;
-  }
-  .diagram-edges li.kind-network,
-  .diagram-edges li.kind-diagnostic {
-    border-inline-start-style: dotted;
-  }
-  .diagram-edges li.kind-handle,
-  .diagram-edges li.kind-untrusted {
-    border-inline-start-style: dashed;
-  }
-  .diagram-edges li.kind-secret,
-  .diagram-edges li.kind-denied {
-    border-inline-start-style: double;
-    border-inline-start-width: 0.45rem;
-  }
-  .edge-arrow {
-    font-size: 1.25rem;
-    font-weight: 900;
-  }
-  .edge-label {
+  .flow-step-list p {
+    margin: 0.16rem 0 0;
     color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
   }
-  .edge-kind {
-    justify-self: end;
-    white-space: nowrap;
-  }
-  .transcript-kind {
-    font-weight: 700;
+  .step-kind {
+    align-self: center;
+    color: inherit;
+    font-family: var(--sl-font-mono);
+    font-size: 0.62rem;
+    font-weight: 800;
+    text-align: end;
+    text-transform: uppercase;
   }
   .kind-trusted {
     color: var(--tobari-trusted);
@@ -318,53 +559,32 @@ const ui = isJapanese
   .kind-diagnostic {
     color: var(--tobari-diagnostic);
   }
-  .diagram-transcript {
-    margin-top: 1rem;
-  }
-  .diagram-transcript summary {
-    cursor: pointer;
-    font-weight: 700;
-  }
   @media (max-width: 42rem) {
-    .diagram-nodes,
-    [data-diagram="code-layers"] .diagram-nodes {
-      grid-template-columns: 1fr;
+    .flow-step-list li {
+      grid-template-columns: 2rem minmax(0, 1fr);
     }
-    .diagram-node {
-      min-height: 0;
-    }
-    .diagram-edges li {
-      grid-template-columns: 1fr auto 1fr;
-    }
-    .edge-label,
-    .edge-kind {
-      grid-column: 1 / -1;
+    .step-kind {
+      grid-column: 2;
       justify-self: start;
-    }
-    .edge-label {
-      padding-top: 0.25rem;
-      border-top: 1px dotted currentColor;
+      margin-top: 0.1rem;
+      text-align: start;
     }
   }
   @media print {
-    .concept-diagram {
-      border-color: #222;
-      background: transparent;
-      break-inside: avoid;
-    }
-    .diagram-node,
-    .diagram-edges li {
+    .concept-diagram,
+    .flow-node,
+    .flow-step-list li {
       color: #000 !important;
+      border-color: #000 !important;
+      background: transparent !important;
+      box-shadow: none;
+    }
+    .flow-map-stage {
+      min-width: 0;
       background: transparent;
     }
-    .diagram-transcript {
-      display: block;
-    }
-    .diagram-transcript > * {
-      display: block !important;
-    }
-    .diagram-transcript summary {
-      display: none !important;
+    .flow-route {
+      color: #000 !important;
     }
   }
 </style>
