@@ -3,6 +3,107 @@ title: Authenticate your tools
 description: Authenticate the coding agent and external services you actually use, while keeping login separate from outbound network permission.
 ---
 
-import AuthenticationSetupWalkthrough from "../../../components/AuthenticationSetupWalkthrough.astro";
+The previous step made the agent executable available inside the Workspace. Authentication is separate: the binary can exist and still have no account credentials.
 
-<AuthenticationSetupWalkthrough />
+Keep the default Tobari setup for this first pass. You do not need to create or select another configuration.
+
+The important distinction is:
+
+- **authentication** decides which account or credential a tool can use;
+- **network policy** decides whether this project may send a particular HTTP/HTTPS request.
+
+A successful login therefore does not automatically allow a request.
+
+## Choose the authentication path that fits the tool
+
+There are two common first-use paths.
+
+### The tool manages its own login
+
+If the coding agent or CLI normally stores its own login state, enter the Workspace and follow that tool's official login flow.
+
+```sh
+cd /path/to/your/project
+tobari
+
+# Inside the Workspace
+<agent-command> <its-login-command>
+```
+
+The login state created by the tool lives with that Workspace. It survives ordinary `exit` and a work-container replacement because the Workspace home is persistent.
+
+Use this path when the tool is designed to manage its own credentials and keeping those credentials inside the Workspace is acceptable for your use case.
+
+### Tobari manages a supported external-service credential
+
+For a reviewed provider supported by Tobari, perform the login on the trusted host. The primary credential stays outside the Workspace.
+
+Make sure the shared cluster is running, then inspect the current authentication state:
+
+```sh
+tobari cluster up
+tobari auth status
+```
+
+To choose from the installed reviewed providers interactively:
+
+```sh
+tobari auth login
+```
+
+Or select GitHub directly:
+
+```sh
+tobari auth login --provider github
+```
+
+Then confirm the result without printing the credential itself:
+
+```sh
+tobari auth status
+```
+
+The exact login procedure depends on the provider. See [Authentication details](../../guides/authentication/) for GitHub, AWS, Datadog, imports, logout, and the exact credential paths.
+
+## Re-enter the project after authentication changes
+
+If the authentication method affects the Workspace environment, leave the current session and enter again:
+
+```sh
+cd /path/to/your/project
+tobari
+```
+
+Now start the agent or the authenticated CLI normally.
+
+## The first authenticated API call can still be denied
+
+When the tool sends an HTTP/HTTPS request that has not been allowed yet, Tobari can still return `policy_denied` even though login succeeded.
+
+That is expected. Use the same loop you already learned in Quickstart:
+
+1. leave the Workspace;
+2. run `tobari policy review` on the trusted host;
+3. inspect the destination, port, method, and path;
+4. allow only the communication you intend; and
+5. enter again and issue a new request.
+
+Authentication does not bypass Gateway or OPA, and a policy allow does not perform login for the tool.
+
+## You can now start normal work
+
+At this point you have completed the first-use path:
+
+1. experienced deny → review → allow → retry with `curl`;
+2. built a runtime containing the real coding agent and project tools; and
+3. configured the authentication actually needed by those tools.
+
+Continue normal work with the default setup. When the agent needs a new outbound effect, review it with the same host-side policy loop.
+
+For a deeper explanation, continue to the [Mental model](../../how-it-works/mental-model/) or [First denial](../first-denial/).
+
+## Later: separate configurations when you need them
+
+If you later need different runtimes, authentication sets, or policy modes for different jobs, Tobari can separate them using named **Contexts**.
+
+Learn [Contexts and separate configurations](../../guides/contexts/) when that need appears. Context is not prerequisite knowledge for the first successful authenticated run.
