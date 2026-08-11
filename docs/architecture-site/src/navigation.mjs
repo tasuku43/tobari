@@ -16,6 +16,11 @@ export const navigationGroups = [
     item("Install", "インストール", "/start/install/"),
     item("Quickstart", "クイックスタート", "/start/quickstart/"),
     item("First denial", "最初の拒否", "/start/first-denial/"),
+    item(
+      "Custom runtime",
+      "カスタムランタイム",
+      "/guides/runtime-customization/",
+    ),
     item("Learning path", "学習ガイド", "/start/learning-path/"),
     item(
       "Understanding check",
@@ -89,11 +94,6 @@ export const navigationGroups = [
   ]),
   group("Guides", "ガイド", [
     item("Contexts", "Context", "/guides/contexts/"),
-    item(
-      "Runtime customization",
-      "ランタイムのカスタマイズ",
-      "/guides/runtime-customization/",
-    ),
     item("Authentication", "認証", "/guides/authentication/"),
     item("Policy review", "ポリシーレビュー", "/guides/policy-review/"),
     item("Advanced policy", "高度なポリシー", "/guides/advanced-policy/"),
