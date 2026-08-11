@@ -1,5 +1,5 @@
 {
-  "generated_from": "committed repository authorities and executable CLI help at 1a73f30d49a29e40d1306cf6590aeec6949c7faa",
+  "generated_from": "committed repository authorities and executable CLI help at 3a9acc9c264d3e4efca2cd9aafabc9a122b183b8",
   "components": [
     {
       "component": "Go",
@@ -50,7 +50,7 @@
   "schemas": [
     {
       "contract": "Agent help",
-      "version": 8,
+      "version": 9,
       "authority": "internal/cli/help.go"
     },
     {
@@ -60,7 +60,7 @@
     },
     {
       "contract": "Public Context report",
-      "version": 6,
+      "version": 8,
       "authority": "internal/cli/runtime_catalog.go"
     },
     {
@@ -85,7 +85,7 @@
     },
     {
       "contract": "Gateway image API",
-      "version": 3,
+      "version": 4,
       "authority": "gateway/Dockerfile"
     },
     {
@@ -95,7 +95,7 @@
     },
     {
       "contract": "Auth Broker image API",
-      "version": 2,
+      "version": 3,
       "authority": "authbroker/Dockerfile"
     },
     {
