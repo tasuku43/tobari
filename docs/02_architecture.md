@@ -155,12 +155,12 @@ starts exactly one private same-binary host companion. Companion health is
 part of readiness; no companion is exposed through the public Catalog. Policy
 mutations serialize this same all-Context activation and preserve the previous
 known-good revision on any failure.
-Cluster status schema 4 projects all three component states plus
+Cluster status schema 5 projects all three component states plus
 `auth_provider_projection`, `auth_broker_state`, `root_key_backend`, and
 always-present secret-free `credential_companion_state`
 (`ready|prepared|absent|unavailable`). The companion field is host-process/
 channel readiness, not a fourth Compose service
-or credential state. Context report schema 6 exposes the complete Context
+or credential state. Context report schema 7 exposes the complete Context
 shell-environment and Git identity policies plus broker and installed-provider state without
 returning a vault path/content, root key, primary secret, or handle. Public Linux backend values are `xdg_file`; the
 infrastructure/doctor detail `linux_xdg_file` is not a public JSON enum. The
@@ -549,6 +549,21 @@ reports IDs as diagnostic fields but no public lifecycle action consumes them.
 The dependency-free terminal capability is an infrastructure
 adapter used only by the CLI's human selector; a line-input fallback keeps
 raw-mode availability out of the public command contract.
+
+Catalog output fields recursively own every object child and array item,
+including required/optional, nullable, enum, opaque-reference kind, and
+semantic-scope facts. Object and field counts are bounded. The JSON renderer
+validates its exact top-level envelope, schema version, nested keys, types,
+enums, and nullability against that declaration before writing stdout; missing
+and extra keys fail closed. Scoped agent-help schema 9 publishes the same
+recursive declaration and exact success/error argv forms, including global
+flag placement. Root help remains an index.
+
+Interactive-only completion can remain a catalog entry with internal
+visibility so the workflow uses the same typed composition authority. Internal
+entries are excluded from public command copies, lookup, routing, reference
+workflows, and help. Public projections also omit any interactive metadata that
+would reveal an internal completion path.
 
 The four auth commands share one catalog-declared `authentication.broker`
 capability. Login, import, and logout are fixed-target writes to the one

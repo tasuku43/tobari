@@ -429,17 +429,27 @@ The test suite has complementary levels:
   discovery index-only while grouped scoped workflows retain the complete
   invocation, reference, and recovery contract without producer/consumer
   Cartesian growth.
-- JSON-output contract tests compare each single-shape built-in renderer's
-  schema version, envelope, and item keys with its catalog `CommandOutput`
-  declaration and enforce the always-present string cursor for any paged probe.
-  Auth additions specifically pin cluster status schema 4 with always-present
+- JSON-output contract tests compare every built-in renderer's exact schema
+  version, envelope, nested object/array shape, required and optional keys,
+  scalar types, enums, reference declarations, and nullability with its catalog
+  `CommandOutput` declaration. Runtime rendering repeats that recursive check
+  before stdout, and negative tests cover missing/extra children, wrong type,
+  wrong enum, invalid null, excessive depth/count, empty undeclared sentinels,
+  and leaked internal commands. Paged probes additionally enforce the one
+  declared always-present string cursor and its typed `empty_cursor` sentinel.
+  Auth additions specifically pin cluster status schema 5 with nullable
+  unconfigured resources and always-present
   `credential_companion_state=ready|prepared|absent|unavailable`, Context report
-  schema 6, and auth
-  result/status schema 1, including the complete shell
+  schema 7, and auth
+  result/status schema 2, including the complete shell
   environment inventory, atomic Git identity policy, explicit empty literal
   values, explicit empty provider collections, and null account labels.
   Help's catalog fields describe root `view: index`; separate exact-key tests
-  cover both that view and the input-selected `view: scope` variant.
+  cover both that view and the input-selected `view: scope` variant. The
+  ledger-backed machine-output fixture and presentation-independent answer key
+  preserve empty collections, explicit null, false, zero, unavailable states,
+  nested arrays, structured recovery, and a routine-success external-processing
+  count of zero.
 - Adversarial output tests keep TSV/JSON records and stdout/stderr ownership intact across controls, Unicode format/line separators, existing backslashes, and printable prompt-like data while preserving opaque IDs exactly.
 - Catalog tests scan every public command for completeness and unique paths.
 - Catalog syntax tests reject command/namespace prefix collisions,

@@ -232,6 +232,18 @@ type ClusterStatus struct {
 	RecentError              string            `json:"recent_error"`
 }
 
+// UnconfiguredClusterStatus preserves an explicit finite observation for every
+// cluster-owned state dimension while leaving resources that do not exist
+// absent. It prevents consumers from having to decode empty-string sentinels.
+func UnconfiguredClusterStatus(task string) ClusterStatus {
+	return ClusterStatus{
+		Task: task, PolicyProjection: "unavailable", PrincipalRegistry: "unavailable",
+		CredentialProjection: "unavailable", AuthProviderProjection: "unavailable",
+		AuthBrokerState: "unavailable", CredentialCompanionState: "absent",
+		RootKeyBackend: "unavailable", Components: []ComponentStatus{},
+	}
+}
+
 // Validate binds status to the requested cluster task and scope.
 func (s ClusterStatus) Validate() error {
 	if s.Task != TaskClusterStatus && s.Task != TaskClusterUp && s.Task != TaskClusterDown {
@@ -240,6 +252,12 @@ func (s ClusterStatus) Validate() error {
 	if !s.Configured {
 		if s.Running || s.Proxy != "" || s.Policy != "" || s.TobariCount != 0 || s.ContextCount != 0 || s.PolicyRevision != "" || len(s.Components) != 0 {
 			return fmt.Errorf("unconfigured status contains cluster state")
+		}
+		if s.Components == nil || s.PolicyProjection != "unavailable" || s.PrincipalRegistry != "unavailable" ||
+			s.CredentialProjection != "unavailable" || s.AuthProviderProjection != "unavailable" ||
+			s.AuthBrokerState != "unavailable" || s.CredentialCompanionState != "absent" ||
+			s.RootKeyBackend != "unavailable" {
+			return fmt.Errorf("unconfigured cluster observation is incomplete")
 		}
 		return nil
 	}
@@ -259,8 +277,35 @@ func (s ClusterStatus) Validate() error {
 	if s.AuthProviderProjection != "valid" && s.AuthProviderProjection != "invalid" {
 		return fmt.Errorf("configured cluster auth provider projection is invalid")
 	}
+	for name, state := range map[string]string{
+		"policy projection":     s.PolicyProjection,
+		"principal registry":    s.PrincipalRegistry,
+		"credential projection": s.CredentialProjection,
+	} {
+		if state != "valid" && state != "invalid" {
+			return fmt.Errorf("configured cluster %s is invalid", name)
+		}
+	}
 	if s.RootKeyBackend != "macos_keychain" && s.RootKeyBackend != "xdg_file" && s.RootKeyBackend != "unavailable" {
 		return fmt.Errorf("configured cluster root-key backend is invalid")
+	}
+	if len(s.Components) != 3 {
+		return fmt.Errorf("configured cluster component collection is incomplete")
+	}
+	componentNames := map[string]struct{}{"auth-broker": {}, "gateway": {}, "opa": {}}
+	states := map[string]struct{}{"absent": {}, "created": {}, "running": {}, "paused": {}, "restarting": {}, "removing": {}, "exited": {}, "dead": {}}
+	healthStates := map[string]struct{}{"none": {}, "starting": {}, "healthy": {}, "unhealthy": {}}
+	for _, component := range s.Components {
+		if _, exists := componentNames[component.Name]; !exists {
+			return fmt.Errorf("configured cluster component name is invalid")
+		}
+		delete(componentNames, component.Name)
+		if _, exists := states[component.State]; !exists {
+			return fmt.Errorf("configured cluster component state is invalid")
+		}
+		if _, exists := healthStates[component.Health]; !exists {
+			return fmt.Errorf("configured cluster component health is invalid")
+		}
 	}
 	return nil
 }

@@ -5,5 +5,19 @@
     "sha256": "e8801a85dbb6326ce58963ee1073882acbaaba1b43293305657b360f85699e94",
     "provenance": "Repository-authored synthetic fixture for the Tobari credential-provider manifest schema v1.",
     "license": "MIT"
+  },
+  {
+    "id": "machine-output.fixture.v1",
+    "path": "internal/cli/testdata/machine-output-contract-fixture.json",
+    "sha256": "a460697a9f96aad035e6e28b4fd0371a9221867beab7924242ca76e04f6ee2fa",
+    "provenance": "Repository-authored synthetic fixture for recursive public machine-output interpretation.",
+    "license": "MIT"
+  },
+  {
+    "id": "machine-output.answer-key.v1",
+    "path": "internal/cli/testdata/machine-output-contract-answer-key.json",
+    "sha256": "ebbe1eb6f4686bc0769edc3e69a20984d0d9d0f7acdc17f1796f1c4c41f626a7",
+    "provenance": "Repository-authored presentation-independent answer key for recursive public machine-output interpretation.",
+    "license": "MIT"
   }
 ]

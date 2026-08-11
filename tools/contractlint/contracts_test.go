@@ -28,6 +28,36 @@ func TestRepositoryContractsMatchDefaultCatalog(t *testing.T) {
 	if len(issues) != 0 {
 		t.Fatalf("contract issues = %+v", issues)
 	}
+	schemaIssues, err := validatePublicJSONSchemaTables(root, catalog)
+	if err != nil {
+		t.Fatalf("validatePublicJSONSchemaTables() error = %v", err)
+	}
+	if len(schemaIssues) != 0 {
+		t.Fatalf("public JSON schema issues = %+v", schemaIssues)
+	}
+}
+
+func TestPublicJSONSchemaTablesRejectStaleMissingAndUnmarkedVersions(t *testing.T) {
+	expected := map[publicCLISchema]struct{}{{Envelope: "items", Version: 3}: {}}
+	tests := map[string]string{
+		"stale":    publicCLISchemaStart + "\n| Items | `items` | 2 |\n" + publicCLISchemaEnd,
+		"missing":  publicCLISchemaStart + "\n| Surface | Envelope | Schema |\n" + publicCLISchemaEnd,
+		"unmarked": "| Items | `items` | 3 |\n",
+	}
+	for name, document := range tests {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			path := "docs/schema-table.md"
+			writeFile(t, root, path, []byte(document))
+			issues, err := validatePublicJSONSchemaTableFiles(root, []string{path}, expected)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(issues) == 0 {
+				t.Fatal("schema table defect passed contract lint")
+			}
+		})
+	}
 }
 
 func TestInspectContractsAcceptsPublicCapabilitiesAndSchemaFixture(t *testing.T) {

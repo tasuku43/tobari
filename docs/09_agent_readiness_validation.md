@@ -160,8 +160,11 @@ compaction command may validly return an empty collection until enough exact
 rules exist. The transcript must prove:
 
 - Root agent help is a compact outcome/capability index.
-- Scoped help supplies inputs, outputs, prerequisites, effects, references,
-  failures, and recovery commands.
+- Exact scoped help schema 9 supplies recursive inputs/outputs, prerequisites,
+  effects, references, failures, recovery commands, global flag placement, and
+  directly executable success/error argv forms. One exact scoped-help call is
+  sufficient for a known command; routine success requires zero source reads,
+  prose parsers, or provider-notation decoders.
 - Context discovery identifies the current default, stable Context identities,
   and separated agent, policy, and managed-adapter credential stores. `context
   show` reports separate secret-free broker/provider observation but no broker
@@ -202,12 +205,12 @@ rules exist. The transcript must prove:
   healthy. It may inspect provider manifests, root-key/vault safety, broker
   state, and project bindings, but it does not initialize or repair policy,
   start/reconcile/unlock the cluster, create/replace a key, or mutate auth state.
-- Cluster status schema 4 names all three shared components and explicitly
+- Cluster status schema 5 names all three shared components and explicitly
   reports auth provider-projection integrity, broker state, root-key backend,
   and always-present
   `credential_companion_state=ready|prepared|absent|unavailable`. The latter is
   host-process/channel readiness, not a fourth Compose service or credential
-  state. Context report schema 6 carries complete shell-environment and Git
+  state. Context report schema 7 carries complete shell-environment and Git
   identity policies plus matching secret-free authentication state; agents do not
   infer either from labels or filesystem paths. Public backend
   values are exactly `macos_keychain|xdg_file`, plus cluster diagnostic

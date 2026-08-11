@@ -66,6 +66,7 @@ func newReferenceTestCLI(in io.Reader, out, errOut io.Writer) *CLI {
 		Delivery:           OutputDeliveryComplete,
 		CollectionCoverage: CollectionCoverageNotApplicable,
 		JSONEnvelope:       "item",
+		JSONEnvelopeType:   OutputFieldTypeObject,
 		JSONSchemaVersion:  1,
 	}
 	read.Agent.Errors = append(read.Agent.Errors, declaredCommandError(

@@ -42,7 +42,7 @@ unexpected file type, ownership, or permissive modes before use.
 | `principal-registry/principals.json`                        | Host-issued principal registry schema 2, mounted read-only into Gateway by directory.                                                                                     |
 
 Do not confuse the stored manifest with public output. `context show` and other
-Context-result commands emit **public Context report schema 6**. That report is
+Context-result commands emit **public Context report schema 7**. That report is
 a task-owned, secret-free projection. Its version can change independently
 from the persisted Context manifest.
 
@@ -212,9 +212,9 @@ volumes. Vaults and the installation root key remain.
 </details>
 
 <details>
-  <summary>Is Context manifest schema 4 the same contract as Context report schema 6?</summary>
+  <summary>Is Context manifest schema 4 the same contract as Context report schema 7?</summary>
 
-No. Schema 4 is persisted host configuration. Schema 6 is the public,
+No. Schema 4 is persisted host configuration. Schema 7 is the public,
 task-owned, secret-free CLI projection.
 
 </details>

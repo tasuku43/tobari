@@ -411,7 +411,8 @@ as owner-only XDG state `auth/keys/root.key`. A missing key alongside a vault is
 never replaced automatically.
 Public auth results name the Linux backend `xdg_file`, while macOS uses
 `macos_keychain`; cluster status may additionally report `unavailable`.
-Cluster status schema 4 separately reports always-present secret-free
+Cluster status schema 5 separately reports nullable unconfigured resources and
+always-present secret-free
 `credential_companion_state=ready|prepared|absent|unavailable`; this is
 process/channel readiness,
 not provider credential state.

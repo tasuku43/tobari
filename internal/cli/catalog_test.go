@@ -87,6 +87,7 @@ func discoverSpec(path, kind string) CommandSpec {
 		{Name: "name", Type: OutputFieldTypeString, Description: "Test item name."},
 	}
 	spec.Agent.Output.JSONEnvelope = "items"
+	spec.Agent.Output.JSONEnvelopeType = OutputFieldTypeArray
 	spec.Agent.Output.JSONSchemaVersion = 1
 	spec.Agent.Output.CollectionCoverage = CollectionCoverageExhaustive
 	return spec
@@ -218,8 +219,8 @@ func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
 	if !found {
 		t.Fatal("default catalog lacks cluster status")
 	}
-	if status.Agent.Output.JSONSchemaVersion != 4 {
-		t.Fatalf("cluster status schema version = %d, want 4", status.Agent.Output.JSONSchemaVersion)
+	if status.Agent.Output.JSONSchemaVersion != 5 {
+		t.Fatalf("cluster status schema version = %d, want 5", status.Agent.Output.JSONSchemaVersion)
 	}
 	fieldNames := make([]string, 0, len(status.Agent.Output.Fields))
 	for _, field := range status.Agent.Output.Fields {

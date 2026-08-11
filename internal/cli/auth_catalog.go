@@ -183,14 +183,14 @@ func authResultOutput() CommandOutput {
 			{Name: "context", Type: OutputFieldTypeString, Description: "Context display name selected by this task; it is not authority."},
 			{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Context authority identity."},
 			{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether this Context currently has the reported provider credential."},
-			{Name: "account_label", Type: OutputFieldTypeString, Description: "Secret-free provider account label when known, otherwise null."},
-			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for the encrypted Context vault."},
-			{Name: "broker_state", Type: OutputFieldTypeString, Description: "Observed locked, ready, or unavailable Auth Broker state."},
-			{Name: "credential_revision", Type: OutputFieldTypeString, Description: "Opaque secret-free credential revision, or empty when no credential is configured."},
-			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Explicit activation state and guidance that credential ownership is Context-wide, each permanently bound project receives a distinct handle, and existing sessions must leave and re-enter."},
+			{Name: "account_label", Type: OutputFieldTypeString, Description: "Secret-free provider account label when known, otherwise null.", Nullable: true},
+			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for the encrypted Context vault.", Enum: []string{"macos_keychain", "xdg_file"}},
+			{Name: "broker_state", Type: OutputFieldTypeString, Description: "Observed locked, ready, or unavailable Auth Broker state.", Enum: []string{"locked", "ready", "unavailable"}},
+			{Name: "credential_revision", Type: OutputFieldTypeString, Description: "Opaque secret-free credential revision, or null when no credential is configured.", Nullable: true},
+			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Explicit activation state and guidance that credential ownership is Context-wide, each permanently bound project receives a distinct handle, and existing sessions must leave and re-enter.", Fields: workspaceActivationOutputFields()},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "auth", JSONSchemaVersion: 1,
+		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 	}
 }
 
@@ -200,13 +200,28 @@ func authStatusOutput() CommandOutput {
 		Fields: []OutputField{
 			{Name: "context", Type: OutputFieldTypeString, Description: "Context display name selected by this task; it is not authority."},
 			{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Context authority identity."},
-			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for encrypted Context vaults."},
-			{Name: "broker_state", Type: OutputFieldTypeString, Description: "Observed locked, ready, or unavailable Auth Broker state."},
-			{Name: "providers", Type: OutputFieldTypeArray, Description: "Complete installed provider collection with explicit configured, not_configured, or unavailable state plus configuration, account-label, and credential-revision facts."},
-			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "When any provider is configured, guidance that credential ownership is Context-wide, each permanently bound project receives a distinct handle, and existing sessions must leave and re-enter."},
+			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for encrypted Context vaults.", Enum: []string{"macos_keychain", "xdg_file"}},
+			{Name: "broker_state", Type: OutputFieldTypeString, Description: "Observed locked, ready, or unavailable Auth Broker state.", Enum: []string{"locked", "ready", "unavailable"}},
+			{Name: "providers", Type: OutputFieldTypeArray, Description: "Complete installed provider collection with explicit configured, not_configured, or unavailable state plus configuration, account-label, and credential-revision facts.", SemanticScope: "Every installed provider for the selected Context at one observation.", Items: &OutputField{
+				Type: OutputFieldTypeObject, Description: "One installed provider status.", Fields: []OutputField{
+					{Name: "provider", Type: OutputFieldTypeString, Description: "Installed provider ID."},
+					{Name: "state", Type: OutputFieldTypeString, Description: "Provider credential state.", Enum: []string{"configured", "not_configured", "unavailable"}},
+					{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Compatibility projection matching state=\"configured\"."},
+					{Name: "account_label", Type: OutputFieldTypeString, Description: "Secret-free account label, or null.", Nullable: true},
+					{Name: "credential_revision", Type: OutputFieldTypeString, Description: "Secret-free credential revision, or null.", Nullable: true},
+				},
+			}},
+			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "When any provider is configured, guidance that credential ownership is Context-wide, each permanently bound project receives a distinct handle, and existing sessions must leave and re-enter.", Fields: workspaceActivationOutputFields()},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-		JSONEnvelope: "auth", JSONSchemaVersion: 1,
+		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
+	}
+}
+
+func workspaceActivationOutputFields() []OutputField {
+	return []OutputField{
+		{Name: "state", Type: OutputFieldTypeString, Description: "Workspace projection activation state.", Enum: []string{"not_applicable", "ready", "workspace_reentry_required"}},
+		{Name: "guidance", Type: OutputFieldTypeString, Description: "Exact activation guidance; empty only when no re-entry is required."},
 	}
 }
 

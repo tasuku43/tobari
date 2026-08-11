@@ -905,7 +905,7 @@ func (s *Service) ClusterStatus(ctx context.Context) (tobari.ClusterStatus, erro
 		return tobari.ClusterStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err)
 	}
 	if !exists {
-		return tobari.ClusterStatus{Task: tobari.TaskClusterStatus, Components: []tobari.ComponentStatus{}}, nil
+		return tobari.UnconfiguredClusterStatus(tobari.TaskClusterStatus), nil
 	}
 	status, err := s.runtime.InspectCluster(ctx, state)
 	if err != nil {
@@ -1873,7 +1873,7 @@ func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purg
 	if err != nil {
 		return tobari.ClusterStatus{}, err
 	}
-	return tobari.ClusterStatus{Task: tobari.TaskClusterDown, Components: []tobari.ComponentStatus{}}, nil
+	return tobari.UnconfiguredClusterStatus(tobari.TaskClusterDown), nil
 }
 
 func (s *Service) Doctor(ctx context.Context, root string) (doctor.Report, error) {

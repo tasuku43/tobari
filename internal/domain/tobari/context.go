@@ -496,9 +496,6 @@ type ContextRuntimeReport struct {
 }
 
 func (r ContextRuntimeReport) Validate() error {
-	if r.Kind == "" && r.Status == "" {
-		return nil // schema-1 fixture compatibility; infrastructure fills this in.
-	}
 	if err := r.Kind.Validate(); err != nil {
 		return err
 	}

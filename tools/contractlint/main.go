@@ -23,6 +23,11 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	schemaIssues, err := validatePublicJSONSchemaTables(root, catalog)
+	if err != nil {
+		fatal(err)
+	}
+	issues = append(issues, schemaIssues...)
 	if len(issues) != 0 {
 		for _, issue := range issues {
 			fmt.Fprintf(os.Stderr, "%s: %s\n", issue.Path, issue.Message)

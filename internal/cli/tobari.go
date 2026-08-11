@@ -191,7 +191,7 @@ func runPolicyReview(
 					fault.NextAction{Command: "policy review", Reason: "Inspect a permission and choose Allow exact or Deny exact."},
 				))
 			}
-			apply, applyFound := c.catalog.Lookup("policy apply-reviewed")
+			apply, applyFound := c.catalog.lookupRegistered("policy apply-reviewed")
 			if !applyFound || apply.Agent.Mutation == nil || apply.Agent.FixedTarget == nil {
 				return c.fail(ctx, fault.New(
 					fault.KindContract, "invalid_catalog", "reviewed policy Apply contract is missing", false,
@@ -933,7 +933,7 @@ func renderPolicyCandidatesWithColor(
 	denyCommand := pairedPolicyCommand(allowCommand, "allow", "deny")
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
-		output, err := json.Marshal(policyCandidatesDocument{
+		output, err := marshalCommandJSON("policy candidates", policyCandidatesDocument{
 			SchemaVersion: 5, PolicyCandidates: items,
 		})
 		if err != nil {
@@ -1040,7 +1040,7 @@ func renderPolicyReviewWithCommands(
 ) ([]byte, error) {
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
-		output, err := json.Marshal(policyReviewDocument{
+		output, err := marshalCommandJSON("policy review", policyReviewDocument{
 			SchemaVersion: 5, PolicyReview: items,
 		})
 		if err != nil {
@@ -1128,7 +1128,7 @@ func renderPolicyRulesWithCommands(
 ) ([]byte, error) {
 	items := policyRuleOutputs(result, resetCommand)
 	if format == successFormatJSON {
-		output, err := json.Marshal(policyRulesDocument{SchemaVersion: 3, PolicyRules: items})
+		output, err := marshalCommandJSON("policy rules", policyRulesDocument{SchemaVersion: 3, PolicyRules: items})
 		if err != nil {
 			return nil, fault.Wrap(
 				fault.KindContract, "output_encoding_failed",
@@ -1325,7 +1325,7 @@ func renderPolicyCompactionsWithColor(
 		})
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(policyCompactionsDocument{
+		output, err := marshalCommandJSON("policy compactions", policyCompactionsDocument{
 			SchemaVersion: 3, PolicyCompactions: items,
 		})
 		if err != nil {
@@ -1503,7 +1503,7 @@ func renderClusterDenialsWithReviewCommand(
 				Learnable: item.Learnable, CredentialProfile: safeOptionalExternalText(item.CredentialProfile),
 			})
 		}
-		output, err := json.Marshal(clusterDenialsDocument{
+		output, err := marshalCommandJSON("cluster denials", clusterDenialsDocument{
 			SchemaVersion: 4,
 			Denials: clusterDenialsOutput{
 				Policy: safeExternalText(result.PolicyDirectory), WindowLines: result.WindowLines,
@@ -1574,11 +1574,11 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 type clusterStatusOutput struct {
 	Configured               bool                     `json:"configured"`
 	Running                  bool                     `json:"running"`
-	Proxy                    string                   `json:"proxy"`
-	Policy                   string                   `json:"policy"`
+	Proxy                    *string                  `json:"proxy"`
+	Policy                   *string                  `json:"policy"`
 	TobariCount              int                      `json:"tobari_count"`
 	ContextCount             int                      `json:"context_count"`
-	PolicyRevision           string                   `json:"policy_revision"`
+	PolicyRevision           *string                  `json:"policy_revision"`
 	PolicyProjection         string                   `json:"policy_projection"`
 	PrincipalRegistry        string                   `json:"principal_registry"`
 	CredentialProjection     string                   `json:"credential_projection"`
@@ -1587,34 +1587,45 @@ type clusterStatusOutput struct {
 	CredentialCompanionState string                   `json:"credential_companion_state"`
 	RootKeyBackend           string                   `json:"root_key_backend"`
 	Components               []tobari.ComponentStatus `json:"components"`
-	RecentError              string                   `json:"recent_error"`
+	RecentError              *string                  `json:"recent_error"`
 }
 
 func renderClusterStatus(status tobari.ClusterStatus, format successFormat, color bool) ([]byte, error) {
+	if err := status.Validate(); err != nil {
+		return nil, fault.Wrap(fault.KindContract, "invalid_status_contract", "cluster status is invalid", false, err)
+	}
 	if format == successFormatJSON {
 		document := clusterStatusDocument{
-			SchemaVersion: 4,
+			SchemaVersion: 5,
 			Cluster: clusterStatusOutput{
 				Configured: status.Configured, Running: status.Running,
-				Proxy: safeExternalText(status.Proxy), Policy: safeExternalText(status.Policy),
+				Proxy: optionalExternalText(status.Proxy), Policy: optionalExternalText(status.Policy),
 				TobariCount: status.TobariCount, ContextCount: status.ContextCount,
-				PolicyRevision: status.PolicyRevision, PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
+				PolicyRevision: optionalString(status.PolicyRevision), PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
 				CredentialProjection:     safeExternalText(status.CredentialProjection),
 				AuthProviderProjection:   safeExternalText(status.AuthProviderProjection),
 				AuthBrokerState:          safeExternalText(status.AuthBrokerState),
 				CredentialCompanionState: safeExternalText(status.CredentialCompanionState),
 				RootKeyBackend:           safeExternalText(status.RootKeyBackend),
 				Components:               append([]tobari.ComponentStatus{}, status.Components...),
-				RecentError:              safeExternalText(status.RecentError),
+				RecentError:              optionalExternalText(status.RecentError),
 			},
 		}
-		output, err := json.Marshal(document)
+		output, err := marshalCommandJSON("cluster status", document)
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "cluster status JSON could not be encoded", false, err)
 		}
 		return append(output, '\n'), nil
 	}
 	return renderClusterStatusTextWithColor(status, color), nil
+}
+
+func optionalExternalText(value string) *string {
+	if value == "" {
+		return nil
+	}
+	projected := safeExternalText(value)
+	return &projected
 }
 
 func renderClusterStatusText(status tobari.ClusterStatus) []byte {
@@ -1831,7 +1842,7 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 	nextCommand := strings.Join(value.NextArgv, " ")
 	nextRecovery := strings.Join(value.NextArgv[1:], " ")
 	if format == successFormatJSON {
-		output, err := json.Marshal(projectStatusDocument{SchemaVersion: 3, Status: value})
+		output, err := marshalCommandJSON("status", projectStatusDocument{SchemaVersion: 3, Status: value})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project status JSON could not be encoded", false, err)
 		}
@@ -1910,7 +1921,7 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 		})
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(projectListDocument{SchemaVersion: 2, Tobari: items})
+		output, err := marshalCommandJSON("list", projectListDocument{SchemaVersion: 2, Tobari: items})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project list JSON could not be encoded", false, err)
 		}

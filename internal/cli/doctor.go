@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
@@ -91,7 +90,7 @@ func renderDoctorReportWithColor(report doctor.Report, format successFormat, col
 				Detail: safeExternalText(check.Detail),
 			})
 		}
-		output, err := json.Marshal(document)
+		output, err := marshalCommandJSON("doctor", document)
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "The diagnostic JSON could not be encoded.", false, err)
 		}

@@ -243,7 +243,7 @@ func TestContextShellConfigurePreservesSourceAndExplicitEmptyValue(t *testing.T)
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("config shell JSON = %q, error = %v", stdout.String(), err)
 	}
-	if document.SchemaVersion != 6 || fake.configureCalls != 1 || fake.lastShellChange.Value == nil ||
+	if document.SchemaVersion != 7 || fake.configureCalls != 1 || fake.lastShellChange.Value == nil ||
 		*fake.lastShellChange.Value != "" || document.Context.Task != tobari.TaskConfigShell {
 		t.Fatalf("configure document/call = %+v / %d %+v", document, fake.configureCalls, fake.lastShellChange)
 	}
@@ -303,7 +303,7 @@ func TestConfigGitDirectPreservesLiteralPairWithoutWizardRead(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("config git JSON = %q, error = %v", stdout.String(), err)
 	}
-	if document.SchemaVersion != 6 || document.Context.Task != tobari.TaskConfigGit ||
+	if document.SchemaVersion != 7 || document.Context.Task != tobari.TaskConfigGit ||
 		document.Context.GitIdentity.Source != tobari.ContextGitIdentityLiteral {
 		t.Fatalf("config git document = %+v", document)
 	}
@@ -600,7 +600,7 @@ func TestConfigWizardPreservesCancellationWhileLoadingCurrentState(t *testing.T)
 	}
 }
 
-func TestContextReportJSONSchemaSixDeclaresExactContextKeys(t *testing.T) {
+func TestContextReportJSONSchemaSevenDeclaresExactContextKeys(t *testing.T) {
 	report := contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)
 	encoded, err := renderContextReport(report, successFormatJSON, false)
 	if err != nil {
@@ -611,7 +611,7 @@ func TestContextReportJSONSchemaSixDeclaresExactContextKeys(t *testing.T) {
 		t.Fatalf("JSON = %q, error = %v", encoded, err)
 	}
 	var version int
-	if err := json.Unmarshal(outer["schema_version"], &version); err != nil || version != 6 {
+	if err := json.Unmarshal(outer["schema_version"], &version); err != nil || version != 7 {
 		t.Fatalf("schema version = %d, error = %v", version, err)
 	}
 	var contextFields map[string]json.RawMessage
@@ -794,7 +794,7 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &initDocument); err != nil {
 		t.Fatalf("runtime init JSON = %q, error = %v", stdout.String(), err)
 	}
-	if initDocument.SchemaVersion != 6 || initDocument.Context.Task != tobari.TaskRuntimeInit {
+	if initDocument.SchemaVersion != 7 || initDocument.Context.Task != tobari.TaskRuntimeInit {
 		t.Fatalf("runtime init document = %+v", initDocument)
 	}
 	for _, retained := range []string{

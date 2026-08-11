@@ -227,7 +227,7 @@ equivalent. Omission resolves the current Context without changing it;
 duplicate or explicit-empty placement is invalid. After name resolution, the
 stable Context ID is authoritative for the remainder of the operation.
 
-`cluster status --format json` uses output schema 4. Its `cluster` object keeps
+`cluster status --format json` uses output schema 5. Its `cluster` object keeps
 the three shared container components and adds always-present secret-free
 `credential_companion_state`, exactly `ready`, `prepared`, `absent`, or
 `unavailable`. The field reports the resident host process/channel
@@ -434,23 +434,45 @@ undeclared Docker mutation by the CLI.
 
 ## Output and exit contract
 
-Human output is concise text. Cluster status JSON is schema version 3; list
-JSON remains schema version 2 and Workspace status JSON is schema version 3.
+Human output is concise text. The canonical public machine-output inventory is:
+
+<!-- public-cli-json-schemas:start -->
+
+| Surface | Envelope | Schema |
+| --- | --- | ---: |
+| Structured error | `error` | 1 |
+| Agent help (`view: index` and input-selected `view: scope`) | `commands` | 9 |
+| Version | `build_identity` | 1 |
+| Doctor report | `report` | 1 |
+| Context list | `contexts` | 3 |
+| Context report (show/create/use/config/runtime results) | `context` | 7 |
+| Cluster status | `cluster` | 5 |
+| Cluster denials | `denials` | 4 |
+| Policy candidates | `policy_candidates` | 5 |
+| Policy review | `policy_review` | 5 |
+| Policy rules | `policy_rules` | 3 |
+| Policy compactions | `policy_compactions` | 3 |
+| Authentication result and status | `auth` | 2 |
+| Workspace list | `tobari` | 2 |
+| Workspace status | `status` | 3 |
+<!-- public-cli-json-schemas:end -->
+
 Workspace status always reports the selected Context ID/name, logical
 existence, runtime diagnostic, attachment observation, and exact Context-bound
-next argv. Cluster denials are schema
-version 3 and Context reports are schema
-version 6 with a complete four-item shell-environment inventory, complete Git
-identity policy, and explicit secret-free Auth Broker/provider state. Policy
-candidates and review JSON are schema version 4; policy rules are schema version
-2; policy compactions are schema version 3; every auth result uses schema
-version 1 with envelope `auth`. Public authentication backend values are
+next argv. Context reports include a complete four-item shell-environment
+inventory, complete Git identity policy, and explicit secret-free Auth
+Broker/provider state. Every auth result uses envelope `auth`. Public
+authentication backend values are
 `macos_keychain` or `xdg_file`; cluster status may additionally report
-`unavailable`. The infrastructure/doctor label `linux_xdg_file` is not a public
+`unavailable`. Unconfigured cluster resources are `null`; unavailable
+observations use declared finite values and never an empty-string sentinel.
+The infrastructure/doctor label `linux_xdg_file` is not a public
 auth or cluster JSON enum. Their items associate Context name,
 stable Context ID, Tobari ID, safe project root, HTTP effect, observation data
 where applicable, and one opaque mutation reference. Agent help uses the
-catalog schema.
+catalog schema. Schema 9 adds recursive field declarations and executable
+success/error invocation forms to scoped help; it also keeps internal
+interactive completion commands outside public discovery and help.
 Successful data is stdout;
 failures are stderr.
 
@@ -891,9 +913,10 @@ old name/root lifecycle.
 The pre-v1.0 `context shell configure` path is replaced by `config shell`
 without an alias. Context manifest schema 4 migrates atomically to schema 5,
 preserving its stable ID, runtime recipe, and exact shell overrides while
-adding no Git identity. Context report schema advances from 5 to 6.
+adding no Git identity. Context report schema advanced from 5 to 6 for that
+projection and now advances from 6 to 7 for nullable absent credential facts.
 Command names, resource labels, state schema, OPA input version, audit schema,
-Gateway decision schema, policy data and policy output schemas, auth JSON schema 1, provider/projection schemas 1 and
+Gateway decision schema, policy data and policy output schemas, auth JSON schema 2, provider/projection schemas 1 and
 2, broker protocol schema 1, private companion epoch/frame schema 1, vault
 envelope schema 1 and encrypted payload
 schema 2, the `tobari-h1_` handle prefix, root-key backend identifiers, Unix

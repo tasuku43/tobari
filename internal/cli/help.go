@@ -16,7 +16,7 @@ type helpFormat uint8
 const (
 	helpFormatText helpFormat = iota
 	helpFormatAgent
-	agentHelpSchemaVersion = 8
+	agentHelpSchemaVersion = 9
 )
 
 type agentIndexDocument struct {
@@ -68,6 +68,7 @@ type agentInvocationGrammar struct {
 	BooleanFlagForms            []string `json:"boolean_flag_forms"`
 	PositionalOnlyMarker        string   `json:"positional_only_marker"`
 	DashPrefixedPositionalUsage string   `json:"dash_prefixed_positional_usage"`
+	GlobalFlagPosition          string   `json:"global_flag_position"`
 }
 
 type agentIOContract struct {
@@ -81,18 +82,13 @@ type agentIOContract struct {
 }
 
 type agentErrorContract struct {
-	Formats            []string          `json:"formats"`
-	DefaultFormat      string            `json:"default_format"`
-	JSONSchemaVersion  int               `json:"json_schema_version"`
-	Fields             []agentErrorField `json:"fields"`
-	ExitCodes          []agentExitCode   `json:"exit_codes"`
-	GlobalErrors       []CommandError    `json:"global_errors"`
-	CommandErrorsField string            `json:"command_errors_field"`
-}
-
-type agentErrorField struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Formats            []string        `json:"formats"`
+	DefaultFormat      string          `json:"default_format"`
+	JSONSchemaVersion  int             `json:"json_schema_version"`
+	Fields             []OutputField   `json:"fields"`
+	ExitCodes          []agentExitCode `json:"exit_codes"`
+	GlobalErrors       []CommandError  `json:"global_errors"`
+	CommandErrorsField string          `json:"command_errors_field"`
 }
 
 type agentExitCode struct {
@@ -101,15 +97,21 @@ type agentExitCode struct {
 }
 
 type agentCommand struct {
-	Path         string        `json:"path"`
-	Summary      string        `json:"summary"`
-	Usage        string        `json:"usage"`
-	Args         string        `json:"args,omitempty"`
-	Effect       string        `json:"effect"`
-	Role         string        `json:"role"`
-	Contract     AgentContract `json:"contract"`
-	ProducesRefs []ProducedRef `json:"produces_refs"`
-	ConsumesRefs []ConsumedRef `json:"consumes_refs"`
+	Path               string                  `json:"path"`
+	Summary            string                  `json:"summary"`
+	Usage              string                  `json:"usage"`
+	Args               string                  `json:"args,omitempty"`
+	Effect             string                  `json:"effect"`
+	Role               string                  `json:"role"`
+	Contract           AgentContract           `json:"contract"`
+	MachineInvocations agentMachineInvocations `json:"machine_invocations"`
+	ProducesRefs       []ProducedRef           `json:"produces_refs"`
+	ConsumesRefs       []ConsumedRef           `json:"consumes_refs"`
+}
+
+type agentMachineInvocations struct {
+	SuccessJSON string `json:"success_json,omitempty"`
+	ErrorJSON   string `json:"error_json"`
 }
 
 // agentWorkflow is the complete adjacency for one reference kind. Catalog
@@ -192,9 +194,9 @@ func (c Catalog) Select(selector string) ([]CommandSpec, bool) {
 		return []CommandSpec{command}, true
 	}
 	commands := make([]CommandSpec, 0)
-	for _, command := range c.commands {
+	for _, command := range c.Commands() {
 		if strings.HasPrefix(command.Path, selector+" ") {
-			commands = append(commands, cloneCommandSpec(command))
+			commands = append(commands, command)
 		}
 	}
 	return commands, false
@@ -427,6 +429,7 @@ func defaultAgentInvocationGrammar() agentInvocationGrammar {
 		BooleanFlagForms:            []string{"--flag", "--flag=true", "--flag=false"},
 		PositionalOnlyMarker:        "--",
 		DashPrefixedPositionalUsage: "-- -value",
+		GlobalFlagPosition:          "before_command",
 	}
 }
 
@@ -503,16 +506,27 @@ func (c *CLI) renderAgentHelp(selector string, exact bool, commands []CommandSpe
 		Workflows: workflowsForCommands(workflows, commands),
 	}
 	for _, command := range commands {
+		contract := cloneAgentContract(command.Agent)
+		if contract.Interactive != nil {
+			for _, action := range contract.Interactive.actionCommands() {
+				registered, found := c.catalog.lookupRegistered(action)
+				if found && registered.Visibility == CommandVisibilityInternal {
+					contract.Interactive.ActionCommand = ""
+					contract.Interactive.ActionCommands = []string{}
+				}
+			}
+		}
 		document.Commands = append(document.Commands, agentCommand{
-			Path:         command.Path,
-			Summary:      command.Summary,
-			Usage:        command.Usage(),
-			Args:         command.Args,
-			Effect:       command.Effect.String(),
-			Role:         command.Role.String(),
-			Contract:     cloneAgentContract(command.Agent),
-			ProducesRefs: command.ProducedRefs(),
-			ConsumesRefs: command.ConsumedRefs(),
+			Path:               command.Path,
+			Summary:            command.Summary,
+			Usage:              command.Usage(),
+			Args:               command.Args,
+			Effect:             command.Effect.String(),
+			Role:               command.Role.String(),
+			Contract:           contract,
+			MachineInvocations: machineInvocationsForCommand(command),
+			ProducesRefs:       command.ProducedRefs(),
+			ConsumesRefs:       command.ConsumedRefs(),
 		})
 	}
 	output, err := json.Marshal(document)
@@ -522,19 +536,52 @@ func (c *CLI) renderAgentHelp(selector string, exact bool, commands []CommandSpe
 	return append(output, '\n'), nil
 }
 
+func machineInvocationsForCommand(command CommandSpec) agentMachineInvocations {
+	commandInvocation := ProgramName
+	if command.Path != ProgramName {
+		commandInvocation += " " + command.Path
+	}
+	for _, input := range command.Agent.Inputs {
+		if !input.Required || (input.Source != InputSourceArgument && input.Source != InputSourceFlag) {
+			continue
+		}
+		placeholder := "<" + strings.TrimLeft(input.Name, "-") + ">"
+		if input.Source == InputSourceArgument {
+			commandInvocation += " " + placeholder
+		} else if input.ValueKind == InputValueBoolean {
+			commandInvocation += " " + input.Name
+		} else {
+			commandInvocation += " " + input.Name + "=" + placeholder
+		}
+	}
+	success := ""
+	if supportsOutputFormat(command.Agent.Output.Formats, OutputFormatJSON) {
+		formatValue := "json"
+		if command.Path == "help" {
+			formatValue = "agent"
+		}
+		success = commandInvocation + " --format=" + formatValue
+		commandInvocation += " --format=" + formatValue
+	}
+	errorInvocation := strings.Replace(commandInvocation, ProgramName, ProgramName+" --error-format=json", 1)
+	return agentMachineInvocations{SuccessJSON: success, ErrorJSON: errorInvocation}
+}
+
+func supportsOutputFormat(formats []OutputFormat, wanted OutputFormat) bool {
+	for _, format := range formats {
+		if format == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 func defaultAgentErrorContract() agentErrorContract {
 	return agentErrorContract{
 		Formats:           []string{"text", "json"},
 		DefaultFormat:     "text",
 		JSONSchemaVersion: 1,
-		Fields: []agentErrorField{
-			{Name: "kind", Description: "Cross-command recovery class."},
-			{Name: "code", Description: "Stable command-specific failure code."},
-			{Name: "message", Description: "Safe human explanation that excludes upstream causes."},
-			{Name: "retryable", Description: "Whether repeating the same logical command without changing intent is permitted."},
-			{Name: "retry_after", Description: "Authoritative rate-window duration when known, otherwise null; timing never grants logical replay permission."},
-			{Name: "next_actions", Description: "Structured commands and reasons for recovery."},
-		},
+		Fields:            defaultAgentErrorFields(),
 		ExitCodes: []agentExitCode{
 			{Kind: fault.KindInvalidInput, Code: ExitUsage},
 			{Kind: fault.KindAuthentication, Code: ExitAuthentication},
@@ -559,6 +606,22 @@ func defaultAgentErrorContract() agentErrorContract {
 			declaredCommandError(fault.KindCanceled, "operation_canceled", true, "help", "Retry when the caller is ready."),
 		},
 		CommandErrorsField: "commands[].contract.errors",
+	}
+}
+
+func defaultAgentErrorFields() []OutputField {
+	return []OutputField{
+		{Name: "kind", Type: OutputFieldTypeString, Description: "Cross-command recovery class.", Enum: []string{"invalid_input", "authentication", "permission", "not_found", "ambiguous", "rate_limited", "unavailable", "rejected", "canceled", "unsupported", "contract", "internal"}},
+		{Name: "code", Type: OutputFieldTypeString, Description: "Stable command-specific failure code."},
+		{Name: "message", Type: OutputFieldTypeString, Description: "Safe human explanation that excludes upstream causes."},
+		{Name: "retryable", Type: OutputFieldTypeBoolean, Description: "Whether repeating the same logical command without changing intent is permitted."},
+		{Name: "retry_after", Type: OutputFieldTypeString, Description: "Authoritative rate-window duration when known, otherwise null; timing never grants logical replay permission.", Nullable: true},
+		{Name: "next_actions", Type: OutputFieldTypeArray, Description: "Structured commands and reasons for recovery.", Items: &OutputField{
+			Type: OutputFieldTypeObject, Description: "One executable recovery action.", Fields: []OutputField{
+				{Name: "command", Type: OutputFieldTypeString, Description: "Exact catalog path or help selector command."},
+				{Name: "reason", Type: OutputFieldTypeString, Description: "Safe reason to choose this recovery."},
+			},
+		}},
 	}
 }
 

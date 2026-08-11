@@ -227,7 +227,76 @@ type OutputField struct {
 	Name          string          `json:"name"`
 	Type          OutputFieldType `json:"type"`
 	Description   string          `json:"description"`
+	Optional      bool            `json:"-"`
+	Nullable      bool            `json:"nullable"`
+	Enum          []string        `json:"enum"`
 	ReferenceKind string          `json:"reference_kind,omitempty"`
+	SemanticScope string          `json:"semantic_scope,omitempty"`
+	Fields        []OutputField   `json:"fields,omitempty"`
+	Items         *OutputField    `json:"items,omitempty"`
+}
+
+const (
+	maxOutputFieldDepth = 8
+	maxOutputFieldCount = 512
+)
+
+// MarshalJSON publishes required rather than the declaration-oriented
+// Optional bit. Fields are required by default so existing scalar declarations
+// stay fail-closed while optionality remains an explicit exception.
+func (f OutputField) MarshalJSON() ([]byte, error) {
+	type outputFieldDocument struct {
+		Name          string          `json:"name,omitempty"`
+		Type          OutputFieldType `json:"type"`
+		Description   string          `json:"description"`
+		Required      bool            `json:"required"`
+		Nullable      bool            `json:"nullable"`
+		Enum          []string        `json:"enum"`
+		ReferenceKind string          `json:"reference_kind,omitempty"`
+		SemanticScope string          `json:"semantic_scope,omitempty"`
+		Fields        []OutputField   `json:"fields,omitempty"`
+		Items         *OutputField    `json:"items,omitempty"`
+	}
+	enum := cloneSlice(f.Enum)
+	if enum == nil {
+		enum = []string{}
+	}
+	return json.Marshal(outputFieldDocument{
+		Name: f.Name, Type: f.Type, Description: f.Description,
+		Required: !f.Optional, Nullable: f.Nullable, Enum: enum,
+		ReferenceKind: f.ReferenceKind, SemanticScope: f.SemanticScope,
+		Fields: f.Fields, Items: f.Items,
+	})
+}
+
+func (f *OutputField) UnmarshalJSON(encoded []byte) error {
+	type outputFieldDocument struct {
+		Name          string          `json:"name"`
+		Type          OutputFieldType `json:"type"`
+		Description   string          `json:"description"`
+		Required      *bool           `json:"required"`
+		Nullable      bool            `json:"nullable"`
+		Enum          []string        `json:"enum"`
+		ReferenceKind string          `json:"reference_kind"`
+		SemanticScope string          `json:"semantic_scope"`
+		Fields        []OutputField   `json:"fields"`
+		Items         *OutputField    `json:"items"`
+	}
+	var document outputFieldDocument
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		return err
+	}
+	required := true
+	if document.Required != nil {
+		required = *document.Required
+	}
+	*f = OutputField{
+		Name: document.Name, Type: document.Type, Description: document.Description,
+		Optional: !required, Nullable: document.Nullable, Enum: document.Enum,
+		ReferenceKind: document.ReferenceKind, SemanticScope: document.SemanticScope,
+		Fields: document.Fields, Items: document.Items,
+	}
+	return nil
 }
 
 // OutputDelivery states whether one invocation returns its complete selected
@@ -292,6 +361,7 @@ type CommandOutput struct {
 	Delivery           OutputDelivery     `json:"delivery"`
 	CollectionCoverage CollectionCoverage `json:"collection_coverage"`
 	JSONEnvelope       string             `json:"json_envelope,omitempty"`
+	JSONEnvelopeType   OutputFieldType    `json:"json_envelope_type,omitempty"`
 	JSONSchemaVersion  int                `json:"json_schema_version,omitempty"`
 	TextPresentation   TextPresentation   `json:"-"`
 }
@@ -408,13 +478,32 @@ type AgentContract struct {
 // CommandSpec is the single source of truth for dispatch, human help, and the
 // machine-readable agent specification.
 type CommandSpec struct {
-	Path    string
-	Summary string
-	Args    string
-	Effect  operation.Effect
-	Role    CommandRole
-	Agent   AgentContract
-	handler commandHandler
+	Path       string
+	Summary    string
+	Args       string
+	Effect     operation.Effect
+	Role       CommandRole
+	Visibility CommandVisibility
+	Agent      AgentContract
+	handler    commandHandler
+}
+
+// CommandVisibility keeps internal composition mechanics in the canonical
+// catalog without making them public discovery or routing surfaces.
+type CommandVisibility uint8
+
+const (
+	CommandVisibilityPublic CommandVisibility = iota
+	CommandVisibilityInternal
+)
+
+func (v CommandVisibility) validate() error {
+	switch v {
+	case CommandVisibilityPublic, CommandVisibilityInternal:
+		return nil
+	default:
+		return fmt.Errorf("command visibility is invalid: %d", v)
+	}
 }
 
 // Usage returns the complete command invocation without optional prose.
@@ -497,6 +586,7 @@ func defaultCatalog() Catalog {
 					Delivery:           OutputDeliveryComplete,
 					CollectionCoverage: CollectionCoverageExhaustive,
 					JSONEnvelope:       "report",
+					JSONEnvelopeType:   OutputFieldTypeArray,
 					JSONSchemaVersion:  1,
 				},
 				Prerequisites: []string{},
@@ -552,7 +642,8 @@ func defaultCatalog() Catalog {
 					Delivery:           OutputDeliveryComplete,
 					CollectionCoverage: CollectionCoverageExhaustive,
 					JSONEnvelope:       "commands",
-					JSONSchemaVersion:  8,
+					JSONEnvelopeType:   OutputFieldTypeArray,
+					JSONSchemaVersion:  9,
 				},
 				Prerequisites: []string{},
 				Errors: []CommandError{
@@ -593,6 +684,7 @@ func defaultCatalog() Catalog {
 					Delivery:           OutputDeliveryComplete,
 					CollectionCoverage: CollectionCoverageNotApplicable,
 					JSONEnvelope:       "build_identity",
+					JSONEnvelopeType:   OutputFieldTypeObject,
 					JSONSchemaVersion:  1,
 				},
 				Prerequisites: []string{},
@@ -619,6 +711,9 @@ func DefaultCatalog() Catalog {
 func (c Catalog) Validate() error {
 	if len(c.commands) == 0 {
 		return fmt.Errorf("command catalog is empty")
+	}
+	if _, err := validateOutputFields(defaultAgentErrorContract().Fields); err != nil {
+		return fmt.Errorf("agent error output contract: %w", err)
 	}
 	seen := make(map[string]struct{}, len(c.commands))
 	commandsByPath := make(map[string]CommandSpec, len(c.commands))
@@ -650,11 +745,16 @@ func (c Catalog) Validate() error {
 		if err := command.Role.validate(); err != nil {
 			return fmt.Errorf("catalog command %q: %w", command.Path, err)
 		}
+		if err := command.Visibility.validate(); err != nil {
+			return fmt.Errorf("catalog command %q: %w", command.Path, err)
+		}
 		if err := validateAgentContract(command); err != nil {
 			return fmt.Errorf("catalog command %q: %w", command.Path, err)
 		}
-		if err := validateAgentIndexEntry(command); err != nil {
-			return fmt.Errorf("catalog command %q: %w", command.Path, err)
+		if command.Visibility == CommandVisibilityPublic {
+			if err := validateAgentIndexEntry(command); err != nil {
+				return fmt.Errorf("catalog command %q: %w", command.Path, err)
+			}
 		}
 		if err := validateCommandReferenceRole(command); err != nil {
 			return fmt.Errorf("catalog command %q: %w", command.Path, err)
@@ -1003,31 +1103,9 @@ func validateAgentContract(command CommandSpec) error {
 	} else if len(contract.Output.Fields) == 0 {
 		return fmt.Errorf("agent output must declare at least one field")
 	}
-	seenFields := make(map[string]struct{}, len(contract.Output.Fields))
-	fieldsByName := make(map[string]OutputField, len(contract.Output.Fields))
-	for index, field := range contract.Output.Fields {
-		if err := validateOutputFieldName(field.Name); err != nil {
-			return fmt.Errorf("agent output field %d: %w", index, err)
-		}
-		if err := field.Type.validate(); err != nil {
-			return fmt.Errorf("agent output field %q: %w", field.Name, err)
-		}
-		if err := validateContractText("output field description", field.Description); err != nil {
-			return fmt.Errorf("agent output field %q: %w", field.Name, err)
-		}
-		if _, exists := seenFields[field.Name]; exists {
-			return fmt.Errorf("agent output field %q is declared more than once", field.Name)
-		}
-		seenFields[field.Name] = struct{}{}
-		fieldsByName[field.Name] = field
-		if field.ReferenceKind != "" {
-			if err := validateReferenceName(field.ReferenceKind); err != nil {
-				return fmt.Errorf("agent output field %q reference kind: %w", field.Name, err)
-			}
-			if field.Type != OutputFieldTypeString {
-				return fmt.Errorf("agent output reference field %q must have string type", field.Name)
-			}
-		}
+	fieldsByName, err := validateOutputFields(contract.Output.Fields)
+	if err != nil {
+		return err
 	}
 	if contract.Interactive != nil {
 		if err := validateInteractiveWorkflow(command, fieldsByName); err != nil {
@@ -1052,10 +1130,13 @@ func validateAgentContract(command CommandSpec) error {
 		if err := validateOutputFieldName(contract.Output.JSONEnvelope); err != nil {
 			return fmt.Errorf("agent JSON envelope: %w", err)
 		}
+		if contract.Output.JSONEnvelopeType != OutputFieldTypeObject && contract.Output.JSONEnvelopeType != OutputFieldTypeArray {
+			return fmt.Errorf("agent JSON envelope type must be object or array")
+		}
 		if contract.Output.JSONSchemaVersion <= 0 {
 			return fmt.Errorf("agent JSON schema version must be positive")
 		}
-	} else if contract.Output.JSONEnvelope != "" || contract.Output.JSONSchemaVersion != 0 {
+	} else if contract.Output.JSONEnvelope != "" || contract.Output.JSONEnvelopeType != OutputFieldTypeUnknown || contract.Output.JSONSchemaVersion != 0 {
 		return fmt.Errorf("agent JSON metadata requires JSON output support")
 	}
 	if err := validatePaginationContract(contract.Output, contract.Pagination, inputsByName); err != nil {
@@ -1238,6 +1319,123 @@ func validateAgentContract(command CommandSpec) error {
 		}
 		if len(mutation.TargetInputs) != expectedTargetInputs {
 			return fmt.Errorf("write mutation target_inputs must contain only target_id_input and optional parent_input")
+		}
+	}
+	return nil
+}
+
+func validateOutputFields(fields []OutputField) (map[string]OutputField, error) {
+	byName := make(map[string]OutputField, len(fields))
+	count := 0
+	for index, field := range fields {
+		if err := validateOutputField(field, 1, true, &count); err != nil {
+			return nil, fmt.Errorf("agent output field %d: %w", index, err)
+		}
+		if _, duplicate := byName[field.Name]; duplicate {
+			return nil, fmt.Errorf("agent output field %q is declared more than once", field.Name)
+		}
+		byName[field.Name] = field
+	}
+	return byName, nil
+}
+
+func validateOutputField(field OutputField, depth int, named bool, count *int) error {
+	*count++
+	if *count > maxOutputFieldCount {
+		return fmt.Errorf("recursive output declaration exceeds maximum field count %d", maxOutputFieldCount)
+	}
+	if depth > maxOutputFieldDepth {
+		return fmt.Errorf("recursive output declaration exceeds maximum depth %d", maxOutputFieldDepth)
+	}
+	if named {
+		if err := validateOutputFieldName(field.Name); err != nil {
+			return err
+		}
+	} else if field.Name != "" {
+		return fmt.Errorf("array item shape cannot declare field name %q", field.Name)
+	}
+	label := field.Name
+	if label == "" {
+		label = "array item"
+	}
+	if err := field.Type.validate(); err != nil {
+		return fmt.Errorf("output field %q: %w", label, err)
+	}
+	if err := validateContractText("output field description", field.Description); err != nil {
+		return fmt.Errorf("output field %q: %w", label, err)
+	}
+	if field.SemanticScope != "" {
+		if err := validateContractText("output field semantic scope", field.SemanticScope); err != nil {
+			return fmt.Errorf("output field %q: %w", label, err)
+		}
+	}
+	seenEnum := make(map[string]struct{}, len(field.Enum))
+	for _, value := range field.Enum {
+		if field.Type != OutputFieldTypeString {
+			return fmt.Errorf("output field %q enum requires string type", label)
+		}
+		if value == "" {
+			return fmt.Errorf("output field %q enum cannot contain an empty sentinel", label)
+		}
+		if err := validateStableInputLiteral(value); err != nil {
+			return fmt.Errorf("output field %q enum: %w", label, err)
+		}
+		if _, duplicate := seenEnum[value]; duplicate {
+			return fmt.Errorf("output field %q enum value %q is declared more than once", label, value)
+		}
+		seenEnum[value] = struct{}{}
+	}
+	if field.ReferenceKind != "" {
+		if err := validateReferenceName(field.ReferenceKind); err != nil {
+			return fmt.Errorf("output field %q reference kind: %w", label, err)
+		}
+		if field.Type != OutputFieldTypeString {
+			return fmt.Errorf("output reference field %q must have string type", label)
+		}
+		if field.Nullable {
+			return fmt.Errorf("output field %q opaque reference cannot be nullable", label)
+		}
+		if len(field.Enum) != 0 {
+			return fmt.Errorf("output field %q opaque reference cannot declare enum values", label)
+		}
+	}
+	switch field.Type {
+	case OutputFieldTypeObject:
+		if field.Fields == nil || len(field.Fields) == 0 {
+			return fmt.Errorf("output field %q object fields are unknown", label)
+		}
+		if field.Items != nil {
+			return fmt.Errorf("output field %q object cannot declare array items", label)
+		}
+		if len(field.Enum) != 0 || field.ReferenceKind != "" {
+			return fmt.Errorf("output field %q object cannot declare enum or reference metadata", label)
+		}
+		seen := make(map[string]struct{}, len(field.Fields))
+		for _, child := range field.Fields {
+			if err := validateOutputField(child, depth+1, true, count); err != nil {
+				return err
+			}
+			if _, duplicate := seen[child.Name]; duplicate {
+				return fmt.Errorf("output field %q child %q is declared more than once", label, child.Name)
+			}
+			seen[child.Name] = struct{}{}
+		}
+	case OutputFieldTypeArray:
+		if field.Items == nil {
+			return fmt.Errorf("output field %q array item shape is unknown", label)
+		}
+		if field.Fields != nil {
+			return fmt.Errorf("output field %q array cannot declare object children directly", label)
+		}
+		if len(field.Enum) != 0 || field.ReferenceKind != "" {
+			return fmt.Errorf("output field %q array cannot declare enum or reference metadata", label)
+		}
+		if err := validateOutputField(*field.Items, depth+1, false, count); err != nil {
+			return err
+		}
+	default:
+		if field.Fields != nil || field.Items != nil {
+			return fmt.Errorf("output field %q scalar cannot declare children or array items", label)
 		}
 	}
 	return nil
@@ -1968,15 +2166,44 @@ func validateOutputFieldName(value string) error {
 
 // Commands returns a copy in the curated display order.
 func (c Catalog) Commands() []CommandSpec {
-	commands := make([]CommandSpec, len(c.commands))
-	for index, command := range c.commands {
-		commands[index] = cloneCommandSpec(command)
+	commands := make([]CommandSpec, 0, len(c.commands))
+	for _, command := range c.commands {
+		if command.Visibility == CommandVisibilityInternal {
+			continue
+		}
+		commands = append(commands, c.publicCommandProjection(command))
 	}
 	return commands
 }
 
 // Lookup finds one exact command path.
 func (c Catalog) Lookup(path string) (CommandSpec, bool) {
+	for _, command := range c.commands {
+		if command.Path == path && command.Visibility == CommandVisibilityPublic {
+			return c.publicCommandProjection(command), true
+		}
+	}
+	return CommandSpec{}, false
+}
+
+func (c Catalog) publicCommandProjection(command CommandSpec) CommandSpec {
+	projected := cloneCommandSpec(command)
+	if projected.Agent.Interactive == nil {
+		return projected
+	}
+	for _, action := range projected.Agent.Interactive.actionCommands() {
+		registered, found := c.lookupRegistered(action)
+		if found && registered.Visibility == CommandVisibilityInternal {
+			projected.Agent.Interactive = nil
+			break
+		}
+	}
+	return projected
+}
+
+// lookupRegistered resolves public and internal entries for catalog-owned
+// composition. It is deliberately unexported so public routing cannot use it.
+func (c Catalog) lookupRegistered(path string) (CommandSpec, bool) {
 	for _, command := range c.commands {
 		if command.Path == path {
 			return cloneCommandSpec(command), true
@@ -1992,6 +2219,9 @@ func (c Catalog) Match(args []string) (CommandSpec, []string, bool) {
 		matchedWords int
 	)
 	for _, command := range c.commands {
+		if command.Visibility == CommandVisibilityInternal {
+			continue
+		}
 		words := strings.Split(command.Path, " ")
 		if len(words) <= matchedWords || len(words) > len(args) {
 			continue
@@ -2043,7 +2273,7 @@ func cloneAgentContract(contract AgentContract) AgentContract {
 		}
 	}
 	contract.Output.Formats = cloneSlice(contract.Output.Formats)
-	contract.Output.Fields = cloneSlice(contract.Output.Fields)
+	contract.Output.Fields = cloneOutputFields(contract.Output.Fields)
 	if contract.Pagination != nil {
 		pagination := *contract.Pagination
 		contract.Pagination = &pagination
@@ -2067,6 +2297,23 @@ func cloneAgentContract(contract AgentContract) AgentContract {
 		contract.Interactive = &interactive
 	}
 	return contract
+}
+
+func cloneOutputFields(fields []OutputField) []OutputField {
+	if fields == nil {
+		return nil
+	}
+	cloned := make([]OutputField, len(fields))
+	for index, field := range fields {
+		cloned[index] = field
+		cloned[index].Enum = cloneSlice(field.Enum)
+		cloned[index].Fields = cloneOutputFields(field.Fields)
+		if field.Items != nil {
+			item := cloneOutputFields([]OutputField{*field.Items})[0]
+			cloned[index].Items = &item
+		}
+	}
+	return cloned
 }
 
 func cloneSlice[T any](values []T) []T {

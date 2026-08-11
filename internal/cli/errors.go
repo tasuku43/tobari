@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -100,6 +99,8 @@ type errorPayload struct {
 	NextActions []fault.NextAction `json:"next_actions"`
 }
 
+var structuredErrorContractFallback = []byte("{\"schema_version\":1,\"error\":{\"kind\":\"contract\",\"code\":\"error_output_contract_failed\",\"message\":\"The structured error output contract failed.\",\"retryable\":false,\"retry_after\":null,\"next_actions\":[{\"command\":\"help\",\"reason\":\"Inspect the command contract before retrying.\"}]}}\n")
+
 func (c *CLI) failUsage(ctx context.Context, code, message, command, reason string) int {
 	return c.fail(ctx, fault.New(
 		fault.KindInvalidInput,
@@ -125,14 +126,20 @@ func (c *CLI) fail(ctx context.Context, err error) int {
 	}
 
 	var output []byte
+	exitKind := structured.Kind
 	if invocationErrorFormat(ctx) == errorFormatJSON {
-		output, _ = json.Marshal(errorDocument{SchemaVersion: 1, Error: payload})
-		output = append(output, '\n')
+		encoded, marshalErr := marshalErrorJSON(errorDocument{SchemaVersion: 1, Error: payload})
+		if marshalErr != nil {
+			output = append([]byte{}, structuredErrorContractFallback...)
+			exitKind = fault.KindContract
+		} else {
+			output = append(encoded, '\n')
+		}
 	} else {
 		output = renderTextErrorWithColor(payload, humanStyleAllowed(ctx, c, c.Err))
 	}
 	_, _ = writeOnce(c.Err, output)
-	return exitCodeForKind(structured.Kind)
+	return exitCodeForKind(exitKind)
 }
 
 func (c *CLI) normalizeFault(ctx context.Context, err error) *fault.Error {
@@ -141,7 +148,7 @@ func (c *CLI) normalizeFault(ctx context.Context, err error) *fault.Error {
 	if !bound {
 		return structured
 	}
-	command, found := c.catalog.Lookup(path)
+	command, found := c.catalog.lookupRegistered(path)
 	if !found {
 		return structured
 	}

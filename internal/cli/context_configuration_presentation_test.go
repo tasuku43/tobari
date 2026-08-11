@@ -112,7 +112,7 @@ func TestContextConfigurationPresentationEvidenceUsesOneTypedFixture(t *testing.
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatalf("decode rendered JSON: %v", err)
 	}
-	if document.SchemaVersion != 6 || document.Context.Task != answer.Task ||
+	if document.SchemaVersion != 7 || document.Context.Task != answer.Task ||
 		document.Context.ID != answer.SelectedContext.ID || document.Context.Name != answer.SelectedContext.Name {
 		t.Fatalf("rendered JSON lost semantic identity: %+v", document)
 	}

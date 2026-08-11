@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "cases": {
+    "empty_collection": [],
+    "unconfigured_cluster": {
+      "configured": false,
+      "running": false,
+      "proxy": null,
+      "policy": null,
+      "tobari_count": 0,
+      "context_count": 0,
+      "policy_revision": null,
+      "policy_projection": "unavailable",
+      "principal_registry": "unavailable",
+      "credential_projection": "unavailable",
+      "auth_provider_projection": "unavailable",
+      "auth_broker_state": "unavailable",
+      "credential_companion_state": "absent",
+      "root_key_backend": "unavailable",
+      "components": [],
+      "recent_error": null
+    },
+    "authentication": {
+      "provider": "example",
+      "configured": false,
+      "account_label": null,
+      "credential_revision": null,
+      "providers": []
+    },
+    "nested": {
+      "items": [
+        {
+          "count": 0,
+          "active": false,
+          "note": null
+        }
+      ]
+    },
+    "error": {
+      "kind": "contract",
+      "code": "fixture_failure",
+      "message": "Synthetic contract failure.",
+      "retryable": false,
+      "retry_after": null,
+      "next_actions": [
+        {
+          "command": "help cluster status",
+          "reason": "Inspect the exact machine contract."
+        }
+      ]
+    }
+  }
+}

@@ -177,13 +177,17 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 		t.Fatalf("policy reset reference contract = %+v", reset)
 	}
 	review, found := catalog.Lookup("policy review")
-	if !found || review.Agent.Interactive == nil ||
-		review.Agent.Interactive.ActionCommand != "policy apply-reviewed" ||
-		review.Agent.Interactive.SelectionReferenceKind != tobari.PolicyCandidateKind ||
-		review.Agent.Interactive.SelectionOutputField != "id" ||
-		review.Agent.Interactive.Confirmation != "explicit_yes" ||
-		review.Agent.Interactive.NonInteractiveBehavior != "read_only" {
+	if !found || review.Agent.Interactive != nil {
 		t.Fatalf("policy review interactive workflow = %+v", review.Agent.Interactive)
+	}
+	internalReview, found := catalog.lookupRegistered("policy review")
+	if !found || internalReview.Agent.Interactive == nil ||
+		internalReview.Agent.Interactive.ActionCommand != "policy apply-reviewed" ||
+		internalReview.Agent.Interactive.SelectionReferenceKind != tobari.PolicyCandidateKind ||
+		internalReview.Agent.Interactive.SelectionOutputField != "id" ||
+		internalReview.Agent.Interactive.Confirmation != "explicit_yes" ||
+		internalReview.Agent.Interactive.NonInteractiveBehavior != "read_only" {
+		t.Fatalf("registered policy review workflow = %+v", internalReview.Agent.Interactive)
 	}
 	allow, found := catalog.Lookup("policy allow")
 	if !found || allow.Role != RoleAct ||
@@ -1049,7 +1053,10 @@ func TestClusterStatusJSONDoesNotContainTerminalColors(t *testing.T) {
 	t.Parallel()
 	status := tobari.ClusterStatus{
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
-		Policy: "/tmp/config/tobari/policy", Components: []tobari.ComponentStatus{},
+		Proxy: "http://127.0.0.1:18080", Policy: "/tmp/config/tobari/policy",
+		ContextCount: 1, PolicyRevision: strings.Repeat("a", 64), Components: validClusterComponentStatuses(),
+		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
+		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
 	}
 	output, err := renderClusterStatus(status, successFormatJSON, true)
 	if err != nil {
@@ -1068,7 +1075,7 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 		TobariCount: 1, ContextCount: 1, PolicyRevision: strings.Repeat("a", 64),
 		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
-		Components: []tobari.ComponentStatus{{Name: "auth-broker", State: "running", Health: "healthy"}},
+		Components: validClusterComponentStatuses(),
 	}
 	output, err := renderClusterStatus(status, successFormatJSON, false)
 	if err != nil {
@@ -1081,8 +1088,8 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 	if err := json.Unmarshal(output, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 4 {
-		t.Fatalf("schema version = %d, want 4", document.SchemaVersion)
+	if document.SchemaVersion != 5 {
+		t.Fatalf("schema version = %d, want 5", document.SchemaVersion)
 	}
 	for key, want := range map[string]string{
 		"auth_provider_projection":   `"valid"`,
@@ -1093,6 +1100,14 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 		if got := string(document.Cluster[key]); got != want {
 			t.Errorf("cluster.%s = %s, want %s", key, got, want)
 		}
+	}
+}
+
+func validClusterComponentStatuses() []tobari.ComponentStatus {
+	return []tobari.ComponentStatus{
+		{Name: "auth-broker", State: "running", Health: "healthy"},
+		{Name: "gateway", State: "running", Health: "healthy"},
+		{Name: "opa", State: "running", Health: "healthy"},
 	}
 }
 

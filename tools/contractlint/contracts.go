@@ -12,9 +12,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/tasuku43/tobari/internal/cli"
 )
 
 const (
@@ -23,6 +26,19 @@ const (
 )
 
 var contractID = regexp.MustCompile(`^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$`)
+
+var publicCLISchemaRow = regexp.MustCompile("\\|[^\\n]*\\|\\s*`([a-z_]+)`(?:\\s+or\\s+`([a-z_]+)`)?\\s*\\|\\s*(?:\\*\\*)?([0-9]+)(?:\\*\\*)?\\s*\\|")
+
+const (
+	publicCLISchemaStart = "public-cli-json-schemas:start"
+	publicCLISchemaEnd   = "public-cli-json-schemas:end"
+)
+
+var publicCLISchemaDocs = []string{
+	"docs/01_product_contract.md",
+	"docs/architecture-site/src/content/docs/reference/json-schemas.mdx",
+	"docs/architecture-site/src/content/docs/ja/reference/json-schemas.mdx",
+}
 
 type issue struct {
 	Path    string
@@ -60,6 +76,70 @@ func inspectContracts(root string, catalogIDs map[string]struct{}) ([]issue, err
 		}
 		return issues[i].Message < issues[j].Message
 	})
+	return issues, nil
+}
+
+type publicCLISchema struct {
+	Envelope string
+	Version  int
+}
+
+func validatePublicJSONSchemaTables(root string, catalog cli.Catalog) ([]issue, error) {
+	expected := map[publicCLISchema]struct{}{{Envelope: "error", Version: 1}: {}}
+	for _, command := range catalog.Commands() {
+		supportsJSON := false
+		for _, format := range command.Agent.Output.Formats {
+			if format == cli.OutputFormatJSON {
+				supportsJSON = true
+				break
+			}
+		}
+		if supportsJSON {
+			expected[publicCLISchema{
+				Envelope: command.Agent.Output.JSONEnvelope,
+				Version:  command.Agent.Output.JSONSchemaVersion,
+			}] = struct{}{}
+		}
+	}
+	return validatePublicJSONSchemaTableFiles(root, publicCLISchemaDocs, expected)
+}
+
+func validatePublicJSONSchemaTableFiles(root string, paths []string, expected map[publicCLISchema]struct{}) ([]issue, error) {
+	var issues []issue
+	for _, relative := range paths {
+		encoded, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if err != nil {
+			return nil, err
+		}
+		text := string(encoded)
+		start := strings.Index(text, publicCLISchemaStart)
+		end := strings.Index(text, publicCLISchemaEnd)
+		if start < 0 || end <= start {
+			issues = append(issues, issue{Path: relative, Message: "public CLI JSON schema table markers are missing or invalid"})
+			continue
+		}
+		actual := make(map[publicCLISchema]struct{})
+		for _, match := range publicCLISchemaRow.FindAllStringSubmatch(text[start:end], -1) {
+			version, err := strconv.Atoi(match[3])
+			if err != nil {
+				return nil, err
+			}
+			actual[publicCLISchema{Envelope: match[1], Version: version}] = struct{}{}
+			if match[2] != "" {
+				actual[publicCLISchema{Envelope: match[2], Version: version}] = struct{}{}
+			}
+		}
+		for schema := range expected {
+			if _, exists := actual[schema]; !exists {
+				issues = append(issues, issue{Path: relative, Message: fmt.Sprintf("public CLI JSON schema table is missing catalog envelope %q version %d", schema.Envelope, schema.Version)})
+			}
+		}
+		for schema := range actual {
+			if _, exists := expected[schema]; !exists {
+				issues = append(issues, issue{Path: relative, Message: fmt.Sprintf("public CLI JSON schema table has stale envelope %q version %d", schema.Envelope, schema.Version)})
+			}
+		}
+	}
 	return issues, nil
 }
 

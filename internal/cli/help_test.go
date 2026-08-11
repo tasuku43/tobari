@@ -194,7 +194,7 @@ func TestRootAgentHelpIsACompactProjectionOfTheCatalog(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("agent help is not JSON: %v\n%s", err, stdout.String())
 	}
-	if document.SchemaVersion != 8 || agentHelpSchemaVersion != 8 || document.View != "index" || document.Program != ProgramName {
+	if document.SchemaVersion != 9 || agentHelpSchemaVersion != 9 || document.View != "index" || document.Program != ProgramName {
 		t.Fatalf("agent document header = %+v", document)
 	}
 	if document.ScopeRequest.InvocationTemplate != "tobari help <command-or-namespace> --format agent" ||
@@ -254,9 +254,19 @@ func TestScopedAgentHelpIsACompleteProjectionOfEveryCatalogCommand(t *testing.T)
 			got := document.Commands[0]
 			wantContract := spec.Agent
 			wantContract.Output.TextPresentation = TextPresentationUnknown
+			encodedContract, err := json.Marshal(wantContract)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var projectedWant AgentContract
+			if err := json.Unmarshal(encodedContract, &projectedWant); err != nil {
+				t.Fatal(err)
+			}
 			if got.Path != spec.Path || got.Summary != spec.Summary || got.Usage != spec.Usage() || got.Args != spec.Args ||
 				got.Effect != spec.Effect.String() || got.Role != spec.Role.String() ||
-				!reflect.DeepEqual(got.Contract, wantContract) ||
+				!reflect.DeepEqual(got.Contract, projectedWant) ||
+				got.MachineInvocations.ErrorJSON == "" ||
+				(containsOutputFormat(spec.Agent.Output.Formats, OutputFormatJSON) && got.MachineInvocations.SuccessJSON == "") ||
 				!reflect.DeepEqual(got.ProducesRefs, spec.ProducedRefs()) ||
 				!reflect.DeepEqual(got.ConsumesRefs, spec.ConsumedRefs()) {
 				t.Errorf("agent command = %+v, want catalog %+v", got, spec)
@@ -310,7 +320,7 @@ func TestAgentHelpRootAndScopedShapeSnapshots(t *testing.T) {
 	if err := json.Unmarshal(scoped["invocation_grammar"], &invocationGrammar); err != nil {
 		t.Fatal(err)
 	}
-	assertJSONKeys(t, invocationGrammar, []string{"boolean_flag_forms", "dash_prefixed_flag_value_form", "dash_prefixed_positional_usage", "positional_only_marker", "value_flag_forms"})
+	assertJSONKeys(t, invocationGrammar, []string{"boolean_flag_forms", "dash_prefixed_flag_value_form", "dash_prefixed_positional_usage", "global_flag_position", "positional_only_marker", "value_flag_forms"})
 	var globalInputs []map[string]json.RawMessage
 	if err := json.Unmarshal(scoped["global_inputs"], &globalInputs); err != nil {
 		t.Fatal(err)
@@ -330,7 +340,7 @@ func TestAgentHelpRootAndScopedShapeSnapshots(t *testing.T) {
 	}
 	for index, command := range scopedCommands {
 		t.Run(fmt.Sprintf("scoped_command_%d", index), func(t *testing.T) {
-			assertJSONKeys(t, command, []string{"args", "consumes_refs", "contract", "effect", "path", "produces_refs", "role", "summary", "usage"})
+			assertJSONKeys(t, command, []string{"args", "consumes_refs", "contract", "effect", "machine_invocations", "path", "produces_refs", "role", "summary", "usage"})
 			if _, legacy := command["next_actions"]; legacy {
 				t.Fatal("scoped agent help retained command-local reference next_actions")
 			}
@@ -361,7 +371,7 @@ func TestAgentHelpRootAndScopedShapeSnapshots(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertJSONKeys(t, output, []string{
-				"collection_coverage", "default_format", "delivery", "fields", "formats", "json_envelope", "json_schema_version",
+				"collection_coverage", "default_format", "delivery", "fields", "formats", "json_envelope", "json_envelope_type", "json_schema_version",
 			})
 			if _, legacy := output["completeness"]; legacy {
 				t.Fatal("scoped agent help retained the ambiguous output completeness field")
@@ -754,7 +764,7 @@ func TestDerivedScaleScopedAgentHelpFitsWholeResponseBudget(t *testing.T) {
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 8 || len(document.Commands) != len(selected) || len(document.Workflows) != 1 ||
+	if document.SchemaVersion != 9 || len(document.Commands) != len(selected) || len(document.Workflows) != 1 ||
 		len(document.Workflows[0].Producers) != 18 || len(document.Workflows[0].Consumers) != 18 {
 		t.Fatalf("derived-scale grouped document = schema %d commands %d workflows %+v", document.SchemaVersion, len(document.Commands), document.Workflows)
 	}

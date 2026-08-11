@@ -22,7 +22,7 @@ func (c *CLI) emitResult(ctx context.Context, output []byte) int {
 			fault.NextAction{Command: "help", Reason: "Retry through the context-aware CLI entry point."},
 		))
 	}
-	command, found := c.catalog.Lookup(path)
+	command, found := c.catalog.lookupRegistered(path)
 	if !found {
 		return c.fail(ctx, fault.New(
 			fault.KindContract,

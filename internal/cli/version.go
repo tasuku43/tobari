@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
@@ -60,7 +59,7 @@ func runVersion(ctx context.Context, c *CLI, command CommandSpec, _ operation.In
 func renderVersion(identity buildidentity.Identity, format successFormat, color bool) ([]byte, error) {
 	buildCommand, binary, development := identity.DevelopmentRecovery()
 	if format == successFormatJSON {
-		output, err := json.Marshal(versionJSONDocument{
+		output, err := marshalCommandJSON("version", versionJSONDocument{
 			SchemaVersion: 1,
 			BuildIdentity: versionJSONProjection{Version: identity.Version, Commit: identity.Commit,
 				ResolverChannel: string(identity.ResolverChannel), DevelopmentSource: identity.DevelopmentSource,

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "facts": {
+    "empty_collection_is_present": true,
+    "unconfigured_cluster_is_not_running": true,
+    "unconfigured_resources_are_null": true,
+    "unavailable_observations_use_finite_states": true,
+    "zero_is_not_absent": true,
+    "false_is_not_absent": true,
+    "null_is_not_empty_string": true,
+    "nested_array_item_shape_is_explicit": true,
+    "error_recovery_is_structured": true,
+    "internal_completion_is_public": false
+  },
+  "routine_success_external_processing_count": 0
+}

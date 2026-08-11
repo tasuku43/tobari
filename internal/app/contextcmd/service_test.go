@@ -130,8 +130,11 @@ func contextReport(task, name string) tobari.ContextReport {
 		PolicyMode:       tobari.ContextPolicyModeGuided,
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
-		Cluster:          tobari.ContextClusterStatusNotApplicable,
-		Authentication:   authentication,
+		Runtime: tobari.ContextRuntimeReport{
+			Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial,
+		},
+		Cluster:        tobari.ContextClusterStatusNotApplicable,
+		Authentication: authentication,
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials.json"),

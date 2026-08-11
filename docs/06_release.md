@@ -72,9 +72,10 @@ Tobari home volume by default. `cluster down` and `cluster down --purge` also
 preserve encrypted Context vaults and the installation root key; purge adds
 only shared CA-volume removal.
 This slice uses Gateway image API label 3 and Auth Broker image API label 2, Gateway OPA input
-schema 5, cluster status JSON schema 4 (including always-present
-`credential_companion_state`), and Context report JSON schema 6. Auth
-command JSON, broker protocols, and private companion epoch/frames remain
+schema 5, cluster status JSON schema 5 (including nullable unconfigured
+resources and always-present `credential_companion_state`), Context report
+JSON schema 7, and auth command JSON schema 2. Broker protocols and private
+companion epoch/frames remain
 schema 1. Owner static provider
 manifests remain schema 1; reviewed built-ins and the normalized projection
 support schema 2. The encrypted vault keeps its schema-1 envelope and migrates
@@ -86,6 +87,25 @@ status may additionally use `unavailable`. The `linux_xdg_file` string is an
 infrastructure/doctor diagnostic label, not a public JSON enum. The release
 review uses the complete canonical schema/path/backend table in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
+
+The complete public CLI compatibility set is structured error 1, agent help 9,
+version 1, doctor 1, Context list 3, Context report 7, cluster status 5,
+cluster denials 4, policy candidates/review 5, policy rules 3, policy
+compactions 3, auth result/status 2, Workspace list 2, and Workspace status 3.
+The envelope names and exact recursive fields remain catalog-owned.
+
+This pre-v1 contract-closure release corrects earlier documentation that named
+cluster denials 3, policy candidates/review 4, policy rules 2, or Workspace
+status 2 even though the executable contracts had already advanced. Context
+report advances from 6 to 7 and auth result/status advances from 1 to 2 because
+absent credential revisions and account labels now serialize as JSON `null`
+instead of changing their type to the empty-string sentinel. Agent help advances
+from 8 to 9 because scoped help now publishes recursive output facts and exact
+machine invocations. Existing pre-v1 consumers must select by exact envelope and
+schema, treat newly explicit `null` and finite unavailable states according to
+the published field contract. Cluster status advances from 4 to 5 because
+unconfigured resources now serialize as JSON `null`. Consumers must not depend
+on empty-string sentinels or the internal interactive completion path.
 
 ## Publication
 

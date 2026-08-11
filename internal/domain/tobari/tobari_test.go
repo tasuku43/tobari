@@ -104,7 +104,11 @@ func TestClusterStatusRequiresKnownCredentialCompanionState(t *testing.T) {
 		ContextCount: 1, PolicyRevision: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
-		Components: []ComponentStatus{},
+		Components: []ComponentStatus{
+			{Name: "auth-broker", State: "running", Health: "healthy"},
+			{Name: "gateway", State: "running", Health: "healthy"},
+			{Name: "opa", State: "running", Health: "healthy"},
+		},
 	}
 	for _, state := range []string{"ready", "prepared", "absent", "unavailable"} {
 		status.CredentialCompanionState = state

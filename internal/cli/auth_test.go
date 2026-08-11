@@ -190,7 +190,7 @@ func TestAuthImportReadsSecretOnlyFromStdinAndEmitsSecretFreeJSON(t *testing.T) 
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if string(document["schema_version"]) != "1" {
+	if string(document["schema_version"]) != "2" {
 		t.Fatalf("schema_version = %s", document["schema_version"])
 	}
 	var auth map[string]json.RawMessage

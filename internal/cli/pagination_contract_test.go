@@ -67,7 +67,7 @@ func TestPagedOutputRequiresExactOpaqueCursorBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(encoded, []byte(`"pagination":{"cursor_input":"--cursor","cursor_output":{"name":"next_cursor","type":"string","description":"Opaque cursor for the next page; an empty string means traversal is complete.","reference_kind":"item-page"},"completion":"empty_cursor"}`)) {
+	if !bytes.Contains(encoded, []byte(`"pagination":{"cursor_input":"--cursor","cursor_output":{"name":"next_cursor","type":"string","description":"Opaque cursor for the next page; an empty string means traversal is complete.","required":true,"nullable":false,"enum":[],"reference_kind":"item-page"},"completion":"empty_cursor"}`)) {
 		t.Fatalf("agent help projection lacks pagination binding: %s", encoded)
 	}
 	var help agentDocument

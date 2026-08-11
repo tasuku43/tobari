@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -369,8 +368,71 @@ type contextListDocument struct {
 }
 
 type contextReportDocument struct {
-	SchemaVersion int                  `json:"schema_version"`
-	Context       tobari.ContextReport `json:"context"`
+	SchemaVersion int                         `json:"schema_version"`
+	Context       contextReportJSONProjection `json:"context"`
+}
+
+type contextReportJSONProjection struct {
+	Task             string                                  `json:"task"`
+	ID               string                                  `json:"id"`
+	Name             string                                  `json:"name"`
+	Active           bool                                    `json:"active"`
+	AgentProfile     string                                  `json:"agent_profile"`
+	Image            string                                  `json:"image"`
+	PolicyMode       tobari.ContextPolicyMode                `json:"policy_mode"`
+	ShellEnvironment []tobari.ContextShellEnvironmentSetting `json:"shell_environment"`
+	GitIdentity      tobari.ContextGitIdentitySetting        `json:"git_identity"`
+	Stores           tobari.ContextStorePaths                `json:"stores"`
+	Runtime          tobari.ContextRuntimeReport             `json:"runtime"`
+	Cluster          tobari.ContextClusterStatus             `json:"cluster"`
+	Authentication   contextAuthenticationJSONProjection     `json:"authentication"`
+}
+
+type contextAuthenticationJSONProjection struct {
+	BrokerState string                              `json:"broker_state"`
+	Providers   []contextAuthProviderJSONProjection `json:"providers"`
+}
+
+type contextAuthProviderJSONProjection struct {
+	Provider           string  `json:"provider"`
+	State              string  `json:"state"`
+	AccountLabel       *string `json:"account_label"`
+	CredentialRevision *string `json:"credential_revision"`
+}
+
+func contextReportJSONDocument(result tobari.ContextReport) contextReportDocument {
+	providers := make([]contextAuthProviderJSONProjection, 0, len(result.Authentication.Providers))
+	if result.Authentication.Providers == nil {
+		providers = nil
+	} else {
+		for _, provider := range result.Authentication.Providers {
+			providers = append(providers, contextAuthProviderJSONProjection{
+				Provider: provider.Provider, State: provider.State, AccountLabel: provider.AccountLabel,
+				CredentialRevision: optionalString(provider.CredentialRevision),
+			})
+		}
+	}
+	return contextReportDocument{
+		SchemaVersion: 7,
+		Context: contextReportJSONProjection{
+			Task: result.Task, ID: result.ID, Name: result.Name, Active: result.Active,
+			AgentProfile: result.AgentProfile, Image: result.Image, PolicyMode: result.PolicyMode,
+			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: result.Stores,
+			Runtime: result.Runtime, Cluster: result.Cluster,
+			Authentication: contextAuthenticationJSONProjection{
+				BrokerState: result.Authentication.BrokerState, Providers: providers,
+			},
+		},
+	}
+}
+
+func contextReportCommand(task string) string {
+	return map[string]string{
+		tobari.TaskContextShow: "context show", tobari.TaskContextCreate: "context create",
+		tobari.TaskContextUse: "context use", tobari.TaskConfigShell: "config shell",
+		tobari.TaskConfigGit: "config git", tobari.TaskRuntimeInit: "runtime init",
+		tobari.TaskRuntimeBuild: "runtime build",
+	}[task]
 }
 
 func renderContextList(result tobari.ContextListResult, format successFormat, color bool) ([]byte, error) {
@@ -381,7 +443,7 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		document := contextListDocument{SchemaVersion: 3}
 		document.Contexts.Active = result.Active
 		document.Contexts.Items = append([]tobari.ContextSummary{}, result.Items...)
-		output, err := json.Marshal(document)
+		output, err := marshalCommandJSON("context list", document)
 		if err != nil {
 			return nil, err
 		}
@@ -417,7 +479,7 @@ func renderContextReport(result tobari.ContextReport, format successFormat, colo
 		return nil, fault.Wrap(fault.KindContract, "invalid_context_report", "Context report is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(contextReportDocument{SchemaVersion: 6, Context: result})
+		output, err := marshalCommandJSON(contextReportCommand(result.Task), contextReportJSONDocument(result))
 		if err != nil {
 			return nil, err
 		}

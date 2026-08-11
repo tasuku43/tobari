@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/tasuku43/tobari/internal/app/authcmd"
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
@@ -228,7 +227,7 @@ type authResultProjection struct {
 	AccountLabel        *string                        `json:"account_label"`
 	StorageBackend      authbroker.StorageBackend      `json:"storage_backend"`
 	BrokerState         authbroker.BrokerState         `json:"broker_state"`
-	CredentialRevision  string                         `json:"credential_revision"`
+	CredentialRevision  *string                        `json:"credential_revision"`
 	WorkspaceActivation authbroker.WorkspaceActivation `json:"workspace_activation"`
 }
 
@@ -242,8 +241,16 @@ type authStatusProjection struct {
 	ContextID           string                         `json:"context_id"`
 	StorageBackend      authbroker.StorageBackend      `json:"storage_backend"`
 	BrokerState         authbroker.BrokerState         `json:"broker_state"`
-	Providers           []authbroker.ProviderStatus    `json:"providers"`
+	Providers           []authProviderStatusProjection `json:"providers"`
 	WorkspaceActivation authbroker.WorkspaceActivation `json:"workspace_activation"`
+}
+
+type authProviderStatusProjection struct {
+	Provider           string                             `json:"provider"`
+	State              authbroker.ProviderCredentialState `json:"state"`
+	Configured         bool                               `json:"configured"`
+	AccountLabel       *string                            `json:"account_label"`
+	CredentialRevision *string                            `json:"credential_revision"`
 }
 
 type authStatusDocument struct {
@@ -266,10 +273,10 @@ func renderAuthResult(result authbroker.Result, format successFormat, color bool
 		Provider: result.Provider, Context: result.Context, ContextID: result.ContextID,
 		Configured: result.Configured, AccountLabel: result.AccountLabel,
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
-		CredentialRevision: result.CredentialRevision, WorkspaceActivation: result.WorkspaceActivation,
+		CredentialRevision: optionalString(result.CredentialRevision), WorkspaceActivation: result.WorkspaceActivation,
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(authResultDocument{SchemaVersion: 1, Auth: projection})
+		output, err := marshalCommandJSON(authResultCommand(result.Task), authResultDocument{SchemaVersion: 2, Auth: projection})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Authentication output could not be encoded.", false, err)
 		}
@@ -289,20 +296,35 @@ func renderAuthStatus(result authbroker.StatusResult, format successFormat, colo
 			fault.NextAction{Command: "auth status", Reason: "Reconcile the Context's authentication state before another mutation."},
 		)
 	}
+	providers := make([]authProviderStatusProjection, 0, len(result.Providers))
+	for _, provider := range result.Providers {
+		providers = append(providers, authProviderStatusProjection{
+			Provider: provider.Provider, State: provider.State, Configured: provider.Configured,
+			AccountLabel: provider.AccountLabel, CredentialRevision: optionalString(provider.CredentialRevision),
+		})
+	}
 	projection := authStatusProjection{
 		Context: result.Context, ContextID: result.ContextID,
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
-		Providers:           append([]authbroker.ProviderStatus{}, result.Providers...),
+		Providers:           providers,
 		WorkspaceActivation: result.WorkspaceActivation,
 	}
 	if format == successFormatJSON {
-		output, err := json.Marshal(authStatusDocument{SchemaVersion: 1, Auth: projection})
+		output, err := marshalCommandJSON("auth status", authStatusDocument{SchemaVersion: 2, Auth: projection})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "Authentication status output could not be encoded.", false, err)
 		}
 		return append(output, '\n'), nil
 	}
 	return renderAuthStatusText(projection, color), nil
+}
+
+func authResultCommand(task string) string {
+	return map[string]string{
+		authbroker.TaskLogin:  "auth login",
+		authbroker.TaskImport: "auth import",
+		authbroker.TaskLogout: "auth logout",
+	}[task]
 }
 
 func renderAuthResultText(result authResultProjection, color bool) []byte {
@@ -327,9 +349,9 @@ func renderAuthResultText(result authResultProjection, color bool) []byte {
 	output.row("Account", account, styleText)
 	output.row("Storage", string(result.StorageBackend), styleText)
 	output.row("Broker", string(result.BrokerState), humanStatusToken(string(result.BrokerState)))
-	revision := result.CredentialRevision
-	if revision == "" {
-		revision = "none"
+	revision := "none"
+	if result.CredentialRevision != nil {
+		revision = *result.CredentialRevision
 	}
 	output.row("Revision", revision, styleText)
 	output.row("Workspaces", string(result.WorkspaceActivation.State), humanStatusToken(string(result.WorkspaceActivation.State)))
@@ -363,9 +385,9 @@ func renderAuthStatusText(result authStatusProjection, color bool) []byte {
 			account = safeExternalText(*provider.AccountLabel)
 		}
 		output.row("Account", account, styleText)
-		revision := provider.CredentialRevision
-		if revision == "" {
-			revision = "none"
+		revision := "none"
+		if provider.CredentialRevision != nil {
+			revision = *provider.CredentialRevision
 		}
 		output.row("Revision", revision, styleText)
 	}

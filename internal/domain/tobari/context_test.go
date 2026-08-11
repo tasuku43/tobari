@@ -259,6 +259,7 @@ func TestContextReportAcceptsConfigurationTasksAndRequiresCompleteGitIdentity(t 
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials.json"),
 			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials"),
 		},
+		Runtime:        ContextRuntimeReport{Kind: ContextRuntimeKindOfficial, Status: ContextRuntimeStatusOfficial},
 		Cluster:        ContextClusterStatusNotApplicable,
 		Authentication: ContextAuthentication{BrokerState: ContextAuthBrokerNotApplicable},
 	}

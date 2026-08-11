@@ -43,7 +43,7 @@ Shared data    ${XDG_DATA_HOME:-$HOME/.local/share}/tobari
 | `principal-registry/principals.json`                       | ホストが発行するプリンシパル台帳（principal registry）のスキーマ 2。ディレクトリごと Gateway へ読み取り専用でマウント                                                              |
 
 保存用マニフェストと公開出力を混同しないでください。`context show` などの Context 結果
-コマンドは、**公開 Context レポートのスキーマ 6**を出力します。これは各タスクが所有する、
+コマンドは、**公開 Context レポートのスキーマ 7**を出力します。これは各タスクが所有する、
 秘密情報を除いた公開用データです。バージョンは、永続化した Context マニフェストとは独立して
 変更できます。
 
@@ -161,10 +161,10 @@ Tobari は、サポート対象のホストと Docker の構成内で、所有�
 
 <details>
   <summary>
-    Context マニフェストのスキーマ 4 と Context レポートのスキーマ 6
+    Context マニフェストのスキーマ 4 と Context レポートのスキーマ 7
     は同じ契約ですか？
   </summary>
-  いいえ。スキーマ 4 は永続化するホスト設定です。スキーマ 6 は公開 CLI
+  いいえ。スキーマ 4 は永続化するホスト設定です。スキーマ 7 は公開 CLI
   向けに各タスクが 所有する、秘密情報を除いた出力です。
 </details>
 
