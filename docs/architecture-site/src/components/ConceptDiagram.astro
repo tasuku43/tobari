@@ -267,7 +267,12 @@ const stageMinWidth = Math.max(760, Math.round(layout.width * 0.76));
     <span class="legend-stop">{ui.legendStop}</span>
   </div>
 
-  <div class="flow-map-scroll" tabindex="0" aria-label={ui.mapLabel}>
+  <div
+    class="flow-map-scroll"
+    tabindex="0"
+    role="region"
+    aria-label={ui.mapLabel}
+  >
     <div
       class="flow-map-stage"
       style={`--flow-min-width:${stageMinWidth}px;--flow-aspect:${layout.width}/${layout.height};`}

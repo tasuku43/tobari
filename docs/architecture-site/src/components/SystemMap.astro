@@ -520,7 +520,12 @@ const ui = isJapanese
       <span class="legend-stop">{ui.legendStop}</span>
     </div>
 
-    <div class="map-scroll" tabindex="0" aria-label={ui.scrollableMap}>
+    <div
+      class="map-scroll"
+      tabindex="0"
+      role="region"
+      aria-label={ui.scrollableMap}
+    >
       <div class="map-stage" role="img" aria-label={ui.mapDescription}>
         <div class="map-zone zone-workspace" aria-hidden="true">
           <span>{ui.zoneWorkspace}</span>
