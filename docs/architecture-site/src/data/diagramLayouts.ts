@@ -1,3 +1,4 @@
+// Centralized positions keep component locations stable while numbered edges carry the explanation.
 export type DiagramFlowMode = "sequence" | "relationship" | "state";
 
 export interface DiagramNodePosition {
