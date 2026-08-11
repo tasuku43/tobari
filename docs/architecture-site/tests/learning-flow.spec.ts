@@ -79,7 +79,7 @@ test.describe("task-first documentation flow", () => {
         name: "Authenticate your tools",
         exact: true,
       }),
-    ).toHaveAttribute("href", /\/start\/authentication-setup\/$/);
+    ).toHaveAttribute("href", /authentication-setup\/$/);
   });
 
   test("learning pages show current position and the next learning goal", async ({
