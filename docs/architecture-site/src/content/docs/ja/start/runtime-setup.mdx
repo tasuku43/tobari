@@ -33,7 +33,7 @@ Tobari が表示した Dockerfile を開きます。生成済みのベース、�
 最小構成は次のようになります。
 
 ```dockerfile
-# 生成済みの FROM 行は維持する
+# Keep the generated FROM line.
 
 USER root
 
@@ -42,7 +42,7 @@ RUN apt-get update \
        nodejs npm ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
-# 利用するコーディングエージェントを公式の方法でインストールする
+# Install your coding agent using its official method.
 # RUN ...
 
 USER tobari
@@ -69,9 +69,9 @@ tobari cluster up
 cd /path/to/your/project
 tobari
 
-# Workspace 内
-command -v <エージェントのコマンド>
-<エージェントのコマンド> --version
+# Inside the Workspace
+command -v <agent-command>
+<agent-command> --version
 ```
 
 プレースホルダーは、実際にインストールしたコマンドへ置き換えてください。Workspace 内でエージェントと必要な開発ツールを利用できれば、このステップは完了です。
