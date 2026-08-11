@@ -609,6 +609,20 @@ func TestPolicyRulesHumanStylesOnlyDecisionsAndResetCommands(t *testing.T) {
 			}
 		}
 	}
+	if strings.Contains(output, "policy review") || strings.Contains(output, "Next") {
+		t.Fatalf("policy rules output advertised a generic review after exact reset actions: %q", output)
+	}
+}
+
+func TestEmptyPolicyCompactionsPointsToCurrentRules(t *testing.T) {
+	t.Parallel()
+	output := string(renderPolicyCompactionsHuman(tobari.PolicyCompactionReport{
+		Task: tobari.TaskPolicyCompactions, PolicyDirectory: "/tmp/policy", Items: []tobari.PolicyCompaction{},
+	}, "tobari policy compact", false))
+	if !humanOutputHasRow(output, "Next", "tobari policy rules — Inspect the current learned decisions that determine compaction eligibility.") ||
+		strings.Contains(output, "policy candidates") {
+		t.Fatalf("empty policy compactions recovery = %q", output)
+	}
 }
 
 func TestDeleteCatalogDescribesDetachedDefaultAndAttachedForceGuard(t *testing.T) {
@@ -647,6 +661,44 @@ func TestDeleteCatalogDescribesDetachedDefaultAndAttachedForceGuard(t *testing.T
 	if !attached || confirmation {
 		t.Fatalf("delete faults attached=%t confirmation=%t", attached, confirmation)
 	}
+}
+
+func TestClusterDownCatalogDescribesLogicalWorkspaceAndPurgeBoundary(t *testing.T) {
+	t.Parallel()
+	command, found := DefaultCatalog().Lookup("cluster down")
+	if !found {
+		t.Fatal("cluster down command is absent from the catalog")
+	}
+	if !strings.Contains(command.Agent.Outcome, "logical Workspace") ||
+		!strings.Contains(command.Agent.Outcome, "shared CA") ||
+		!strings.Contains(command.Agent.Outcome, "active policy-bundle") ||
+		!strings.Contains(command.Agent.Outcome, "encrypted Context vaults") ||
+		!strings.Contains(command.Agent.Outcome, "installation root key") ||
+		strings.Contains(strings.ToLower(command.Agent.Outcome), "detach") {
+		t.Fatalf("cluster down outcome = %q", command.Agent.Outcome)
+	}
+	if len(command.Agent.Prerequisites) != 1 ||
+		!strings.Contains(command.Agent.Prerequisites[0], "logical Workspace") ||
+		strings.Contains(strings.ToLower(command.Agent.Prerequisites[0]), "detach") {
+		t.Fatalf("cluster down prerequisites = %+v", command.Agent.Prerequisites)
+	}
+	if len(command.Agent.Inputs) != 1 || command.Agent.Inputs[0].Name != "--purge" ||
+		!strings.Contains(command.Agent.Inputs[0].Description, "shared CA") ||
+		!strings.Contains(command.Agent.Inputs[0].Description, "active policy-bundle") {
+		t.Fatalf("cluster down purge input = %+v", command.Agent.Inputs)
+	}
+	for _, declared := range command.Agent.Errors {
+		if declared.Code != "cluster_not_empty" {
+			continue
+		}
+		if len(declared.NextActions) != 1 || declared.NextActions[0].Command != "list" ||
+			!strings.Contains(declared.NextActions[0].Reason, "logical Workspace") ||
+			strings.Contains(strings.ToLower(declared.NextActions[0].Reason), "detach") {
+			t.Fatalf("cluster_not_empty recovery = %+v", declared.NextActions)
+		}
+		return
+	}
+	t.Fatal("cluster down does not declare cluster_not_empty")
 }
 
 func TestProjectSessionClosedSummaryStaysOnHostLifecycleStream(t *testing.T) {
@@ -1180,6 +1232,26 @@ func TestClusterStatusTextUsesSameSummaryForUnconfiguredAndNotReadyStates(t *tes
 	}
 }
 
+func TestClusterDownHumanOutputMakesPurgeBoundaryExplicit(t *testing.T) {
+	t.Parallel()
+	status := tobari.ClusterStatus{
+		Task: tobari.TaskClusterDown, Components: []tobari.ComponentStatus{},
+	}
+	concise := string(renderClusterDownTextWithColor(status, false, false))
+	if concise != "✓ Cluster removed\n" {
+		t.Fatalf("non-purge cluster down output = %q", concise)
+	}
+	purged := string(renderClusterDownTextWithColor(status, true, false))
+	for label, expected := range map[string]string{
+		"Removed":   "shared CA volumes and active policy-bundle volume",
+		"Preserved": "encrypted Context vaults and installation root key",
+	} {
+		if !humanOutputHasRow(purged, label, expected) {
+			t.Fatalf("purge cluster down output %q lacks %s=%q", purged, label, expected)
+		}
+	}
+}
+
 func TestClusterStatusTextUsesSemanticColorTokens(t *testing.T) {
 	t.Parallel()
 	status := tobari.ClusterStatus{
@@ -1670,6 +1742,10 @@ func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 		if !humanOutputHasRow(output, label, expected) {
 			t.Fatalf("deny output %q lacks %s=%q", output, label, expected)
 		}
+	}
+	if !humanOutputHasRow(output, "Next", "tobari policy rules — Inspect the active exact Deny decision.") ||
+		strings.Contains(output, "policy review") {
+		t.Fatalf("deny output did not point to the active exact decision: %q", output)
 	}
 }
 

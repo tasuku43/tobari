@@ -593,7 +593,7 @@ func runClusterDown(ctx context.Context, c *CLI, command CommandSpec, _ operatio
 	if err != nil {
 		return c.fail(ctx, err)
 	}
-	return c.emitMutationResult(ctx, command, renderClusterStatusTextWithColor(status, clusterStyleAllowed(ctx, c)))
+	return c.emitMutationResult(ctx, command, renderClusterDownTextWithColor(status, purge, clusterStyleAllowed(ctx, c)))
 }
 
 func clusterStyleAllowed(ctx context.Context, c *CLI) bool {
@@ -1274,7 +1274,6 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string,
 			output.row("Reset", resetCommand+" --id "+item.ID, styleAccent)
 		}
 	}
-	output.next("policy review", "Reset an existing decision only when you want to review the effect again.")
 	return output.bytes()
 }
 
@@ -1385,7 +1384,7 @@ func renderPolicyCompactionsHuman(result tobari.PolicyCompactionReport, compactC
 		output.heading("○", "No policy compactions", styleMuted)
 		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 		output.row("Details", "No compatible exact rules are ready to be compacted.", styleText)
-		output.next("policy candidates", "Review the current exact policy candidates.")
+		output.next("policy rules", "Inspect the current learned decisions that determine compaction eligibility.")
 		return output.bytes()
 	}
 	output := newHumanOutput(color)
@@ -1462,7 +1461,7 @@ func renderPolicyDenyChangeWithColor(result tobari.PolicyDenyChange, color bool)
 	output.row("Protocol", safeExternalText(result.Rule.EffectiveProtocol()), styleText)
 	output.row("Source rules", fmt.Sprintf("%d", result.SourceRuleCount), styleText)
 	output.row("Applied", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
-	output.next("policy review", "Review the remaining pending permissions.")
+	output.next("policy rules", "Inspect the active exact Deny decision.")
 	return output.bytes()
 }
 
@@ -1629,6 +1628,17 @@ func optionalExternalText(value string) *string {
 
 func renderClusterStatusText(status tobari.ClusterStatus) []byte {
 	return renderClusterStatusTextWithColor(status, false)
+}
+
+func renderClusterDownTextWithColor(status tobari.ClusterStatus, purge, color bool) []byte {
+	if status.Task != tobari.TaskClusterDown || status.Configured || !purge {
+		return renderClusterStatusTextWithColor(status, color)
+	}
+	output := newHumanOutput(color)
+	output.heading("✓", "Cluster removed", styleSuccess)
+	output.row("Removed", "shared CA volumes and active policy-bundle volume", styleText)
+	output.row("Preserved", "encrypted Context vaults and installation root key", styleText)
+	return output.bytes()
 }
 
 func renderClusterUpText(status tobari.ClusterStatus, color bool) []byte {

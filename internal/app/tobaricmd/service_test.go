@@ -1404,5 +1404,9 @@ func TestClusterDownRejectsRemainingCWDProjectBeforeMutation(t *testing.T) {
 	}
 	if _, err := New(runtime).ClusterDown(context.Background(), intent, false); err == nil {
 		t.Fatal("cluster down accepted while a CWD-owned project remained")
+	} else if public, ok := fault.PublicCopy(err); !ok || public.Code != "cluster_not_empty" ||
+		!strings.Contains(public.Message, "delete every logical Workspace") ||
+		strings.Contains(strings.ToLower(public.Message), "detach") {
+		t.Fatalf("cluster down fault = %+v, structured=%t", public, ok)
 	}
 }

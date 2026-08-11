@@ -1890,7 +1890,7 @@ func (s *Service) Detach(ctx context.Context, intent operation.Intent, id string
 	})
 }
 
-// ClusterDown removes shared resources only after every Tobari is detached.
+// ClusterDown removes shared resources only after every logical Workspace is deleted.
 func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purge bool) (tobari.ClusterStatus, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ClusterStatus{}, err
@@ -1911,7 +1911,7 @@ func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purg
 			}
 			if len(projects) != 0 {
 				return fault.New(
-					fault.KindRejected, "cluster_not_empty", "delete every CWD-owned Tobari before removing the cluster", false,
+					fault.KindRejected, "cluster_not_empty", "delete every logical Workspace before removing the cluster", false,
 				)
 			}
 		}
