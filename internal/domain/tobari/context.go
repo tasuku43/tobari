@@ -605,18 +605,18 @@ func ValidateDigest(value string) error {
 // Paths are deliberately resolved by infrastructure rather than persisted in
 // the manifest so stores remain independently protected.
 type ContextManifest struct {
-	SchemaVersion    int                              `json:"schema_version"`
-	ID               string                           `json:"id"`
-	Name             string                           `json:"name"`
-	AgentProfile     string                           `json:"agent_profile"`
-	Image            string                           `json:"image"`
-	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
-	SourceAccess     ContextSourceAccess              `json:"source_access"`
-	PolicyPresetOrigin string                         `json:"policy_preset_origin"`
-	PolicyPresetRevision string                       `json:"policy_preset_revision"`
-	Runtime          *ContextRuntimeRecipe            `json:"runtime,omitempty"`
-	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
-	GitIdentity      *ContextGitIdentitySetting       `json:"git_identity,omitempty"`
+	SchemaVersion        int                              `json:"schema_version"`
+	ID                   string                           `json:"id"`
+	Name                 string                           `json:"name"`
+	AgentProfile         string                           `json:"agent_profile"`
+	Image                string                           `json:"image"`
+	PolicyMode           ContextPolicyMode                `json:"policy_mode"`
+	SourceAccess         ContextSourceAccess              `json:"source_access"`
+	PolicyPresetOrigin   string                           `json:"policy_preset_origin"`
+	PolicyPresetRevision string                           `json:"policy_preset_revision"`
+	Runtime              *ContextRuntimeRecipe            `json:"runtime,omitempty"`
+	ShellEnvironment     []ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
+	GitIdentity          *ContextGitIdentitySetting       `json:"git_identity,omitempty"`
 }
 
 func (m ContextManifest) Validate() error {
@@ -699,17 +699,17 @@ func (p ContextStorePaths) Validate() error {
 
 // ContextSummary is one item in the complete local Context collection.
 type ContextSummary struct {
-	ID            string                  `json:"id"`
-	Name          string                  `json:"name"`
-	ContextState  ContextObservationState `json:"context_state"`
-	Active        bool                    `json:"active"`
-	AgentProfile  string                  `json:"agent_profile"`
-	Image         string                  `json:"image"`
-	PolicyMode    ContextPolicyMode       `json:"policy_mode"`
-	SourceAccess  ContextSourceAccess     `json:"source_access"`
-	PolicyPresetOrigin string              `json:"policy_preset_origin"`
-	PolicyPresetRevision string            `json:"policy_preset_revision"`
-	RuntimeStatus ContextRuntimeStatus    `json:"runtime_status,omitempty"`
+	ID                   string                  `json:"id"`
+	Name                 string                  `json:"name"`
+	ContextState         ContextObservationState `json:"context_state"`
+	Active               bool                    `json:"active"`
+	AgentProfile         string                  `json:"agent_profile"`
+	Image                string                  `json:"image"`
+	PolicyMode           ContextPolicyMode       `json:"policy_mode"`
+	SourceAccess         ContextSourceAccess     `json:"source_access"`
+	PolicyPresetOrigin   string                  `json:"policy_preset_origin"`
+	PolicyPresetRevision string                  `json:"policy_preset_revision"`
+	RuntimeStatus        ContextRuntimeStatus    `json:"runtime_status,omitempty"`
 }
 
 func (s ContextSummary) Validate() error {
@@ -723,14 +723,14 @@ func (s ContextSummary) Validate() error {
 		return fmt.Errorf("configured Context item must be persisted")
 	}
 	manifest := ContextManifest{
-		SchemaVersion: ContextSchemaVersion,
-		ID:            s.ID,
-		Name:          s.Name,
-		AgentProfile:  s.AgentProfile,
-		Image:         s.Image,
-		PolicyMode:    s.PolicyMode,
-		SourceAccess:  s.SourceAccess,
-		PolicyPresetOrigin: s.PolicyPresetOrigin,
+		SchemaVersion:        ContextSchemaVersion,
+		ID:                   s.ID,
+		Name:                 s.Name,
+		AgentProfile:         s.AgentProfile,
+		Image:                s.Image,
+		PolicyMode:           s.PolicyMode,
+		SourceAccess:         s.SourceAccess,
+		PolicyPresetOrigin:   s.PolicyPresetOrigin,
 		PolicyPresetRevision: s.PolicyPresetRevision,
 	}
 	if err := manifest.Validate(); err != nil {
@@ -884,24 +884,24 @@ func (a ContextAuthentication) Validate(observed bool) error {
 
 // ContextReport is the complete selected Context view.
 type ContextReport struct {
-	Task             string                           `json:"task"`
-	ContextState     ContextObservationState          `json:"context_state"`
-	ID               string                           `json:"id"`
-	Name             string                           `json:"name"`
-	Active           bool                             `json:"active"`
-	AgentProfile     string                           `json:"agent_profile"`
-	Image            string                           `json:"image"`
-	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
-	SourceAccess     ContextSourceAccess              `json:"source_access"`
-	PolicyPresetOrigin string                         `json:"policy_preset_origin"`
-	PolicyPresetRevision string                       `json:"policy_preset_revision"`
-	PolicyGuardrail PolicyPresetGuardrail             `json:"policy_guardrail"`
-	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment"`
-	GitIdentity      ContextGitIdentitySetting        `json:"git_identity"`
-	Stores           ContextStorePaths                `json:"stores"`
-	Runtime          ContextRuntimeReport             `json:"runtime"`
-	Cluster          ContextClusterStatus             `json:"cluster"`
-	Authentication   ContextAuthentication            `json:"authentication"`
+	Task                 string                           `json:"task"`
+	ContextState         ContextObservationState          `json:"context_state"`
+	ID                   string                           `json:"id"`
+	Name                 string                           `json:"name"`
+	Active               bool                             `json:"active"`
+	AgentProfile         string                           `json:"agent_profile"`
+	Image                string                           `json:"image"`
+	PolicyMode           ContextPolicyMode                `json:"policy_mode"`
+	SourceAccess         ContextSourceAccess              `json:"source_access"`
+	PolicyPresetOrigin   string                           `json:"policy_preset_origin"`
+	PolicyPresetRevision string                           `json:"policy_preset_revision"`
+	PolicyGuardrail      PolicyPresetGuardrail            `json:"policy_guardrail"`
+	ShellEnvironment     []ContextShellEnvironmentSetting `json:"shell_environment"`
+	GitIdentity          ContextGitIdentitySetting        `json:"git_identity"`
+	Stores               ContextStorePaths                `json:"stores"`
+	Runtime              ContextRuntimeReport             `json:"runtime"`
+	Cluster              ContextClusterStatus             `json:"cluster"`
+	Authentication       ContextAuthentication            `json:"authentication"`
 }
 
 func (r ContextReport) Validate() error {
@@ -921,14 +921,14 @@ func (r ContextReport) Validate() error {
 		}
 	} else {
 		manifest := ContextManifest{
-			SchemaVersion: ContextSchemaVersion,
-			ID:            r.ID,
-			Name:          r.Name,
-			AgentProfile:  r.AgentProfile,
-			Image:         r.Image,
-			PolicyMode:    r.PolicyMode,
-			SourceAccess:  r.SourceAccess,
-			PolicyPresetOrigin: r.PolicyPresetOrigin,
+			SchemaVersion:        ContextSchemaVersion,
+			ID:                   r.ID,
+			Name:                 r.Name,
+			AgentProfile:         r.AgentProfile,
+			Image:                r.Image,
+			PolicyMode:           r.PolicyMode,
+			SourceAccess:         r.SourceAccess,
+			PolicyPresetOrigin:   r.PolicyPresetOrigin,
 			PolicyPresetRevision: r.PolicyPresetRevision,
 		}
 		if err := manifest.Validate(); err != nil {
@@ -937,7 +937,9 @@ func (r ContextReport) Validate() error {
 		if err := r.Stores.Validate(); err != nil {
 			return err
 		}
-		if err := r.PolicyGuardrail.Validate(); err != nil { return err }
+		if err := r.PolicyGuardrail.Validate(); err != nil {
+			return err
+		}
 	}
 	if err := r.Runtime.Validate(); err != nil {
 		return err
