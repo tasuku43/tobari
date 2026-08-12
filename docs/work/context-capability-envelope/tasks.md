@@ -33,10 +33,17 @@
 
 - [ ] Complete every task in `../context-source-access/tasks.md`.
 - [ ] Complete every task in `../policy-presets/tasks.md`.
-- [ ] Integrate both axes into one exact Context manifest/report validation.
-- [ ] Update `context create`, `context list`, `context show`, scoped help, and
-      agent-readiness fixtures.
-- [ ] Update capability/schema/claim ledgers and generated architecture data.
+- [x] Integrate both axes into one exact Context manifest/report validation.
+      Evidence: manifest creation requires validated source access, preset
+      origin/revision, and normalized snapshot; list/show/create reports and
+      strict old-state readers bind the same immutable facts.
+- [x] Update `context create`, `context list`, `context show`, scoped help, and
+      agent-readiness fixtures. Evidence: catalog-derived agent help and the
+      readiness scenario expose both selectors/defaults and every report field.
+- [x] Update capability/schema/claim ledgers and generated architecture data.
+      Evidence: policy-presets capability and public schema tables pass
+      contractlint; generated catalog/component data is pinned to committed
+      integrated V1 source.
 - [x] Update durable theses, product, architecture, security, harness, and ADR
       documents. Evidence: ADR 0029 and the governing-document propagation in
       the Context decision commit.
@@ -44,17 +51,31 @@
 ## Verify
 
 - [ ] Focused Context, runtime, policy, catalog, and integration tests pass.
+      Evidence: focused Go/OPA/Gateway/Auth Broker and fast/security gates pass;
+      the Docker integration script passes static/preflight validation but the
+      local Colima engine blocked before starting its new fixture container.
 - [ ] One root can have independently reported read-only/offline and
       read-write/reviewed Context-bound Workspaces.
+      Evidence pending runtime execution: store/spec tests and the integration
+      journey create and inspect opposite same-root Context envelopes.
 - [ ] `task check` passes. Evidence:
-- [ ] `task security` passes. Evidence:
-- [ ] `task public:check` passes. Evidence:
-- [ ] Agent readiness meets the scoped-help and zero external-processing
-      budgets. Evidence:
+- [x] `task security` passes. Evidence: `mise exec -- task security` passed on
+      integrated V1 HEAD on 2026-08-12.
+- [ ] `task public:check` passes. Evidence: repoguard and contractlint passed;
+      the intentional unpublished Gateway digest checkpoint stopped the gate.
+- [x] Agent readiness meets the scoped-help and zero external-processing
+      budgets. Evidence: the regenerated exact-command/namespace help carries
+      typed selectors, defaults, result fields, faults, and recovery; the
+      readiness journey consumes them without source inspection or joins.
 
 ## Hand off
 
-- [ ] Both child packets have executable evidence.
-- [ ] Acceptance criteria and ADR consequences agree.
+- [ ] Both child packets have executable evidence. Evidence: both have unit,
+      catalog, generated, and integration-script evidence; supported-platform
+      Docker execution remains blocked by the local engine.
+- [x] Acceptance criteria and ADR consequences agree. Evidence: governing
+      contracts, implementation, help, readiness matrices, and architecture
+      pages use the exact ADR 0029 fields/defaults/precedence and reject mutable
+      source access or live preset references.
 - [ ] Durable decisions are promoted and this temporary packet is removed with
       the child packets in the completion handoff.
