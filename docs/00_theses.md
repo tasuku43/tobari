@@ -201,12 +201,12 @@ disabled, so neither path is direct egress.
   replace the CLI-owned isolation arguments. Runtime API compatibility includes
   the bootstrap needed to execute Tobari's fixed Workspace lifetime command.
 
-## Thesis 3: Authentication handling is pluggable and real credentials stay outside Workspaces
+## Thesis 3: Brokered authentication is static, post-policy, and project-bound
 
-Tobari does not inherit host authentication material. Tool-native login inside
-one Tobari home remains the universal default, and the static `managed`
-adapter remains a bounded supported route. The supported Auth Broker route adds one
-Context-owned credential acquired on the trusted host and stores it in an
+Tobari does not inherit host authentication material. Workspace-owned
+tool-native login inside one Tobari home remains the universal default. The
+optional supported Auth Broker route adds one static Context-owned credential
+imported through protected stdin or the reviewed GitHub helper and stores it in an
 authenticated encrypted vault. Each eligible Workspace receives only a
 distinct random handle bound to its stable Context, project, provider,
 credential revision, and exact HTTP binding. Gateway resolves the real value
@@ -224,8 +224,9 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   the explicit Tobari delete operation.
 - Client authentication and cookie values are redacted from OPA input, Gateway
   audit, denial projections, and CLI output. After policy allow, the selected
-  adapter forwards or injects authentication; proxy and Tobari control headers
-  are not forwarded upstream.
+  passthrough route forwards Workspace-owned authentication or the broker route
+  performs one exact replacement; proxy and Tobari control headers are not
+  forwarded upstream.
 - One shared Auth Broker joins only control and egress, never a Workspace
   network. Workspaces and OPA cannot address its runtime socket; only Gateway
   mounts that socket. Host auth commands use bounded in-container control
@@ -240,36 +241,15 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   projection share that version while reviewed built-ins use typed closed
   plans within it. Owner manifests still contain no secrets, executable shell,
   refresh logic, or signer and remain single-secret protected-stdin imports.
-- Provider-native executables do not enter the Auth Broker image. Reviewed
-  GitHub, AWS, Datadog pup, Codex, and Claude acquisition drivers execute fixed
-  argv against verified host CLI identities in private temporary homes with
-  sanitized environments. The
+- Provider-native executables do not enter the Auth Broker image. The reviewed
+  GitHub acquisition driver executes fixed argv against a verified host CLI
+  identity in a private temporary home with a sanitized environment. The
   GitHub driver is API-authentication-only, opens exactly the fixed device page
   or leaves the same manual URL, and configures no Git protocol or credential
   helper.
-  AWS selection is explicit: the `identity-center` method
-  uses the fixed device flow, while `console` uses AWS CLI 2.32-or-newer's
-  cross-device local-development login. Console mode opens only the strict
-  region-bound AWS authorization URL emitted by that fixed process and leaves
-  the same terminal URL as fallback. Neither method reads an ambient AWS home
-  or starts a callback listener.
-  Datadog runs pup's fixed US1 OAuth PKCE/DCR flow in an isolated file-backed
-  home; pup alone opens the generated consent URL and owns the bounded loopback
-  callback. Tobari accepts only strict default-session state and deletes the
-  home on every outcome.
-  OpenAI runs the pinned Codex 0.146.0 native ChatGPT device flow and accepts
-  only strict managed file state. Claude runs pinned Claude Code 2.1.220
-  `setup-token`, captures one inference-only OAuth token without displaying it,
-  and has no refresh state. Both delete their isolated homes on every outcome.
-- One resident trusted-host companion uses the current Tobari executable's
-  private same-binary mode. It reaches an unmounted Broker-private socket only
-  through a fixed reverse `docker exec -i` stream protected by a root-key-
-  derived, direction-separated authenticated session. It opens no host or
-  container listener, mounts no host socket or provider home, accepts no
-  repository-selected executable/argv, and is unreachable from Workspaces,
-  Gateway, and OPA. Its only provider operation in this slice is the
-  post-policy AWS credential export; interactive GitHub/AWS/Datadog/OpenAI/
-  Anthropic login runs directly through context-bound host drivers.
+  No AWS, Datadog, OpenAI, Anthropic, Chatwork, arbitrary helper, callback
+  listener, refresh, signer, exact-version driver, or resident credential
+  companion is part of first public V1.
 - The macOS root-key provider stores one installation key in Keychain. Linux
   uses an owner-only XDG state file and makes no host-user-compromise claim.
 - A recognized malformed, copied, stale, or mismatched Tobari handle fails
@@ -281,49 +261,27 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   brokered request does not inherit a broad static host/method allow; its first
   exact L7 effect remains reviewable until the host installs one exact learned
   rule.
-- Refresh and signing are permitted only for finite reviewed built-in plans.
-  One is a refreshable AWS CLI session plus standard SigV4. Acquisition
-  is either the reviewed IAM Identity Center device flow or AWS console-based
-  local-development login: Auth Broker owns
-  encrypted opaque AWS CLI state, handle/revision authority, and signing; only
-  after OPA allow does the companion run the fixed host AWS credential export.
-  Broker rechecks the record/revision, persists any refreshed opaque state,
-  and signs the unchanged bounded request. Request region is Context/tool
-  configuration, not login state. The second is Datadog's fixed US1 pup OAuth
-  state: after OPA allow Broker returns a still-valid bearer or performs one
-  exact proxy-free, no-redirect token refresh behind a durable barrier.
-  The third is Codex 0.146.0's fixed ChatGPT OAuth state: Workspace receives a
-  version-pinned external-host compatibility shim containing only a handle;
-  after OPA allow Broker returns a still-valid bearer or performs one exact
-  proxy-free, no-redirect OpenAI refresh behind the same durable barrier, and
-  Gateway supplies Broker-owned account routing. Anthropic's fixed Claude
-  setup-token plan is non-renewable and resolves only its unexpired stored
-  inference token after allow.
-  Arbitrary OAuth, manifest-selected helpers/
-  signers, general TWG refresh, SigV4a, presigning, provider-operation
-  inference, and Git credential helpers remain outside the slice.
+- Broker plans are static primary-secret plans. Owner manifests are strict
+  non-secret, non-executable local data and cannot select helpers, refresh,
+  signing, policy, arbitrary routes, or provider business operations.
 
 ### Mechanical enforcement
 
-- Runtime mount tests reject host-home mounts and verify the selected default
-  adapter. Gateway tests use canary secrets to prove redaction, deny-before-
-  resolution, exact replacement, and client-header forwarding only after
-  allow, while managed adapter tests retain binding and injection coverage.
+- Runtime mount tests reject host-home and managed-secret mounts. Gateway tests
+  use canary secrets to prove redaction, deny-before-resolution, exact
+  replacement, and client-header forwarding only after allow.
 - Integration tests prove one Tobari's tool-owned state persists through runtime
   recovery, is unavailable to another Tobari, and is removed by exact delete.
   Broker tests prove encrypted Context ownership, project-specific handles,
   restart locking, rotation, revocation, and canary-free output.
-- Acquisition tests fix the GitHub, AWS, pup, Codex, and Claude host executable
-  identity, version, argv,
+- Acquisition tests fix the GitHub host executable identity, argv,
   environment, conventional non-project installation-root selection,
   control-safe visible output, checked private-home cleanup, purpose-limited
-  fixed or parameterized browser target, manual fallback, cancellation, and
-  absence of Broker Git/AWS CLI configuration.
-- Companion tests fix same-binary private startup, reverse-exec container
-  identity, authenticated frame sequencing and bounds, no-listener/no-mount
-  topology, post-policy call order, bounded per-record single-flight refresh,
-  durable no-replay barriers, receipt-only cancellation acknowledgments,
-  blocked-peer teardown, stale result rejection, and secret-free failures.
+  fixed browser target, manual fallback, cancellation, and absence of Broker
+  Git credential configuration.
+- Negative dependency, image-content, state, catalog, and runtime tests prove
+  managed injection, dynamic/provider-specific plans, exact-version drivers,
+  refresh, signing, and companion paths are absent rather than dormant.
 - Narrow-projection tests fix every allowed scalar, bounded host read, private
   re-encoding target, precedence rule, and hostile source-file/key canary; no
   projection test treats identity as authentication authority.
@@ -336,13 +294,13 @@ Broker in one host trust domain with a host-issued
 Context/project-principal boundary: stable Tobari and Context IDs are not
 trusted merely because they appear in caller data, but the host binds both to
 the exact Gateway network interface that received the request. Context policy,
-learned permissions, and managed profiles cannot cross that Context/project
+learned permissions, and broker handles cannot cross that Context/project
 binding. A Tobari is selected
 from the canonical current directory: an exact indexed root is reused directly;
 when only ancestor roots exist, the interactive root command presents every
 containing root nearest-first and an explicit create-here option. A new nested
 root is never implicit. Every selected Tobari binds exactly one read-write
-root, one dedicated internal network, and one persistent XDG-owned home
+root with its Context-selected access, one dedicated internal network, and one persistent XDG-owned home
 directory.
 
 ### Consequences
@@ -598,12 +556,10 @@ administration project.
   reset removes one current learned rule and leaves the same request at
   default deny. All three activate through the same portable OPA boundary, and
   an exact deny wins over a learned allow for the same request.
-- Repeated exact learned rules may produce a `policy compactions` proposal only
-  for a fixed host, port, and method beneath a sufficiently specific path prefix.
-  `policy compact --id` is a separate explicit action whose positive examples
-  and boundary canaries must pass before the source rules are replaced.
+- Learned authority remains exact. Observation count, path similarity, or
+  repeated approvals never produce a prefix, wildcard, or compaction proposal.
 - OPA watches one revisioned complete bundle mounted read-only from an exact
-  owner-labeled Docker-managed volume. Exact allow, deny, reset, compaction,
+  owner-labeled Docker-managed volume. Exact allow, deny, reset,
   and reviewed-set actions test a private complete policy copy, atomically
   replace one complete Context `policy/domains/` generation, build a
   revision-named archive through pinned OPA,
@@ -614,8 +570,8 @@ administration project.
   failure. The trusted host remains the only policy writer.
 - Audit evidence never includes credential values, cookies, raw bodies, or raw
   response data.
-- Tobari never changes permission from observation alone. Every learned rule,
-  reset, or compaction remains an explicit trusted-host mutation. Machine
+- Tobari never changes permission from observation alone. Every learned rule or
+  reset remains an explicit trusted-host mutation. Machine
   actions stay opaque-reference-bound; interactive reviewed-set Apply is one
   fixed-target mutation whose typed contents are unchanged opaque references
   selected from exact detail screens. Every candidate must pass `opa test`;
@@ -629,8 +585,8 @@ administration project.
 - Integration tests deny known requests, retrieve their typed audit records
   through the CLI, assert the structured agent navigation and host-only session
   summary, stage exact Allow and Deny choices through the human queue, apply
-  them with one activation, exercise the allowed rule, compact repeated exact
-  rules, and retain a denied boundary without restarting any Tobari or OPA.
+  them with one activation, exercise the allowed exact rule, and retain a
+  denied boundary without restarting any Tobari or OPA.
 - README makes the observe-review-decide-retry loop the primary operating
   workflow, keeps routine permission growth free of hand-authored OPA/Rego,
   and keeps tested host editing as the advanced escape hatch.
@@ -731,7 +687,7 @@ a handle selects authority without the trusted principal and OPA allow.
 - Tobari-owned ordinary learned permission identity binds Context, project,
   scheme, host, port, method, and raw path. Query, headers, and bodies are not
   learned dimensions; GraphQL adds only operation type and root field.
-- Permission candidates, learned rules, exact denies, compactions, audits, and
+- Permission candidates, learned rules, exact denies, audits, and
   managed credentials retain Context and Tobari identity. `policy review` and
   `policy rules` cross all Contexts; mutations bind solely to opaque references.
 

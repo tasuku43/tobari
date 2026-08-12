@@ -42,8 +42,9 @@ security invariants.
 - [x] Decide authentication, output delivery, collection coverage, timeout,
       retry, idempotency, and schema-drift contracts for the retained external
       boundary.
-- [ ] Obtain maintainer approval for the exact retained/retired matrix in
-      `plan.md` before code deletion.
+- [x] Obtain maintainer approval for the exact retained/retired matrix in
+      `plan.md` before code deletion. Evidence: product-owner direction and
+      accepted ADR 0030 on 2026-08-12.
 - [x] Obtain maintainer approval for Concept A: immutable Context source access
       plus snapshotted built-in/custom policy presets. Evidence: product-owner
       direction on 2026-08-12.
@@ -51,9 +52,13 @@ security invariants.
       implementation packets aligned with it. Evidence: ADR 0029 accepted and
       source-access, compaction, auth, and preset packet dependencies connected
       on 2026-08-12.
-- [ ] Add a superseding ADR for the durable V1 scope and retirement decision.
-- [ ] Revise the product thesis first, then list and review every required
-      downstream propagation diff.
+- [x] Add a superseding ADR for the durable V1 scope and retirement decision.
+      Evidence: `docs/decisions/0030-narrow-first-public-v1.md`.
+- [x] Revise the product thesis first, then list and review every required
+      downstream propagation diff. Evidence: Theses 3, 4, 8, and 9 establish
+      static broker, exact learning, Context source access, and preset
+      guardrail decisions before mechanism deletion; downstream alignment is
+      tracked by the execution packets and integration lane.
 
 ## Contract and catalog
 

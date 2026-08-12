@@ -10,9 +10,9 @@
 - [x] Inventory public commands, references, faults, state, OPA, fixtures,
       dependencies, documentation, and generated surfaces. Evidence: read-only
       inventory on 2026-08-12 recorded in `context.md`.
-- [ ] Confirm the superseding exact-rule-only retirement ADR before deletion.
-      Evidence: the prerequisite Context envelope is accepted in ADR 0029;
-      compaction retirement still requires the V1 scope ADR.
+- [x] Confirm the superseding exact-rule-only retirement ADR before deletion.
+      Evidence: the prerequisite Context envelope is accepted in ADR 0029 and
+      ADR 0030 retires command, reference, state, matching, and fallback.
 
 ## Implement
 

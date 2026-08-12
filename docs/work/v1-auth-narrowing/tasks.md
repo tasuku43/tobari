@@ -10,7 +10,9 @@
 - [x] Inventory providers, plans, catalog, state, managed adapter, companion,
       drivers, assets, dependencies, tests, and generated surfaces. Evidence:
       read-only inventory on 2026-08-12 recorded in `context.md`.
-- [ ] Accept and propagate the superseding exact V1 auth decision.
+- [x] Accept and propagate the superseding exact V1 auth decision. Evidence:
+      ADR 0030 and the revised authentication thesis define the retained static
+      broker core and complete retirement scope before deletion.
 
 ## Implement
 
