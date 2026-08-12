@@ -531,10 +531,12 @@ The test suite has complementary levels:
   reservation, secret-sensitive revisions, complete-candidate validation,
   serialization, and known-good retention.
 - Auth domain and catalog tests fix exact schema-1 static providers and the
-  GitHub built-in, exact command effects/inputs/outputs/failures, required
-  `--provider github`, rejection of omission/other providers/retired method,
-  Context binding, cancellation and redirected
-  zero-mutation behavior, exhaustive Context-scoped status,
+  closed reviewed GitHub/AWS/Datadog/OpenAI/Anthropic login union, exact command
+  effects/inputs/outputs/failures, bounded interactive provider omission,
+  explicit-provider requirements outside that selector, the AWS-only
+  `identity-center|console` method axis, and rejection of unsupported providers
+  or inapplicable methods. They also cover Context binding, cancellation,
+  redirected zero-mutation behavior, exhaustive Context-scoped status,
   explicit locked/unavailable state, non-terminal stdin-only import and terminal
   refusal before reading, read-after-public-validation/send-after-runtime-
   prerequisite ordering, complete auth fault inventory, public
