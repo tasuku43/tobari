@@ -204,6 +204,11 @@ func (p PolicyPreset) Validate() error {
 			}
 		}
 	}
+	for _, endpoint := range p.GraphQLEndpoints {
+		if endpoint.Method != "POST" {
+			return fmt.Errorf("policy preset GraphQL endpoint method must be POST")
+		}
+	}
 	return nil
 }
 

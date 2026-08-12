@@ -71,6 +71,10 @@
 
 - [x] Generate initial Context domain policy only from the normalized snapshot;
       stop copying test/example domains implicitly.
+- [x] Project snapshotted preset GraphQL endpoints into both OPA and Gateway.
+      Evidence: aggregate tests prove validated preset and policy-source
+      endpoints form one deduplicated deterministic boundary; domain and
+      aggregate canaries reject non-POST preset endpoints before activation.
 - [x] Project the guardrail into the complete aggregate.
 - [x] Enforce guardrail and deny precedence before baseline, learned, and
       Advanced allow paths.

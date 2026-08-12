@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -147,6 +148,36 @@ func TestGatewayProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) {
 	endpoints, ok := projection["graphql_endpoints"].([]tobari.GraphQLEndpoint)
 	if !ok || len(endpoints) != 1 || endpoints[0] != endpoint {
 		t.Fatalf("GraphQL endpoint projection = %#v", projection["graphql_endpoints"])
+	}
+}
+
+func TestAggregateGraphQLEndpointsIncludesPresetSnapshotInExactBoundary(t *testing.T) {
+	t.Parallel()
+	shared := tobari.GraphQLEndpoint{Scheme: "https", Host: "api.example.com", Port: 443, Path: "/graphql"}
+	presetOnly := tobari.PolicyPresetExactRule{
+		Scheme: "https", Host: "graphql.example.com", Port: 8443, Method: "POST", Path: "/v1/graphql",
+	}
+	endpoints, err := aggregateGraphQLEndpoints(
+		[]tobari.GraphQLEndpoint{shared},
+		[]tobari.PolicyPresetExactRule{
+			{Scheme: shared.Scheme, Host: shared.Host, Port: shared.Port, Method: "POST", Path: shared.Path},
+			presetOnly,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []tobari.GraphQLEndpoint{
+		shared,
+		{Scheme: presetOnly.Scheme, Host: presetOnly.Host, Port: presetOnly.Port, Path: presetOnly.Path},
+	}
+	if !reflect.DeepEqual(endpoints, want) {
+		t.Fatalf("aggregate GraphQL endpoints = %+v, want %+v", endpoints, want)
+	}
+	if _, err := aggregateGraphQLEndpoints(nil, []tobari.PolicyPresetExactRule{{
+		Scheme: "https", Host: "api.example.com", Port: 443, Method: "GET", Path: "/graphql",
+	}}); err == nil {
+		t.Fatal("non-POST preset GraphQL endpoint entered the aggregate boundary")
 	}
 }
 

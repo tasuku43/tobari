@@ -49,14 +49,14 @@ func TestPolicyPresetRejectsDuplicatesAndExecutableShapedUnknownDataAtStrictDeco
 }
 
 func TestPolicyPresetRulesCannotExceedDestinationOrMethodCeilings(t *testing.T) {
-	base := PolicyPreset{SchemaVersion: 1, Name: "bounded", Guardrail: PolicyPresetGuardrailReviewedExact, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "exact", Authorities: []PolicyPresetAuthority{{Scheme: "https", Host: "api.github.com", Port: 443}}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "exact", Methods: []string{"GET"}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}}
+	base := PolicyPreset{SchemaVersion: 1, Name: "bounded", Guardrail: PolicyPresetGuardrailReviewedExact, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "exact", Authorities: []PolicyPresetAuthority{{Scheme: "https", Host: "api.github.com", Port: 443}}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "exact", Methods: []string{"GET", "POST"}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}}
 	inside := PolicyPresetExactRule{Scheme: "https", Host: "api.github.com", Port: 443, Method: "GET", Path: "/user"}
 	for name, assign := range map[string]func(*PolicyPreset){
 		"grant destination": func(p *PolicyPreset) {
 			p.BaselineGrants = []PolicyPresetExactRule{{Scheme: "https", Host: "uploads.github.com", Port: 443, Method: "GET", Path: "/"}}
 		},
 		"deny method": func(p *PolicyPreset) {
-			p.BaselineDenies = []PolicyPresetExactRule{{Scheme: "https", Host: "api.github.com", Port: 443, Method: "POST", Path: "/"}}
+			p.BaselineDenies = []PolicyPresetExactRule{{Scheme: "https", Host: "api.github.com", Port: 443, Method: "DELETE", Path: "/"}}
 		},
 		"GraphQL scheme": func(p *PolicyPreset) {
 			p.GraphQLEndpoints = []PolicyPresetExactRule{{Scheme: "http", Host: "api.github.com", Port: 443, Method: "GET", Path: "/graphql"}}
@@ -70,12 +70,21 @@ func TestPolicyPresetRulesCannotExceedDestinationOrMethodCeilings(t *testing.T) 
 			}
 		})
 	}
-	for _, assign := range []func(*PolicyPreset){func(p *PolicyPreset) { p.BaselineGrants = []PolicyPresetExactRule{inside} }, func(p *PolicyPreset) { p.BaselineDenies = []PolicyPresetExactRule{inside} }, func(p *PolicyPreset) { p.GraphQLEndpoints = []PolicyPresetExactRule{inside} }} {
+	for _, assign := range []func(*PolicyPreset){func(p *PolicyPreset) { p.BaselineGrants = []PolicyPresetExactRule{inside} }, func(p *PolicyPreset) { p.BaselineDenies = []PolicyPresetExactRule{inside} }, func(p *PolicyPreset) {
+		graphql := inside
+		graphql.Method = "POST"
+		p.GraphQLEndpoints = []PolicyPresetExactRule{graphql}
+	}} {
 		candidate := base
 		assign(&candidate)
 		if err := candidate.Validate(); err != nil {
 			t.Fatalf("inside-ceiling rule rejected: %v", err)
 		}
+	}
+	preset := base
+	preset.GraphQLEndpoints = []PolicyPresetExactRule{inside}
+	if err := preset.Validate(); err == nil {
+		t.Fatal("non-POST GraphQL endpoint accepted")
 	}
 }
 

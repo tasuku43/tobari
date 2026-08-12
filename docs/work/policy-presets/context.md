@@ -116,6 +116,14 @@ post-allow retry, Context/project handle isolation, and invalid-handle canaries.
 It next exposed a separately scoped release-journey expectation that still
 assumed the retired implicit `mock-upstream` initial grant.
 
+Read-only review of that journey then found that custom-preset
+`graphql_endpoints` were normalized and snapshotted but only legacy policy
+source endpoints entered the aggregate OPA boundary and Gateway projection.
+The aggregate now forms one validated, deduplicated, deterministic union of
+both sources. Preset endpoints must declare POST because Gateway's bounded V1
+GraphQL classifier has no GET/subscription transport contract; accepting and
+then silently dropping another method would make owner data misleading.
+
 ## Security and public-boundary notes
 
 - Assets: outbound HTTP authority, denial/candidate semantics, Context policy

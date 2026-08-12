@@ -92,6 +92,11 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		if !ok {
 			return nil, fmt.Errorf("Context %q policy data has no tobari object", manifest.Name)
 		}
+		graphqlEndpoints, err := aggregateGraphQLEndpoints(policy.graphqlEndpoints, preset.GraphQLEndpoints)
+		if err != nil {
+			return nil, fmt.Errorf("Context %q GraphQL endpoints: %w", manifest.Name, err)
+		}
+		contextData["boundary"] = map[string]any{"graphql_endpoints": graphqlEndpoints}
 		contextData["guardrail"] = map[string]any{
 			"kind":             preset.Guardrail,
 			"destination_mode": preset.DestinationCeiling.Mode, "authorities": preset.DestinationCeiling.Authorities,
@@ -110,12 +115,51 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		items = append(items, aggregateContext{
 			manifest: manifest, paths: paths, data: contextData,
 			policy: policy, rego: rego,
-			graphqlEndpoints: append([]tobari.GraphQLEndpoint{}, policy.graphqlEndpoints...),
+			graphqlEndpoints: graphqlEndpoints,
 			preset:           preset,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].manifest.ID < items[j].manifest.ID })
 	return items, nil
+}
+
+func aggregateGraphQLEndpoints(
+	policyEndpoints []tobari.GraphQLEndpoint, presetEndpoints []tobari.PolicyPresetExactRule,
+) ([]tobari.GraphQLEndpoint, error) {
+	seen := make(map[tobari.GraphQLEndpoint]struct{}, len(policyEndpoints)+len(presetEndpoints))
+	result := make([]tobari.GraphQLEndpoint, 0, len(policyEndpoints)+len(presetEndpoints))
+	appendEndpoint := func(endpoint tobari.GraphQLEndpoint) error {
+		if err := endpoint.Validate(); err != nil {
+			return err
+		}
+		if _, duplicate := seen[endpoint]; duplicate {
+			return nil
+		}
+		seen[endpoint] = struct{}{}
+		result = append(result, endpoint)
+		return nil
+	}
+	for _, endpoint := range policyEndpoints {
+		if err := appendEndpoint(endpoint); err != nil {
+			return nil, err
+		}
+	}
+	for _, endpoint := range presetEndpoints {
+		if endpoint.Method != "POST" {
+			return nil, fmt.Errorf("preset GraphQL endpoint method must be POST")
+		}
+		if err := appendEndpoint(tobari.GraphQLEndpoint{
+			Scheme: endpoint.Scheme, Host: endpoint.Host, Port: endpoint.Port, Path: endpoint.Path,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		left, right := result[i], result[j]
+		return fmt.Sprintf("%s\x00%s\x00%05d\x00%s", left.Scheme, left.Host, left.Port, left.Path) <
+			fmt.Sprintf("%s\x00%s\x00%05d\x00%s", right.Scheme, right.Host, right.Port, right.Path)
+	})
+	return result, nil
 }
 
 func aggregateNamespace(id string) string {
