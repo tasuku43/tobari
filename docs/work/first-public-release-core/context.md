@@ -3,7 +3,7 @@
 This file records verified facts and unresolved questions. Desired behavior is
 kept in `goal.md` and `plan.md`.
 
-## Current behavior
+## Baseline behavior observed before implementation
 
 - The canonical component selection is already a paired exact V1 contract, but
   `internal/infra/runtimeassets/assets/versions.env` selects
@@ -66,6 +66,31 @@ kept in `goal.md` and `plan.md`.
 - `docs/THREAT_MODEL.md` already accepts direct source-root mutation, allowed-
   destination exfiltration, same-Workspace handle reuse, shared trusted-
   component compromise, and missing per-project fairness or quotas.
+
+## Integrated current facts
+
+- Context manifests now require immutable `source_access` and one normalized,
+  digested policy-preset snapshot. Omission selects `read-write` and
+  `builtin/reviewed-exact`.
+- Guided learning and public mutation are exact-only. Prefix authority,
+  compaction commands/references/state, broad initial domain seeds, credential
+  profiles, and dormant fallbacks are absent and old state fails strict decode.
+- The retained brokered path is static primary-secret replacement with GitHub
+  trusted-host acquisition or protected stdin import. Dynamic providers,
+  managed injection, companion, refresh, signing, exact-version drivers, and
+  Auth Broker provider egress are absent; Gateway alone retains upstream
+  egress after policy allow.
+- The integration harness now creates explicit preset/source-access Contexts,
+  checks the three zero-grant built-ins and custom snapshot immutability,
+  exercises read-only and read-write live binds for the same root, runs only
+  HTTPS reviewable effects, and proves exact rules do not widen to sibling
+  paths. Static broker binding, denial-before-resolution, replacement,
+  rotation, logout, and re-entry remain in the synthetic journey.
+- On 2026-08-12 the Docker integration attempt was blocked before the fixture
+  started: the local Colima engine left the new certificate container in
+  `Created`, matching other ambient stuck containers. The script passed
+  `bash -n`, ShellCheck, `git diff --check`, and the mutation-free integration
+  preflight. No supported-platform runtime result is claimed from that attempt.
 
 ## Relevant structure
 

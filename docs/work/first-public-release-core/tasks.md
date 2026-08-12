@@ -75,10 +75,18 @@ security invariants.
       `auth` commands report brokered credentials only.
 - [ ] Update `.harness/capabilities.json`, schema/claim ledgers, catalog-derived
       architecture data, and negative fallback checks.
-- [ ] Complete `context-source-access` catalog/report work and its integration
-      evidence.
-- [ ] Complete `policy-presets` commands, Context selection/report work,
+- [x] Complete `context-source-access` catalog/report work and its integration
+      evidence. Evidence: the integration journey checks one selected live
+      bind for each mode on the same root, mutation failure in read-only mode,
+      writable home/tmpfs, no writable source alias, and host/read-write
+      observation. The local Docker run remains environment-blocked before
+      execution and is not counted as supported-platform observation.
+- [x] Complete `policy-presets` commands, Context selection/report work,
       `policy.presets` capability ledger entry, and guardrail evidence.
+      Evidence: the integration journey validates the exact three built-ins,
+      zero immediate grants, explicit Context selection, and custom source
+      revision versus immutable Context snapshot; focused domain/OPA tests own
+      the terminal-denial matrices.
 
 ## Static broker core
 
@@ -124,9 +132,11 @@ security invariants.
 - [ ] Keep direct binding while adding immutable Context-selected read-only or
       read-write access; add negative claims for clone/overlay/snapshot and
       whole-Workspace read-only semantics.
-- [ ] Keep Docker-only runtime, fixed CPU/memory/PID limits, and shared
+- [x] Keep Docker-only runtime, fixed CPU/memory/PID limits, and shared
       Gateway/OPA/Auth Broker topology; remove status fields owned only by the
-      companion.
+      companion. Evidence: the integration journey retains resource/topology
+      assertions, requires Auth Broker control-only attachment, forbids its
+      egress attachment, and rejects the retired companion status field.
 - [ ] Keep transparent HTTP/HTTPS, synthetic non-recursive DNS, lazy upstream,
       public-address pinning, no raw-protocol fallback, and guarded project
       principal derivation unchanged.
