@@ -43,7 +43,8 @@
       `source-snapshot.txt` pins committed integrated source
       `ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6`; sitegen regenerated the
       34-command catalog, exact denied-scheme fields, retained brokered-auth
-      wording, and component/schema data; `generate:check` passes.
+      wording, and component/schema data. Every EN/JA source-evidence link was
+      advanced to that same commit; `generate:check` and `check:source` pass.
 - [x] Run a synthetic no-network/no-publish artifact and formula dry run.
       Evidence: `./scripts/lint-release.sh` passed with offline metadata
       generation, two archive/metadata matrices, Formula syntax/audit, and no
