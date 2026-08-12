@@ -72,5 +72,8 @@
       Release, or Homebrew tap mutation. Evidence: the packet-scoped local diff
       contains only release tooling, workflow, contract, tests, and evidence;
       no external operation was invoked.
-- [ ] Present exact publication commands and wait for explicit maintainer
-      approval before the first external operation.
+- [x] Present exact publication commands and wait for explicit maintainer
+      approval before the first external operation. Evidence:
+      `publication-handoff.md` fixes the source-image-pin-gate-tag-Release-tap
+      order, makes tag/tap authority explicit fail-closed inputs, and names the
+      branch push as the first external mutation. No handoff command was run.
