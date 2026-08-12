@@ -332,19 +332,85 @@ if pid == 0:
 
 fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
 os.write(1, b"PTY_META rows=40 cols=120\n")
-time.sleep(1.0)
-for index, part in enumerate(payload.split("|")):
+deadline = time.monotonic() + 10.0
+quiet_seconds = 0.05
+status = None
+
+def poll_child():
+    global status
+    if status is not None:
+        return
+    waited, child_status = os.waitpid(pid, os.WNOHANG)
+    if waited != 0:
+        status = child_status
+
+def stop_child(message):
+    os.write(2, ("PTY_SYNC_ERROR " + message + "\n").encode())
+    poll_child()
+    if status is None:
+        try:
+            os.kill(pid, 15)
+        except ProcessLookupError:
+            pass
+        os.waitpid(pid, 0)
+    raise SystemExit(124)
+
+def wait_for_output_quiescence(required=b""):
+    observed = False
+    matched = not required
+    received = b""
+    last_output = None
+    while True:
+        now = time.monotonic()
+        if observed and matched and now - last_output >= quiet_seconds:
+            return
+        if now >= deadline:
+            stop_child("timed out waiting for PTY output to become quiescent")
+
+        wait_seconds = min(0.05, deadline - now)
+        if observed and matched:
+            wait_seconds = min(wait_seconds, quiet_seconds - (now - last_output))
+        ready, _, _ = select.select([master], [], [], max(wait_seconds, 0))
+        if master in ready:
+            try:
+                data = os.read(master, 4096)
+            except OSError as error:
+                if error.errno == errno.EIO:
+                    data = b""
+                else:
+                    raise
+            if data:
+                os.write(1, data)
+                observed = True
+                last_output = time.monotonic()
+                if not matched:
+                    received += data
+                    matched = required in received
+                    received = received[-max(len(required), 1):]
+        poll_child()
+        if status is not None and not (observed and matched):
+            stop_child("PTY child exited before producing the expected output")
+
+# The verbose Go test runner writes before the selector is ready. The cursor-hide
+# sequence is emitted only after raw mode has been entered and the first selector
+# screen has started rendering, so it is the readiness boundary for the first key.
+wait_for_output_quiescence(b"\x1b[?25l")
+parts = payload.split("|")
+for index, part in enumerate(parts):
     try:
         os.write(master, part.encode())
     except OSError as error:
         if error.errno == errno.EIO:
             break
         raise
-    if index + 1 < len(payload.split("|")):
-        time.sleep(0.75)
-status = None
+    if index + 1 < len(parts):
+        wait_for_output_quiescence()
+
 while status is None:
-    ready, _, _ = select.select([master], [], [], 0.1)
+    now = time.monotonic()
+    if now >= deadline:
+        stop_child("timed out waiting for PTY child completion")
+    ready, _, _ = select.select([master], [], [], min(0.1, deadline - now))
     if master in ready:
         try:
             data = os.read(master, 4096)
@@ -355,9 +421,7 @@ while status is None:
                 raise
         if data:
             os.write(1, data)
-    waited, status = os.waitpid(pid, os.WNOHANG)
-    if waited == 0:
-        status = None
+    poll_child()
 
 while True:
     try:
