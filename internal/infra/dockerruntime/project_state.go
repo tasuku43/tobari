@@ -343,7 +343,12 @@ func (r *Runtime) createProjectUnlocked(ctx context.Context, resolved string, ma
 	if imageErr != nil {
 		return tobari.ProjectInstance{}, imageErr
 	}
-	createdInstance, createErr := tobari.NewProductionProjectInstance(resolved, manifest.ID, manifest.Name, image)
+	createdInstance, createErr := r.identities.newProjectInstance(tobari.ProjectInstanceRequest{
+		Root:        resolved,
+		ContextID:   manifest.ID,
+		ContextName: manifest.Name,
+		Image:       image,
+	})
 	if createErr != nil {
 		return tobari.ProjectInstance{}, createErr
 	}

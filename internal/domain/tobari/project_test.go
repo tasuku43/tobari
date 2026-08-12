@@ -29,13 +29,23 @@ func TestNewProjectIDProducesUUIDv7(t *testing.T) {
 func TestProjectInstanceDoesNotRequireRuntimeResources(t *testing.T) {
 	t.Parallel()
 	instance, err := NewProjectInstance(
-		time.UnixMilli(1_700_000_000_123), bytes.NewReader(make([]byte, 10)), "/workspace/project", BuiltinImageSelector,
+		time.UnixMilli(1_700_000_000_123), bytes.NewReader(make([]byte, 10)), ProjectInstanceRequest{
+			Root:        "/workspace/project",
+			ContextID:   "00000000-0000-7000-8000-000000000000",
+			ContextName: DefaultContextName,
+			Image:       BuiltinImageSelector,
+		},
 	)
 	if err != nil {
 		t.Fatalf("NewProjectInstance() error = %v", err)
 	}
 	if instance.Runtime.ContainerID != "" || instance.Runtime.NetworkID != "" {
 		t.Fatalf("new instance runtime = %+v, want absent diagnostic resources", instance.Runtime)
+	}
+	if instance.ID != "018bcfe5-687b-7000-8000-000000000000" ||
+		instance.Root != "/workspace/project" || instance.ContextID != "00000000-0000-7000-8000-000000000000" ||
+		instance.ContextName != DefaultContextName || instance.Image != BuiltinImageSelector {
+		t.Fatalf("new instance = %+v", instance)
 	}
 	if err := instance.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)

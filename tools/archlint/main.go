@@ -317,6 +317,7 @@ func allowedCommandStandardImport(importPath string) bool {
 func isEffectfulStandardImport(importPath string) bool {
 	for _, forbidden := range []string{
 		"C",
+		"crypto/rand",
 		"database/sql",
 		"net",
 		"net/http",
@@ -417,7 +418,8 @@ func inspectSourceFile(layer, path string) ([]violation, error) {
 			alias = imported.Name.Name
 		}
 		if alias == "." && (layer == "cmd" || importPath == "context" || importPath == "net/http" ||
-			(layer == "app" && importPath == "fmt")) {
+			(layer == "app" && importPath == "fmt") ||
+			((layer == "domain" || layer == "app") && importPath == "time")) {
 			return []violation{{
 				From:   path,
 				To:     importPath,
@@ -510,6 +512,14 @@ func inspectSourceFile(layer, path string) ([]violation, error) {
 					From:   from,
 					To:     "context." + selector.Sel.Name,
 					Reason: layer + " must propagate its caller context",
+				})
+			}
+		case "time":
+			if (layer == "domain" || layer == "app") && selector.Sel.Name == "Now" {
+				found = append(found, violation{
+					From:   from,
+					To:     "time.Now",
+					Reason: layer + " may not read the production clock; receive time.Time from infrastructure",
 				})
 			}
 		case "net/http":

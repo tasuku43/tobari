@@ -117,11 +117,11 @@ func TestFindViolationsRejectsSideEffectAndThirdPartyImportsOutsideInfra(t *test
 		},
 		{
 			ImportPath: module + "/internal/domain/model",
-			Imports:    []string{"strings", "os", "log", "example.com/uuid"},
+			Imports:    []string{"strings", "os", "log", "crypto/rand", "example.com/uuid"},
 		},
 		{
 			ImportPath: module + "/internal/app/usecase",
-			Imports:    []string{"context", "net/http", "log/slog", "C"},
+			Imports:    []string{"context", "net/http", "log/slog", "crypto/rand", "C"},
 		},
 		{
 			ImportPath: module + "/internal/infra/client",
@@ -148,6 +148,11 @@ func TestFindViolationsRejectsSideEffectAndThirdPartyImportsOutsideInfra(t *test
 		},
 		{
 			From:   module + "/internal/app/usecase",
+			To:     "crypto/rand",
+			Reason: "app may not import I/O or process packages",
+		},
+		{
+			From:   module + "/internal/app/usecase",
 			To:     "log/slog",
 			Reason: "app may not import I/O or process packages",
 		},
@@ -155,6 +160,11 @@ func TestFindViolationsRejectsSideEffectAndThirdPartyImportsOutsideInfra(t *test
 			From:   module + "/internal/app/usecase",
 			To:     "net/http",
 			Reason: "app may not import I/O or process packages",
+		},
+		{
+			From:   module + "/internal/domain/model",
+			To:     "crypto/rand",
+			Reason: "domain may not import I/O or process packages",
 		},
 		{
 			From:   module + "/internal/domain/model",
@@ -174,6 +184,51 @@ func TestFindViolationsRejectsSideEffectAndThirdPartyImportsOutsideInfra(t *test
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("violations = %#v, want %#v", got, want)
+	}
+}
+
+func TestInspectSourceRejectsProductionClockInDomainAndApplication(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "clock.go")
+	source := `package model
+import clock "time"
+func observe(at clock.Time) clock.Time {
+  _ = clock.Unix(0, 0)
+  return clock.Now()
+}
+`
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, layer := range []string{"domain", "app"} {
+		got, err := inspectSourceFile(layer, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].To != "time.Now" || !strings.Contains(got[0].Reason, "production clock") {
+			t.Fatalf("%s violations = %#v", layer, got)
+		}
+	}
+}
+
+func TestInspectSourceRejectsDotImportedProductionClock(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "clock.go")
+	source := `package model
+import . "time"
+func observe() Time { return Now() }
+`
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, layer := range []string{"domain", "app"} {
+		got, err := inspectSourceFile(layer, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].To != "time" || !strings.Contains(got[0].Reason, "bypass") {
+			t.Fatalf("%s violations = %#v", layer, got)
+		}
 	}
 }
 

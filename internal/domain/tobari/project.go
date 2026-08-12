@@ -1,7 +1,6 @@
 package tobari
 
 import (
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -566,28 +565,29 @@ func NewProjectID(now time.Time, source io.Reader) (string, error) {
 	return id, nil
 }
 
+// ProjectInstanceRequest declares the complete durable identity and runtime
+// selection required to create a logical project before Docker resources
+// exist.
+type ProjectInstanceRequest struct {
+	Root        string
+	ContextID   string
+	ContextName string
+	Image       string
+}
+
 // NewProjectInstance creates the durable logical state before any Docker
 // resource exists.
-func NewProjectInstance(now time.Time, source io.Reader, root string, values ...string) (ProjectInstance, error) {
-	contextID, contextName, image := "00000000-0000-7000-8000-000000000000", DefaultContextName, ""
-	switch len(values) {
-	case 1:
-		image = values[0]
-	case 3:
-		contextID, contextName, image = values[0], values[1], values[2]
-	default:
-		return ProjectInstance{}, fmt.Errorf("project creation requires image or Context identity plus image")
-	}
-	if err := ValidateCanonicalRoot(root); err != nil {
+func NewProjectInstance(now time.Time, source io.Reader, request ProjectInstanceRequest) (ProjectInstance, error) {
+	if err := ValidateCanonicalRoot(request.Root); err != nil {
 		return ProjectInstance{}, err
 	}
-	if err := ValidateImageSelector(image); err != nil {
+	if err := ValidateImageSelector(request.Image); err != nil {
 		return ProjectInstance{}, err
 	}
-	if err := ValidateContextID(contextID); err != nil {
+	if err := ValidateContextID(request.ContextID); err != nil {
 		return ProjectInstance{}, err
 	}
-	if err := ValidateName(contextName); err != nil {
+	if err := ValidateName(request.ContextName); err != nil {
 		return ProjectInstance{}, err
 	}
 	id, err := NewProjectID(now, source)
@@ -597,22 +597,17 @@ func NewProjectInstance(now time.Time, source io.Reader, root string, values ...
 	instance := ProjectInstance{
 		SchemaVersion: ProjectStateSchemaVersion,
 		ID:            id,
-		Root:          root,
-		ContextID:     contextID,
-		ContextName:   contextName,
+		Root:          request.Root,
+		ContextID:     request.ContextID,
+		ContextName:   request.ContextName,
 		Profile:       DefaultProfile,
-		Image:         image,
+		Image:         request.Image,
 		Runtime:       ProjectRuntime{},
 	}
 	if err := instance.Validate(); err != nil {
 		return ProjectInstance{}, err
 	}
 	return instance, nil
-}
-
-// NewProductionProjectInstance uses the system clock and cryptographic entropy.
-func NewProductionProjectInstance(root string, values ...string) (ProjectInstance, error) {
-	return NewProjectInstance(time.Now().UTC(), rand.Reader, root, values...)
 }
 
 // ValidateCanonicalRoot accepts exactly the form produced by infrastructure

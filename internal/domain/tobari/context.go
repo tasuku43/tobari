@@ -1,7 +1,6 @@
 package tobari
 
 import (
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -134,10 +133,6 @@ func NewContextID(now time.Time, source io.Reader) (string, error) {
 		return "", err
 	}
 	return id, nil
-}
-
-func NewProductionContextID() (string, error) {
-	return NewContextID(time.Now().UTC(), rand.Reader)
 }
 
 // ContextPolicyMode selects the policy-development experience associated with

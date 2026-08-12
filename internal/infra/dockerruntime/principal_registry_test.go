@@ -54,8 +54,12 @@ func TestPolicyProjectionLockSerializesCrossContextMutations(t *testing.T) {
 func principalTestProject(t *testing.T, root string) tobari.ProjectInstance {
 	t.Helper()
 	project, err := tobari.NewProjectInstance(
-		time.Unix(0, 0).UTC(), strings.NewReader("0123456789abcdef"), root,
-		principalTestContextID, "default", tobari.BuiltinImageSelector,
+		time.Unix(0, 0).UTC(), strings.NewReader("0123456789abcdef"), tobari.ProjectInstanceRequest{
+			Root:        root,
+			ContextID:   principalTestContextID,
+			ContextName: "default",
+			Image:       tobari.BuiltinImageSelector,
+		},
 	)
 	if err != nil {
 		t.Fatal(err)

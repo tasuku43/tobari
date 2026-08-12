@@ -120,7 +120,7 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 	}
 	if defaultManifest.ID == "" {
 		var err error
-		defaultManifest.ID, err = tobari.NewProductionContextID()
+		defaultManifest.ID, err = r.identities.newContextID()
 		if err != nil {
 			return err
 		}
@@ -651,7 +651,7 @@ func (r *Runtime) CreateContextWithPreset(
 		PolicyPresetRevision: presetRevision,
 		ShellEnvironment:     tobari.InitialContextShellEnvironment(),
 	}
-	id, err := tobari.NewProductionContextID()
+	id, err := r.identities.newContextID()
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
