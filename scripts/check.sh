@@ -245,7 +245,11 @@ run_gateway() {
     -v "$PWD/gateway:/work:ro" \
     -w /work \
     "$gateway_test_image" \
-    -m unittest -v test_tobari_gateway.py test_graphql_request.py test_synthetic_dns.py
+    -m unittest -v \
+      test_tobari_gateway.py \
+      test_tobari_gateway_aws.py \
+      test_graphql_request.py \
+      test_synthetic_dns.py
 }
 
 run_authbroker() {
