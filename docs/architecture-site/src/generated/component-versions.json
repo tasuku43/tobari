@@ -99,19 +99,9 @@
       "authority": "authbroker/Dockerfile"
     },
     {
-      "contract": "Auth Broker control/runtime protocol and vault envelope",
+      "contract": "Auth Broker control/runtime protocol and static vault",
       "version": 1,
       "authority": "authbroker/__init__.py"
-    },
-    {
-      "contract": "Encrypted Context vault payload",
-      "version": 2,
-      "authority": "authbroker/vault.py"
-    },
-    {
-      "contract": "Private credential companion protocol",
-      "version": 1,
-      "authority": "authbroker/companion_protocol.py"
     }
   ],
   "runtime": {
