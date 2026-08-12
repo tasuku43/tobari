@@ -2,20 +2,25 @@
 
 ## Verified current facts
 
-- `.github/workflows/release.yml` runs on `v*`, builds five CLI archives,
-  creates checksums and a GitHub Release, then opens a formula PR; it has no
-  pre-publication approval checkpoint.
-- Component workflows publish Gateway/Auth Broker multi-architecture images,
-  but do not produce a repository-owned digest handoff artifact.
+- `.github/workflows/release.yml` is now manual and separates create-only
+  preparation from the `release-publication` approval environment. It builds
+  five CLI archives plus exact checksum/SPDX/provenance/Formula subjects and
+  never opens or mutates a tap branch.
+- Component workflows accept one exact revision, build both supported Linux
+  architectures, attach BuildKit SBOM/max provenance, and produce immutable
+  digest metadata plus extracted component evidence. Publication is manual and
+  environment-gated; pull-request/cache builds do not push.
 - `versions.env` selects both images as `unpublished`; public and release gates
   fail intentionally at that contract.
 - `scripts/package-release.sh`, `tools/archivepack`, formula rendering/audit,
   and release lint already provide a deterministic base.
-- Repository-owned component SBOM and provenance/attestation generation is not
-  implemented. Current release contract explicitly avoids those claims and
-  must be revised before adding them.
-- The generated architecture site is pinned to an older source snapshot even
-  though its current `generate:check` passes against that declared snapshot.
+- Repository-owned component SBOM/provenance evidence and CLI archive-level
+  SPDX/unsigned in-toto-SLSA metadata are implemented and linted. They are not
+  described as signatures, dependency SBOMs for archive contents, or
+  reproducibility proofs.
+- The generated architecture site is pinned to integrated committed source
+  `ff98d4e104c8698dc815af9eba0924b3fd2ceb80`; catalog and component metadata
+  were regenerated and verified from that commit.
 
 ## Constraints
 
@@ -63,13 +68,12 @@
   three metadata files, verifies create-only collisions, renders/audits the
   Formula, and accepts only the exact final regular-file inventory.
 - The focused release-artifact/archive/version Go tests and pinned `actionlint`
-  v1.7.7 passed. `task release:check` stopped before lint at the
-  intentional unpublished Gateway image authority. The ambient
-  `task public:check` first found the expected local Node/npm mismatch; under
-  `mise exec` it reached integration-owned stale compaction fixture/schema/site
-  references. Those ledgers and final image pins remain integration work, not
-  release-tooling exceptions.
-- Gateway/Auth Broker source snapshots, image metadata/SBOM/provenance, real
-  digest handoff, generated architecture output, full gates, and every external
-  publication operation remain intentionally deferred until auth/policy
-  integration is final.
+  v1.7.7 passed. After integration, `task public:check` passes repoguard and
+  contractlint; both public and release gates stop at the intentional
+  unpublished Gateway image authority. No stale catalog/schema/site blocker
+  remains.
+- Canonical Gateway/Auth Broker source snapshots and generated architecture
+  output are finalized. Real component metadata/SBOM/provenance tied to an
+  immutable published digest, the remaining full gates, and every external
+  publication operation remain intentionally deferred until approval; that
+  evidence cannot exist before the manual image publication step.

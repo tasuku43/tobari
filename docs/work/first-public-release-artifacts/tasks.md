@@ -18,8 +18,11 @@
 
 ## Prepare locally
 
-- [ ] Finalize canonical/embedded Gateway and Auth Broker source snapshots only
-      after auth/policy integration.
+- [x] Finalize canonical/embedded Gateway and Auth Broker source snapshots only
+      after auth/policy integration. Evidence: dynamic auth and broad policy
+      retirement integrated first; `check-gateway-source.sh` and
+      `check-authbroker-source.sh` pass byte equality for the final static/
+      exact runtime sources.
 - [x] Add deterministic component image metadata, SBOM, and provenance
       generation with reviewed permissions/dependencies. Evidence: Gateway and
       Auth Broker publication are manual exact-revision workflows behind the
@@ -35,8 +38,11 @@
       implicit publication during preparation. Evidence: manual dispatch,
       exact pre-upload and pre-publish inventories, protected environment,
       no tag trigger, and no Formula branch/PR/tap mutation.
-- [ ] Regenerate architecture site, catalog, schema/capability ledgers, and
-      component metadata from the final integrated source.
+- [x] Regenerate architecture site, catalog, schema/capability ledgers, and
+      component metadata from the final integrated source. Evidence:
+      `source-snapshot.txt` pins committed integrated source
+      `ff98d4e104c8698dc815af9eba0924b3fd2ceb80`; sitegen regenerated 34-command
+      catalog and component/schema data, and `generate:check` passes.
 - [x] Run a synthetic no-network/no-publish artifact and formula dry run.
       Evidence: `./scripts/lint-release.sh` passed with offline metadata
       generation, two archive/metadata matrices, Formula syntax/audit, and no
@@ -52,9 +58,15 @@
       Evidence: no module or Action was added, privileged publication remains
       one environment-gated `contents: write` job, all other permissions are
       read-only, and exact final asset inventory rejects extras and symlinks.
-- [ ] Run `task check` and `task security` locally.
-- [ ] Record the intentional pre-publication result of `task public:check` and
-      `task release:check` if unpublished image pins remain.
+- [ ] Run `task check` and `task security` locally. Evidence: `mise exec -- task
+      check:fast` and `mise exec -- task security` pass after integrated source
+      finalization. Full check remains pending; the local Colima engine could
+      not start the new synthetic integration fixture.
+- [x] Record the intentional pre-publication result of `task public:check` and
+      `task release:check` if unpublished image pins remain. Evidence: both
+      commands were run on 2026-08-12. Public passed repoguard and contractlint;
+      both stopped exactly at the reviewed immutable Gateway image requirement
+      because `GATEWAY_IMAGE=unpublished`. No gate was weakened.
 - [x] Commit preparation only; perform no push, tag, OCI publication, GitHub
       Release, or Homebrew tap mutation. Evidence: the packet-scoped local diff
       contains only release tooling, workflow, contract, tests, and evidence;
