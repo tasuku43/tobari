@@ -9,7 +9,7 @@
   {
     "id": "machine-output.fixture.v1",
     "path": "internal/cli/testdata/machine-output-contract-fixture.json",
-    "sha256": "25f67021adf829535715004c36a909c64abb1fddcbeed464c0d8000080d30b58",
+    "sha256": "d5e93cf66b79e72bd8cb5640c14d0b9426da9baef18e823278d2d1df0f0b98d6",
     "provenance": "Repository-authored synthetic fixture for recursive public machine-output interpretation.",
     "license": "MIT"
   },
@@ -23,8 +23,8 @@
   {
     "id": "human-presentation-foundation.fixture.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-fixture.json",
-    "sha256": "ea0c39f32078014cfb228725d013c79538eb5357814fc51a71fbec03a3078ee3",
-    "bytes": 3507,
+    "sha256": "f452f96e0bb4c30f136a3c77c16352f8a4cc24bc7fe6caaf157ab2f24679a0fc",
+    "bytes": 3192,
     "cases": 5,
     "provenance": "Repository-authored synthetic typed fixture for human presentation across styled, NO_COLOR, redirected, empty, warning, failure, and cancellation modes.",
     "license": "MIT"

@@ -14,7 +14,6 @@
       "gateway_projection": "unavailable",
       "auth_provider_projection": "unavailable",
       "auth_broker_state": "unavailable",
-      "credential_companion_state": "absent",
       "root_key_backend": "unavailable",
       "components": [],
       "recent_error": null
