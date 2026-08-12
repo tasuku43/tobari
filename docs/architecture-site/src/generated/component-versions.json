@@ -1,5 +1,5 @@
 {
-  "generated_from": "committed repository authorities and executable CLI help at 1a73f30d49a29e40d1306cf6590aeec6949c7faa",
+  "generated_from": "committed repository authorities and executable CLI help at ff98d4e104c8698dc815af9eba0924b3fd2ceb80",
   "components": [
     {
       "component": "Go",
@@ -23,14 +23,14 @@
     },
     {
       "component": "Gateway",
-      "version": "digest identity",
-      "identity": "ghcr.io/tasuku43/tobari/gateway@sha256:44a84576266617c78eae433ea53d60e199226dc7bc275b2aaa6c728875c91878",
+      "version": "unpublished V1 snapshot",
+      "identity": "unpublished",
       "authority": "internal/infra/runtimeassets/assets/versions.env"
     },
     {
       "component": "Auth Broker",
-      "version": "digest identity",
-      "identity": "ghcr.io/tasuku43/tobari/auth-broker@sha256:a2df8169fd1b28ab67d42c83c5181714ce5373ab74fe9931e84ab4542dc97fb1",
+      "version": "unpublished V1 snapshot",
+      "identity": "unpublished",
       "authority": "internal/infra/runtimeassets/assets/versions.env"
     },
     {
@@ -50,22 +50,22 @@
   "schemas": [
     {
       "contract": "Agent help",
-      "version": 8,
+      "version": 1,
       "authority": "internal/cli/help.go"
     },
     {
       "contract": "Context manifest",
-      "version": 5,
+      "version": 1,
       "authority": "internal/domain/tobari/context.go"
     },
     {
       "contract": "Public Context report",
-      "version": 6,
+      "version": 1,
       "authority": "internal/cli/runtime_catalog.go"
     },
     {
       "contract": "Root index and Workspace instance",
-      "version": 2,
+      "version": 1,
       "authority": "internal/domain/tobari/project.go"
     },
     {
@@ -75,27 +75,27 @@
     },
     {
       "contract": "Normalized provider projection / reviewed built-in manifest",
-      "version": 2,
+      "version": 1,
       "authority": "internal/domain/authbroker/provider.go"
     },
     {
       "contract": "Project principal registry",
-      "version": 2,
+      "version": 1,
       "authority": "internal/infra/dockerruntime/principal_registry.go"
     },
     {
       "contract": "Gateway image API",
-      "version": 3,
+      "version": 1,
       "authority": "gateway/Dockerfile"
     },
     {
       "contract": "Gateway OPA input",
-      "version": 5,
+      "version": 1,
       "authority": "gateway/addon/tobari_gateway.py"
     },
     {
       "contract": "Auth Broker image API",
-      "version": 2,
+      "version": 1,
       "authority": "authbroker/Dockerfile"
     },
     {
