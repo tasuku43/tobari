@@ -6,7 +6,7 @@ and Homebrew tap repository remain maintainer-owned inputs; do not infer them.
 ## 1. Confirm the immutable source and external authorities
 
 ```sh
-cd /Users/tasuku/work/github.com/tasuku43/tobari
+cd "$(git rev-parse --show-toplevel)"
 test -z "$(git status --porcelain)"
 test "$(git branch --show-current)" = agent/reset-pre-public-contracts-v1
 source_revision=$(git rev-parse HEAD)
