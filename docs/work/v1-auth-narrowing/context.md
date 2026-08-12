@@ -2,19 +2,20 @@
 
 ## Verified current facts
 
-- Current built-ins cover GitHub, Chatwork, AWS, Datadog, OpenAI, and
-  helper-acquired static Anthropic credentials.
-- AWS, Datadog, and OpenAI introduce dynamic state, refresh or signing;
-  Anthropic adds exact-version helper acquisition; AWS also owns a resident
-  companion path. A static managed Gateway adapter duplicates brokered static
-  injection through a separate store and selector.
-- Auth vocabulary and implementation span domain plans, application login
-  inputs, CLI provider/help/fault contracts, provider manifests, host drivers,
-  Gateway adapter code, Auth Broker vault/control paths, Docker lifecycle,
-  doctor/status, embedded source snapshots, integration tests, images,
-  dependencies, release checks, and generated documentation.
-- GitHub already implements the intended fixed-command trusted-host acquisition
-  and stores a static primary secret through the broker.
+- The retained first-public V1 surface is GitHub trusted-host acquisition plus
+  strict owner static stdin import, status, logout, and static Broker handle
+  resolution.
+- AWS, Datadog, OpenAI, Anthropic, Chatwork, managed injection, companion,
+  refresh, signing, exact-version drivers, and their state/config selectors
+  have been removed. Strict decoding rejects their pre-public state shapes.
+- Auth Broker needs only its internal control attachment and Unix runtime
+  socket. It performs no provider network operation, so Gateway alone retains
+  the egress network used for an allowed application request.
+- Auth vocabulary and retained implementation still span domain plans,
+  application inputs, CLI help/fault contracts, strict provider manifests,
+  Gateway static adapter code, Auth Broker vault/control paths, Docker
+  lifecycle, status, embedded source snapshots, integration tests, images,
+  release checks, and generated documentation.
 
 ## Constraints
 

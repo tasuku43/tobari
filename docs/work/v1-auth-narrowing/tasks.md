@@ -38,7 +38,10 @@
       unowned dependencies/assets. Evidence: canonical Auth Broker and Gateway
       sources retain only static `primary_secret` header resolution; retired
       provider, refresh, signing, companion modules, dispatcher operations,
-      Docker image content, tests, and embedded snapshots are absent.
+      Docker image content, tests, and embedded snapshots are absent. The
+      static-only Broker now joins only the internal control network; Compose
+      and reconciliation no longer give it provider egress, while Gateway
+      alone retains the upstream egress interface.
 - [ ] Clarify brokered versus Workspace-owned authentication in all outputs.
 - [x] Synchronize canonical and embedded sources only after implementation
       stabilizes. Evidence: the repository sync scripts generated both embedded
@@ -55,7 +58,9 @@
       `x-tobari-credential-profile` selector fails before broker, OPA, fallback,
       or upstream processing.
 - [x] Run focused Go tests. Evidence: `go test ./internal/... ./cmd/tobari`
-      passed on 2026-08-12 after the Go vertical deletion.
+      passed on 2026-08-12 after the Go vertical deletion; after removing
+      dormant Broker egress, `go test ./internal/infra/dockerruntime
+      ./internal/infra/runtimeassets` passed on the integration branch.
 - [x] Review dependency, generated, and image-content diffs. Evidence: canonical
       and embedded source equality plus the Auth Broker image contract passed;
       retired runtime modules account for the dependency reduction. The local

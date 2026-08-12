@@ -98,6 +98,14 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 			t.Errorf("compose spec contains forbidden boundary %q", forbidden)
 		}
 	}
+	authBrokerStart := strings.Index(spec, "  auth-broker:\n")
+	gatewayStart := strings.Index(spec, "  gateway:\n")
+	if authBrokerStart < 0 || gatewayStart <= authBrokerStart {
+		t.Fatal("compose spec does not contain ordered Auth Broker and Gateway services")
+	}
+	if strings.Contains(spec[authBrokerStart:gatewayStart], "      egress: {}") {
+		t.Error("Auth Broker retained provider egress after the static-only V1 narrowing")
+	}
 }
 
 func TestComposeSpecCapsSharedServiceLogs(t *testing.T) {

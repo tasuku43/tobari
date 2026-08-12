@@ -71,7 +71,6 @@ services:
       - ${TOBARI_AUTH_RUNTIME_DIR}:/run/tobari-auth/runtime
     networks:
       control: {}
-      egress: {}
     labels:
       io.tobari.owner: default
       io.tobari.component: auth-broker

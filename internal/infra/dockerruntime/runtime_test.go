@@ -181,10 +181,9 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 		}
 	}
 	wantNetworkConnections := [][]string{
-		{"network", "connect", "--alias", "gateway", "tobari-control", gatewayContainer},
 		{"network", "connect", "--alias", "auth-broker", "tobari-control", authBrokerContainer},
+		{"network", "connect", "--alias", "gateway", "tobari-control", gatewayContainer},
 		{"network", "connect", "--alias", "gateway", "tobari-egress", gatewayContainer},
-		{"network", "connect", "--alias", "auth-broker", "tobari-egress", authBrokerContainer},
 	}
 	if len(runner.networkConnections) != len(wantNetworkConnections) {
 		t.Fatalf("shared network connections = %v", runner.networkConnections)
@@ -896,8 +895,8 @@ func TestEnsureAuthBrokerNetworkReconnectsAfterComposeReplacement(t *testing.T) 
 		networks  string
 		wantCalls int
 	}{
-		"already connected": {networks: `{"tobari-egress":{}}`, wantCalls: 1},
-		"reconnect":         {networks: `{"tobari-control":{}}`, wantCalls: 2},
+		"already connected": {networks: `{"tobari-control":{}}`, wantCalls: 1},
+		"reconnect":         {networks: `{}`, wantCalls: 2},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
@@ -906,14 +905,14 @@ func TestEnsureAuthBrokerNetworkReconnectsAfterComposeReplacement(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := runtime.ensureAuthBrokerNetwork(context.Background(), "tobari-egress"); err != nil {
+			if err := runtime.ensureAuthBrokerNetwork(context.Background(), "tobari-control"); err != nil {
 				t.Fatal(err)
 			}
 			if len(runner.outputs) != test.wantCalls {
 				t.Fatalf("Docker calls = %v, want %d", runner.outputs, test.wantCalls)
 			}
 			if test.wantCalls == 2 {
-				want := []string{"network", "connect", "--alias", "auth-broker", "tobari-egress", authBrokerContainer}
+				want := []string{"network", "connect", "--alias", "auth-broker", "tobari-control", authBrokerContainer}
 				if !slices.Equal(runner.outputs[1].args, want) {
 					t.Fatalf("reconnect argv = %v, want %v", runner.outputs[1].args, want)
 				}

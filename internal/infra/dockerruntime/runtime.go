@@ -507,13 +507,13 @@ func (r *Runtime) clusterUpWithProgressMode(
 	}
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressConnectNetworks, func() error {
+		if err := r.ensureAuthBrokerNetwork(ctx, "tobari-control"); err != nil {
+			recordAttemptError("Auth Broker did not rejoin the internal control network; inspect cluster status.")
+			return err
+		}
 		for _, sharedNetwork := range []string{"tobari-control", "tobari-egress"} {
 			if err := r.ensureGatewayNetwork(ctx, sharedNetwork); err != nil {
 				recordAttemptError("Gateway did not rejoin the shared cluster network; inspect cluster status.")
-				return err
-			}
-			if err := r.ensureAuthBrokerNetwork(ctx, sharedNetwork); err != nil {
-				recordAttemptError("Auth Broker did not rejoin the shared cluster network; inspect cluster status.")
 				return err
 			}
 		}
