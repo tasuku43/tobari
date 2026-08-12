@@ -31,7 +31,9 @@
 - [x] Render and inspect exact Docker read-only/read-write source mounts.
 - [x] Ensure no home, generated Git projection, profile, or other mount creates a writable
       source alias.
-- [x] Update context/status/list presentation and generated catalog data.
+- [x] Update context/status/list presentation and catalog source declarations.
+- [ ] Regenerate catalog-derived public architecture-site data after the
+      integration branch has combined all V1 catalog changes.
 - [ ] Update theses, product, architecture, security, threat model, harness,
       ADR, and readiness docs.
 
@@ -58,8 +60,10 @@
       ./internal/app/contextcmd ./internal/app/tobaricmd
       ./internal/infra/dockerruntime ./internal/cli` passed on 2026-08-12.
 - [ ] `task check` passes. Evidence: `mise exec -- task check:fast` passed on
-      2026-08-12 before the final focused-test additions; integration and full
-      check remain for the integration lane.
+      2026-08-12 before the final focused-test additions. A direct `task
+      check:fast` first failed preflight under Node 22/npm 10; `mise exec`
+      selected the repository-pinned Node 24/npm 11 toolchain. Integration and
+      full check remain for the integration lane.
 - [ ] `task security` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:
 
