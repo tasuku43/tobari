@@ -28,51 +28,51 @@ and security claims inside them are removed.
 
 ## Public contract removal
 
-- [ ] `policy compactions`, `policy compact`, their help, examples, dispatch,
+- [x] `policy compactions`, `policy compact`, their help, examples, dispatch,
       output envelope, faults, and recovery actions are removed.
-- [ ] The `policy-compaction` produced/consumed reference graph is absent, and
+- [x] The `policy-compaction` produced/consumed reference graph is absent, and
       every retained required-reference chain still leads to an invocable
       producer.
-- [ ] `auth login` accepts only explicit GitHub; AWS `--method`, provider
+- [x] `auth login` accepts only explicit GitHub; AWS `--method`, provider
       selector rows, dynamic-provider faults/recoveries, and companion status
       fields are removed.
-- [ ] Managed-adapter selectors, paths, fields, and help are removed rather than
+- [x] Managed-adapter selectors, paths, fields, and help are removed rather than
       deprecated or retained as internal configuration.
-- [ ] Implicit `api.github.com`, `example.com`, and `mock-upstream` Context
+- [x] Implicit `api.github.com`, `example.com`, and `mock-upstream` Context
       policy initialization is removed; no unnamed initial authority survives
       outside the selected preset snapshot.
-- [ ] Capability and schema ledgers record narrowed V1 state and reason.
-- [ ] The exact-V1 compatibility impact is explicit: development state from
+- [x] Capability and schema ledgers record narrowed V1 state and reason.
+- [x] The exact-V1 compatibility impact is explicit: development state from
       the old source snapshot is unsupported and is recreated, not migrated.
-- [ ] Negative tests prove every retired command, provider, plan kind, adapter,
+- [x] Negative tests prove every retired command, provider, plan kind, adapter,
       state field, and configuration selector is rejected with no undocumented
       fallback.
 
 ## Implementation and dependency removal
 
-- [ ] Compaction domain types, IDs, application ports/use cases,
+- [x] Compaction domain types, IDs, application ports/use cases,
       infrastructure grouping/activation paths, presentation, and tests are
       removed.
-- [ ] Context initialization generates policy only from the selected normalized
+- [x] Context initialization generates policy only from the selected normalized
       preset; embedded integration/example domains remain test fixtures only
       and cannot become production authority through a fallback.
-- [ ] Managed credential profile binding, storage, Gateway injection,
+- [x] Managed credential profile binding, storage, Gateway injection,
       configuration, policy input, mounts, and tests are removed.
-- [ ] AWS, Datadog, OpenAI, helper-acquired Anthropic, and Chatwork built-ins
+- [x] AWS, Datadog, OpenAI, helper-acquired Anthropic, and Chatwork built-ins
       plus dynamic plan, refresh, signing, and projection variants are removed.
-- [ ] AWS/Codex/Claude/Datadog host drivers, executable/version contracts,
+- [x] AWS/Codex/Claude/Datadog host drivers, executable/version contracts,
       provider-state parsers, network clients, PTY/shim code, and manual release
       checks are removed.
-- [ ] Companion application/infrastructure code, bridge/session crypto,
+- [x] Companion application/infrastructure code, bridge/session crypto,
       resident process, broker socket/API, status/doctor fields, image assets,
       environment values, and tests are removed.
-- [ ] Provider libraries, protocol helpers, transitive modules, imports,
+- [x] Provider libraries, protocol helpers, transitive modules, imports,
       generated files, image packages, and CI/release steps are removed when no
       retained capability owns them.
-- [ ] No dormant transport, raw route, helper ID, provider manifest field,
+- [x] No dormant transport, raw route, helper ID, provider manifest field,
       adapter selector, environment value, or legacy image can reactivate the
       retired behavior.
-- [ ] Documentation, repository-local Skills, generated architecture data, and
+- [x] Documentation, repository-local Skills, generated architecture data, and
       examples describe the retained product rather than the historical scope.
 
 ## Persisted state
@@ -94,13 +94,13 @@ legacy state.
 | GitHub static vault record and project handles | Yes | Recreate for exact V1 | Log in/import again after development-state recreation. Tests re-prove revision, rotation, logout, binding, and stale-handle rejection. |
 | Workspace-owned tool-native credential state | Yes | Explicit user choice | It is outside broker migration. Deleting a development Workspace removes its home; retaining unsupported old Workspace state is not a V1 compatibility guarantee. |
 
-- [ ] Cleanup instructions use only bounded existing actions from the old
+- [x] Cleanup instructions use only bounded existing actions from the old
       development snapshot plus explicit removal of the exact development
       installation/Context paths; no broad or inferred deletion target is
       introduced.
-- [ ] No dependency is retained only to decode, migrate, or delete legacy
+- [x] No dependency is retained only to decode, migrate, or delete legacy
       provider state.
-- [ ] Removed credentials cannot leak through cleanup errors, logs, fixtures,
+- [x] Removed credentials cannot leak through cleanup errors, logs, fixtures,
       public history, SBOMs, or release artifacts.
 
 ## Verification

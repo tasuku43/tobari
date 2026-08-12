@@ -62,18 +62,18 @@ security invariants.
 
 ## Contract and catalog
 
-- [ ] Add negative catalog tests for retired `policy compactions` and
+- [x] Add negative catalog tests for retired `policy compactions` and
       `policy compact` paths and the absent `policy-compaction` reference kind.
-- [ ] Remove compaction command specs, routing, handlers, faults, presentation,
+- [x] Remove compaction command specs, routing, handlers, faults, presentation,
       generated entries, and reference-flow edges.
-- [ ] Make `auth login --provider github` the sole helper-backed login contract;
+- [x] Make `auth login --provider github` the sole helper-backed login contract;
       remove provider omission/selector behavior and `--method`.
-- [ ] Remove AWS, Datadog, OpenAI, Anthropic, and Chatwork provider choices,
+- [x] Remove AWS, Datadog, OpenAI, Anthropic, and Chatwork provider choices,
       provider-specific output fields, faults, recovery actions, and help.
-- [ ] Clarify in root/scoped help, `auth status`, Context/status output, and
+- [x] Clarify in root/scoped help, `auth status`, Context/status output, and
       documentation that tool-native credentials are Workspace-owned and
       `auth` commands report brokered credentials only.
-- [ ] Update `.harness/capabilities.json`, schema/claim ledgers, catalog-derived
+- [x] Update `.harness/capabilities.json`, schema/claim ledgers, catalog-derived
       architecture data, and negative fallback checks.
 - [x] Complete `context-source-access` catalog/report work and its integration
       evidence. Evidence: the integration journey checks one selected live
@@ -90,46 +90,46 @@ security invariants.
 
 ## Static broker core
 
-- [ ] Add contract tests that accept only static primary-secret provider plans,
+- [x] Add contract tests that accept only static primary-secret provider plans,
       one GitHub helper ID, and strict non-executable owner schema V1.
-- [ ] Preserve and re-prove project-specific handle issuance, exact Context,
+- [x] Preserve and re-prove project-specific handle issuance, exact Context,
       project, provider, revision, target, source-binding and header-binding
       validation, rotation, revocation, and re-entry behavior.
-- [ ] Preserve and re-prove handle removal before OPA, zero secret resolution
+- [x] Preserve and re-prove handle removal before OPA, zero secret resolution
       on deny, one resolution after allow, exact replacement, and no malformed-
       handle forwarding or fallback.
-- [ ] Preserve and re-prove root-key/vault integrity, locked startup, encrypted
+- [x] Preserve and re-prove root-key/vault integrity, locked startup, encrypted
       static credential records, secret-free logs/output, and synthetic-only
       fixtures.
-- [ ] Retain the GitHub fixed-argv, private-home, digest-stability, bounded-
+- [x] Retain the GitHub fixed-argv, private-home, digest-stability, bounded-
       output, browser-handoff, cancellation, and cleanup contract without an
       exact version string.
-- [ ] Retain protected non-terminal stdin import and reject terminal input
+- [x] Retain protected non-terminal stdin import and reject terminal input
       before reading a byte.
 
 ## Retirement implementation
 
-- [ ] Remove the static managed Gateway adapter, its selection, Context paths,
+- [x] Remove the static managed Gateway adapter, its selection, Context paths,
       policy fields, secret mounts, profile injection, documentation, and tests.
-- [ ] Remove AWS companion execution, credential export, SigV4 signing,
+- [x] Remove AWS companion execution, credential export, SigV4 signing,
       identity-center/console login drivers, and provider state.
-- [ ] Remove Datadog OAuth acquisition/refresh and its token endpoint client.
-- [ ] Remove OpenAI Codex OAuth, Anthropic Claude setup-token acquisition,
+- [x] Remove Datadog OAuth acquisition/refresh and its token endpoint client.
+- [x] Remove OpenAI Codex OAuth, Anthropic Claude setup-token acquisition,
       exact-version drivers, PTY/shim contracts, and provider state.
-- [ ] Remove built-in Chatwork while preserving the generic owner static
+- [x] Remove built-in Chatwork while preserving the generic owner static
       manifest boundary.
-- [ ] Remove the companion bridge, encrypted session protocol, resident host
+- [x] Remove the companion bridge, encrypted session protocol, resident host
       process, cluster/doctor state, runtime assets, and environment values.
-- [ ] Remove policy compaction domain/application/infrastructure state and
+- [x] Remove policy compaction domain/application/infrastructure state and
       source forms while preserving exact learned allow/deny and batch review.
-- [ ] Remove every dependency, fixture, generated file, image package, build
+- [x] Remove every dependency, fixture, generated file, image package, build
       step, and manual release check that no retained capability owns.
-- [ ] Complete every public-contract, dependency, fallback, and persisted-state
+- [x] Complete every public-contract, dependency, fallback, and persisted-state
       item in `capability-retirement.md`.
 
 ## Runtime and security contracts
 
-- [ ] Keep direct binding while adding immutable Context-selected read-only or
+- [x] Keep direct binding while adding immutable Context-selected read-only or
       read-write access; add negative claims for clone/overlay/snapshot and
       whole-Workspace read-only semantics.
 - [x] Keep Docker-only runtime, fixed CPU/memory/PID limits, and shared
@@ -137,16 +137,16 @@ security invariants.
       companion. Evidence: the integration journey retains resource/topology
       assertions, requires Auth Broker control-only attachment, forbids its
       egress attachment, and rejects the retired companion status field.
-- [ ] Keep transparent HTTP/HTTPS, synthetic non-recursive DNS, lazy upstream,
+- [x] Keep transparent HTTP/HTTPS, synthetic non-recursive DNS, lazy upstream,
       public-address pinning, no raw-protocol fallback, and guarded project
       principal derivation unchanged.
-- [ ] Enforce preset guardrails before baseline grants, learned rules, and
+- [x] Enforce preset guardrails before baseline grants, learned rules, and
       Advanced Rego; prove `offline` and non-GET denial are terminal and perform
       no DNS, credential resolution, upstream, or candidate creation.
-- [ ] Update exact-effect wording and add negative tests proving ordinary body,
+- [x] Update exact-effect wording and add negative tests proving ordinary body,
       query/header values, GraphQL arguments/variables, and provider business
       semantics are not claimed as permission identity.
-- [ ] Re-run threat analysis for the smaller shared Broker/Gateway blast radius
+- [x] Re-run threat analysis for the smaller shared Broker/Gateway blast radius
       and confirm no removed code leaves a callable secret or network path.
 
 ## Release
@@ -161,36 +161,45 @@ security invariants.
       checksums, SBOMs, provenance, and release metadata agree.
 - [ ] Publish and verify the documented Homebrew formula from a clean host;
       record install, version, doctor, and uninstall observations.
-- [ ] Update README, security, public-repository, release, and installation
+- [x] Update README, security, public-repository, release, and installation
       claims from executable/machine-readable sources where available.
 
 ## Verify
 
-- [ ] Focused tests pass. Evidence:
-- [ ] `task check` passes. Evidence:
-- [ ] `task security` passes. Evidence:
+- [x] Focused tests pass. Evidence: packet-local Go, OPA, Gateway, Auth Broker,
+      release-artifact, catalog, source-equality, and site checks are recorded
+      in the child packets.
+- [x] `task check` passes. Evidence: `mise exec -- task check` passed on
+      integrated V1 HEAD on 2026-08-12, including race and Playwright 40/40.
+- [x] `task security` passes. Evidence: `mise exec -- task security` passed on
+      the same HEAD.
 - [ ] `task public:check` passes. Evidence:
 - [ ] `task release:check` passes. Evidence:
 - [ ] Runtime-only behavior is observed on every required platform. Evidence:
-- [ ] The relevant agent-readiness scenario meets the scoped-help discovery
-      budget and zero external-processing contract. Evidence:
+- [x] The relevant agent-readiness scenario meets the scoped-help discovery
+      budget and zero external-processing contract. Evidence: catalog-derived
+      root/scoped help exposes exact selectors, defaults, fields, faults, and
+      recoveries; the retained readiness journey requires no source inspection
+      or undeclared join.
 - [ ] GitHub login and static import have a human-handoff scorecard with
       safety/certainty rationale. Evidence:
 - [ ] Deny/review/allow/manual-retry, static broker, rotation/logout/re-entry,
       clean install, and Homebrew observations are recorded without secrets.
       Evidence:
-- [ ] Generated diff, dependency diff, release artifact set, and repository
-      status are understood. Evidence:
+- [x] Generated diff, dependency diff, release artifact set, and repository
+      status are understood. Evidence: source-fixed site data, 34-command
+      catalog, schema/capability ledgers, no new dependency, and exact synthetic
+      release inventory were reviewed on the integration branch.
 
 ## Hand off
 
 - [ ] Acceptance criteria have evidence.
 - [ ] Goal status is changed to `Complete` only after every goal and task
       checkbox is complete.
-- [ ] Durable decisions are promoted out of this work packet.
+- [x] Durable decisions are promoted out of this work packet.
 - [ ] Temporary diagnostics, old development state, and sensitive artifacts
       are removed.
-- [ ] Clone/overlay, configurable resources, permission leases, MCP,
+- [x] Clone/overlay, configurable resources, permission leases, MCP,
       microVM/remote backends, and service fairness remain explicit non-goals;
       none silently blocks this release.
 - [ ] Handoff explains the retained product, removed surface, release evidence,
