@@ -259,8 +259,11 @@ private URL is committed.
    design gate and durable ADR before implementing either new axis.
 2. **Parallel Context capabilities.** Implement
    [context-source-access](../context-source-access/plan.md) independently;
-   retire compaction, then implement [policy-presets](../policy-presets/plan.md)
-   against the exact-rule-only source model.
+   complete [policy-compaction-retirement](../policy-compaction-retirement/plan.md),
+   then implement [policy-presets](../policy-presets/plan.md) against the
+   exact-rule-only source model. Run
+   [v1-auth-narrowing](../v1-auth-narrowing/plan.md) independently after the
+   common Context decision.
 3. **Durable V1 scope and claim.** Add one ADR that supersedes the dynamic
    portions of ADRs 0020, 0021, 0023, and 0025; revises ADRs 0009 and 0019;
    retires policy compaction; and records the exact retained surface. Propagate
@@ -275,10 +278,13 @@ private URL is committed.
 6. **Integrated policy and runtime reconciliation.** Keep exact learned rules
    and batch review below preset guardrails, update cluster/doctor/status
    reports, and prove both direct source-access modes and shared services.
-7. **Executable documentation and release artifacts.** Regenerate catalog,
-   schemas, capability claims, architecture site, and release docs; publish and
-   pin component images; build CLI archives, checksums, SBOMs, signatures or
-   attestations, and provenance; publish the GitHub Release and Homebrew path.
+7. **Executable documentation and release artifacts.** Complete
+   [first-public-release-artifacts](../first-public-release-artifacts/plan.md):
+   regenerate catalog, schemas, capability claims, architecture site, and
+   release docs; prepare image, CLI archive, checksum, SBOM, provenance, and
+   Homebrew automation locally; then stop at the explicit publication approval
+   checkpoint before any push, tag, OCI publication, GitHub Release, or tap
+   update.
 
 Each slice must keep the repository buildable. Contract-deletion tests land
 with the corresponding removal rather than leaving a hidden fallback between
@@ -299,13 +305,13 @@ implementation          │                         and companion removal
                     integrated Context/policy/security verification
                                        │
                                        ▼
-                 Gateway/Auth Broker source snapshots and OCI indexes
+                 Gateway/Auth Broker canonical source finalization
                                        │
                                        ▼
-                 CLI artifacts → SBOM/provenance → GitHub Release
+               release artifact preparation and synthetic dry run
                                        │
                                        ▼
-                              clean Homebrew install
+                         publication approval checkpoint
 ```
 
 The envelope ADR is the first decision gate. Source access can then proceed in

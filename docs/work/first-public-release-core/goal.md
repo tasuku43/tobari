@@ -8,8 +8,16 @@
 - Successor: None
 - Owner: Tobari maintainers
 - Target: First public V1 release
-- Related ADRs: ADRs 0009, 0010, 0016, 0019, 0020, 0021, 0023, 0025, 0026, 0027, and 0028
-- Related work: [Context capability envelope](../context-capability-envelope/goal.md), [Context source access](../context-source-access/goal.md), and [policy presets](../policy-presets/goal.md)
+- Related ADRs: ADRs 0009, 0010, 0016, 0019, 0020,
+  `0021-add-datadog-pup-oauth.md`,
+  `0021-context-owned-narrow-host-projections.md`, 0023, 0025, 0026, 0027,
+  and 0028
+- Related work: [Context capability envelope](../context-capability-envelope/goal.md),
+  [Context source access](../context-source-access/goal.md),
+  [policy compaction retirement](../policy-compaction-retirement/goal.md),
+  [policy presets](../policy-presets/goal.md),
+  [V1 authentication narrowing](../v1-auth-narrowing/goal.md), and
+  [release artifacts](../first-public-release-artifacts/goal.md)
 
 ## Outcome
 

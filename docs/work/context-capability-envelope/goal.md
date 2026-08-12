@@ -10,7 +10,9 @@
 - Target: Before first public V1 release
 - Related ADRs: ADR 0010, ADR 0013, ADR 0018, ADR 0026, ADR 0027, and ADR 0028
 - Parent: [First public release core](../first-public-release-core/goal.md)
-- Children: [Context source access](../context-source-access/goal.md) and [policy presets](../policy-presets/goal.md)
+- Children: [Context source access](../context-source-access/goal.md),
+  [policy compaction retirement](../policy-compaction-retirement/goal.md), and
+  [V1 authentication narrowing](../v1-auth-narrowing/goal.md)
 
 ## Outcome
 

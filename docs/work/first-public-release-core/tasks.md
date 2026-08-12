@@ -5,7 +5,10 @@
 - Retirement record: [capability-retirement.md](capability-retirement.md)
 - Context decision: [context-capability-envelope](../context-capability-envelope/tasks.md)
 - Source access: [context-source-access](../context-source-access/tasks.md)
+- Policy compaction retirement: [policy-compaction-retirement](../policy-compaction-retirement/tasks.md)
 - Policy presets: [policy-presets](../policy-presets/tasks.md)
+- Authentication narrowing: [v1-auth-narrowing](../v1-auth-narrowing/tasks.md)
+- Release artifacts: [first-public-release-artifacts](../first-public-release-artifacts/tasks.md)
 
 Use checkboxes for atomic work and add evidence after completion. This file
 tracks execution; it does not override the goal, context, plan, theses, or

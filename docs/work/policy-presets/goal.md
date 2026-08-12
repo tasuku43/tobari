@@ -10,6 +10,7 @@
 - Target: Before first public V1 release
 - Related ADRs: ADR 0013, ADR 0018, ADR 0024, ADR 0026, ADR 0027, and ADR 0028
 - Parent: [Context capability envelope](../context-capability-envelope/goal.md)
+- Prerequisite: [Policy compaction retirement](../policy-compaction-retirement/goal.md)
 - Related retirement: [V1 capability retirement](../first-public-release-core/capability-retirement.md)
 
 ## Outcome
