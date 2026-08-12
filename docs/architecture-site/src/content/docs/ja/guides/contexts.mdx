@@ -26,12 +26,37 @@ tobari context show
 
 ## Context を作成する
 
-別のガイド付き Context を作ります。
+別のガイド付き Context を作り、V1 の二つの不変な capability を明示します。
 
 ```sh
-tobari context create --name review --mode guided
+tobari context create --name review --mode guided \
+  --source-access read-only \
+  --policy-preset builtin/offline
 tobari context show --name=review
 ```
+
+保存する manifest では `source_access` が必須です。CLI で省略した場合は
+`read-write` です。`read-only` が読み取り専用にするのは、選択したプロジェクトソースの
+live bind 一つだけです。Workspace home と runtime `tmpfs` は書き込み可能なままで、
+clone、snapshot、overlay、Workspace 全体の読み取り専用境界を意味しません。ホストや同じ
+root の read-write Context による変更は read-only Context からも見えます。その source
+bind に書き込み可能な別名はありません。
+
+`policy_preset_origin` と `policy_preset_revision` も保存時の必須項目です。CLI の省略値は
+`builtin/reviewed-exact` です。作成時に preset を正規化、検証、digest 化、snapshot 化し、
+元の custom preset を後から更新しても既存 Context には反映しません。source access と
+preset snapshot は作成後に変更できません。
+
+| Preset                      | 即時許可 | review の対象                                        | 終端 guardrail                     |
+| --------------------------- | -------- | ---------------------------------------------------- | ---------------------------------- |
+| `builtin/offline`           | なし     | なし                                                 | すべての HTTP/HTTPS effect         |
+| `builtin/reviewed-exact`    | なし     | 対象 effect を完全一致候補として review できる       | guardrail が除外する effect        |
+| `builtin/get-only-reviewed` | なし     | 対象 `GET` effect を完全一致候補として review できる | `HEAD` とすべての non-`GET` effect |
+
+最後の preset でも `GET` は method 座標にすぎず、安全または読み取り専用とは表現しません。
+agent/model provider 通信の暗黙 bypass もありません。custom preset は owner-only の厳格な
+非実行データです。wildcard、IP/private destination、secret、shell、Rego、include、
+inheritance、remote fetch、refresh、signing は V1 の対象外です。
 
 作成時に所有者だけがアクセスできる Context 保存領域を初期化しますが、Docker の起動、既存 Workspace の変更、共有集約ポリシーの更新は行いません。クラスターがすでに存在する場合、結果には明示的な調整が必要であることが示されます。
 
@@ -101,7 +126,7 @@ tobari context shell configure --context review --variable TERM --source default
 
 ## 保証と制限
 
-Context の結び付けは安定しており、ホストが所有します。呼び出し元が指定したヘッダーや表示名で権限を切り替えることはできません。Context はポリシー、ホーム、ランタイム選択、プリンシパル、認証情報ハンドルを分けます。一方、同じホストディレクトリに対するファイル変更は分離しません。また、すべての Context が同じ信頼するクラスターサービスを利用します。
+Context の結び付けは安定しており、ホストが所有します。呼び出し元が指定したヘッダーや表示名で権限を切り替えることはできません。Context はポリシー、ホーム、ランタイム選択、プリンシパル、認証情報ハンドルを分けます。一方、同じホストディレクトリに対するファイル変更は分離しません。また、すべての Context が同じ信頼するクラスターサービスを利用します。source access は選択した bind 一つの属性であり、別の writer がホストソースを変更できないという保証ではありません。
 
 ## 根拠となるソース
 

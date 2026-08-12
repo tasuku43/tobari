@@ -64,7 +64,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         id: "broker",
         label: "Auth Broker",
-        detail: "Keeps and resolves broker-managed credentials after allow.",
+        detail: "Keeps and resolves static brokered credentials after allow.",
         kind: "secret",
       },
       {

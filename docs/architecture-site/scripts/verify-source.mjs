@@ -25,6 +25,77 @@ const evidenceLinks = new Map();
 const universalQuestionOpening =
   /^##\s+(?:(?:The question this (?:page|guide) answers)|(?:What question does this page answer\?)|(?:この(?:ページ|ガイド)で答える問い))\s*$/m;
 
+const v1Sources = {
+  contexts: await readFile(
+    join(root, "src/content/docs/guides/contexts.mdx"),
+    "utf8",
+  ),
+  contextsJa: await readFile(
+    join(root, "src/content/docs/ja/guides/contexts.mdx"),
+    "utf8",
+  ),
+  auth: await readFile(
+    join(root, "src/content/docs/guides/authentication.mdx"),
+    "utf8",
+  ),
+  providerPairs: await readFile(
+    join(root, "src/data/providerToolSupport.ts"),
+    "utf8",
+  ),
+  credentialMap: await readFile(
+    join(root, "src/data/credentialArchitecture.ts"),
+    "utf8",
+  ),
+  sequences: await readFile(join(root, "src/data/sequences.ts"), "utf8"),
+};
+
+for (const required of [
+  "--source-access read-only",
+  "read-write",
+  "builtin/offline",
+  "builtin/reviewed-exact",
+  "builtin/get-only-reviewed",
+]) {
+  if (
+    !v1Sources.contexts.includes(required) ||
+    !v1Sources.contextsJa.includes(required)
+  ) {
+    errors.push(
+      `Context capability documentation is missing ${required} in one locale`,
+    );
+  }
+}
+if (!v1Sources.auth.includes("auth login --provider github")) {
+  errors.push(
+    "authentication guide must show explicit built-in GitHub selection",
+  );
+}
+for (const retired of [
+  "aws-brokered-allowed",
+  "datadog-refresh-allowed",
+  "credential-outcome-unknown",
+  "Host credential companion",
+  "Datadog token endpoint",
+]) {
+  if (
+    v1Sources.sequences.includes(retired) ||
+    v1Sources.credentialMap.includes(retired)
+  ) {
+    errors.push(
+      `current V1 diagrams retain retired credential path: ${retired}`,
+    );
+  }
+}
+for (const retiredProvider of [
+  'providerId: "aws"',
+  'providerId: "datadog"',
+  'providerId: "chatwork"',
+]) {
+  if (v1Sources.providerPairs.includes(retiredProvider)) {
+    errors.push(`current V1 provider map retains ${retiredProvider}`);
+  }
+}
+
 async function filesBelow(directory) {
   const result = [];
   for (const entry of await readdir(directory)) {

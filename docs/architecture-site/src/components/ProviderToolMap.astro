@@ -20,20 +20,20 @@ const ui = isJapanese
   ? {
       eyebrow: "選択モデル",
       intro:
-        "概念上はプロバイダーを選び、次にそのプロバイダーで使う Workspace 内のクライアントツールを選びます。現在は各組に対応するツールが一つだけなので、候補を表示したうえで自動的に選択します。",
+        "プロバイダーと Workspace 内のクライアントツールは別の概念です。first public V1 の組み込み取得処理は GitHub と gh の一組だけです。",
       stepProvider: "プロバイダー",
       stepProviderDetail: "認証情報を発行・管理する外部サービスを選ぶ",
       stepTool: "ツール",
-      stepToolDetail:
-        "Workspace で使うクライアントツール。現在は一つなので自動選択",
+      stepToolDetail: "Workspace で使うクライアントツールは gh に固定",
       stepMethod: "取得方法",
-      stepMethodDetail: "必要な場合だけログイン／インポート方式を選ぶ",
+      stepMethodDetail:
+        "GitHub は固定デバイスフロー。独自プロバイダーは標準入力からインポート",
       provider: "プロバイダー",
       tool: "ツール · 自動選択",
       pairing: "現在は 1 対 1",
       login: "対話ログイン",
       import: "標準入力からインポート",
-      note: "CLI が求めるのはプロバイダーです。ツールとプロバイダーは別の概念ですが、現在は組み合わせに曖昧さがないため、--tool や二度目の選択操作はありません。AWS の identity-center / console はツールではなく取得方法です。",
+      note: "組み込みログインは auth login --provider github の明示指定が必須です。プロバイダー選択メニュー、--tool、別の組み込み取得方法はありません。owner manifest は静的なインポートと配置を宣言できますが、クライアントツールを信頼済み実行コードにはしません。",
       authority:
         "この対応関係は認証情報の使い方を選ぶだけです。プロバイダー、ツール、ログイン方式のどれも OPA の通信許可を追加しません。",
       mapLabel:
@@ -42,21 +42,21 @@ const ui = isJapanese
   : {
       eyebrow: "Selection model",
       intro:
-        "Conceptually, choose a Provider and then the Workspace client tool that uses it. Every current pairing has one supported tool, so Tobari shows that tool and selects it automatically.",
+        "Provider and Workspace client tool remain separate concepts. First public V1 has one built-in acquisition pairing: GitHub with gh.",
       stepProvider: "Provider",
       stepProviderDetail:
         "Choose the external service or authority that owns the credential",
       stepTool: "Tool",
-      stepToolDetail:
-        "Choose the Workspace client; today the sole tool is automatic",
+      stepToolDetail: "The fixed Workspace client for the built-in is gh",
       stepMethod: "Acquisition",
-      stepMethodDetail: "Choose a login or import method only when needed",
+      stepMethodDetail:
+        "GitHub uses one fixed device flow; custom providers use stdin import",
       provider: "Provider",
       tool: "Tool · automatically selected",
       pairing: "Currently one-to-one",
       login: "Interactive login",
       import: "stdin import",
-      note: "The CLI asks for the Provider. Tool and Provider remain separate concepts, but there is no --tool or second prompt while every current pairing is unambiguous. AWS identity-center / console are acquisition methods, not tools.",
+      note: "Built-in login requires explicit auth login --provider github. There is no provider menu, --tool, or other built-in acquisition method. An owner manifest may declare static import and projection, but it cannot turn a client tool into trusted executable authority.",
       authority:
         "This pairing selects how credential material is used. Provider, Tool, and login method add no OPA network permission.",
       mapLabel:

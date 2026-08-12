@@ -26,12 +26,41 @@ The display name is convenient selection text. The stable Context ID is the dura
 
 ## Create a Context
 
-Create a separate guided Context:
+Create a separate guided Context and make its two immutable V1 capability
+choices explicit:
 
 ```sh
-tobari context create --name review --mode guided
+tobari context create --name review --mode guided \
+  --source-access read-only \
+  --policy-preset builtin/offline
 tobari context show --name=review
 ```
+
+`source_access` is required in the persisted manifest. The CLI omission default
+is `read-write`; `read-only` makes only the selected live project-source bind
+read-only. Workspace home and runtime `tmpfs` remain writable, and Tobari does
+not claim a clone, snapshot, overlay, or whole-Workspace read-only boundary.
+Host changes—and changes made through a read-write Context for the same
+root—remain visible to a read-only Context. There is no writable alias for that
+source bind.
+
+`policy_preset_origin` and `policy_preset_revision` are also required persisted
+fields. The CLI omission default is `builtin/reviewed-exact`. Creation
+normalizes, validates, digests, and snapshots the preset; later edits to a
+custom preset source do not alter this Context. Source access and the preset
+snapshot cannot be changed after creation.
+
+| Preset                      | Immediate grants | Review eligibility                                        | Terminal guardrail                |
+| --------------------------- | ---------------- | --------------------------------------------------------- | --------------------------------- |
+| `builtin/offline`           | None             | None                                                      | Every HTTP and HTTPS effect       |
+| `builtin/reviewed-exact`    | None             | Eligible effects may become exact review candidates       | Effects excluded by its guardrail |
+| `builtin/get-only-reviewed` | None             | Eligible `GET` effects may become exact review candidates | `HEAD` and every non-`GET` effect |
+
+`GET` is only a method coordinate in the last preset; Tobari does not call it
+safe or read-only. No preset creates an implicit bypass for agent or model
+provider traffic. A custom preset is strict owner-only, non-executable data;
+wildcards, IP/private destinations, secrets, shell, Rego, includes,
+inheritance, remote fetch, refresh, and signing are outside V1.
 
 Creation initializes owner-only Context stores but does not start Docker, mutate existing Workspaces, or update the shared aggregate. If a cluster already exists, the result reports that explicit reconciliation is required:
 
@@ -101,7 +130,7 @@ Re-enter the Workspace to start a new shell after changing a setting. Existing p
 
 ## Guarantees and limits
 
-Context binding is stable and host-owned; a caller-supplied header or display name cannot switch authority. Contexts isolate policy, home, runtime selection, principals, and credential handles. They do not isolate mutations to the same overlapping host directory, and they all use the same trusted cluster services.
+Context binding is stable and host-owned; a caller-supplied header or display name cannot switch authority. Contexts isolate policy, home, runtime selection, principals, and credential handles. They do not isolate mutations to the same overlapping host directory, and they all use the same trusted cluster services. Source access is a property of one selected bind, not a promise that other writers cannot change the host source.
 
 ## Source evidence
 
