@@ -9,15 +9,17 @@ on:
       - scripts/check-gateway-source.sh
       - scripts/sync-gateway-source.sh
       - .github/workflows/gateway-image.yml
-  push:
-    branches: [main]
-    paths:
-      - gateway/**
-      - internal/infra/runtimeassets/assets/gateway/**
-      - internal/infra/runtimeassets/assets/versions.env
-      - scripts/check-gateway-source.sh
-      - scripts/sync-gateway-source.sh
-      - .github/workflows/gateway-image.yml
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "Full reviewed source commit"
+        required: true
+        type: string
+      publish:
+        description: "Publish the immutable component image after protected-environment approval"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -29,12 +31,22 @@ concurrency:
 jobs:
   validate:
     name: Build and verify Gateway image
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.publish == false)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.revision || github.sha }}
           persist-credentials: false
+
+      - name: Validate manually requested revision
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          COMPONENT_REVISION: ${{ inputs.revision }}
+        shell: bash
+        run: |
+          [[ "$COMPONENT_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$COMPONENT_REVISION"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -54,6 +66,7 @@ jobs:
           mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
           test -n "$mitmproxy_image"
           [[ "$mitmproxy_image" == *@sha256:* ]]
+          revision=$(git rev-parse HEAD)
           builder="tobari-gateway-${GITHUB_RUN_ID}"
           docker buildx create --name "$builder" --driver docker-container --use
           trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
@@ -62,22 +75,32 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             --file gateway/Dockerfile \
             --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" \
-            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.revision=$revision" \
             --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --output type=cacheonly \
             gateway
 
   publish:
     name: Publish Gateway image
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == true
     runs-on: ubuntu-latest
+    environment: release-publication
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.revision }}
           persist-credentials: false
+
+      - name: Validate requested revision
+        env:
+          COMPONENT_REVISION: ${{ inputs.revision }}
+        shell: bash
+        run: |
+          [[ "$COMPONENT_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$COMPONENT_REVISION"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -106,6 +129,7 @@ jobs:
         run: |
           set -euo pipefail
           image="ghcr.io/${IMAGE_OWNER,,}/tobari/gateway"
+          revision=$(git rev-parse HEAD)
           mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
           test -n "$mitmproxy_image"
           [[ "$mitmproxy_image" == *@sha256:* ]]
@@ -113,7 +137,7 @@ jobs:
           docker buildx create --name "$builder" --driver docker-container --use
           trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
           docker buildx inspect --bootstrap
-          if docker buildx imagetools inspect "$image:sha-$GITHUB_SHA" >/dev/null 2>&1; then
+          if docker buildx imagetools inspect "$image:sha-$revision" >/dev/null 2>&1; then
             echo "immutable Gateway tag already exists; refusing to overwrite it" >&2
             exit 1
           fi
@@ -121,15 +145,17 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             --file gateway/Dockerfile \
             --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" \
-            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.revision=$revision" \
             --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --label "org.opencontainers.image.version=main-${GITHUB_SHA:0:12}" \
+            --label "org.opencontainers.image.version=main-${revision:0:12}" \
+            --sbom=true \
+            --provenance=mode=max \
             --tag "$image:latest" \
             --tag "$image:main" \
-            --tag "$image:sha-$GITHUB_SHA" \
+            --tag "$image:sha-$revision" \
             --push \
             gateway
-          inspect_json=$(docker buildx imagetools inspect "$image:sha-$GITHUB_SHA" --format '{{json .}}')
+          inspect_json=$(docker buildx imagetools inspect "$image:sha-$revision" --format '{{json .}}')
           index_digest=$(printf '%s' "$inspect_json" | jq -er '.manifest.digest')
           media_type=$(printf '%s' "$inspect_json" | jq -er '.manifest.mediaType')
           platforms=$(printf '%s' "$inspect_json" | jq -r '
@@ -144,11 +170,28 @@ jobs:
             tag_digest=$(docker buildx imagetools inspect "$image:$tag" --format '{{json .}}' | jq -er '.manifest.digest')
             test "$tag_digest" = "$index_digest"
           done
+          docker buildx imagetools inspect "$image@$index_digest" --format '{{ json .SBOM }}' > gateway.sbom.spdx.json
+          docker buildx imagetools inspect "$image@$index_digest" --format '{{ json .Provenance }}' > gateway.provenance.slsa.json
+          jq -e 'type == "object" and length > 0' gateway.sbom.spdx.json >/dev/null
+          jq -e 'type == "object" and length > 0' gateway.provenance.slsa.json >/dev/null
+          jq -n --arg image "$image" --arg digest "$index_digest" --arg revision "$revision" \
+            '{schema_version:1,image:$image,digest:$digest,revision:$revision,platforms:["linux/amd64","linux/arm64"],sbom:"gateway.sbom.spdx.json",provenance:"gateway.provenance.slsa.json"}' \
+            > gateway.component.json
           {
             echo "### Gateway image"
             echo
-            echo "- source revision: $GITHUB_SHA"
+            echo "- source revision: $revision"
             echo "- manifest digest: $index_digest"
             echo "- platforms: $platforms"
             echo "- immutable reference: $image@$index_digest"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verified Gateway component evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gateway-component-${{ inputs.revision }}
+          path: |
+            gateway.component.json
+            gateway.sbom.spdx.json
+            gateway.provenance.slsa.json
+          if-no-files-found: error

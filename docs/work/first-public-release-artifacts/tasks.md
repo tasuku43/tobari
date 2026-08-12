@@ -20,8 +20,13 @@
 
 - [ ] Finalize canonical/embedded Gateway and Auth Broker source snapshots only
       after auth/policy integration.
-- [ ] Add deterministic component image metadata, SBOM, and provenance
-      generation with reviewed permissions/dependencies.
+- [x] Add deterministic component image metadata, SBOM, and provenance
+      generation with reviewed permissions/dependencies. Evidence: Gateway and
+      Auth Broker publication are manual exact-revision workflows behind the
+      protected `release-publication` environment; BuildKit attaches SBOM and
+      max-mode provenance to both-platform OCI indexes, the workflows inspect
+      the immutable digest and upload validated metadata/SBOM/provenance as one
+      component evidence artifact, and no Action/dependency was added.
 - [x] Add CLI archive SBOM/provenance generation and subject checks. Evidence:
       standard-library `tools/releaseartifacts` creates and verifies exact
       SHA-256, SPDX 2.3, and unsigned in-toto/SLSA metadata with separate

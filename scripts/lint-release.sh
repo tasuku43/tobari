@@ -97,6 +97,18 @@ if grep -qE '^  push:' .github/workflows/release.yml; then
   echo "release workflow must not publish implicitly from a pushed tag" >&2
   exit 1
 fi
+for component_workflow in .github/workflows/gateway-image.yml .github/workflows/authbroker-image.yml; do
+  if grep -qE '^  push:' "$component_workflow"; then
+    echo "$component_workflow must not publish implicitly from a main-branch push" >&2
+    exit 1
+  fi
+  for required in 'workflow_dispatch:' 'revision:' 'publish:' 'environment: release-publication' '--sbom=true' '--provenance=mode=max' 'component evidence'; do
+    if ! grep -qF -- "$required" "$component_workflow"; then
+      echo "$component_workflow is missing protected component evidence: $required" >&2
+      exit 1
+    fi
+  done
+done
 
 for forbidden in 'git describe' '{{.VERSION}}' '{{.COMMIT}}'; do
   if grep -qF "$forbidden" Taskfile.yml; then
