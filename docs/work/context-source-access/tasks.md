@@ -69,9 +69,11 @@
 - [x] Focused tests pass. Evidence: `go test ./internal/domain/tobari
       ./internal/app/contextcmd ./internal/app/tobaricmd
       ./internal/infra/dockerruntime ./internal/cli` passed on 2026-08-12.
-- [ ] `task check` passes. Evidence: `mise exec -- task check:fast` passed on
-      2026-08-12 on the integrated V1 branch after the final integration-script
-      changes. Full check and a functioning Docker runtime remain required.
+- [x] `task check` passes. Evidence: `mise exec -- task check` passed on
+      2026-08-12 on integrated V1 HEAD, including all Go tests with race,
+      catalog/source/generated checks, both site builds, and Playwright 40/40.
+      Supported-platform bind behavior remains separately pending under the
+      live integration assertions above.
 - [x] `task security` passes. Evidence: `mise exec -- task security` passed on
       the integrated V1 branch on 2026-08-12.
 - [ ] `task public:check` passes. Evidence: repoguard and contractlint passed;
