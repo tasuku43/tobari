@@ -20,7 +20,11 @@ reject_literal() {
   fi
 }
 
-for workflow in .github/workflows/ci.yml .github/workflows/security.yml .github/workflows/architecture-pages.yml; do
+for workflow in \
+  .github/workflows/ci.yml \
+  .github/workflows/security.yml \
+  .github/workflows/architecture-pages.yml \
+  .github/workflows/release.yml; do
   require_literal "$workflow" "uses: ./.github/actions/setup-repository-node"
 done
 

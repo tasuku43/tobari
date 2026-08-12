@@ -54,6 +54,8 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - uses: ./.github/actions/setup-repository-node
+
       - name: Validate release identity
         id: release
         env:
