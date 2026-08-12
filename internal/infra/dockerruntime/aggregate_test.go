@@ -20,6 +20,7 @@ func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *t
 			Name:          "restricted",
 			AgentProfile:  tobari.DefaultProfile,
 			PolicyMode:    tobari.ContextPolicyModeAdvanced,
+			SourceAccess:  tobari.ContextSourceAccessReadWrite,
 			Image:         tobari.BuiltinImageSelector,
 		},
 		rego: []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 1; data.tobari.schema_version == 1 }\n"),
@@ -47,6 +48,7 @@ func TestAggregateRouterAlwaysUsesSystemEvaluatorForGraphQL(t *testing.T) {
 		Name:          "restricted",
 		AgentProfile:  tobari.DefaultProfile,
 		PolicyMode:    tobari.ContextPolicyModeAdvanced,
+		SourceAccess:  tobari.ContextSourceAccessReadWrite,
 		Image:         tobari.BuiltinImageSelector,
 	}}
 	router, err := aggregateRouter([]aggregateContext{item})
@@ -92,6 +94,7 @@ func TestAggregateRejectsUnsupportedOrAmbiguousSourceInputSchema(t *testing.T) {
 		Name:          "restricted",
 		AgentProfile:  tobari.DefaultProfile,
 		PolicyMode:    tobari.ContextPolicyModeAdvanced,
+		SourceAccess:  tobari.ContextSourceAccessReadWrite,
 		Image:         tobari.BuiltinImageSelector,
 	}
 	for _, source := range []string{
@@ -182,7 +185,7 @@ func TestInvalidContextPolicyDoesNotReplaceKnownGoodAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	_, paths, err := runtime.resolveContext("broken")

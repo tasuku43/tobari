@@ -262,11 +262,15 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
-		specHash, err := r.projectSpecHashWithAuth(state, desired, profile, network, image, imageID, authProjection)
+		specHash, err := r.projectSpecHashWithAuthAndSourceAccess(
+			state, desired, profile, network, image, imageID, authProjection, manifest.SourceAccess,
+		)
 		if err != nil {
 			return err
 		}
-		if err := r.ensureProjectContainerWithAuth(ctx, state, desired, profile, container, network, gatewayIP, image, specHash, authProjection); err != nil {
+		if err := r.ensureProjectContainerWithAuth(
+			ctx, state, desired, profile, container, network, gatewayIP, image, specHash, authProjection, manifest.SourceAccess,
+		); err != nil {
 			return err
 		}
 		if err := r.ensureWorkspaceNetworkGuard(ctx, stored, container, network, subnet, gatewayIP); err != nil {
@@ -570,7 +574,7 @@ func (r *Runtime) ensureProjectContainer(
 ) error {
 	if err := r.ensureProjectContainerWithAuth(
 		ctx, state, instance, profile, container, network, gatewayIP, image, specHash,
-		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}},
+		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}}, tobari.ContextSourceAccessReadWrite,
 	); err != nil {
 		return err
 	}
@@ -581,7 +585,11 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
 	profile, container, network, gatewayIP, image, specHash string,
 	auth projectAuthProjection,
+	sourceAccess tobari.ContextSourceAccess,
 ) error {
+	if err := sourceAccess.Validate(); err != nil {
+		return err
+	}
 	workspaceRoot, err := r.projectContainerRoot(instance.Root)
 	if err != nil {
 		return err
@@ -625,17 +633,33 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 		if inspectErr != nil {
 			return inspectErr
 		}
-		if err := r.ensureProjectContainerNetwork(ctx, container, network); err != nil {
-			return err
+		observedAccess, inspectErr := r.projectContainerSourceAccess(ctx, container, instance.Root, workspaceRoot)
+		if inspectErr != nil {
+			return inspectErr
 		}
-		if component.State != "running" {
-			if output, startErr := r.runner.Output(ctx, []string{"start", container}, os.Environ()); startErr != nil {
-				return fmt.Errorf("start project container: %w: %s", startErr, boundedDiagnostic(output))
+		if observedAccess != sourceAccess {
+			if output, removeErr := r.runner.Output(ctx, []string{"rm", "-f", container}, os.Environ()); removeErr != nil {
+				return fmt.Errorf("remove project container with stale source access: %w: %s", removeErr, boundedDiagnostic(output))
 			}
+			exists = false
 		}
-		return nil
+		if exists {
+			if err := r.ensureProjectContainerNetwork(ctx, container, network); err != nil {
+				return err
+			}
+			if component.State != "running" {
+				if output, startErr := r.runner.Output(ctx, []string{"start", container}, os.Environ()); startErr != nil {
+					return fmt.Errorf("start project container: %w: %s", startErr, boundedDiagnostic(output))
+				}
+			}
+			return nil
+		}
 	}
 	uid, gid := currentIDs()
+	sourceMount := "type=bind,src=" + instance.Root + ",dst=" + workspaceRoot
+	if sourceAccess == tobari.ContextSourceAccessReadOnly {
+		sourceMount += ",readonly"
+	}
 	args := []string{
 		"create", "--name", container, "--hostname", container,
 		"--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
@@ -650,7 +674,7 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 		"--env", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",
 		"--env", "GIT_CONFIG_SYSTEM=" + projectGitContainerConfig,
 		"--mount", "type=bind,src=" + r.projectHomePath(instance.ID) + ",dst=/var/lib/tobari",
-		"--mount", "type=bind,src=" + instance.Root + ",dst=" + workspaceRoot,
+		"--mount", sourceMount,
 		"--mount", "type=bind,src=" + gitDirectory + ",dst=" + projectGitContainerDirectory + ",readonly",
 		"--mount", "type=bind,src=" + profile + ",dst=/opt/tobari/profile,readonly",
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "skills") + ",dst=/var/lib/tobari/.claude/skills,readonly",
@@ -680,6 +704,50 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 		return fmt.Errorf("start project container: %w: %s", err, boundedDiagnostic(output))
 	}
 	return nil
+}
+
+func (r *Runtime) projectContainerSourceAccess(
+	ctx context.Context, container, root, workspaceRoot string,
+) (tobari.ContextSourceAccess, error) {
+	output, err := r.runner.Output(
+		ctx, []string{"inspect", "--format", "{{json .Mounts}}", container}, os.Environ(),
+	)
+	if err != nil {
+		return "", fmt.Errorf("inspect project source mount: %w: %s", err, boundedDiagnostic(output))
+	}
+	var mounts []struct {
+		Type        string `json:"Type"`
+		Source      string `json:"Source"`
+		Destination string `json:"Destination"`
+		RW          bool   `json:"RW"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(output), &mounts); err != nil {
+		return "", fmt.Errorf("decode project source mount: %w", err)
+	}
+	found := false
+	access := tobari.ContextSourceAccessReadOnly
+	for _, mount := range mounts {
+		if mount.Type != "bind" || mount.Source != root {
+			continue
+		}
+		if mount.Destination != workspaceRoot {
+			if mount.RW {
+				return "", fmt.Errorf("project source has a writable alias")
+			}
+			continue
+		}
+		if found {
+			return "", fmt.Errorf("project source mount is duplicated")
+		}
+		found = true
+		if mount.RW {
+			access = tobari.ContextSourceAccessReadWrite
+		}
+	}
+	if !found {
+		return "", fmt.Errorf("project source mount is absent")
+	}
+	return access, nil
 }
 
 func (r *Runtime) projectContainerDNS(ctx context.Context, container string) ([]string, error) {
@@ -749,26 +817,35 @@ func (r *Runtime) compatibleImageID(ctx context.Context, image string) (string, 
 }
 
 type projectRuntimeSpec struct {
-	Image           string   `json:"image"`
-	ImageID         string   `json:"image_id"`
-	RuntimeAPI      string   `json:"runtime_api"`
-	AssetVersion    string   `json:"asset_version"`
-	WorkspaceRoot   string   `json:"workspace_root"`
-	Root            string   `json:"root"`
-	Network         string   `json:"network"`
-	NetworkGuard    string   `json:"network_guard"`
-	User            string   `json:"user"`
-	Environment     []string `json:"environment"`
-	AuthFiles       []string `json:"auth_files"`
-	Mounts          []string `json:"mounts"`
-	ReadOnly        bool     `json:"read_only"`
-	Capabilities    string   `json:"capabilities"`
-	Security        string   `json:"security"`
-	Resources       []string `json:"resources"`
-	LifetimeCommand []string `json:"lifetime_command"`
-	HealthCommand   string   `json:"health_command"`
-	HealthInterval  string   `json:"health_interval"`
-	ProfileDigest   string   `json:"profile_digest"`
+	Image           string                     `json:"image"`
+	ImageID         string                     `json:"image_id"`
+	RuntimeAPI      string                     `json:"runtime_api"`
+	AssetVersion    string                     `json:"asset_version"`
+	WorkspaceRoot   string                     `json:"workspace_root"`
+	Root            string                     `json:"root"`
+	SourceAccess    tobari.ContextSourceAccess `json:"source_access"`
+	Network         string                     `json:"network"`
+	NetworkGuard    string                     `json:"network_guard"`
+	User            string                     `json:"user"`
+	Environment     []string                   `json:"environment"`
+	AuthFiles       []string                   `json:"auth_files"`
+	Mounts          []string                   `json:"mounts"`
+	ReadOnly        bool                       `json:"read_only"`
+	Capabilities    string                     `json:"capabilities"`
+	Security        string                     `json:"security"`
+	Resources       []string                   `json:"resources"`
+	LifetimeCommand []string                   `json:"lifetime_command"`
+	HealthCommand   string                     `json:"health_command"`
+	HealthInterval  string                     `json:"health_interval"`
+	ProfileDigest   string                     `json:"profile_digest"`
+}
+
+func projectSourceMountSpec(root, workspaceRoot string, sourceAccess tobari.ContextSourceAccess) string {
+	mount := "bind:" + root + "->" + workspaceRoot
+	if sourceAccess == tobari.ContextSourceAccessReadOnly {
+		mount += ":ro"
+	}
+	return mount
 }
 
 func (r *Runtime) projectSpecHash(
@@ -784,8 +861,17 @@ func (r *Runtime) projectSpecHashWithAuth(
 	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
 	auth projectAuthProjection,
 ) (string, error) {
+	return r.projectSpecHashWithAuthAndSourceAccess(
+		state, instance, profile, network, image, imageID, auth, tobari.ContextSourceAccessReadWrite,
+	)
+}
+
+func (r *Runtime) projectSpecHashWithAuthAndSourceAccess(
+	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	auth projectAuthProjection, sourceAccess tobari.ContextSourceAccess,
+) (string, error) {
 	return r.projectSpecHashWithAuthAndCommand(
-		state, instance, profile, network, image, imageID, auth, projectLifetimeCommand(),
+		state, instance, profile, network, image, imageID, auth, projectLifetimeCommand(), sourceAccess,
 	)
 }
 
@@ -796,6 +882,7 @@ func (r *Runtime) projectSpecHashWithCommand(
 	return r.projectSpecHashWithAuthAndCommand(
 		state, instance, profile, network, image, imageID,
 		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}, Providers: []projectAuthProviderBinding{}}, command,
+		tobari.ContextSourceAccessReadWrite,
 	)
 }
 
@@ -803,9 +890,10 @@ func (r *Runtime) projectSpecHashWithAuthAndCommand(
 	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
 	auth projectAuthProjection,
 	command []string,
+	sourceAccess tobari.ContextSourceAccess,
 ) (string, error) {
 	spec, err := r.projectRuntimeSpecWithAuthAndCommand(
-		state, instance, profile, network, image, imageID, auth, command,
+		state, instance, profile, network, image, imageID, auth, command, sourceAccess,
 	)
 	if err != nil {
 		return "", err
@@ -822,7 +910,11 @@ func (r *Runtime) projectRuntimeSpecWithAuthAndCommand(
 	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
 	auth projectAuthProjection,
 	command []string,
+	sourceAccess tobari.ContextSourceAccess,
 ) (projectRuntimeSpec, error) {
+	if err := sourceAccess.Validate(); err != nil {
+		return projectRuntimeSpec{}, err
+	}
 	workspaceRoot, err := r.projectContainerRoot(instance.Root)
 	if err != nil {
 		return projectRuntimeSpec{}, err
@@ -838,7 +930,7 @@ func (r *Runtime) projectRuntimeSpecWithAuthAndCommand(
 	uid, gid := currentIDs()
 	spec := projectRuntimeSpec{
 		Image: image, ImageID: imageID, RuntimeAPI: tobari.RuntimeImageAPI, AssetVersion: state.AssetVersion,
-		WorkspaceRoot: workspaceRoot, Root: instance.Root, Network: network,
+		WorkspaceRoot: workspaceRoot, Root: instance.Root, SourceAccess: sourceAccess, Network: network,
 		NetworkGuard: tobari.NetworkGuardRevision,
 		User:         strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		Environment: []string{
@@ -852,7 +944,7 @@ func (r *Runtime) projectRuntimeSpecWithAuthAndCommand(
 		AuthFiles: []string{},
 		Mounts: []string{
 			"bind:" + r.projectHomePath(instance.ID) + "->/var/lib/tobari",
-			"bind:" + instance.Root + "->" + workspaceRoot,
+			projectSourceMountSpec(instance.Root, workspaceRoot, sourceAccess),
 			"bind:" + gitDirectory + "->" + projectGitContainerDirectory + ":ro",
 			"bind:" + profile + "->/opt/tobari/profile:ro",
 			"bind:" + filepath.Join(profile, "claude", "skills") + "->/var/lib/tobari/.claude/skills:ro",

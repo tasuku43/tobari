@@ -207,7 +207,7 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	defaultContext, _, err := runtimeStore.resolveContext("default")
@@ -349,7 +349,7 @@ func TestApplyPolicyDecisionSetRejectsMultipleContextSourcesBeforeDocker(t *test
 	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	defaultContext, _, err := runtimeStore.resolveContext("default")
@@ -1052,7 +1052,7 @@ func TestGuidedAndAdvancedPolicyPreflightRequireExactSourceLayouts(t *testing.T)
 		t.Fatal(err)
 	}
 	if _, err := runtimeStore.CreateContext(
-		context.Background(), "advanced", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced,
+		context.Background(), "advanced", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite,
 	); err != nil {
 		t.Fatal(err)
 	}

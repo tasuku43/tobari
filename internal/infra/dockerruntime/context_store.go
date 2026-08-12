@@ -132,6 +132,7 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 		AgentProfile:     tobari.DefaultProfile,
 		Image:            image,
 		PolicyMode:       tobari.ContextPolicyModeGuided,
+		SourceAccess:     tobari.ContextSourceAccessReadWrite,
 		ShellEnvironment: tobari.InitialContextShellEnvironment(),
 	})
 }
@@ -370,6 +371,7 @@ func (r *Runtime) observeContext(name string) (observedContext, error) {
 			manifest: tobari.ContextManifest{
 				SchemaVersion: tobari.ContextSchemaVersion, Name: tobari.DefaultContextName,
 				AgentProfile: tobari.DefaultProfile, Image: r.defaultRuntimeImage(), PolicyMode: tobari.ContextPolicyModeGuided,
+				SourceAccess:     tobari.ContextSourceAccessReadWrite,
 				ShellEnvironment: tobari.InitialContextShellEnvironment(),
 			},
 		}, nil
@@ -499,6 +501,7 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 		items = append(items, tobari.ContextSummary{
 			ID: manifest.ID, Name: manifest.Name, ContextState: tobari.ContextObservationPersisted, Active: manifest.Name == active,
 			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
+			SourceAccess:  manifest.SourceAccess,
 			RuntimeStatus: runtimeReport.Status,
 		})
 	}
@@ -645,13 +648,16 @@ func persistedContextGitIdentity(setting tobari.ContextGitIdentitySetting) *toba
 }
 
 // CreateContext initializes one named Context without accepting any secret.
-func (r *Runtime) CreateContext(ctx context.Context, name string, image string, mode tobari.ContextPolicyMode) (tobari.ContextReport, error) {
+func (r *Runtime) CreateContext(
+	ctx context.Context, name string, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
+) (tobari.ContextReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.ContextReport{}, err
 	}
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: r.resolveBuiltinImageSelector(image), PolicyMode: mode,
+		SourceAccess:     sourceAccess,
 		ShellEnvironment: tobari.InitialContextShellEnvironment(),
 	}
 	id, err := tobari.NewProductionContextID()

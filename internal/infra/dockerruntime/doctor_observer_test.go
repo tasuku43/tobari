@@ -184,7 +184,7 @@ func TestDoctorObserverKeepsInvalidPolicyDistinctFromPolicyData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	_, paths, err := runtime.resolveContext("broken")

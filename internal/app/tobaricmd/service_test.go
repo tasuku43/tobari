@@ -286,7 +286,7 @@ func (f *projectRuntimeFake) ObserveContext(_ context.Context, name string) (tob
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
 		Name: name, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-		PolicyMode: tobari.ContextPolicyModeGuided,
+		PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite,
 	}
 	return tobari.ContextObservation{
 		State: tobari.ContextObservationPersisted, Name: name, Manifest: &manifest,

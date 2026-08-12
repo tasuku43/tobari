@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -72,6 +73,7 @@ func projectGitTestManifest(t *testing.T, setting *tobari.ContextGitIdentitySett
 		AgentProfile:  tobari.DefaultProfile,
 		Image:         tobari.BuiltinImageSelector,
 		PolicyMode:    tobari.ContextPolicyModeGuided,
+		SourceAccess:  tobari.ContextSourceAccessReadWrite,
 		GitIdentity:   setting,
 	}
 	if err := manifest.Validate(); err != nil {
@@ -380,8 +382,9 @@ func TestProjectGitFallbackPrecedenceWithGit(t *testing.T) {
 }
 
 type projectGitContainerRunner struct {
-	calls   [][]string
-	created bool
+	calls       [][]string
+	created     bool
+	mountOutput []byte
 }
 
 func (*projectGitContainerRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
@@ -403,7 +406,61 @@ func (r *projectGitContainerRunner) Output(_ context.Context, args, _ []string) 
 	if args[0] == "inspect" && strings.Contains(strings.Join(args, " "), ".State.Health") {
 		return []byte(`{"state":"running","health":"healthy"}`), nil
 	}
+	if args[0] == "inspect" && strings.Contains(strings.Join(args, " "), ".Mounts") {
+		return append([]byte(nil), r.mountOutput...), nil
+	}
 	return nil, nil
+}
+
+func TestProjectContainerInspectsExactSourceBindAccess(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		rw     bool
+		access tobari.ContextSourceAccess
+	}{
+		{name: "read write", rw: true, access: tobari.ContextSourceAccessReadWrite},
+		{name: "read only", rw: false, access: tobari.ContextSourceAccessReadOnly},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			base := canonicalTestDirectory(t)
+			root := filepath.Join(base, "project")
+			workspaceRoot := "/workspace/project"
+			mounts := fmt.Sprintf(
+				`[{"Type":"bind","Source":%q,"Destination":%q,"RW":%t},{"Type":"bind","Source":%q,"Destination":"/var/lib/tobari","RW":true}]`,
+				root, workspaceRoot, test.rw, filepath.Join(base, "home"),
+			)
+			runner := &projectGitContainerRunner{mountOutput: []byte(mounts)}
+			runtime, err := newRuntimeWithData(
+				filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			access, err := runtime.projectContainerSourceAccess(context.Background(), "project", root, workspaceRoot)
+			if err != nil || access != test.access {
+				t.Fatalf("source access = %q, error = %v, want %q", access, err, test.access)
+			}
+		})
+	}
+
+	base := canonicalTestDirectory(t)
+	root := filepath.Join(base, "project")
+	runner := &projectGitContainerRunner{mountOutput: []byte(fmt.Sprintf(
+		`[{"Type":"bind","Source":%q,"Destination":"/workspace/project","RW":false},{"Type":"bind","Source":%q,"Destination":"/workspace/alias","RW":true}]`,
+		root, root,
+	))}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.projectContainerSourceAccess(context.Background(), "project", root, "/workspace/project"); err == nil ||
+		!strings.Contains(err.Error(), "writable alias") {
+		t.Fatalf("writable source alias error = %v", err)
+	}
 }
 
 func TestProjectContainerMountsGitFallbackAtSystemScope(t *testing.T) {
@@ -442,6 +499,55 @@ func TestProjectContainerMountsGitFallbackAtSystemScope(t *testing.T) {
 	}
 }
 
+func TestProjectContainerSelectsOnlyDirectSourceBindAccess(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		access     tobari.ContextSourceAccess
+		wantSuffix string
+	}{
+		{name: "read write", access: tobari.ContextSourceAccessReadWrite},
+		{name: "read only", access: tobari.ContextSourceAccessReadOnly, wantSuffix: ",readonly"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			base := canonicalTestDirectory(t)
+			runner := &projectGitContainerRunner{}
+			runtime, err := newRuntimeWithData(
+				filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			instance := projectGitTestInstance(t, runtime)
+			if err := runtime.ensureProjectContainerWithAuth(
+				context.Background(), runtimeState(base), instance, "/profile", "project", "network",
+				"172.29.0.2", "image", "sha256:source", projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}}, test.access,
+			); err != nil {
+				t.Fatal(err)
+			}
+			var create []string
+			for _, call := range runner.calls {
+				if len(call) > 0 && call[0] == "create" {
+					create = call
+					break
+				}
+			}
+			workspaceRoot, _ := runtime.projectContainerRoot(instance.Root)
+			wantSource := "type=bind,src=" + instance.Root + ",dst=" + workspaceRoot + test.wantSuffix
+			if !containsConsecutiveArgs(create, "--mount", wantSource) {
+				t.Fatalf("source mount = %v, want %q", create, wantSource)
+			}
+			if !containsConsecutiveArgs(create, "--mount", "type=bind,src="+runtime.projectHomePath(instance.ID)+",dst=/var/lib/tobari") {
+				t.Fatalf("Workspace home is not a separate writable bind: %v", create)
+			}
+			if !containsConsecutiveArgs(create, "--tmpfs", "/tmp:size=512m,mode=1777") {
+				t.Fatalf("Workspace tmpfs is missing: %v", create)
+			}
+		})
+	}
+}
+
 func TestProjectRuntimeSpecIncludesGitFallbackEnvironmentAndMount(t *testing.T) {
 	t.Parallel()
 	runtime := projectGitTestRuntime(t)
@@ -453,6 +559,7 @@ func TestProjectRuntimeSpecIncludesGitFallbackEnvironmentAndMount(t *testing.T) 
 	spec, err := runtime.projectRuntimeSpecWithAuthAndCommand(
 		runtimeState(filepath.Dir(instance.Root)), instance, profile, "network", "image", "sha256:image",
 		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}}, projectLifetimeCommand(),
+		tobari.ContextSourceAccessReadWrite,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -464,6 +571,33 @@ func TestProjectRuntimeSpecIncludesGitFallbackEnvironmentAndMount(t *testing.T) 
 	wantMount := "bind:" + directory + "->" + projectGitContainerDirectory + ":ro"
 	if !slices.Contains(spec.Mounts, wantMount) {
 		t.Fatalf("project spec mounts = %v, want %q", spec.Mounts, wantMount)
+	}
+}
+
+func TestProjectRuntimeSpecHashBindsSourceAccess(t *testing.T) {
+	t.Parallel()
+	runtime := projectGitTestRuntime(t)
+	instance := projectGitTestInstance(t, runtime)
+	profile, err := runtime.ensureSharedProfile(tobari.DefaultProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(filepath.Dir(instance.Root))
+	auth := projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}}
+	readWrite, err := runtime.projectSpecHashWithAuthAndSourceAccess(
+		state, instance, profile, "network", "image", "sha256:image", auth, tobari.ContextSourceAccessReadWrite,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnly, err := runtime.projectSpecHashWithAuthAndSourceAccess(
+		state, instance, profile, "network", "image", "sha256:image", auth, tobari.ContextSourceAccessReadOnly,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readOnly == readWrite {
+		t.Fatalf("source access did not change project spec hash: %q", readOnly)
 	}
 }
 

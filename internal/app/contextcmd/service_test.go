@@ -42,6 +42,7 @@ type contextRuntimeFake struct {
 	lastShowName       string
 	lastImage          string
 	lastMode           tobari.ContextPolicyMode
+	lastSourceAccess   tobari.ContextSourceAccess
 	lastChange         tobari.ContextShellEnvironmentSetting
 	lastChanges        []tobari.ContextShellEnvironmentSetting
 	lastGitChange      tobari.ContextGitIdentitySetting
@@ -58,10 +59,11 @@ func (f *contextRuntimeFake) ShowContext(_ context.Context, name string) (tobari
 }
 
 func (f *contextRuntimeFake) CreateContext(
-	_ context.Context, name, image string, mode tobari.ContextPolicyMode,
+	_ context.Context, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
 ) (tobari.ContextReport, error) {
 	f.createCalls++
 	f.lastName, f.lastImage, f.lastMode = name, image, mode
+	f.lastSourceAccess = sourceAccess
 	return f.createResult, f.createErr
 }
 
@@ -128,6 +130,7 @@ func contextReport(task, name string) tobari.ContextReport {
 		Task: task, ContextState: tobari.ContextObservationPersisted, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: task == tobari.TaskContextUse,
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
 		PolicyMode:       tobari.ContextPolicyModeGuided,
+		SourceAccess:     tobari.ContextSourceAccessReadWrite,
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Runtime: tobari.ContextRuntimeReport{
@@ -565,12 +568,16 @@ func TestCreateValidatesIntentAndPassesRuntimeImageToPort(t *testing.T) {
 		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
 		Impact: contextImpact(),
 	}
-	result, err := service.Create(context.Background(), intent, "project-tools", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced)
+	result, err := service.Create(
+		context.Background(), intent, "project-tools", tobari.OfficialRuntimeBase,
+		tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite,
+	)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if result.Name != "project-tools" || fake.createCalls != 1 || fake.lastName != "project-tools" ||
-		fake.lastImage != tobari.OfficialRuntimeBase || fake.lastMode != tobari.ContextPolicyModeAdvanced {
+		fake.lastImage != tobari.OfficialRuntimeBase || fake.lastMode != tobari.ContextPolicyModeAdvanced ||
+		fake.lastSourceAccess != tobari.ContextSourceAccessReadWrite {
 		t.Fatalf("result/call = %+v, calls=%d name=%q image=%q mode=%q", result, fake.createCalls, fake.lastName, fake.lastImage, fake.lastMode)
 	}
 }
@@ -583,7 +590,31 @@ func TestCreateRejectsInvalidImageBeforePortCall(t *testing.T) {
 		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
 		Impact: contextImpact(),
 	}
-	_, err := service.Create(context.Background(), intent, "project-tools", "--pull=always", tobari.ContextPolicyModeGuided)
+	_, err := service.Create(
+		context.Background(), intent, "project-tools", "--pull=always",
+		tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite,
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindInvalidInput || public.Code != "invalid_context" {
+		t.Fatalf("Create() fault = %#v, ok=%t", public, ok)
+	}
+	if fake.createCalls != 0 {
+		t.Fatalf("CreateContext() calls = %d, want 0", fake.createCalls)
+	}
+}
+
+func TestCreateRejectsInvalidSourceAccessBeforePortCall(t *testing.T) {
+	fake := &contextRuntimeFake{createResult: contextReport(tobari.TaskContextCreate, "project-tools")}
+	service := New(fake)
+	intent := operation.Intent{
+		Command: "context create", Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
+		Impact: contextImpact(),
+	}
+	_, err := service.Create(
+		context.Background(), intent, "project-tools", tobari.OfficialRuntimeBase,
+		tobari.ContextPolicyModeGuided, tobari.ContextSourceAccess("snapshot"),
+	)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Kind != fault.KindInvalidInput || public.Code != "invalid_context" {
 		t.Fatalf("Create() fault = %#v, ok=%t", public, ok)
@@ -602,6 +633,7 @@ func TestCreateDuplicateRecoversThroughContextList(t *testing.T) {
 	}
 	_, err := New(fake).Create(
 		context.Background(), intent, "review", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided,
+		tobari.ContextSourceAccessReadWrite,
 	)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Kind != fault.KindRejected || public.Code != "context_exists" || public.Retryable ||

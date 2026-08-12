@@ -4,6 +4,7 @@ package contextcmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/tasuku43/tobari/internal/app/execution"
@@ -18,7 +19,7 @@ import (
 type RuntimePort interface {
 	ListContexts(context.Context) (tobari.ContextListResult, error)
 	ShowContext(context.Context, string) (tobari.ContextReport, error)
-	CreateContext(context.Context, string, string, tobari.ContextPolicyMode) (tobari.ContextReport, error)
+	CreateContext(context.Context, string, string, tobari.ContextPolicyMode, tobari.ContextSourceAccess) (tobari.ContextReport, error)
 	UseContext(context.Context, string) (tobari.ContextReport, error)
 	ConfigureContextShell(context.Context, string, []tobari.ContextShellEnvironmentSetting) (tobari.ContextReport, error)
 	ConfigureContextGit(context.Context, string, tobari.ContextGitIdentitySetting) (tobari.ContextReport, error)
@@ -335,12 +336,12 @@ func (s *Service) Show(ctx context.Context, name string) (tobari.ContextReport, 
 }
 
 func (s *Service) Create(
-	ctx context.Context, intent operation.Intent, name, image string, mode tobari.ContextPolicyMode,
+	ctx context.Context, intent operation.Intent, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
 ) (tobari.ContextReport, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ContextReport{}, err
 	}
-	if err := validateCreateInput(name, image, mode); err != nil {
+	if err := validateCreateInput(name, image, mode, sourceAccess); err != nil {
 		return tobari.ContextReport{}, err
 	}
 	request := execution.Request{
@@ -350,7 +351,7 @@ func (s *Service) Create(
 	}
 	var result tobari.ContextReport
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		created, createErr := s.runtime.CreateContext(actionContext, name, image, mode)
+		created, createErr := s.runtime.CreateContext(actionContext, name, image, mode, sourceAccess)
 		if errors.Is(createErr, tobari.ErrContextExists) {
 			return fault.New(
 				fault.KindRejected, "context_exists", "the named Context already exists", false,
@@ -360,6 +361,17 @@ func (s *Service) Create(
 		if createErr != nil {
 			return fault.Wrap(fault.KindRejected, "context_create_failed", "Context could not be created", false, createErr,
 				fault.NextAction{Command: "context list", Reason: "Inspect the local Context collection."})
+		}
+		contractErr := created.Validate()
+		if contractErr == nil && (created.Task != tobari.TaskContextCreate ||
+			created.Name != name || created.SourceAccess != sourceAccess) {
+			contractErr = fmt.Errorf("created Context identity or source access does not match the request")
+		}
+		if contractErr != nil {
+			return fault.Wrap(
+				fault.KindContract, "invalid_context_report", "Context report is invalid", false, contractErr,
+				fault.NextAction{Command: "context list", Reason: "Reconcile the confirmed Context creation."},
+			)
 		}
 		result = created
 		return nil
@@ -523,15 +535,15 @@ func (s *Service) BuildRuntimeWithProgress(
 	return result, nil
 }
 
-func validateCreateInput(name, image string, mode tobari.ContextPolicyMode) error {
+func validateCreateInput(name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess) error {
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, ID: "00000000-0000-7000-8000-000000000000", Name: name,
-		AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: mode,
+		AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: mode, SourceAccess: sourceAccess,
 	}
 	if err := manifest.Validate(); err != nil {
 		return fault.Wrap(
 			fault.KindInvalidInput, "invalid_context", "Context definition is invalid", false, err,
-			fault.NextAction{Command: "help context create", Reason: "Correct the Context name, image, or policy mode."},
+			fault.NextAction{Command: "help context create", Reason: "Correct the Context name, image, policy mode, or source access."},
 		)
 	}
 	return nil

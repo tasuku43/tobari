@@ -162,7 +162,7 @@ func contextListSpec() CommandSpec {
 				Fields: []OutputField{
 					{Name: "active", Type: OutputFieldTypeString, Description: "Name of the host-selected current Context used when Context is omitted."},
 					{Name: "context_state", Type: OutputFieldTypeString, Description: "Whether the selected/default Context is persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
-					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with current-default state, stable ID, image, agent profile, policy mode, and runtime status.", SemanticScope: "All locally configured Contexts at one observation.", Items: &OutputField{
+					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with current-default state, stable ID, image, agent profile, policy mode, source access, and runtime status.", SemanticScope: "All locally configured Contexts at one observation.", Items: &OutputField{
 						Type: OutputFieldTypeObject, Description: "One configured Context.", Fields: []OutputField{
 							{Name: "id", Type: OutputFieldTypeString, Description: "Stable Context authority identity, or null for the display-only synthetic default.", Nullable: true},
 							{Name: "name", Type: OutputFieldTypeString, Description: "Human Context name."},
@@ -171,6 +171,7 @@ func contextListSpec() CommandSpec {
 							{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only agent profile reference."},
 							{Name: "image", Type: OutputFieldTypeString, Description: "Selected compatible runtime image."},
 							{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Policy development mode.", Enum: []string{"guided", "advanced"}},
+							{Name: "source_access", Type: OutputFieldTypeString, Description: "Direct project-source bind access.", Enum: []string{"read-only", "read-write"}},
 							{Name: "runtime_status", Type: OutputFieldTypeString, Description: "Runtime recipe status when observed.", Optional: true, Enum: []string{"official", "pending_build", "ready", "invalid"}},
 						},
 					}},
@@ -217,17 +218,17 @@ func contextShowSpec() CommandSpec {
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
 		Path: "context create", Summary: "Create a named execution Context",
-		Args:   "--name <name> [--image <image>] [--mode guided|advanced] [--format text|json]",
+		Args:   "--name <name> [--image <image>] [--mode guided|advanced] [--source-access read-only|read-write] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
 			Outcome:       "Create one named Context with separate owner-only policy and managed-credential stores",
-			Inputs:        []CommandInput{contextNameInput(), contextImageInput(), contextModeInput(), formatInput()},
+			Inputs:        []CommandInput{contextNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The host Context directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
 			Errors: mutationCommandErrors("context create", "context list",
-				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help context create", "Correct the Context name, image, or policy mode."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help context create", "Correct the Context name, image, policy mode, or source access."),
 				declaredCommandError(fault.KindRejected, "context_exists", false, "context list", "List existing Contexts before choosing another name."),
 				declaredCommandError(fault.KindRejected, "context_create_failed", false, "context list", "Inspect the partially initialized Context stores."),
 				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context list", "Reconcile the confirmed Context creation."),
@@ -1137,6 +1138,15 @@ func contextModeInput() CommandInput {
 	}
 }
 
+func contextSourceAccessInput() CommandInput {
+	return CommandInput{
+		Name: "--source-access", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description:   "Write authority for the one direct project source bind; Workspace home and tmpfs remain writable.",
+		AllowedValues: []string{"read-only", "read-write"}, DefaultValue: stringPointer("read-write"),
+	}
+}
+
 func contextReportOutput() CommandOutput {
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -1149,6 +1159,7 @@ func contextReportOutput() CommandOutput {
 			{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only shared agent profile reference."},
 			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Context."},
 			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Guided or advanced policy-development mode.", Enum: []string{"guided", "advanced"}},
+			{Name: "source_access", Type: OutputFieldTypeString, Description: "Direct project-source bind access; this does not describe Workspace home or tmpfs.", Enum: []string{"read-only", "read-write"}},
 			{Name: "shell_environment", Type: OutputFieldTypeArray, Description: "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal.", SemanticScope: "The fixed four-variable Context shell presentation inventory.", Items: &OutputField{
 				Type: OutputFieldTypeObject, Description: "One allowlisted shell variable policy.", Fields: []OutputField{
 					{Name: "variable", Type: OutputFieldTypeString, Description: "Allowlisted variable name.", Enum: []string{"COLORTERM", "NO_COLOR", "PS1", "TERM"}},

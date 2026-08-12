@@ -249,7 +249,8 @@ func runContextCreate(
 	intent.Target = operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
 	mode := tobari.ContextPolicyMode(inputs.One("--mode"))
-	result, err := c.context.Create(ctx, intent, inputs.One("--name"), inputs.One("--image"), mode)
+	sourceAccess := tobari.ContextSourceAccess(inputs.One("--source-access"))
+	result, err := c.context.Create(ctx, intent, inputs.One("--name"), inputs.One("--image"), mode, sourceAccess)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -376,6 +377,7 @@ type contextSummaryJSONProjection struct {
 	AgentProfile  string                         `json:"agent_profile"`
 	Image         string                         `json:"image"`
 	PolicyMode    tobari.ContextPolicyMode       `json:"policy_mode"`
+	SourceAccess  tobari.ContextSourceAccess     `json:"source_access"`
 	RuntimeStatus tobari.ContextRuntimeStatus    `json:"runtime_status,omitempty"`
 }
 
@@ -393,6 +395,7 @@ type contextReportJSONProjection struct {
 	AgentProfile     string                                  `json:"agent_profile"`
 	Image            string                                  `json:"image"`
 	PolicyMode       tobari.ContextPolicyMode                `json:"policy_mode"`
+	SourceAccess     tobari.ContextSourceAccess              `json:"source_access"`
 	ShellEnvironment []tobari.ContextShellEnvironmentSetting `json:"shell_environment"`
 	GitIdentity      tobari.ContextGitIdentitySetting        `json:"git_identity"`
 	Stores           *tobari.ContextStorePaths               `json:"stores"`
@@ -430,6 +433,7 @@ func contextReportJSONDocument(result tobari.ContextReport) contextReportDocumen
 		Context: contextReportJSONProjection{
 			Task: result.Task, ContextState: result.ContextState, ID: optionalString(result.ID), Name: result.Name, Active: result.Active,
 			AgentProfile: result.AgentProfile, Image: result.Image, PolicyMode: result.PolicyMode,
+			SourceAccess:     result.SourceAccess,
 			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: optionalContextStores(result),
 			Runtime: result.Runtime, Cluster: result.Cluster,
 			Authentication: contextAuthenticationJSONProjection{
@@ -468,7 +472,8 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		for _, item := range result.Items {
 			document.Contexts.Items = append(document.Contexts.Items, contextSummaryJSONProjection{
 				ID: optionalString(item.ID), Name: item.Name, ContextState: item.ContextState, Active: item.Active,
-				AgentProfile: item.AgentProfile, Image: item.Image, PolicyMode: item.PolicyMode, RuntimeStatus: item.RuntimeStatus,
+				AgentProfile: item.AgentProfile, Image: item.Image, PolicyMode: item.PolicyMode,
+				SourceAccess: item.SourceAccess, RuntimeStatus: item.RuntimeStatus,
 			})
 		}
 		output, err := marshalCommandJSON("context list", document)
@@ -491,10 +496,11 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 			markerToken = styleAccent
 		}
 		fmt.Fprintf(
-			&output, "%s %s\t%s=%s\t%s=%s\t%s=%s\t%s=%s\n",
+			&output, "%s %s\t%s=%s\t%s=%s\t%s=%s\t%s=%s\t%s=%s\n",
 			applyStyleToken(color, markerToken, marker),
 			applyStyleToken(color, styleText, safeExternalText(item.Name)),
 			applyStyleToken(color, styleMuted, "mode"), applyStyleToken(color, styleText, string(item.PolicyMode)),
+			applyStyleToken(color, styleMuted, "source"), applyStyleToken(color, styleText, "direct "+string(item.SourceAccess)),
 			applyStyleToken(color, styleMuted, "image"), applyStyleToken(color, styleText, safeExternalText(item.Image)),
 			applyStyleToken(color, styleMuted, "runtime"), applyStyleToken(color, humanStatusToken(string(item.RuntimeStatus)), string(item.RuntimeStatus)),
 			applyStyleToken(color, styleMuted, "agent"), applyStyleToken(color, styleText, safeExternalText(item.AgentProfile)),
@@ -529,6 +535,7 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	writeStyledLine(&output, color, "Image:", safeExternalText(result.Image), styleText)
 	writeStyledLine(&output, color, "Agent profile:", safeExternalText(result.AgentProfile), styleText)
 	writeStyledLine(&output, color, "Policy mode:", string(result.PolicyMode), styleText)
+	writeStyledLine(&output, color, "Source access:", "direct "+string(result.SourceAccess), styleText)
 	for _, setting := range result.ShellEnvironment {
 		value := string(setting.Source)
 		if setting.Source == tobari.ContextShellEnvironmentLiteral && setting.Value != nil {

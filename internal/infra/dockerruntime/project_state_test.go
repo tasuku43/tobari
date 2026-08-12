@@ -66,7 +66,7 @@ func TestSameCanonicalRootCanOwnIndependentTobariInDifferentContexts(t *testing.
 	if _, err := runtime.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	defaultProject, created, err := runtime.ResolveOrCreateProjectInContext(context.Background(), root, "default")
@@ -98,12 +98,16 @@ func TestBoundContextManifestSelectsSameRootWorkspaceWithoutNameRediscovery(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "toolbox", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "toolbox", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadOnly); err != nil {
 		t.Fatal(err)
 	}
 	toolboxManifest, err := runtime.ResolveContext(context.Background(), "toolbox")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if defaultManifest.SourceAccess != tobari.ContextSourceAccessReadWrite ||
+		toolboxManifest.SourceAccess != tobari.ContextSourceAccessReadOnly {
+		t.Fatalf("same-root Context access = %q/%q", defaultManifest.SourceAccess, toolboxManifest.SourceAccess)
 	}
 	defaultProject, err := runtime.CreateBoundProject(context.Background(), root, defaultManifest)
 	if err != nil {

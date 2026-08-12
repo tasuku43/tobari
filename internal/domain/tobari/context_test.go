@@ -14,6 +14,7 @@ func validContextManifest() ContextManifest {
 		AgentProfile:  DefaultProfile,
 		Image:         OfficialRuntimeBase,
 		PolicyMode:    ContextPolicyModeAdvanced,
+		SourceAccess:  ContextSourceAccessReadWrite,
 	}
 }
 
@@ -24,9 +25,11 @@ func TestContextManifestValidatesRuntimeImageAndMode(t *testing.T) {
 	}
 
 	for name, mutate := range map[string]func(*ContextManifest){
-		"invalid name":  func(value *ContextManifest) { value.Name = "Project" },
-		"invalid image": func(value *ContextManifest) { value.Image = "--pull=always" },
-		"invalid mode":  func(value *ContextManifest) { value.PolicyMode = "manual" },
+		"invalid name":          func(value *ContextManifest) { value.Name = "Project" },
+		"invalid image":         func(value *ContextManifest) { value.Image = "--pull=always" },
+		"invalid mode":          func(value *ContextManifest) { value.PolicyMode = "manual" },
+		"missing source access": func(value *ContextManifest) { value.SourceAccess = "" },
+		"invalid source access": func(value *ContextManifest) { value.SourceAccess = "snapshot" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := manifest
@@ -231,7 +234,8 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 	contextReport := ContextReport{
 		Task: TaskRuntimeBuild, ContextState: ContextObservationPersisted, ID: manifest.ID, Name: manifest.Name, Active: true,
 		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
-		Cluster: ContextClusterStatusNotApplicable,
+		SourceAccess: manifest.SourceAccess,
+		Cluster:      ContextClusterStatusNotApplicable,
 		Stores: ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials.json"),
@@ -251,7 +255,7 @@ func TestContextReportAcceptsConfigurationTasksAndRequiresCompleteGitIdentity(t 
 	manifest := validContextManifest()
 	base := ContextReport{
 		ContextState: ContextObservationPersisted, ID: manifest.ID, Name: manifest.Name, AgentProfile: manifest.AgentProfile,
-		Image: manifest.Image, PolicyMode: manifest.PolicyMode,
+		Image: manifest.Image, PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
 		GitIdentity:      DefaultContextGitIdentityReport(),
 		Stores: ContextStorePaths{
@@ -303,8 +307,8 @@ func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {
 
 func TestContextListRequiresOneMatchingActiveItem(t *testing.T) {
 	items := []ContextSummary{
-		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided},
-		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ContextState: ContextObservationPersisted, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced},
+		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite},
+		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ContextState: ContextObservationPersisted, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced, SourceAccess: ContextSourceAccessReadOnly},
 	}
 	result := ContextListResult{Task: TaskContextList, ContextState: ContextObservationPersisted, Active: "default", Items: items}
 	if err := result.Validate(); err != nil {
@@ -349,7 +353,7 @@ func TestContextListRequiresTopLevelStateToMatchActiveItem(t *testing.T) {
 		Items: []ContextSummary{{
 			ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultContextName,
 			ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile,
-			Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided,
+			Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite,
 		}},
 	}
 	if err := result.Validate(); err == nil {
@@ -362,7 +366,7 @@ func TestSyntheticContextReportCannotClaimAuthorityOrStores(t *testing.T) {
 	report := ContextReport{
 		Task: TaskContextShow, ContextState: ContextObservationSyntheticDefault,
 		Name: DefaultContextName, Active: true, AgentProfile: DefaultProfile,
-		Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided,
+		Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite,
 		ShellEnvironment: DefaultContextShellEnvironmentReport(),
 		GitIdentity:      DefaultContextGitIdentityReport(),
 		Runtime:          ContextRuntimeReport{Kind: ContextRuntimeKindOfficial, Status: ContextRuntimeStatusOfficial, BaseReference: OfficialRuntimeBase},

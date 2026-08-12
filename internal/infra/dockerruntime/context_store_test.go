@@ -2,6 +2,7 @@ package dockerruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -69,7 +70,7 @@ func newContextSwitchRuntime(t *testing.T, runner *contextSwitchRunner) *Runtime
 	if _, err := runtime.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "project-tools", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "project-tools", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	return runtime
@@ -219,7 +220,7 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 
 	created, err := runtime.CreateContext(
 		context.Background(), tobari.DefaultContextName,
-		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced,
+		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadOnly,
 	)
 	if err != nil {
 		t.Fatalf("first CreateContext(default) error = %v", err)
@@ -231,6 +232,7 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 		created.ContextState != tobari.ContextObservationPersisted ||
 		created.Name != tobari.DefaultContextName || !created.Active ||
 		created.PolicyMode != tobari.ContextPolicyModeAdvanced ||
+		created.SourceAccess != tobari.ContextSourceAccessReadOnly ||
 		created.Cluster != tobari.ContextClusterStatusNotApplicable {
 		t.Fatalf("created default Context = %+v", created)
 	}
@@ -243,10 +245,14 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 	if err != nil {
 		t.Fatal(err)
 	}
+	manifest, err := runtime.readContextManifest(tobari.DefaultContextName)
+	if err != nil || manifest.SourceAccess != tobari.ContextSourceAccessReadOnly {
+		t.Fatalf("persisted source access = %q, error = %v", manifest.SourceAccess, err)
+	}
 	treeBefore := snapshotOwnedTree(t, root)
 	if _, err := runtime.CreateContext(
 		context.Background(), tobari.DefaultContextName,
-		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided,
+		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite,
 	); !errors.Is(err, tobari.ErrContextExists) {
 		t.Fatalf("second CreateContext(default) error = %v, want ErrContextExists", err)
 	}
@@ -292,6 +298,44 @@ func TestCorruptStoredContextFailsClosedWithoutWrites(t *testing.T) {
 	}
 }
 
+func TestStoredContextMissingSourceAccessFailsClosed(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), &contextSwitchRunner{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := runtime.contextDirectory(tobari.DefaultContextName)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]any{
+		"schema_version": tobari.ContextSchemaVersion,
+		"id":             "018bcfe5-687b-7000-8000-000000000099",
+		"name":           tobari.DefaultContextName,
+		"agent_profile":  tobari.DefaultProfile,
+		"image":          tobari.OfficialRuntimeBase,
+		"policy_mode":    tobari.ContextPolicyModeGuided,
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtime.contextManifestPath(tobari.DefaultContextName), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotOwnedTree(t, root)
+	if _, err := runtime.ShowContext(context.Background(), tobari.DefaultContextName); err == nil ||
+		!strings.Contains(err.Error(), "source access") {
+		t.Fatalf("missing source access error = %v", err)
+	}
+	if after := snapshotOwnedTree(t, root); !reflect.DeepEqual(after, before) {
+		t.Fatalf("missing source access changed state\nbefore=%v\nafter=%v", before, after)
+	}
+}
+
 func TestListContextsRejectsExtraSymbolicLinkWithoutWrites(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -302,7 +346,7 @@ func TestListContextsRejectsExtraSymbolicLinkWithoutWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := runtime.CreateContext(
-		context.Background(), "fixture", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided,
+		context.Background(), "fixture", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite,
 	); err != nil {
 		t.Fatalf("initialize valid default Context fixture: %v", err)
 	}

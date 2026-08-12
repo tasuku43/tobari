@@ -273,7 +273,7 @@ func (s *Service) resolveExecutionContext(ctx context.Context, name string) (tob
 	}
 	return tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
 		Name: tobari.DefaultContextName, AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector,
-		PolicyMode: tobari.ContextPolicyModeGuided}, nil
+		PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite}, nil
 }
 
 func (s *Service) observeExecutionContext(ctx context.Context, name string) (tobari.ContextObservation, error) {

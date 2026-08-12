@@ -375,7 +375,7 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		return aggregateProjection{}, err
 	}
 	guidedModule, err := transformContextRego(aggregateContext{
-		manifest: tobari.ContextManifest{Name: "system", PolicyMode: tobari.ContextPolicyModeGuided},
+		manifest: tobari.ContextManifest{Name: "system", PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite},
 		rego:     canonicalGuided,
 	})
 	if err != nil {

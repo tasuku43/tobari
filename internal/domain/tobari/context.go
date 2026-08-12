@@ -158,6 +158,25 @@ func (m ContextPolicyMode) Validate() error {
 	}
 }
 
+// ContextSourceAccess selects the write authority of the one direct project
+// source bind. It does not describe the separately writable Workspace home or
+// tmpfs mounts.
+type ContextSourceAccess string
+
+const (
+	ContextSourceAccessReadOnly  ContextSourceAccess = "read-only"
+	ContextSourceAccessReadWrite ContextSourceAccess = "read-write"
+)
+
+func (a ContextSourceAccess) Validate() error {
+	switch a {
+	case ContextSourceAccessReadOnly, ContextSourceAccessReadWrite:
+		return nil
+	default:
+		return fmt.Errorf("context source access is invalid: %q", a)
+	}
+}
+
 // ContextRuntimeKind identifies the source of a Context runtime.
 type ContextRuntimeKind string
 
@@ -592,6 +611,7 @@ type ContextManifest struct {
 	AgentProfile     string                           `json:"agent_profile"`
 	Image            string                           `json:"image"`
 	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
+	SourceAccess     ContextSourceAccess              `json:"source_access"`
 	Runtime          *ContextRuntimeRecipe            `json:"runtime,omitempty"`
 	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
 	GitIdentity      *ContextGitIdentitySetting       `json:"git_identity,omitempty"`
@@ -614,6 +634,9 @@ func (m ContextManifest) Validate() error {
 		return fmt.Errorf("context image: %w", err)
 	}
 	if err := m.PolicyMode.Validate(); err != nil {
+		return err
+	}
+	if err := m.SourceAccess.Validate(); err != nil {
 		return err
 	}
 	if m.Runtime != nil {
@@ -675,6 +698,7 @@ type ContextSummary struct {
 	AgentProfile  string                  `json:"agent_profile"`
 	Image         string                  `json:"image"`
 	PolicyMode    ContextPolicyMode       `json:"policy_mode"`
+	SourceAccess  ContextSourceAccess     `json:"source_access"`
 	RuntimeStatus ContextRuntimeStatus    `json:"runtime_status,omitempty"`
 }
 
@@ -695,6 +719,7 @@ func (s ContextSummary) Validate() error {
 		AgentProfile:  s.AgentProfile,
 		Image:         s.Image,
 		PolicyMode:    s.PolicyMode,
+		SourceAccess:  s.SourceAccess,
 	}
 	if err := manifest.Validate(); err != nil {
 		return err
@@ -855,6 +880,7 @@ type ContextReport struct {
 	AgentProfile     string                           `json:"agent_profile"`
 	Image            string                           `json:"image"`
 	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
+	SourceAccess     ContextSourceAccess              `json:"source_access"`
 	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment"`
 	GitIdentity      ContextGitIdentitySetting        `json:"git_identity"`
 	Stores           ContextStorePaths                `json:"stores"`
@@ -875,7 +901,7 @@ func (r ContextReport) Validate() error {
 		if r.Task != TaskContextShow || r.Name != DefaultContextName || !r.Active || r.ID != "" || r.Stores != (ContextStorePaths{}) {
 			return fmt.Errorf("synthetic default Context report claims persisted authority")
 		}
-		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil {
+		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil || r.SourceAccess.Validate() != nil {
 			return fmt.Errorf("synthetic default Context display metadata is invalid")
 		}
 	} else {
@@ -886,6 +912,7 @@ func (r ContextReport) Validate() error {
 			AgentProfile:  r.AgentProfile,
 			Image:         r.Image,
 			PolicyMode:    r.PolicyMode,
+			SourceAccess:  r.SourceAccess,
 		}
 		if err := manifest.Validate(); err != nil {
 			return err

@@ -161,6 +161,7 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		AgentProfile:     manifest.AgentProfile,
 		Image:            manifest.Image,
 		PolicyMode:       manifest.PolicyMode,
+		SourceAccess:     manifest.SourceAccess,
 		ShellEnvironment: shellEnvironment,
 		GitIdentity:      gitIdentity,
 		Stores:           r.contextPaths(manifest.Name),
@@ -197,7 +198,8 @@ func (r *Runtime) nonPersistedContextReport(observed observedContext, active str
 	result := tobari.ContextReport{
 		Task: tobari.TaskContextShow, ContextState: observed.state, Name: manifest.Name,
 		Active: manifest.Name == active, AgentProfile: manifest.AgentProfile, Image: manifest.Image,
-		PolicyMode: manifest.PolicyMode, ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,
+		PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,
 		Stores: tobari.ContextStorePaths{}, Runtime: runtimeReport, Cluster: tobari.ContextClusterStatusNotApplicable,
 		Authentication: tobari.ContextAuthentication{
 			BrokerState: tobari.ContextAuthBrokerUnavailable, Providers: []tobari.ContextAuthProvider{},

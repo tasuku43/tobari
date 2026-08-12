@@ -198,7 +198,7 @@ func (r *Runtime) validateDoctorPolicySources(ctx context.Context) (int, error) 
 			return 0, err
 		}
 		_, err = transformContextRego(aggregateContext{
-			manifest: tobari.ContextManifest{Name: tobari.DefaultContextName, PolicyMode: tobari.ContextPolicyModeGuided},
+			manifest: tobari.ContextManifest{Name: tobari.DefaultContextName, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite},
 			rego:     source,
 		})
 		return 1, err

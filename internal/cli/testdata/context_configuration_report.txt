@@ -4,6 +4,7 @@ Active: false
 Image: ghcr.io/tasuku43/tobari/runtime:latest
 Agent profile: default
 Policy mode: guided
+Source access: direct read-write
 Shell COLORTERM: default
 Shell NO_COLOR: literal ""
 Shell PS1: inherit
