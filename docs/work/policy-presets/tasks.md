@@ -130,7 +130,9 @@
       JSON merge errors. Gateway source compiles with `python3 -m py_compile`,
       while its unittest suite requires the integration profile's mitmproxy
       dependency.
-- [ ] `task check` passes. Evidence: final full integration gate remains.
+- [x] `task check` passes. Evidence: `mise exec -- task check` passed on
+      integrated V1 HEAD on 2026-08-12, including all Go tests with race,
+      generated/catalog/source checks, both site builds, and Playwright 40/40.
 - [x] `task check:fast` passes. Evidence: `mise exec -- task check:fast`
       passed after preset/auth/policy/site integration on 2026-08-12.
 - [x] `task security` passes. Evidence: `mise exec -- task security` passed on
