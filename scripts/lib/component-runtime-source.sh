@@ -9,12 +9,14 @@ Dockerfile
 __init__.py
 aws_sigv4.py
 broker.py
+broker_contract.py
 companion_bridge.py
 companion_protocol.py
 control-entrypoint.sh
 control.py
 daemon.py
 datadog_oauth.py
+dispatcher.py
 entrypoint.sh
 openai_codex_oauth.py
 openai_refresh_transport.py
