@@ -47,10 +47,10 @@ func TestGenerateCatalogUsesExecutableAgentHelp(t *testing.T) {
 	if document.CommandCount != len(root.Commands) {
 		t.Fatalf("command count = %d, root commands = %d", document.CommandCount, len(root.Commands))
 	}
-	// The current public surface has 30 commands. Keep this as a lower bound so
+	// The current public surface has 32 commands. Keep this as a lower bound so
 	// a reviewed capability addition does not require an unrelated count edit.
-	if document.CommandCount < 30 {
-		t.Fatalf("command count = %d, want at least 30", document.CommandCount)
+	if document.CommandCount < 32 {
+		t.Fatalf("command count = %d, want at least 32", document.CommandCount)
 	}
 
 	rootPaths := make(map[string]string, len(root.Commands))
