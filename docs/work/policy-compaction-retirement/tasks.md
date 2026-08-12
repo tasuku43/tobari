@@ -35,13 +35,15 @@
       reader rejects the retired shape; OPA has no prefix matcher or prefix
       scope validator, and `test_retired_learned_prefix_rule_fails_closed`
       proves the hostile old shape cannot authorize a sibling path.
-- [ ] Remove or update fixtures, dependencies, documentation, ledgers, and
+- [x] Remove or update fixtures, dependencies, documentation, ledgers, and
       generated architecture data owned by this retirement.
       Evidence: code and OPA fixtures now reject the retired `authorities`,
       `methods`/`exclude_path_prefixes`, `credential_profiles`, and
       `baseline_rules` shapes; the embedded production seed-domain tree is
-      removed. There is no dependency-file diff. README, integration flow,
-      ledgers, and generated catalog remain reserved for the integration lane.
+      removed. There is no dependency-file diff. README, governing contracts,
+      capability/schema ledgers, integration flow, and architecture-site
+      sources now describe exact-only V1 and explicitly reject both retired
+      command paths and sibling-path widening.
 
 ## Verify and integrate
 
@@ -54,10 +56,16 @@
       Evidence: no `go.mod`, `go.sum`, package lock, or generated-file diff is
       present in this lane; stale generated/public surfaces are listed above
       for the integration lane.
-- [ ] Record `task check`, `task security`, and `task public:check` evidence.
-      Evidence: `mise exec -- task security` passed. `task check:fast`,
-      `task check`, and `task public:check` reach contract validation and fail
-      only because the integration-owned product/site JSON-schema tables still
-      advertise `policy_compactions` version 1.
-- [ ] Commit only this packet and integrate it before policy presets.
-- [ ] Re-run the same verification on the integration branch.
+- [x] Record `task check`, `task security`, and `task public:check` evidence.
+      Evidence: `mise exec -- task check:fast` and `mise exec -- task security`
+      passed on integration HEAD on 2026-08-12. `task public:check` passed
+      repoguard and contractlint, then stopped only at the deliberate
+      unpublished Gateway digest checkpoint. The full check remains a final
+      integration gate.
+- [x] Commit only this packet and integrate it before policy presets.
+      Evidence: retirement commits `58f811d` and `e183fc4` precede the preset
+      integration commits and contain no preset feature implementation.
+- [x] Re-run the same verification on the integration branch. Evidence:
+      focused Go, pinned OPA policy, Gateway, fast, and security checks passed
+      after cherry-pick integration; the integration script retains explicit
+      negative command canaries.
