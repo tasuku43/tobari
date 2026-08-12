@@ -1,5 +1,6 @@
-// Command contractlint verifies the public capability ledger, external schema
-// fixtures, and the executable command catalog through one repository gate.
+// Command contractlint verifies the public capability ledger, product command
+// table, external schema fixtures, and executable command catalog through one
+// repository gate.
 package main
 
 import (
@@ -28,6 +29,11 @@ func main() {
 		fatal(err)
 	}
 	issues = append(issues, schemaIssues...)
+	commandIssues, err := validatePublicCommandTable(root, catalog)
+	if err != nil {
+		fatal(err)
+	}
+	issues = append(issues, commandIssues...)
 	if len(issues) != 0 {
 		for _, issue := range issues {
 			fmt.Fprintf(os.Stderr, "%s: %s\n", issue.Path, issue.Message)

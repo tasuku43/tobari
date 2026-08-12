@@ -35,6 +35,13 @@ func TestRepositoryContractsMatchDefaultCatalog(t *testing.T) {
 	if len(schemaIssues) != 0 {
 		t.Fatalf("public JSON schema issues = %+v", schemaIssues)
 	}
+	commandIssues, err := validatePublicCommandTable(root, catalog)
+	if err != nil {
+		t.Fatalf("validatePublicCommandTable() error = %v", err)
+	}
+	if len(commandIssues) != 0 {
+		t.Fatalf("public command table issues = %+v", commandIssues)
+	}
 }
 
 func TestPublicJSONSchemaTablesRejectStaleMissingAndUnmarkedVersions(t *testing.T) {
