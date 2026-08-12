@@ -14,10 +14,16 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `release` | `task release:check` | Packaging and release changes | Artifact, metadata, checksum, Formula, and workflow contracts |
 | `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, public-boundary checks, generated references, and the deployable Pages artifact |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
-| `gateway` | `task gateway:test` | Enforcement-point feedback | Source-built Gateway image with hash-locked dependencies, existing addon tests, and bounded GraphQL parser tests |
-| `authbroker` | `task authbroker:test` | Credential-boundary feedback | Canonical/snapshot drift, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
+| `gateway` | `task gateway:test` | Enforcement-point feedback | Source-built Gateway image with hash-locked dependencies, exact runtime-input snapshot membership/bytes, existing addon tests, and bounded GraphQL parser tests |
+| `authbroker` | `task authbroker:test` | Credential-boundary feedback | Exact runtime-input snapshot membership/bytes, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
 | `integration` | `task integration:test` | Real runtime boundary | One Gateway/OPA/Auth Broker shared across multiple Contexts, explicit/transparent HTTP parity, guarded routes and forwarding-off inspection, synthetic DNS and zero-pre-policy-upstream canaries, same-root and overlapping-root Tobari, Context/project source-principal and handle separation, separate network, home, runtime, policy, and credential boundaries, shared host-file visibility, typed/redacted denial, Context-local learning/reset, exact marker-absence fallback, broker restart/rotation/logout, down/purge authentication-state preservation, V1 restart, recovery, and cleanup scenarios |
 | `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, Auth Broker image/protocol, and integration coverage |
+
+The integration script reports named phase start/completion and elapsed time
+for preflight, fixture build, Context/cluster, credentials/Workspaces,
+Gateway/Broker/transport, policy review/activation, diagnostics, and lifecycle
+coverage. Unexpected failures name the active phase before bounded container
+diagnostics, while one cleanup owner still controls the complete fixture.
 
 The optional `task toolbox:build` workflow is not a completion profile. It
 requires Docker and the official Tobari runtime base, downloads the
@@ -66,8 +72,10 @@ equality with the embedded CLI snapshot. The
 main-only runtime workflow runs this check before its package-write job and
 pushes only the base image; pull-request CI has no package-write permission.
 
-`task gateway:source:check` validates byte equality between the canonical
-`gateway/` source and the embedded snapshot. `task gateway:test` runs the
+`task gateway:source:check` validates exact membership and byte equality for
+the canonical Gateway Dockerfile, `.dockerignore`, and Dockerfile-declared
+image inputs in the embedded snapshot. Tests and contributor documentation
+remain canonical-only. `task gateway:test` runs the
 Gateway unit suite against the canonical source, while the runtime integration
 continues to exercise the embedded snapshot used by the CLI. The Gateway unit
 contract fixes ordinary body-free and declared GraphQL-derived OPA documents
@@ -87,8 +95,10 @@ before shared resources; local source image feedback is covered by the explicit
 contributor `task build` path.
 
 `task authbroker:source:check` and `scripts/check-authbroker-source.sh`
-validate byte equality between canonical `authbroker/` source and the embedded
-snapshot. The canonical Python unit suite
+validate exact membership and byte equality for the canonical Auth Broker
+Dockerfile, `.dockerignore`, and Dockerfile-declared image inputs in the
+embedded snapshot. Tests and contributor documentation remain canonical-only.
+The canonical Python unit suite
 runs in the pinned image environment and covers strict schema-1 control/runtime
 protocols, locked startup, the schema-1 envelope/schema-1 static payload,
 Context/project-bound handles, exact static introspection/resolution, restart
@@ -143,7 +153,11 @@ Every profile starts with a local-toolchain preflight after the gate sanitizes i
 
 The `fast`, `full`, `security`, and `public` profiles also require the exact
 Node.js version in `.node-version` and npm version in the public site's
-`packageManager` field. Site installation uses only the committed lockfile.
+`packageManager` field. CI and release preflight provision both through one
+repository-owned composite action; the canonical site gate alone installs the
+locked dependencies and browser, and a fast workflow-ownership test rejects
+workflow-local duplication or a missing Node bootstrap. Site installation uses
+only the committed lockfile.
 `task site:check` exposes the complete site gate directly; `task site:build`
 produces and verifies the `/tobari/` Pages artifact, while `task site:dev`
 serves the root-base development view. The full profile installs the pinned
@@ -192,8 +206,9 @@ nondeterministic and provider-specific.
 The canonical gate and release packager force module mode and neutralize ambient Go workspace, toolchain, experiment, FIPS, and flag settings before invoking Go. This prevents a local or CI `GOFLAGS` value from silently selecting no tests and keeps agent, developer, and workflow evidence on the same checked command set. A release fixture launches the public profile with hostile values and proves that its first Go-backed check observes only the sanitized contract.
 
 CI is the completion authority. Pull-request CI runs `full`, `runtime`, and the
-security/public boundary profiles in parallel. The Pages workflow separately
-builds and tests the same site for relevant pull requests without deployment;
+security/public boundary profiles in parallel, so the canonical full gate owns
+the pull-request site build and browser tests exactly once. The Pages workflow
+runs the same canonical site gate only for a push to `main` or a manual replay;
 only a successful push to `main` may upload `dist/` and enter the least-
 privilege Pages deploy job. The repository installs no
 automatic Codex Stop hook: a per-turn gate adds latency and does not prove
