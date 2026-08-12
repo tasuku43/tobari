@@ -32,10 +32,15 @@
 - [x] Ensure no home, generated Git projection, profile, or other mount creates a writable
       source alias.
 - [x] Update context/status/list presentation and catalog source declarations.
-- [ ] Regenerate catalog-derived public architecture-site data after the
-      integration branch has combined all V1 catalog changes.
-- [ ] Update theses, product, architecture, security, threat model, harness,
-      ADR, and readiness docs.
+- [x] Regenerate catalog-derived public architecture-site data after the
+      integration branch has combined all V1 catalog changes. Evidence: the
+      integrated architecture data and EN/JA Context pages carry
+      `source_access`; `mise exec -- task check:fast` passed `sitegen --check`,
+      source verification, locale parity, typecheck, and both site builds.
+- [x] Update theses, product, architecture, security, threat model, harness,
+      ADR, and readiness docs. Evidence: the static V1 governing-contract
+      commits and readiness source-access matrix distinguish the selected live
+      bind from Workspace home/tmpfs and reject clone/snapshot claims.
 
 ## Verify
 
@@ -43,6 +48,10 @@
       Evidence: application tests reject unknown access before the runtime port;
       store tests reject missing persisted access without changing owned state.
 - [ ] Read-only source read succeeds and create/change/delete/Git writes fail.
+      Evidence pending runtime execution: the integration journey now performs
+      each operation against the selected bind and fails if any mutation
+      succeeds; the local Colima engine blocked before the fixture container
+      started on 2026-08-12.
 - [x] Workspace home and tmpfs remain writable.
       Evidence: exact Docker argv tests keep the home bind writable and both
       tmpfs mounts present while changing only the selected source bind.
@@ -51,7 +60,8 @@
       view honestly observes external changes.
       Evidence: project-state tests bind the same canonical root to distinct
       Context IDs carrying opposite access. Live cross-Context observation
-      remains a Docker integration/manual item.
+      is encoded in `scripts/test-integration.sh`; the local Docker attempt was
+      blocked before fixture startup and supplies no platform result.
 - [x] Restart, drift, and re-entry preserve exact access.
       Evidence: access is required in the persisted manifest, included in the
       desired spec/hash, inspected from Docker Mounts, and mismatches recreate
@@ -60,12 +70,13 @@
       ./internal/app/contextcmd ./internal/app/tobaricmd
       ./internal/infra/dockerruntime ./internal/cli` passed on 2026-08-12.
 - [ ] `task check` passes. Evidence: `mise exec -- task check:fast` passed on
-      2026-08-12 before the final focused-test additions. A direct `task
-      check:fast` first failed preflight under Node 22/npm 10; `mise exec`
-      selected the repository-pinned Node 24/npm 11 toolchain. Integration and
-      full check remain for the integration lane.
-- [ ] `task security` passes. Evidence:
-- [ ] `task public:check` passes. Evidence:
+      2026-08-12 on the integrated V1 branch after the final integration-script
+      changes. Full check and a functioning Docker runtime remain required.
+- [x] `task security` passes. Evidence: `mise exec -- task security` passed on
+      the integrated V1 branch on 2026-08-12.
+- [ ] `task public:check` passes. Evidence: repoguard and contractlint passed;
+      the gate stopped only at the deliberate unpublished Gateway digest
+      checkpoint, which requires the later approved publication lane.
 
 ## Hand off
 
