@@ -232,7 +232,7 @@ test("system map keeps positions fixed while selecting a conversation", async ({
   expect(positionsAfter).toEqual(positionsBefore);
 });
 
-test("credential map follows one numbered processing path for each plan", async ({
+test("credential map follows the static V1 acquisition and request paths", async ({
   page,
 }) => {
   await page.goto("how-it-works/credentials/");
@@ -246,24 +246,22 @@ test("credential map follows one numbered processing path for each plan", async 
     map.locator('[data-field="route-order"] > li').first(),
   ).toContainText("Gateway");
 
-  await map.locator('[data-scenario="aws"]').click();
-  await expect(map.locator('[data-scenario="aws"]')).toHaveAttribute(
+  await map.locator('[data-scenario="acquisition"]').click();
+  await expect(map.locator('[data-scenario="acquisition"]')).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(map.locator('[data-field="route-order"] > li')).toHaveCount(7);
-  await expect(map.locator('[data-node="companion"]')).toHaveCount(2);
-  await expect(map.locator('[data-node="datadog-token"]')).toHaveCount(0);
+  await expect(map.locator('[data-field="route-order"] > li')).toHaveCount(3);
+  await expect(map.locator('[data-node="provider-login"]')).toHaveCount(1);
 
-  await map.locator('[data-scenario="datadog"]').focus();
+  await map.locator('[data-scenario="static"]').focus();
   await page.keyboard.press("Enter");
-  await expect(map.locator('[data-scenario="datadog"]')).toHaveAttribute(
+  await expect(map.locator('[data-scenario="static"]')).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(map.locator('[data-field="route-order"] > li')).toHaveCount(6);
-  await expect(map.locator('[data-node="datadog-token"]')).toHaveCount(1);
-  await expect(map.locator('[data-node="companion"]')).toHaveCount(0);
+  await expect(map.locator('[data-field="route-order"] > li')).toHaveCount(5);
+  await expect(map.locator('[data-node="provider-login"]')).toHaveCount(0);
 });
 
 test("policy loop exposes the cycle without automatic playback", async ({
@@ -356,10 +354,10 @@ test("credential architecture transcript remains readable with JavaScript disabl
   const transcript = page.locator(".credential-map-transcript").first();
   await expect(transcript).toHaveAttribute("open", "");
   await expect(
-    transcript.getByRole("heading", { name: "AWS SigV4" }),
+    transcript.getByRole("heading", { name: "Acquire on trusted host" }),
   ).toBeVisible();
   await expect(
-    transcript.getByRole("heading", { name: "Datadog OAuth" }),
+    transcript.getByRole("heading", { name: "Static header provider" }),
   ).toBeVisible();
   await context.close();
 });
@@ -378,14 +376,9 @@ test("Provider-first support map keeps Provider, Tool, and acquisition distinct"
 
     const map = page.locator(".provider-tool-map");
     await expect(map).toBeVisible();
-    await expect(map.locator(".pairing-row")).toHaveCount(4);
+    await expect(map.locator(".pairing-row")).toHaveCount(1);
 
-    const expected = [
-      ["github", "GitHub CLI", "gh"],
-      ["aws", "AWS CLI", "aws"],
-      ["datadog", "pup", "pup"],
-      ["chatwork", "cwk", "cwk"],
-    ];
+    const expected = [["github", "GitHub CLI", "gh"]];
     for (const [provider, toolName, command] of expected) {
       const row = map.locator(`[data-provider="${provider}"]`);
       await expect(row).toHaveCount(1);
@@ -394,7 +387,7 @@ test("Provider-first support map keeps Provider, Tool, and acquisition distinct"
     }
 
     await expect(map).toContainText(
-      locale ? "ツールではなく取得方法" : "acquisition methods, not tools",
+      locale ? "明示指定が必須" : "requires explicit",
     );
     await expect(map).toContainText(
       locale ? "OPA の通信許可を追加しません" : "add no OPA network permission",

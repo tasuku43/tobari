@@ -29,7 +29,11 @@ boundaries enforce.
 
 ## Boundary 1: selected files
 
-The trusted host selects a canonical project root. Tobari mounts that root into the runtime so work can happen. The Workspace must therefore be considered authorized to read and modify it. Other host paths are excluded from the normal mount set; Docker control is not mounted; each Workspace gets its own persistent home bind from the instance state directory.
+The trusted host selects a canonical project root. Immutable Context
+`source_access` chooses a `read-only` or `read-write` live bind; CLI omission
+defaults to `read-write`. A read-only bind still observes changes by the host or
+another Context. Other host paths and Docker control are excluded, while each
+Workspace receives its own writable persistent home.
 
 The root selection boundary is not a file-integrity sandbox for the selected tree. If `/work/team` and `/work/team/service` are intentionally used by different Workspaces or Contexts, the overlapping host files remain shared even though network, home, identity, and policy bindings differ.
 
@@ -53,20 +57,16 @@ Only the trusted host CLI can take an unchanged opaque review reference, select 
 ## Boundary 4: credential authority
 
 Tool-native credentials deliberately cross into Workspace storage or
-environment and are readable there. Managed and brokered paths differ. In the
-brokered path, fixed GitHub, AWS, and Datadog acquisition drivers run on the
-trusted host. The root-key backend unlocks a Context vault, and Auth Broker
-keeps typed static or renewable credential state. The Workspace receives a
-non-secret opaque record selector bound to one project.
+environment and are readable there. In the brokered path, the fixed GitHub
+helper or strict owner stdin import runs on the trusted host. The root-key
+backend unlocks a Context vault, and Auth Broker keeps one static credential
+record. Workspace receives a non-secret opaque selector bound to one project.
 
-Gateway does not send the handle, resolved credential, renewable state, or
-ordinary request body to OPA. On a static allow it resolves once and replaces
-the declared upstream header. On an AWS allow, the private host companion runs
-only the compiled credential export and Broker signs locally. On a Datadog
-allow, Broker selects or refreshes a token only at the exact US1 endpoint. On
-deny none of those secret-bearing actions runs.
+Gateway does not send the handle, resolved credential, or ordinary request
+body to OPA. On a static allow it resolves the same revision once and replaces
+the declared upstream header. On deny, resolution does not run.
 
-<CredentialArchitectureMap headingLevel={3} initial="aws" />
+<CredentialArchitectureMap headingLevel={3} initial="static" />
 
 ## Boundary 5: external data
 

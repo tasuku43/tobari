@@ -82,7 +82,7 @@ After a confirmed allow, re-enter the matching Workspace and issue a new request
 
 An exact rule binds Context ID, project ID, scheme, host, port, method, and path. Body, timestamp, display order, request ID, and credential label do not widen or split its authority.
 
-## Correct or compact current policy
+## Correct current policy
 
 List the exhaustive current learned decisions:
 
@@ -98,21 +98,15 @@ tobari policy reset --id <policy-rule-id>
 
 Reset removes only that CLI-owned learned decision and returns the effect to default deny. It is not an allow, request retry, or baseline-policy edit.
 
-After at least three compatible exact allow rules, optional bounded compaction may be discoverable:
-
-```sh
-tobari policy compactions
-tobari policy compact --id <policy-compaction-id>
-```
-
-Compaction is explicit and test-backed. It never invents a host or method wildcard and never runs automatically.
+First public V1 keeps every learned rule exact. It has no widening operation,
+No operation or dormant fallback widens exact rules.
 
 ## Failure behavior
 
 - Empty queue: no valid pending learnable denial exists in the requested retained window; this is not proof that no historical denial occurred.
 - Baseline deny or current exact deny: remains audit evidence but not a pending candidate.
 - Scheme, principal, cluster, or credential-binding failure: not learnable through an ineffective exact rule.
-- `policy_candidate_not_found` or stale compaction: rediscover current state; do not reuse an older reference.
+- `policy_candidate_not_found` or a stale rule reference: rediscover current state; do not reuse an older reference.
 - `policy_test_failed` or preflight failure: inspect owner-only policy and OPA diagnostics. The prior policy remains authoritative.
 - Uncertain mutation output: use `tobari policy rules` and `tobari cluster status` to reconcile before another mutation.
 

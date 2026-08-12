@@ -29,7 +29,8 @@ description: Tobari の実行、ネットワーク、ポリシー、認証、状
 
 ### プロジェクトルート（project root）
 
-現在の作業ディレクトリから選び、Workspace へ読み書き可能でマウントする正規の
+現在の作業ディレクトリから選び、immutable Context `source_access`（CLI default は
+`read-write`）に従って Workspace へ mount する正規の
 ホストディレクトリです。Tobari は、このルートを読み書きする権限を意図的に Workspace
 へ委ねます。Workspace 内のプロセスからファイルを守るスナップショットやオーバーレイは
 提供しません。
@@ -206,12 +207,6 @@ Context、プロジェクト、ホスト、ポート、メソッド、パスが�
 選択した学習済み判断を一つ削除し、一致するリクエストをデフォルト拒否へ戻す操作です。
 リセットは許可ではなく、リクエストを再試行もしません。
 
-### ポリシー圧縮（compaction）
-
-レビュー済みの完全一致学習規則を、安全なパス接頭辞規則へ変換する、明示的で範囲を
-限定した処理です。隣接する接頭辞外のカナリアも検査します。自動ではなく、ホスト
-やメソッドのワイルドカードは作りません。
-
 ## 認証と認証情報
 
 ### 認証（authentication）
@@ -233,17 +228,15 @@ Context、プロジェクト、ホスト、ポート、メソッド、パスが�
 
 ### Workspace クライアントツール（Workspace client Tool）
 
-プロバイダーが宣言したハンドルの投影を受け取り、結び付きに一致するリクエストを送る
-Workspace 内の CLI またはクライアントです。現在の例は `gh`、`aws`、`pup`、`cwk` です。
-Tool 名はプロバイダーの識別情報もネットワーク権限も与えません。
+Provider が宣言した projection を受け取り、binding に一致する request を送る Workspace
+内 client です。組み込み V1 の例は `gh` だけです。Tool 名は provider identity も
+network authority も与えません。
 
 ### サポート対象の Provider–Tool 対応（supported Provider-Tool pairing）
 
-Provider、Workspace client Tool、取得方式、ハンドルの投影、完全一致リクエストとの
-結び付きを組み合わせたレビュー済みの対応です。現在の組み込み定義はすべて対応 Tool が
-一つなので、Provider 選択後に Tool を表示して自動選択します。AWS の
-`identity-center` と `console` は、一つの対応内で使う取得方式であり、Tool では
-ありません。
+Provider、Workspace client Tool、取得方式、handle projection、完全一致 request binding
+を組み合わせたレビュー済み対応です。組み込み V1 は GitHub/`gh` 一組で、owner provider
+は strict stdin import と static projection を使います。
 
 ### ツール固有のパススルー（tool-native passthrough）
 
@@ -251,28 +244,19 @@ Provider、Workspace client Tool、取得方式、ハンドルの投影、完全
 方式です。Gateway は OPA 入力と監査記録から認証情報と cookie の値を除き、ポリシー
 許可後にだけ値を変えず転送します。Workspace は、このツール管理の秘密情報を読めます。
 
-### 静的 managed アダプター（static managed adapter）
-
-レビュー済みのホスト側認証プロファイル設定を読む、限定的な Context とプロジェクト
-単位の Gateway アダプターです。独立した明示的な経路であり、Auth Broker 方式や
-パススルー方式と暗黙には混ざりません。
-
 ### Auth Broker
 
 Context とプロバイダーごとに、型付きで暗号化した認証状態を保存する共有サービスです。
 プロジェクトに結び付いた不透明なハンドルを発行し、秘密情報を使わずに照会します。
-起動時はロックされています。Gateway がポリシーの許可を報告した後にだけ、レビュー済みの
-認証計画を実行します。固定計画は秘密情報を一つ解決します。AWS では専用ホスト
-コンパニオンから一時認証情報のエクスポートを一つ取得し、ローカルで署名します。Datadog では
-トークンを一つ選択または更新します。Broker は Unix ソケットを持ちますが、Workspace
-ネットワークや TCP リスナーは持ちません。
+起動時は locked です。Gateway が policy allow を報告した後だけ、同じ static credential
+revision を解決します。Broker は Unix socket を持ちますが、Workspace network や TCP
+listener は持ちません。
 
 ### Broker 管理の認証状態（brokered credential state）
 
-一つの Context 保管庫内で暗号化する型付きレコードです。固定された実物の秘密情報、
-不透明な AWS ホストドライバーの状態、Datadog OAuth セッションの状態を保持できます。
-Workspace や OPA へは投影しません。リクエスト処理中に導出した値が境界を越えるのは、
-宣言済みのポリシー許可後に Auth Broker から Gateway へ渡る場合だけです。
+一つの Context vault 内で暗号化する型付き record です。V1 は static primary secret 一つと
+revision/handle state を保持します。Workspace や OPA へは投影しません。request-local value
+が境界を越えるのは policy allow 後に Auth Broker から Gateway へ渡る場合だけです。
 
 ### Broker ハンドル（broker handle）
 
@@ -291,25 +275,8 @@ Workspace や OPA へは投影しません。リクエスト処理中に導出�
 ### 解決（resolve）
 
 スキーマ 1 の固定プロバイダー向けに、許可後に実行する Broker 操作です。宣言済みの
-宛先ヘッダーへ入れる、現在の実物の秘密情報を Gateway に返します。AWS の署名や
-Datadog の更新を含む総称ではありません。拒否時には、resolve の呼び出しも動的計画
-の処理もありません。
-
-### ホスト認証情報コンパニオン（host credential companion）
-
-レビュー済みの AWS 計画が OPA の許可後にだけ使う、常駐する非公開 Tobari プロセス
-です。Broker は、認証と暗号化を施し、厳密に順序付けた逆向きの `docker exec -i`
-セッションで接続します。コンパイル済みで固定された AWS CLI 認証情報のエクスポートを一つだけ
-要求します。リスナーやマウント済みのホストソケットを公開せず、対話ログインや Datadog の
-更新には使いません。
-
-### Datadog OAuth 更新（Datadog OAuth refresh）
-
-Auth Broker が所有する、コンパイル済みスキーマ 1 のポリシー許可後操作です。保存した
-アクセストークンが 5 分の更新時間帯に入ると、Broker は完全一致する Datadog US1 トークン
-エンドポイントに対し、プロキシとリダイレクトを無効にして、同じレコードの厳密な交換を一度だけ
-行います。更新済みの状態を保存してから、リクエスト用 bearer 値を返します。
-信頼するホストの `pup` ドライバーは取得専用です。
+宛先 header へ入れる current primary secret を Gateway に返します。deny では resolve call
+はゼロです。
 
 ### 認証情報リビジョン（credential revision）
 
@@ -334,10 +301,9 @@ Context 保管庫を解錠する 32 バイトの鍵です。Linux では所有�
 
 取得方式、Workspace へのハンドル投影、完全一致の HTTPS との結び付き、秘密情報を
 伏せる方法を宣言する、厳密で秘密情報を含まないデータ文書です。所有者マニフェストは
-スキーマ 1 かつ `stdin_import` だけを使います。レビュー済みの組み込み定義はスキーマ 1、
-または閉じたスキーマ 1 の AWS と Datadog 計画の語彙を使えます。マニフェストは実行可能な
-コードではなく、
-メソッドとパスのポリシーを宣言せず、通信許可を付与しません。
+schema 1 かつ `stdin_import` だけを使います。GitHub が唯一の reviewed built-in acquisition
+plan です。manifest は executable code ではなく、method/path policy を宣言せず、通信許可を
+付与しません。
 
 ## 状態と公開契約
 

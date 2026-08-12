@@ -23,7 +23,9 @@ Tobari が信頼するのは、ホスト側のライフサイクル状態、プ�
 
 ## 境界 1：作業対象のファイル
 
-信頼するホストの利用者が、作業対象となるプロジェクトルートを選びます。Tobari は、そのディレクトリで作業できるよう、ランタイムへ読み書き可能な状態でマウントします。したがって Workspace のプロセスは、そのルート内にあるファイルを読み取り、変更、削除できます。
+trusted host user が canonical project root を選びます。immutable Context `source_access` が
+`read-only` または `read-write` の live bind を選び、CLI omission default は `read-write` です。
+read-only bind でも host や別 Context の変更を観測します。Workspace home は writable です。
 
 作業対象外のホストパスは通常のマウント対象に含めず、Docker の制御機能も Workspace へ渡しません。各 Workspace には、インスタンス状態用のディレクトリから別々の永続ホームを割り当てます。
 
@@ -47,13 +49,16 @@ Workspace へ返す拒否レスポンスは、ホスト側で実行するレビ�
 
 ## 境界 4：認証情報を使う権限
 
-ツール自身が管理する認証情報は、意図的に Workspace の保存領域や環境へ渡すため、Workspace から読めます。保持型の管理方式と Auth Broker 方式では扱いが異なります。
+ツール自身の認証情報は Workspace storage/environment に渡るため読めます。Broker path では、
+固定 GitHub helper または strict owner stdin import が trusted host で動きます。root-key backend
+が Context vault を unlock し、Auth Broker が static credential record 一つを保持します。
+Workspace が受け取るのは project-bound opaque selector だけです。
 
-Auth Broker 方式では、固定された GitHub、AWS、Datadog の取得処理が信頼するホスト上で動きます。ルート鍵の保管機構が Context 保管庫のロックを解除し、Auth Broker が型付きの固定または更新可能な認証状態を保持します。Workspace が受け取るのは、一つのプロジェクトに結び付いた、内容を読み取れないレコード選択用のハンドルだけです。
+Gateway は handle、resolved credential、body を OPA へ送りません。static allow 後に同じ revision
+を一度解決し、manifest-declared destination header だけを置換します。deny では resolution は
+実行されません。
 
-Gateway は、ハンドル、解決後の認証情報、更新可能な状態、通常のリクエスト本文を OPA へ送りません。固定認証情報を使う許可済み通信では、認証情報を一度だけ解決し、マニフェストで宣言された送信先ヘッダーだけを置き換えます。AWS の許可済み通信では、非公開のホスト側コンパニオンが、あらかじめ定義された認証情報の取得だけを実行し、Auth Broker がローカルで署名します。Datadog の許可済み通信では、Auth Broker が完全一致の US1 接続先に限ってトークンを選択または更新します。拒否時には、これらの認証処理を実行しません。
-
-<CredentialArchitectureMap headingLevel={3} initial="aws" />
+<CredentialArchitectureMap headingLevel={3} initial="static" />
 
 ## 境界 5：外部から入るデータ
 

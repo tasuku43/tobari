@@ -13,7 +13,7 @@ The CLI runs on the trusted host, while the selected Docker daemon may run in a 
 
 Tobari needs the daemon to see:
 
-- the selected canonical project root for its read-write Workspace bind;
+- the selected canonical project root for its Context-selected live bind;
 - `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` for host-owned policy and generated projections used by services;
 - `${XDG_STATE_HOME:-$HOME/.local/state}/tobari` for runtime materialization, principal registry, Workspace state, and broker state; and
 - any explicit custom image/build source that Docker itself must access.

@@ -131,6 +131,24 @@ for (const file of files) {
     );
   }
 
+  if (label.startsWith("src/content/docs/")) {
+    const retiredV1Claim =
+      /\b(?:AWS|Datadog|Chatwork|OpenAI|Anthropic|compaction)\b|credential companion|static managed adapter|credential_refresh_outcome_unknown|tobari policy compact(?:ions)?\b/i;
+    const match = source.match(retiredV1Claim);
+    if (match) {
+      errors.push(
+        `${label} retains retired first-public V1 claim token: ${match[0]}`,
+      );
+    }
+    if (
+      /\b(?:safe|read-only)\s+GET\b|\bGET\s+(?:request|effect)s?\s+(?:is|are)\s+(?:safe|read-only)\b/i.test(
+        source,
+      )
+    ) {
+      errors.push(`${label} characterizes GET as safe or read-only`);
+    }
+  }
+
   if (
     /\b(?:google-analytics|googletagmanager|segment\.com|plausible\.io|mixpanel|hotjar)\b/i.test(
       source,

@@ -104,21 +104,12 @@ HTTP response or a failed connection from Gateway:
 | Non-learnable HTTP `403` denial                                | The request is outside a learnable boundary or its identity is invalid. It cannot become a candidate.                          | No.                                                                        |
 | Policy service unavailable or invalid decision (`503`)         | Gateway could not obtain one valid OPA decision.                                                                               | No.                                                                        |
 | `credential_handle_invalid`                                    | A Tobari-looking handle was malformed, stale, copied, misplaced, ambiguous, or binding-mismatched.                             | No; no passthrough fallback.                                               |
-| `credential_broker_unavailable` (`503`)                        | Broker is locked/unavailable, or a companion/refresh/signing failure is known to be pre-execution.                             | No authorized credential-bearing upstream connection.                      |
-| `credential_refresh_outcome_unknown` (`409`)                   | An AWS companion operation or Datadog refresh may have been dispatched, so replay safety is unknown.                           | No application upstream attempt. Do not replay automatically.              |
+| `credential_broker_unavailable` (`503`)                        | The static Broker is locked or unavailable before resolution.                                                                  | No authorized credential-bearing upstream connection.                      |
 | Upstream DNS, TLS, connection, or response failure after allow | Authorization succeeded, but the separate upstream operation failed.                                                           | A connection may have been attempted; Gateway does not replay the request. |
 
 A policy denial can become a candidate only from retained, secret-free
 evidence. The Gateway response contains host-side navigation guidance, not a
 candidate reference and not permission.
-
-For `credential_refresh_outcome_unknown`, wait for the original request to
-settle and inspect `auth status` on the trusted host. `broker_state=ready` plus
-the affected provider `configured` means Gateway made no upstream application
-attempt and an explicit user retry is permitted. `not_configured` means the
-encrypted record retains a durable task barrier: re-login or logout that AWS or
-Datadog provider, then leave and re-enter the Workspace. Reconcile `locked` or
-`unavailable` first. A 409 is intentionally outside caller automatic retry.
 
 ## Fault-contract failures
 
@@ -184,18 +175,6 @@ availability, or safe replay of an arbitrary HTTP body.
   >
     Gateway tests
   </a>
-- Credential uncertainty and durable barriers:
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_companion_protocol.py`}
-  >
-    AWS companion protocol tests
-  </a>
-  and
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_datadog_broker.py`}
-  >
-    Datadog refresh tests
-  </a>
 - CLI fault tests:
   <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/cli_test.go`}
@@ -242,15 +221,6 @@ occur after an external effect.
 
 No. Recovery commands are exact checked paths. Upstream prose is untrusted
 data, not argv.
-
-</details>
-
-<details>
-  <summary>An AWS companion disconnect occurs after dispatch. Is the request safe to retry automatically?</summary>
-
-No. Gateway returns non-retryable HTTP 409
-`credential_refresh_outcome_unknown`, makes no application upstream attempt,
-and requires trusted-host state reconciliation before a deliberate retry.
 
 </details>
 

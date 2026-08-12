@@ -97,22 +97,12 @@ Workspace からは、Gateway の HTTP レスポンスまたは接続失敗と�
 | 学習できない HTTP `403` 拒否                          | 学習対象の境界外、または識別情報が不正。候補にはできない                                                                   | いいえ                                                     |
 | ポリシーサービスが利用不能、または判断が不正（`503`） | Gateway が OPA から有効な判断を一つ取得できなかった                                                                        | いいえ                                                     |
 | `credential_handle_invalid`                           | Tobari 形式のハンドルが形式不正、古い、コピー済み、場所違い、曖昧、または結び付き不一致                                    | いいえ。パススルーへの切り替えなし                         |
-| `credential_broker_unavailable`（`503`）              | Broker がロック中または利用不能、もしくはコンパニオン処理、更新、署名が実行前に失敗したと確認できる                        | 認証情報を付けた接続先への通信は行わない                   |
-| `credential_refresh_outcome_unknown`（`409`）         | AWS コンパニオン操作または Datadog 更新が実行先へ渡された可能性があり、安全に再実行できるか不明                            | 対象アプリケーションには接続しない。自動再実行は禁止       |
+| `credential_broker_unavailable`（`503`）              | static Broker が resolution 前に locked または unavailable                                                                 | 認証情報を付けた接続先への通信は行わない                   |
 | 許可後の接続先 DNS、TLS、接続、レスポンス障害         | 通信許可には成功したが、その後の別の接続先操作が失敗                                                                       | 接続を試した可能性がある。Gateway はリクエストを再送しない |
 
 ポリシーによる拒否を学習候補にできるのは、保持した、秘密情報を含まない根拠がある場合
 だけです。Gateway のレスポンスに含まれるのは、ホスト側の確認先です。候補を指す参照値でも、
 通信権限でもありません。
-
-`credential_refresh_outcome_unknown` の場合は、元のリクエストの完了状態が確定するまで
-待ち、信頼するホストで `auth status` を確認します。`broker_state=ready` で、対象の
-プロバイダーが `configured` なら、Gateway は対象アプリケーションへ接続していないため、
-利用者が明示的に再試行できます。`not_configured` なら、暗号化レコードに永続する
-再実行防止状態（タスクバリア）が残っています。該当する AWS または Datadog プロバイダーで
-再ログインまたはログアウトし、Workspace から出て入り直してください。`locked` または
-`unavailable` なら、先にその状態を復元します。呼び出し元が 409 を自動再試行しては
-いけません。
 
 ## 障害契約自体の障害
 
@@ -140,7 +130,6 @@ Tobari が安定した分類を保証するのは、サポート対象の公開�
 - JSON 出力、終了コード対応、契約の実施：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/errors.go`}><code>internal/cli/errors.go</code></a>
 - Catalog 宣言：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog.go`}>基本コマンド</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>ランタイムコマンド</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/auth_catalog.go`}>認証コマンド</a>
 - Gateway が拒否側へ倒す実装とテスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}>Gateway アドオン</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}>Gateway テスト</a>
-- 認証情報操作の結果不明と永続する再実行防止状態：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_companion_protocol.py`}>AWS コンパニオンプロトコルテスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_datadog_broker.py`}>Datadog 更新テスト</a>
 - CLI 障害テスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/cli_test.go`}>構造化エラーのテスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/fault/fault_test.go`}>秘密情報を含まない公開コピーのテスト</a>
 
 ## まとめ
@@ -177,15 +166,6 @@ Gateway による拒否、OPA の障害、不正な Auth Broker ハンドルは�
   </summary>
   いいえ。復旧コマンドは検査済みの完全一致パスです。接続先からの文言は信頼できない
   データであり、`argv` ではありません。
-</details>
-
-<details>
-  <summary>
-    AWS コンパニオンへ処理を渡した後に切断されました。自動再試行して安全ですか？
-  </summary>
-  いいえ。Gateway は再試行不可の HTTP 409 `credential_refresh_outcome_unknown`
-  を返し、対象アプリケーションへは接続しません。
-  明示的に再試行する前に、信頼するホスト側で状態を照合する必要があります。
 </details>
 
 次へ：[ランタイムイメージ契約](../runtime-image-contract/)。

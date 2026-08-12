@@ -38,8 +38,8 @@ A **Context** is a host-owned execution setup with a stable opaque ID and human 
 
 - a compatible runtime image;
 - a read-only agent profile;
-- guided or advanced policy sources;
-- static managed-credential stores; and
+- immutable `source_access` for the selected live bind;
+- a normalized, digested policy preset snapshot plus guided or Advanced policy sources; and
 - provider configuration whose encrypted Broker vault is stored separately.
 
 The manifest itself contains no root key, primary broker secret, or vault content. The **current Context** is only the default used when a command omits `--context`; it is not shared enforcement authority.
@@ -79,7 +79,10 @@ The two Workspaces have separate:
 - project principals; and
 - Context-scoped learned rules and broker handles.
 
-They deliberately share the files below `/work/payments`. Tobari adds no overlay, checkout clone, root lock, or filesystem integrity isolation.
+They deliberately share the live files below `/work/payments`. Each Context can
+choose read-only or read-write source access, but a read-only Context still
+observes host and read-write-Context changes. Tobari adds no overlay, checkout
+clone, root lock, or filesystem integrity isolation.
 
 ## Changing Context and runtime
 

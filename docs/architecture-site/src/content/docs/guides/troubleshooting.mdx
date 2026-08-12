@@ -88,32 +88,6 @@ tobari
 
 If it still fails, inspect `tobari auth status`, the exact Context selection, installed provider binding, and cluster readiness. Do not paste a handle from another Workspace; project and Context checks are intentional.
 
-## A brokered request returns HTTP 409
-
-`credential_refresh_outcome_unknown` means an AWS companion operation or
-Datadog refresh may have been dispatched, but Broker could not classify its
-outcome. Gateway did not send the application request upstream. Do not let the
-tool replay automatically.
-
-After the original request settles:
-
-```sh
-tobari auth status
-```
-
-- If `broker_state=ready` and the affected provider is `configured`, the
-  credential record is usable and the user may deliberately retry the original
-  task.
-- If the provider is `not_configured`, the durable encrypted task barrier
-  remains. Run the reviewed login again or log out that provider, then leave and
-  re-enter the Workspace before retrying.
-- If Broker is `locked` or `unavailable`, reconcile `cluster up` first and
-  inspect status again.
-
-Do not treat this 409 like `credential_broker_unavailable` 503. The latter is a
-known pre-execution availability class; the former deliberately denies replay
-permission because external credential work may have started.
-
 ## Runtime image is missing or incompatible
 
 ```sh
@@ -140,7 +114,7 @@ tobari cluster status
 tobari cluster logs --component opa --tail 100
 ```
 
-Exact allow/deny/reset/compaction validates the changed Context and the complete all-Context aggregate before activation. A failure should retain known-good policy. Rediscover opaque references after any concurrent change; do not reuse display order or stale IDs.
+Exact allow/deny/reset validates the changed Context and the complete all-Context aggregate before activation. A failure should retain known-good policy. Rediscover opaque references after any concurrent change; do not reuse display order or stale IDs.
 
 For host-authored Advanced policy, correct the Rego and tests on the trusted host, then rerun `tobari doctor` and explicit `tobari cluster up`.
 

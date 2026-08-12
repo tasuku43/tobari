@@ -22,10 +22,8 @@ Go CLI は起動時に実行可能なポリシーや Python ソースをダウ�
 ディレクトリを展開できる必要があります。編集する正本は、Gateway が `gateway/`、
 Auth Broker が `authbroker/`、ランタイムが `runtimes/base/` にあります。
 埋め込み用にバイト列と内容の一致を検査する複製は、
-`internal/infra/runtimeassets/assets/` にあります。Auth Broker のスナップショットには、
-非公開の AWS コンパニオンプロトコルと、接続先を固定した Datadog 更新処理が含まれます。
-ただしイメージ契約では、GitHub CLI、AWS CLI、`pup`、その他のプロバイダー実行
-ファイルがイメージに入ることを拒否します。
+`internal/infra/runtimeassets/assets/` にあります。static Auth Broker の image contract は
+provider executable が image に入ることを拒否します。
 
 埋め込みの複製は二つ目の実装ではありません。`check-gateway-source.sh`、
 `check-authbroker-source.sh`、`check-runtime-base.sh` が正本との差分を拒否します。
@@ -64,9 +62,7 @@ Auth Broker が `authbroker/`、ランタイムが `runtimes/base/` にありま
 - リリースパッケージには CLI のバージョンとコミットを埋め込み、通常のビルドは `dev` のままにする
 - 基盤ランタイムと派生ランタイムのメタデータには、アーキテクチャ、親、API、寿命を保つ
   コマンド、ツールのソース、チェックサムまたは署名、ライセンスの要件を記録する
-- Auth Broker イメージの検査では、プロバイダー CLI と公開 TCP リスナーが存在しない
-  ことを確認する。コンパニオンのテストでは、ホスト側にリスナーやソケットのマウントが
-  なく、コンパイル済みの AWS 操作だけを受け入れることを確認する
+- Auth Broker image 検査では provider executable と public TCP listener がないことを確認する
 - 公開・リリース用の検査は、リポジトリ境界、秘密情報、ライセンス、パッケージ入力、
   変更されないサービス参照を確認する。独立したコード署名、SBOM の証明、外部から
   検証できる来歴管理の仕組みまでを保証するものではない

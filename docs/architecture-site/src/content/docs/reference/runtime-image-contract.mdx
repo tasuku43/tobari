@@ -38,7 +38,8 @@ does not grant policy permission.
 The image supplies binaries and its read-only root filesystem. Tobari
 infrastructure supplies the security and lifecycle specification:
 
-- exactly one selected project root mounted read-write;
+- exactly one selected live project root mounted according to immutable
+  Context `source_access` (`read-write` by CLI omission default);
 - one independent persistent Workspace home;
 - the dedicated guarded internal project network and Tobari CA trust environment;
 - the Gateway public CA volume;

@@ -37,7 +37,8 @@ Tobari は `docker image inspect` でこれらの値を確認します。値が�
 イメージはバイナリと読み取り専用のルートファイルシステムを提供します。Tobari の
 Infrastructure は、セキュリティとライフサイクルの仕様を定めます。
 
-- 選択したプロジェクトルート一つだけの読み書き可能なマウント
+- 選択した live project root 一つを immutable Context `source_access` に従って mount
+  （CLI omission default は `read-write`）
 - 独立して永続する Workspace ホーム一つ
 - プロジェクト専用の保護済み内部ネットワークと Tobari CA の信頼環境
 - Gateway の公開 CA ボリューム

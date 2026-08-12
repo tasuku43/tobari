@@ -100,17 +100,16 @@ unsupported, and development state must be removed and recreated.
 
 ## Gateway, OPA, audit, and broker contracts
 
-| Boundary                                     | Current contract | Important content rule                                                                                                              |
-| -------------------------------------------- | ---------------: | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Gateway credential configuration             |         Schema 1 | Context-aware managed projection; contains paths/metadata, not policy authority.                                                    |
-| Gateway → OPA decision input                 |         Schema 1 | Host-derived principal plus normalized HTTP attributes. No body and no client secret headers.                                       |
-| Guided/Advanced source policy input          |         Schema 1 | Aggregate generation validates the exact V1 source before activation.                                                               |
-| Gateway audit line                           |         Schema 1 | Secret-free normalized decision evidence.                                                                                           |
-| Gateway learnable-denial navigation response |         Schema 1 | Fixed host review guidance; no candidate ID, query, body, or secret.                                                                |
-| Broker control protocol                      |         Schema 1 | Bounded newline-delimited JSON over the host control Unix socket.                                                                   |
-| Broker runtime protocol                      |         Schema 1 | Introspection is non-secret; a post-allow static resolve, Datadog token action, or AWS signing response uses Gateway's Unix socket. |
-| Private host companion frames                |         Schema 1 | Authenticated, direction-bound, strictly sequenced frames carry only the compiled post-policy AWS operation.                        |
-| Workspace broker handle                      | Handle version 1 | Opaque `tobari-h1_…` value; never decode it into authority.                                                                         |
+| Boundary                                     | Current contract | Important content rule                                                                               |
+| -------------------------------------------- | ---------------: | ---------------------------------------------------------------------------------------------------- |
+| Gateway credential configuration             |         Schema 1 | Context-aware managed projection; contains paths/metadata, not policy authority.                     |
+| Gateway → OPA decision input                 |         Schema 1 | Host-derived principal plus normalized HTTP attributes. No body and no client secret headers.        |
+| Guided/Advanced source policy input          |         Schema 1 | Aggregate generation validates the exact V1 source before activation.                                |
+| Gateway audit line                           |         Schema 1 | Secret-free normalized decision evidence.                                                            |
+| Gateway learnable-denial navigation response |         Schema 1 | Fixed host review guidance; no candidate ID, query, body, or secret.                                 |
+| Broker control protocol                      |         Schema 1 | Bounded newline-delimited JSON over the host control Unix socket.                                    |
+| Broker runtime protocol                      |         Schema 1 | Introspection is non-secret; one post-allow same-revision static resolve uses Gateway's Unix socket. |
+| Workspace broker handle                      | Handle version 1 | Opaque `tobari-h1_…` value; never decode it into authority.                                          |
 
 OPA output is a decision consumed by Gateway. OPA does not open an upstream
 connection. A wrong or unavailable policy response fails closed before

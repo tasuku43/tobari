@@ -9,12 +9,12 @@ This is not the normal first-denial path. Before continuing, be comfortable with
 
 ## Guided and Advanced are different ownership models
 
-| Guided Context                                             | Advanced Context                                                    |
-| ---------------------------------------------------------- | ------------------------------------------------------------------- |
-| Owns `policy/domains/<host>/{allow,deny}.json` only        | Owns the domain tree, `tobari.rego`, and `tobari_test.rego`         |
-| Uses the current Tobari-owned shared evaluator             | Maintainer owns Context-local policy logic and tests                |
-| Routine exact allow/deny/reset/compaction is the main path | Direct host edit is possible when the routine model is insufficient |
-| A Tobari release updates evaluator logic                   | Maintainer must review compatibility and behavior                   |
+| Guided Context                                      | Advanced Context                                                    |
+| --------------------------------------------------- | ------------------------------------------------------------------- |
+| Owns `policy/domains/<host>/{allow,deny}.json` only | Owns the domain tree, `tobari.rego`, and `tobari_test.rego`         |
+| Uses the current Tobari-owned shared evaluator      | Maintainer owns Context-local policy logic and tests                |
+| Routine exact allow/deny/reset is the main path     | Direct host edit is possible when the routine model is insufficient |
+| A Tobari release updates evaluator logic            | Maintainer must review compatibility and behavior                   |
 
 Neither mode lets a Workspace edit active policy. Context policy directories remain owner-only host state and are not mounted into Workspaces.
 

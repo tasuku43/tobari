@@ -7,7 +7,8 @@ import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
 Tobari は、役割ごとの境界に合わせて実装技術を選んでいます。Go はホスト CLI、決められた方法でのプロバイダー認証情報の取得、検証を伴う構成管理を担当します。Docker はプロセス、ネットワーク、マウントの境界を実現します。mitmproxy と Python アドオンは HTTP/TLS 通信を制御し、OPA と Rego は一般化された HTTP 通信を許可するか判断します。
 
-別プロセスの Python Auth Broker は、暗号化した認証状態を管理し、限定されたソケットを通して、ポリシー許可後の認証情報の解決、更新、署名を行います。役割を別プロセスに分けることで、通信転送、ポリシー判断、認証情報の保管を一つの権限に集めません。編集元となる正本、埋め込み用の写し、変更不能な OCI イメージ、固定したダイジェストにより、この分離を実行環境への供給経路でも維持します。
+別プロセスの Python Auth Broker は暗号化した static credential state を管理し、限定 socket
+を通して policy allow 後の resolve 一回だけを行います。役割を別プロセスに分けることで、通信転送、ポリシー判断、認証情報の保管を一つの権限に集めません。編集元となる正本、埋め込み用の写し、変更不能な OCI イメージ、固定したダイジェストにより、この分離を実行環境への供給経路でも維持します。
 
 この内容は実装者向けです。[状態と復旧](../state-and-recovery/)までの製品動作を前提とし、通常の利用には必須ではありません。
 
@@ -35,23 +36,30 @@ mitmproxy は透過的な HTTP/TLS の検査、ストリーミング処理用の
 
 ### OPA と Rego
 
-OPA は共有のポリシー判断サービスです。Rego は既定で拒否する規則、初期権限、Context ごとの振り分け、学習済みの完全一致する許可・拒否規則、認証情報メタデータの制約、安全な共通接頭辞への集約条件を表します。
+OPA は共有のポリシー判断サービスです。Rego は preset guardrail、既定拒否、Context routing、
+学習済み完全一致 allow/deny、credential metadata constraint を表します。first public V1 の
+学習済み authority は完全一致のままです。
 
 OPA はリクエスト本文も認証情報の値も受け取らず、外部へ接続するインターフェースを持ちません。判断処理を分けることで、OPA にネットワーク転送権限を与えずに、判断の入力と結果の契約をテストできます。
 
-### Python Auth Broker、ホスト側処理、補助プロセス、Unix ソケット
+### Python Auth Broker、GitHub helper、Unix ソケット
 
-Auth Broker は、ルート権限を持たない独立した Python デーモンです。認証情報の暗号化、ハンドル発行、結び付きの照合、許可後の処理を、ほかの役割から分けた信頼境界で扱うためです。TCP の待受ポートを持たず、GitHub CLI、AWS CLI、`pup` 実行ファイルも含みません。
+Auth Broker は root authority を持たない独立 Python daemon です。credential encryption、handle
+issuance、binding introspection、allow 後の static resolve を別の trust boundary で扱います。
+TCP listener や provider executable は含みません。
 
 所有者だけが使える制御用ソケットと、実行時ソケットを分け、ホストから行うライフサイクル操作と、Gateway がリクエスト処理中に行う限定的なアクセスを隔離します。Workspace と OPA には、どちらのソケットもマウントしません。実行時の通信規約では、ポリシー判断前に結び付きを照合し、許可後にはプロバイダーが宣言した処理だけを実行できます。任意の通信に使える汎用ネットワーク API ではありません。
 
-対話を伴う GitHub、AWS、Datadog の認証情報取得は、信頼するホスト上に固定した Go のインフラストラクチャ実装を通して実行します。各実装は、標準的なインストール場所から識別情報を検査した実行ファイルを見つけ、固定した引数列と、不要な値を取り除いた専用環境を使います。表示する出力に上限を設け、一時状態が片付いたことを検証してから、Auth Broker の制御用ソケットを通して、型が定まった状態を保存します。
-
-ポリシー許可後に、同じ実行ファイルから起動する常駐のホスト認証補助プロセスを使うのは AWS だけです。Auth Broker 専用の `/run/tobari-auth/companion/bridge.sock` は、認証・暗号化され、通信方向を限定した一つの逆向き `docker exec -i` セッションを通して接続します。補助プロセスは待受ポートも、マウント済みのホストソケットも公開せず、組み込み済みの AWS CLI `credential-export` 操作だけを実行します。Datadog の更新ではこの補助プロセスを使いません。Auth Broker は許可後に、完全一致する US1 のトークンエンドポイントへ、プロキシを使わずリダイレクトを拒否する厳格な HTTPS 通信を一度だけ行います。
+組み込み GitHub 取得は trusted host の固定 Go helper を通ります。identity-checked `gh`、fixed
+argv、sanitized temporary home、bounded output、cleanup verification を使い、static record 一つを
+Broker control で確定します。owner provider は protected stdin import を使い、どちらも Broker
+に provider code を実行させません。
 
 ### 暗号化した Context 保管庫とルート鍵
 
-各 Context 保管庫は、ランダムなノンスと Context／スキーマに結び付く追加認証データを使う、スキーマ1の AES-256-GCM 形式です。暗号化したスキーマ1の内容には、型が定まった静的な秘密、不透明な AWS 状態、Datadog OAuth 状態、版、永続的な再実行防止記録、未加工のハンドルを保存します。インストール用ルート鍵は保管庫の外に置きます。macOS では Keychain、Linux では所有者だけが読める XDG ファイルです。暗号化は、コンテナと Workspace の境界をまたいで保存データが露出する可能性を抑えます。ただし、侵害されたホスト利用者、ルート鍵の保存先、Auth Broker、Gateway からは保護しません。
+各 Context vault は random nonce と Context/schema associated data を使う schema-1 AES-256-GCM
+です。payload は static primary secret、revision、raw handle を保存します。installation root key
+は vault 外の macOS Keychain または owner-only Linux XDG file に置きます。
 
 ### OCI イメージと GHCR
 
@@ -81,10 +89,10 @@ CI は正本から複数アーキテクチャ向けの OCI イメージをビル
 3. **mitmproxy** は TLS A を終端し、リクエストヘッダーをアドオンへ渡します。
 4. **Python Gateway アドオン**は送信元に結び付いたプリンシパルを導出し、一つの矛盾しない接続先を検証して、スキーマ1の入力を送ります。
 5. **OPA/Rego** は許可または拒否を返します。
-6. Auth Broker ハンドルの場合、**Unix ソケット越しの Python Auth Broker** がポリシー判断前に秘密を含まない結び付きを照合し、宣言済みの静的認証、AWS、Datadog の処理は許可後にだけ実行します。
-7. AWS では**専用のホスト側補助プロセス**が、決められた認証情報の書き出しを一度だけ行い、Auth Broker がローカルで署名します。Datadog の更新では、**Auth Broker からの HTTPS** が完全一致するトークンエンドポイントだけに到達します。通常のリクエストや静的認証情報を使うリクエストには、どちらの経路も不要です。
-8. **mitmproxy** は検証済み TLS B を確立し、通常のリクエストをストリーミングするか、上限付きで署名済みの AWS リクエストを一つ送ります。
-9. **Docker のログ**は、ホスト側で Go がレビューに使う、上限付きで秘密を含まない監査根拠を保持します。
+6. Broker handle では、**Unix socket 越しの Python Auth Broker** が policy 前に non-secret binding
+   を照合し、allow 後に同じ static revision を一度だけ解決します。
+7. **mitmproxy** は検証済み TLS B を確立し、allow 済み request を stream します。
+8. **Docker log** は host-side review 用の bounded secret-free audit evidence を保持します。
 
 完全な保証を一つの技術だけで実装しているわけではありません。
 

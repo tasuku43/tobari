@@ -14,7 +14,8 @@ Workspace 自身へ承認を求めることはありません。信頼するホ�
 選択を適用すると、ポリシー全体を検証して新しいリビジョンを途中状態を見せずに有効化します。
 有効化に失敗した場合や、候補が古くなった場合は直前のポリシーを維持します。元のリクエストは、
 利用者やツールが意図的に実行したときだけ再試行されます。初期状態の拒否、学習済みの完全一致拒否、
-リセット、規則の集約は、それぞれ異なる状態と操作です。この流れは確立済みの
+リセットは、それぞれ異なる状態と操作です。first public V1 は学習済みの完全一致 authority を
+広げません。この流れは確立済みの
 [プロジェクト識別](../project-identity/)と[リクエストの流れ](../request-journey/)を利用します。
 
 <PolicyLoopMap />
@@ -29,7 +30,10 @@ Workspace 自身へ承認を求めることはありません。信頼するホ�
 
 ## 1. 拒否は許可の申請ではない
 
-OPA は、初期化済みの静的権限にも、学習済みの許可規則にも一致しない HTTP 操作を、既定で拒否します。最初のリクエストがすべて拒否されるという意味ではありません。初期ポリシーには、限定された静的規則が含まれます。現在の権限外にあるリクエストは、スキーマ、通信主体、スキームごとの固定ポート、認証情報の結び付きが有効で、終端的な拒否規則に一致しない場合にだけ、学習可能と分類されます。
+OPA は preset baseline grant と learned exact allow のどちらにも一致しない effect を default deny
+します。三つの built-in V1 preset は immediate grant がすべてゼロです。request は schema、
+principal、fixed port、credential binding、immutable preset terminal guardrail が有効な場合だけ
+learnable になれます。
 
 Gateway は `403 policy_denied` を返します。学習可能なレスポンスが示すのは、信頼するホスト上のレビュー場所と、利用者から見える完全一致の HTTP 操作だけです。自動再試行がないことも明示します。
 
@@ -89,18 +93,15 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 
 これは、冪等でないメソッドや本文で特に重要です。Tobari は、内容を考慮しない再実行が安全かどうかを判断できません。
 
-## 許可、拒否、リセット、規則の集約
+## 許可、拒否、リセット
 
 | 判断                   | 意味                                                                                                   |
 | ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| 初期または静的な許可   | 観測前からインストールポリシーにある権限。学習済みのプロジェクト規則ではありません                     |
-| 初期拒否               | 終端的なホスト、メソッド、パスの境界。保留中のレビューには入りません                                   |
+| preset baseline grant  | snapshot authority。三つの built-in V1 preset はすべてなし                                             |
+| preset terminal deny   | pending review に入らず candidate/DNS/Broker/upstream work がゼロの guardrail rejection                |
 | 学習済みの完全一致許可 | 一つの Context、プロジェクト、ホスト、ポート、メソッド、パスに対する権限                               |
 | 学習済みの完全一致拒否 | 明示的にレビューした終端的な拒否。その HTTP 操作では許可より優先されます                               |
 | `policy reset`         | 学習済み許可または完全一致拒否を一つ削除し、初期または既定の評価へ戻します。許可する操作ではありません |
-| 明示的な規則の集約     | 互換性のある同階層の完全一致規則を少なくとも三つ、レビュー済みの安全な接頭辞規則へ置き換えます         |
-
-規則の集約は自動ではありません。同じ Context、プロジェクト、ホスト、ポート、メソッドの規則だけをまとめます。浅すぎる、または安全でない接頭辞は拒否します。許可例とソース ID を保持し、接頭辞外の検査用パスも確認します。Tobari は一つの拒否からワイルドカードを作りません。
 
 ## 具体例
 
@@ -110,7 +111,8 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 - `PUT /review/items/2`
 - `PUT /review/items/3`
 
-他のすべての境界が一致すれば、Tobari は `/review/items/` に対する `pcx_…` 形式の集約案を候補として示す場合があります。ホスト側の操作でその不透明な案を選ぶまで、何も変わりません。`/review/admin` は接頭辞外の拒否境界のままで、別プロジェクトまたはメソッドも拒否されたままです。
+この三つは独立した完全一致規則のままです。隣接していても共有 path authority を導出しません。
+`/review/admin`、別 project、別 method は、各 effect を個別に review しない限り拒否されます。
 
 ## 失敗時の動作
 
@@ -134,10 +136,10 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 - [ポリシーを有効化する仕組み](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
 - [ガイド付き Rego 評価器](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/opa/policy/tobari.rego)
 - [Rego ポリシーのテスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
-- [候補と規則集約に関するドメインの不変条件](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari/policy.go)
+- [候補と完全一致規則のドメイン不変条件](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari/policy.go)
 - [ポリシー定義の変更と復元処理](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata.go)
 - [全 Context の集約生成](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/aggregate.go)
-- [許可、拒否、reset、body の集約、compaction を確認する統合テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+- [許可、拒否、reset、body grouping の統合テスト](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
 
 ## まとめ
 

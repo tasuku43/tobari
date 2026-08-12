@@ -31,7 +31,8 @@ the Workspace” ends a session; it does not delete the logical Workspace.
 ### project root
 
 The canonical host directory selected from the current working directory and
-mounted read-write into the Workspace. Tobari deliberately delegates the
+mounted according to immutable Context `source_access` (CLI default
+`read-write`). Tobari deliberately delegates the
 ability to read and modify this root. It does not snapshot, overlay, or protect
 files inside it from Workspace processes.
 
@@ -213,12 +214,6 @@ OPA, and retains or restores the known-good projection on failure.
 Removal of one selected learned decision so matching falls back to default
 deny. Reset is not allow and does not retry a request.
 
-### compaction
-
-An explicit, bounded transformation of reviewed exact learned rules into a
-safe path-prefix rule, including an adjacent outside-prefix canary. It is not
-automatic and never invents a host or method wildcard.
-
 ## Authentication and credentials
 
 ### authentication
@@ -241,17 +236,14 @@ not name the Workspace client that uses the credential.
 ### Workspace client Tool
 
 The CLI or other client inside a Workspace that receives provider-declared
-handle projection and emits the matching request. Current examples are `gh`,
-`aws`, `pup`, and `cwk`. A Tool name grants neither provider identity nor
-network authority.
+projection and emits the matching request. The sole built-in V1 example is
+`gh`. A Tool name grants neither provider identity nor network authority.
 
 ### supported Provider-Tool pairing
 
 One reviewed combination of Provider, Workspace client Tool, acquisition mode,
-handle projection, and exact request binding. Every current built-in pairing
-has one supported Tool, so Tool is displayed and selected automatically after
-Provider selection. AWS `identity-center` and `console` are acquisition methods
-inside one pairing, not Tools.
+handle projection, and exact request binding. The built-in V1 pairing is
+GitHub/`gh`; owner providers use strict stdin import and static projection.
 
 ### tool-native passthrough
 
@@ -260,28 +252,20 @@ Workspace home. Gateway removes authentication and cookie values from OPA
 input and audit, then forwards them unchanged only after policy allow. The
 Workspace can read these tool-owned secrets.
 
-### static managed adapter
-
-The bounded Context/project-scoped Gateway adapter that reads reviewed
-host-side credential profile configuration. It is a separate explicit
-path and does not silently combine with brokered or passthrough behavior.
-
 ### Auth Broker
 
 The shared locked service that stores typed encrypted credential state per
 Context/provider, issues project-bound opaque handles, performs non-secret
-introspection, and runs only the reviewed credential-plan action after Gateway
-reports policy allow. A static plan resolves one secret; AWS obtains one
-temporary credential export through the private host companion and signs
-locally; Datadog selects or refreshes one token. Broker has Unix sockets, no
-Workspace network, and no TCP listener.
+introspection, and resolves only the same static credential revision after
+Gateway reports policy allow. Broker has Unix sockets, no Workspace network,
+and no TCP listener.
 
 ### brokered credential state
 
-The typed record encrypted in one Context vault. It can contain a static
-primary secret, opaque AWS host-driver state, or Datadog OAuth-session state.
-It is never projected into a Workspace or OPA. Request-local derived values
-cross only the declared post-policy Broker/Gateway boundary.
+The typed record encrypted in one Context vault. V1 contains one static primary
+secret plus revision and handle state. It is never projected into Workspace or
+OPA. A request-local value crosses only the declared post-policy
+Broker/Gateway boundary.
 
 ### broker handle
 
@@ -302,24 +286,7 @@ or resolve the primary secret.
 
 The schema-1 static-provider post-allow Broker operation that returns the
 matching current primary secret to Gateway for the declared destination
-header. It is not the generic name for AWS signing or Datadog refresh. Deny
-causes zero resolve calls and zero dynamic-plan actions.
-
-### host credential companion
-
-A resident private Tobari process used only after OPA allow by the reviewed AWS
-plan. Broker connects to it through an authenticated, encrypted, strictly
-sequenced reverse `docker exec -i` session and asks for one compiled fixed AWS
-CLI credential export. It exposes no listener or mounted host socket and is not
-used for interactive login or Datadog refresh.
-
-### Datadog OAuth refresh
-
-The compiled schema-1 post-policy action owned by Auth Broker. When the stored
-access token enters its five-minute refresh window, Broker performs one
-same-record strict exchange at the exact proxy-free, no-redirect Datadog US1
-token endpoint and commits refreshed state before returning a request-local
-bearer value. The trusted-host `pup` driver is acquisition-only.
+header. Deny causes zero resolve calls.
 
 ### credential revision
 
@@ -343,9 +310,9 @@ Linux or a fixed macOS Keychain item. `cluster down --purge` preserves it.
 
 A strict non-secret data document declaring acquisition mode, Workspace handle
 projection, exact HTTPS binding, and redaction. Owner manifests are schema 1
-and `stdin_import` only. Reviewed built-ins may use schema 1 or the closed
-schema-1 AWS/Datadog plan vocabulary. A manifest is not executable code, does
-not declare method/path policy, and does not grant communication permission.
+and `stdin_import` only. GitHub is the sole reviewed built-in acquisition plan.
+A manifest is not executable code, does not declare method/path policy, and
+does not grant communication permission.
 
 ## State and public contracts
 

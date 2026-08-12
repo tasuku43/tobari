@@ -26,13 +26,10 @@ validation, collection normalization, and fixtures. **It does not publish a form
 manifest.** Do not describe the fixture ledger as a JSON Schema validator.
 
 Provider is not the Workspace client Tool. Provider identifies the external
-credential authority; Tool identifies the client that receives a declared
-projection and emits the matching request. A built-in manifest plus compiled
-driver currently describes one complete supported Provider-Tool pairing. The
-current pairings are GitHub/`gh`, AWS/`aws`, Datadog/`pup`, and Chatwork/`cwk`.
-Because each Provider has one supported client today, Tool is displayed and
-selected automatically after Provider selection. A manifest display name,
-environment variable, or nearby binding cannot create another supported Tool.
+credential authority; Tool identifies the client receiving a projection and
+emitting the matching request. First public V1 has one built-in acquisition
+pairing, GitHub/`gh`. A manifest display name, environment variable, or nearby
+binding cannot create another supported Tool.
 
 Owner-controlled manifests are regular, non-symlink, owner-only files below:
 
@@ -41,10 +38,9 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/auth/providers/*.json
 ```
 
 They cannot replace a built-in provider ID and may use only `stdin_import`.
-Reviewed host login drivers currently exist for GitHub, AWS, and Datadog. Their
-fixed executables and behavior are compiled infrastructure, not manifest
-extensions. User manifests cannot add another executable helper or select
-a non-V1 schema.
+The only reviewed host helper is GitHub's fixed device flow. Its executable and
+behavior are compiled infrastructure, not manifest extensions. User manifests
+cannot add an executable helper or select a non-V1 schema.
 
 ## The complete v1 responsibilities
 
@@ -81,24 +77,14 @@ non-secret broker introspection, and asks OPA about the ordinary HTTP effect.
 Only after allow does Gateway resolve the secret once and write it to the
 declared destination header. A deny performs no secret resolution.
 
-## Reviewed built-in schema-1 plans
+## Reviewed built-in schema-1 plan
 
-The built-in V1 contract is not a general extension mechanism. It adds typed fields consumed
-only by reviewed built-ins:
-
-| Built-in  | Credential kind         | Workspace placeholder                                               | Exact post-policy behavior                                                                                                                                                                  |
-| --------- | ----------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `aws`     | `aws_sso_session`       | The same project-bound handle in the three AWS credential variables | After OPA allow, Gateway retains one request within 8 MiB; Broker asks the private host companion for the fixed AWS CLI credential export and computes standard header-based SigV4 locally. |
-| `datadog` | `datadog_oauth_session` | Project-bound bearer handle                                         | After OPA allow, Broker selects a token outside the five-minute refresh window or performs one same-record refresh at the fixed proxy-free, no-redirect US1 token endpoint.                 |
-
-GitHub and Chatwork retain schema-1 static header behavior. The GitHub login
-driver runs on the trusted host and commits a static credential; it does not
-run inside the Broker image.
-
-An owner file cannot declare `aws_sigv4`, an OAuth session, a refresh endpoint,
-a host driver, a companion operation, or any other built-in behavior. Adding a
-built-in would require a reviewed product, architecture, security, and test
-change; editing JSON is insufficient.
+GitHub is the sole built-in V1 plan. Its trusted-host helper commits one static
+credential, and its manifest uses the same exact HTTPS/header replacement
+semantics as owner static providers. The helper does not run in the Broker
+image. An owner file cannot declare executable acquisition or dynamic
+credential behavior. Adding a built-in requires reviewed product,
+architecture, security, and test changes; editing JSON is insufficient.
 
 ## Validation and collection activation
 

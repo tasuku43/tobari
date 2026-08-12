@@ -20,7 +20,8 @@ Tobari は、Docker コンテナの起動を簡略化するだけのツールで
 1. **Workspace** 内のプロセスが通常の HTTP/HTTPS リクエストを送ります。クライアント側のプロキシ設定を使わず、上限付きの合成 DNS 応答と閉じた出力経路が TCP をそのプロジェクトの Gateway へ届けます。
 2. **Gateway** がリクエストを受け、カーネルが観測した Workspace の送信元エンドポイントと、ホスト管理の登録簿から通信主体（プリンシパル）を特定します。
 3. **OPA** は、Context、プロジェクト、スキーム、宛先、ポート、メソッド、パスを使って通信を判断します。リクエスト本文は、ポリシーの判断項目には含まれません。
-4. **Auth Broker** は、Gateway が Tobari の Broker ハンドルを認識した場合だけ参加します。ポリシー判断前に扱うのは、秘密情報を含まない結び付け情報だけです。静的な認証情報の解決、Datadog トークンの選択や更新、AWS の認証情報エクスポートや署名は、許可後にだけ行います。
+4. **Auth Broker** は recognized handle の場合だけ参加します。policy 前は non-secret binding
+   metadata だけを扱い、allow 後に同じ static revision を一度解決します。
 5. 許可後、**Workspace** ではなく **Gateway** が外部の**接続先**へ別の接続を開きます。
 
 判断を返すのは OPA です。Gateway はその判断に従って、リクエストを拒否するか、接続先への通信を開始します。
@@ -69,7 +70,10 @@ Tobari は次を保証しません。
 
 ## 現在の実装状態
 
-**実装済み:** 再利用できる Context に結び付いた Workspace、プロジェクト専用の内部ネットワーク、Gateway と OPA による通信制御、完全一致の拒否レビュー、ガイド付きと高度なポリシーモード、Context ごとのランタイムレシピ、ツール自身による認証、保持型の管理アダプター（managed adapter）、厳格なスキーマ 1 の静的 Broker プロバイダー、レビュー済みの組み込み GitHub・AWS・Datadog 認証情報取得処理です。組み込みのスキーマ 1 プランでは、非公開のホスト側コンパニオンを使う上限付きの AWS SigV4 と、Broker 内で行う Datadog US1 OAuth の更新に対応しています。
+**実装済み:** reusable Context-bound Workspace、project internal network、Gateway/OPA mediation、
+immutable source access、snapshotted policy preset、完全一致 denial review、guided/advanced policy、
+Context runtime recipe、tool-native authentication、strict schema-1 static Broker provider、明示的な
+built-in GitHub acquisition です。
 
 ソースツリーとテストには、両方のスキーマ 1 プランが含まれています。公式の Gateway と Auth Broker の不変 V1 インデックスはまだ公開・レビューされていないため、`versions.env` は二つ一組の `unpublished` マーカーを記録します。レビュー済みの不変 V1 ダイジェストが両方を置き換えるまでは、明示的な開発イメージ経路を使います。[コンポーネントのバージョン](../../reference/component-versions/)では実際に選ばれる成果物を確認でき、[サプライチェーン](../../security/supply-chain/)ではソースとランタイムの識別情報を別々に確認する理由を説明しています。
 
@@ -108,7 +112,9 @@ Tobari は、作業対象のディレクトリへの読み書きを認める一�
 <details>
 <summary>Tobari は作業対象のディレクトリをエージェントから保護しますか？</summary>
 
-いいえ。作業対象のディレクトリは、意図的に読み書き可能な状態でマウントされます。Tobari はその外側にある権限を制限しますが、作業対象を読み取り専用にはしません。
+immutable Context が `read-only` または `read-write` を選び、CLI omission default は
+`read-write` です。read-only は selected live bind だけに適用し、Workspace home/tmpfs や host
+source の別 writer には適用しません。
 
 </details>
 

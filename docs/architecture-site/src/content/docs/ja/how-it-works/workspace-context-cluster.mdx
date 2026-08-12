@@ -31,8 +31,8 @@ Context は、ランタイム、ポリシー、エージェント設定、認証
 
 - 互換性のあるランタイムイメージ
 - 読み取り専用のエージェントプロファイル
-- ガイド付きまたは高度なポリシーのソース
-- 保持型の管理方式で使う認証情報の保存領域
+- selected live bind の immutable `source_access`
+- normalized/digested policy preset snapshot と guided/Advanced policy source
 - 暗号化した Auth Broker 保管庫とは別に保存するプロバイダー設定
 
 Context マニフェスト自体には、ルート鍵、Auth Broker が管理する認証情報の本体、保管庫の内容は含まれません。**現在の Context** は、コマンドで `--context` を省略したときの既定値です。既存 Workspace の権限や結び付きを変更するものではありません。
@@ -72,7 +72,9 @@ Tobari は、保存状態や Docker を扱う前に、ホスト上の現在の�
 - プロジェクトのプリンシパル
 - Context とプロジェクトに限定された学習済みルールと Auth Broker ハンドル
 
-一方、`/work/payments` 以下のファイルは意図的に共有されます。Tobari はオーバーレイ、チェックアウトの複製、ルートのロック、ファイルシステムの完全性分離を追加しません。
+一方、`/work/payments` 以下の live file は意図的に共有されます。各 Context は read-only または
+read-write source access を選べますが、read-only Context も host/read-write Context の変更を観測
+します。Tobari は overlay、checkout clone、root lock、filesystem integrity isolation を追加しません。
 
 ## Context とランタイムを変更する
 

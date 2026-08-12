@@ -115,7 +115,8 @@ tobari doctor
 <details>
 <summary>VM のバインドマウントエラーを、ホストのホーム全体をマウントして解決すべきでないのはなぜですか？</summary>
 
-作業対象のプロジェクトルートだけが、意図して読み書き可能にするマウントだからです。ホストホームを広くマウントすると境界外のファイルを公開し、文書化されたセキュリティ上の前提条件を無効にします。
+selected project root だけが immutable Context `source_access` に従って live bind されるためです。
+host home を広く mount すると境界外 file を公開し、security precondition を無効にします。
 
 </details>
 

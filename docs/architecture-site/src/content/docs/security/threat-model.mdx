@@ -75,27 +75,10 @@ Workspace has neither broker control mount nor vault/root-key path. Broker runs 
 ### Turn provider configuration into host execution
 
 Owner manifests are strict schema 1 and can request only protected stdin
-import. They cannot select an executable, shell command, helper, refresh URL,
-signing plan, or a non-V1 schema. Reviewed GitHub, AWS, and Datadog login uses fixed,
-identity-checked trusted-host drivers with sanitized environments and checked
-private-home cleanup. Result: provider JSON is data, not an executable adapter.
-
-### Reach or replay the AWS companion
-
-The companion has no listener or mounted host socket. Broker establishes one
-root-key-derived, authenticated, encrypted, direction-bound reverse session
-over fixed `docker exec -i`; frames have strict sequence, size, and deadlines.
-Only the compiled AWS credential-export operation exists, and OPA deny causes
-zero companion calls. Result: Workspace data cannot select host argv or replay
-a prior session.
-
-### Redirect or pre-trigger Datadog refresh
-
-Datadog refresh is a compiled Broker operation at one exact US1 HTTPS token
-endpoint, with ambient proxy and redirects disabled. It starts only after the
-ordinary effect is allowed and is single-flight per record/revision. Result:
-Workspace input cannot choose the token host, and OPA denial causes zero
-refresh calls.
+import. They cannot select executable or dynamic credential behavior. The sole
+built-in GitHub login uses a fixed, identity-checked trusted-host helper with a
+sanitized temporary home and checked cleanup. Result: provider JSON is data,
+not an executable adapter.
 
 ## Residual risks
 
@@ -107,9 +90,6 @@ refresh calls.
 - Overlapping roots share host file effects across otherwise separate Workspaces.
 - Local logout cannot promise provider-side revocation and cannot rewrite an already running process environment.
 - Certificate-pinned clients fail; unsupported protocols are not mediated by this HTTP/HTTPS boundary.
-- An AWS or Datadog credential operation with an explicit or post-dispatch
-  unknown outcome requires trusted-host reconciliation; automatic replay is
-  deliberately unavailable.
 
 ## Failure semantics
 
@@ -138,16 +118,6 @@ Authorization, principal, broker, vault, projection, and activation faults are c
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_broker.py">
         Broker failure and binding tests
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_companion_protocol.py">
-        Private companion protocol tests
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_datadog_broker.py">
-        Datadog post-policy and durable-barrier tests
       </a>
     </li>
   </ul>

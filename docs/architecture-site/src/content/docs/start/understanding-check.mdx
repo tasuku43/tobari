@@ -145,8 +145,7 @@ A broker handle is valid, but OPA denies the HTTP effect. Which secret-bearing B
 <summary>Answer</summary>
 
 None. Gateway may perform non-secret introspection before policy, but static
-resolution, Datadog token selection/refresh, AWS companion credential export,
-and signing are all skipped on deny. There is no upstream connection. See
+resolution, DNS, and upstream connection are skipped on deny. See
 [Credential security](../../security/credential-security/).
 
 </details>
@@ -180,7 +179,9 @@ An agent deletes a file inside the selected project root. Is this a Tobari bound
 <details>
 <summary>Answer</summary>
 
-No. The selected root is intentionally mounted read-write. Tobari protects files outside that selection under its preconditions, not the selected project from its authorized Workspace processes. See [Guarantees and limitations](../../security/guarantees-and-limitations/).
+Not necessarily. Immutable Context `source_access` selects `read-only` or
+`read-write`, with CLI omission defaulting to `read-write`. Even read-only does
+not stop host or another Context from changing the live source. See [Guarantees and limitations](../../security/guarantees-and-limitations/).
 
 </details>
 

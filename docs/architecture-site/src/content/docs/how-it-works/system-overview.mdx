@@ -42,19 +42,14 @@ OPA joins the shared `control` network, not project networks or egress. Workspac
 Gateway also joins control so it can call one fixed OPA endpoint. Auth Broker
 joins control and egress, but exposes no TCP listener. Host commands and Gateway
 reach its distinct Unix sockets through controlled mounts and fixed operations;
-neither socket is available to a Workspace or OPA. A separate Broker-private
-companion socket exists only inside the Auth Broker container namespace and is
-bridged by one authenticated reverse `docker exec -i` session to the resident
-trusted-host companion. It is not mounted into a Workspace or published on the
-host.
+neither socket is available to a Workspace or OPA.
 
 ### One egress network
 
 Gateway joins `egress` so it can resolve and connect to an allowed destination.
-Auth Broker uses egress only for its compiled post-policy Datadog refresh plan
-at one exact US1 token endpoint. Interactive GitHub, AWS, and Datadog
-acquisition runs through fixed drivers directly on the trusted host, not over
-Broker egress. A work container never joins this network.
+The static Auth Broker has no provider egress task. Built-in GitHub acquisition
+runs through the fixed trusted-host helper. A work container never joins this
+network.
 
 ## An allowed request in order
 

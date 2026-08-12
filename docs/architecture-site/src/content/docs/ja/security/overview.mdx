@@ -35,10 +35,11 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
   <section>
     <h3>プロジェクトのファイル</h3>
     <div class="prose-block">
-      作業対象のディレクトリは、Workspace
-      へ読み書き可能な状態でマウントします。作業対象外のホストパスと、ほかの
-      Workspace
-      のホームは通常のマウント対象に含めません。作業対象のファイル自体は、エージェントから保護されません。
+      selected source は immutable Context <code>source_access</code> に従って
+      read-only または read-write で mount します。CLI omission default は
+      read-write です。作業対象外のホストパスと、ほかの Workspace
+      のホームは通常のマウント対象に含めません。Workspace home と tmpfs は
+      writable です。
     </div>
   </section>
   <section>
@@ -58,11 +59,9 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
   <section>
     <h3>Auth Broker が管理する認証情報</h3>
     <div class="prose-block">
-      Auth Broker は、固定された認証情報または更新可能な認証状態を、暗号化した
-      Context 保管庫に保持します。Workspace
-      が受け取るのは、一つのプロジェクトに結び付いた不透明なハンドルだけです。認証情報の解決、AWS
-      の署名、Datadog トークンの更新は、HTTP
-      通信が許可された後に限って実行します。
+      Auth Broker は static credential state を encrypted Context vault
+      に保持します。Workspace が受け取るのは project-bound opaque handle
+      だけで、same-revision resolution は policy allow 後だけです。
     </div>
   </section>
 </div>
@@ -74,8 +73,6 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
 - OPA が利用できない、または応答が不正な場合、Gateway は `policy_unavailable` を返し、外部の接続先へ接続しません。
 - Auth Broker がロック中または利用不能な場合、Auth Broker を使うリクエストは失敗し、認証情報を別の方法で解決しません。
 - ハンドルが不正または古い場合、`credential_handle_invalid` を返し、別の認証方式へ切り替わりません。
-- AWS コンパニオンや Datadog の更新処理を開始する前に利用不能と判明した場合、`credential_broker_unavailable` を返し、外部の接続先へ接続しません。
-- AWS または Datadog の処理開始後に結果を確定できない場合、再試行不可の `credential_refresh_outcome_unknown` を返します。自動で再実行せず、信頼するホスト側で状態を確認します。
 - 不正なポリシーを有効化できない場合、直前に検証済みだった定義と集約結果を保持または復元します。OPA を正常な状態へ戻せない場合、以前のサービスが有効だと推測せず、通信を拒否し続けます。
 
 これらは、該当する外部通信を閉じたままにする動作です。Workspace のプロセスが行ったすべての操作を巻き戻すわけではありません。作業対象のディレクトリでは、ローカルファイルへの変更がすでに発生している可能性があります。

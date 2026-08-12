@@ -81,7 +81,8 @@ OPA が判断し、Gateway がその判断を通信経路へ強制します。
 4. 選択したアドレスを固定し、後の DNS 応答で接続先が変わらないようにする
 5. 接続先への接続を一つ作り、許可済みリクエストを転送する
 
-通常のそのまま転送、保持型、静的ヘッダーを使う Auth Broker のリクエストでは、許可後に本文をストリーミングします。Datadog では、Auth Broker が有効なトークンを選ぶか、許可後に同じレコードへ固定の更新処理を一度だけ行います。Gateway が置換するのは Bearer ヘッダーだけです。AWS SigV4 はレビュー済みの例外です。許可後、Gateway はリクエスト全体を 8 MiB の上限内で保持してハッシュを計算し、非公開のホスト側コンパニオンによる固定の認証情報エクスポートを一度だけ Auth Broker へ要求します。Auth Broker がローカルで署名した後に限り、Gateway は上限付きのリクエストを一度送ります。
+通常の passthrough と static-header Broker request は allow 後に body を stream します。static
+Broker resolution は manifest が宣言した header だけを、この request に対して置換します。
 
 アプリケーションリクエストの自動再試行はありません。リダイレクトは新しいリクエストとなり、再びポリシー判断を通ります。
 
@@ -107,22 +108,24 @@ Content-Type: application/json
 
 ## 失敗時の動作
 
-| 段階             | 障害                                                                     | 結果                                                                           |
-| ---------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| プリンシパル     | 登録簿を読めない、または Workspace の送信元エンドポイントが未知          | 403 `project_principal_unavailable`                                            |
-| 認証情報の準備   | 不正、古い、または一致しないハンドル                                     | 403 `credential_handle_invalid`                                                |
-| OPA              | タイムアウト、接続エラー、HTTP 200 以外、不正または上限超過の結果        | 503 `policy_unavailable`                                                       |
-| 判断             | 正しい拒否結果                                                           | 403 `policy_denied`。接続先には何も届かない                                    |
-| 許可後の認証処理 | 実行前に判明した Auth Broker、コンパニオン、更新、署名、保持型方式の障害 | 503 の認証障害。接続先には何も届かない                                         |
-| 実行後の認証処理 | AWS コンパニオンまたは Datadog 更新の結果が不明                          | 409 `credential_refresh_outcome_unknown`。自動再実行も接続先への試行も行わない |
-| DNS／アドレス    | 安全で利用可能なアドレスがない                                           | 接続先またはプロキシのエラー。別の接続先は選ばない                             |
-| 接続先           | 許可後の TCP/TLS/HTTP 障害                                               | 監査結果は `upstream_error`。ポリシーは変更しない                              |
+| 段階             | 障害                                                                     | 結果                                               |
+| ---------------- | ------------------------------------------------------------------------ | -------------------------------------------------- |
+| プリンシパル     | 登録簿を読めない、または Workspace の送信元エンドポイントが未知          | 403 `project_principal_unavailable`                |
+| 認証情報の準備   | 不正、古い、または一致しないハンドル                                     | 403 `credential_handle_invalid`                    |
+| OPA              | タイムアウト、接続エラー、HTTP 200 以外、不正または上限超過の結果        | 503 `policy_unavailable`                           |
+| 判断             | 正しい拒否結果                                                           | 403 `policy_denied`。接続先には何も届かない        |
+| 許可後の認証処理 | 実行前に判明した Auth Broker、コンパニオン、更新、署名、保持型方式の障害 | 503 の認証障害。接続先には何も届かない             |
+| DNS／アドレス    | 安全で利用可能なアドレスがない                                           | 接続先またはプロキシのエラー。別の接続先は選ばない |
+| 接続先           | 許可後の TCP/TLS/HTTP 障害                                               | 監査結果は `upstream_error`。ポリシーは変更しない  |
 
 既知の `Content-Length` が mitmproxy の 8 MiB 制限を超えると、通常のアドオンのヘッダーフックより前に拒否される場合があります。長さが不明な許可済み本文は、固定された製品契約に従い、総バイト数の上限なしでストリーミングされます。
 
 ## 保証と制限
 
-**保証すること:** 通常の Gateway 試行ごとに、OPA の呼び出しは一度です。プリンシパルの確立、認証情報の準備、許可判断、許可後の認証情報適用が成功する前に、リクエスト本文のバイト列を転送しません。拒否時には、認証情報の解決、Datadog の更新、AWS コンパニオンの呼び出し、署名を一度も行いません。アプリケーション層の再試行もありません。拒否とレビュー用の情報に秘密情報は含めません。
+**保証すること:** 通常の Gateway 試行ごとに OPA call は一度です。principal establishment、
+credential preparation、allow decision、allow 後の static credential application が成功する前に
+body byte を転送しません。deny では secret resolution はゼロです。application-level retry はなく、
+denial/review 情報は secret-free です。
 
 **保証しないこと:** 本文の内容に基づく認可。アプリケーション上の意味の理解。冪等性。プロバイダー操作の解釈。長さが不明な許可済み本文をストリーミングする場合の総バイト数制限。低レベルな接続先障害すべてに対応する安定した Tobari JSON 障害コード。
 
@@ -137,7 +140,10 @@ Content-Type: application/json
 
 ## まとめ
 
-Context とプロジェクトは、登録済みでカーネルが観測した Workspace の送信元エンドポイントから特定します。OPA は、本文を含まない正規化済みの入力を一度だけ受け取って判断します。拒否時は Gateway 内で処理を止めます。秘密情報を扱う Auth Broker の操作、本物の接続先の名前解決、接続先への接続は、すべて許可後にだけ行います。通常の本文は許可後にストリーミングし、レビュー済みの AWS 処理では、許可後に上限内でリクエストを保持して署名します。
+Context/project は登録済みで kernel-observed な Workspace source endpoint から特定します。OPA は
+body-free normalized input を一度受け取って判断します。deny は Gateway 内で停止します。secret を
+扱う static Broker resolve、real destination DNS、upstream connection は allow 後だけです。body は
+allow 後に stream します。
 
 ## 理解を確認する
 

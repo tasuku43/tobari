@@ -14,8 +14,9 @@ review. The user explicitly chooses allow or deny.
 Applying that choice validates the complete policy and atomically activates a
 new revision. Failed or stale activation preserves the previous policy, and
 the original request runs again only when the user or tool deliberately
-retries it. Baseline deny, a learned exact deny, reset, and compaction remain
-different states and operations. The loop relies on the established [project identity](/how-it-works/project-identity/) and the ordering in [one request through Tobari](/how-it-works/request-journey/).
+retries it. Baseline deny, a learned exact deny, and reset remain different
+states and operations. First public V1 never widens exact learned authority.
+The loop relies on the established [project identity](/how-it-works/project-identity/) and the ordering in [one request through Tobari](/how-it-works/request-journey/).
 
 <PolicyLoopMap />
 
@@ -29,7 +30,10 @@ The diagram compresses one discovery detail: Gateway's denial response and audit
 
 ## 1. Denial is not a permission request
 
-OPA is deny-by-default for effects that match neither initialized static authority nor learned allow rules. This does not mean every first request is denied: the initialized policy contains limited static rules. A request outside current authority may be classified as learnable only after its schema, principal, scheme-specific fixed port, and credential binding are valid and no terminal deny matches.
+OPA is deny-by-default for effects that match no preset baseline grant or exact
+learned allow. All three built-in V1 presets have zero immediate grants. A
+request may be learnable only after schema, principal, fixed-port, credential
+binding, and the immutable preset terminal guardrail validate it.
 
 Gateway returns `403 policy_denied`. A learnable response names only the trusted-host review location and exact visible effect. It explicitly says there is no automatic retry.
 
@@ -89,18 +93,15 @@ Activation never replays the old request. The user or agent deliberately issues 
 
 This matters for non-idempotent methods and bodies: Tobari cannot know whether blind replay would be safe.
 
-## Allow, deny, reset, and compaction
+## Allow, deny, and reset
 
-| Decision                 | Meaning                                                                                                              |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| Initialized/static allow | Installation policy present before observation; not a learned project rule                                           |
-| Baseline deny            | Host/method/path boundary that is terminal and never enters pending review                                           |
-| Learned exact allow      | One Context/project/host/port/method/path capability                                                                 |
-| Learned exact deny       | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                    |
-| `policy reset`           | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow |
-| Explicit compaction      | Replaces at least three compatible exact sibling rules with a reviewed safe prefix rule                              |
-
-Compaction is never automatic. It groups only the same Context/project/host/port/method, rejects shallow or unsafe prefixes, retains positive examples and source IDs, and checks an outside-prefix canary. Tobari does not invent a wildcard from one denial.
+| Decision              | Meaning                                                                                                              |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Preset baseline grant | Snapshot authority, if any; all built-in V1 presets have none                                                        |
+| Preset terminal deny  | Guardrail rejection that never enters pending review and performs zero candidate/DNS/Broker/upstream work            |
+| Learned exact allow   | One Context/project/host/port/method/path capability                                                                 |
+| Learned exact deny    | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                    |
+| `policy reset`        | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow |
 
 ## Concrete example
 
@@ -110,7 +111,9 @@ Three exact allows exist for:
 - `PUT /review/items/2`
 - `PUT /review/items/3`
 
-Tobari may discover a `pcx_…` compaction proposal for `/review/items/` when all other boundaries match. Nothing changes until a host action selects that opaque proposal. `/review/admin` remains outside the prefix and serves as a negative boundary; a different project or method also remains denied.
+These remain three independent exact rules. Tobari derives no shared path
+authority from adjacency. `/review/admin`, a different project, and a different
+method remain denied unless each exact effect is reviewed separately.
 
 ## Failure behavior
 
@@ -134,10 +137,10 @@ Tobari may discover a `pcx_…` compaction proposal for `/review/items/` when al
 - [Policy activation architecture](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/docs/02_architecture.md)
 - [Guided Rego evaluator](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/opa/policy/tobari.rego)
 - [Rego policy tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
-- [Candidate and compaction domain invariants](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari/policy.go)
+- [Candidate and exact-rule domain invariants](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/domain/tobari/policy.go)
 - [Policy source mutation and rollback](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/policydata.go)
 - [All-Context aggregate generation](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/internal/infra/dockerruntime/aggregate.go)
-- [End-to-end allow, deny, reset, body grouping, and compaction tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
+- [End-to-end allow, deny, reset, and body-grouping tests](https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/scripts/test-integration.sh)
 
 ## Summary
 

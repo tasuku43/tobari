@@ -170,7 +170,9 @@ Broker ハンドルは有効ですが、OPA が HTTP 通信を拒否しました
 <details>
 <summary>回答</summary>
 
-いいえ。作業対象のディレクトリは、意図的に読み書き可能な状態でマウントされます。Tobari が前提条件の下で保護するのは、その外側にあるホストファイルです。作業対象を、同じ Workspace 内のプロセスから保護するものではありません。[保証と制限](../../security/guarantees-and-limitations/)を参照してください。
+必ずしもそうではありません。immutable Context `source_access` が `read-only` または
+`read-write` を選び、CLI omission default は `read-write` です。read-only でも host や別 Context
+による live source 変更は観測します。[保証と制限](../../security/guarantees-and-limitations/)を参照してください。
 
 </details>
 

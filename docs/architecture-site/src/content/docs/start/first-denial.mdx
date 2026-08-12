@@ -82,21 +82,15 @@ tobari policy reset --id <policy-rule-id>
 
 Reset does not allow the effect and does not replay it. It returns that effect to default deny. A later observed denial can then be reviewed again.
 
-Tobari also discovers bounded, test-backed path-prefix compactions after enough related exact rules exist:
-
-```sh
-tobari policy compactions
-tobari policy compact --id <policy-compaction-id>
-```
-
-Compaction is never automatic. It preserves positive examples and checks an adjacent outside-path canary, but finite tests cannot prove every future path is safe.
+First public V1 keeps learned decisions exact and never combines adjacent
+observations into broader authority.
 
 ## Failure behavior
 
 - OPA unavailable or an invalid OPA response produces a service failure and no upstream connection.
 - Immutable scheme, cluster, principal, or credential-binding failures are diagnostics, not learnable candidates.
 - An expired or stale candidate reference is rejected; rediscover the queue.
-- Concurrent policy change makes a stale action or compaction fail rather than guessing.
+- Concurrent policy change makes a stale action fail rather than guessing.
 - Invalid complete policy leaves the previously active policy unchanged.
 - A confirmed mutation with uncertain output must be reconciled through read-only state before replay; do not blindly repeat mutation commands.
 

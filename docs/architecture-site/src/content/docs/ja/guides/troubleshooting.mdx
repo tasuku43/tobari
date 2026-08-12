@@ -88,22 +88,6 @@ tobari
 
 それでも失敗する場合は、`tobari auth status`、正しい Context の選択、インストール済み Provider の結び付け、クラスターの準備状態を確認します。別の Workspace のハンドルを貼り付けないでください。プロジェクトと Context の検査は意図的なものです。
 
-## Auth Broker を使うリクエストが HTTP 409 を返す
-
-`credential_refresh_outcome_unknown` は、AWS 認証情報コンパニオンの操作または Datadog の更新が開始された可能性はあるものの、Broker がその結果を分類できなかったことを意味します。Gateway はアプリケーションのリクエストを外部の接続先へ送りませんでした。ツールに自動で再実行させないでください。
-
-元のリクエストの処理が終了した後、次を実行します。
-
-```sh
-tobari auth status
-```
-
-- `broker_state=ready` で、対象 Provider が `configured` の場合、認証情報の記録は利用可能です。利用者は元のタスクを意図的に再試行できます。
-- Provider が `not_configured` の場合、永続的かつ暗号化されたタスクの障壁が残っています。レビュー済みログインをもう一度実行するか、その Provider からログアウトしてから、Workspace を出て再入室し、その後に再試行します。
-- Broker が `locked` または `unavailable` の場合は、まず `cluster up` で調整し、状態を再確認します。
-
-この 409 を `credential_broker_unavailable` 503 と同じように扱わないでください。後者は実行開始前に判明した可用性障害です。前者が再実行の許可を意図的に与えないのは、外部での認証情報処理がすでに始まっている可能性があるためです。
-
 ## ランタイムイメージが見つからない、または互換性がない
 
 ```sh

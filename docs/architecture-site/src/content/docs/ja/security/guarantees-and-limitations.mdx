@@ -45,13 +45,19 @@ Tobari は、Workspace の権限を一つのプロジェクト、ホストが発
 
 ## 保証 4：Auth Broker が管理する認証情報は Workspace に渡されない
 
-**保証。** Workspace が受け取るのは、固定された認証情報の本体、更新可能な AWS 状態、Datadog OAuth の状態、リクエスト用に導出した認証情報ではありません。一つのプロジェクトに結び付いた不透明なハンドルだけです。
+**保証。** Workspace が受け取るのは static primary secret や request-local credential ではなく、
+project-bound opaque handle 一つです。
 
 **前提。** プロバイダーが Auth Broker の経路を使い、ルート鍵が利用でき、Context 保管庫とプロバイダーマニフェストの検証が成功すること。
 
-**仕組み。** Auth Broker は型付きの状態を Context 保管庫で暗号化します。ハンドルのレコードは、Context、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の接続先、HTTP ヘッダーの対応付けに結び付きます。Gateway はハンドルを取り除き、秘密情報を使わずに結び付けを照合してから OPA に問い合わせます。許可後に限り、宣言済みの固定認証情報の解決、Datadog トークンの選択や更新、AWS コンパニオンによる認証情報の取得や署名を実行します。
+**仕組み。** Auth Broker は static state を Context vault で暗号化します。handle record は
+Context、project、provider、revision、完全一致 target、HTTP header binding に結び付きます。
+Gateway は handle を除去し、non-secret introspection と preset guardrail の後に OPA へ問い合わせ、
+allow 後だけ declared static resolve を実行します。
 
-**障害時。** 不正、コピー済み、古い、形式不正、または曖昧なハンドルは拒否し、別の認証方式へ切り替えません。OPA の拒否時には、認証情報の解決、更新、コンパニオンの呼び出し、署名、外部の接続先への接続は発生しません。実行前に利用不能と判明した場合は 503 を返します。AWS または Datadog の処理を開始した後に結果を確定できない場合は、再試行不可の 409 となり、アプリケーションの接続先へは接続していません。
+**障害時。** 不正、copy、stale、malformed、ambiguous handle は拒否し別方式へ切り替えません。
+terminal guardrail または OPA deny では resolve、DNS、upstream access はゼロです。resolution 前の
+Broker unavailability は upstream attempt なしの 503 です。
 
 **対象外。** 同じ Workspace 内の悪意あるプロセスは、その Workspace へ配置されたハンドルと、すでに許可された通信を利用できます。ツール自身が管理する認証情報は、ツールが保存した場所から読めるままです。ログアウトはプロバイダー側での失効を保証しません。
 

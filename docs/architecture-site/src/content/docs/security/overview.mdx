@@ -46,9 +46,9 @@ itself is malicious, the enforcement point is gone.
   <section>
     <h3>Project filesystem</h3>
     <div class="prose-block">
-      The selected root is mounted for work. Unselected host paths and another
-      Workspace home are outside the normal mount set. The selected files are
-      not protected from the agent.
+      Immutable Context source access selects a read-only or read-write live
+      bind. Unselected host paths and another Workspace home are outside the
+      normal mount set; this is not snapshot or other-writer isolation.
     </div>
   </section>
   <section>
@@ -68,9 +68,9 @@ itself is malicious, the enforcement point is gone.
   <section>
     <h3>Brokered credentials</h3>
     <div class="prose-block">
-      Auth Broker keeps static or renewable credential state in an encrypted
-      Context vault. A Workspace receives only a bound handle; static resolve,
-      AWS signing, or Datadog token refresh remains post-policy.
+      Auth Broker keeps static credential state in an encrypted Context vault. A
+      Workspace receives only a bound handle; same-revision resolution is
+      post-policy.
     </div>
   </section>
 </div>
@@ -82,11 +82,6 @@ itself is malicious, the enforcement point is gone.
 - OPA unavailable or malformed: Gateway returns `policy_unavailable`; no upstream connection.
 - Auth Broker locked or unavailable: a brokered request fails; there is no secret resolution fallback.
 - Invalid or stale handle: `credential_handle_invalid`; no passthrough downgrade.
-- Known pre-execution companion or refresh failure:
-  `credential_broker_unavailable`; no upstream attempt.
-- Explicit or post-dispatch AWS/Datadog outcome uncertainty:
-  non-retryable `credential_refresh_outcome_unknown`; reconcile on the trusted
-  host instead of replaying.
 - Invalid policy activation: Tobari preserves or restores the prior source and known projection where possible; if OPA cannot be made healthy, communication remains failed closed rather than assuming the previous service is active.
 
 These are closed failures for the affected path. They do not promise that every process action is rolled back: local file writes inside the selected project may already have happened.

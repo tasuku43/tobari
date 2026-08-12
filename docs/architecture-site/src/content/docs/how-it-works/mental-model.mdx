@@ -45,11 +45,10 @@ OPA returns a structured allow or deny. An unavailable or malformed decision is 
 ### 4. Auth Broker: credential custody, not permission
 
 Auth Broker is relevant only to the brokered authentication route. It keeps
-typed static or renewable credential state in an encrypted Context vault and
+one static credential record in an encrypted Context vault and
 gives a Workspace an opaque, project-bound handle. Gateway may inspect
 non-secret binding metadata before policy. Only after OPA allows the ordinary
-HTTP effect may Broker resolve one static secret, select or refresh a Datadog
-token, or use the private host companion and sign one bounded AWS request.
+HTTP effect may Broker resolve the same static revision once.
 
 Login can create credential state. It does not add a policy rule.
 
@@ -72,14 +71,13 @@ The first request is not an application for automatic permission. It is an attem
 
 ## Failure behavior
 
-| Failure                     | Observable result                        | What does **not** happen                            |
-| --------------------------- | ---------------------------------------- | --------------------------------------------------- |
-| No matching rule            | `403 policy_denied`                      | No upstream connection and no automatic allow       |
-| OPA unavailable or invalid  | `503 policy_unavailable`                 | No fallback decision                                |
-| Gateway unavailable         | Guarded connection fails                 | No direct Internet fallback                         |
-| Invalid broker handle       | `403 credential_handle_invalid`          | No passthrough fallback and no upstream request     |
-| Auth Broker unavailable     | `503 credential_broker_unavailable`      | No resolve, refresh, signing, or upstream action    |
-| AWS/Datadog outcome unknown | `409 credential_refresh_outcome_unknown` | No automatic replay or application upstream attempt |
+| Failure                    | Observable result                   | What does **not** happen                        |
+| -------------------------- | ----------------------------------- | ----------------------------------------------- |
+| No matching rule           | `403 policy_denied`                 | No upstream connection and no automatic allow   |
+| OPA unavailable or invalid | `503 policy_unavailable`            | No fallback decision                            |
+| Gateway unavailable        | Guarded connection fails            | No direct Internet fallback                     |
+| Invalid broker handle      | `403 credential_handle_invalid`     | No passthrough fallback and no upstream request |
+| Auth Broker unavailable    | `503 credential_broker_unavailable` | No resolve or upstream action                   |
 
 ## Guarantees and limitations
 
@@ -87,7 +85,7 @@ The first request is not an application for automatic permission. It is an attem
 
 Within the supported Docker topology, a Workspace has no direct external
 route. Gateway must receive an allow decision before it forwards the request.
-Brokered static secrets, renewable state, and derived request credentials stay
+Brokered static secrets and request-local credentials stay
 outside the Workspace and OPA.
 
 ### What this model does not guarantee

@@ -93,31 +93,9 @@ Broker は共有されるロック状態のサービスとして動きます。L
 ### プロバイダー設定をホスト上のコード実行に変える
 
 所有者マニフェストは厳格なスキーマ 1 で、保護された標準入力からの取り込みだけを要求
-できます。実行ファイル、シェルコマンド、補助プログラム、更新 URL、署名プラン、スキーマ 1 は
-選べません。レビュー済みの GitHub、AWS、Datadog のログイン処理は、識別情報を検査して
-固定した信頼ホスト側のドライバーを、不要な環境変数を除いた環境と、検査済みの非公開
-ホームの後始末とともに使います。プロバイダー JSON はデータであり、実行可能な
-アダプターではありません。
-
-### AWS のホスト側コンパニオンへ到達または再送する
-
-ホスト側コンパニオンにはリスナーも、マウントしたホストソケットもありません。Broker は固定の
-
-<code>docker exec -i</code> を通じて、ルート鍵
-から導出して認証・暗号化し、通信方向に結び付けた逆向きセッション
-を一つ確立します。フレームには厳密な順序、サイズ、期限
-があります。利用できるのはコンパイル済みの AWS 認証情報書き出し操作 だけで、OPA
-の拒否時にホスト側コンパニオンを呼び出すことはありません。Workspace
-のデータからホスト側の argv を選ぶことも、過去のセッション
-を再送することもできません。
-
-### Datadog の更新を別の宛先へ向ける、または事前に実行する
-
-Datadog の更新は、US1 の HTTPS トークン接続先に完全一致で固定した、コンパイル済みの
-Broker 操作です。周囲のプロキシ設定とリダイレクトは無効です。通常の HTTP 通信が
-許可された後にだけ始まり、レコードとリビジョンごとに一度だけ同時実行します。
-Workspace の入力からトークンのホストは選べず、OPA の拒否時に更新処理を呼ぶことは
-ありません。
+できます。executable や dynamic credential behavior は選べません。唯一の built-in GitHub
+login は identity-checked fixed trusted-host helper、sanitized temporary home、verified cleanup
+を使います。provider JSON は data であり executable adapter ではありません。
 
 ## 残るリスク
 
@@ -133,8 +111,6 @@ Workspace の入力からトークンのホストは選べず、OPA の拒否時
   プロセスの環境変数も書き換えられません。
 - 証明書を固定するクライアントは失敗します。未対応のプロトコルは、この
   HTTP/HTTPS 境界では仲介しません。
-- AWS または Datadog の認証処理を開始した後に結果が不明となった場合は、信頼する
-  ホスト側で状態を確認する必要があります。自動再実行は意図的に提供しません。
 
 ## 障害時の意味
 
@@ -165,16 +141,6 @@ Workspace の入力からトークンのホストは選べず、OPA の拒否時
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_broker.py">
         Auth Broker の障害と結び付きのテスト
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_companion_protocol.py">
-        非公開のホスト側コンパニオンプロトコルのテスト
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/tasuku43/tobari/blob/1a73f30d49a29e40d1306cf6590aeec6949c7faa/authbroker/tests/test_datadog_broker.py">
-        Datadog のポリシー後処理と永続的な操作バリアのテスト
       </a>
     </li>
   </ul>
