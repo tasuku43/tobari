@@ -58,10 +58,11 @@
       Evidence: no module or Action was added, privileged publication remains
       one environment-gated `contents: write` job, all other permissions are
       read-only, and exact final asset inventory rejects extras and symlinks.
-- [ ] Run `task check` and `task security` locally. Evidence: `mise exec -- task
-      check:fast` and `mise exec -- task security` pass after integrated source
-      finalization. Full check remains pending; the local Colima engine could
-      not start the new synthetic integration fixture.
+- [x] Run `task check` and `task security` locally. Evidence: `mise exec -- task
+      check` and `mise exec -- task security` pass on integrated V1 HEAD on
+      2026-08-12; full includes race tests, both site builds, and Playwright
+      40/40. The separately required live synthetic integration remains
+      pending because the local Colima engine could not start its fixture.
 - [x] Record the intentional pre-publication result of `task public:check` and
       `task release:check` if unpublished image pins remain. Evidence: both
       commands were run on 2026-08-12. Public passed repoguard and contractlint;
