@@ -666,19 +666,13 @@ func (m ContextManifest) Validate() error {
 // ContextStorePaths are trusted infrastructure-resolved paths. They are
 // included in host diagnostics, never in Workspace mounts as a whole.
 type ContextStorePaths struct {
-	PolicyDirectory     string `json:"policy_directory"`
-	CredentialConfig    string `json:"credential_config"`
-	CredentialDirectory string `json:"credential_directory"`
-	RuntimeDirectory    string `json:"runtime_directory,omitempty"`
-	RuntimeDockerfile   string `json:"runtime_dockerfile,omitempty"`
+	PolicyDirectory   string `json:"policy_directory"`
+	RuntimeDirectory  string `json:"runtime_directory,omitempty"`
+	RuntimeDockerfile string `json:"runtime_dockerfile,omitempty"`
 }
 
 func (p ContextStorePaths) Validate() error {
-	for name, value := range map[string]string{
-		"policy directory":     p.PolicyDirectory,
-		"credential config":    p.CredentialConfig,
-		"credential directory": p.CredentialDirectory,
-	} {
+	for name, value := range map[string]string{"policy directory": p.PolicyDirectory} {
 		if value == "" || !filepath.IsAbs(value) || filepath.Clean(value) != value {
 			return fmt.Errorf("context %s must be a canonical absolute path", name)
 		}

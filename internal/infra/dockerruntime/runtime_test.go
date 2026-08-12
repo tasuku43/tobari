@@ -319,9 +319,8 @@ func runtimeState(root string) tobari.State {
 	return tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: filepath.Join(root, "runtime"),
 		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
-		PolicyDirectory:  filepath.Join(root, "policy"),
-		CredentialConfig: filepath.Join(root, "credentials.json"),
-		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
+		PolicyDirectory: filepath.Join(root, "policy"),
+		GatewayConfig:   filepath.Join(root, "gateway.json"), AssetVersion: "asset",
 	}
 }
 
@@ -598,7 +597,7 @@ func TestPrepareStateUsesAggregateProjection(t *testing.T) {
 	}
 	for path, want := range map[string]os.FileMode{
 		state.PolicyDirectory: 0o700, filepath.Join(state.PolicyDirectory, "router.rego"): 0o600,
-		state.CredentialDir: 0o700, state.CredentialConfig: 0o600,
+		state.GatewayConfig: 0o600,
 	} {
 		info, err := os.Stat(path)
 		if err != nil || info.Mode().Perm() != want {

@@ -950,8 +950,8 @@ func TestEnsureProjectContainerRecreatesOnSpecDrift(t *testing.T) {
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: filepath.Join(t.TempDir(), "runtime"),
 		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
-		PolicyDirectory: filepath.Join(t.TempDir(), "policy"), CredentialConfig: filepath.Join(t.TempDir(), "credentials.json"),
-		CredentialDir: filepath.Join(t.TempDir(), "credentials"), AssetVersion: "asset",
+		PolicyDirectory: filepath.Join(t.TempDir(), "policy"), GatewayConfig: filepath.Join(t.TempDir(), "gateway.json"),
+		AssetVersion: "asset",
 	}
 	if err := runtime.ensureProjectContainer(context.Background(), state, instance, "/profile", "tobari-project", "tobari-network", "172.29.0.2", "tobari-image", "sha256:desired"); err != nil {
 		t.Fatalf("ensureProjectContainer() error = %v", err)

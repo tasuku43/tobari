@@ -76,11 +76,6 @@
         "detail": "ready"
       },
       {
-        "name": "credential_config",
-        "status": "pass",
-        "detail": "ready"
-      },
-      {
         "name": "image_config",
         "status": "pass",
         "detail": "ready"

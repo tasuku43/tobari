@@ -726,8 +726,8 @@ func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: runtimeDirectory,
 		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,
-		PolicyDirectory: projection.PolicyDirectory, CredentialConfig: projection.CredentialConfig,
-		CredentialDir: projection.CredentialDirectory, AssetVersion: version,
+		PolicyDirectory: projection.PolicyDirectory, GatewayConfig: projection.GatewayConfig,
+		AssetVersion: version,
 	}
 	if err := state.Validate(); err != nil {
 		return tobari.State{}, err
@@ -978,7 +978,7 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 	}
 	policyIntegrity := r.inspectAggregatePolicyIntegrity(ctx, state)
 	principalIntegrity := r.inspectPrincipalRegistryIntegrity(projects)
-	credentialIntegrity := r.inspectCredentialProjectionIntegrity(state)
+	gatewayIntegrity := r.inspectGatewayProjectionIntegrity(state)
 	brokerState, brokerErr := r.brokerState(ctx)
 	if brokerErr != nil {
 		brokerState = "unavailable"
@@ -994,7 +994,7 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 		Configured: true, Running: running,
 		Policy: state.PolicyDirectory, TobariCount: len(projects), ContextCount: state.ContextCount,
 		PolicyRevision: state.AggregateRevision, PolicyProjection: policyIntegrity,
-		PrincipalRegistry: principalIntegrity, CredentialProjection: credentialIntegrity,
+		PrincipalRegistry: principalIntegrity, GatewayProjection: gatewayIntegrity,
 		AuthProviderProjection: r.inspectAuthProviderProjectionIntegrity(),
 		AuthBrokerState:        string(brokerState),
 		RootKeyBackend:         backend,
@@ -1053,38 +1053,9 @@ func (r *Runtime) inspectPrincipalRegistryIntegrity(projects []tobari.ProjectIns
 	return "valid"
 }
 
-func (r *Runtime) inspectCredentialProjectionIntegrity(state tobari.State) string {
-	if _, status := r.checkCredentialConfigAt(state.CredentialConfig); status != doctor.CheckStatusPass {
+func (r *Runtime) inspectGatewayProjectionIntegrity(state tobari.State) string {
+	if _, status := r.checkGatewayConfigAt(state.GatewayConfig); status != doctor.CheckStatusPass {
 		return "invalid"
-	}
-	if err := requirePrivateDirectory(state.CredentialDir); err != nil {
-		return "invalid"
-	}
-	data, err := readOwnerPolicyFile(state.CredentialConfig, 256*1024)
-	if err != nil {
-		return "invalid"
-	}
-	var document struct {
-		Contexts map[string]struct {
-			Profiles map[string]struct {
-				SecretFile string `json:"secret_file"`
-			} `json:"profiles"`
-		} `json:"contexts"`
-	}
-	if err := json.Unmarshal(data, &document); err != nil {
-		return "invalid"
-	}
-	const prefix = "/run/tobari/credentials/"
-	for _, projected := range document.Contexts {
-		for _, profile := range projected.Profiles {
-			relative := strings.TrimPrefix(profile.SecretFile, prefix)
-			if relative == profile.SecretFile {
-				return "invalid"
-			}
-			if _, err := readOwnerPolicyFile(filepath.Join(state.CredentialDir, filepath.FromSlash(relative)), 64*1024); err != nil {
-				return "invalid"
-			}
-		}
 	}
 	return "valid"
 }
@@ -1284,7 +1255,7 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 	environment = append(
 		environment,
 		"TOBARI_POLICY_DIR="+state.PolicyDirectory,
-		"TOBARI_CREDENTIAL_CONFIG="+state.CredentialConfig,
+		"TOBARI_GATEWAY_CONFIG="+state.GatewayConfig,
 		"TOBARI_PRINCIPAL_DIR="+r.principalRegistryDirectory(),
 		"TOBARI_AUTH_PROVIDER_CONFIG="+r.authProviderProjectionPath(),
 		"TOBARI_AUTH_CONTEXTS_DIR="+r.authContextsDirectory(),
@@ -1338,125 +1309,44 @@ func (r *Runtime) addPolicyDataDiagnostic(
 	add("policy_data", doctor.CheckStatusPass, "learned policy data is safe for guided review")
 }
 
-func (r *Runtime) checkCredentialConfig() (string, doctor.CheckStatus) {
-	paths, err := r.diagnosticContextStores()
-	if err != nil {
-		return "active Context could not be inspected", doctor.CheckStatusFail
-	}
-	return r.checkCredentialConfigAt(paths.CredentialConfig)
-}
-
-func (r *Runtime) checkCredentialConfigAt(path string) (string, doctor.CheckStatus) {
+func (r *Runtime) checkGatewayConfigAt(path string) (string, doctor.CheckStatus) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "configuration will be initialized by cluster up", doctor.CheckStatusWarn
+		return "Gateway projection will be initialized by cluster up", doctor.CheckStatusWarn
 	}
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return "credentials.json must be a regular owner-only file", doctor.CheckStatusFail
+		return "gateway.json must be a regular owner-only file", doctor.CheckStatusFail
 	}
-	data, err := os.ReadFile(path) // #nosec G304 -- fixed credentials.json child.
+	data, err := os.ReadFile(path) // #nosec G304 -- state binds the generated aggregate Gateway projection.
 	if err != nil || len(data) > 256*1024 {
-		return "credentials.json is unreadable or exceeds 256 KiB", doctor.CheckStatusFail
+		return "gateway.json is unreadable or exceeds 256 KiB", doctor.CheckStatusFail
 	}
-	type credentialProfile struct {
-		Type       string   `json:"type"`
-		Hosts      []string `json:"hosts"`
-		Projects   []string `json:"projects"`
-		SecretFile string   `json:"secret_file"`
-		Header     string   `json:"header"`
+	var document struct {
+		Version  string `json:"version"`
+		Contexts map[string]struct {
+			Name             string                   `json:"name"`
+			GraphQLEndpoints []tobari.GraphQLEndpoint `json:"graphql_endpoints"`
+		} `json:"contexts"`
 	}
-	validateProfiles := func(profiles map[string]credentialProfile, contextID string) (string, doctor.CheckStatus) {
-		for name, profile := range profiles {
-			secretName := strings.TrimPrefix(profile.SecretFile, "/run/tobari/credentials/")
-			if contextID != "" {
-				secretName = strings.TrimPrefix(secretName, contextID+"/")
-			}
-			if name == "" || (profile.Type != "bearer" && profile.Type != "header") ||
-				len(profile.Hosts) == 0 ||
-				profile.Projects == nil ||
-				!strings.HasPrefix(profile.SecretFile, "/run/tobari/credentials/") ||
-				(contextID != "" && !strings.HasPrefix(profile.SecretFile, "/run/tobari/credentials/"+contextID+"/")) ||
-				secretName == "" || secretName == "." || secretName == ".." || strings.Contains(secretName, "/") {
-				return "credentials.json contains an invalid profile", doctor.CheckStatusFail
-			}
-			seenProjects := make(map[string]struct{}, len(profile.Projects))
-			for _, projectID := range profile.Projects {
-				if err := tobari.ValidateProjectID(projectID); err != nil {
-					return "credentials.json contains an invalid project binding", doctor.CheckStatusFail
-				}
-				if _, exists := seenProjects[projectID]; exists {
-					return "credentials.json contains duplicate project bindings", doctor.CheckStatusFail
-				}
-				seenProjects[projectID] = struct{}{}
-			}
-			for _, host := range profile.Hosts {
-				if host == "" || host != strings.ToLower(strings.TrimSuffix(host, ".")) {
-					return "credentials.json contains an invalid host binding", doctor.CheckStatusFail
-				}
-			}
-			if profile.Type == "header" && profile.Header == "" {
-				return "header credential profile requires a header name", doctor.CheckStatusFail
-			}
-		}
-		return "", doctor.CheckStatusPass
+	if err := decodeStrictJSON(data, &document); err != nil || document.Version != "v1" || document.Contexts == nil {
+		return "gateway.json does not match Gateway projection schema V1", doctor.CheckStatusFail
 	}
-	var shape map[string]json.RawMessage
-	if err := json.Unmarshal(data, &shape); err != nil {
-		return "credentials.json is not valid JSON", doctor.CheckStatusFail
-	}
-	var version string
-	if raw, ok := shape["version"]; !ok || json.Unmarshal(raw, &version) != nil || version != "v1" {
-		return "credentials.json must use schema V1", doctor.CheckStatusFail
-	}
-	_, hasProfiles := shape["profiles"]
-	_, hasContexts := shape["contexts"]
-	switch {
-	case hasProfiles && !hasContexts:
-		var document struct {
-			Version  string                       `json:"version"`
-			Profiles map[string]credentialProfile `json:"profiles"`
+	for contextID, projected := range document.Contexts {
+		if err := tobari.ValidateContextID(contextID); err != nil || tobari.ValidateName(projected.Name) != nil {
+			return "gateway.json contains an invalid Context projection", doctor.CheckStatusFail
 		}
-		if err := decodeStrictJSON(data, &document); err != nil || document.Version != "v1" || document.Profiles == nil {
-			return "credentials.json does not match Context credential schema V1", doctor.CheckStatusFail
-		}
-		if detail, status := validateProfiles(document.Profiles, ""); status != doctor.CheckStatusPass {
-			return detail, status
-		}
-		return "credential profile metadata matches Context credential schema V1", doctor.CheckStatusPass
-	case hasContexts && !hasProfiles:
-		var document struct {
-			Version  string `json:"version"`
-			Contexts map[string]struct {
-				Name             string                       `json:"name"`
-				Profiles         map[string]credentialProfile `json:"profiles"`
-				GraphQLEndpoints []tobari.GraphQLEndpoint     `json:"graphql_endpoints"`
-			} `json:"contexts"`
-		}
-		if err := decodeStrictJSON(data, &document); err != nil || document.Version != "v1" || document.Contexts == nil {
-			return "credentials.json does not match aggregate credential schema V1", doctor.CheckStatusFail
-		}
-		for contextID, projected := range document.Contexts {
-			if err := tobari.ValidateContextID(contextID); err != nil || tobari.ValidateName(projected.Name) != nil || projected.Profiles == nil {
-				return "credentials.json contains an invalid Context projection", doctor.CheckStatusFail
+		seenEndpoints := make(map[tobari.GraphQLEndpoint]struct{}, len(projected.GraphQLEndpoints))
+		for _, endpoint := range projected.GraphQLEndpoints {
+			if err := endpoint.Validate(); err != nil {
+				return "gateway.json contains an invalid GraphQL endpoint projection", doctor.CheckStatusFail
 			}
-			seenEndpoints := make(map[tobari.GraphQLEndpoint]struct{}, len(projected.GraphQLEndpoints))
-			for _, endpoint := range projected.GraphQLEndpoints {
-				if err := endpoint.Validate(); err != nil {
-					return "credentials.json contains an invalid GraphQL endpoint projection", doctor.CheckStatusFail
-				}
-				if _, duplicate := seenEndpoints[endpoint]; duplicate {
-					return "credentials.json contains duplicate GraphQL endpoint projections", doctor.CheckStatusFail
-				}
-				seenEndpoints[endpoint] = struct{}{}
+			if _, duplicate := seenEndpoints[endpoint]; duplicate {
+				return "gateway.json contains duplicate GraphQL endpoint projections", doctor.CheckStatusFail
 			}
-			if detail, status := validateProfiles(projected.Profiles, contextID); status != doctor.CheckStatusPass {
-				return detail, status
-			}
+			seenEndpoints[endpoint] = struct{}{}
 		}
-		return "credential profile metadata matches aggregate credential schema V1", doctor.CheckStatusPass
-	default:
-		return "credentials.json does not match a current credential schema", doctor.CheckStatusFail
 	}
+	return "Gateway routing metadata matches schema V1", doctor.CheckStatusPass
 }
 
 func decodeStrictJSON(data []byte, target any) error {

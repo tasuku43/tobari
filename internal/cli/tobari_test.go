@@ -1044,7 +1044,7 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
 		Policy:         "/tmp/config/tobari/policy",
 		PolicyRevision: strings.Repeat("a", 64), PolicyProjection: "valid",
-		PrincipalRegistry: "valid", CredentialProjection: "valid",
+		PrincipalRegistry: "valid", GatewayProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
 		TobariCount: 2, Components: []tobari.ComponentStatus{
 			{Name: "auth-broker", State: "running", Health: "healthy"},
@@ -1206,7 +1206,7 @@ func TestClusterStatusJSONDoesNotContainTerminalColors(t *testing.T) {
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
 		Policy:       "/tmp/config/tobari/policy",
 		ContextCount: 1, PolicyRevision: strings.Repeat("a", 64), Components: validClusterComponentStatuses(),
-		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
+		PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
 	}
 	output, err := renderClusterStatus(status, successFormatJSON, true)
@@ -1224,7 +1224,7 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
 		Policy:      "/tmp/config/tobari/policy",
 		TobariCount: 1, ContextCount: 1, PolicyRevision: strings.Repeat("a", 64),
-		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
+		PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
 		Components: validClusterComponentStatuses(),
 	}

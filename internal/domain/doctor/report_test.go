@@ -18,7 +18,6 @@ func TestCheckInventoryIsFiniteTopologicalDAG(t *testing.T) {
 		{ID: CheckIDState, Prerequisites: []CheckID{CheckIDContext}},
 		{ID: CheckIDPolicy, Prerequisites: []CheckID{CheckIDContext, CheckIDDockerEngine}},
 		{ID: CheckIDPolicyData, Prerequisites: []CheckID{CheckIDContext}},
-		{ID: CheckIDCredentialConfig, Prerequisites: []CheckID{CheckIDContext}},
 		{ID: CheckIDImageConfig, Prerequisites: []CheckID{CheckIDContext}},
 		{ID: CheckIDAuthProviderManifests, Prerequisites: []CheckID{CheckIDContext}},
 		{ID: CheckIDAuthVaultPaths, Prerequisites: []CheckID{CheckIDContext}},

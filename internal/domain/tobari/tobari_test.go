@@ -9,9 +9,8 @@ func validState(root string) State {
 	return State{
 		SchemaVersion: 1, RuntimeDirectory: filepath.Join(root, "runtime"),
 		AggregateRevision: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", ContextCount: 1,
-		PolicyDirectory:  filepath.Join(root, "policy"),
-		CredentialConfig: filepath.Join(root, "credentials.json"),
-		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
+		PolicyDirectory: filepath.Join(root, "policy"),
+		GatewayConfig:   filepath.Join(root, "gateway.json"), AssetVersion: "asset",
 	}
 }
 

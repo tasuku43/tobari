@@ -36,9 +36,7 @@
     "email": "review@example.com"
   },
   "stores": {
-    "policy_directory": "/config/contexts/review/policy",
-    "credential_config": "/config/contexts/review/credentials.json",
-    "credential_directory": "/config/contexts/review/credentials"
+    "policy_directory": "/config/contexts/review/policy"
   },
   "runtime": {
     "kind": "official",

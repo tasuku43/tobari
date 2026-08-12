@@ -29,6 +29,10 @@
       status, tests, and assets. Evidence: the Gateway has no managed adapter
       or selector, the shared Compose contract mounts no credential directory,
       and the managed-file doctor check and runtime environment were removed.
+      Follow-up retirement audit also removed Context and aggregate
+      `credentials.json`/`credentials/` state, hash/copy paths, and public
+      schema fields; GraphQL endpoint classification now uses the strict
+      secret-free `gateway.json` projection and `TOBARI_GATEWAY_CONFIG`.
 - [x] Remove AWS, Datadog, OpenAI, Anthropic, Chatwork, companion, refresh,
       signing, host drivers, exact-version contracts, state readers, and
       unowned dependencies/assets. Evidence: canonical Auth Broker and Gateway
@@ -47,6 +51,9 @@
       Evidence: 25 Auth Broker tests and 26 Gateway/GraphQL/DNS tests passed in
       pinned mitmproxy containers; negative cases cover retired operations,
       terminal denial, invalid-handle no-fallback, rotation, and revocation.
+      A dedicated Gateway negative test proves the retired
+      `x-tobari-credential-profile` selector fails before broker, OPA, fallback,
+      or upstream processing.
 - [x] Run focused Go tests. Evidence: `go test ./internal/... ./cmd/tobari`
       passed on 2026-08-12 after the Go vertical deletion.
 - [x] Review dependency, generated, and image-content diffs. Evidence: canonical

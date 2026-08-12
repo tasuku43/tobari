@@ -23,7 +23,6 @@ const (
 	CheckIDState                 CheckID = "state"
 	CheckIDPolicy                CheckID = "policy"
 	CheckIDPolicyData            CheckID = "policy_data"
-	CheckIDCredentialConfig      CheckID = "credential_config" // #nosec G101 -- public diagnostic ID, not a credential.
 	CheckIDImageConfig           CheckID = "image_config"
 	CheckIDAuthProviderManifests CheckID = "auth_provider_manifests"
 	CheckIDAuthVaultPaths        CheckID = "auth_vault_paths"
@@ -53,7 +52,6 @@ var checkInventory = []CheckSpec{
 	{ID: CheckIDState, Prerequisites: []CheckID{CheckIDContext}},
 	{ID: CheckIDPolicy, Prerequisites: []CheckID{CheckIDContext, CheckIDDockerEngine}},
 	{ID: CheckIDPolicyData, Prerequisites: []CheckID{CheckIDContext}},
-	{ID: CheckIDCredentialConfig, Prerequisites: []CheckID{CheckIDContext}},
 	{ID: CheckIDImageConfig, Prerequisites: []CheckID{CheckIDContext}},
 	{ID: CheckIDAuthProviderManifests, Prerequisites: []CheckID{CheckIDContext}},
 	{ID: CheckIDAuthVaultPaths, Prerequisites: []CheckID{CheckIDContext}},

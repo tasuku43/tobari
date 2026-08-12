@@ -117,7 +117,6 @@ func recoveryFor(id doctor.CheckID, status doctor.CheckStatus) *doctor.Recovery 
 		doctor.CheckIDState:                 "Repair unsafe or invalid Tobari cluster state.",
 		doctor.CheckIDPolicy:                "Correct the active policy source or its Docker-readable path.",
 		doctor.CheckIDPolicyData:            "Repair invalid or unsafe learned policy data.",
-		doctor.CheckIDCredentialConfig:      "Repair the Context GraphQL endpoint projection.",
 		doctor.CheckIDImageConfig:           "Repair the selected runtime image configuration.",
 		doctor.CheckIDAuthProviderManifests: "Repair the owner-controlled credential-provider manifest collection.",
 		doctor.CheckIDAuthVaultPaths:        "Repair unsafe Auth Broker vault paths.",

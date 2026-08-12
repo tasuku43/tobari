@@ -15,7 +15,7 @@ from urllib.parse import unquote, urlsplit
 from mitmproxy import http
 
 from credential_adapters import (
-    CONTROL_HEADERS, DEFAULT_SECRET_HEADERS, CredentialAdapter,
+    CONTROL_HEADERS, DEFAULT_SECRET_HEADERS, PROFILE_HEADER, CredentialAdapter,
     CredentialAdapterError, PreparedCredentialRequest,
 )
 
@@ -342,6 +342,9 @@ class BrokeredCredentialAdapter:
         self.projection_loader, self.caller = projection_loader, caller
 
     def prepare(self, request: http.Request, scheme: str, host: str, port: int, context_id: str, project_id: str) -> PreparedCredentialRequest:
+        if PROFILE_HEADER in request.headers:
+            request.headers.pop(PROFILE_HEADER, None)
+            raise BrokerCredentialBindingError("retired credential profile selector is unsupported")
         projection = self.projection_loader(self.projection_path)
         selected = _find_candidate(request, projection, scheme, host, port)
         if selected is None:

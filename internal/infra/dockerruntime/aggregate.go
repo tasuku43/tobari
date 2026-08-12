@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -28,11 +27,10 @@ var (
 )
 
 type aggregateProjection struct {
-	Revision            string
-	PolicyDirectory     string
-	CredentialConfig    string
-	CredentialDirectory string
-	ContextCount        int
+	Revision        string
+	PolicyDirectory string
+	GatewayConfig   string
+	ContextCount    int
 }
 
 type aggregateContext struct {
@@ -41,7 +39,6 @@ type aggregateContext struct {
 	data             map[string]any
 	policy           policyDataFile
 	rego             []byte
-	creds            map[string]any
 	graphqlEndpoints []tobari.GraphQLEndpoint
 	preset           tobari.PolicyPreset
 }
@@ -110,41 +107,15 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		if err != nil {
 			return nil, fmt.Errorf("Context %q policy evaluator: %w", manifest.Name, err)
 		}
-		creds, err := readContextCredentialDocument(paths.CredentialConfig)
-		if err != nil {
-			return nil, fmt.Errorf("Context %q credentials: %w", manifest.Name, err)
-		}
 		items = append(items, aggregateContext{
 			manifest: manifest, paths: paths, data: contextData,
-			policy: policy, rego: rego, creds: creds,
+			policy: policy, rego: rego,
 			graphqlEndpoints: append([]tobari.GraphQLEndpoint{}, policy.graphqlEndpoints...),
 			preset:           preset,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].manifest.ID < items[j].manifest.ID })
 	return items, nil
-}
-
-func readContextCredentialDocument(path string) (map[string]any, error) {
-	data, err := readOwnerPolicyFile(path, 256*1024)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateNoDuplicateJSONKeys(data); err != nil {
-		return nil, err
-	}
-	document := map[string]any{}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	if err := decoder.Decode(&document); err != nil {
-		return nil, err
-	}
-	if document["version"] != "v1" {
-		return nil, fmt.Errorf("credentials.json version must be v1")
-	}
-	if _, ok := document["profiles"].(map[string]any); !ok {
-		return nil, fmt.Errorf("credentials.json profiles must be an object")
-	}
-	return document, nil
 }
 
 func aggregateNamespace(id string) string {
@@ -225,88 +196,12 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	return []byte(builder.String()), nil
 }
 
-func rewriteCredentialProjection(item aggregateContext) (map[string]any, error) {
-	profiles := item.creds["profiles"].(map[string]any)
-	encoded, err := json.Marshal(profiles)
-	if err != nil {
-		return nil, err
-	}
-	var cloned map[string]any
-	if err := json.Unmarshal(encoded, &cloned); err != nil {
-		return nil, err
-	}
-	for name, raw := range cloned {
-		profile, ok := raw.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("Context %q credential profile %q is invalid", item.manifest.Name, name)
-		}
-		secret, ok := profile["secret_file"].(string)
-		if !ok || filepath.Base(secret) != strings.TrimPrefix(secret, "/run/tobari/credentials/") {
-			return nil, fmt.Errorf("Context %q credential profile %q secret path is invalid", item.manifest.Name, name)
-		}
-		profile["secret_file"] = "/run/tobari/credentials/" + item.manifest.ID + "/" + filepath.Base(secret)
-	}
+func rewriteGatewayProjection(item aggregateContext) map[string]any {
 	endpoints := append([]tobari.GraphQLEndpoint{}, item.graphqlEndpoints...)
 	return map[string]any{
 		"name":              item.manifest.Name,
-		"profiles":          cloned,
 		"graphql_endpoints": endpoints,
-	}, nil
-}
-
-func copyCredentialFiles(source, destination string) error {
-	if err := requirePrivateDirectory(source); err != nil {
-		return err
 	}
-	if err := os.MkdirAll(destination, 0o700); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(source)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			return fmt.Errorf("credential store contains an unsafe entry")
-		}
-		if err := copyFileExclusive(filepath.Join(source, entry.Name()), filepath.Join(destination, entry.Name())); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func hashCredentialFiles(digest hash.Hash, directory string) error {
-	if err := requirePrivateDirectory(directory); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return err
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
-	for _, entry := range entries {
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			return fmt.Errorf("credential store contains an unsafe entry")
-		}
-		contents, err := readOwnerPolicyFile(filepath.Join(directory, entry.Name()), 64*1024)
-		if err != nil {
-			return err
-		}
-		digest.Write([]byte(entry.Name()))
-		digest.Write([]byte{0})
-		digest.Write(contents)
-		digest.Write([]byte{0})
-	}
-	return nil
-}
-
-func copyFileExclusive(source, destination string) error {
-	data, err := readOwnerPolicyFile(source, 64*1024)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(destination, data, 0o600)
 }
 
 func (r *Runtime) buildAggregateProjection(ctx context.Context) (aggregateProjection, error) {
@@ -321,7 +216,7 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		return aggregateProjection{}, err
 	}
 	dataContexts := map[string]any{}
-	credentialContexts := map[string]any{}
+	gatewayContexts := map[string]any{}
 	hash := sha256.New()
 	for _, item := range items {
 		preflight, err := prepareContextPolicyPreflight(item.manifest, item.paths.PolicyDirectory, item.policy)
@@ -344,25 +239,14 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		hash.Write([]byte{0})
 		hash.Write(item.rego)
 		hash.Write([]byte{0})
-		credentialBytes, _ := json.Marshal(item.creds)
-		hash.Write(credentialBytes)
-		hash.Write([]byte{0})
-		if err := hashCredentialFiles(hash, item.paths.CredentialDirectory); err != nil {
-			return aggregateProjection{}, fmt.Errorf("Context %q credential revision: %w", item.manifest.Name, err)
-		}
 		dataContexts[item.manifest.ID] = item.data
-		projection, err := rewriteCredentialProjection(item)
-		if err != nil {
-			return aggregateProjection{}, err
-		}
-		credentialContexts[item.manifest.ID] = projection
+		gatewayContexts[item.manifest.ID] = rewriteGatewayProjection(item)
 	}
 	revision := hex.EncodeToString(hash.Sum(nil))
 	directory := filepath.Join(r.aggregateRoot(), revision)
 	result := aggregateProjection{
 		Revision: revision, PolicyDirectory: filepath.Join(directory, "policy"),
-		CredentialConfig:    filepath.Join(directory, "credentials.json"),
-		CredentialDirectory: filepath.Join(directory, "credentials"), ContextCount: len(items),
+		GatewayConfig: filepath.Join(directory, "gateway.json"), ContextCount: len(items),
 	}
 	if _, err := os.Lstat(directory); err == nil {
 		if err := r.testPolicyDirectory(ctx, result.PolicyDirectory); err != nil {
@@ -387,11 +271,7 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		return aggregateProjection{}, err
 	}
 	policyDirectory := filepath.Join(temporary, "policy")
-	credentialDirectory := filepath.Join(temporary, "credentials")
 	if err := os.MkdirAll(policyDirectory, 0o700); err != nil {
-		return aggregateProjection{}, err
-	}
-	if err := os.MkdirAll(credentialDirectory, 0o700); err != nil {
 		return aggregateProjection{}, err
 	}
 	router, err := aggregateRouter(items)
@@ -436,9 +316,6 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 				return aggregateProjection{}, err
 			}
 		}
-		if err := copyCredentialFiles(item.paths.CredentialDirectory, filepath.Join(credentialDirectory, item.manifest.ID)); err != nil {
-			return aggregateProjection{}, fmt.Errorf("Context %q credential projection: %w", item.manifest.Name, err)
-		}
 	}
 	dataDocument := map[string]any{"tobari_contexts": dataContexts, "tobari": map[string]any{
 		"aggregate_schema_version": aggregateSchemaVersion,
@@ -447,8 +324,8 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 	if err := writeAtomicJSON(filepath.Join(policyDirectory, "data.json"), dataDocument); err != nil {
 		return aggregateProjection{}, err
 	}
-	credentialDocument := map[string]any{"version": "v1", "contexts": credentialContexts}
-	if err := writeAtomicJSON(filepath.Join(temporary, "credentials.json"), credentialDocument); err != nil {
+	gatewayDocument := map[string]any{"version": "v1", "contexts": gatewayContexts}
+	if err := writeAtomicJSON(filepath.Join(temporary, "gateway.json"), gatewayDocument); err != nil {
 		return aggregateProjection{}, err
 	}
 	candidatePolicy := filepath.Join(temporary, "policy")

@@ -60,5 +60,8 @@ class PassthroughCredentialAdapter:
         self, request: http.Request, scheme: str, host: str, port: int,
         context_id: str, project_id: str,
     ) -> PreparedCredentialRequest:
+        if PROFILE_HEADER in request.headers:
+            request.headers.pop(PROFILE_HEADER, None)
+            raise CredentialAdapterError("retired credential profile selector is unsupported")
         del request, scheme, host, port, context_id, project_id
         return _PassthroughRequest()

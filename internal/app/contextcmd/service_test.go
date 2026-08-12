@@ -142,9 +142,7 @@ func contextReport(task, name string) tobari.ContextReport {
 		Cluster:        tobari.ContextClusterStatusNotApplicable,
 		Authentication: authentication,
 		Stores: tobari.ContextStorePaths{
-			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
-			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials.json"),
-			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials"),
+			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 		},
 	}
 }

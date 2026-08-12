@@ -240,9 +240,7 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 		PolicyPresetOrigin: manifest.PolicyPresetOrigin, PolicyPresetRevision: manifest.PolicyPresetRevision, PolicyGuardrail: PolicyPresetGuardrailReviewedExact,
 		Cluster: ContextClusterStatusNotApplicable,
 		Stores: ContextStorePaths{
-			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
-			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials.json"),
-			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials"),
+			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
 		},
 		Runtime:          report,
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
@@ -263,9 +261,7 @@ func TestContextReportAcceptsConfigurationTasksAndRequiresCompleteGitIdentity(t 
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
 		GitIdentity:      DefaultContextGitIdentityReport(),
 		Stores: ContextStorePaths{
-			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
-			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials.json"),
-			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials"),
+			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
 		},
 		Runtime:        ContextRuntimeReport{Kind: ContextRuntimeKindOfficial, Status: ContextRuntimeStatusOfficial},
 		Cluster:        ContextClusterStatusNotApplicable,
@@ -389,9 +385,7 @@ func TestSyntheticContextReportCannotClaimAuthorityOrStores(t *testing.T) {
 
 func TestContextStorePathsRequireCanonicalAbsolutePaths(t *testing.T) {
 	paths := ContextStorePaths{
-		PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
-		CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials.json"),
-		CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials"),
+		PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
 	}
 	if err := paths.Validate(); err != nil {
 		t.Fatalf("valid Context stores rejected: %v", err)

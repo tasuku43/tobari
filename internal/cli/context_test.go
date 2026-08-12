@@ -242,9 +242,7 @@ func contextCLIReport(task, name string, active bool, image string, mode tobari.
 		Runtime:          tobari.ContextRuntimeReport{Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial},
 		Authentication:   authentication,
 		Stores: tobari.ContextStorePaths{
-			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
-			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials.json"),
-			CredentialDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "credentials"),
+			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 		},
 	}
 }
@@ -992,8 +990,6 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 	}
 	for _, retained := range []string{
 		"/config/contexts/default/policy",
-		"/config/contexts/default/credentials.json",
-		"/config/contexts/default/credentials",
 		"sha256:" + strings.Repeat("a", 64),
 		"sha256:" + strings.Repeat("b", 64),
 	} {
@@ -1037,9 +1033,7 @@ func runtimeInitReportFixture() tobari.ContextReport {
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Stores: tobari.ContextStorePaths{
-			PolicyDirectory:     "/config/contexts/default/policy",
-			CredentialConfig:    "/config/contexts/default/credentials.json",
-			CredentialDirectory: "/config/contexts/default/credentials",
+			PolicyDirectory: "/config/contexts/default/policy",
 		},
 		Runtime: tobari.ContextRuntimeReport{
 			Kind:          tobari.ContextRuntimeKindDockerfile,
@@ -1077,7 +1071,7 @@ func TestRuntimeInitTextSnapshotPrioritizesNextActions(t *testing.T) {
 	}
 	for _, omitted := range []string{
 		"Agent profile:", "Policy mode:", "Runtime source digest:",
-		"Runtime image digest:", "Policy:", "Credential metadata:", "Credential directory:",
+		"Runtime image digest:", "Policy:",
 	} {
 		if strings.Contains(string(output), omitted) {
 			t.Fatalf("runtime init primary output contains diagnostic %q: %q", omitted, output)
@@ -1127,8 +1121,6 @@ func TestContextShowRetainsRuntimeAndStoreDiagnostics(t *testing.T) {
 	}
 	for _, retained := range []string{
 		"/config/contexts/default/policy",
-		"/config/contexts/default/credentials.json",
-		"/config/contexts/default/credentials",
 		"sha256:" + strings.Repeat("a", 64),
 		"sha256:" + strings.Repeat("b", 64),
 	} {

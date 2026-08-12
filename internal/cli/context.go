@@ -636,8 +636,6 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	}
 	if result.ContextState != tobari.ContextObservationSyntheticDefault {
 		writeStyledLine(&output, color, "Policy:", safeExternalText(result.Stores.PolicyDirectory), styleText)
-		writeStyledLine(&output, color, "Credential metadata:", safeExternalText(result.Stores.CredentialConfig), styleText)
-		writeStyledLine(&output, color, "Credential directory:", safeExternalText(result.Stores.CredentialDirectory), styleText)
 	}
 	return []byte(output.String())
 }

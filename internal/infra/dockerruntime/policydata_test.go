@@ -226,8 +226,7 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	state.AggregateRevision = projection.Revision
 	state.ContextCount = projection.ContextCount
 	state.PolicyDirectory = projection.PolicyDirectory
-	state.CredentialConfig = projection.CredentialConfig
-	state.CredentialDir = projection.CredentialDirectory
+	state.GatewayConfig = projection.GatewayConfig
 	if err := runtimeStore.writeState(state); err != nil {
 		t.Fatal(err)
 	}
@@ -394,8 +393,7 @@ func TestApplyPolicyDecisionSetReturnsTheActivatedAggregateProjection(t *testing
 	state.AggregateRevision = projection.Revision
 	state.ContextCount = projection.ContextCount
 	state.PolicyDirectory = projection.PolicyDirectory
-	state.CredentialConfig = projection.CredentialConfig
-	state.CredentialDir = projection.CredentialDirectory
+	state.GatewayConfig = projection.GatewayConfig
 	if err := runtimeStore.writeState(state); err != nil {
 		t.Fatal(err)
 	}
@@ -449,8 +447,7 @@ func TestSinglePolicyMutationsReturnTheActivatedAggregateProjection(t *testing.T
 	state.AggregateRevision = projection.Revision
 	state.ContextCount = projection.ContextCount
 	state.PolicyDirectory = projection.PolicyDirectory
-	state.CredentialConfig = projection.CredentialConfig
-	state.CredentialDir = projection.CredentialDirectory
+	state.GatewayConfig = projection.GatewayConfig
 	if err := runtimeStore.writeState(state); err != nil {
 		t.Fatal(err)
 	}

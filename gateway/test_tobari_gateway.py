@@ -136,6 +136,22 @@ class StaticBrokerGatewayTests(unittest.TestCase):
         fallback.prepare.assert_not_called()
         self.assertNotIn("authorization", request.headers)
 
+    def test_retired_profile_selector_fails_closed_before_broker_or_fallback(self):
+        fallback = mock.Mock()
+        caller = mock.Mock()
+        adapter = broker.BrokeredCredentialAdapter(
+            fallback=fallback, projection_path="/projection.json",
+            socket_path="/broker.sock", timeout=2,
+            projection_loader=lambda _: projection(), caller=caller,
+        )
+        request = self.request(value=f"Bearer {HANDLE}")
+        request.headers["x-tobari-credential-profile"] = "legacy"
+        with self.assertRaises(broker.BrokerCredentialBindingError):
+            adapter.prepare(request, "https", "api.github.com", 443, CONTEXT, PROJECT)
+        self.assertNotIn("x-tobari-credential-profile", request.headers)
+        caller.assert_not_called()
+        fallback.prepare.assert_not_called()
+
     def test_terminal_policy_denial_never_resolves_or_commits_upstream(self):
         with tempfile.TemporaryDirectory() as temporary:
             provider_path = os.path.join(temporary, "providers.json")

@@ -59,25 +59,15 @@ func (r *Runtime) contextPolicyDirectory(name string) string {
 	return filepath.Join(r.contextDirectory(name), "policy")
 }
 
-func (r *Runtime) contextCredentialConfig(name string) string {
-	return filepath.Join(r.contextDirectory(name), "credentials.json")
-}
-
-func (r *Runtime) contextCredentialDirectory(name string) string {
-	return filepath.Join(r.contextDirectory(name), "credentials")
-}
-
 func (r *Runtime) activeContextPath() string {
 	return filepath.Join(r.contextsDirectory(), "active.json")
 }
 
 func (r *Runtime) contextPaths(name string) tobari.ContextStorePaths {
 	return tobari.ContextStorePaths{
-		PolicyDirectory:     r.contextPolicyDirectory(name),
-		CredentialConfig:    r.contextCredentialConfig(name),
-		CredentialDirectory: r.contextCredentialDirectory(name),
-		RuntimeDirectory:    r.contextRuntimeDirectory(name),
-		RuntimeDockerfile:   r.contextRuntimeDockerfile(name),
+		PolicyDirectory:   r.contextPolicyDirectory(name),
+		RuntimeDirectory:  r.contextRuntimeDirectory(name),
+		RuntimeDockerfile: r.contextRuntimeDockerfile(name),
 	}
 }
 
@@ -207,21 +197,12 @@ func (r *Runtime) ensureContext(manifest tobari.ContextManifest) error {
 	if err := r.ensurePrivateDirectory(domainsDirectory); err != nil {
 		return fmt.Errorf("prepare Context %q policy domains: %w", manifest.Name, err)
 	}
-	if err := r.ensurePrivateDirectory(r.contextCredentialDirectory(manifest.Name)); err != nil {
-		return fmt.Errorf("prepare Context %q credentials: %w", manifest.Name, err)
-	}
 	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
 		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
 			if err := initializeFile(filepath.Join(r.contextPolicyDirectory(manifest.Name), name), "opa/policy/"+name, 0o600); err != nil {
 				return err
 			}
 		}
-	}
-	if err := initializeBytes(
-		r.contextCredentialConfig(manifest.Name),
-		[]byte("{\n  \"version\": \"v1\",\n  \"profiles\": {}\n}\n"), 0o600,
-	); err != nil {
-		return err
 	}
 	if _, err := os.Lstat(r.contextManifestPath(manifest.Name)); errors.Is(err, os.ErrNotExist) {
 		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {

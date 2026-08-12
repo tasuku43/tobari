@@ -119,7 +119,7 @@ services:
       TOBARI_CLUSTER: default
       TOBARI_OPA_TIMEOUT_SECONDS: ${TOBARI_OPA_TIMEOUT_SECONDS:-2}
       TOBARI_UPSTREAM_TIMEOUT_SECONDS: ${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}
-      TOBARI_CREDENTIAL_CONFIG: /run/tobari/config/credentials.json
+      TOBARI_GATEWAY_CONFIG: /run/tobari/config/gateway.json
       TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json
       TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json
       TOBARI_AUTH_BROKER_SOCKET: /run/tobari-auth/runtime/broker.sock
@@ -127,7 +127,7 @@ services:
     volumes:
       - gateway-ca:/var/lib/mitmproxy/.mitmproxy
       - public-ca:/run/tobari/ca-public
-      - ${TOBARI_CREDENTIAL_CONFIG}:/run/tobari/config/credentials.json:ro
+      - ${TOBARI_GATEWAY_CONFIG}:/run/tobari/config/gateway.json:ro
       - ${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro
       - ${TOBARI_AUTH_PROVIDER_CONFIG}:/run/tobari/auth/providers.json:ro
       - ${TOBARI_AUTH_RUNTIME_DIR}:/run/tobari-auth/runtime:ro

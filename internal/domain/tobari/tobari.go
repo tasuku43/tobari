@@ -67,8 +67,7 @@ type State struct {
 	AggregateRevision string `json:"aggregate_revision,omitempty"`
 	ContextCount      int    `json:"context_count,omitempty"`
 	PolicyDirectory   string `json:"policy_directory"`
-	CredentialConfig  string `json:"credential_config"`
-	CredentialDir     string `json:"credential_directory"`
+	GatewayConfig     string `json:"gateway_config"`
 	AssetVersion      string `json:"asset_version"`
 	RecentError       string `json:"recent_error"`
 }
@@ -80,8 +79,8 @@ func (s State) Validate() error {
 	}
 	for name, value := range map[string]string{
 		"runtime directory": s.RuntimeDirectory,
-		"policy directory":  s.PolicyDirectory, "credential config": s.CredentialConfig,
-		"credential directory": s.CredentialDir,
+		"policy directory":  s.PolicyDirectory,
+		"gateway config":    s.GatewayConfig,
 	} {
 		if !filepath.IsAbs(value) || filepath.Clean(value) != value {
 			return fmt.Errorf("%s must be a canonical absolute path", name)
@@ -122,7 +121,7 @@ type ClusterStatus struct {
 	PolicyRevision         string            `json:"policy_revision"`
 	PolicyProjection       string            `json:"policy_projection"`
 	PrincipalRegistry      string            `json:"principal_registry"`
-	CredentialProjection   string            `json:"credential_projection"`
+	GatewayProjection      string            `json:"gateway_projection"`
 	AuthProviderProjection string            `json:"auth_provider_projection"`
 	AuthBrokerState        string            `json:"auth_broker_state"`
 	RootKeyBackend         string            `json:"root_key_backend"`
@@ -136,7 +135,7 @@ type ClusterStatus struct {
 func UnconfiguredClusterStatus(task string) ClusterStatus {
 	return ClusterStatus{
 		Task: task, PolicyProjection: "unavailable", PrincipalRegistry: "unavailable",
-		CredentialProjection: "unavailable", AuthProviderProjection: "unavailable",
+		GatewayProjection: "unavailable", AuthProviderProjection: "unavailable",
 		AuthBrokerState: "unavailable",
 		RootKeyBackend:  "unavailable", Components: []ComponentStatus{},
 	}
@@ -152,7 +151,7 @@ func (s ClusterStatus) Validate() error {
 			return fmt.Errorf("unconfigured status contains cluster state")
 		}
 		if s.Components == nil || s.PolicyProjection != "unavailable" || s.PrincipalRegistry != "unavailable" ||
-			s.CredentialProjection != "unavailable" || s.AuthProviderProjection != "unavailable" ||
+			s.GatewayProjection != "unavailable" || s.AuthProviderProjection != "unavailable" ||
 			s.AuthBrokerState != "unavailable" ||
 			s.RootKeyBackend != "unavailable" {
 			return fmt.Errorf("unconfigured cluster observation is incomplete")
@@ -161,7 +160,7 @@ func (s ClusterStatus) Validate() error {
 	}
 	if !filepath.IsAbs(s.Policy) || s.TobariCount < 0 || s.ContextCount < 1 ||
 		!regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.PolicyRevision) || s.Components == nil ||
-		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.CredentialProjection == "" ||
+		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.GatewayProjection == "" ||
 		s.AuthProviderProjection == "" || s.AuthBrokerState == "" || s.RootKeyBackend == "" {
 		return fmt.Errorf("configured cluster status is incomplete")
 	}
@@ -172,9 +171,9 @@ func (s ClusterStatus) Validate() error {
 		return fmt.Errorf("configured cluster auth provider projection is invalid")
 	}
 	for name, state := range map[string]string{
-		"policy projection":     s.PolicyProjection,
-		"principal registry":    s.PrincipalRegistry,
-		"credential projection": s.CredentialProjection,
+		"policy projection":  s.PolicyProjection,
+		"principal registry": s.PrincipalRegistry,
+		"Gateway projection": s.GatewayProjection,
 	} {
 		if state != "valid" && state != "invalid" {
 			return fmt.Errorf("configured cluster %s is invalid", name)

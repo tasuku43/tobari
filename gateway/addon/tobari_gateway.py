@@ -11,7 +11,6 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -38,8 +37,7 @@ from graphql_request import (
     validate_graphql_post_headers,
 )
 
-MAX_CREDENTIAL_CONFIG_BYTES = 256 * 1024
-MAX_SECRET_BYTES = 64 * 1024
+MAX_GATEWAY_CONFIG_BYTES = 256 * 1024
 MAX_PRINCIPAL_CONFIG_BYTES = 256 * 1024
 PROJECT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -492,33 +490,36 @@ def query_opa(url: str, policy_input: dict[str, Any], timeout: float) -> Decisio
         raise PolicyUnavailable("OPA response was not valid JSON") from error
 
 
-def load_credential_config(path: str) -> dict[str, Any]:
+def load_gateway_config(path: str) -> dict[str, Any]:
     try:
         with open(path, "rb") as handle:
-            raw = handle.read(MAX_CREDENTIAL_CONFIG_BYTES + 1)
+            raw = handle.read(MAX_GATEWAY_CONFIG_BYTES + 1)
     except OSError as error:
-        raise CredentialError("credential configuration could not be read") from error
-    if len(raw) > MAX_CREDENTIAL_CONFIG_BYTES:
-        raise CredentialError("credential configuration is too large")
+        raise CredentialError("Gateway configuration could not be read") from error
+    if len(raw) > MAX_GATEWAY_CONFIG_BYTES:
+        raise CredentialError("Gateway configuration is too large")
     try:
         document = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise CredentialError("credential configuration is invalid") from error
+        raise CredentialError("Gateway configuration is invalid") from error
     if (
         not isinstance(document, dict)
         or set(document) != {"version", "contexts"}
         or document.get("version") != "v1"
     ):
-        raise CredentialError("credential configuration version is invalid")
+        raise CredentialError("Gateway configuration version is invalid")
     contexts = document.get("contexts")
     if not isinstance(contexts, dict):
-        raise CredentialError("credential Contexts are invalid")
+        raise CredentialError("Gateway Contexts are invalid")
     for context_id, context in contexts.items():
         if not isinstance(context_id, str) or not PROJECT_ID_PATTERN.fullmatch(context_id):
-            raise CredentialError("credential Context identity is invalid")
-        if not isinstance(context, dict) or not isinstance(context.get("profiles"), dict):
-            raise CredentialError("credential Context is invalid")
-        endpoints = context.get("graphql_endpoints", [])
+            raise CredentialError("Gateway Context identity is invalid")
+        if not isinstance(context, dict) or set(context) != {"name", "graphql_endpoints"}:
+            raise CredentialError("Gateway Context is invalid")
+        name = context.get("name")
+        if not isinstance(name, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,62}", name) is None:
+            raise CredentialError("Gateway Context name is invalid")
+        endpoints = context.get("graphql_endpoints")
         if not isinstance(endpoints, list):
             raise CredentialError("GraphQL endpoint configuration is invalid")
         seen_endpoints: set[tuple[str, str, int, str]] = set()
@@ -574,20 +575,6 @@ def load_credential_config(path: str) -> dict[str, Any]:
             if identity in seen_endpoints:
                 raise CredentialError("GraphQL endpoint configuration is ambiguous")
             seen_endpoints.add(identity)
-        for name, profile in context["profiles"].items():
-            if not isinstance(name, str) or not name or not isinstance(profile, dict):
-                raise CredentialError("credential profiles are invalid")
-            projects = profile.get("projects")
-            if (
-                not isinstance(projects, list)
-                or any(
-                    not isinstance(project, str)
-                    or PROJECT_ID_PATTERN.fullmatch(project) is None
-                    for project in projects
-                )
-                or len(projects) != len(set(projects))
-            ):
-                raise CredentialError("credential profile project bindings are invalid")
     return document
 
 
@@ -598,90 +585,11 @@ def graphql_endpoint_declared(
 
     context = config.get("contexts", {}).get(context_id)
     if not isinstance(context, dict):
-        raise CredentialBindingError("credential Context is not established")
+        raise CredentialBindingError("Gateway Context is not established")
     return any(
         endpoint == {"scheme": scheme, "host": host, "port": port, "path": path}
         for endpoint in context.get("graphql_endpoints", [])
     )
-
-
-def configured_secret_headers(config: dict[str, Any]) -> set[str]:
-    names: set[str] = set()
-    for context in config.get("contexts", {}).values():
-        for profile in context.get("profiles", {}).values():
-            if isinstance(profile, dict) and isinstance(profile.get("header"), str):
-                names.add(profile["header"].lower())
-    return names
-
-
-def _profile_project_binding(
-    config: dict[str, Any], name: str, context_id: str, project_id: str
-) -> dict[str, Any]:
-    context = config.get("contexts", {}).get(context_id)
-    if not isinstance(context, dict):
-        raise CredentialBindingError("credential Context is not established")
-    profile = context.get("profiles", {}).get(name)
-    if not isinstance(profile, dict):
-        raise CredentialError("OPA selected an unknown credential profile")
-    projects = profile.get("projects")
-    if (
-        not isinstance(project_id, str)
-        or PROJECT_ID_PATTERN.fullmatch(project_id) is None
-        or not isinstance(projects, list)
-        or project_id not in projects
-    ):
-        raise CredentialBindingError("credential profile is not bound to the project")
-    return profile
-
-
-def _validated_profile(
-    config: dict[str, Any], name: str, host: str, context_id: str, project_id: str
-) -> dict[str, Any]:
-    profile = _profile_project_binding(config, name, context_id, project_id)
-    profile_type = profile.get("type")
-    hosts = profile.get("hosts")
-    secret_file = profile.get("secret_file")
-    if profile_type not in {"bearer", "header"}:
-        raise CredentialError("credential profile type is invalid")
-    if not isinstance(hosts, list) or not hosts or any(not isinstance(item, str) for item in hosts):
-        raise CredentialError("credential profile hosts are invalid")
-    if host not in {item.rstrip(".").lower() for item in hosts}:
-        raise CredentialError("credential profile is not bound to the request host")
-    if not isinstance(secret_file, str):
-        raise CredentialError("credential secret path is invalid")
-    secret_path = PurePosixPath(secret_file)
-    if (
-        secret_path.parent != PurePosixPath("/run/tobari/credentials") / context_id
-        or secret_path.name in {"", ".", ".."}
-    ):
-        raise CredentialError("credential secret path is invalid")
-    header = profile.get("header", "authorization" if profile_type == "bearer" else None)
-    if not isinstance(header, str) or not header or header.lower() in {"host", "content-length"}:
-        raise CredentialError("credential header is invalid")
-    return {**profile, "header": header}
-
-
-def inject_credential(
-    request: http.Request,
-    config: dict[str, Any],
-    profile_name: str,
-    host: str,
-    context_id: str,
-    project_id: str,
-) -> None:
-    profile = _validated_profile(config, profile_name, host, context_id, project_id)
-    try:
-        with open(profile["secret_file"], "rb") as handle:
-            raw = handle.read(MAX_SECRET_BYTES + 1)
-    except OSError as error:
-        raise CredentialError("credential secret could not be read") from error
-    if not raw or len(raw) > MAX_SECRET_BYTES or b"\x00" in raw:
-        raise CredentialError("credential secret is invalid")
-    value = raw.rstrip(b"\r\n").decode("utf-8", errors="strict")
-    if not value or "\r" in value or "\n" in value:
-        raise CredentialError("credential secret is invalid")
-    header = profile["header"]
-    request.headers[header] = f"Bearer {value}" if profile["type"] == "bearer" else value
 
 
 def _deny(flow: http.HTTPFlow, status: int, code: str) -> None:
@@ -775,18 +683,14 @@ class TobariGateway:
         self.opa_timeout = float(
             _positive_int("TOBARI_OPA_TIMEOUT_SECONDS", 2, 1, 10)
         )
-        self.credential_path = os.getenv(
-            "TOBARI_CREDENTIAL_CONFIG",
-            "/run/tobari/config/credentials.json",
+        self.gateway_config_path = os.getenv(
+            "TOBARI_GATEWAY_CONFIG",
+            "/run/tobari/config/gateway.json",
         )
         # The aggregate projection is immutable for the Gateway container's
         # lifetime. Load trusted endpoint declarations once, never from caller
         # headers and never after body bytes have arrived.
-        self.graphql_config = (
-            load_credential_config(self.credential_path)
-            if os.path.exists(self.credential_path)
-            else None
-        )
+        self.graphql_config = load_gateway_config(self.gateway_config_path)
         base_credential_adapter = PassthroughCredentialAdapter()
         self.auth_provider_projection_path = os.getenv(
             "TOBARI_AUTH_PROVIDER_PROJECTION", ""
@@ -856,9 +760,7 @@ class TobariGateway:
             )
             profile_name = credential_request.requested_profile
             if graphql_endpoint_declared(
-                self.graphql_config
-                if self.graphql_config is not None
-                else load_credential_config(self.credential_path),
+                self.graphql_config,
                 context_id,
                 scheme,
                 host,

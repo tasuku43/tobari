@@ -1719,8 +1719,7 @@ func (r *Runtime) applyAggregatePolicyData(
 		candidateState.AggregateRevision = projection.Revision
 		candidateState.ContextCount = projection.ContextCount
 		candidateState.PolicyDirectory = projection.PolicyDirectory
-		candidateState.CredentialConfig = projection.CredentialConfig
-		candidateState.CredentialDir = projection.CredentialDirectory
+		candidateState.GatewayConfig = projection.GatewayConfig
 		candidateReceipt := tobari.PolicyActivationReceipt{
 			PolicyDirectory: candidateState.PolicyDirectory,
 			ActiveRevision:  candidateState.AggregateRevision,

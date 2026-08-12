@@ -50,8 +50,6 @@ func (r *Runtime) ObserveDoctorCheck(
 		return r.observeDoctorPolicy(ctx), nil
 	case doctor.CheckIDPolicyData:
 		return r.observeDoctorPolicyData(ctx), nil
-	case doctor.CheckIDCredentialConfig:
-		return r.observeDoctorCredentialConfig(ctx), nil
 	case doctor.CheckIDImageConfig:
 		return r.observeDoctorImageConfig(ctx), nil
 	case doctor.CheckIDAuthProviderManifests:
@@ -246,26 +244,6 @@ func (r *Runtime) observeDoctorPolicyData(ctx context.Context) doctor.Observatio
 		return observed(doctor.CheckStatusFail, "learned policy data could not be inspected")
 	}
 	return result
-}
-
-func (r *Runtime) doctorContextStorePaths(ctx context.Context) (tobari.ContextStorePaths, error) {
-	state, exists, stateErr := r.LoadState(ctx)
-	if stateErr == nil && exists {
-		return tobari.ContextStorePaths{
-			PolicyDirectory: state.PolicyDirectory, CredentialConfig: state.CredentialConfig,
-			CredentialDirectory: state.CredentialDir,
-		}, nil
-	}
-	return r.diagnosticContextStores()
-}
-
-func (r *Runtime) observeDoctorCredentialConfig(ctx context.Context) doctor.Observation {
-	paths, err := r.doctorContextStorePaths(ctx)
-	if err != nil {
-		return observed(doctor.CheckStatusFail, "Context endpoint projection could not be inspected")
-	}
-	detail, status := r.checkCredentialConfigAt(paths.CredentialConfig)
-	return observed(status, detail)
 }
 
 func (r *Runtime) observeDoctorImageConfig(ctx context.Context) doctor.Observation {

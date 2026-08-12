@@ -5,7 +5,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -137,19 +136,13 @@ func TestAggregateRouterMakesBuiltinHTTPSCeilingTerminalBeforeAdvancedPolicy(t *
 	}
 }
 
-func TestCredentialProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) {
+func TestGatewayProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) {
 	t.Parallel()
 	endpoint := tobari.GraphQLEndpoint{Scheme: "https", Host: "api.example.com", Port: 443, Path: "/graphql"}
-	projection, err := rewriteCredentialProjection(aggregateContext{
-		manifest: tobari.ContextManifest{Name: "default", ID: "01912345-6789-7abc-8def-0123456789ad"},
-		creds: map[string]any{"profiles": map[string]any{
-			"default": map[string]any{"secret_file": "/run/tobari/credentials/token"},
-		}},
+	projection := rewriteGatewayProjection(aggregateContext{
+		manifest:         tobari.ContextManifest{Name: "default", ID: "01912345-6789-7abc-8def-0123456789ad"},
 		graphqlEndpoints: []tobari.GraphQLEndpoint{endpoint},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	endpoints, ok := projection["graphql_endpoints"].([]tobari.GraphQLEndpoint)
 	if !ok || len(endpoints) != 1 || endpoints[0] != endpoint {
 		t.Fatalf("GraphQL endpoint projection = %#v", projection["graphql_endpoints"])
@@ -209,40 +202,6 @@ func TestGuidedAggregateRejectsContextOwnedRego(t *testing.T) {
 	projected, err := os.ReadFile(filepath.Join(first.PolicyDirectory, "guided.rego"))
 	if err != nil || bytes.Contains(projected, []byte("input.schema_version == 2")) {
 		t.Fatalf("original guided aggregate was changed: error=%v\n%s", err, projected)
-	}
-}
-
-func TestAggregateRevisionIncludesCredentialSecretContent(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	_, paths, err := runtime.resolveContext(tobari.DefaultContextName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secret := filepath.Join(paths.CredentialDirectory, "shared-token")
-	if err := os.WriteFile(secret, []byte("first"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	first, err := runtime.buildAggregateProjection(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(secret, []byte("second"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	second, err := runtime.buildAggregateProjection(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.Revision == second.Revision || first.PolicyDirectory == second.PolicyDirectory {
-		t.Fatalf("credential secret change reused aggregate revision %q", first.Revision)
-	}
-	if !strings.HasPrefix(first.PolicyDirectory, runtime.aggregateRoot()) || !strings.HasPrefix(second.PolicyDirectory, runtime.aggregateRoot()) {
-		t.Fatalf("aggregate directories escaped owned root: first=%q second=%q", first.PolicyDirectory, second.PolicyDirectory)
 	}
 }
 

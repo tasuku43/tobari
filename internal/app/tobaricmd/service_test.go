@@ -79,7 +79,7 @@ func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.Clus
 		Configured: true, Running: running,
 		Policy: f.state.PolicyDirectory, TobariCount: 0,
 		ContextCount: f.state.ContextCount, PolicyRevision: f.state.AggregateRevision,
-		PolicyProjection: "valid", PrincipalRegistry: "valid", CredentialProjection: "valid",
+		PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
 		Components: []tobari.ComponentStatus{
 			{Name: "auth-broker", State: "running", Health: "healthy"},
@@ -361,9 +361,8 @@ func testState(root string) tobari.State {
 	return tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: filepath.Join(root, "runtime"),
 		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
-		PolicyDirectory:  filepath.Join(root, "policy"),
-		CredentialConfig: filepath.Join(root, "credentials.json"),
-		CredentialDir:    filepath.Join(root, "credentials"), AssetVersion: "asset",
+		PolicyDirectory: filepath.Join(root, "policy"),
+		GatewayConfig:   filepath.Join(root, "gateway.json"), AssetVersion: "asset",
 	}
 }
 
