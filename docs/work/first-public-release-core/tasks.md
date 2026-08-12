@@ -47,8 +47,10 @@ security invariants.
 - [x] Obtain maintainer approval for Concept A: immutable Context source access
       plus snapshotted built-in/custom policy presets. Evidence: product-owner
       direction on 2026-08-12.
-- [ ] Complete the Context capability-envelope ADR/design gate and keep both
-      implementation packets aligned with it.
+- [x] Complete the Context capability-envelope ADR/design gate and keep both
+      implementation packets aligned with it. Evidence: ADR 0029 accepted and
+      source-access, compaction, auth, and preset packet dependencies connected
+      on 2026-08-12.
 - [ ] Add a superseding ADR for the durable V1 scope and retirement decision.
 - [ ] Revise the product thesis first, then list and review every required
       downstream propagation diff.

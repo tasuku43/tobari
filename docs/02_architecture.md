@@ -153,8 +153,9 @@ exactly one validated opaque reference or one declared fixed target.
 
 ### Context composition
 
-Context is the user-facing composition layer for the execution boundary. A
-trusted manifest names the compatible runtime image, read-only agent profile,
+Context is the user-facing immutable capability envelope for the execution
+boundary. A trusted manifest fixes direct source access and a normalized
+policy-preset origin/revision, and names the compatible runtime image, read-only agent profile,
 the Context policy directory, the managed-credential metadata/secret stores,
 and the stable identity used to locate separately stored encrypted Auth Broker
 state. The manifest contains no broker vault path, root key, or primary secret.
@@ -229,6 +230,22 @@ the human review, sends every distinct staged Shell row through one application
 call and one atomic manifest replacement,
 and never completes a partial direct invocation. Explicit-empty Context input
 is rejected rather than collapsed into the omitted current-Context selector.
+
+Context creation is the sole owner of envelope defaults. It resolves omitted
+source access to `read-write` and omitted preset to
+`builtin/reviewed-exact`, normalizes and validates the complete preset, binds
+its owner-only snapshot by SHA-256 revision, and atomically persists both
+manifest and snapshot before returning. Observation and old-state readers never
+invent either field. Root entry carries `source_access` into the exact project
+runtime spec/hash; policy activation carries the preset snapshot into the
+Tobari-owned system evaluator. Neither path rediscovers the source preset.
+
+The system evaluator owns terminal guardrail precedence before baseline deny,
+exact learned deny, baseline grant, exact learned allow, or Advanced Rego.
+Terminal denial ends before candidate projection, external DNS, broker
+resolution, and upstream I/O. Advanced modules may further constrain generic
+input but cannot bypass the guardrail or redefine the scheme-aware exact
+learned identity.
 
 Project runtime infrastructure resolves only declared shell `inherit` entries
 from the launching process at child-exec time and passes exact values to Bash.
@@ -771,10 +788,10 @@ exact-rule learnability, request identity, timestamp, the
 trusted host policy directory, and the exact review command. OPA computes
 learnability only when version, cluster, Context, scheme, fixed port, project-principal,
 and (for the managed adapter) credential-binding boundaries already pass, so an exact
-Context/project/host/port/method/path rule, plus the GraphQL coordinate when
+Context/project/scheme/host/port/method/path rule, plus the GraphQL coordinate when
 present, can close the request. `policy review` and
 `policy candidates` deterministically fold only that eligible retained evidence
-by the structured Context/project/host/port/method/path and optional GraphQL
+by the structured Context/project/scheme/host/port/method/path and optional GraphQL
 effect key. They emit one opaque
 exact-rule reference, the latest evidence, and an observation count for each
 pending effect; references remain stable across repeated denials. This pure
@@ -855,11 +872,11 @@ coarse HTTP rule.
 `policy deny` resolves the same exact candidate reference and appends one
 Context/project-bound exact deny rule through the same aggregate preflight, atomic-write, and OPA
 activation boundary. Exact denies are terminal and win over learned allows for
-the same Context/project/host/port/method/path and optional GraphQL coordinate.
+the same Context/project/scheme/host/port/method/path and optional GraphQL coordinate.
 
 Compaction discovery is pure over current ordinary HTTP learned rules. GraphQL
 rules are exact-only and never enter compaction. It groups at least
-three exact rules only when Context, project, host, port, method, and a sufficiently deep
+three exact rules only when Context, project, scheme, host, port, method, and a sufficiently deep
 directory prefix agree. The opaque proposal binds the exact source-rule set.
 `policy compact` resolves that current proposal, replaces only those sources
 with one prefix rule retaining the positive examples, runs rule-match boundary

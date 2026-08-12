@@ -18,9 +18,16 @@
 - [x] Select preset guardrail precedence over guided, learned, and Advanced
       allows.
 - [x] Select `read-write` and `builtin/reviewed-exact` omission defaults.
-- [ ] Review and accept the exact CLI/report field names.
-- [ ] Add and accept the durable capability-envelope ADR.
-- [ ] Propagate the thesis before completing mechanism changes.
+- [x] Review and accept the exact CLI/report field names. Evidence: ADR 0029
+      fixes `source_access`, `policy_preset_origin`,
+      `policy_preset_revision`, and the task-owned `policy_guardrail` report.
+- [x] Add and accept the durable capability-envelope ADR. Evidence:
+      `docs/decisions/0029-context-capability-envelope.md` accepted on
+      2026-08-12.
+- [x] Propagate the thesis before completing mechanism changes. Evidence:
+      theses, product, architecture, security, threat model, harness,
+      readiness validation, and repository add-capability Skill updated with
+      the creation-time immutable envelope decision.
 
 ## Implement
 
@@ -30,8 +37,9 @@
 - [ ] Update `context create`, `context list`, `context show`, scoped help, and
       agent-readiness fixtures.
 - [ ] Update capability/schema/claim ledgers and generated architecture data.
-- [ ] Update durable theses, product, architecture, security, harness, and ADR
-      documents.
+- [x] Update durable theses, product, architecture, security, harness, and ADR
+      documents. Evidence: ADR 0029 and the governing-document propagation in
+      the Context decision commit.
 
 ## Verify
 

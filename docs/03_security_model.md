@@ -33,6 +33,11 @@ process in it, coding agents, project files, Workspace home, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
 
+The host also owns each Context's immutable source-access choice and normalized
+policy-preset snapshot. They remain secret-free authority metadata in separate
+owner-only state; project files, runtime images, Workspaces, and source preset
+files cannot rewrite an existing Context envelope.
+
 The reviewed GitHub, AWS, pup, Codex, and Claude host drivers are trusted,
 purpose-limited CLI side effects. They select a canonical host executable that
 is not writable by group or world from conventional non-project installation
@@ -364,11 +369,13 @@ OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
 to non-local destinations is denied by the initialized policy. The initialized
 policy also requires an explicit port for each supported scheme; learned rules
-retain the observed Context/project/host/port/method/path and optional GraphQL
-coordinate and cannot be used on another Context, project, port, or scheme.
+retain the observed Context/project/scheme/host/port/method/path and optional
+GraphQL coordinate and cannot be used on another Context, project, port, or
+scheme. Query and headers may be available to Advanced Rego as additional deny
+constraints but never become guided candidate/rule identity.
 Ordinary body presence and content are not authorization or learning dimensions;
 an exact learned rule covers every body value at its exact
-Context/project/host/port/method/path. Immediately before an upstream connection,
+Context/project/scheme/host/port/method/path. Immediately before an upstream connection,
 Gateway resolves the
 hostname, rejects non-global addresses for dotted hostnames, and pins the
 connection to the selected resolved address. Single-label private service
@@ -405,6 +412,12 @@ and exact typed receipt, after which the original running Workspace may issue a
 new request. Neither Workspace nor OPA is recreated by this activation.
 Session-close summaries use the same untrusted request projection
 and are best-effort host stderr output.
+
+Before any baseline, learned, or Advanced allow, the Tobari-owned evaluator
+applies the immutable preset terminal guardrail. Terminal denial emits no
+permission candidate and causes zero external DNS, Auth Broker resolution, or
+upstream calls. The guardrail cannot be replaced by Context Rego, learned state,
+provider metadata, or a Workspace-supplied value.
 
 ## Credentials
 
@@ -763,7 +776,7 @@ access-changing writes bound to opaque references. Discovery never mutates. An
 allow reference identifies one retained validated denial that OPA marked
 exact-rule learnable; a
 deny reference identifies one retained validated denial and binds its exact
-Context/project/host/port/method/path plus optional GraphQL coordinate; a compaction reference identifies one current
+Context/project/scheme/host/port/method/path plus optional GraphQL coordinate; a compaction reference identifies one current
 exact source-rule set; a reset reference identifies one current CLI-owned
 learned Allow or exact Deny and removes it, returning the effect to default
 deny. Scheme, cluster, and credential-binding failures never become permission
@@ -793,7 +806,7 @@ guess. The generated content-addressed OPA projection may contain one internal
 Learned rules never broaden a project, host, port, method, or GraphQL root
 coordinate beyond the
 explicitly approved evidence. Baseline and exact deny rules remain terminal; an
-exact deny wins over a learned allow for the same Context/project/host/port/method/path.
+exact deny wins over a learned allow for the same Context/project/scheme/host/port/method/path.
 Prefix compaction accepts ordinary HTTP rules only and requires three exact
 sources, keeps host, port, and method fixed, requires a multi-segment directory
 boundary, rejects percent
@@ -904,7 +917,7 @@ a learnable denial until an exact Context/project-bound L7 rule exists.
 CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
 and preserves only non-secret credential-profile names. Read-only policy
-candidate commands aggregate exact Context/project/host/port/method/path and
+candidate commands aggregate exact Context/project/scheme/host/port/method/path and
 optional GraphQL-coordinate proposals from
 that evidence, treating reason, status, request identity, timestamps, and
 credential-profile display evidence as non-identity fields. The latest evidence
@@ -962,7 +975,7 @@ reference-bound mutation.
 | Gateway cannot accept caller-selected Context or project authority | Owner-only atomic schema-1 registry, exact Workspace-source and Gateway-endpoint binding, duplicate/stale rejection, forged-header/SNI/authority and unknown-principal denial, source-bind/IP_FREEBIND canaries, and multi-Context integration |
 | Managed credentials cannot cross Context/project principals | Context-scoped projections and secret paths, explicit project bindings, pre-OPA Gateway rejection, repeated injection check, same-name cross-Context tests, and integration |
 | Unknown effects fail closed | Domain and catalog validation |
-| Denials support safe policy learning | Typed Context/project/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
+| Denials support safe policy learning | Typed Context/project/scheme/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
 | Learned permissions stay explicit and Context/project-bound | Context-scoped opaque-reference round trips, exact effect domain tests, Rego cross-Context/project canaries, preflight-before-aggregate activation tests, and Docker integration |
 | One bad Context cannot replace known-good policy | Strict host-paired source validation, mutex plus cross-process locking, digest-bound source journal recovery, serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
 | Context changes cannot mutate existing Tobari authority | Permanent instance binding, current-marker-only tests, Context-local runtime reconciliation, and restart integration |

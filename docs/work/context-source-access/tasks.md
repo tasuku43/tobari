@@ -15,7 +15,9 @@
 - [x] Select immutable Context-owned access with `read-write` default.
 - [x] Keep direct binding and reject per-entry overrides and clone semantics.
 - [ ] Accept exact manifest/JSON field names and user-facing wording.
-- [ ] Promote the decision through the capability-envelope ADR and ADR 0010.
+- [x] Promote the decision through the capability-envelope ADR and ADR 0010.
+      Evidence: accepted ADR 0029 revises ADR 0010 and fixes direct
+      `read-only|read-write` access as immutable Context authority.
 
 ## Implement
 

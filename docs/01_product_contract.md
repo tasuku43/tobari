@@ -51,12 +51,12 @@ learned rules cannot express; ordinary permission growth must not require it.
 Exact policy actions and final reviewed-set Apply perform the bounded
 activation required for their own mutation.
 Denial evidence is a product output, not incidental debug noise.
-The host-issued project principal is retained in denial, candidate, learned
+The host-issued project principal and normalized scheme are retained in denial, candidate, learned
 rule, and compaction evidence; an approval made from one current-directory
 Tobari cannot be replayed as another project's permission.
 Ordinary request bodies are not a policy identity dimension. A body-bearing
 POST, PUT, PATCH, or other method is authorized and learned from the same
-project, host, port, method, and path dimensions as a body-free request.
+project, scheme, host, port, method, and path dimensions as a body-free request.
 Changing ordinary body content does not create another review item or rule.
 For an exact trusted GraphQL endpoint, Gateway derives only the selected
 operation type and canonical root fields from one bounded body; each root is a
@@ -87,7 +87,8 @@ non-learnable and cannot become policy candidates.
   encrypted Context vault access, has no TCP listener, starts locked, and
   exposes separate control and Gateway-only runtime Unix sockets.
 - **root:** the canonical host directory selected from the current working
-  directory and mounted read-write into one Tobari. A root below the host home
+  directory and mounted directly with the bound Context's immutable
+  `read-only` or `read-write` source access. A root below the host home
   is mounted at the same relative path below `/var/lib/tobari`; a root outside
   the host home uses the mirrored `/workspace` path.
 - **Tobari home:** a per-Tobari persistent owner-only XDG state directory
@@ -159,10 +160,11 @@ non-learnable and cannot become policy candidates.
 - **credential profile:** non-secret Gateway configuration for the static
   managed adapter; it binds a Context-scoped profile name to exact hosts and
   project principals.
-- **Context:** one host-owned logical execution setup with a stable opaque ID
-  and a human name. Its manifest
-  references an agent profile, a compatible Tobari runtime image, a policy
-  store, and managed-credential stores. Its stable ID determines separately
+- **Context:** one immutable host-owned capability envelope with a stable
+  opaque ID and a human name. Its manifest records direct source access,
+  normalized policy-preset origin and snapshot revision, and references an
+  agent profile, compatible Tobari runtime image, policy store, and managed-
+  credential stores. Its stable ID determines separately
   stored Context-owned Auth Broker vault state; the manifest does not contain a
   broker vault path, key, or secret. Those stores remain physically separated
   by trust boundary.
@@ -228,10 +230,10 @@ The public commands are:
 | `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
 | `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `context list [--format text|json]` | utility | read | List persisted named Contexts and report the current selection as persisted or a display-only synthetic default |
-| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, agent, policy, managed-adapter store references, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
+| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision and guardrail summary, agent, policy, managed-adapter store references, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
-| `context create --name NAME [--image IMAGE] [--mode guided|advanced]` | act, fixed target | create | Create one named Context with a runtime image and separate owner-only stores |
+| `context create --name NAME [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET]` | act, fixed target | create | Validate and create one named immutable capability envelope with a runtime image, direct source access, normalized policy-preset snapshot, and separate owner-only stores; omission selects `read-write` and `builtin/reviewed-exact` |
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
@@ -737,11 +739,16 @@ synthetic state.
 
 - `contexts/<name>/context.json`: host-owned schema-v1 Context manifest with a
   stable UUIDv7 Context ID, the named agent profile, compatible Tobari runtime
-  image selector, guided/advanced policy mode, allowlisted shell-environment
+  image selector, guided/advanced policy mode, required immutable
+  `source_access`, required normalized `policy_preset_origin` and
+  `policy_preset_revision`, allowlisted shell-environment
   overrides, and an optional non-default Git identity policy;
 - `contexts/<name>/runtime/Dockerfile`: optional owner-only Context runtime
   recipe created by `runtime init`; its source digest and last successful
   managed image build are recorded additively in `context.json`;
+- `contexts/<name>/policy/preset.json`: owner-only normalized schema-v1
+  non-executable snapshot whose SHA-256 digest equals the manifest preset
+  revision; source preset changes never rewrite it;
 - `contexts/<name>/policy/domains/<canonical-host>/allow.json`: strict
   schema-v1 authority, per-domain method, exact GraphQL endpoint, credential
   profile host-binding, and learned-Allow source for one canonical lower-case

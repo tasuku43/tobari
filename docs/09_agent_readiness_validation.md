@@ -42,7 +42,7 @@ journey is the product baseline to improve:
 | First denied request | 403 plus host-side `policy review` | The agent keeps its current Workspace session running, asks the user to review from a separate trusted-host terminal, and retries only after confirmed Apply; non-learnable denial points only to read-only `cluster denials` diagnostics |
 | Permission growth | Installation-wide human `policy review` Permission Inbox; machine `policy candidates`, then `policy allow --id` or `policy deny --id` | TTY users stage choices for one Context, refresh by candidate ID, review the final ordered set, and explicitly confirm one Apply; the receipt names the active revision and exact decisions, redirected review remains read-only, and machine actions remain bound to one opaque reference |
 | Advanced policy | Edit trusted-host Rego explicitly | Remains an explicit escape hatch, never a prerequisite for routine success |
-| Execution setup | `context list`, `context show`, `context use --name NAME`, `tobari --context NAME` | The user can inspect stable Contexts, change only the omitted-Context default, and create same-root Tobari in different Contexts while one Gateway/OPA/Auth Broker cluster routes trusted principals and bound handles |
+| Execution setup | `context list`, `context show`, `context create --source-access ... --policy-preset ...`, `context use --name NAME`, `tobari --context NAME` | The user can inspect immutable source access and preset revision before entry, change only the omitted-Context default, and create same-root Tobari in different Contexts while one Gateway/OPA/Auth Broker cluster routes trusted principals and bound handles |
 | Context configuration | Human `config shell` / `config git` wizard or complete direct flags, then a matching entry | A terminal user reviews current and proposed state without assembling every flag, while agents and scripts use one deterministic invocation; partial/redirected/JSON input never prompts |
 | Shell presentation | `config shell`, then enter a new session | A Context inherits exported `PS1` by default or independently selects one of four allowlisted shell variables without inheriting arbitrary host environment or startup files |
 | Git identity | `config git`, then enter the matching root | A Context optionally supplies only a lower-precedence `user.name`/`user.email` pair without copying Git files, authentication, signing, helpers, executable settings, or arbitrary keys |
@@ -149,7 +149,7 @@ TOBARI_BIN="$(pwd)/bin/tobari-dev"
 (cd /absolute/test/root && "$TOBARI_BIN" status --format json)
 (cd /absolute/test/root && "$TOBARI_BIN" list --format json)
 "$TOBARI_BIN" cluster denials --tail 100 --format json
-"$TOBARI_BIN" context create --name restricted --format json
+"$TOBARI_BIN" context create --name restricted --source-access read-only --policy-preset builtin/offline --format json
 "$TOBARI_BIN" cluster up # safely activates the new all-Context projection
 (cd /absolute/test/root && "$TOBARI_BIN" --context restricted) # same root, different logical Tobari
 "$TOBARI_BIN" context use --name restricted --format json # changes only the omitted-Context default
@@ -191,8 +191,9 @@ rules exist. The transcript must prove:
   sufficient for a known command; routine success requires zero source reads,
   prose parsers, or provider-notation decoders.
 - Context discovery identifies the current default, stable Context identities,
-  and separated agent, policy, and managed-adapter credential stores. `context
-  show` reports separate secret-free broker/provider observation but no broker
+  immutable source access and preset origin/revision, and separated agent,
+  policy, and managed-adapter credential stores. `context show` reports the
+  task-owned guardrail summary and separate secret-free broker/provider observation but no broker
   vault path/content, root key, primary secret, or handle.
 - Context shell configuration reports all four allowlisted variables, preserves
   explicit empty literals, rejects arbitrary exported names before I/O, and

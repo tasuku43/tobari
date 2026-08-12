@@ -1,6 +1,6 @@
 # Work Plan: Make Context the explicit capability envelope
 
-- Status: Proposed
+- Status: Accepted
 - Goal: [goal.md](goal.md)
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)

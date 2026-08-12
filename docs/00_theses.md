@@ -585,7 +585,7 @@ administration project.
   current CLI-owned learned decisions; `policy reset --id` removes exactly one
   Allow or exact Deny and returns that effect to default deny. The discovery
   queue turns only learnable retained denials into unique exact
-  Context/project/host/port/method/path proposals with stable opaque IDs, the latest
+  Context/project/scheme/host/port/method/path proposals with stable opaque IDs, the latest
   retained observation time, and a retained-window observation count; the current-rule
   inventory exposes the separate rule IDs used for reset.
 - `tobari cluster denials` remains the lower-level diagnostic step: it projects
@@ -640,8 +640,9 @@ administration project.
 Users should choose one understandable execution setup, not assemble an agent
 profile, runtime image, policy directory, and credential configuration from
 unrelated paths.
-Tobari therefore presents a named Context as the logical bundle for an agent's
-configuration, network policy, and credential references. The Context manifest
+Tobari therefore presents a named Context as the immutable host-owned
+capability envelope for an agent's direct source access, snapshotted network
+guardrail, configuration, runtime, and credential exposure. The Context manifest
 is a host-owned composition record; it does not collapse the physical trust
 boundaries between read-only agent data, OPA policy, and Gateway-only secret
 stores. Each Context has a stable opaque identity; its name is a human selector,
@@ -665,6 +666,15 @@ a handle selects authority without the trusted principal and OPA allow.
   host-facing composition surface. `context use` changes only the omitted-
   Context default. `tobari --context NAME` chooses an invocation Context
   without changing that default.
+- Every persisted Context fixes `read-only` or `read-write` access for its one
+  direct source bind and one normalized `builtin/<name>` or `custom/<name>`
+  policy-preset origin plus SHA-256 snapshot revision. Creation owns the
+  `read-write` and `builtin/reviewed-exact` omission defaults. Readers never
+  supply them for old state, source-preset edits never change an existing
+  Context, and a different envelope requires a new Context.
+- Source access describes only the direct live source bind. Read-only does not
+  make the writable home or tmpfs read-only and does not provide a snapshot;
+  host or same-root read-write Context changes remain observable.
 - `config shell` and `config git` own the Context's narrow non-secret host
   projections. A complete setting group is deterministic for agents and
   scripts; wholly omitted setting flags open a terminal-only staged editor.
@@ -713,6 +723,14 @@ a handle selects authority without the trusted principal and OPA allow.
   policy that cannot be expressed as an exact learned rule. The projection
   namespaces Advanced modules and prevents them from claiming the Tobari-owned
   router or system packages.
+- The preset guardrail is owned by the Tobari system evaluator and precedes
+  baseline data, exact learned policy, and Advanced Rego. A terminal guardrail
+  denial produces no candidate and performs no external DNS, broker resolution,
+  or upstream call. Advanced Rego may further constrain generic input but
+  cannot grant beyond the guardrail or redefine learned permission identity.
+- Tobari-owned ordinary learned permission identity binds Context, project,
+  scheme, host, port, method, and raw path. Query, headers, and bodies are not
+  learned dimensions; GraphQL adds only operation type and root field.
 - Permission candidates, learned rules, exact denies, compactions, audits, and
   managed credentials retain Context and Tobari identity. `policy review` and
   `policy rules` cross all Contexts; mutations bind solely to opaque references.
@@ -721,6 +739,9 @@ a handle selects authority without the trusted principal and OPA allow.
 
 - Context domain and catalog tests validate stable identity, modes, current-
   default selection, effects, fixed targets, and complete output/error contracts.
+- Envelope tests require source access and preset origin/revision in every
+  persisted manifest/report, prove creation-only defaults and immutable
+  snapshot binding, and reject missing or old state without fallback.
 - Configuration tests validate the all-or-none direct/staged-editor state machine,
   terminal cancellation and explicit-empty Context rejection with zero
   mutation, binding of Apply to the Context shown across concurrent default
@@ -731,6 +752,9 @@ a handle selects authority without the trusted principal and OPA allow.
 - Infrastructure tests prove exact V1 initialization, owner-only separate
   stores, permanent Tobari bindings, aggregate read-only OPA mounts, and
   selected agent-profile digests.
+- Runtime and policy integration prove exact direct-bind access, writable
+  home/tmpfs, no writable source alias, scheme-aware exact learning, and
+  terminal guardrail precedence with zero candidate/DNS/Broker/upstream calls.
 - Runtime tests prove the recipe build context excludes policy and credential
   stores, the generated image is checked against the runtime contract, and a
   failed build leaves the previously selected image unchanged. Project runtime

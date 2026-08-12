@@ -4,8 +4,9 @@
 
 This model covers the current local product: one installation-local cluster
 with a shared Gateway, OPA, and locked Auth Broker; multiple CWD-selected
-Workspaces permanently bound to a canonical project root and one Context; one
-selected read-write root and persistent home per Workspace; and the supported
+Workspaces permanently bound to a canonical project root and one immutable
+Context capability envelope; one selected direct read-only or read-write root
+and persistent writable home per Workspace; and the supported
 Docker topology for mediated HTTP and HTTPS. It covers the default tool-native
 passthrough credential route, the Auth Broker's project-bound opaque-handle
 route, and the bounded static `managed` Gateway adapter.
@@ -61,7 +62,8 @@ an exact live broker binding, and an OPA allow.
 
 | Asset | Threat | Boundary | Enforcement |
 |---|---|---|---|
-| Host files outside a selected root | Workspace reads or modifies them | Docker mounts and root selection | The only host paths mounted writable are the canonical selected root and that Workspace's exact home; unsafe roots and management paths are rejected |
+| Host files outside a selected root | Workspace reads or modifies them | Docker mounts and root selection | The only host paths that may be writable are the Context-selected direct root bind and that Workspace's exact home; read-only source removes write authority from the former, and unsafe roots or management paths are rejected |
+| Context envelope authority | Project content, image, Workspace, or changed source preset rewrites source/network authority | Owner-only immutable manifest and preset snapshot | Source access plus normalized preset origin/revision are fixed at Context creation, digest-bound, reported explicitly, and never re-read from a mutable source preset |
 | Another Workspace's network authority | A process crosses isolation spaces or reuses its policy | Docker networks, namespace guards, and host principal | One dedicated non-overlapping internal network and one owned endpoint per Workspace; Context/project identity is derived from the kernel-observed source endpoint and complete owner-only Workspace/Gateway binding; duplicate/stale endpoints and source-spoof canaries fail closed |
 | Overlapping project files | Separate Workspaces are mistaken for filesystem-isolated copies | Direct host bind mounts | Same-root and parent/child-root Workspaces may coexist, but overlapping paths expose the same host file effects; no overlay, root lock, or file-integrity isolation is claimed |
 | Docker Engine | Workspace controls host containers | Unix socket and process boundary | Docker socket and host process interfaces are not mounted |
@@ -77,7 +79,8 @@ an exact live broker binding, and an OPA allow.
 | Tool-owned authentication | Another Workspace reads or reuses it | Per-Workspace home and network | Tool state remains in that Workspace's exact home; all processes in the same Workspace may read it |
 | Static managed secrets | Workspace reads or injects them | Gateway-only files and binding checks | Context-scoped owner-only files mount read-only only into Gateway; Context, project, host, and OPA-selected profile are checked before post-allow reading and injection |
 | Authorization integrity | Request, DNS lookup, or credential reaches upstream before authorization | Gateway request-header hook, synthetic DNS, and lazy upstream connection | Gateway establishes the source-bound principal, normalizes one transparent authority, prepares credential metadata, asks OPA once, applies credentials only after allow, then resolves/pins, creates a separate upstream connection, and enables body streaming |
-| Authority binding | An exact decision is replayed for a different effect | OPA decision and Gateway connection boundary | Learned rules bind Context, project, scheme, exact 1-65535 port, host, method, and raw path; arbitrary valid TCP ports do not collapse schemes or ports; Gateway classifies and pins resolved addresses |
+| Authority binding | An exact decision is replayed for a different effect | OPA decision and Gateway connection boundary | Learned rules bind Context, project, scheme, exact 1-65535 port, host, method, and raw path; query, headers, and body are not learned identity; arbitrary valid TCP ports do not collapse schemes or ports; Gateway classifies and pins resolved addresses |
+| Preset guardrail bypass | Baseline, learned, Advanced, or provider policy exceeds the selected ceiling | Tobari-owned system evaluator | Immutable terminal guardrail runs before every allow path and finishes with zero candidate, external DNS, Broker resolution, or upstream call |
 | GraphQL multiplexing | One coarse `POST /graphql` allow authorizes unrelated roots | Trusted endpoint declaration, bounded parser, and system OPA evaluator | Declared endpoints never fall back to HTTP rules; Gateway sends only query/mutation plus sorted canonical roots, every root needs an exact rule, and Advanced Context input cannot bypass the system GraphQL evaluator |
 | HTTPS confidentiality in transit | TLS inspection is described as plaintext egress or silently bypassed | Transparent ingress and two TLS connections | Transparent clients retain authority in SNI/HTTP headers. Gateway terminates Workspace-side TLS with the Tobari CA, authorizes decrypted HTTP attributes, then creates a separate verified TLS connection to upstream |
 | Body payload exfiltration | An allowed route carries different or sensitive bytes | Deliberate route-level policy boundary | Ordinary body content is not policy or candidate identity; one exact HTTP allow covers every body value at that Context/project/host/port/method/path. Declared GraphQL narrows only by operation type/root, not arguments or variables |
@@ -448,7 +451,9 @@ authorized network capacity remains outside this control.
 
 ## Explicitly accepted risks
 
-- A Workspace can modify or delete its full mounted project root.
+- A read-write Workspace can modify or delete its full mounted project root. A
+  read-only Workspace cannot write through that bind but sees host or other
+  read-write Context changes because the bind is live rather than a snapshot.
 - Same-root and parent/child-root Workspaces share file effects in the overlap,
   even when their Contexts, homes, networks, principals, policies, and
   credential scopes differ.

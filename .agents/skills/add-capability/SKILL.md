@@ -86,6 +86,9 @@ For every external action, specify:
   and upstream idempotency behavior;
 - which Tobari policy applies at `app/execution.Invoker`; do not assume
   approval, confirmation, OS authentication, or dry-run;
+- whether a Context capability changes immutable `source_access` or the
+  snapshotted policy-preset origin/revision; those are creation-time envelope
+  facts, not per-Workspace flags or live configuration references;
 - audit-safe fields and secret fields;
 - allowed network destination.
 
