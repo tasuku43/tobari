@@ -24,7 +24,7 @@ and security claims inside them are removed.
   clauses in ADR 0009; expanded built-ins in ADR 0019; compaction clauses in
   theses/product/security contracts. ADR 0019's static project-bound
   post-policy broker core and the unrelated
-  `0021-context-owned-narrow-host-projections.md` remain accepted.
+  `0034-context-owned-narrow-host-projections.md` remain accepted.
 
 ## Public contract removal
 

@@ -10,7 +10,7 @@
 - Target: First public V1 release
 - Related ADRs: ADRs 0009, 0010, 0016, 0019, 0020,
   `0021-add-datadog-pup-oauth.md`,
-  `0021-context-owned-narrow-host-projections.md`, 0023, 0025, 0026, 0027,
+  `0034-context-owned-narrow-host-projections.md`, 0023, 0025, 0026, 0027,
   and 0028
 - Related work: [Context capability envelope](../context-capability-envelope/goal.md),
   [Context source access](../context-source-access/goal.md),

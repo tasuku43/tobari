@@ -164,6 +164,7 @@ run_fast() {
     return 1
   fi
   go run ./tools/repoguard --scope hygiene
+  ./scripts/test-decision-records.sh
   go run ./tools/archlint
   go run ./tools/contractlint
   python3 scripts/test-pty-evidence.py

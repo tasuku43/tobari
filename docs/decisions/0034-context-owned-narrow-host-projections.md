@@ -1,4 +1,4 @@
-# ADR 0021: Add Context-owned narrow host projections
+# ADR 0034: Add Context-owned narrow host projections
 
 - Status: Accepted
 - Date: 2026-08-09
