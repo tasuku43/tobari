@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -54,10 +54,30 @@ func (a PolicyPresetAuthority) Validate() error {
 	if a.Scheme != "https" && a.Scheme != "http" {
 		return fmt.Errorf("policy preset authority scheme is invalid")
 	}
-	if a.Port < 1 || a.Port > 65535 || net.ParseIP(a.Host) != nil || !validNormalizedPolicyHost(a.Host) || !strings.Contains(a.Host, ".") || policyPresetReservedHost(a.Host) {
+	if a.Port < 1 || a.Port > 65535 || policyPresetIPv4Literal(a.Host) || !validNormalizedPolicyHost(a.Host) || !strings.Contains(a.Host, ".") || policyPresetReservedHost(a.Host) {
 		return fmt.Errorf("policy preset authority is not an exact public destination")
 	}
 	return nil
+}
+
+// policyPresetIPv4Literal keeps the domain validator independent from the net
+// package while rejecting the only IP literal shape that can otherwise pass
+// the normalized DNS-label grammar. IPv6 literals already fail that grammar.
+func policyPresetIPv4Literal(host string) bool {
+	parts := strings.Split(host, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" || (len(part) > 1 && part[0] == '0') {
+			return false
+		}
+		value, err := strconv.Atoi(part)
+		if err != nil || value < 0 || value > 255 {
+			return false
+		}
+	}
+	return true
 }
 
 func policyPresetReservedHost(host string) bool {
