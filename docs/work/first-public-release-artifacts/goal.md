@@ -31,19 +31,29 @@ maintainer for synchronous publication approval.
 
 ## Acceptance criteria
 
-- [ ] Gateway/Auth Broker canonical source and embedded snapshots are final and
-      byte-equal after integrated auth/policy changes.
-- [ ] Workflows build Linux amd64/arm64 component indexes and supported CLI
+- [x] Gateway/Auth Broker canonical source and embedded snapshots are final and
+      byte-equal after integrated auth/policy changes. Evidence: canonical
+      source checks pass after the complete Docker policy/auth journey and the
+      GraphQL fail-closed correction.
+- [x] Workflows build Linux amd64/arm64 component indexes and supported CLI
       archives, emit checksums, SPDX/CycloneDX SBOMs, and CI provenance with
-      pinned permissions and reviewed dependencies.
-- [ ] Synthetic local dry runs validate archive, checksum, SBOM, provenance,
-      and formula generation without mutating external state.
-- [ ] Publication is split into explicit, auditable steps whose first external
-      mutation requires maintainer approval.
-- [ ] `task check`, `task security`, `task public:check`, and
+      pinned permissions and reviewed dependencies. Evidence: workflow and
+      release lint verify the exact subjects, pinned Actions, permissions, and
+      protected publication environment without adding a dependency.
+- [x] Synthetic local dry runs validate archive, checksum, SBOM, provenance,
+      and formula generation without mutating external state. Evidence:
+      `scripts/lint-release.sh` creates and independently verifies the complete
+      synthetic artifact inventory with networking disabled.
+- [x] Publication is split into explicit, auditable steps whose first external
+      mutation requires maintainer approval. Evidence:
+      `publication-handoff.md` names branch push as the first mutation and a
+      second synchronous approval before tag and Release publication.
+- [x] `task check`, `task security`, `task public:check`, and
       `task release:check` pass once real published image digests are pinned;
       before approval any intentional unpublished-digest gate is reported, not
-      weakened or bypassed.
+      weakened or bypassed. Evidence: local check/security gates pass; public
+      and release gates pass their preceding checks and stop at the deliberate
+      `GATEWAY_IMAGE=unpublished` checkpoint.
 
 ## Completion definition
 

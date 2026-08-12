@@ -1,5 +1,5 @@
 {
-  "generated_from": "committed tobari agent help schema 1 at commit ff98d4e104c8698dc815af9eba0924b3fd2ceb80",
+  "generated_from": "committed tobari agent help schema 1 at commit ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6",
   "root": {
     "schema_version": 1,
     "view": "index",
@@ -217,7 +217,7 @@
         "namespace": "context",
         "summary": "Create a named execution Context",
         "capability_id": "context.composition",
-        "outcome": "Create one named Context with separate owner-only policy and managed-credential stores",
+        "outcome": "Create one named Context with separate owner-only policy and brokered-authentication state",
         "effect": "create",
         "role": "act"
       },
@@ -2973,6 +2973,17 @@
                         "enum": []
                       },
                       {
+                        "name": "scheme",
+                        "type": "string",
+                        "description": "Exact denied scheme.",
+                        "required": true,
+                        "nullable": false,
+                        "enum": [
+                          "http",
+                          "https"
+                        ]
+                      },
+                      {
                         "name": "host",
                         "type": "string",
                         "description": "Exact denied host.",
@@ -4052,6 +4063,17 @@
                   "enum": []
                 },
                 {
+                  "name": "scheme",
+                  "type": "string",
+                  "description": "Exact denied request scheme.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [
+                    "http",
+                    "https"
+                  ]
+                },
+                {
                   "name": "host",
                   "type": "string",
                   "description": "Exact denied request host.",
@@ -4434,6 +4456,17 @@
                   "enum": []
                 },
                 {
+                  "name": "scheme",
+                  "type": "string",
+                  "description": "Exact denied request scheme.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [
+                    "http",
+                    "https"
+                  ]
+                },
+                {
                   "name": "host",
                   "type": "string",
                   "description": "Exact denied request host.",
@@ -4807,6 +4840,17 @@
                   "required": true,
                   "nullable": false,
                   "enum": []
+                },
+                {
+                  "name": "scheme",
+                  "type": "string",
+                  "description": "Exact decision scheme.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [
+                    "http",
+                    "https"
+                  ]
                 },
                 {
                   "name": "host",
@@ -9240,7 +9284,7 @@
           "role": "act",
           "contract": {
             "capability_id": "context.composition",
-            "outcome": "Create one named Context with separate owner-only policy and managed-credential stores",
+            "outcome": "Create one named Context with separate owner-only policy and brokered-authentication state",
             "inputs": [
               {
                 "name": "--name",

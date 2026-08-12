@@ -41,8 +41,9 @@
 - [x] Regenerate architecture site, catalog, schema/capability ledgers, and
       component metadata from the final integrated source. Evidence:
       `source-snapshot.txt` pins committed integrated source
-      `ff98d4e104c8698dc815af9eba0924b3fd2ceb80`; sitegen regenerated 34-command
-      catalog and component/schema data, and `generate:check` passes.
+      `ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6`; sitegen regenerated the
+      34-command catalog, exact denied-scheme fields, retained brokered-auth
+      wording, and component/schema data; `generate:check` passes.
 - [x] Run a synthetic no-network/no-publish artifact and formula dry run.
       Evidence: `./scripts/lint-release.sh` passed with offline metadata
       generation, two archive/metadata matrices, Formula syntax/audit, and no
@@ -61,8 +62,10 @@
 - [x] Run `task check` and `task security` locally. Evidence: `mise exec -- task
       check` and `mise exec -- task security` pass on integrated V1 HEAD on
       2026-08-12; full includes race tests, both site builds, and Playwright
-      40/40. The separately required live synthetic integration remains
-      pending because the local Colima engine could not start its fixture.
+      40/40. After Colima recovered, `mise exec -- task integration:test`
+      completed the explicit V1 journey, including custom preset snapshot
+      immutability, exact review, terminal guardrails, static Broker rotation,
+      logout, and re-entry.
 - [x] Record the intentional pre-publication result of `task public:check` and
       `task release:check` if unpublished image pins remain. Evidence: both
       commands were run on 2026-08-12. Public passed repoguard and contractlint;

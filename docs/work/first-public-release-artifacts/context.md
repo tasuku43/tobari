@@ -19,8 +19,9 @@
   described as signatures, dependency SBOMs for archive contents, or
   reproducibility proofs.
 - The generated architecture site is pinned to integrated committed source
-  `ff98d4e104c8698dc815af9eba0924b3fd2ceb80`; catalog and component metadata
-  were regenerated and verified from that commit.
+  `ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6`; catalog and component metadata
+  were regenerated and verified from that commit, including exact denied
+  scheme fields and the retained brokered-authentication wording.
 
 ## Constraints
 
@@ -39,8 +40,8 @@
 - `./scripts/lint-release.sh` passes at the baseline revision.
 - `task public:check` and `task release:check` stop at unpublished component
   selection; checks are not weakened.
-- Architecture-site generation currently passes but needs a final integrated
-  source snapshot and regenerated output.
+- Architecture-site generation and `generate:check` pass against the final
+  integrated committed source snapshot.
 
 ## Early preparation evidence (2026-08-12)
 
@@ -73,7 +74,10 @@
   unpublished Gateway image authority. No stale catalog/schema/site blocker
   remains.
 - Canonical Gateway/Auth Broker source snapshots and generated architecture
-  output are finalized. Real component metadata/SBOM/provenance tied to an
-  immutable published digest, the remaining full gates, and every external
-  publication operation remain intentionally deferred until approval; that
-  evidence cannot exist before the manual image publication step.
+  output are finalized. The live synthetic integration also passes after
+  exercising explicit review/allow/retry, preset guardrails, source snapshot
+  immutability, and retained static Broker lifecycle. Real component
+  metadata/SBOM/provenance tied to an immutable published digest, final public
+  and release gate completion, and every external publication operation remain
+  intentionally deferred until approval; that evidence cannot exist before
+  the manual image publication step.
