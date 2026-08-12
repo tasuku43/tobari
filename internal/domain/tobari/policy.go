@@ -14,19 +14,17 @@ import (
 )
 
 var (
-	requestIDPattern          = regexp.MustCompile(`^[0-9a-f]{32}$`)
-	policyCandidateIDPattern  = regexp.MustCompile(`^pcy_[0-9a-f]{32}$`)
-	policyCompactionIDPattern = regexp.MustCompile(`^pcx_[0-9a-f]{32}$`)
-	policyDenyRuleIDPattern   = regexp.MustCompile(`^pdr_[0-9a-f]{32}$`)
-	learnedRuleIDPattern      = regexp.MustCompile(`^plr_[0-9a-f]{32}$`)
-	httpMethodPattern         = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]{0,31}$`)
-	graphqlNamePattern        = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
-	policyRevisionPattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	requestIDPattern         = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	policyCandidateIDPattern = regexp.MustCompile(`^pcy_[0-9a-f]{32}$`)
+	policyDenyRuleIDPattern  = regexp.MustCompile(`^pdr_[0-9a-f]{32}$`)
+	learnedRuleIDPattern     = regexp.MustCompile(`^plr_[0-9a-f]{32}$`)
+	httpMethodPattern        = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]{0,31}$`)
+	graphqlNamePattern       = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
+	policyRevisionPattern    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 const (
 	PolicyMatchExact         = "exact"
-	PolicyMatchPrefix        = "prefix"
 	PolicyDecisionAllow      = "allow"
 	PolicyDecisionDeny       = "deny"
 	PolicyProtocolHTTP       = "http"
@@ -624,8 +622,7 @@ func (s PolicyDenyRuleSet) Matches(denial PolicyDenial) bool {
 	return false
 }
 
-// LearnedPolicyRule is the allow.json rule owned by policy-learning commands.
-// Examples are retained so compaction remains testable.
+// LearnedPolicyRule is one exact allow.json rule owned by policy-learning commands.
 type LearnedPolicyRule struct {
 	PolicyProtocolIdentity
 	ID               string   `json:"id"`
@@ -691,11 +688,8 @@ func (r LearnedPolicyRule) Validate() error {
 	if !learnedRuleIDPattern.MatchString(r.ID) {
 		return fmt.Errorf("learned rule ID is invalid")
 	}
-	if r.Match != PolicyMatchExact && r.Match != PolicyMatchPrefix {
+	if r.Match != PolicyMatchExact {
 		return fmt.Errorf("learned rule match is invalid")
-	}
-	if r.EffectiveProtocol() == PolicyProtocolGraphQL && r.Match != PolicyMatchExact {
-		return fmt.Errorf("GraphQL learned rule must use exact matching")
 	}
 	if err := validatePolicyScope(r.ContextID, r.ContextName, r.ProjectRoot); err != nil {
 		return fmt.Errorf("learned rule scope: %w", err)
@@ -715,17 +709,10 @@ func (r LearnedPolicyRule) Validate() error {
 	if err := validatePolicyPath(r.Path); err != nil {
 		return fmt.Errorf("learned rule path is invalid")
 	}
-	if r.Match == PolicyMatchPrefix && !strings.HasSuffix(r.Path, "/") {
-		return fmt.Errorf("learned prefix rule must end at a path boundary")
-	}
 	if r.Examples == nil || r.SourceCandidates == nil {
 		return fmt.Errorf("learned rule evidence is unknown")
 	}
-	minimum := 1
-	if r.Match == PolicyMatchPrefix {
-		minimum = 3
-	}
-	if len(r.Examples) < minimum || len(r.SourceCandidates) < minimum {
+	if len(r.Examples) < 1 || len(r.SourceCandidates) < 1 {
 		return fmt.Errorf("learned rule has insufficient evidence")
 	}
 	if err := validateSortedUniquePaths(r.Examples); err != nil {
@@ -735,11 +722,8 @@ func (r LearnedPolicyRule) Validate() error {
 		return fmt.Errorf("learned rule sources: %w", err)
 	}
 	for _, example := range r.Examples {
-		if r.Match == PolicyMatchExact && example != r.Path {
+		if example != r.Path {
 			return fmt.Errorf("exact learned rule example must equal its path")
-		}
-		if r.Match == PolicyMatchPrefix && !strings.HasPrefix(example, r.Path) {
-			return fmt.Errorf("prefix learned rule example is outside its path")
 		}
 	}
 	if r.ID != learnedRuleIDWithIdentity(
@@ -1056,14 +1040,7 @@ func (r LearnedPolicyRule) MatchesIdentity(
 	if !r.PolicyProtocolIdentity.matches(identity) {
 		return false
 	}
-	switch r.Match {
-	case PolicyMatchExact:
-		return r.Path == path
-	case PolicyMatchPrefix:
-		return strings.HasPrefix(path, r.Path)
-	default:
-		return false
-	}
+	return r.Match == PolicyMatchExact && r.Path == path
 }
 
 func PolicyCandidates(
@@ -1167,271 +1144,6 @@ func PolicyCandidatesWithDenyRules(
 	return items, nil
 }
 
-// PolicyCompaction binds one current exact source-rule set to one path prefix.
-type PolicyCompaction struct {
-	ID            string   `json:"id"`
-	ContextID     string   `json:"context_id"`
-	ContextName   string   `json:"context"`
-	ProjectID     string   `json:"project_id"`
-	ProjectRoot   string   `json:"project_root"`
-	Host          string   `json:"host"`
-	Port          int      `json:"port"`
-	Method        string   `json:"method"`
-	PathPrefix    string   `json:"path_prefix"`
-	SourceRuleIDs []string `json:"source_rule_ids"`
-	Examples      []string `json:"examples"`
-	OutsideCanary string   `json:"outside_canary"`
-}
-
-func ValidatePolicyCompactionID(id string) error {
-	if !policyCompactionIDPattern.MatchString(id) {
-		return fmt.Errorf("policy compaction ID is invalid")
-	}
-	return nil
-}
-
-func compactionID(contextID, projectID, host string, port int, method, prefix string, sourceRuleIDs []string) string {
-	material := strings.Join(
-		[]string{
-			"tobari-policy-compaction-v1", contextID, projectID, host, strconv.Itoa(port), method, prefix,
-			strings.Join(sourceRuleIDs, "\x1f"),
-		},
-		"\x00",
-	)
-	sum := sha256.Sum256([]byte(material))
-	return "pcx_" + hex.EncodeToString(sum[:16])
-}
-
-func outsidePrefixCanary(prefix string) string {
-	return strings.TrimSuffix(prefix, "/") + "-outside-tobari-canary"
-}
-
-func (c PolicyCompaction) Validate() error {
-	if err := ValidatePolicyCompactionID(c.ID); err != nil {
-		return err
-	}
-	if err := validatePolicyScope(c.ContextID, c.ContextName, c.ProjectRoot); err != nil {
-		return fmt.Errorf("policy compaction scope: %w", err)
-	}
-	if err := ValidateProjectID(c.ProjectID); err != nil {
-		return fmt.Errorf("policy compaction project ID is invalid")
-	}
-	if len(c.Host) == 0 || len(c.Host) > 253 || containsSpaceOrControl(c.Host) {
-		return fmt.Errorf("policy compaction host is invalid")
-	}
-	if c.Port < 1 || c.Port > 65535 {
-		return fmt.Errorf("policy compaction port is invalid")
-	}
-	if !httpMethodPattern.MatchString(c.Method) {
-		return fmt.Errorf("policy compaction method is invalid")
-	}
-	if !validCompactionPrefix(c.PathPrefix) {
-		return fmt.Errorf("policy compaction prefix is unsafe")
-	}
-	if len(c.SourceRuleIDs) < 3 || len(c.Examples) < 3 {
-		return fmt.Errorf("policy compaction has insufficient evidence")
-	}
-	previous := ""
-	for index, id := range c.SourceRuleIDs {
-		if !learnedRuleIDPattern.MatchString(id) || index > 0 && id <= previous {
-			return fmt.Errorf("policy compaction source rules must be unique and sorted")
-		}
-		previous = id
-	}
-	if err := validateSortedUniquePaths(c.Examples); err != nil {
-		return err
-	}
-	for _, example := range c.Examples {
-		if !strings.HasPrefix(example, c.PathPrefix) {
-			return fmt.Errorf("policy compaction example is outside its prefix")
-		}
-	}
-	if c.OutsideCanary != outsidePrefixCanary(c.PathPrefix) {
-		return fmt.Errorf("policy compaction boundary canary is invalid")
-	}
-	if c.ID != compactionID(c.ContextID, c.ProjectID, c.Host, c.Port, c.Method, c.PathPrefix, c.SourceRuleIDs) {
-		return fmt.Errorf("policy compaction ID does not bind its source rules")
-	}
-	return nil
-}
-
-// PolicyCompactionReport is exhaustive for the current learned-rule file.
-type PolicyCompactionReport struct {
-	Task            string             `json:"task"`
-	PolicyDirectory string             `json:"policy"`
-	Items           []PolicyCompaction `json:"items"`
-}
-
-func (r PolicyCompactionReport) Validate() error {
-	if r.Task != TaskPolicyCompactions {
-		return fmt.Errorf("policy compaction report task identity is invalid")
-	}
-	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
-		return fmt.Errorf("policy compaction policy directory is invalid")
-	}
-	if r.Items == nil {
-		return fmt.Errorf("policy compaction collection is unknown")
-	}
-	seen := make(map[string]bool, len(r.Items))
-	for _, item := range r.Items {
-		if err := item.Validate(); err != nil {
-			return err
-		}
-		if seen[item.ID] {
-			return fmt.Errorf("policy compaction IDs must be unique")
-		}
-		seen[item.ID] = true
-	}
-	return nil
-}
-
-func exactRuleDirectory(path string) string {
-	index := strings.LastIndex(path, "/")
-	if index < 0 {
-		return ""
-	}
-	return path[:index+1]
-}
-
-func validCompactionPrefix(prefix string) bool {
-	if !safeCompactionRequestPath(prefix) || !strings.HasSuffix(prefix, "/") {
-		return false
-	}
-	trimmed := strings.Trim(prefix, "/")
-	return trimmed != "" && strings.Contains(trimmed, "/")
-}
-
-func safeCompactionRequestPath(path string) bool {
-	if err := validatePolicyPath(path); err != nil ||
-		strings.ContainsAny(path, `%\`) || strings.Contains(path, "//") {
-		return false
-	}
-	for _, segment := range strings.Split(strings.Trim(path, "/"), "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return false
-		}
-	}
-	return true
-}
-
-func PolicyCompactions(rules []LearnedPolicyRule) ([]PolicyCompaction, error) {
-	if err := ValidateLearnedPolicyRules(rules); err != nil {
-		return nil, err
-	}
-	groups := make(map[string][]LearnedPolicyRule)
-	for _, rule := range rules {
-		if rule.EffectiveProtocol() != PolicyProtocolHTTP || rule.Match != PolicyMatchExact || !safeCompactionRequestPath(rule.Path) {
-			continue
-		}
-		prefix := exactRuleDirectory(rule.Path)
-		if !validCompactionPrefix(prefix) {
-			continue
-		}
-		key := rule.ContextID + "\x00" + rule.ProjectID + "\x00" + rule.Host + "\x00" + strconv.Itoa(rule.Port) + "\x00" + rule.Method + "\x00" + prefix
-		groups[key] = append(groups[key], rule)
-	}
-	items := make([]PolicyCompaction, 0)
-	for _, group := range groups {
-		if len(group) < 3 {
-			continue
-		}
-		sourceRuleIDs := make([]string, 0, len(group))
-		examples := make([]string, 0, len(group))
-		for _, rule := range group {
-			sourceRuleIDs = append(sourceRuleIDs, rule.ID)
-			examples = append(examples, rule.Path)
-		}
-		sort.Strings(sourceRuleIDs)
-		sort.Strings(examples)
-		examples = uniqueStrings(examples)
-		if len(examples) < 3 {
-			continue
-		}
-		prefix := exactRuleDirectory(group[0].Path)
-		item := PolicyCompaction{
-			ContextID: group[0].ContextID, ContextName: group[0].ContextName,
-			ProjectID: group[0].ProjectID, ProjectRoot: group[0].ProjectRoot, Host: group[0].Host, Port: group[0].Port, Method: group[0].Method, PathPrefix: prefix,
-			SourceRuleIDs: sourceRuleIDs, Examples: examples,
-			OutsideCanary: outsidePrefixCanary(prefix),
-		}
-		item.ID = compactionID(item.ContextID, item.ProjectID, item.Host, item.Port, item.Method, item.PathPrefix, item.SourceRuleIDs)
-		items = append(items, item)
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	return items, nil
-}
-
-func uniqueStrings(values []string) []string {
-	if len(values) == 0 {
-		return values
-	}
-	result := values[:1]
-	for _, value := range values[1:] {
-		if value != result[len(result)-1] {
-			result = append(result, value)
-		}
-	}
-	return result
-}
-
-func CompactLearnedPolicyRules(
-	rules []LearnedPolicyRule, id string,
-) ([]LearnedPolicyRule, PolicyCompaction, LearnedPolicyRule, error) {
-	if err := ValidatePolicyCompactionID(id); err != nil {
-		return nil, PolicyCompaction{}, LearnedPolicyRule{}, err
-	}
-	compactions, err := PolicyCompactions(rules)
-	if err != nil {
-		return nil, PolicyCompaction{}, LearnedPolicyRule{}, err
-	}
-	var selected PolicyCompaction
-	found := false
-	for _, candidate := range compactions {
-		if candidate.ID == id {
-			selected, found = candidate, true
-			break
-		}
-	}
-	if !found {
-		return nil, PolicyCompaction{}, LearnedPolicyRule{}, fmt.Errorf("policy compaction is not current")
-	}
-	sourceSet := make(map[string]bool, len(selected.SourceRuleIDs))
-	for _, source := range selected.SourceRuleIDs {
-		sourceSet[source] = true
-	}
-	sourceCandidates := make([]string, 0)
-	remaining := make([]LearnedPolicyRule, 0, len(rules)-len(sourceSet)+1)
-	for _, rule := range rules {
-		if sourceSet[rule.ID] {
-			sourceCandidates = append(sourceCandidates, rule.SourceCandidates...)
-			continue
-		}
-		remaining = append(remaining, rule)
-	}
-	sort.Strings(sourceCandidates)
-	sourceCandidates = uniqueStrings(sourceCandidates)
-	prefixRule := LearnedPolicyRule{
-		PolicyProtocolIdentity: PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP},
-		Match:                  PolicyMatchPrefix, ContextID: selected.ContextID, ContextName: selected.ContextName,
-		ProjectID: selected.ProjectID, ProjectRoot: selected.ProjectRoot, Host: selected.Host, Port: selected.Port, Method: selected.Method,
-		Path: selected.PathPrefix, Examples: append([]string{}, selected.Examples...),
-		SourceCandidates: sourceCandidates,
-	}
-	prefixRule.ID = learnedRuleID(
-		prefixRule.Match, prefixRule.ContextID, prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, prefixRule.Path,
-		prefixRule.Examples, prefixRule.SourceCandidates,
-	)
-	if err := prefixRule.Validate(); err != nil {
-		return nil, PolicyCompaction{}, LearnedPolicyRule{}, err
-	}
-	remaining = append(remaining, prefixRule)
-	sort.Slice(remaining, func(i, j int) bool { return remaining[i].ID < remaining[j].ID })
-	if err := ValidateLearnedPolicyRules(remaining); err != nil {
-		return nil, PolicyCompaction{}, LearnedPolicyRule{}, err
-	}
-	return remaining, selected, prefixRule, nil
-}
-
 // PolicyActivationReceipt is the minimal authoritative result of a confirmed
 // aggregate activation. It is produced inside the activation boundary so a
 // caller never needs a fallible post-success state reload.
@@ -1450,7 +1162,7 @@ func (r PolicyActivationReceipt) Validate() error {
 	return nil
 }
 
-// PolicyLearningChange is a confirmed exact approval or compaction result.
+// PolicyLearningChange is a confirmed exact approval result.
 type PolicyLearningChange struct {
 	Task            string            `json:"task"`
 	PolicyDirectory string            `json:"policy"`
@@ -1461,23 +1173,14 @@ type PolicyLearningChange struct {
 }
 
 func (c PolicyLearningChange) Validate() error {
-	switch c.Task {
-	case TaskPolicyAllow:
-		if err := ValidatePolicyCandidateID(c.TargetID); err != nil {
-			return err
-		}
-		if c.Rule.Match != PolicyMatchExact || c.SourceRuleCount != 1 {
-			return fmt.Errorf("policy allow result is inconsistent")
-		}
-	case TaskPolicyCompact:
-		if err := ValidatePolicyCompactionID(c.TargetID); err != nil {
-			return err
-		}
-		if c.Rule.Match != PolicyMatchPrefix || c.SourceRuleCount < 3 {
-			return fmt.Errorf("policy compact result is inconsistent")
-		}
-	default:
+	if c.Task != TaskPolicyAllow {
 		return fmt.Errorf("policy learning result task identity is invalid")
+	}
+	if err := ValidatePolicyCandidateID(c.TargetID); err != nil {
+		return err
+	}
+	if c.Rule.Match != PolicyMatchExact || c.SourceRuleCount != 1 {
+		return fmt.Errorf("policy allow result is inconsistent")
 	}
 	if !filepath.IsAbs(c.PolicyDirectory) || filepath.Clean(c.PolicyDirectory) != c.PolicyDirectory {
 		return fmt.Errorf("policy learning directory is invalid")

@@ -209,29 +209,6 @@ learned_rule_matches_request(rule, project_id, request) if {
 	rule.path == request.path.raw
 }
 
-learned_rule_matches_request(rule, project_id, request) if {
-	rule.match == "prefix"
-	rule.context_id == input.principal.context_id
-	rule.project_id == project_id
-	rule.host == request.authority.host
-	rule.port == request.authority.port
-	rule.method == request.method
-	prefix_request_path_safe(request.path.raw)
-	startswith(request.path.raw, rule.path)
-}
-
-prefix_request_path_safe(path) if {
-	is_string(path)
-	startswith(path, "/")
-	not contains(path, "%")
-	not contains(path, "\\")
-	every segment in split(trim(path, "/"), "/") {
-		segment != ""
-		segment != "."
-		segment != ".."
-	}
-}
-
 learned_rule_valid(rule) if {
 	learned_rule_base_valid(rule)
 	http_rule_protocol_valid(rule)
@@ -280,20 +257,6 @@ learned_rule_scope_valid(rule) if {
 	count(rule.source_candidates) >= 1
 	every example in rule.examples {
 		example == rule.path
-	}
-}
-
-learned_rule_scope_valid(rule) if {
-	rule.match == "prefix"
-	endswith(rule.path, "/")
-	count(split(trim(rule.path, "/"), "/")) >= 2
-	count(rule.examples) >= 3
-	count(rule.source_candidates) >= 3
-	prefix_request_path_safe(rule.path)
-	every example in rule.examples {
-		is_string(example)
-		prefix_request_path_safe(example)
-		startswith(example, rule.path)
 	}
 }
 

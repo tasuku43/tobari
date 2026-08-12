@@ -20,13 +20,10 @@ const (
 	TaskPolicyAllow       = "policy.allow"
 	TaskPolicyDeny        = "policy.deny"
 	TaskPolicyReset       = "policy.reset"
-	TaskPolicyCompactions = "policy.compactions"
-	TaskPolicyCompact     = "policy.compact"
 	ClusterTargetKind     = "cluster"
 	ClusterTargetID       = "cluster-default"
 	PolicyCandidateKind   = "policy-candidate"
 	PolicyRuleKind        = "policy-rule"
-	PolicyCompactionKind  = "policy-compaction"
 	PolicyDecisionSetKind = "policy-decision-set"
 	PolicyDecisionSetID   = "policy-decision-set-default"
 

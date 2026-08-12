@@ -20,8 +20,6 @@ func runtimeCommandSpecs() []CommandSpec {
 		policyAllowSpec(),
 		policyDenySpec(),
 		policyResetSpec(),
-		policyCompactionsSpec(),
-		policyCompactSpec(),
 		contextListSpec(),
 		contextShowSpec(),
 		configShellSpec(),
@@ -890,86 +888,6 @@ func policyResetSpec() CommandSpec {
 	}
 }
 
-func policyCompactionsSpec() CommandSpec {
-	return CommandSpec{
-		Path: "policy compactions", Summary: "Discover test-backed rule compactions",
-		Args:   "[--format text|json]",
-		Effect: operation.EffectRead, Role: RoleDiscover,
-		Agent: AgentContract{
-			CapabilityID: "policy.learning",
-			Outcome:      "Return current same-host, port, and method exact-rule groups eligible for bounded prefix compaction",
-			Inputs:       []CommandInput{formatInput()},
-			Output: CommandOutput{
-				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-				Fields: []OutputField{
-					{Name: "id", Type: OutputFieldTypeString, Description: "Opaque current compaction reference.", ReferenceKind: tobari.PolicyCompactionKind},
-					{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority bound to every source rule."},
-					{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable Context name."},
-					{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal bound to every source rule."},
-					{Name: "project_root", Type: OutputFieldTypeString, Description: "Safe diagnostic canonical project root."},
-					{Name: "host", Type: OutputFieldTypeString, Description: "Exact request host."},
-					{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact request port shared by every source rule."},
-					{Name: "method", Type: OutputFieldTypeString, Description: "Exact uppercase HTTP method."},
-					{Name: "path_prefix", Type: OutputFieldTypeString, Description: "Proposed directory-bound path prefix."},
-					{Name: "source_rule_count", Type: OutputFieldTypeInteger, Description: "Number of exact source rules replaced."},
-					{Name: "examples", Type: OutputFieldTypeArray, Description: "Positive paths retained as policy tests.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One exact positive path."}},
-					{Name: "outside_canary", Type: OutputFieldTypeString, Description: "Adjacent path that must remain outside the proposal."},
-					{Name: "compact_command", Type: OutputFieldTypeString, Description: "Exact reference-bound compaction command."},
-				},
-				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "policy_compactions", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
-			},
-			Prerequisites: []string{"At least three exact learned rules share one sufficiently deep directory."},
-			Errors: append(readCommandErrors("policy compactions", true,
-				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
-				declaredCommandError(fault.KindContract, "invalid_compaction_contract", false, "doctor", "Repair the learned-rule contract."),
-				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "policy compactions", "Repair JSON projection."),
-				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			), policyClusterReadinessErrors()...),
-		},
-		handler: runPolicyCompactions,
-	}
-}
-
-func policyCompactSpec() CommandSpec {
-	return CommandSpec{
-		Path: "policy compact", Summary: "Apply one test-backed compaction",
-		Args: "--id <id>", Effect: operation.EffectWrite, Role: RoleAct,
-		Agent: AgentContract{
-			CapabilityID: "policy.learning",
-			Outcome:      "Replace one current bound exact host, port, and method rule set with its tested directory prefix",
-			Inputs:       []CommandInput{policyReferenceInput(tobari.PolicyCompactionKind, "policy compactions")},
-			Output:       policyLearningChangeOutput(),
-			Prerequisites: []string{
-				"The ID was emitted by policy compactions and its exact source rules remain unchanged.",
-			},
-			Errors: policyMutationCommandErrors("policy compact", "policy compactions",
-				declaredCommandError(fault.KindInvalidInput, "invalid_policy_compaction_id", false, "policy compactions", "Use a compaction ID unchanged."),
-				declaredCommandError(fault.KindInvalidInput, "policy_compaction_not_found", false, "policy compactions", "Rediscover current compactions."),
-				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
-				declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
-				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "policy compactions", "Rediscover after the concurrent policy change."),
-				declaredCommandError(fault.KindRejected, "policy_preflight_failed", false, "doctor", "Correct the complete compacted policy."),
-				declaredCommandError(fault.KindRejected, "policy_test_failed", false, "doctor", "Correct the policy or ensure its XDG directory is accessible to the Docker Engine before activation."),
-				declaredCommandError(fault.KindInternal, "policy_write_failed", false, "policy compactions", "Inspect the unchanged or atomically updated policy data."),
-				declaredCommandError(fault.KindUnavailable, "policy_learning_failed", false, "cluster status", "Reconcile OPA and current policy state."),
-				declaredCommandError(fault.KindContract, "invalid_compaction_contract", false, "doctor", "Repair the learned-rule contract."),
-				declaredCommandError(fault.KindContract, "invalid_policy_learning_result", false, "cluster status", "Reconcile the confirmed policy mutation."),
-				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
-			),
-			Mutation: &MutationContract{
-				TargetKind: tobari.PolicyCompactionKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id",
-				Impact: operation.Impact{
-					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
-					AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
-				},
-			},
-		},
-		handler: runPolicyCompact,
-	}
-}
-
 func clusterDownSpec() CommandSpec {
 	return CommandSpec{
 		Path: "cluster down", Summary: "Remove the empty shared cluster",
@@ -1261,7 +1179,7 @@ func policyRuleOutputFields() []OutputField {
 	return []OutputField{
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque current learned policy-rule reference.", ReferenceKind: tobari.PolicyRuleKind},
 		{Name: "decision", Type: OutputFieldTypeString, Description: "Current learned decision: allow or deny.", Enum: []string{"allow", "deny"}},
-		{Name: "match", Type: OutputFieldTypeString, Description: "Exact or prefix match mode.", Enum: []string{"exact", "prefix"}},
+		{Name: "match", Type: OutputFieldTypeString, Description: "Exact match mode.", Enum: []string{"exact"}},
 		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority bound to the decision."},
 		{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable Context name."},
 		{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal bound to the decision."},
@@ -1269,7 +1187,7 @@ func policyRuleOutputFields() []OutputField {
 		{Name: "host", Type: OutputFieldTypeString, Description: "Exact decision host."},
 		{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact decision port."},
 		{Name: "method", Type: OutputFieldTypeString, Description: "Exact uppercase HTTP method."},
-		{Name: "path", Type: OutputFieldTypeString, Description: "Exact path or safe directory prefix."},
+		{Name: "path", Type: OutputFieldTypeString, Description: "Exact path."},
 		{Name: "protocol", Type: OutputFieldTypeString, Description: "Effective policy protocol: http or graphql.", Enum: []string{"http", "graphql"}},
 		{Name: "graphql_operation_type", Type: OutputFieldTypeString, Description: "Exact GraphQL query or mutation type; empty for HTTP."},
 		{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Exact canonical GraphQL root field; empty for HTTP."},
@@ -1368,12 +1286,12 @@ func policyLearningChangeOutput() CommandOutput {
 			{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
 			{Name: "target_id", Type: OutputFieldTypeString, Description: "Opaque target ID consumed unchanged."},
 			{Name: "rule_id", Type: OutputFieldTypeString, Description: "Deterministic stored learned-rule identity."},
-			{Name: "match", Type: OutputFieldTypeString, Description: "Stored exact or prefix match mode."},
+			{Name: "match", Type: OutputFieldTypeString, Description: "Stored exact match mode.", Enum: []string{"exact"}},
 			{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal bound to the stored rule."},
 			{Name: "host", Type: OutputFieldTypeString, Description: "Stored exact host."},
 			{Name: "port", Type: OutputFieldTypeInteger, Description: "Stored exact request port."},
 			{Name: "method", Type: OutputFieldTypeString, Description: "Stored exact uppercase HTTP method."},
-			{Name: "path", Type: OutputFieldTypeString, Description: "Stored exact path or directory prefix."},
+			{Name: "path", Type: OutputFieldTypeString, Description: "Stored exact path."},
 			{Name: "protocol", Type: OutputFieldTypeString, Description: "Effective stored policy protocol: http or graphql."},
 			{Name: "graphql_operation_type", Type: OutputFieldTypeString, Description: "Stored GraphQL query or mutation type; empty for HTTP."},
 			{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Stored canonical GraphQL root field; empty for HTTP."},

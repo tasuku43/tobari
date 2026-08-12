@@ -199,28 +199,6 @@ learned_exact_fixture := {
 	"source_candidates": ["pcy_0123456789abcdef0123456789abcdef"],
 }
 
-learned_prefix_fixture := {
-	"id": "plr_abcdef0123456789abcdef0123456789",
-	"match": "prefix",
-	"context_id": "01912345-6789-7abc-8def-0123456789ad",
-	"project_id": "01912345-6789-7abc-8def-0123456789ab",
-	"host": "mock-upstream",
-	"port": 8080,
-	"protocol": "http",
-	"method": "PUT",
-	"path": "/review/items/",
-	"examples": [
-		"/review/items/one",
-		"/review/items/three",
-		"/review/items/two",
-	],
-	"source_candidates": [
-		"pcy_0123456789abcdef0123456789abcdef",
-		"pcy_1123456789abcdef0123456789abcdef",
-		"pcy_2123456789abcdef0123456789abcdef",
-	],
-}
-
 graphql_endpoint_fixture := {
 	"scheme": "https",
 	"host": "api.github.com",
@@ -576,48 +554,26 @@ test_learned_rule_does_not_cross_scheme if {
 	not result.allow
 }
 
-test_compacted_prefix_allows_declared_directory if {
+test_retired_learned_prefix_rule_fails_closed if {
+	retired_prefix_rule := object.union(learned_exact_fixture, {
+		"match": "prefix",
+		"host": "mock-upstream",
+		"port": 8080,
+		"method": "PUT",
+		"path": "/review/items/",
+		"examples": ["/review/items/one", "/review/items/three", "/review/items/two"],
+		"source_candidates": [
+			"pcy_0123456789abcdef0123456789abcdef",
+			"pcy_1123456789abcdef0123456789abcdef",
+			"pcy_2123456789abcdef0123456789abcdef",
+		],
+	})
 	request := object.union(
 		request_with_authority({"scheme": "http", "host": "mock-upstream", "port": 8080}),
 		{"method": "PUT", "path": {"raw": "/review/items/four", "segments": ["review", "items", "four"]}},
 	)
 	result := decision with input as input_with_request(request)
-		with data.tobari.rules.learned_allows as [learned_prefix_fixture]
-	result.allow
-}
-
-test_compacted_prefix_rejects_outside_canary if {
-	request := object.union(
-		request_with_authority({"scheme": "http", "host": "mock-upstream", "port": 8080}),
-		{"method": "PUT", "path": {"raw": "/review/items-outside-tobari-canary", "segments": ["review", "items-outside-tobari-canary"]}},
-	)
-	result := decision with input as input_with_request(request)
-		with data.tobari.rules.learned_allows as [learned_prefix_fixture]
-	not result.allow
-}
-
-test_compacted_prefix_rejects_ambiguous_paths if {
-	every unsafe_path in {
-		"/review/items/%2Fadmin",
-		"/review/items/../admin",
-		"/review/items//admin",
-		"/review/items\\admin",
-	} {
-		request := object.union(
-			request_with_authority({"scheme": "http", "host": "mock-upstream", "port": 8080}),
-			{"method": "PUT", "path": {"raw": unsafe_path, "segments": ["review", "items", "unsafe"]}},
-		)
-		result := decision with input as input_with_request(request)
-			with data.tobari.rules.learned_allows as [learned_prefix_fixture]
-		not result.allow
-	}
-}
-
-test_malformed_learned_rule_fails_closed if {
-	unsafe := object.union(learned_prefix_fixture, {"host": "denied.example", "path": "/api/"})
-	request := object.union(request_with_path({"raw": "/api/anything", "segments": ["api", "anything"]}), {"method": "PUT"})
-	result := decision with input as input_with_request(request)
-		with data.tobari.rules.learned_allows as [unsafe]
+		with data.tobari.rules.learned_allows as [retired_prefix_rule]
 	not result.allow
 }
 

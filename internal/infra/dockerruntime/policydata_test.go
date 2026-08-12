@@ -779,6 +779,7 @@ func TestDomainPolicyJSONContractRejectsAmbiguousSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	retiredPrefixRuleData := bytes.Replace(ruleData, []byte(`"match":"exact"`), []byte(`"match":"prefix"`), 1)
 	tests := map[string]struct {
 		domain string
 		allow  string
@@ -812,6 +813,11 @@ func TestDomainPolicyJSONContractRejectsAmbiguousSources(t *testing.T) {
 		"duplicate learned rule ID": {
 			domain: "api.github.com",
 			allow:  strings.Replace(minimalPolicyAllowFixture, `"rules":[]`, `"rules":[`+string(ruleData)+`,`+string(ruleData)+`]`, 1),
+			deny:   minimalPolicyDenyFixture,
+		},
+		"retired learned prefix rule": {
+			domain: "api.github.com",
+			allow:  strings.Replace(minimalPolicyAllowFixture, `"rules":[]`, `"rules":[`+string(retiredPrefixRuleData)+`]`, 1),
 			deny:   minimalPolicyDenyFixture,
 		},
 		"wildcard host": {

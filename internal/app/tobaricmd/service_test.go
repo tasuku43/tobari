@@ -1180,69 +1180,6 @@ func TestPolicyRulesAndResetKeepAllowAndDenyReversible(t *testing.T) {
 	}
 }
 
-func compactableServiceRules(t *testing.T) []tobari.LearnedPolicyRule {
-	t.Helper()
-	paths := []string{
-		"/api/v1/items/one", "/api/v1/items/two", "/api/v1/items/three",
-	}
-	ids := []string{
-		"1185da2688d7469aae9cd9068e920b0b",
-		"2185da2688d7469aae9cd9068e920b0b",
-		"3185da2688d7469aae9cd9068e920b0b",
-	}
-	rules := make([]tobari.LearnedPolicyRule, 0, len(paths))
-	for index, path := range paths {
-		denial := validServiceDenial()
-		denial.RequestID, denial.Path = ids[index], path
-		candidate, err := tobari.NewPolicyCandidate(denial)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rule, err := tobari.NewExactLearnedPolicyRule(candidate)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rules = append(rules, rule)
-	}
-	return rules
-}
-
-func TestPolicyCompactionRoundTripUsesCurrentOpaqueReference(t *testing.T) {
-	t.Parallel()
-	runtime := &fakeRuntime{state: testState(t.TempDir()), rules: compactableServiceRules(t)}
-	report, err := New(runtime).PolicyCompactions(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(report.Items) != 1 {
-		t.Fatalf("compactions = %+v", report.Items)
-	}
-	id := report.Items[0].ID
-	result, err := New(runtime).CompactPolicy(
-		context.Background(),
-		policyLearningIntent("policy compact", tobari.PolicyCompactionKind, id),
-		id,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.learnedCalls != 1 || result.TargetID != id ||
-		result.Rule.Match != tobari.PolicyMatchPrefix || result.SourceRuleCount != 3 ||
-		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory {
-		t.Fatalf("result=%+v calls=%d", result, runtime.learnedCalls)
-	}
-	if _, err := New(runtime).CompactPolicy(
-		context.Background(),
-		policyLearningIntent("policy compact", tobari.PolicyCompactionKind, id),
-		id,
-	); err == nil {
-		t.Fatal("stale compaction was accepted")
-	}
-	if runtime.learnedCalls != 1 {
-		t.Fatalf("stale compaction caused mutation: %d", runtime.learnedCalls)
-	}
-}
-
 func TestClusterDownRejectsRemainingCWDProjectBeforeMutation(t *testing.T) {
 	t.Parallel()
 	runtime := &projectRuntimeFake{

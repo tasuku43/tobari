@@ -118,10 +118,9 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 		validCluster := intent.Target.Kind == tobari.ClusterTargetKind && intent.Target.ID == tobari.ClusterTargetID
 		validPolicyCandidate := intent.Target.Kind == tobari.PolicyCandidateKind && intent.Target.ID != ""
 		validPolicyRule := intent.Target.Kind == tobari.PolicyRuleKind && intent.Target.ID != ""
-		validPolicyCompaction := intent.Target.Kind == tobari.PolicyCompactionKind && intent.Target.ID != ""
 		validPolicyDecisionSet := intent.Target.Kind == tobari.PolicyDecisionSetKind &&
 			intent.Target.ID == tobari.PolicyDecisionSetID
-		if !validCluster && !validPolicyCandidate && !validPolicyRule && !validPolicyCompaction && !validPolicyDecisionSet && !validCurrentDirectory {
+		if !validCluster && !validPolicyCandidate && !validPolicyRule && !validPolicyDecisionSet && !validCurrentDirectory {
 			return fault.New(fault.KindRejected, "mutation_rejected", "mutation target is not owned by Tobari", false)
 		}
 	default:
@@ -1564,80 +1563,6 @@ func (s *Service) ResetPolicyRule(
 		return tobari.PolicyRuleReset{}, fault.Wrap(
 			fault.KindContract, "invalid_policy_rule_reset_result",
 			"policy rule reset result is invalid", false, err,
-		)
-	}
-	return result, nil
-}
-
-// PolicyCompactions discovers every current bounded exact-to-prefix proposal.
-func (s *Service) PolicyCompactions(
-	ctx context.Context,
-) (tobari.PolicyCompactionReport, error) {
-	if err := s.requireRuntime(); err != nil {
-		return tobari.PolicyCompactionReport{}, err
-	}
-	state, rules, err := s.loadPolicyState(ctx)
-	if err != nil {
-		return tobari.PolicyCompactionReport{}, err
-	}
-	items, err := tobari.PolicyCompactions(rules)
-	if err != nil {
-		return tobari.PolicyCompactionReport{}, fault.Wrap(
-			fault.KindContract, "invalid_compaction_contract",
-			"policy compactions are invalid", false, err,
-		)
-	}
-	result := tobari.PolicyCompactionReport{
-		Task: tobari.TaskPolicyCompactions, PolicyDirectory: state.PolicyDirectory, Items: items,
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.PolicyCompactionReport{}, fault.Wrap(
-			fault.KindContract, "invalid_compaction_contract",
-			"policy compaction result is invalid", false, err,
-		)
-	}
-	return result, nil
-}
-
-// CompactPolicy records and activates one current exact-rule compaction.
-func (s *Service) CompactPolicy(
-	ctx context.Context, intent operation.Intent, id string,
-) (tobari.PolicyLearningChange, error) {
-	if err := s.requireRuntime(); err != nil {
-		return tobari.PolicyLearningChange{}, err
-	}
-	if err := tobari.ValidatePolicyCompactionID(id); err != nil {
-		return tobari.PolicyLearningChange{}, fault.Wrap(
-			fault.KindInvalidInput, "invalid_policy_compaction_id",
-			"policy compaction ID is invalid", false, err,
-		)
-	}
-	if err := validatePolicyMutationTarget(intent, tobari.PolicyCompactionKind, id); err != nil {
-		return tobari.PolicyLearningChange{}, err
-	}
-	state, rules, err := s.loadPolicyState(ctx)
-	if err != nil {
-		return tobari.PolicyLearningChange{}, err
-	}
-	updated, selected, rule, err := tobari.CompactLearnedPolicyRules(rules, id)
-	if err != nil {
-		return tobari.PolicyLearningChange{}, fault.Wrap(
-			fault.KindInvalidInput, "policy_compaction_not_found",
-			"policy compaction is stale or no longer safe", false, err,
-		)
-	}
-	activation, err := s.applyLearnedRules(ctx, intent, "policy compact", state, rules, updated)
-	if err != nil {
-		return tobari.PolicyLearningChange{}, err
-	}
-	result := tobari.PolicyLearningChange{
-		Task: tobari.TaskPolicyCompact, PolicyDirectory: activation.PolicyDirectory,
-		TargetID: id, Rule: rule, SourceRuleCount: len(selected.SourceRuleIDs), Applied: true,
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.PolicyLearningChange{}, fault.Wrap(
-			fault.KindContract, "invalid_policy_learning_result",
-			"policy compact result is invalid", false, err,
 		)
 	}
 	return result, nil

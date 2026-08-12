@@ -512,55 +512,6 @@ func resetPolicyRule(
 	return c.tobari.ResetPolicyRule(ctx, intent, id)
 }
 
-func runPolicyCompactions(
-	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
-) int {
-	if c.tobari == nil {
-		return c.fail(ctx, missingRuntimeFault())
-	}
-	result, err := c.tobari.PolicyCompactions(ctx)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	format, err := parseSuccessFormat(inputs.One("--format"))
-	if err != nil {
-		return c.failUsage(
-			ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(),
-			"help "+command.Path, "Correct the command arguments.",
-		)
-	}
-	compact, found := c.catalog.Lookup("policy compact")
-	if !found {
-		return c.fail(ctx, fault.New(
-			fault.KindContract, "invalid_catalog", "policy compact command is missing", false,
-		))
-	}
-	output, err := renderPolicyCompactionsWithColor(result, ProgramName+" "+compact.Path, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	return c.emitResult(ctx, output)
-}
-
-func runPolicyCompact(
-	ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs,
-) int {
-	if c.tobari == nil {
-		return c.fail(ctx, missingRuntimeFault())
-	}
-	id := inputs.One("--id")
-	intent := operation.Intent{
-		Command: command.Path, Effect: command.Effect,
-		Target: operation.TargetRef{Kind: tobari.PolicyCompactionKind, ID: id},
-		Impact: command.Agent.Mutation.Impact,
-	}
-	result, err := c.tobari.CompactPolicy(ctx, intent, id)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
-	return c.emitMutationResult(ctx, command, renderPolicyLearningChangeWithColor(result, humanStyleAllowed(ctx, c, c.Out)))
-}
-
 func runClusterDown(ctx context.Context, c *CLI, command CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
@@ -1205,113 +1156,6 @@ func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bo
 	return output.bytes()
 }
 
-type policyCompactionOutput struct {
-	ID              string   `json:"id"`
-	ContextID       string   `json:"context_id"`
-	Context         string   `json:"context"`
-	ProjectID       string   `json:"project_id"`
-	ProjectRoot     string   `json:"project_root"`
-	Host            string   `json:"host"`
-	Port            int      `json:"port"`
-	Method          string   `json:"method"`
-	PathPrefix      string   `json:"path_prefix"`
-	SourceRuleCount int      `json:"source_rule_count"`
-	Examples        []string `json:"examples"`
-	OutsideCanary   string   `json:"outside_canary"`
-	CompactCommand  string   `json:"compact_command"`
-}
-
-type policyCompactionsDocument struct {
-	SchemaVersion     int                      `json:"schema_version"`
-	PolicyCompactions []policyCompactionOutput `json:"policy_compactions"`
-}
-
-func renderPolicyCompactions(
-	result tobari.PolicyCompactionReport, compactCommand string, format successFormat,
-) ([]byte, error) {
-	return renderPolicyCompactionsWithColor(result, compactCommand, format, false)
-}
-
-func renderPolicyCompactionsWithColor(
-	result tobari.PolicyCompactionReport, compactCommand string, format successFormat, color bool,
-) ([]byte, error) {
-	items := make([]policyCompactionOutput, 0, len(result.Items))
-	for _, item := range result.Items {
-		examples := make([]string, len(item.Examples))
-		for index, example := range item.Examples {
-			examples[index] = safeExternalText(example)
-		}
-		items = append(items, policyCompactionOutput{
-			ID: item.ID, ContextID: item.ContextID, Context: safeExternalText(item.ContextName),
-			ProjectID: item.ProjectID, ProjectRoot: safeExternalText(item.ProjectRoot), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
-			PathPrefix: safeExternalText(item.PathPrefix), SourceRuleCount: len(item.SourceRuleIDs),
-			Examples: examples, OutsideCanary: safeExternalText(item.OutsideCanary),
-			CompactCommand: compactCommand + " --id " + item.ID,
-		})
-	}
-	if format == successFormatJSON {
-		output, err := marshalCommandJSON("policy compactions", policyCompactionsDocument{
-			SchemaVersion: 1, PolicyCompactions: items,
-		})
-		if err != nil {
-			return nil, fault.Wrap(
-				fault.KindContract, "output_encoding_failed",
-				"policy compactions JSON could not be encoded", false, err,
-			)
-		}
-		return append(output, '\n'), nil
-	}
-	if format == successFormatText {
-		return renderPolicyCompactionsHuman(result, compactCommand, color), nil
-	}
-	var output bytes.Buffer
-	for _, item := range result.Items {
-		action := compactCommand + " --id " + item.ID
-		fmt.Fprintf(
-			&output,
-			"id=%s\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\thost=%s\tport=%d\tmethod=%s\tpath_prefix=%s\tsource_rule_count=%d\texamples=%s\toutside_canary=%s\tcompact_command=%s\n",
-			item.ID, item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
-			escapeTSVCell(item.PathPrefix), len(item.SourceRuleIDs),
-			escapeTSVCell(strings.Join(item.Examples, ",")), escapeTSVCell(item.OutsideCanary),
-			escapeTSVCell(action),
-		)
-	}
-	return semanticTextBytes(color, output.Bytes()), nil
-}
-
-func renderPolicyCompactionsHuman(result tobari.PolicyCompactionReport, compactCommand string, color bool) []byte {
-	if len(result.Items) == 0 {
-		output := newHumanOutput(color)
-		output.heading("○", "No policy compactions", styleMuted)
-		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
-		output.row("Details", "No compatible exact rules are ready to be compacted.", styleText)
-		output.next("policy rules", "Inspect the current learned decisions that determine compaction eligibility.")
-		return output.bytes()
-	}
-	output := newHumanOutput(color)
-	output.heading("✓", fmt.Sprintf("Policy compactions (%d)", len(result.Items)), styleSuccess)
-	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
-	for index, item := range result.Items {
-		output.section(fmt.Sprintf("Compaction %d", index+1))
-		output.row("Context", safeExternalText(item.ContextName), styleText)
-		output.row("Context ID", item.ContextID, styleText)
-		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
-		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.PathPrefix))
-		output.row("Request", request, styleText)
-		output.row("Compaction ID", item.ID, styleText)
-		output.row("Project ID", safeExternalText(item.ProjectID), styleText)
-		output.row("Source rules", fmt.Sprintf("%d", len(item.SourceRuleIDs)), styleText)
-		examples := make([]string, len(item.Examples))
-		for exampleIndex, example := range item.Examples {
-			examples[exampleIndex] = safeExternalText(example)
-		}
-		output.row("Examples", strings.Join(examples, ", "), styleText)
-		output.row("Canary", safeExternalText(item.OutsideCanary), styleText)
-		output.row("Compact", compactCommand+" --id "+item.ID, styleAccent)
-	}
-	return output.bytes()
-}
-
 func renderPolicyLearningChange(result tobari.PolicyLearningChange) []byte {
 	return renderPolicyLearningChangeWithColor(result, false)
 }
@@ -1336,11 +1180,7 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 	output.row("Protocol", safeExternalText(result.Rule.EffectiveProtocol()), styleText)
 	output.row("Source rules", fmt.Sprintf("%d", result.SourceRuleCount), styleText)
 	output.row("Applied", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
-	if result.Task == tobari.TaskPolicyAllow {
-		output.row("Next", "retry the same request in the current running Workspace", styleText)
-	} else {
-		output.next("cluster status", "Verify the shared policy component after the change.")
-	}
+	output.row("Next", "retry the same request in the current running Workspace", styleText)
 	return output.bytes()
 }
 

@@ -311,7 +311,6 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 	review := candidates
 	review.Task = tobari.TaskPolicyReview
 	rules := tobari.PolicyRuleReport{Task: tobari.TaskPolicyRules, PolicyDirectory: policyDirectory, Items: []tobari.PolicyRule{}}
-	compactions := tobari.PolicyCompactionReport{Task: tobari.TaskPolicyCompactions, PolicyDirectory: policyDirectory, Items: []tobari.PolicyCompaction{}}
 	denials := tobari.DenialReport{Task: tobari.TaskClusterDenials, PolicyDirectory: policyDirectory, WindowLines: 200, Items: []tobari.PolicyDenial{}}
 	projectPlain, err := renderProjectListWithColor(tobari.ProjectListResult{Task: tobari.TaskProjectList, Items: []tobari.ProjectListItem{}}, successFormatText, false)
 	if err != nil {
@@ -329,7 +328,6 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 		{name: "policy candidates", plain: candidatePlain, styled: candidateStyled, required: []string{"No policy candidates", policyDirectory, "200 Gateway lines"}},
 		{name: "policy review", plain: renderPolicyReviewHuman(review, "tobari policy allow", "tobari policy deny", false), styled: renderPolicyReviewHuman(review, "tobari policy allow", "tobari policy deny", true), required: []string{"No pending network permissions", policyDirectory, "200 Gateway lines"}},
 		{name: "policy rules", plain: renderPolicyRulesHuman(rules, "tobari policy reset", false), styled: renderPolicyRulesHuman(rules, "tobari policy reset", true), required: []string{"No learned policy decisions", policyDirectory}},
-		{name: "policy compactions", plain: renderPolicyCompactionsHuman(compactions, "tobari policy compact", false), styled: renderPolicyCompactionsHuman(compactions, "tobari policy compact", true), required: []string{"No policy compactions", policyDirectory}},
 		{name: "cluster denials", plain: denialPlain, styled: denialStyled, required: []string{"No policy denials", policyDirectory, "200 Gateway lines"}},
 		{name: "Workspaces", plain: projectPlain, styled: projectStyled, required: []string{"No Workspaces", "No Workspace state is configured"}},
 		{name: "auth providers", plain: renderAuthStatusText(authStatusProjection{Context: "toolbox", ContextID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, false), styled: renderAuthStatusText(authStatusProjection{Context: "toolbox", ContextID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, true), required: []string{"No authentication providers installed", "toolbox", "explicitly empty"}},
@@ -353,7 +351,7 @@ func TestCatalogWideHumanPresentationIsDeclared(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
 	commands := catalog.Commands()
-	if got, want := len(commands), 32; got != want {
+	if got, want := len(commands), 30; got != want {
 		t.Fatalf("catalog command count = %d, want %d; update the human presentation inventory", got, want)
 	}
 	for _, command := range commands {

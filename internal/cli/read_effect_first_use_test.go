@@ -71,21 +71,20 @@ func dockerMutationCall(call string) bool {
 
 func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *testing.T) {
 	extraArgs := map[string][]string{
-		"doctor":             {"--format=json"},
-		"help":               {"--format=agent"},
-		"version":            {"--format=json"},
-		"context list":       {"--format=json"},
-		"context show":       {"--format=json"},
-		"status":             {"--format=json"},
-		"cluster status":     {"--format=json"},
-		"cluster denials":    {"--format=json"},
-		"cluster logs":       {},
-		"policy candidates":  {"--format=json"},
-		"policy review":      {"--format=json"},
-		"policy rules":       {"--format=json"},
-		"policy compactions": {"--format=json"},
-		"list":               {"--format=json"},
-		"auth status":        {"--format=json"},
+		"doctor":            {"--format=json"},
+		"help":              {"--format=agent"},
+		"version":           {"--format=json"},
+		"context list":      {"--format=json"},
+		"context show":      {"--format=json"},
+		"status":            {"--format=json"},
+		"cluster status":    {"--format=json"},
+		"cluster denials":   {"--format=json"},
+		"cluster logs":      {},
+		"policy candidates": {"--format=json"},
+		"policy review":     {"--format=json"},
+		"policy rules":      {"--format=json"},
+		"list":              {"--format=json"},
+		"auth status":       {"--format=json"},
 	}
 
 	var readPaths []string

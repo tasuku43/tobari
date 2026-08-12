@@ -277,45 +277,27 @@ func TestPolicyCandidateAggregationKeepsGraphQLCoordinatesDistinct(t *testing.T)
 	}
 }
 
-func TestGraphQLRulesAreExactAndExcludedFromCompaction(t *testing.T) {
+func TestLearnedPolicyRulesRejectRetiredPrefixMatch(t *testing.T) {
 	t.Parallel()
-	rules := make([]LearnedPolicyRule, 0, 3)
-	for index, root := range []string{"createIssue", "updateIssue", "deleteIssue"} {
-		denial := validPolicyDenial()
-		denial.RequestID = fmt.Sprintf("%032x", index+1)
-		denial.Method = "POST"
-		denial.Path = "/api/v1/graphql"
-		denial.PolicyProtocolIdentity = PolicyProtocolIdentity{
-			Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: root,
-		}
-		candidate, err := NewPolicyCandidate(denial)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rule, err := NewExactLearnedPolicyRule(candidate)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rules = append(rules, rule)
-	}
-	items, err := PolicyCompactions(rules)
+	denial := validPolicyDenial()
+	candidate, err := NewPolicyCandidate(denial)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 0 {
-		t.Fatalf("GraphQL rules produced compaction candidates: %+v", items)
+	rule, err := NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	prefix := rules[0]
-	prefix.Match = PolicyMatchPrefix
+	prefix := rule
+	prefix.Match = "prefix"
 	prefix.Path = "/api/v1/"
-	prefix.Examples = []string{"/api/v1/graphql"}
+	prefix.Examples = []string{"/api/v1/example"}
 	prefix.ID = learnedRuleIDWithIdentity(
 		prefix.Match, prefix.ContextID, prefix.ProjectID, prefix.Host, prefix.Port, prefix.Method, prefix.Path,
 		prefix.Examples, prefix.SourceCandidates, prefix.PolicyProtocolIdentity,
 	)
 	if err := prefix.Validate(); err == nil {
-		t.Fatal("GraphQL prefix rule was accepted")
+		t.Fatal("retired prefix rule was accepted")
 	}
 }
 
@@ -640,149 +622,6 @@ func TestPolicyOpaqueReferencesIncludeContextAuthority(t *testing.T) {
 		firstDeny.Matches(second.ContextID, second.ProjectID, second.Host, second.Port, second.Method, second.Path) {
 		t.Fatal("Context A decision matched Context B authority")
 	}
-	firstRules := []LearnedPolicyRule{
-		exactRuleForPath(t, "1185da2688d7469aae9cd9068e920b0b", "/api/v1/items/one"),
-		exactRuleForPath(t, "2185da2688d7469aae9cd9068e920b0b", "/api/v1/items/two"),
-		exactRuleForPath(t, "3185da2688d7469aae9cd9068e920b0b", "/api/v1/items/three"),
-	}
-	secondRules := append([]LearnedPolicyRule{}, firstRules...)
-	for index := range secondRules {
-		secondRules[index].ContextID = policyContextB
-		secondRules[index].ContextName = "restricted"
-		secondRules[index].ID = learnedRuleID(
-			secondRules[index].Match, secondRules[index].ContextID, secondRules[index].ProjectID,
-			secondRules[index].Host, secondRules[index].Port, secondRules[index].Method,
-			secondRules[index].Path, secondRules[index].Examples, secondRules[index].SourceCandidates,
-		)
-	}
-	firstCompactions, err := PolicyCompactions(firstRules)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondCompactions, err := PolicyCompactions(secondRules)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(firstCompactions) != 1 || len(secondCompactions) != 1 || firstCompactions[0].ID == secondCompactions[0].ID {
-		t.Fatalf("Context-scoped compactions = %+v / %+v", firstCompactions, secondCompactions)
-	}
-}
-
-func exactRuleForPath(t *testing.T, requestID, path string) LearnedPolicyRule {
-	t.Helper()
-	denial := validPolicyDenial()
-	denial.RequestID = requestID
-	denial.Host = "api.example.com"
-	denial.Path = path
-	candidate, err := NewPolicyCandidate(denial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rule, err := NewExactLearnedPolicyRule(candidate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return rule
-}
-
-func TestPolicyCompactionRequiresThreeSpecificSiblingRules(t *testing.T) {
-	t.Parallel()
-	rules := []LearnedPolicyRule{
-		exactRuleForPath(t, "1185da2688d7469aae9cd9068e920b0b", "/api/v1/items/one"),
-		exactRuleForPath(t, "2185da2688d7469aae9cd9068e920b0b", "/api/v1/items/two"),
-	}
-	items, err := PolicyCompactions(rules)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 0 {
-		t.Fatalf("two-rule compactions = %+v", items)
-	}
-
-	rules = append(
-		rules,
-		exactRuleForPath(t, "3185da2688d7469aae9cd9068e920b0b", "/api/v1/items/three"),
-	)
-	items, err = PolicyCompactions(rules)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 1 || items[0].PathPrefix != "/api/v1/items/" ||
-		items[0].OutsideCanary != "/api/v1/items-outside-tobari-canary" {
-		t.Fatalf("compactions = %+v", items)
-	}
-
-	shallow := []LearnedPolicyRule{
-		exactRuleForPath(t, "4185da2688d7469aae9cd9068e920b0b", "/items/one"),
-		exactRuleForPath(t, "5185da2688d7469aae9cd9068e920b0b", "/items/two"),
-		exactRuleForPath(t, "6185da2688d7469aae9cd9068e920b0b", "/items/three"),
-	}
-	items, err = PolicyCompactions(shallow)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 0 {
-		t.Fatalf("unsafe shallow compactions = %+v", items)
-	}
-
-	for name, unsafePath := range map[string]string{
-		"encoded separator": "/api/v1/items/%2Fadmin",
-		"dot segment":       "/api/v1/items/../admin",
-		"empty segment":     "/api/v1/items//admin",
-		"backslash":         `/api/v1/items\admin`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			rules := []LearnedPolicyRule{
-				exactRuleForPath(t, "7185da2688d7469aae9cd9068e920b0b", "/api/v1/items/one"),
-				exactRuleForPath(t, "8185da2688d7469aae9cd9068e920b0b", "/api/v1/items/two"),
-				exactRuleForPath(t, "9185da2688d7469aae9cd9068e920b0b", unsafePath),
-			}
-			items, err := PolicyCompactions(rules)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(items) != 0 {
-				t.Fatalf("unsafe path produced compaction: %+v", items)
-			}
-		})
-	}
-}
-
-func TestCompactLearnedPolicyRulesPreservesExamplesAndRejectsStaleReference(t *testing.T) {
-	t.Parallel()
-	rules := []LearnedPolicyRule{
-		exactRuleForPath(t, "1185da2688d7469aae9cd9068e920b0b", "/api/v1/items/one"),
-		exactRuleForPath(t, "2185da2688d7469aae9cd9068e920b0b", "/api/v1/items/two"),
-		exactRuleForPath(t, "3185da2688d7469aae9cd9068e920b0b", "/api/v1/items/three"),
-	}
-	items, err := PolicyCompactions(rules)
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated, selected, prefixRule, err := CompactLearnedPolicyRules(rules, items[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(updated) != 1 || prefixRule.Match != PolicyMatchPrefix ||
-		len(prefixRule.Examples) != 3 || len(prefixRule.SourceCandidates) != 3 ||
-		selected.OutsideCanary != "/api/v1/items-outside-tobari-canary" {
-		t.Fatalf("updated=%+v selected=%+v rule=%+v", updated, selected, prefixRule)
-	}
-	for _, example := range prefixRule.Examples {
-		if !prefixRule.Matches(prefixRule.ContextID, prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, example) {
-			t.Fatalf("prefix rule lost example %q", example)
-		}
-	}
-	if prefixRule.Matches(
-		prefixRule.ContextID, prefixRule.ProjectID, prefixRule.Host, prefixRule.Port, prefixRule.Method, selected.OutsideCanary,
-	) {
-		t.Fatal("prefix rule matched its outside boundary canary")
-	}
-	if _, _, _, err := CompactLearnedPolicyRules(
-		updated, selected.ID,
-	); err == nil {
-		t.Fatal("stale compaction reference was accepted")
-	}
 }
 
 func TestPolicyCandidateRejectsControlPathAndOpaqueKindMismatch(t *testing.T) {
@@ -792,11 +631,8 @@ func TestPolicyCandidateRejectsControlPathAndOpaqueKindMismatch(t *testing.T) {
 	if _, err := NewPolicyCandidate(denial); err == nil {
 		t.Fatal("control-bearing path became a candidate")
 	}
-	if err := ValidatePolicyCandidateID("pcx_0123456789abcdef0123456789abcdef"); err == nil {
-		t.Fatal("compaction reference was accepted as a candidate")
-	}
-	if err := ValidatePolicyCompactionID("pcy_0123456789abcdef0123456789abcdef"); err == nil {
-		t.Fatal("candidate reference was accepted as a compaction")
+	if err := ValidatePolicyCandidateID("plr_0123456789abcdef0123456789abcdef"); err == nil {
+		t.Fatal("policy-rule reference was accepted as a candidate")
 	}
 }
 
@@ -818,7 +654,7 @@ func TestPolicyReviewDecisionSetRequiresBoundedUniqueOpaqueChoices(t *testing.T)
 			CandidateID: valid.Decisions[0].CandidateID, Decision: "prompt",
 		}}},
 		"wrong reference kind": {Decisions: []PolicyReviewDecision{{
-			CandidateID: "pcx_0123456789abcdef0123456789abcdef", Decision: PolicyDecisionAllow,
+			CandidateID: "plr_0123456789abcdef0123456789abcdef", Decision: PolicyDecisionAllow,
 		}}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -856,7 +692,7 @@ func TestPolicyReviewChangeRequiresExactOrderedReceiptAndActiveRevision(t *testi
 		"missing revision":  func(change *PolicyReviewChange) { change.ActiveRevision = "" },
 		"count mismatch":    func(change *PolicyReviewChange) { change.AllowCount = 0 },
 		"wrong reference kind": func(change *PolicyReviewChange) {
-			change.Decisions[0].CandidateID = "pcx_0123456789abcdef0123456789abcdef"
+			change.Decisions[0].CandidateID = "plr_0123456789abcdef0123456789abcdef"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

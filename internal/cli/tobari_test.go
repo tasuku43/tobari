@@ -216,22 +216,13 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 		allow.Agent.Mutation.TargetIDInput != "--id" {
 		t.Fatalf("policy allow reference contract = %+v", allow)
 	}
-	compactions, found := catalog.Lookup("policy compactions")
-	if !found || compactions.Role != RoleDiscover ||
-		!reflect.DeepEqual(compactions.ProducedRefs(), []ProducedRef{{
-			Kind: tobari.PolicyCompactionKind, Field: "id",
-		}}) {
-		t.Fatalf("policy compactions reference contract = %+v", compactions.ProducedRefs())
-	}
-	compact, found := catalog.Lookup("policy compact")
-	if !found || compact.Role != RoleAct ||
-		!reflect.DeepEqual(compact.ConsumedRefs(), []ConsumedRef{{
-			Kind: tobari.PolicyCompactionKind, Argument: "--id",
-		}}) ||
-		compact.Agent.Mutation == nil ||
-		compact.Agent.Mutation.TargetKind != tobari.PolicyCompactionKind ||
-		compact.Agent.Mutation.TargetIDInput != "--id" {
-		t.Fatalf("policy compact reference contract = %+v", compact)
+	for _, retired := range []string{"policy compactions", "policy compact"} {
+		if _, found := catalog.Lookup(retired); found {
+			t.Fatalf("retired command %q remains in the public catalog", retired)
+		}
+		if _, found := catalog.lookupRegistered(retired); found {
+			t.Fatalf("retired command %q remains registered", retired)
+		}
 	}
 }
 
@@ -591,17 +582,6 @@ func TestPolicyRulesHumanStylesOnlyDecisionsAndResetCommands(t *testing.T) {
 	}
 	if strings.Contains(output, "policy review") || strings.Contains(output, "Next") {
 		t.Fatalf("policy rules output advertised a generic review after exact reset actions: %q", output)
-	}
-}
-
-func TestEmptyPolicyCompactionsPointsToCurrentRules(t *testing.T) {
-	t.Parallel()
-	output := string(renderPolicyCompactionsHuman(tobari.PolicyCompactionReport{
-		Task: tobari.TaskPolicyCompactions, PolicyDirectory: "/tmp/policy", Items: []tobari.PolicyCompaction{},
-	}, "tobari policy compact", false))
-	if !humanOutputHasRow(output, "Next", "tobari policy rules — Inspect the current learned decisions that determine compaction eligibility.") ||
-		strings.Contains(output, "policy candidates") {
-		t.Fatalf("empty policy compactions recovery = %q", output)
 	}
 }
 
@@ -1639,59 +1619,6 @@ func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 		strings.Contains(output, "policy review") {
 		t.Fatalf("deny output did not point to the active exact decision: %q", output)
 	}
-}
-
-func TestPolicyCompactionRendererShowsEvidenceAndExactAction(t *testing.T) {
-	t.Parallel()
-	rules := make([]tobari.LearnedPolicyRule, 0, 3)
-	for index, path := range []string{
-		"/api/v1/items/one", "/api/v1/items/two", "/api/v1/items/three",
-	} {
-		candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_" + strings.Repeat(string(rune('1'+index)), 32),
-			ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
-			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
-			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
-			Host: "mock-upstream", Port: 8080, Method: "POST", Path: path,
-			Reason: "request did not match an allow rule", StatusCode: 403,
-		}
-		rule, err := tobari.NewExactLearnedPolicyRule(candidate)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rules = append(rules, rule)
-	}
-	items, err := tobari.PolicyCompactions(rules)
-	if err != nil || len(items) != 1 {
-		t.Fatalf("compactions = %+v, error = %v", items, err)
-	}
-	report := tobari.PolicyCompactionReport{
-		Task: tobari.TaskPolicyCompactions, PolicyDirectory: "/tmp/config/tobari/policy",
-		Items: items,
-	}
-	output, err := renderPolicyCompactions(report, "tobari policy compact", successFormatJSON)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document policyCompactionsDocument
-	if err := json.Unmarshal(output, &document); err != nil {
-		t.Fatal(err)
-	}
-	if document.SchemaVersion != 1 || len(document.PolicyCompactions) != 1 {
-		t.Fatalf("compaction output = %+v", document)
-	}
-	item := document.PolicyCompactions[0]
-	if item.ID != items[0].ID || item.SourceRuleCount != 3 ||
-		item.ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
-		item.PathPrefix != "/api/v1/items/" ||
-		item.OutsideCanary != "/api/v1/items-outside-tobari-canary" ||
-		item.CompactCommand != "tobari policy compact --id "+items[0].ID {
-		t.Fatalf("compaction item = %+v", item)
-	}
-	spec, found := DefaultCatalog().Lookup("policy compactions")
-	if !found {
-		t.Fatal("policy compactions is absent")
-	}
-	assertJSONItemFieldsMatchCatalog(t, output, spec)
 }
 
 func TestPolicyLearningMutationRendererReportsStoredScope(t *testing.T) {
