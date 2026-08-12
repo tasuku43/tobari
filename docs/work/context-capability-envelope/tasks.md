@@ -58,7 +58,9 @@
       read-write/reviewed Context-bound Workspaces.
       Evidence pending runtime execution: store/spec tests and the integration
       journey create and inspect opposite same-root Context envelopes.
-- [ ] `task check` passes. Evidence:
+- [x] `task check` passes. Evidence: `mise exec -- task check` passed on
+      integrated V1 HEAD on 2026-08-12, including race tests, catalog/source/
+      generated checks, both site builds, and Playwright 40/40.
 - [x] `task security` passes. Evidence: `mise exec -- task security` passed on
       integrated V1 HEAD on 2026-08-12.
 - [ ] `task public:check` passes. Evidence: repoguard and contractlint passed;
