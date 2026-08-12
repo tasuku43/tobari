@@ -32,6 +32,7 @@ addon/credential_adapters.py
 addon/graphql_request.py
 addon/synthetic_dns.py
 addon/tobari_gateway.py
+addon/validated_file.py
 entrypoint.sh
 network-guard.sh
 requirements.txt

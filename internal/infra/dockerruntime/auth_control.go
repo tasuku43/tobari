@@ -76,7 +76,11 @@ func (r *Runtime) authProviderDirectory() string {
 }
 
 func (r *Runtime) authProviderProjectionPath() string {
-	return filepath.Join(r.stateDirectory, "auth", "projection", "providers.json")
+	return filepath.Join(r.authProviderProjectionDirectory(), "providers.json")
+}
+
+func (r *Runtime) authProviderProjectionDirectory() string {
+	return filepath.Join(r.stateDirectory, "auth", "projection")
 }
 
 func (r *Runtime) authContextsDirectory() string {

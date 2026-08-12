@@ -1284,7 +1284,7 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_POLICY_DIR="+state.PolicyDirectory,
 		"TOBARI_GATEWAY_CONFIG="+state.GatewayConfig,
 		"TOBARI_PRINCIPAL_DIR="+r.principalRegistryDirectory(),
-		"TOBARI_AUTH_PROVIDER_CONFIG="+r.authProviderProjectionPath(),
+		"TOBARI_AUTH_PROVIDER_DIR="+r.authProviderProjectionDirectory(),
 		"TOBARI_AUTH_CONTEXTS_DIR="+r.authContextsDirectory(),
 		"TOBARI_AUTH_RUNTIME_DIR="+r.authRuntimeDirectory(),
 		"TOBARI_ASSET_VERSION="+state.AssetVersion,

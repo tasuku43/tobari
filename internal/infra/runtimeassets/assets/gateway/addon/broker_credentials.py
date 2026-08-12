@@ -14,7 +14,6 @@ import json
 import os
 import re
 import socket
-import stat
 from dataclasses import dataclass
 from typing import Any, Callable
 from urllib.parse import unquote, urlsplit
@@ -25,6 +24,7 @@ from credential_adapters import (
     CONTROL_HEADERS, DEFAULT_SECRET_HEADERS, PROFILE_HEADER, CredentialAdapter,
     CredentialAdapterError, PreparedCredentialRequest,
 )
+from validated_file import StatIdentityCache, ValidatedFileError
 
 
 PROVIDER_SCHEMA_VERSION = 1
@@ -635,40 +635,41 @@ def validate_provider_projection(document: Any) -> dict[str, Any]:
     return projection
 
 
-def load_provider_projection(path: str) -> dict[str, Any]:
-    if not isinstance(path, str) or not path or not os.path.isabs(path) or os.path.normpath(path) != path:
-        raise BrokerCredentialUnavailable("provider projection path is invalid")
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(path, flags)
-        try:
-            info = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_uid != os.geteuid()
-                or stat.S_IMODE(info.st_mode) != 0o600
-            ):
-                raise BrokerCredentialUnavailable("provider projection file is invalid")
-            chunks: list[bytes] = []
-            remaining = MAX_PROVIDER_PROJECTION_BYTES + 1
-            while remaining:
-                chunk = os.read(descriptor, min(65536, remaining))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                remaining -= len(chunk)
-        finally:
-            os.close(descriptor)
-    except BrokerCredentialError:
-        raise
-    except OSError as error:
-        raise BrokerCredentialUnavailable("provider projection is unavailable") from error
-    raw = b"".join(chunks)
-    if not raw or len(raw) > MAX_PROVIDER_PROJECTION_BYTES:
-        raise BrokerCredentialUnavailable("provider projection size is invalid")
+def _parse_provider_projection(raw: bytes) -> dict[str, Any]:
     return validate_provider_projection(_decode_json(raw))
+
+
+class ProviderProjectionSource:
+    """Return the current validated projection without stale fallback."""
+
+    def __init__(self, path: str) -> None:
+        self._cache = StatIdentityCache(
+            path,
+            MAX_PROVIDER_PROJECTION_BYTES,
+            _parse_provider_projection,
+        )
+
+    def load(self) -> dict[str, Any]:
+        try:
+            return self._cache.load()
+        except BrokerCredentialError:
+            raise
+        except ValidatedFileError as error:
+            messages = {
+                "path_invalid": "provider projection path is invalid",
+                "file_invalid": "provider projection file is invalid",
+                "size_invalid": "provider projection size is invalid",
+                "changed": "provider projection changed while being read",
+            }
+            raise BrokerCredentialUnavailable(
+                messages.get(error.code, "provider projection is unavailable")
+            ) from error
+
+
+def load_provider_projection(path: str) -> dict[str, Any]:
+    """Load one projection; resident callers should retain its source."""
+
+    return ProviderProjectionSource(path).load()
 
 
 def _broker_response(payload: bytes) -> dict[str, Any]:
@@ -1492,14 +1493,18 @@ class BrokeredCredentialAdapter:
         socket_path: str,
         timeout: float,
         *,
-        projection_loader: Callable[[str], dict[str, Any]] = load_provider_projection,
+        projection_loader: Callable[[str], dict[str, Any]] | None = None,
         caller: Callable[[str, dict[str, Any], float], dict[str, Any]] = call_broker,
     ) -> None:
         self.fallback = fallback
         self.projection_path = projection_path
         self.socket_path = socket_path
         self.timeout = timeout
-        self.projection_loader = projection_loader
+        if projection_loader is None:
+            projection_source = ProviderProjectionSource(projection_path)
+            self.projection_loader = lambda _path: projection_source.load()
+        else:
+            self.projection_loader = projection_loader
         self.caller = caller
 
     def _call(self, request: dict[str, Any]) -> dict[str, Any]:

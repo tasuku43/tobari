@@ -70,6 +70,133 @@ def projection():
     }
 
 
+def atomic_json(path, document):
+    temporary = path + ".next"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(document, handle)
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+
+
+def principal_registry(workspace_ip="172.29.0.3"):
+    return {
+        "schema_version": 1,
+        "bindings": [
+            {
+                "project_id": PROJECT,
+                "context_id": CONTEXT,
+                "context": "default",
+                "project_root": "/workspace/project",
+                "workspace_ip": workspace_ip,
+                "gateway_ip": "172.29.0.2",
+                "network": "tobari-project-net",
+            }
+        ],
+    }
+
+
+class ValidatedRuntimeFileCacheTests(unittest.TestCase):
+    def test_provider_projection_caches_one_identity_and_revalidates_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "providers.json")
+            atomic_json(path, projection())
+            parser = broker._parse_provider_projection
+            with mock.patch.object(
+                broker, "_parse_provider_projection", wraps=parser
+            ) as validate:
+                source = broker.ProviderProjectionSource(path)
+                self.assertEqual(source.load(), projection())
+                self.assertEqual(source.load(), projection())
+                self.assertEqual(validate.call_count, 1)
+
+                atomic_json(path, projection())
+                self.assertEqual(source.load(), projection())
+                self.assertEqual(validate.call_count, 2)
+
+    def test_provider_projection_invalid_replacement_never_uses_cached_value(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "providers.json")
+            atomic_json(path, projection())
+            source = broker.ProviderProjectionSource(path)
+            self.assertEqual(source.load(), projection())
+
+            atomic_json(path, {})
+            with self.assertRaises(BrokerCredentialUnavailable):
+                source.load()
+            with self.assertRaises(BrokerCredentialUnavailable):
+                source.load()
+
+            atomic_json(path, projection())
+            self.assertEqual(source.load(), projection())
+
+    def test_provider_projection_rejects_symlink_replacement_and_recovers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "providers.json")
+            replacement = os.path.join(temporary, "replacement.json")
+            link = os.path.join(temporary, "providers.next")
+            atomic_json(path, projection())
+            atomic_json(replacement, projection())
+            source = broker.ProviderProjectionSource(path)
+            source.load()
+
+            os.symlink(replacement, link)
+            os.replace(link, path)
+            with self.assertRaises(BrokerCredentialUnavailable):
+                source.load()
+
+            atomic_json(path, projection())
+            self.assertEqual(source.load(), projection())
+
+    def test_principal_registry_caches_and_observes_atomic_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "principals.json")
+            atomic_json(path, principal_registry())
+            parser = gateway._parse_project_principals
+            with mock.patch.object(
+                gateway, "_parse_project_principals", wraps=parser
+            ) as validate:
+                source = gateway.PrincipalRegistrySource(path)
+                self.assertIn("172.29.0.3", source.load())
+                self.assertIn("172.29.0.3", source.load())
+                self.assertEqual(validate.call_count, 1)
+
+                atomic_json(path, principal_registry("172.29.0.4"))
+                current = source.load()
+                self.assertNotIn("172.29.0.3", current)
+                self.assertIn("172.29.0.4", current)
+                self.assertEqual(validate.call_count, 2)
+
+    def test_principal_registry_invalid_replacement_fails_closed_until_repaired(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "principals.json")
+            atomic_json(path, principal_registry())
+            source = gateway.PrincipalRegistrySource(path)
+            self.assertIn("172.29.0.3", source.load())
+
+            atomic_json(path, {"schema_version": 1, "bindings": "invalid"})
+            with self.assertRaises(gateway.PrincipalError):
+                source.load()
+            with self.assertRaises(gateway.PrincipalError):
+                source.load()
+
+            atomic_json(path, principal_registry("172.29.0.4"))
+            self.assertIn("172.29.0.4", source.load())
+
+    def test_principal_registry_permission_change_invalidates_cache(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "principals.json")
+            atomic_json(path, principal_registry())
+            source = gateway.PrincipalRegistrySource(path)
+            source.load()
+
+            os.chmod(path, 0o644)
+            with self.assertRaises(gateway.PrincipalError):
+                source.load()
+
+            os.chmod(path, 0o600)
+            self.assertIn("172.29.0.3", source.load())
+
+
 def metadata(binding, *, secret=None):
     result = {
         "schema_version": 1,
@@ -172,7 +299,7 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
             with open(provider_path, "w", encoding="utf-8") as handle:
                 json.dump(projection(), handle)
             with open(principal_path, "w", encoding="utf-8") as handle:
-                json.dump({"schema_version": 1, "projects": []}, handle)
+                json.dump({"schema_version": 1, "bindings": []}, handle)
             os.chmod(provider_path, 0o600)
             os.chmod(principal_path, 0o600)
             with mock.patch.dict(os.environ, {
@@ -192,7 +319,6 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
             addon.credential_adapter.caller = broker_call
             with (
                 mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "api.github.com", 443)),
-                mock.patch.object(gateway, "load_project_principals", return_value={}),
                 mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
                 mock.patch.object(gateway, "resolve_project_principal", return_value={
                     "project_id": PROJECT, "context_id": CONTEXT,
@@ -327,6 +453,7 @@ class ReviewedDynamicCredentialGatewayTests(unittest.TestCase):
                 },
                 handle,
             )
+        os.chmod(self.principal_path, 0o600)
         self.previous_principal_path = os.environ.get("TOBARI_PRINCIPAL_REGISTRY")
         os.environ["TOBARI_PRINCIPAL_REGISTRY"] = self.principal_path
         self.addCleanup(self.restore_principal_path)

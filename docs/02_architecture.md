@@ -323,8 +323,12 @@ daemon listens on
 `/run/tobari-auth/runtime/broker.sock`. Control operations enter the container
 through fixed `docker exec` argv and stdin. Gateway mounts only the runtime
 directory read-only. The provider projection is generated atomically from the
-built-in documents plus owner-only XDG user manifests and is mounted read-only
-into Gateway; neither the projection nor a provider manifest contains a secret.
+built-in documents plus owner-only XDG user manifests. Its dedicated parent
+directory is mounted read-only into Gateway so atomic replacement selects a new
+inode without recreating the service; neither the projection nor a provider
+manifest contains a secret. Gateway caches a validated projection only while
+its complete stat identity remains unchanged and fails closed, without a
+last-known-good fallback, when a replacement is invalid.
 
 The reviewed host drivers keep interactive provider-native execution on the
 trusted host. Each resolves and hashes one canonical executable from
@@ -511,7 +515,9 @@ future stronger runtime may supply the same binding through another adapter.
 Only its dedicated directory is mounted read-only into Gateway; lifecycle
 updates replace the registry file atomically inside that directory so a
 single-file bind mount cannot strand Gateway on an old inode or expose the
-neighboring credential configuration.
+neighboring credential configuration. Gateway caches a validated registry only
+while its complete stat identity remains unchanged and fails closed, without a
+last-known-good fallback, when a replacement is invalid.
 Logical Tobari and Context IDs are not trusted when echoed by a caller; Gateway
 derives both from the kernel-observed Workspace source endpoint and the exact
 host registry binding. Exact allow, deny, and reset

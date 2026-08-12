@@ -36,6 +36,7 @@ from graphql_request import (
     parse_graphql_post_request,
     validate_graphql_post_headers,
 )
+from validated_file import StatIdentityCache, ValidatedFileError
 
 MAX_GATEWAY_CONFIG_BYTES = 256 * 1024
 MAX_PRINCIPAL_CONFIG_BYTES = 256 * 1024
@@ -74,14 +75,7 @@ class UpstreamAddressError(Exception):
     """The upstream hostname cannot be bound to a safe resolved address."""
 
 
-def load_project_principals(path: str) -> dict[str, dict[str, str]]:
-    try:
-        with open(path, "rb") as handle:
-            raw = handle.read(MAX_PRINCIPAL_CONFIG_BYTES + 1)
-    except OSError as error:
-        raise PrincipalError("project principal registry could not be read") from error
-    if len(raw) > MAX_PRINCIPAL_CONFIG_BYTES:
-        raise PrincipalError("project principal registry is too large")
+def _parse_project_principals(raw: bytes) -> dict[str, dict[str, str]]:
     try:
         document = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -158,6 +152,42 @@ def load_project_principals(path: str) -> dict[str, dict[str, str]]:
             "project_root": project_root,
         }
     return result
+
+
+class PrincipalRegistrySource:
+    """Return the current validated registry without stale fallback."""
+
+    def __init__(self, path: str) -> None:
+        self._cache = StatIdentityCache(
+            path,
+            MAX_PRINCIPAL_CONFIG_BYTES,
+            _parse_project_principals,
+        )
+
+    def load(self) -> dict[str, dict[str, str]]:
+        try:
+            return self._cache.load()
+        except PrincipalError:
+            raise
+        except ValidatedFileError as error:
+            messages = {
+                "path_invalid": "project principal registry path is invalid",
+                "file_invalid": "project principal registry file is invalid",
+                "size_invalid": "project principal registry is too large",
+                "changed": "project principal registry changed while being read",
+            }
+            raise PrincipalError(
+                messages.get(
+                    error.code,
+                    "project principal registry could not be read",
+                )
+            ) from error
+
+
+def load_project_principals(path: str) -> dict[str, dict[str, str]]:
+    """Load one registry; resident callers should retain its source."""
+
+    return PrincipalRegistrySource(path).load()
 
 
 def resolve_project_principal(
@@ -705,6 +735,7 @@ class TobariGateway:
             "TOBARI_PRINCIPAL_REGISTRY",
             "/run/tobari/principal-registry/principals.json",
         )
+        self.principal_source = PrincipalRegistrySource(self.principal_path)
 
     def server_connect(self, data: Any) -> None:
         address = data.server.address
@@ -738,7 +769,7 @@ class TobariGateway:
             audit_path = redacted_audit_path(flow.request.url)
             audit_valid = True
             principal = resolve_project_principal(
-                flow, load_project_principals(self.principal_path)
+                flow, self.principal_source.load()
             )
             project_id = principal["project_id"]
             context_id = principal["context_id"]

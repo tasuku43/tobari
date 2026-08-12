@@ -784,8 +784,14 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 	if !strings.Contains(joined, "TOBARI_PRINCIPAL_DIR="+runtime.principalRegistryDirectory()) {
 		t.Fatalf("compose environment does not expose the dedicated principal directory: %s", joined)
 	}
+	if !strings.Contains(joined, "TOBARI_AUTH_PROVIDER_DIR="+runtime.authProviderProjectionDirectory()) {
+		t.Fatalf("compose environment does not expose the dedicated auth provider projection directory: %s", joined)
+	}
 	if strings.Contains(joined, "TOBARI_PRINCIPAL_CONFIG=") {
 		t.Fatal("compose environment still exposes the single-file principal configuration")
+	}
+	if strings.Contains(joined, "TOBARI_AUTH_PROVIDER_CONFIG=") {
+		t.Fatal("compose environment still exposes the single-file auth provider projection")
 	}
 }
 

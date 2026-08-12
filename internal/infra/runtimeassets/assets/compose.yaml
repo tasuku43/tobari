@@ -130,7 +130,7 @@ services:
       - public-ca:/run/tobari/ca-public
       - ${TOBARI_GATEWAY_CONFIG}:/run/tobari/config/gateway.json:ro
       - ${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro
-      - ${TOBARI_AUTH_PROVIDER_CONFIG}:/run/tobari/auth/providers.json:ro
+      - ${TOBARI_AUTH_PROVIDER_DIR}:/run/tobari/auth:ro
       - ${TOBARI_AUTH_RUNTIME_DIR}:/run/tobari-auth/runtime:ro
     networks:
       control: {}

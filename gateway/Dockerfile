@@ -39,11 +39,12 @@ COPY addon/credential_adapters.py /opt/tobari/credential_adapters.py
 COPY addon/broker_credentials.py /opt/tobari/broker_credentials.py
 COPY addon/graphql_request.py /opt/tobari/graphql_request.py
 COPY addon/synthetic_dns.py /opt/tobari/synthetic_dns.py
+COPY addon/validated_file.py /opt/tobari/validated_file.py
 COPY entrypoint.sh /opt/tobari/entrypoint.sh
 COPY network-guard.sh /opt/tobari/network-guard.sh
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/tobari-gateway/THIRD_PARTY_NOTICES.md
 
-RUN chmod 0444 /opt/tobari/tobari_gateway.py /opt/tobari/credential_adapters.py /opt/tobari/broker_credentials.py /opt/tobari/graphql_request.py /opt/tobari/synthetic_dns.py \
+RUN chmod 0444 /opt/tobari/tobari_gateway.py /opt/tobari/credential_adapters.py /opt/tobari/broker_credentials.py /opt/tobari/graphql_request.py /opt/tobari/synthetic_dns.py /opt/tobari/validated_file.py \
       /opt/tobari/requirements.txt /usr/share/doc/tobari-gateway/THIRD_PARTY_NOTICES.md \
     && chmod 0555 /opt/tobari/entrypoint.sh /opt/tobari/network-guard.sh
 
