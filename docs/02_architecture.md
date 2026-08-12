@@ -14,15 +14,16 @@ host
                                                                |      |      |
 internal control network:                              tobari-opa :8181 | Unix runtime socket
                                                                       tobari-auth-broker
-egress network:                                       Gateway and Auth Broker --> HTTPS
+egress network:                                       Gateway --> HTTPS
 ```
 
 Each Tobari joins only its dedicated internal network. OPA joins only the
 shared internal control network. Gateway joins every Tobari network plus
-control and egress. Auth Broker joins control and egress but has no TCP
-listener; Gateway reaches only its read-only mounted runtime Unix socket and
+control and egress. Auth Broker joins only control, has no TCP listener or
+provider egress, and performs no provider network call; Gateway reaches only
+its read-only mounted runtime Unix socket and
 host commands reach only fixed control operations. The reviewed GitHub CLI
-helper remains on the host and cannot be selected by a Workspace, request, or
+helper runs from the trusted host and cannot be selected by a Workspace, request, or
 owner manifest. Tobari and control networks
 use Docker's `internal` property; the egress network is the only network with
 an external route.

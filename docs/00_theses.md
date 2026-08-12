@@ -227,10 +227,12 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   passthrough route forwards Workspace-owned authentication or the broker route
   performs one exact replacement; proxy and Tobari control headers are not
   forwarded upstream.
-- One shared Auth Broker joins only control and egress, never a Workspace
-  network. Workspaces and OPA cannot address its runtime socket; only Gateway
-  mounts that socket. Host auth commands use bounded in-container control
-  operations and never expose a public broker TCP API.
+- One shared Auth Broker joins only the internal control network, never egress
+  or a Workspace network. It performs no provider network call. Workspaces and
+  OPA cannot address its runtime socket; only Gateway mounts that socket.
+  Gateway alone owns upstream egress after policy allow. Host GitHub acquisition
+  runs from the trusted host, while auth control uses bounded in-container
+  operations and never exposes a public broker TCP API.
 - The broker starts locked and retains the installation root key only in
   memory. Cluster reconciliation unlocks it with key bytes transferred through
   stdin. Context vaults are keyed by stable Context ID and bind their version

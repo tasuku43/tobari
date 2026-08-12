@@ -72,10 +72,11 @@ host CLI --two fixed global Git reads--> validated identity scalars --> Workspac
 
 Each Tobari joins only its dedicated internal network. OPA joins only an
 internal control network. Gateway has separate interfaces for every Tobari
-proxy network, control, and egress. Auth Broker joins control and egress but
-has no TCP listener and never joins a Tobari network. Only Gateway mounts its
-runtime Unix socket; host control uses a separate socket through fixed
-in-container operations.
+proxy network, control, and egress. Auth Broker joins control only, has no
+provider egress or TCP listener, performs no provider network call, and never
+joins a Tobari network. Only Gateway mounts its runtime Unix socket; host
+control uses a separate socket through fixed in-container operations. GitHub
+acquisition runs from the trusted host rather than through Broker egress.
 
 Each Workspace namespace has a verified output guard and default route through
 its exact Gateway project endpoint. The Gateway namespace redirects project
