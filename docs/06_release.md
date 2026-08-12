@@ -172,9 +172,21 @@ the requested revision, and creates a Release only when none exists. The
 workflow has no overwrite path.
 
 For a stable release, the audited checksum-pinned Formula is one Release asset.
-The workflow does not change `main`, create a Formula pull request, or mutate a
-tap. After the Release assets are independently verified and installed, the
-maintainer updates the Homebrew tap as a separate explicit external operation.
+After the immutable GitHub Release succeeds, the same protected workflow
+downloads that exact published `tobari.rb`, obtains a GitHub-App token scoped
+only to `tasuku43/homebrew-tap`, and opens a Formula-only pull request that
+updates `Formula/tobari.rb`. It never pushes tap `main` directly. The tap's own
+checks and trusted-bot policy decide merge. A dry run or prerelease has no tap
+write path. Stable publication is complete only when that tap pull request has
+been created successfully; installation availability follows its merge.
+
+The `release-publication` environment supplies `HOMEBREW_APP_ID` and
+`HOMEBREW_APP_KEY`. That GitHub App must be installed only where needed and
+have repository contents and pull-request write permission for
+`tasuku43/homebrew-tap`; the generated installation token names only that
+repository. The release repository's `GITHUB_TOKEN` is never used to push the
+tap. The shared tap's trusted-bot Formula-only checks remain an independent
+merge boundary.
 
 ## Ownership and security
 

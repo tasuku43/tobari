@@ -186,11 +186,12 @@ task release:check
 Also inspect generated diffs, dependency/license diffs, canonical Gateway/Auth
 Broker source equality, release archive checksums, archive-level SPDX SBOM,
 unsigned in-toto/SLSA metadata, Formula rendering, and the clean-environment
-Linux/Colima Quick Start. The paired `unpublished` component-image marker is an
-intentional blocker until reviewed multi-architecture V1 indexes exist.
+Linux/Colima Quick Start.
 
 Stop for explicit approval before pushing a branch or tag, publishing an OCI
-image, creating a GitHub Release, or updating a Homebrew tap. After component
-images are published and independently inspected, pin their immutable digests
-in one reviewed commit, rerun every gate, and only then publish the exact
-SemVer release artifacts.
+image, creating a GitHub Release, or updating a Homebrew tap. After approval,
+the protected workflow publishes and inspects the paired component indexes,
+generates their source-bound lock, injects it into the exact SemVer archives,
+and creates the immutable GitHub Release. A stable run must then create the
+Formula-only `tasuku43/homebrew-tap` pull request from the exact audited Formula
+asset; dry runs and prereleases must not cross that boundary.

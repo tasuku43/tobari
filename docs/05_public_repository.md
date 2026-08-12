@@ -173,6 +173,13 @@ both image references are immutable digests, and all revisions agree.
 
 See [Release](06_release.md) for the artifact workflow.
 
+Stable CLI distribution targets the shared `tasuku43/homebrew-tap` repository.
+The protected release workflow propagates the exact audited Formula asset into
+a Formula-only pull request using a GitHub App token restricted to that one
+repository. It does not render a second Formula authority in the tap or push
+tap `main` directly. Dry runs and prereleases cannot obtain the tap token or
+create that pull request.
+
 ## Automated and manual gates
 
 `task public:check` is required, but it cannot decide ownership, confidentiality context, trademark use, or whether an example reveals an internal process. The release owner records manual review evidence in the release work packet.

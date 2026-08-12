@@ -711,6 +711,11 @@ The test suite has complementary levels:
   Archive tests cover deterministic multi-entry order, canonical metadata,
   create-only output, regular-file identity checks, exact executable/license/
   optional-notice bytes, and independent reopen verification.
+  Release lint additionally proves that only stable protected publication may
+  cross into `tasuku43/homebrew-tap`, that its GitHub App token is scoped to
+  that repository, that the exact published Formula is propagated, and that
+  the mutation ends at a Formula-only pull request rather than a direct
+  `main` push.
 - Work-packet tests retain the Accepted compatibility state; reject unsupported
   status, unchecked GFM acceptance/tasks, malformed fence evasion, template or
   cyclic successor chains, and missing successors; and retain

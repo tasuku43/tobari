@@ -69,6 +69,12 @@ If that path contains a Tobari handle marker, the whole recorded path is the
 literal `/[redacted-auth-handle]`. Structural URL/header handle rejections are
 non-learnable and cannot become policy candidates.
 
+Stable macOS CLI releases are distributed through
+`tasuku43/homebrew-tap`. The release outcome is not closed at GitHub asset
+creation: the exact audited Formula must reach that tap through its reviewed
+pull-request boundary. Linux remains supported through the published archive
+or source build unless a Linux Homebrew Formula contract is added explicitly.
+
 ## Public vocabulary
 
 - **Tobari:** one long-lived logical untrusted execution environment selected

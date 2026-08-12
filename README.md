@@ -42,6 +42,17 @@ clone/overlay/apply-back, and process-level identity are outside V1.
 Windows CLI archives are buildable, but the Workspace runtime is not supported
 on Windows in V1.
 
+## Install a stable release on macOS
+
+After the first stable release is published through the shared tap:
+
+```sh
+brew install tasuku43/tap/tobari
+tobari version
+```
+
+Linux users install a published archive or build from source.
+
 ## Build from source
 
 ```sh
@@ -319,16 +330,14 @@ SLSA provenance metadata. These are integrity and auditable metadata, not a
 signature, dependency/layer inventory, vulnerability report, or independent
 builder proof.
 
-Official Gateway/Auth Broker V1 indexes remain `unpublished` until their Linux
-amd64/arm64 manifests are built, independently inspected, and pinned by digest.
-Public/release gates intentionally reject that marker.
-
 Preparation stops for explicit approval before any external mutation. Do not
 push a branch or tag, publish OCI images, create a GitHub Release, or update a
 Homebrew tap as part of local preparation. After approval, publish and inspect
-component images first, pin both immutable digests in one reviewed commit,
-rerun every gate, then push the exact SemVer tag and use the manual release
-workflow.
+the paired component images first. Their generated immutable lock is injected
+into every CLI archive without a digest-pin commit. The manual release workflow
+then creates the immutable GitHub Release and, for a stable version, opens a
+Formula-only pull request in `tasuku43/homebrew-tap` from the exact audited
+Formula asset. Dry runs and prereleases never mutate the tap.
 
 ## Security reports
 
