@@ -27,6 +27,10 @@
   Gateway static adapter code, Auth Broker vault/control paths, Docker
   lifecycle, status, embedded source snapshots, integration tests, images,
   release checks, and generated documentation.
+- Final public-surface review found one stale `context create` outcome that
+  still named the retired managed-credential store. The catalog now describes
+  the retained owner-only policy and brokered-authentication state directly;
+  generated agent help and architecture data derive the same wording.
 
 ## Constraints
 

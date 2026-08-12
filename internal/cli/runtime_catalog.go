@@ -226,7 +226,7 @@ func contextCreateSpec() CommandSpec {
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
-			Outcome:       "Create one named Context with separate owner-only policy and managed-credential stores",
+			Outcome:       "Create one named Context with separate owner-only policy and brokered-authentication state",
 			Inputs:        []CommandInput{contextNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), contextPolicyPresetInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The host Context directory is accessible."},

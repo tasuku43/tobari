@@ -47,6 +47,8 @@
       threat model, readiness journey, and EN/JA architecture pages distinguish
       Workspace-owned tool state from optional static Broker handles and never
       describe tool-owned credentials as host-managed or outside the Workspace.
+      Final catalog review also replaced the retired “managed-credential store”
+      outcome with the retained brokered-authentication state.
 - [x] Synchronize canonical and embedded sources only after implementation
       stabilizes. Evidence: the repository sync scripts generated both embedded
       snapshots and both source-equality checks passed.
@@ -87,8 +89,9 @@
       gate includes race tests and Playwright 40/40.
       `task public:check` passed repoguard and contractlint and stopped only at
       the deliberate unpublished Gateway digest checkpoint. The separate live
-      synthetic integration remains pending because the local Colima engine
-      could not start its new fixture container.
+      synthetic integration subsequently passed on the recovered local Colima
+      engine, including static import, deny-before-resolution, exact approval,
+      rotation, logout, and re-entry.
 - [x] Commit only this packet, integrate, and repeat verification. Evidence:
       the auth retirement was split into public/domain, canonical runtime,
       dormant managed-state, toolbox, and Broker-egress commits; each was
