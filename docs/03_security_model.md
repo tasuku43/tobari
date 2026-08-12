@@ -787,10 +787,12 @@ rejection are manual release checks. Tokens, codes, handles, and authenticated
 transcripts are never repository fixtures. Publication still requires
 `task security` and `task public:check`; neither replaces a human history and
 confidentiality review. The canonical Gateway source is the public `gateway/`
-tree; its embedded snapshot is byte-checked against the current source, while
+tree; its embedded Docker build-input snapshot is checked for exact membership
+and bytes against the current source, while
 each published image is inspected against the exact source revision that built
 it. The canonical Auth Broker source is the public `authbroker/` tree; its
-embedded snapshot is byte-checked against current source, and provider-CLI
+embedded Docker build-input snapshot is checked for exact membership and bytes,
+and provider-CLI
 absence, closed-plan protocol behavior, and multi-architecture metadata are checked
 for each image's recorded build revision. Pull-request image
 jobs have no package-write permission. GHCR

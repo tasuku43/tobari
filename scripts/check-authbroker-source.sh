@@ -2,13 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-source_dir=authbroker
-snapshot_dir=internal/infra/runtimeassets/assets/authbroker
+source scripts/lib/component-runtime-source.sh
 
-if ! diff -ru --exclude=__pycache__ --exclude='*.pyc' "$source_dir" "$snapshot_dir"; then
-  echo "Auth Broker source snapshot is stale; run ./scripts/sync-authbroker-source.sh" >&2
-  exit 1
-fi
+check_component_runtime_source authbroker
 
-echo "auth broker source snapshot: OK"
-
+echo "auth broker runtime-input snapshot: OK"

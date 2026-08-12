@@ -257,10 +257,13 @@ base definitions.
 
 Gateway follows the same monorepo pattern and is part of the CLI release unit. The
 canonical Dockerfile, addon, entrypoint, and tests live under `gateway/`; the
-Go binary embeds a checked snapshot at
+Go binary embeds a checked snapshot of only the Dockerfile, `.dockerignore`,
+and Dockerfile-declared image inputs at
 `internal/infra/runtimeassets/assets/gateway/`. The explicit
 `scripts/sync-gateway-source.sh` operation refreshes that snapshot and
-`scripts/check-gateway-source.sh` rejects drift. Compose and OPA remain under
+`scripts/check-gateway-source.sh` rejects byte, membership, or Docker `COPY`
+drift. Tests and contributor documentation stay canonical-only rather than
+inflating the distributed CLI or its development image identity. Compose and OPA remain under
 `internal/infra/runtimeassets/assets` because they are CLI-owned orchestration
 and policy inputs, not Gateway image contents. Pull-request workflows validate
 the canonical Linux amd64/arm64 build, while the manual release workflow
@@ -293,12 +296,14 @@ Neither implementation can consult CWD, project metadata, environment, or a
 moving registry tag. Cluster preflight compares this projection before state
 loading, asset materialization, journals, policy tests, or Docker calls.
 
-Auth Broker follows the same canonical-source/snapshot pattern as Gateway. Its
+Auth Broker follows the same canonical-source/runtime-input pattern as Gateway. Its
 editable Python package, Dockerfile, tests, and bridge/protocol source live
-under `authbroker/`; the Go binary embeds the checked
-snapshot at `internal/infra/runtimeassets/assets/authbroker/`.
+under `authbroker/`; the Go binary embeds the checked Docker build inputs, not
+the tests or contributor documentation, at
+`internal/infra/runtimeassets/assets/authbroker/`.
 `scripts/sync-authbroker-source.sh` refreshes the snapshot and
-`scripts/check-authbroker-source.sh` rejects byte drift. The source and image
+`scripts/check-authbroker-source.sh` rejects byte, membership, or Docker
+`COPY` drift. The source and image
 checks run the broker unit suite, prove that no provider CLI is installed, and
 build the fixed non-root image. Release assembly builds Linux amd64 and arm64
 and publishes the immutable commit tag beside Gateway. Routine startup uses

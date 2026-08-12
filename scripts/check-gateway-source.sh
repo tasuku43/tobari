@@ -3,8 +3,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 source_dir=gateway
-snapshot_dir=internal/infra/runtimeassets/assets/gateway
 dockerfile=$source_dir/Dockerfile
+
+source scripts/lib/component-runtime-source.sh
 
 test "$(grep -c 'io\.tobari\.gateway-api=\"1\"' "$dockerfile")" -eq 1
 test "$(grep -c 'io\.tobari\.gateway-role=\"enforcement\"' "$dockerfile")" -eq 1
@@ -14,9 +15,6 @@ test "$(grep -c -- '--mode transparent@15001' "$source_dir/entrypoint.sh")" -eq 
 test "$(grep -c -- '--mode regular' "$source_dir/entrypoint.sh" || true)" -eq 0
 test "$(grep -c 'dport 8080' "$source_dir/network-guard.sh" || true)" -eq 0
 
-if ! diff -ru "$source_dir" "$snapshot_dir"; then
-  echo "Gateway source snapshot is stale; run ./scripts/sync-gateway-source.sh" >&2
-  exit 1
-fi
+check_component_runtime_source gateway
 
-echo "gateway source snapshot: OK"
+echo "gateway runtime-input snapshot: OK"

@@ -45,6 +45,20 @@ func TestComponentVersionsUseFullContentDigest(t *testing.T) {
 	}
 }
 
+func TestComponentSnapshotsExcludeNonImageInputs(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"authbroker/README.md",
+		"authbroker/tests/test_broker.py",
+		"gateway/config.example.json",
+		"gateway/test_tobari_gateway.py",
+	} {
+		if _, err := Read(name); err == nil {
+			t.Errorf("non-image source %s is embedded in the runtime snapshot", name)
+		}
+	}
+}
+
 func TestTobariDockerfileDeclaresRuntimeContract(t *testing.T) {
 	t.Parallel()
 	data, err := Read("tobari/Dockerfile")

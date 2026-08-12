@@ -2,12 +2,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-source_dir=gateway
-snapshot_dir=internal/infra/runtimeassets/assets/gateway
+source scripts/lib/component-runtime-source.sh
 
-rm -rf -- "$snapshot_dir"
-mkdir -p "$snapshot_dir"
-cp -R -- "$source_dir/." "$snapshot_dir/"
+sync_component_runtime_source gateway
+snapshot_dir=internal/infra/runtimeassets/assets/gateway
 chmod 0755 "$snapshot_dir/entrypoint.sh"
 
 ./scripts/check-gateway-source.sh

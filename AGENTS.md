@@ -96,8 +96,9 @@ The Context-authentication slice follows it through `internal/app/authcmd`,
 `internal/domain/authbroker`, `internal/infra/authproviders`,
 `internal/infra/rootkey`, `internal/infra/dockerruntime`, and
 `internal/cli/auth.go`. The canonical Auth Broker Python source lives under
-`authbroker/`; its embedded runtime copy is a byte-checked snapshot, not a
-second editable implementation.
+`authbroker/`; its embedded runtime copy is a manifest- and byte-checked
+snapshot of Docker build inputs, not a second editable implementation or a
+copy of its tests and contributor documentation.
 
 ## Working method
 
