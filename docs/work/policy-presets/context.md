@@ -124,6 +124,13 @@ both sources. Preset endpoints must declare POST because Gateway's bounded V1
 GraphQL classifier has no GET/subscription transport contract; accepting and
 then silently dropping another method would make owner data misleading.
 
+The same reproduction found that reopening the Context store reconstructed a
+builtin manifest for an already-persisted `default` Context. A default Context
+created from a custom snapshot therefore failed later commands because the
+reconstructed revision disagreed with its immutable preset. Store completion
+now uses the validated persisted default manifest when one exists; builtin
+defaults are seed data only for a genuinely absent store.
+
 ## Security and public-boundary notes
 
 - Assets: outbound HTTP authority, denial/candidate semantics, Context policy

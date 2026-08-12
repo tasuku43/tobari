@@ -102,22 +102,8 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 	if _, err := os.Lstat(r.contextManifestPath(tobari.DefaultContextName)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect default Context manifest: %w", err)
 	}
-	defaultID := ""
-	if existing, err := r.readContextManifestRaw(tobari.DefaultContextName); err == nil {
-		defaultID = existing.ID
-	} else if !errors.Is(err, tobari.ErrContextNotFound) {
-		return err
-	}
-	if defaultID == "" {
-		var err error
-		defaultID, err = tobari.NewProductionContextID()
-		if err != nil {
-			return err
-		}
-	}
-	return r.initializeContextStoreUnlocked(tobari.ContextManifest{
+	defaultManifest := tobari.ContextManifest{
 		SchemaVersion:        tobari.ContextSchemaVersion,
-		ID:                   defaultID,
 		Name:                 tobari.DefaultContextName,
 		AgentProfile:         tobari.DefaultProfile,
 		Image:                image,
@@ -126,7 +112,20 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
 		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
 		ShellEnvironment:     tobari.InitialContextShellEnvironment(),
-	})
+	}
+	if existing, err := r.readContextManifestRaw(tobari.DefaultContextName); err == nil {
+		defaultManifest = existing
+	} else if !errors.Is(err, tobari.ErrContextNotFound) {
+		return err
+	}
+	if defaultManifest.ID == "" {
+		var err error
+		defaultManifest.ID, err = tobari.NewProductionContextID()
+		if err != nil {
+			return err
+		}
+	}
+	return r.initializeContextStoreUnlocked(defaultManifest)
 }
 
 // initializeContextStoreUnlocked completes mutation-owned initialization with

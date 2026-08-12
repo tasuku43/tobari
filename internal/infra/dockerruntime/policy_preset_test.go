@@ -136,3 +136,32 @@ func TestContextSnapshotsPresetAndIgnoresLaterSourceEdit(t *testing.T) {
 		t.Fatalf("snapshotted preset = %+v, %v", preset, err)
 	}
 }
+
+func TestDefaultContextCanReuseSnapshottedCustomPresetAfterSourceEdit(t *testing.T) {
+	runtime := newPolicyPresetTestRuntime(t)
+	if _, err := runtime.InitPolicyPreset(context.Background(), "snapshot"); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(runtime.policyPresetCustomDirectory(), "snapshot.json")
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(data), `"offline"`, `"reviewed_exact"`, 1)
+	if err := os.WriteFile(source, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.CreateContextWithPreset(context.Background(), tobari.DefaultContextName, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite, "custom/snapshot"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := runtime.UseContext(context.Background(), tobari.DefaultContextName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Active || report.PolicyPresetOrigin != "custom/snapshot" || report.PolicyGuardrail != tobari.PolicyPresetGuardrailReviewedExact {
+		t.Fatalf("reused custom preset Context = %+v", report)
+	}
+}

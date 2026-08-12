@@ -53,6 +53,10 @@
 - [x] Add owner-only custom preset paths, strict reader, atomic non-overwriting
       init, symlink/mode/race/size guards, and synthetic fixtures.
 - [x] Add Context snapshot identity/content and exact-V1 persistence.
+      Evidence: the store preserves an existing default Context's complete
+      custom-preset manifest during later initialization; a regression test
+      edits the origin after creation and proves `context use` still reads the
+      immutable reviewed-exact snapshot.
 
 ## Implement application and CLI
 
