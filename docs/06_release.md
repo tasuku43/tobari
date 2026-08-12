@@ -23,6 +23,22 @@ repository build retains version `dev` and embeds only the exact HEAD commit;
 the `tobari_dev` build is a distinct resolver artifact named
 `bin/tobari-dev`, not a release candidate.
 
+One complete CLI archive matrix is accompanied by three repository-generated
+metadata files. `checksums.txt` binds the exact five sorted archive names to
+SHA-256 digests. `sbom.spdx.json` is an SPDX 2.3 package inventory of those
+same archive subjects, their release URLs, versions, declared project license,
+and SHA-256 digests; `filesAnalyzed: false` states its deliberate archive-level
+coverage instead of implying a file or dependency analysis it did not perform.
+It is not a dependency, container-layer, or vulnerability inventory.
+`provenance.intoto.jsonl` is one unsigned in-toto Statement v1 with a SLSA
+provenance v1 predicate that binds the same subjects to the requested tag,
+reviewed source revision, target matrix, stable builder/workflow identity, and
+separate concrete local or CI invocation identity.
+The repository-owned `tools/releaseartifacts` command creates these files
+without network access or overwrite and verifies them by exact deterministic
+regeneration. Its normalized SPDX creation timestamp is reproducibility
+metadata, not publication time.
+
 Runtime assets are embedded in the binary and materialized into versioned state
 before Docker builds. The embedded Tobari, Gateway, Auth Broker, OPA policy, and compose
 inputs are therefore bound to the CLI source revision. Container base images
@@ -125,7 +141,7 @@ The current publication boundary therefore has one supported runtime family
 edge: the base image may use its reviewed moving development channels and
 immutable commit tag, while Claude and Codex variants are local/CI build
 artifacts only. The repository does not claim a public agent image, stable
-support window, SBOM/attestation, or redistribution approval until a new
+support window, image SBOM/attestation, or redistribution approval until a new
 release decision accepts those claims. The Gateway and Auth Broker source/image
 checks are implemented, but official immutable V1 indexes have not yet been
 published and reviewed. `versions.env` therefore records paired `unpublished`
@@ -139,9 +155,39 @@ and development images are not release authority. Codex and Claude runtime varia
 remain local/CI-only pending their separate redistribution and image-layer
 license decisions.
 
-Tobari does not yet claim code signing, notarization, SBOM attestation, or
+Tobari does not claim code signing, notarization, an SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact
-integrity but do not identify the builder.
+integrity but do not identify the builder. The SPDX document describes the
+archive packages but does not sign them, inventory OCI layers, or prove that
+another build reproduces them. The unsigned provenance statement records its
+declared source, parameters, subjects, and builder-run URI; without a trusted
+signature or transparency service, it remains auditable release metadata, not
+independent proof of builder identity.
+
+## Publication approval checkpoint
+
+Artifact preparation is a local, create-only operation. Before the first
+external mutation, the maintainer builds two independent archive matrices,
+regenerates and verifies the checksum/SBOM/provenance subjects, renders and
+audits the stable Formula, completes the required gates and manual reviews,
+records any intentional unpublished-image blocker, and stops for explicit
+approval. A local preparation command never pushes a branch or tag, publishes
+an OCI image, creates a GitHub Release, or updates a Homebrew tap.
+
+After approval, component images are published and independently inspected
+first. Their real immutable indexes are pinned in one reviewed source commit,
+all gates are rerun, and only then is the exact SemVer tag pushed. The Release
+workflow is manual `workflow_dispatch`, never a tag-push trigger. Its caller
+must supply the exact tag and full reviewed revision. `publish: false` performs
+only CI assembly; `publish: true` also requires approval through the protected
+`release-publication` environment, revalidates that the existing tag points to
+the requested revision, and creates a Release only when none exists. The
+workflow has no overwrite path.
+
+For a stable release, the audited checksum-pinned Formula is one Release asset.
+The workflow does not change `main`, create a Formula pull request, or mutate a
+tap. After the Release assets are independently verified and installed, the
+maintainer updates the Homebrew tap as a separate explicit external operation.
 
 ## Ownership and security
 

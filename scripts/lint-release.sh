@@ -47,7 +47,7 @@ git ls-files -co --exclude-standard -z -- '*.sh' |
     [[ -f $script ]] && printf '%s\0' "$script"
   done |
   xargs -0 shellcheck
-go test ./tools/archivepack ./tools/internal/releaseversion ./tools/releaseversion
+go test ./tools/archivepack ./tools/internal/releaseversion ./tools/releaseversion ./tools/releaseartifacts
 required_go=go$(awk '$1 == "go" { print $2 }' go.mod)
 actual_go=$(go env GOVERSION)
 if [[ $actual_go != "$required_go" ]]; then
@@ -89,10 +89,14 @@ grep -qF 'already exists; refusing to replace immutable release assets' .github/
   echo "release workflow does not fail closed when the tag already has a release" >&2
   exit 1
 }
-grep -A4 -F 'ref: main' .github/workflows/release.yml | grep -qF 'persist-credentials: false' || {
-  echo "Formula checkout persists workflow credentials" >&2
+if grep -qF 'peter-evans/create-pull-request' .github/workflows/release.yml; then
+  echo "release workflow must not mutate the Homebrew Formula branch implicitly" >&2
   exit 1
-}
+fi
+if grep -qE '^  push:' .github/workflows/release.yml; then
+  echo "release workflow must not publish implicitly from a pushed tag" >&2
+  exit 1
+fi
 
 for forbidden in 'git describe' '{{.VERSION}}' '{{.COMMIT}}'; do
   if grep -qF "$forbidden" Taskfile.yml; then
@@ -141,19 +145,22 @@ for forbidden in 'HOMEBREW_GITHUB_API_TOKEN' 'api.github.com/repos/' 'Authorizat
 done
 
 for required in \
+  'workflow_dispatch:' 'publish:' 'environment: release-publication' \
   './scripts/check.sh full' './scripts/check.sh security' './scripts/check.sh release' \
-  './scripts/check.sh public' './scripts/check.sh runtime' './scripts/package-release.sh' 'checksums.txt' \
-  'gh release create' 'Formula/' 'scripts/render-formula.sh'; do
+  './scripts/check.sh public' './scripts/check.sh runtime' './scripts/package-release.sh' \
+  './tools/releaseartifacts create' './tools/releaseartifacts verify' './tools/releaseartifacts verify-final' \
+  'checksums.txt' 'sbom.spdx.json' 'provenance.intoto.jsonl' \
+  'gh release create' 'scripts/render-formula.sh'; do
   grep -qF "$required" .github/workflows/release.yml || {
     echo "release workflow is missing: $required" >&2
     exit 1
   }
 done
 
-formula_job=$(awk '
-  /^  formula:/ { in_formula=1 }
-  in_formula && !/^  formula:/ && /^  [A-Za-z0-9_-]+:/ { exit }
-  in_formula { print }
+assemble_job=$(awk '
+  /^  assemble:/ { in_assemble=1 }
+  in_assemble && !/^  assemble:/ && /^  [A-Za-z0-9_-]+:/ { exit }
+  in_assemble { print }
 ' .github/workflows/release.yml)
 build_job=$(awk '
   /^  build:/ { in_build=1 }
@@ -161,35 +168,37 @@ build_job=$(awk '
   in_build { print }
 ' .github/workflows/release.yml)
 release_revision_ref="ref: \${{ needs.preflight.outputs.revision }}"
-formula_temp_ref="\${RUNNER_TEMP}/formula"
 printf '%s\n' "$build_job" | grep -A4 -F "$release_revision_ref" | grep -qF 'persist-credentials: false' || {
   echo "matrix build checkout is not fixed to the credential-free preflight revision" >&2
   exit 1
 }
 for required in \
   "$release_revision_ref" \
+  'runs-on: macos-15' './tools/releaseartifacts create' './tools/releaseartifacts verify' './tools/releaseartifacts verify-final' \
   './scripts/render-formula.sh' 'ruby -c' './scripts/audit-formula.sh' \
-  "$formula_temp_ref" 'ref: main' 'Stage audited Formula on main'; do
-  if ! printf '%s\n' "$formula_job" | grep -qF "$required"; then
-    echo "Formula job is missing its host-specific check: $required" >&2
+  'Upload complete release asset set'; do
+  if ! printf '%s\n' "$assemble_job" | grep -qF "$required"; then
+    echo "release assembly job is missing its host-specific check: $required" >&2
     exit 1
   fi
 done
-printf '%s\n' "$formula_job" | grep -A4 -F "$release_revision_ref" | grep -qF 'persist-credentials: false' || {
+printf '%s\n' "$assemble_job" | grep -A4 -F "$release_revision_ref" | grep -qF 'persist-credentials: false' || {
   echo "exact release source checkout persists workflow credentials" >&2
   exit 1
 }
-if printf '%s\n' "$formula_job" | grep -qF './scripts/check.sh release'; then
-  echo "Formula job must not repeat the Linux preflight release profile" >&2
+if printf '%s\n' "$assemble_job" | grep -qF './scripts/check.sh release'; then
+  echo "release assembly job must not repeat the Linux preflight release profile" >&2
   exit 1
 fi
-release_checkout_line=$(printf '%s\n' "$formula_job" | grep -n -m1 -F "$release_revision_ref" | cut -d: -f1)
-render_line=$(printf '%s\n' "$formula_job" | grep -n -m1 -F './scripts/render-formula.sh' | cut -d: -f1)
-audit_line=$(printf '%s\n' "$formula_job" | grep -n -m1 -F './scripts/audit-formula.sh' | cut -d: -f1)
-main_checkout_line=$(printf '%s\n' "$formula_job" | grep -n -m1 -F 'ref: main' | cut -d: -f1)
-stage_line=$(printf '%s\n' "$formula_job" | grep -n -m1 -F 'Stage audited Formula on main' | cut -d: -f1)
-if ((release_checkout_line >= render_line || render_line >= audit_line || audit_line >= main_checkout_line || main_checkout_line >= stage_line)); then
-  echo "Formula must be rendered and audited at the release revision before its output is staged on main" >&2
+release_checkout_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F "$release_revision_ref" | cut -d: -f1)
+metadata_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F './tools/releaseartifacts create' | cut -d: -f1)
+verify_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F './tools/releaseartifacts verify' | cut -d: -f1)
+render_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F './scripts/render-formula.sh' | cut -d: -f1)
+audit_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F './scripts/audit-formula.sh' | cut -d: -f1)
+final_verify_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F './tools/releaseartifacts verify-final' | cut -d: -f1)
+upload_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F 'Upload complete release asset set' | cut -d: -f1)
+if ((release_checkout_line >= metadata_line || metadata_line >= verify_line || verify_line >= render_line || render_line >= audit_line || audit_line >= final_verify_line || final_verify_line >= upload_line)); then
+  echo "release metadata and Formula must be generated and verified at the release revision before upload" >&2
   exit 1
 fi
 
@@ -447,6 +456,23 @@ if ! cmp -s "$expected_assets" "$repro_assets"; then
   exit 1
 fi
 
+synthetic_builder=https://example.com/tobari/release-dry-run/v1
+synthetic_invocation=https://example.com/tobari/release-dry-run/invocations/1
+env GOPROXY=off GOSUMDB=off go run ./tools/releaseartifacts create \
+  "$release_tag" "$release_revision" "$synthetic_builder" "$synthetic_invocation" "$dist"
+env GOPROXY=off GOSUMDB=off go run ./tools/releaseartifacts verify \
+  "$release_tag" "$release_revision" "$synthetic_builder" "$synthetic_invocation" "$dist"
+env GOPROXY=off GOSUMDB=off go run ./tools/releaseartifacts create \
+  "$release_tag" "$release_revision" "$synthetic_builder" "$synthetic_invocation" "$repro_dist"
+env GOPROXY=off GOSUMDB=off go run ./tools/releaseartifacts verify \
+  "$release_tag" "$release_revision" "$synthetic_builder" "$synthetic_invocation" "$repro_dist"
+for metadata in checksums.txt sbom.spdx.json provenance.intoto.jsonl; do
+  if ! cmp -s "$dist/$metadata" "$repro_dist/$metadata"; then
+    echo "release metadata is not byte-for-byte deterministic: $metadata" >&2
+    exit 1
+  fi
+done
+
 # The package command is create-only. This negative check reaches the collision
 # guard before another build, so the two verified matrices above remain the
 # only builds performed by this profile.
@@ -462,11 +488,25 @@ if [[ $first_digest_before != "$first_digest_after" ]]; then
   exit 1
 fi
 
+metadata_digests_before=$release_root/metadata-digests-before.txt
+metadata_digests_after=$release_root/metadata-digests-after.txt
+for metadata in checksums.txt provenance.intoto.jsonl sbom.spdx.json; do
+  printf '%s  %s\n' "$(sha256_of "$dist/$metadata")" "$metadata" >>"$metadata_digests_before"
+done
+if env GOPROXY=off GOSUMDB=off go run ./tools/releaseartifacts create \
+  "$release_tag" "$release_revision" "$synthetic_builder" "$synthetic_invocation" "$dist" >/dev/null 2>&1; then
+  echo "releaseartifacts overwrote existing metadata" >&2
+  exit 1
+fi
+for metadata in checksums.txt provenance.intoto.jsonl sbom.spdx.json; do
+  printf '%s  %s\n' "$(sha256_of "$dist/$metadata")" "$metadata" >>"$metadata_digests_after"
+done
+if ! cmp -s "$metadata_digests_before" "$metadata_digests_after"; then
+  echo "releaseartifacts changed existing metadata on collision" >&2
+  exit 1
+fi
+
 checksums=$dist/checksums.txt
-: >"$checksums"
-while IFS= read -r asset; do
-  printf '%s  %s\n' "$(sha256_of "$dist/$asset")" "$asset" >>"$checksums"
-done <"$expected_assets"
 if [[ $(wc -l <"$checksums" | tr -d ' ') -ne 5 ]]; then
   echo "checksums.txt does not contain exactly five archives" >&2
   exit 1
@@ -488,7 +528,7 @@ while read -r digest asset extra; do
   fi
 done <"$checksums"
 
-formula=$release_root/${binary}.rb
+formula=$dist/${binary}.rb
 repository_url=https://github.com/tasuku43/tobari
 scripts/render-formula.sh "$release_tag" "$repository_url" "$checksums" "$formula" >/dev/null
 test -s "$formula"
@@ -517,6 +557,8 @@ if ! command -v ruby >/dev/null 2>&1; then
   exit 1
 fi
 ruby -c "$formula" >/dev/null
+env GOPROXY=off GOSUMDB=off go run ./tools/releaseartifacts verify-final \
+  "$release_tag" "$release_revision" "$synthetic_builder" "$synthetic_invocation" "$dist"
 
 scripts/test-audit-formula.sh >/dev/null
 
