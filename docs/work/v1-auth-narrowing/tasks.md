@@ -75,13 +75,14 @@
       credential check, projection name, and companion state were removed;
       `.harness/schemas.json` records the reviewed replacement byte count and
       SHA-256 values.
-- [ ] Record `task check`, `task security`, and `task public:check` evidence.
-      Evidence: `mise exec -- task check:fast` and `mise exec -- task security`
-      passed after full auth/policy/site integration on 2026-08-12.
+- [x] Record `task check`, `task security`, and `task public:check` evidence.
+      Evidence: `mise exec -- task check` and `mise exec -- task security`
+      passed after full auth/policy/site integration on 2026-08-12; the full
+      gate includes race tests and Playwright 40/40.
       `task public:check` passed repoguard and contractlint and stopped only at
-      the deliberate unpublished Gateway digest checkpoint. Full check remains
-      a final integration gate because the local Colima engine could not start
-      the new synthetic fixture container.
+      the deliberate unpublished Gateway digest checkpoint. The separate live
+      synthetic integration remains pending because the local Colima engine
+      could not start its new fixture container.
 - [x] Commit only this packet, integrate, and repeat verification. Evidence:
       the auth retirement was split into public/domain, canonical runtime,
       dormant managed-state, toolbox, and Broker-egress commits; each was
