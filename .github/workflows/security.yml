@@ -27,5 +27,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - uses: ./.github/actions/setup-repository-node
+
       - name: Run the canonical security gate
         run: ./scripts/check.sh security
