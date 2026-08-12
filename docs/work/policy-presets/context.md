@@ -131,6 +131,19 @@ reconstructed revision disagreed with its immutable preset. Store completion
 now uses the validated persisted default manifest when one exists; builtin
 defaults are seed data only for a genuinely absent store.
 
+The integrated Docker journey then exposed two enforcement-boundary gaps that
+focused projection tests could not reveal. First, denial/candidate/rule domain
+objects retained the exact request scheme while their CLI JSON, TSV, and human
+projections omitted it, making `http` and `https` effects impossible for an
+agent to distinguish without inference. Those public surfaces and catalog
+fields now carry the scheme explicitly. Second, the deferred GraphQL request
+path retained the scheme in metadata but failed to restore it before emitting
+a denied audit and response. The resulting exception occurred after OPA had
+denied and allowed mitmproxy to continue upstream. The Gateway now restores the
+trusted scheme before any GraphQL policy outcome, with a negative unit test
+and the full Docker journey proving denial creates exact per-root candidates
+while committing no upstream request.
+
 ## Security and public-boundary notes
 
 - Assets: outbound HTTP authority, denial/candidate semantics, Context policy

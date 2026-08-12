@@ -147,17 +147,24 @@
       equality, and focused Go tests for domain, application, runtime, and CLI.
       The integration journey then passed exact brokered approval and security
       canaries before stopping at the parent release journey's stale assumption
-      of an implicit `mock-upstream` grant.
+      of an implicit `mock-upstream` grant. The corrected explicit journey then
+      exposed and fixed a deferred GraphQL deny fail-open caused by dropping the
+      trusted scheme between request-header and body processing. Gateway 28/28
+      tests now include a no-upstream-commit denial canary, and `mise exec --
+      task integration:test` completed with `integration: OK`, including live
+      preset snapshot projection and independent exact GraphQL root review.
 - [x] `task check` passes. Evidence: `mise exec -- task check` passed on
       integrated V1 HEAD on 2026-08-12, including all Go tests with race,
       generated/catalog/source checks, both site builds, and Playwright 40/40;
       it passed again after making scheme mandatory across the denial,
-      candidate, rule, receipt, and pinned-fixture boundaries.
+      candidate, rule, receipt, and pinned-fixture boundaries, and after the
+      GraphQL deferred-denial fix plus public scheme projection.
 - [x] `task check:fast` passes. Evidence: `mise exec -- task check:fast`
       passed after preset/auth/policy/site integration on 2026-08-12.
 - [x] `task security` passes. Evidence: `mise exec -- task security` passed on
       the same integration branch and again after the scheme-bound Gateway
-      audit correction.
+      audit correction; it passed again after the GraphQL no-upstream-commit
+      canary was integrated.
 - [ ] `task public:check` passes. Evidence: repoguard and contractlint passed;
       the gate stopped only at the deliberate unpublished Gateway digest
       checkpoint.

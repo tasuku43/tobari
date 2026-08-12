@@ -464,8 +464,8 @@ func selectPolicyRuleDetailLine(
 
 func policyRuleRequest(rule tobari.PolicyRule) string {
 	request := fmt.Sprintf(
-		"%s:%d %s %s",
-		safeExternalText(rule.Host), rule.Port,
+		"%s://%s:%d %s %s",
+		safeExternalText(rule.Scheme), safeExternalText(rule.Host), rule.Port,
 		safeExternalText(rule.Method), safeExternalText(rule.Path),
 	)
 	if coordinate := policyGraphQLCoordinate(rule.PolicyProtocolIdentity); coordinate != "" {

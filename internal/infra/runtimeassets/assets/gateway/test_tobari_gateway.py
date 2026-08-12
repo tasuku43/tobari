@@ -2,6 +2,7 @@ import copy
 import json
 import os
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -198,6 +199,47 @@ class StaticBrokerGatewayTests(unittest.TestCase):
             self.assertEqual(audit.call_args.kwargs["scheme"], "https")
             self.assertEqual(flow.response.status_code, 403)
             self.assertNotIn("authorization", flow.request.headers)
+
+    def test_graphql_policy_denial_preserves_scheme_and_never_commits_upstream(self):
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.cluster = "default"
+        addon.opa_url = "http://opa.invalid/decision"
+        addon.opa_timeout = 2
+        request = http.Request.make(
+            "POST",
+            "https://graphql.example.com/graphql",
+            content=b'{"query":"mutation { closeIssue updateIssue }"}',
+            headers={"content-type": "application/json"},
+        )
+        flow = tflow.tflow(req=request)
+        credential_request = mock.Mock(secret_headers=set(), broker_provider=None)
+        pending = {
+            "started": time.monotonic(),
+            "request_id": "a" * 32,
+            "scheme": "https",
+            "host": "graphql.example.com",
+            "port": 443,
+            "audit_path": "/graphql",
+            "principal": {
+                "project_id": PROJECT, "context_id": CONTEXT,
+                "context": "default", "project_root": "/workspace/project",
+            },
+            "credential_request": credential_request,
+        }
+        with (
+            mock.patch.object(gateway, "query_opa", return_value=gateway.Decision(
+                allow=False, reason="review required", status_code=403,
+                learnable=True,
+            )),
+            mock.patch.object(gateway, "commit_upstream_authority") as commit,
+            mock.patch.object(gateway, "_audit") as audit,
+        ):
+            addon._complete_graphql_request(flow, pending)
+        credential_request.apply.assert_not_called()
+        commit.assert_not_called()
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertEqual(len(audit.call_args_list), 2)
+        self.assertTrue(all(call.kwargs["scheme"] == "https" for call in audit.call_args_list))
 
     def test_broker_error_maps_only_static_binding_failures(self):
         with self.assertRaises(broker.BrokerCredentialBindingError):

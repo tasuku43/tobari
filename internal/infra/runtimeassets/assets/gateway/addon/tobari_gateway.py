@@ -873,6 +873,7 @@ class TobariGateway:
         request_id = pending["request_id"]
         principal = pending["principal"]
         credential_request = pending["credential_request"]
+        scheme = pending["scheme"]
         host = pending["host"]
         port = pending["port"]
         audit_path = pending["audit_path"]

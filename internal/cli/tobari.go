@@ -718,6 +718,7 @@ type policyDenialOutput struct {
 	Context              string `json:"context"`
 	ProjectID            string `json:"project_id"`
 	ProjectRoot          string `json:"project_root"`
+	Scheme               string `json:"scheme"`
 	Host                 string `json:"host"`
 	Port                 int    `json:"port"`
 	Method               string `json:"method"`
@@ -738,6 +739,7 @@ type policyCandidateOutput struct {
 	Context              string `json:"context"`
 	ProjectID            string `json:"project_id"`
 	ProjectRoot          string `json:"project_root"`
+	Scheme               string `json:"scheme"`
 	Host                 string `json:"host"`
 	Port                 int    `json:"port"`
 	Method               string `json:"method"`
@@ -769,6 +771,7 @@ type policyRuleOutput struct {
 	Context              string   `json:"context"`
 	ProjectID            string   `json:"project_id"`
 	ProjectRoot          string   `json:"project_root"`
+	Scheme               string   `json:"scheme"`
 	Host                 string   `json:"host"`
 	Port                 int      `json:"port"`
 	Method               string   `json:"method"`
@@ -825,9 +828,9 @@ func renderPolicyCandidatesWithColor(
 		action := allowCommand + " --id " + item.ID
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
-			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Host),
-			item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
+			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
+			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme),
+			escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
 			item.StatusCode, escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
 			escapeTSVCell(item.EffectiveProtocol()), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField),
 		)
@@ -844,7 +847,7 @@ func policyCandidateOutputs(
 			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt), ObservationCount: item.EffectiveObservationCount(),
 			ContextID: item.ContextID, Context: safeExternalText(item.ContextName),
 			ProjectID: item.ProjectID, ProjectRoot: safeExternalText(item.ProjectRoot),
-			Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
+			Scheme: safeExternalText(item.Scheme), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			Path: safeExternalText(item.Path), Protocol: safeExternalText(item.EffectiveProtocol()),
 			GraphQLOperationType: safeExternalText(item.GraphQLOperationType), GraphQLRootField: safeExternalText(item.GraphQLRootField),
 			Reason:       safeExternalText(item.Reason),
@@ -875,7 +878,7 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 		output.row("Context", safeExternalText(item.ContextName), styleText)
 		output.row("Context ID", item.ContextID, styleText)
 		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
-		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
+		request := fmt.Sprintf("%s://%s:%d %s %s", safeExternalText(item.Scheme), safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
 		output.row("Request", request, styleText)
 		writePolicyGraphQLIdentity(output, item.PolicyProtocolIdentity)
 		output.row("Candidate ID", item.ID, styleText)
@@ -941,7 +944,7 @@ func renderPolicyReviewHuman(
 		output.section(fmt.Sprintf("Permission %d", index+1))
 		output.row("Context", safeExternalText(item.ContextName), styleText)
 		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
-		request := fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
+		request := fmt.Sprintf("%s://%s:%d %s %s", safeExternalText(item.Scheme), safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
 		output.row("Request", request, styleText)
 		writePolicyGraphQLIdentity(output, item.PolicyProtocolIdentity)
 		output.row("Observed", policyCandidateObservationText(item), styleText)
@@ -1001,7 +1004,7 @@ func policyReviewDecisionLabel(decision string) string {
 
 func policyReviewAppliedEffect(decision tobari.PolicyReviewAppliedDecision) string {
 	effect := fmt.Sprintf(
-		"%s %s:%d%s", safeExternalText(decision.Method), safeExternalText(decision.Host),
+		"%s %s://%s:%d%s", safeExternalText(decision.Method), safeExternalText(decision.Scheme), safeExternalText(decision.Host),
 		decision.Port, safeExternalText(decision.Path),
 	)
 	if coordinate := policyGraphQLCoordinate(decision.PolicyProtocolIdentity); coordinate != "" {
@@ -1031,8 +1034,8 @@ func renderPolicyRulesWithCommands(
 	for _, item := range items {
 		fmt.Fprintf(
 			&output,
-			"id=%s\tdecision=%s\tmatch=%s\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
-			item.ID, item.Decision, item.Match, item.ContextID, escapeTSVCell(item.Context), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Host), item.Port,
+			"id=%s\tdecision=%s\tmatch=%s\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
+			item.ID, item.Decision, item.Match, item.ContextID, escapeTSVCell(item.Context), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port,
 			escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(strings.Join(item.Examples, ",")),
 			escapeTSVCell(strings.Join(item.SourceCandidates, ",")), escapeTSVCell(item.ResetCommand), escapeTSVCell(item.Protocol),
 			escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField),
@@ -1051,7 +1054,7 @@ func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []po
 		items = append(items, policyRuleOutput{
 			ID: rule.ID, Decision: rule.Decision, Match: safeExternalText(rule.Match),
 			ContextID: rule.ContextID, Context: safeExternalText(rule.ContextName),
-			ProjectID: rule.ProjectID, ProjectRoot: safeExternalText(rule.ProjectRoot), Host: safeExternalText(rule.Host), Port: rule.Port,
+			ProjectID: rule.ProjectID, ProjectRoot: safeExternalText(rule.ProjectRoot), Scheme: safeExternalText(rule.Scheme), Host: safeExternalText(rule.Host), Port: rule.Port,
 			Method: safeExternalText(rule.Method), Path: safeExternalText(rule.Path), Protocol: safeExternalText(rule.EffectiveProtocol()),
 			GraphQLOperationType: safeExternalText(rule.GraphQLOperationType), GraphQLRootField: safeExternalText(rule.GraphQLRootField),
 			Examples: examples, SourceCandidates: append([]string{}, rule.SourceCandidates...),
@@ -1136,7 +1139,7 @@ func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bo
 	output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
 	output.row("Tobari", safeExternalText(result.Rule.ProjectRoot), styleText)
 	output.row("Request", fmt.Sprintf(
-		"%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port,
+		"%s://%s:%d %s %s", safeExternalText(result.Rule.Scheme), safeExternalText(result.Rule.Host), result.Rule.Port,
 		safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
 	), styleText)
 	writePolicyGraphQLIdentity(output, result.Rule.PolicyProtocolIdentity)
@@ -1162,7 +1165,7 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 	output.row("Context ID", result.Rule.ContextID, styleText)
 	output.row("Tobari", safeExternalText(result.Rule.ProjectRoot), styleText)
 	output.row("Match", safeExternalText(result.Rule.Match), styleText)
-	output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port, safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path)), styleText)
+	output.row("Request", fmt.Sprintf("%s://%s:%d %s %s", safeExternalText(result.Rule.Scheme), safeExternalText(result.Rule.Host), result.Rule.Port, safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path)), styleText)
 	writePolicyGraphQLIdentity(output, result.Rule.PolicyProtocolIdentity)
 	output.row("Project ID", safeExternalText(result.Rule.ProjectID), styleText)
 	output.row("Protocol", safeExternalText(result.Rule.EffectiveProtocol()), styleText)
@@ -1182,7 +1185,7 @@ func renderPolicyDenyChangeWithColor(result tobari.PolicyDenyChange, color bool)
 	output.row("Rule ID", result.Rule.ID, styleText)
 	output.row("Context ID", result.Rule.ContextID, styleText)
 	output.row("Request", fmt.Sprintf(
-		"%s:%d %s %s", safeExternalText(result.Rule.Host), result.Rule.Port,
+		"%s://%s:%d %s %s", safeExternalText(result.Rule.Scheme), safeExternalText(result.Rule.Host), result.Rule.Port,
 		safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
 	), styleText)
 	writePolicyGraphQLIdentity(output, result.Rule.PolicyProtocolIdentity)
@@ -1218,7 +1221,7 @@ func renderClusterDenialsWithReviewCommand(
 				Timestamp: safeExternalText(item.Timestamp), RequestID: safeExternalText(item.RequestID),
 				ContextID: item.ContextID, Context: safeExternalText(item.ContextName),
 				ProjectID: item.ProjectID, ProjectRoot: safeExternalText(item.ProjectRoot),
-				Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method), Path: safeExternalText(item.Path),
+				Scheme: safeExternalText(item.Scheme), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method), Path: safeExternalText(item.Path),
 				Protocol: safeExternalText(item.EffectiveProtocol()), GraphQLOperationType: safeExternalText(item.GraphQLOperationType),
 				GraphQLRootField: safeExternalText(item.GraphQLRootField), Reason: safeExternalText(item.Reason), StatusCode: item.StatusCode,
 				Learnable: item.Learnable,
@@ -1249,10 +1252,10 @@ func renderClusterDenialsWithReviewCommand(
 	for _, item := range result.Items {
 		fmt.Fprintf(
 			&output,
-			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tproject_id=%s\tproject_root=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
+			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
 			escapeTSVCell(item.Timestamp), escapeTSVCell(item.RequestID),
 			escapeTSVCell(item.ContextName), item.ContextID, item.ProjectID, escapeTSVCell(item.ProjectRoot),
-			escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
+			escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.Path), item.StatusCode, escapeTSVCell(item.Reason), escapeTSVCell(item.EffectiveProtocol()),
 			escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField),
 		)
@@ -1281,7 +1284,7 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 		output.row("Context", safeExternalText(item.ContextName), styleText)
 		output.row("Context ID", item.ContextID, styleText)
 		output.row("Tobari", safeExternalText(item.ProjectRoot), styleText)
-		output.row("Request", fmt.Sprintf("%s:%d %s %s", safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path)), styleText)
+		output.row("Request", fmt.Sprintf("%s://%s:%d %s %s", safeExternalText(item.Scheme), safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path)), styleText)
 		writePolicyGraphQLIdentity(output, item.PolicyProtocolIdentity)
 		output.row("Timestamp", safeExternalText(item.Timestamp), styleText)
 		output.row("Request ID", item.RequestID, styleText)

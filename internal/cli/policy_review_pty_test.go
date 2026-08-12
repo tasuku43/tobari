@@ -96,7 +96,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 			"Tobari · Permission Inbox",
 			"1 pending permission in 1 Tobari",
 			"default · /workspace/project",
-			"POST   api.example.com:443/repos/example/issues",
+			"POST   https://api.example.com:443/repos/example/issues",
 			"Selected",
 			"Observed 1 time · Latest 2026-08-02T10:00:00Z",
 			"Permission 1 of 1",

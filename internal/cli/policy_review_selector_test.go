@@ -97,7 +97,7 @@ func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
 		applyStyleToken(true, styleAccent, "Tobari · Permission Inbox"),
 		applyStyleToken(true, styleWarning, "2 pending permissions in 2 Tobari"),
 		applyStyleToken(true, styleText, "default · /workspace/project"),
-		"POST   api.github.com:443/repos/example/issues",
+		"POST   https://api.github.com:443/repos/example/issues",
 		applyStyleToken(true, styleMuted, "3×"),
 		applyStyleToken(true, styleMuted, "Selected"),
 		"Latest 2026-08-02T10:00:00Z",
@@ -114,7 +114,7 @@ func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
 	}
 	for _, want := range []string{
 		applyStyleToken(true, styleAccent, "Permission 1 of 2"),
-		"api.github.com:443 POST /repos/example/issues",
+		"https://api.github.com:443 POST /repos/example/issues",
 		applyStyleToken(true, styleDanger, "403"),
 		"3 times",
 		"2026-08-02T10:00:00Z",
@@ -154,8 +154,8 @@ func TestPolicyReviewSelectorGroupsByStableScopeAndKeepsEffectOrderWithinGroup(t
 		strings.Count(text, "restricted · /workspace/project") != 1 {
 		t.Fatalf("scope headings were not grouped once: %q", text)
 	}
-	firstEffect := strings.Index(text, "POST   api.github.com:443/repos/example/issues")
-	secondEffect := strings.Index(text, "GET    api.github.com:443/notifications")
+	firstEffect := strings.Index(text, "POST   https://api.github.com:443/repos/example/issues")
+	secondEffect := strings.Index(text, "GET    https://api.github.com:443/notifications")
 	restricted := strings.Index(text, "restricted · /workspace/project")
 	if firstEffect < 0 || secondEffect <= firstEffect || restricted <= secondEffect {
 		t.Fatalf("effect order is not stable within grouped scopes: %q", text)
@@ -163,7 +163,7 @@ func TestPolicyReviewSelectorGroupsByStableScopeAndKeepsEffectOrderWithinGroup(t
 	for _, want := range []string{
 		"3 pending permissions in 2 Tobari",
 		"Selected",
-		"GET api.github.com:443/notifications",
+		"GET https://api.github.com:443/notifications",
 		"Observed 2 times · Latest 2026-08-02T10:02:00Z",
 	} {
 		if !strings.Contains(text, want) {
@@ -349,7 +349,7 @@ func TestPolicyReviewSelectorKeepsSelectionAndStageByCandidateIDAcrossReorder(t 
 	if !decision.Canceled || decision.SelectedID != wantID {
 		t.Fatalf("reordered selection = %+v", decision)
 	}
-	for _, want := range []string{"Staged Allow", "GET    registry.npmjs.org:443/package/example", "Selected", "GET registry.npmjs.org:443/package/example"} {
+	for _, want := range []string{"Staged Allow", "GET    https://registry.npmjs.org:443/package/example", "Selected", "GET https://registry.npmjs.org:443/package/example"} {
 		if !strings.Contains(second.String(), want) {
 			t.Fatalf("reordered output %q lacks %q", second.String(), want)
 		}
@@ -369,7 +369,7 @@ func TestPolicyReviewSelectorKeepsSelectionAndStageByCandidateIDAcrossReorder(t 
 		t.Fatalf("fallback selection = %+v", decision)
 	}
 	if strings.Contains(fallback.String(), "❯ Staged Allow") || !strings.Contains(fallback.String(), "Selected") ||
-		!strings.Contains(fallback.String(), "POST api.github.com:443/repos/example/issues") {
+		!strings.Contains(fallback.String(), "POST https://api.github.com:443/repos/example/issues") {
 		t.Fatalf("fallback output = %q", fallback.String())
 	}
 }

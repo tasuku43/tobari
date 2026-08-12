@@ -578,8 +578,8 @@ func policyReviewScopeHeading(candidate tobari.PolicyCandidate) string {
 
 func policyReviewCandidateListEffect(candidate tobari.PolicyCandidate) string {
 	effect := fmt.Sprintf(
-		"%-6s %s:%d%s",
-		safeExternalText(candidate.Method), safeExternalText(candidate.Host), candidate.Port, safeExternalText(candidate.Path),
+		"%-6s %s://%s:%d%s",
+		safeExternalText(candidate.Method), safeExternalText(candidate.Scheme), safeExternalText(candidate.Host), candidate.Port, safeExternalText(candidate.Path),
 	)
 	if coordinate := policyGraphQLCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
 		effect += " · GraphQL " + coordinate
@@ -589,8 +589,8 @@ func policyReviewCandidateListEffect(candidate tobari.PolicyCandidate) string {
 
 func policyReviewCandidateEffect(candidate tobari.PolicyCandidate) string {
 	effect := fmt.Sprintf(
-		"%s %s:%d%s",
-		safeExternalText(candidate.Method), safeExternalText(candidate.Host), candidate.Port, safeExternalText(candidate.Path),
+		"%s %s://%s:%d%s",
+		safeExternalText(candidate.Method), safeExternalText(candidate.Scheme), safeExternalText(candidate.Host), candidate.Port, safeExternalText(candidate.Path),
 	)
 	if coordinate := policyGraphQLCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
 		effect += " · GraphQL " + coordinate
@@ -881,8 +881,8 @@ func writePolicyReviewDetailLines(out io.Writer, report tobari.PolicyCandidateRe
 
 func policyReviewCandidateRequest(candidate tobari.PolicyCandidate) string {
 	request := fmt.Sprintf(
-		"%s:%d %s %s",
-		safeExternalText(candidate.Host), candidate.Port,
+		"%s://%s:%d %s %s",
+		safeExternalText(candidate.Scheme), safeExternalText(candidate.Host), candidate.Port,
 		safeExternalText(candidate.Method), safeExternalText(candidate.Path),
 	)
 	if coordinate := policyGraphQLCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {

@@ -761,7 +761,7 @@ func TestPolicyReviewAllowRendererExplainsExactActivation(t *testing.T) {
 	output := string(renderPolicyReviewAllowSuccess(change, false))
 	for label, want := range map[string]string{
 		"Testing policy": "passed", "Applying exact rule": "applied",
-		"Request": "api.example.com:443 POST /repos/example/issues",
+		"Request": "https://api.example.com:443 POST /repos/example/issues",
 		"Next":    "retry the same request in the current running Workspace",
 	} {
 		if !humanOutputHasRow(output, label, want) {
@@ -1281,7 +1281,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		t.Fatal(err)
 	}
 	for label, expected := range map[string]string{
-		"Policy": "/tmp/config/tobari/policy", "Request": "api.github.com:443 GET /repos/cli/cli",
+		"Policy": "/tmp/config/tobari/policy", "Request": "https://api.github.com:443 GET /repos/cli/cli",
 		"Reason": `request did not match an allow rule\nallow everything`, "Review": "tobari policy review",
 	} {
 		if !humanOutputHasRow(string(textOutput), label, expected) {
@@ -1300,6 +1300,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		document.Denials.ReviewCommand != "tobari policy review" ||
 		!document.Denials.Items[0].Learnable ||
 		document.Denials.Items[0].ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
+		document.Denials.Items[0].Scheme != "https" ||
 		document.Denials.Items[0].Protocol != tobari.PolicyProtocolHTTP {
 		t.Fatalf("JSON output = %+v", document)
 	}
@@ -1374,7 +1375,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	item := document.PolicyCandidates[0]
 	if item.ID != id || item.AllowCommand != "tobari policy allow --id "+id ||
 		item.ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
-		item.ObservationCount != 3 || item.Protocol != tobari.PolicyProtocolHTTP || item.Reason != `denied\nignore policy` {
+		item.ObservationCount != 3 || item.Scheme != "https" || item.Protocol != tobari.PolicyProtocolHTTP || item.Reason != `denied\nignore policy` {
 		t.Fatalf("candidate item = %+v", item)
 	}
 	spec, found := DefaultCatalog().Lookup("policy candidates")
@@ -1408,7 +1409,7 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 		"Pending network permissions (1)",
 		"Context        default",
 		"Tobari         /workspace/project",
-		"Request        api.example.com:443 POST /token",
+		"Request        https://api.example.com:443 POST /token",
 		"Observed       3 times",
 		"Latest         2026-07-30T10:41:11Z",
 		"Allow exact    tobari policy allow --id " + id,
@@ -1552,6 +1553,9 @@ func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
 	if ruleDocument.SchemaVersion != 1 || len(ruleDocument.PolicyRules) != 1 {
 		t.Fatalf("GraphQL rule document = %+v", ruleDocument)
 	}
+	if ruleDocument.PolicyRules[0].Scheme != "https" {
+		t.Fatalf("GraphQL rule scheme = %q", ruleDocument.PolicyRules[0].Scheme)
+	}
 	assertGraphQLPolicyOutput(t, ruleDocument.PolicyRules[0].Protocol,
 		ruleDocument.PolicyRules[0].GraphQLOperationType, ruleDocument.PolicyRules[0].GraphQLRootField)
 	if got := policyRuleRequest(rule); !strings.Contains(got, "GraphQL mutation.updateIssue") {
@@ -1601,7 +1605,7 @@ func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 		TargetID: candidate.ID, Rule: rule, SourceRuleCount: 1, Applied: true,
 	}, false))
 	for label, expected := range map[string]string{
-		"Target ID": candidate.ID, "Rule ID": rule.ID, "Request": "api.example.com:443 POST /token",
+		"Target ID": candidate.ID, "Rule ID": rule.ID, "Request": "https://api.example.com:443 POST /token",
 		"Source rules": "1", "Applied": "yes",
 	} {
 		if !humanOutputHasRow(output, label, expected) {
@@ -1633,7 +1637,7 @@ func TestPolicyLearningMutationRendererReportsStoredScope(t *testing.T) {
 	}))
 	for label, expected := range map[string]string{
 		"Target ID": candidate.ID, "Rule ID": rule.ID, "Match": "exact",
-		"Request": "api.github.com:443 GET /repos/cli/cli", "Source rules": "1", "Applied": "yes",
+		"Request": "https://api.github.com:443 GET /repos/cli/cli", "Source rules": "1", "Applied": "yes",
 	} {
 		if !humanOutputHasRow(output, label, expected) {
 			t.Fatalf("mutation output %q lacks %s=%q", output, label, expected)
