@@ -421,31 +421,66 @@ assert_component_resource_bounds() {
 
 candidate_id_for_effect() {
 	local project_id=$1
-	local host=$2
-	local method=$3
-	local path=$4
+	local scheme=$2
+	local host=$3
+	local port=$4
+	local method=$5
+	local path=$6
   python3 -c \
     'import json,sys
-project_id,host,method,path=sys.argv[1:]
+project_id,scheme,host,port,method,path=sys.argv[1:]
 print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
-           if item["project_id"] == project_id and item["host"] == host and item["method"] == method and item["path"] == path))' \
-    "$project_id" "$host" "$method" "$path"
+           if item.get("project_id") == project_id and item.get("scheme") == scheme
+           and item.get("host") == host and item.get("port") == int(port)
+           and item.get("method") == method and item.get("path") == path))' \
+    "$project_id" "$scheme" "$host" "$port" "$method" "$path"
+}
+
+allow_exact_effect() {
+  local project_id=$1
+  local host=$2
+  local method=$3
+  local path=$4
+  local candidates
+  local candidate_id
+  local output
+  candidates=$(run_tobari policy candidates --tail 1000 --format json)
+  candidate_id=$(candidate_id_for_effect "$project_id" https "$host" 8080 "$method" "$path" <<<"$candidates")
+  output=$(run_tobari policy allow --id "$candidate_id")
+  assert_contains "$output" "Policy rule updated" "explicit integration policy approval"
+}
+
+deny_exact_effect() {
+  local project_id=$1
+  local host=$2
+  local method=$3
+  local path=$4
+  local candidates
+  local candidate_id
+  local output
+  candidates=$(run_tobari policy candidates --tail 1000 --format json)
+  candidate_id=$(candidate_id_for_effect "$project_id" https "$host" 8080 "$method" "$path" <<<"$candidates")
+  output=$(run_tobari policy deny --id "$candidate_id")
+  assert_contains "$output" "Permission denied" "explicit integration policy denial"
 }
 
 graphql_candidate_id_for_effect() {
 	local project_id=$1
-	local host=$2
-	local operation_type=$3
-	local root_field=$4
+	local scheme=$2
+	local host=$3
+	local port=$4
+	local operation_type=$5
+	local root_field=$6
   python3 -c \
     'import json,sys
-project_id,host,operation_type,root_field=sys.argv[1:]
+project_id,scheme,host,port,operation_type,root_field=sys.argv[1:]
 print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
-           if item["project_id"] == project_id and item["host"] == host
-           and item["protocol"] == "graphql"
-           and item["graphql_operation_type"] == operation_type
-           and item["graphql_root_field"] == root_field))' \
-    "$project_id" "$host" "$operation_type" "$root_field"
+           if item.get("project_id") == project_id and item.get("scheme") == scheme
+           and item.get("host") == host and item.get("port") == int(port)
+           and item.get("protocol") == "graphql"
+           and item.get("graphql_operation_type") == operation_type
+           and item.get("graphql_root_field") == root_field))' \
+    "$project_id" "$scheme" "$host" "$port" "$operation_type" "$root_field"
 }
 
 cleanup() {
@@ -623,7 +658,7 @@ else
     --entrypoint sh "$mitmproxy_image" -eu -c '
       openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
         -subj /CN=api.synthetic.example \
-        -addext subjectAltName=DNS:api.synthetic.example,DNS:mock-upstream \
+        -addext subjectAltName=DNS:api.synthetic.example,DNS:mock-upstream,DNS:graphql.tobari.dev \
         -addext basicConstraints=critical,CA:TRUE \
         -addext keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign \
         -addext extendedKeyUsage=serverAuth \
@@ -656,10 +691,6 @@ if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
   docker tag "$custom_base_image" tobari-runtime:dev
   created_dev_runtime_tag=true
 fi
-default_context_create=$(run_tobari context create --name default --image "$custom_image" \
-  --source-access read-write --policy-preset builtin/reviewed-exact --format json)
-assert_contains "$default_context_create" '"source_access":"read-write"' "default Context source access"
-assert_contains "$default_context_create" '"policy_preset_origin":"builtin/reviewed-exact"' "default Context policy preset"
 preset_catalog=$(run_tobari policy preset list --format json)
 PRESET_CATALOG_DOCUMENT="$preset_catalog" python3 <<'PY'
 import json
@@ -681,15 +712,6 @@ custom_preset_init=$(run_tobari policy preset init --name snapshot --format json
 custom_preset_path=$(python3 -c \
   'import json,sys; print(json.load(sys.stdin)["policy_presets"]["source_path"])' \
   <<<"$custom_preset_init")
-custom_preset_revision=$(python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["policy_presets"]["revision"])' \
-  <<<"$custom_preset_init")
-custom_context_create=$(run_tobari context create --name custom-snapshot --image "$custom_image" \
-  --source-access read-write --policy-preset custom/snapshot --format json)
-assert_contains "$custom_context_create" '"policy_preset_origin":"custom/snapshot"' \
-  "custom preset Context origin"
-assert_contains "$custom_context_create" "\"policy_preset_revision\":\"$custom_preset_revision\"" \
-  "custom preset Context revision"
 python3 - "$custom_preset_path" <<'PY'
 import json
 import sys
@@ -698,18 +720,46 @@ path = sys.argv[1]
 with open(path, encoding="utf-8") as source:
     document = json.load(source)
 document["guardrail"] = "reviewed_exact"
+document["baseline_grants"] = []
+document["baseline_denies"] = []
+document["graphql_endpoints"] = [
+    {"scheme": "https", "host": "graphql.tobari.dev", "port": 8080, "method": "POST", "path": "/graphql"},
+]
 with open(path, "w", encoding="utf-8") as destination:
     json.dump(document, destination, separators=(",", ":"))
     destination.write("\n")
 PY
 custom_preset_validate=$(run_tobari policy preset validate --name custom/snapshot --format json)
-updated_custom_revision=$(python3 -c \
+custom_preset_revision=$(python3 -c \
   'import json,sys; print(json.load(sys.stdin)["policy_presets"]["revision"])' \
   <<<"$custom_preset_validate")
+default_context_create=$(run_tobari context create --name default --image "$custom_image" \
+  --source-access read-write --policy-preset custom/snapshot --format json)
+assert_contains "$default_context_create" '"source_access":"read-write"' "default Context source access"
+assert_contains "$default_context_create" '"policy_preset_origin":"custom/snapshot"' \
+  "default Context policy preset"
+assert_contains "$default_context_create" "\"policy_preset_revision\":\"$custom_preset_revision\"" \
+  "default Context policy preset revision"
+python3 - "$custom_preset_path" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as source:
+    document = json.load(source)
+document["graphql_endpoints"] = []
+with open(path, "w", encoding="utf-8") as destination:
+    json.dump(document, destination, separators=(",", ":"))
+    destination.write("\n")
+PY
+updated_custom_validate=$(run_tobari policy preset validate --name custom/snapshot --format json)
+updated_custom_revision=$(python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["policy_presets"]["revision"])' \
+  <<<"$updated_custom_validate")
 [[ $updated_custom_revision != "$custom_preset_revision" ]] ||
   fail "custom preset source edit did not change its revision"
-custom_context_show=$(run_tobari context show --name custom-snapshot --format json)
-assert_contains "$custom_context_show" "\"policy_preset_revision\":\"$custom_preset_revision\"" \
+default_context_show=$(run_tobari context show --name default --format json)
+assert_contains "$default_context_show" "\"policy_preset_revision\":\"$custom_preset_revision\"" \
   "immutable custom preset snapshot"
 unconfigured_context_use=$(run_tobari context use --name default --format json)
 assert_contains "$unconfigured_context_use" '"cluster":"already_ready"' "unconfigured current Context selection"
@@ -1165,6 +1215,8 @@ start_cluster >/dev/null
 wait_healthy tobari-gateway
 docker network create --internal --subnet 11.254.43.0/24 "$auth_network" >/dev/null
 docker network connect "$auth_network" tobari-gateway
+docker network connect --alias graphql.tobari.dev "$auth_network" "$mock_name"
+wait_network_connection tobari-gateway graphql.tobari.dev 8080
 docker run -d \
   --name "$auth_mock_name" \
   --user "$(id -u):$(id -g)" \
@@ -1230,7 +1282,7 @@ fi
 
 broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
 default_broker_candidate_id=$(candidate_id_for_effect \
-  "$work_id" api.synthetic.example GET /brokered-default <<<"$broker_candidates")
+  "$work_id" https api.synthetic.example 443 GET /brokered-default <<<"$broker_candidates")
 default_broker_allow=$(run_tobari policy allow --id "$default_broker_candidate_id")
 assert_contains "$default_broker_allow" 'Policy rule updated' \
   "default Context brokered policy approval"
@@ -1293,7 +1345,7 @@ fi
 
 broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
 restricted_broker_candidate_id=$(candidate_id_for_effect \
-  "$restricted_id" api.synthetic.example GET /brokered-restricted <<<"$broker_candidates")
+  "$restricted_id" https api.synthetic.example 443 GET /brokered-restricted <<<"$broker_candidates")
 restricted_broker_allow=$(run_tobari policy allow --id "$restricted_broker_candidate_id")
 assert_contains "$restricted_broker_allow" 'Policy rule updated' \
   "restricted Context brokered policy approval"
@@ -1400,12 +1452,21 @@ for rejected_path in \
 done
 
 wrong_port_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  https://mock-upstream:8081/wrong-port)
-[[ $wrong_port_status == 403 ]] || fail "non-policy HTTP port returned $wrong_port_status instead of 403"
+  http://mock-upstream:8081/wrong-port)
+[[ $wrong_port_status == 403 ]] || fail "plain-HTTP guardrail canary returned $wrong_port_status instead of 403"
 if docker logs "$mock_name" 2>&1 | grep -F '"/wrong-port"' >/dev/null; then
   fail "wrong-port request reached mock upstream"
 fi
+wrong_port_candidates=$(run_tobari policy candidates --tail 1000 --format json)
+if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/wrong-port" for item in json.load(sys.stdin)["policy_candidates"]) else 1)' <<<"$wrong_port_candidates"; then
+  fail "terminal plain-HTTP guardrail denial created a policy candidate"
+fi
 
+body_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST -H 'content-type: application/json' --data '{"value":true}' \
+  https://mock-upstream:8080/body)
+[[ $body_status == 403 ]] || fail "unreviewed nonempty-body request returned $body_status instead of 403"
+allow_exact_effect "$work_id" mock-upstream POST /body
 body_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST -H 'content-type: application/json' --data '{"value":true}' \
   https://mock-upstream:8080/body)
@@ -1413,12 +1474,21 @@ body_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
 docker logs "$mock_name" 2>&1 | grep -F '"/body"' >/dev/null ||
   fail "allowed nonempty-body request did not reach mock upstream"
 
+upload_denial=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST https://mock-upstream:8080/stream-upload)
+[[ $upload_denial == 403 ]] || fail "unreviewed chunked target returned $upload_denial instead of 403"
+allow_exact_effect "$work_id" mock-upstream POST /stream-upload
 upload_output="$test_root/stream-upload.out"
 docker exec "$work_container" python3 -c '
 import http.client
+import os
+import ssl
 import time
 
-connection = http.client.HTTPConnection("mock-upstream", 8080, timeout=10)
+connection = http.client.HTTPSConnection(
+    "mock-upstream", 8080, timeout=10,
+    context=ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"]),
+)
 connection.putrequest("POST", "/stream-upload", skip_host=True)
 connection.putheader("Host", "mock-upstream:8080")
 connection.putheader("Transfer-Encoding", "chunked")
@@ -1443,6 +1513,10 @@ done
 wait "$upload_pid"
 [[ $(<"$upload_output") == 200 ]] || fail "chunked request did not complete successfully"
 
+stream_denial=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  https://mock-upstream:8080/stream-response)
+[[ $stream_denial == 403 ]] || fail "unreviewed streaming target returned $stream_denial instead of 403"
+allow_exact_effect "$work_id" mock-upstream GET /stream-response
 stream_prefix=$(run_project curl -NsS --max-time 1 \
   https://mock-upstream:8080/stream-response || true)
 assert_contains "$stream_prefix" 'data: first' "streaming response prefix"
@@ -1450,6 +1524,11 @@ if [[ $stream_prefix == *'data: second'* ]]; then
   fail "streaming response completed before the upstream delay"
 fi
 
+oversized_target_denial=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST https://mock-upstream:8080/oversized-body)
+[[ $oversized_target_denial == 403 ]] ||
+  fail "unreviewed oversized-body target returned $oversized_target_denial instead of 403"
+allow_exact_effect "$work_id" mock-upstream POST /oversized-body
 oversized_body_status=$(dd if=/dev/zero bs=1048576 count=9 2>/dev/null | \
   docker exec -i "$work_container" curl -sS -o /dev/null -w '%{http_code}' \
     --max-time 15 -X POST -H 'content-type: application/octet-stream' \
@@ -1472,6 +1551,11 @@ policy_bundle_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destina
   fail "policy bundle volume is missing its Tobari owner label"
 
 expected_digest=$(printf 'Bearer %s' "$tool_auth_value" | shasum -a 256 | awk '{print $1}')
+auth_denial=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  -H "Authorization: Bearer $tool_auth_value" \
+  https://mock-upstream:8080/credential)
+[[ $auth_denial == 403 ]] || fail "unreviewed tool-auth request returned $auth_denial instead of 403"
+allow_exact_effect "$work_id" mock-upstream GET /credential
 auth_response=$(run_project curl -fsS \
   -H "Authorization: Bearer $tool_auth_value" \
   https://mock-upstream:8080/credential)
@@ -1480,14 +1564,15 @@ assert_contains "$auth_response" "\"authorization_sha256\":\"$expected_digest\""
 
 deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST https://mock-upstream:8080/denied)
-[[ $deny_status == 403 ]] || fail "denied method/path returned $deny_status instead of 403"
+[[ $deny_status == 403 ]] || fail "unreviewed denial target returned $deny_status instead of 403"
+deny_exact_effect "$work_id" mock-upstream POST /denied
 deny_body=$(run_project curl -sS -X POST https://mock-upstream:8080/denied)
 assert_contains "$deny_body" '"error":"policy_denied"' "agent denial response"
-assert_contains "$deny_body" '"event":"permission_review_unavailable"' "baseline denial response"
-assert_contains "$deny_body" '"available":false' "baseline denial response"
-assert_contains "$deny_body" '"command":null' "baseline denial response"
+assert_contains "$deny_body" '"event":"permission_review_unavailable"' "reviewed exact denial response"
+assert_contains "$deny_body" '"available":false' "reviewed exact denial response"
+assert_contains "$deny_body" '"command":null' "reviewed exact denial response"
 assert_contains "$deny_body" '"automatic_retry":false' "agent denial response"
-assert_contains "$deny_body" '"retry_after_review":false' "baseline denial response"
+assert_contains "$deny_body" '"retry_after_review":false' "reviewed exact denial response"
 assert_contains "$deny_body" '"path":"/denied"' "agent denial response"
 if [[ $deny_body == *"$tool_auth_value"* || $deny_body == *'Bearer '* || $deny_body == *'"key"'* ]]; then
   fail "agent denial response contains a credential or request secret"
@@ -1497,22 +1582,36 @@ if docker logs "$mock_name" 2>&1 | grep -F '"/denied"' >/dev/null; then
 fi
 
 graphql_canary=graphql-variable-canary
+gateway_graphql_projection=$(docker exec tobari-gateway cat /run/tobari/config/gateway.json)
+python3 -c '
+import json
+import sys
+context_id = sys.argv[1]
+document = json.load(sys.stdin)
+endpoint = {"scheme": "https", "host": "graphql.tobari.dev", "port": 8080, "path": "/graphql"}
+if endpoint not in document["contexts"][context_id]["graphql_endpoints"]:
+    raise SystemExit("custom preset GraphQL endpoint is absent from the live Gateway projection")
+' "$default_context_id" <<<"$gateway_graphql_projection"
+graphql_resolution=$(run_project getent ahostsv4 graphql.tobari.dev)
+assert_contains "$graphql_resolution" "198.18.0.10" "GraphQL synthetic DNS interception"
 # The GraphQL `$value` references stay literal while only the quoted canary expands.
 # shellcheck disable=SC2016
 graphql_body='{"query":"mutation Change($value: String!) { closeIssue(input: {value: $value}) updateIssue(input: {value: $value}) }","variables":{"value":"'"$graphql_canary"'"}}'
 graphql_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -H 'content-type: application/json' --data-binary "$graphql_body" \
-  https://mock-upstream:8080/graphql)
-[[ $graphql_status == 403 ]] ||
-  fail "declared GraphQL roots returned $graphql_status instead of a learnable denial"
+  https://graphql.tobari.dev:8080/graphql)
+if [[ $graphql_status != 403 ]]; then
+  graphql_audit=$(docker logs tobari-gateway 2>&1 | grep -F '"path":"/graphql"' | tail -n 1 || true)
+  fail "declared GraphQL roots returned $graphql_status instead of a learnable denial; audit=$graphql_audit"
+fi
 if docker logs "$mock_name" 2>&1 | grep -F '"/graphql"' >/dev/null; then
   fail "denied GraphQL request reached mock upstream"
 fi
 graphql_candidates=$(run_tobari policy candidates --tail 1000 --format json)
 close_issue_candidate_id=$(graphql_candidate_id_for_effect \
-  "$work_id" mock-upstream mutation closeIssue <<<"$graphql_candidates")
+  "$work_id" https graphql.tobari.dev 8080 mutation closeIssue <<<"$graphql_candidates")
 update_issue_candidate_id=$(graphql_candidate_id_for_effect \
-  "$work_id" mock-upstream mutation updateIssue <<<"$graphql_candidates")
+  "$work_id" https graphql.tobari.dev 8080 mutation updateIssue <<<"$graphql_candidates")
 [[ $close_issue_candidate_id == pcy_* && $update_issue_candidate_id == pcy_* && \
   $close_issue_candidate_id != "$update_issue_candidate_id" ]] ||
   fail "GraphQL roots did not produce independent opaque candidates"
@@ -1520,7 +1619,7 @@ opa_before_graphql_policy=$(docker inspect --format '{{.Id}}' tobari-opa)
 run_tobari policy allow --id "$close_issue_candidate_id" >/dev/null
 graphql_partial_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -H 'content-type: application/json' --data-binary "$graphql_body" \
-  https://mock-upstream:8080/graphql)
+  https://graphql.tobari.dev:8080/graphql)
 [[ $graphql_partial_status == 403 ]] ||
   fail "one GraphQL root approval authorized an unapproved sibling root"
 run_tobari policy allow --id "$update_issue_candidate_id" >/dev/null
@@ -1528,7 +1627,7 @@ run_tobari policy allow --id "$update_issue_candidate_id" >/dev/null
   fail "routine GraphQL policy activation recreated OPA"
 graphql_response=$(run_project curl -fsS \
   -H 'content-type: application/json' --data-binary "$graphql_body" \
-  https://mock-upstream:8080/graphql)
+  https://graphql.tobari.dev:8080/graphql)
 graphql_body_sha=$(printf '%s' "$graphql_body" | shasum -a 256 | awk '{print $1}')
 assert_contains "$graphql_response" '"path":"/graphql"' "GraphQL upstream response"
 assert_contains "$graphql_response" "\"body_sha256\":\"$graphql_body_sha\"" \
@@ -1600,13 +1699,13 @@ candidates_json=$(run_tobari policy candidates --tail 500 --format json)
 if python3 -c 'import json,sys; sys.exit(0 if not any(item["path"] == "/denied" for item in json.load(sys.stdin)["policy_candidates"]) else 1)' <<<"$candidates_json"; then
   :
 else
-  fail "baseline explicit deny remained in the actionable policy queue"
+  fail "reviewed exact deny remained in the actionable policy queue"
 fi
-allow_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-allow <<<"$candidates_json")
-restricted_allow_candidate_id=$(candidate_id_for_effect "$restricted_id" mock-upstream PUT /review-allow <<<"$candidates_json")
-deny_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-deny <<<"$candidates_json")
-body_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PUT /review-body <<<"$candidates_json")
-patch_candidate_id=$(candidate_id_for_effect "$work_id" mock-upstream PATCH /review-patch <<<"$candidates_json")
+allow_candidate_id=$(candidate_id_for_effect "$work_id" https mock-upstream 8080 PUT /review-allow <<<"$candidates_json")
+restricted_allow_candidate_id=$(candidate_id_for_effect "$restricted_id" https mock-upstream 8080 PUT /review-allow <<<"$candidates_json")
+deny_candidate_id=$(candidate_id_for_effect "$work_id" https mock-upstream 8080 PUT /review-deny <<<"$candidates_json")
+body_candidate_id=$(candidate_id_for_effect "$work_id" https mock-upstream 8080 PUT /review-body <<<"$candidates_json")
+patch_candidate_id=$(candidate_id_for_effect "$work_id" https mock-upstream 8080 PATCH /review-patch <<<"$candidates_json")
 [[ $allow_candidate_id == pcy_* && $restricted_allow_candidate_id == pcy_* && "$allow_candidate_id" != "$restricted_allow_candidate_id" && $deny_candidate_id == pcy_* && \
   $body_candidate_id == pcy_* && $patch_candidate_id == pcy_* ]] ||
   fail "policy candidates did not emit opaque candidate IDs"
@@ -1867,7 +1966,7 @@ done
 for item_path in one two three; do
   candidates_json=$(run_tobari policy candidates --tail 1000 --format json)
   item_candidate_id=$(candidate_id_for_effect \
-    "$work_id" mock-upstream PUT "/review/items/$item_path" <<<"$candidates_json")
+    "$work_id" https mock-upstream 8080 PUT "/review/items/$item_path" <<<"$candidates_json")
   item_allow_output=$(run_tobari policy allow --id "$item_candidate_id")
   assert_contains "$item_allow_output" "Policy rule updated" \
     "exact source approval"

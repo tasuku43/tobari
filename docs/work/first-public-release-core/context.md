@@ -86,11 +86,13 @@ kept in `goal.md` and `plan.md`.
   HTTPS reviewable effects, and proves exact rules do not widen to sibling
   paths. Static broker binding, denial-before-resolution, replacement,
   rotation, logout, and re-entry remain in the synthetic journey.
-- On 2026-08-12 the Docker integration attempt was blocked before the fixture
-  started: the local Colima engine left the new certificate container in
-  `Created`, matching other ambient stuck containers. The script passed
-  `bash -n`, ShellCheck, `git diff --check`, and the mutation-free integration
-  preflight. No supported-platform runtime result is claimed from that attempt.
+- After the local Colima engine recovered on 2026-08-12, the complete Docker
+  journey passed. It requires explicit review before every eligible synthetic
+  effect, proves terminal plain-HTTP and exact-deny routes create no upstream
+  call, validates the live custom GraphQL endpoint projection and independent
+  per-root review, uses the Workspace-provided CA bundle for chunked HTTPS,
+  and finishes with owned-container/network cleanup. No real provider endpoint
+  is used as test policy authority.
 
 ## Relevant structure
 

@@ -79,14 +79,16 @@ security invariants.
       evidence. Evidence: the integration journey checks one selected live
       bind for each mode on the same root, mutation failure in read-only mode,
       writable home/tmpfs, no writable source alias, and host/read-write
-      observation. The local Docker run remains environment-blocked before
-      execution and is not counted as supported-platform observation.
+      observation; `mise exec -- task integration:test` completed successfully
+      against the local Colima engine on 2026-08-12.
 - [x] Complete `policy-presets` commands, Context selection/report work,
       `policy.presets` capability ledger entry, and guardrail evidence.
       Evidence: the integration journey validates the exact three built-ins,
       zero immediate grants, explicit Context selection, and custom source
       revision versus immutable Context snapshot; focused domain/OPA tests own
-      the terminal-denial matrices.
+      the terminal-denial matrices. The same live journey proves the custom
+      GraphQL snapshot enters the Gateway projection, terminal denials do not
+      reach upstream, and exact per-root approval is required.
 
 ## Static broker core
 
@@ -168,11 +170,13 @@ security invariants.
 
 - [x] Focused tests pass. Evidence: packet-local Go, OPA, Gateway, Auth Broker,
       release-artifact, catalog, source-equality, and site checks are recorded
-      in the child packets.
+      in the child packets; Gateway 28/28 and the complete Docker integration
+      journey pass after the final policy/security reconciliation.
 - [x] `task check` passes. Evidence: `mise exec -- task check` passed on
-      integrated V1 HEAD on 2026-08-12, including race and Playwright 40/40.
+      integrated V1 HEAD on 2026-08-12, including race and Playwright 40/40,
+      and passed again after the explicit V1 integration journey was aligned.
 - [x] `task security` passes. Evidence: `mise exec -- task security` passed on
-      the same HEAD.
+      the same HEAD and after the GraphQL deny fail-closed correction.
 - [ ] `task public:check` passes. Evidence:
 - [ ] `task release:check` passes. Evidence:
 - [ ] Runtime-only behavior is observed on every required platform. Evidence:
