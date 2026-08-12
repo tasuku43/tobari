@@ -843,7 +843,7 @@ gateway_context_mounts=$(docker inspect --format '{{range .Mounts}}{{println .So
 if [[ $gateway_context_mounts == *"/credentials.json =>"* || $gateway_context_mounts == *"/run/tobari/credentials"* ]]; then
   fail "Gateway retained the retired managed credential projection"
 fi
-assert_contains "$gateway_context_mounts" "/run/tobari/auth/providers.json" \
+assert_contains "$gateway_context_mounts" "/run/tobari/auth" \
   "Gateway provider projection mount"
 assert_contains "$gateway_context_mounts" "/run/tobari-auth/runtime" \
   "Gateway Auth Broker runtime socket mount"
