@@ -4,8 +4,9 @@
 
 - `.github/workflows/release.yml` is now manual and separates create-only
   preparation from the `release-publication` approval environment. It builds
-  five CLI archives plus exact checksum/SPDX/provenance/Formula subjects and
-  never opens or mutates a tap branch.
+  five CLI archives plus exact checksum/SPDX/provenance/Formula subjects. A
+  stable protected publication propagates the exact released Formula through
+  a pull request to `tasuku43/homebrew-tap`.
 - Component workflows accept one exact revision, build both supported Linux
   architectures, attach BuildKit SBOM/max provenance, and produce immutable
   digest metadata plus extracted component evidence. Publication is manual and
@@ -45,10 +46,10 @@
 ## Early preparation evidence (2026-08-12)
 
 - `tools/releaseartifacts` uses only the Go standard library and the existing
-  repository metadata/tag validators. No module, external generator, workflow
-  Action, or network fetch was added. The workflow retains the previously
-  reviewed immutable checkout/setup-go/upload/download Action revisions and
-  removes the Formula pull-request Action.
+  repository metadata/tag validators. No module or external generator was
+  added. The workflow retains immutable checkout/setup-go/upload/download
+  Action revisions and uses the reviewed GitHub App token Action for the
+  Formula pull-request boundary.
 - The local generator accepts separate stable builder/workflow and concrete
   invocation identities. It creates `checksums.txt`, `sbom.spdx.json`, and
   `provenance.intoto.jsonl` without overwrite, and exact regeneration rejects
@@ -62,7 +63,8 @@
   and the protected `release-publication` environment, validates the existing
   tag/revision binding, reverifies the exact final asset inventory, and refuses
   an existing Release. Stable Formula output is audited and included as an
-  asset but the workflow does not create a branch, pull request, or tap update.
+  asset; only after Release creation does the protected stable path open a
+  Formula-only tap pull request with a repository-scoped GitHub App token.
 - `./scripts/lint-release.sh` passed. Its synthetic dry run sets
   `GOPROXY=off GOSUMDB=off`, independently reproduces five archives and all
   three metadata files, verifies create-only collisions, renders/audits the

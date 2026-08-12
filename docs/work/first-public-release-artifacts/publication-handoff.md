@@ -1,7 +1,8 @@
 # Publication Handoff: First public V1
 
 Do not run this handoff without explicit maintainer approval. The release tag
-and Homebrew tap repository remain maintainer-owned inputs; do not infer them.
+remains a maintainer-owned input. Stable distribution uses the fixed reviewed
+`tasuku43/homebrew-tap` destination.
 
 ## 1. Confirm the immutable source and external authorities
 
@@ -11,7 +12,6 @@ test -z "$(git status --porcelain)"
 test "$(git branch --show-current)" = agent/reset-pre-public-contracts-v1
 source_revision=$(git rev-parse HEAD)
 release_tag=${RELEASE_TAG:?set the approved vMAJOR.MINOR.PATCH tag}
-tap_repo=${HOMEBREW_TAP_REPO:?set the approved owner/repository tap}
 repo=tasuku43/tobari
 branch=agent/reset-pre-public-contracts-v1
 ```
@@ -93,14 +93,15 @@ gh workflow run release.yml --repo "$repo" --ref "$branch" \
   -f tag="$release_tag" -f revision="$release_revision" -f publish=true
 ```
 
-The protected `release-publication` environment must approve the final job.
-After the immutable Release is verified, clone the approved `$tap_repo`, copy
-the exact released `tobari.rb` asset to `Formula/tobari.rb`, review and push
-that tap commit as a separate external operation. On a clean host, run:
+The protected `release-publication` environment must approve the final jobs.
+After the immutable Release succeeds, confirm the workflow-created Formula-only
+pull request in `tasuku43/homebrew-tap` passes its checks and merges. Confirm it
+contains the exact released `tobari.rb`; do not create a second manual Formula.
+On a clean host, run:
 
 ```sh
-brew tap "$tap_repo"
-brew install "$tap_repo/tobari"
+brew tap tasuku43/tap
+brew install tasuku43/tap/tobari
 tobari version
 tobari doctor
 brew uninstall tobari

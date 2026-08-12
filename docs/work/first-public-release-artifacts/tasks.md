@@ -13,8 +13,9 @@
       exact archive-subject SPDX coverage and unsigned provenance limits.
 - [x] Define the explicit publication approval checkpoint and exact operator
       handoff. Evidence: local create-only preparation precedes approval;
-      manual workflow dispatch, protected publication environment, image
-      publication/pinning, tag, Release, and tap update remain explicit steps.
+      manual workflow dispatch, protected publication environment, paired image
+      publication, tag, Release, and stable tap pull request remain explicit
+      ordered steps.
 
 ## Prepare locally
 
@@ -36,8 +37,9 @@
       builder/invocation identities and hostile inventory tests.
 - [x] Make release/formula workflows consume exact verified subjects and avoid
       implicit publication during preparation. Evidence: manual dispatch,
-      exact pre-upload and pre-publish inventories, protected environment,
-      no tag trigger, and no Formula branch/PR/tap mutation.
+      exact pre-upload and pre-publish inventories, protected environment, no
+      tag trigger, and a stable-only post-Release Formula pull request to the
+      fixed reviewed tap.
 - [x] Regenerate architecture site, catalog, schema/capability ledgers, and
       component metadata from the final integrated source. Evidence:
       `source-snapshot.txt` pins committed integrated source
@@ -77,5 +79,5 @@
 - [x] Present exact publication commands and wait for explicit maintainer
       approval before the first external operation. Evidence:
       `publication-handoff.md` fixes the source-image-lock-gate-tag-Release-tap
-      order, makes tag/tap authority explicit fail-closed inputs, and names the
+      order, fixes the tap authority and GitHub App scope, and names the
       branch push as the first external mutation. No handoff command was run.

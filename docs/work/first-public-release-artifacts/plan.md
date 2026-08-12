@@ -4,8 +4,8 @@
 
 Prepare deterministic artifact creation and validation early with synthetic
 inputs, but defer authoritative image metadata until integrated sources stop
-changing. Separate preparation from publication so local checks cannot push,
-tag, publish, create a Release, or update a tap implicitly.
+changing. Separate local preparation from protected publication so local checks
+cannot push, tag, publish, create a Release, or update a tap.
 
 ## Artifact flow
 

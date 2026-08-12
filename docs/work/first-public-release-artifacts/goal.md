@@ -46,7 +46,8 @@ maintainer for synchronous publication approval.
 - [x] Publication is split into explicit, auditable steps whose first external
       mutation requires maintainer approval. Evidence:
       `publication-handoff.md` names branch push as the first mutation and a
-      second synchronous approval before tag and Release publication.
+      second synchronous approval before tag, Release, and stable tap pull
+      request publication.
 - [x] `task check`, `task security`, `task public:check`, and
       `task release:check` validate paired generated component authority
       without a digest-pin commit; before approval candidate digests are not
