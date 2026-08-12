@@ -190,6 +190,7 @@ learned_exact_fixture := {
 	"match": "exact",
 	"context_id": "01912345-6789-7abc-8def-0123456789ad",
 	"project_id": "01912345-6789-7abc-8def-0123456789ab",
+	"scheme": "https",
 	"host": "api.github.com",
 	"port": 443,
 	"protocol": "http",
@@ -230,6 +231,7 @@ graphql_deny_fixture := {
 	"id": "pdr_0123456789abcdef0123456789abcdef",
 	"context_id": base_input.principal.context_id,
 	"project_id": base_input.principal.project_id,
+	"scheme": "https",
 	"host": "api.github.com",
 	"port": 443,
 	"method": "POST",
@@ -407,6 +409,7 @@ test_explicit_http_protocol_preserves_exact_deny if {
 		"id": "pdr_0123456789abcdef0123456789abcdef",
 		"context_id": base_input.principal.context_id,
 		"project_id": base_input.principal.project_id,
+		"scheme": "https",
 		"host": "api.github.com",
 		"port": 443,
 		"method": "GET",
@@ -501,6 +504,7 @@ test_explicit_deny_wins_over_learned_allow if {
 		"id": "pdr_0123456789abcdef0123456789abcdef",
 		"context_id": base_input.principal.context_id,
 		"project_id": base_input.principal.project_id,
+		"scheme": "https",
 		"host": "api.github.com",
 		"port": 443,
 		"protocol": "http",
@@ -551,6 +555,14 @@ test_learned_rule_does_not_cross_scheme if {
 	)
 	result := decision with input as input_with_request(request)
 		with data.tobari.rules.learned_allows as [learned_exact_fixture]
+	not result.allow
+}
+
+test_learned_rule_missing_scheme_fails_closed if {
+	missing_scheme := object.remove(learned_exact_fixture, ["scheme"])
+	request := object.union(request_with_path({"raw": learned_exact_fixture.path, "segments": ["graphql"]}), {"method": learned_exact_fixture.method})
+	result := decision with input as input_with_request(request)
+		with data.tobari.rules.learned_allows as [missing_scheme]
 	not result.allow
 }
 

@@ -95,6 +95,48 @@ func TestAggregateRouterMakesPresetGuardrailTerminalBeforeAdvancedOrGuidedPolicy
 	}
 }
 
+func TestAggregateRouterMakesBuiltinHTTPSCeilingTerminalBeforeAdvancedPolicy(t *testing.T) {
+	t.Parallel()
+	for _, origin := range []string{tobari.DefaultPolicyPresetOrigin, "builtin/get-only-reviewed"} {
+		origin := origin
+		t.Run(origin, func(t *testing.T) {
+			t.Parallel()
+			preset, ok := tobari.BuiltinPolicyPreset(origin)
+			if !ok {
+				t.Fatalf("builtin preset %q not found", origin)
+			}
+			revision, err := tobari.PolicyPresetRevision(preset)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: origin, PolicyPresetRevision: revision}
+			router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(router)
+			if strings.Contains(text, "guardrail.custom") {
+				t.Fatalf("builtin guardrail still depends on a custom-only marker:\n%s", text)
+			}
+			if !strings.Contains(text, `destination_mode == "public_https"; input.request.authority.scheme != "https"`) {
+				t.Fatalf("builtin %q does not terminally reject plain HTTP:\n%s", origin, text)
+			}
+			advanced := strings.Index(text, `result := data.tobari.contexts.c0191234567897abc8def0123456789ad.http.decision`)
+			if advanced < 0 {
+				t.Fatalf("Advanced route for builtin %q is missing:\n%s", origin, text)
+			}
+			advancedStart := strings.LastIndex(text[:advanced], "decision := result if {")
+			if advancedStart < 0 {
+				t.Fatalf("Advanced clause for builtin %q is missing:\n%s", origin, text)
+			}
+			advancedClause := text[advancedStart:advanced]
+			if !strings.Contains(advancedClause, "not terminal_guardrail") {
+				t.Fatalf("Advanced policy can bypass builtin %q HTTPS ceiling:\n%s", origin, advancedClause)
+			}
+		})
+	}
+}
+
 func TestCredentialProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) {
 	t.Parallel()
 	endpoint := tobari.GraphQLEndpoint{Scheme: "https", Host: "api.example.com", Port: 443, Path: "/graphql"}

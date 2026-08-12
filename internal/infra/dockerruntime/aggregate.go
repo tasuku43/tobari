@@ -96,7 +96,7 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 			return nil, fmt.Errorf("Context %q policy data has no tobari object", manifest.Name)
 		}
 		contextData["guardrail"] = map[string]any{
-			"kind": preset.Guardrail, "custom": strings.HasPrefix(manifest.PolicyPresetOrigin, "custom/"),
+			"kind":             preset.Guardrail,
 			"destination_mode": preset.DestinationCeiling.Mode, "authorities": preset.DestinationCeiling.Authorities,
 			"method_mode": preset.MethodCeiling.Mode, "methods": preset.MethodCeiling.Methods,
 			"baseline_grants": preset.BaselineGrants, "baseline_denies": preset.BaselineDenies,
@@ -177,13 +177,13 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	builder.WriteString("default decision := {\"allow\": false, \"reason\": \"unknown or invalid Context authority\", \"credential_profile\": null, \"status_code\": 403, \"learnable\": false}\n\n")
 	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.kind == \"offline\" }\n")
 	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.kind == \"get_only_reviewed\"; input.request.method != \"GET\" }\n")
-	builder.WriteString("custom_destination_allowed if { some authority in data.tobari_contexts[input.principal.context_id].guardrail.authorities; authority.scheme == input.request.authority.scheme; authority.host == input.request.authority.host; authority.port == input.request.authority.port }\n")
-	builder.WriteString("custom_method_allowed if { input.request.method in data.tobari_contexts[input.principal.context_id].guardrail.methods }\n")
-	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.custom; data.tobari_contexts[input.principal.context_id].guardrail.destination_mode == \"public_https\"; input.request.authority.scheme != \"https\" }\n")
-	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.custom; data.tobari_contexts[input.principal.context_id].guardrail.destination_mode == \"exact\"; not custom_destination_allowed }\n")
-	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.custom; data.tobari_contexts[input.principal.context_id].guardrail.method_mode == \"exact\"; not custom_method_allowed }\n\n")
+	builder.WriteString("preset_destination_allowed if { some authority in data.tobari_contexts[input.principal.context_id].guardrail.authorities; authority.scheme == input.request.authority.scheme; authority.host == input.request.authority.host; authority.port == input.request.authority.port }\n")
+	builder.WriteString("preset_method_allowed if { input.request.method in data.tobari_contexts[input.principal.context_id].guardrail.methods }\n")
+	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.destination_mode == \"public_https\"; input.request.authority.scheme != \"https\" }\n")
+	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.destination_mode == \"exact\"; not preset_destination_allowed }\n")
+	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.method_mode == \"exact\"; not preset_method_allowed }\n\n")
 	builder.WriteString("preset_exact_denied if { some rule in data.tobari_contexts[input.principal.context_id].guardrail.baseline_denies; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
-	builder.WriteString("learned_exact_denied if { some rule in data.tobari_contexts[input.principal.context_id].rules.learned_denies; rule.protocol == \"http\"; object.get(rule, \"scheme\", input.request.authority.scheme) == input.request.authority.scheme; rule.context_id == input.principal.context_id; rule.project_id == input.principal.project_id; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
+	builder.WriteString("learned_exact_denied if { some rule in data.tobari_contexts[input.principal.context_id].rules.learned_denies; rule.protocol == \"http\"; rule.scheme == input.request.authority.scheme; rule.context_id == input.principal.context_id; rule.project_id == input.principal.project_id; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
 	builder.WriteString("exact_denied if { preset_exact_denied }\nexact_denied if { learned_exact_denied }\n")
 	builder.WriteString("preset_exact_granted if { some rule in data.tobari_contexts[input.principal.context_id].guardrail.baseline_grants; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n\n")
 	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by Context policy preset guardrail\", \"credential_profile\": null, \"status_code\": 403, \"learnable\": false} if {\n")

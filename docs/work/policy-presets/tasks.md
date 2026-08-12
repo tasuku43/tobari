@@ -73,7 +73,11 @@
 
 - [ ] Every built-in behavior matrix passes.
 - [ ] Custom grant/deny/endpoint ceiling and hostile parser tests pass.
-- [ ] Learned and Advanced bypass canaries pass.
+- [x] Learned and Advanced bypass canaries pass. Evidence: aggregate-router
+      tests prove `builtin/reviewed-exact` and `builtin/get-only-reviewed`
+      reject plain HTTP at the system guardrail before an Advanced policy can
+      run; pinned OPA tests prove a learned exact rule with no explicit scheme
+      cannot validate or authorize a matching request.
 - [ ] Terminal denial has zero candidate, DNS, Broker, and upstream calls.
 - [ ] Preset source update/delete does not affect existing Context snapshots.
 - [ ] Same preset produces deterministic normalized bytes/revision.
@@ -84,8 +88,14 @@
 - [x] Focused tests pass. Evidence: `go test ./internal/domain/tobari
       ./internal/app/contextcmd ./internal/app/policypresetcmd
       ./internal/infra/dockerruntime` and `go test ./internal/cli` pass locally;
-      Gateway source compiles with `python3 -m py_compile`, while its unittest
-      suite requires the integration profile's mitmproxy dependency.
+      `go test ./internal/infra/runtimeassets` also passes. Pinned OPA format
+      validation passes and the policy modules plus `data.json` pass 53/53
+      tests, including the missing-scheme canary. The `task policy:test`
+      wrapper cannot bind this `/tmp` lane into the local Docker daemon; its
+      whole-directory form also encounters the pre-existing domain allow/deny
+      JSON merge errors. Gateway source compiles with `python3 -m py_compile`,
+      while its unittest suite requires the integration profile's mitmproxy
+      dependency.
 - [ ] `task check` passes. Evidence:
 - [ ] `task check:fast` passes. Evidence: blocked before repository checks by
       host Node.js v22.14.0/npm 10.9.2; repository requires Node.js v24.18.0
