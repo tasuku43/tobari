@@ -119,7 +119,7 @@ class StaticBrokerGatewayTests(unittest.TestCase):
         prepared = adapter.prepare(outbound, "https", "api.github.com", 443, CONTEXT, PROJECT)
         self.assertEqual([item["op"] for item in calls], ["introspect"])
         self.assertNotIn("authorization", outbound.headers)
-        prepared.apply(outbound, None)
+        prepared.apply(outbound)
         self.assertEqual([item["op"] for item in calls], ["introspect", "resolve"])
         self.assertEqual(outbound.headers["authorization"], "Bearer real-token")
 
@@ -186,8 +186,8 @@ class StaticBrokerGatewayTests(unittest.TestCase):
                     "context": "default", "project_root": "/workspace/project",
                 }),
                 mock.patch.object(gateway, "query_opa", return_value=gateway.Decision(
-                    allow=False, reason="terminal", credential_profile=None,
-                    status_code=403, learnable=False,
+                    allow=False, reason="terminal", status_code=403,
+                    learnable=False,
                 )),
                 mock.patch.object(gateway, "commit_upstream_authority") as commit,
             ):

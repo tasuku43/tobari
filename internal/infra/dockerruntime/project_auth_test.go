@@ -38,7 +38,7 @@ func (r *authProjectionRunner) Run(_ context.Context, args []string, _ []string,
 	case slices.Contains(args, "status"):
 		response["provider"] = provider
 		if provider == r.readyProvider {
-			response["state"] = "ready"
+			response["state"] = "configured"
 			response["revision"] = "revision_synthetic"
 		} else {
 			response["state"] = "not_configured"

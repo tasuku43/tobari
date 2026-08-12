@@ -41,7 +41,6 @@ type policyProbeRunner struct {
 type clusterUpProgressRunner struct {
 	events             []string
 	composeEnvironment []string
-	companionEpoch     string
 	networkConnections []runnerCall
 }
 
@@ -51,19 +50,7 @@ func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []str
 		r.composeEnvironment = append([]string{}, environment...)
 	}
 	if slices.Contains(args, "authbroker.control") {
-		joined := strings.Join(args, " ")
-		switch {
-		case strings.Contains(joined, "companion_prepare"):
-			index := slices.Index(args, "--epoch-id")
-			if index >= 0 && index+1 < len(args) {
-				r.companionEpoch = args[index+1]
-			}
-			_, _ = fmt.Fprintf(out, `{"schema_version":1,"ok":true,"state":"prepared","epoch_id":%q}`+"\n", r.companionEpoch)
-		case strings.Contains(joined, "companion_status"):
-			_, _ = fmt.Fprintf(out, `{"schema_version":1,"ok":true,"state":"ready","epoch_id":%q}`+"\n", r.companionEpoch)
-		default:
-			_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"unlocked"}`+"\n")
-		}
+		_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"unlocked"}`+"\n")
 	}
 	return nil
 }

@@ -60,7 +60,13 @@
       terminal denial, invalid-handle no-fallback, rotation, and revocation.
       A dedicated Gateway negative test proves the retired
       `x-tobari-credential-profile` selector fails before broker, OPA, fallback,
-      or upstream processing.
+      or upstream processing. Integration follow-up aligned the Compose timeout
+      with the bounded static Broker, mounted the required synthetic Gateway
+      configuration in the focused harness, updated two retired API-shaped
+      Gateway tests, and standardized provider status on `configured`. The
+      pinned suites now pass 25 Auth Broker and 27 Gateway/GraphQL/DNS tests;
+      the Docker journey reaches Context import/status and project-bound handle
+      issuance before the separately scoped learned-policy scheme defect.
 - [x] Run focused Go tests. Evidence: `go test ./internal/... ./cmd/tobari`
       passed on 2026-08-12 after the Go vertical deletion; after removing
       dormant Broker egress, `go test ./internal/infra/dockerruntime

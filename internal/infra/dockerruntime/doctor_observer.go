@@ -321,7 +321,7 @@ func (r *Runtime) observeDoctorVaultIntegrity(
 			}
 			switch response.State {
 			case "not_configured":
-			case "ready":
+			case "configured":
 				_, encoded, digest, bindingErr := brokerBindingsForProvider(projection, provider.ID)
 				if bindingErr != nil || !validAuthRevision(response.Revision) {
 					return observed(doctor.CheckStatusFail, "Context credential metadata is inconsistent with the provider projection"), nil, nil, bindingErr

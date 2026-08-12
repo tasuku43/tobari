@@ -268,6 +268,7 @@ run_gateway() {
   docker run --rm \
     --entrypoint python \
     -e PYTHONPATH=/work/addon \
+    -e TOBARI_GATEWAY_CONFIG=/work/config.example.json \
     -v "$PWD/gateway:/work:ro" \
     -w /work \
     "$gateway_test_image" \

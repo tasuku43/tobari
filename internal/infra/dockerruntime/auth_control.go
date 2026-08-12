@@ -523,7 +523,7 @@ func (r *Runtime) addAuthDiagnostics(
 			}
 			switch response.State {
 			case "not_configured":
-			case "ready":
+			case "configured":
 				_, encoded, digest, bindingErr := brokerBindingsForProvider(projection, provider.ID)
 				if bindingErr != nil || !validAuthRevision(response.Revision) {
 					add("auth_vault_integrity", doctor.CheckStatusFail, "Context credential metadata is inconsistent with the provider projection")

@@ -11,6 +11,17 @@
 - Auth Broker needs only its internal control attachment and Unix runtime
   socket. It performs no provider network operation, so Gateway alone retains
   the egress network used for an allowed application request.
+- Integrated Docker verification exposed three retained pre-narrowing test and
+  runtime assumptions: Compose still selected the former companion-sized
+  70-second Broker timeout although the static Gateway accepts 1--10 seconds;
+  the focused Gateway harness omitted the now-required secret-free
+  `gateway.json`; and Go status consumers expected the retired provider state
+  `ready` while the static Broker emits the public `configured` state.
+- The integrated path now starts and restarts all shared components, imports
+  two Context-bound static credentials, reports both as configured, and issues
+  project-bound handles. Its next failure is after exact policy review because
+  an ordinary HTTP denial audit omits the scheme needed by scheme-aware learned
+  policy; that is owned by the separate policy-retirement packet.
 - Auth vocabulary and retained implementation still span domain plans,
   application inputs, CLI help/fault contracts, strict provider manifests,
   Gateway static adapter code, Auth Broker vault/control paths, Docker

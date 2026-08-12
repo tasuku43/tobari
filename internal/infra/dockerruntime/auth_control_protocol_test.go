@@ -1,6 +1,9 @@
 package dockerruntime
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const testBrokerContextID = "018bcfe5-687b-7000-8000-000000000099"
 
@@ -28,5 +31,23 @@ func TestBrokerControlRejectsRetiredCompanionOperations(t *testing.T) {
 		if _, err := brokerControlExpectationFor(arguments); err == nil {
 			t.Fatalf("retired operation accepted: %v", arguments)
 		}
+	}
+}
+
+func TestBrokerStatusControlUsesConfiguredProviderState(t *testing.T) {
+	expectation, err := brokerControlExpectationFor([]string{
+		"status", "--context-id", testBrokerContextID, "--provider", "github",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured := `{"schema_version":1,"ok":true,"state":"configured","provider":"github","revision":"revision_static"}`
+	response, err := decodeBrokerControlResponse([]byte(configured), expectation)
+	if err != nil || response.State != "configured" {
+		t.Fatalf("configured response/error = %+v/%v", response, err)
+	}
+	retired := strings.Replace(configured, `"configured"`, `"ready"`, 1)
+	if _, err := decodeBrokerControlResponse([]byte(retired), expectation); err == nil {
+		t.Fatal("retired provider-ready state was accepted")
 	}
 }

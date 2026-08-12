@@ -21,7 +21,6 @@ const (
 
 type authDoctorRunner struct {
 	brokerState    string
-	companionState string
 	bindingState   string
 	bindingFrame   string
 	controlCalls   [][]string
@@ -48,7 +47,7 @@ func (r *authDoctorRunner) Run(
 		if provider == "github" {
 			_, _ = io.WriteString(
 				stdout,
-				`{"schema_version":1,"ok":true,"state":"ready","provider":"github","revision":"`+authDoctorRevision+`"}`+"\n",
+				`{"schema_version":1,"ok":true,"state":"configured","provider":"github","revision":"`+authDoctorRevision+`"}`+"\n",
 			)
 			break
 		}

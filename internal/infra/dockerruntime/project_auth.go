@@ -117,7 +117,7 @@ func (r *Runtime) reconcileProjectAuth(
 		switch status.State {
 		case "not_configured":
 			continue
-		case "ready":
+		case "configured":
 		default:
 			return projectAuthProjection{}, fault.New(
 				fault.KindUnavailable, "auth_broker_locked",

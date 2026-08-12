@@ -194,7 +194,7 @@ func decodeBrokerControlResponse(
 			if err := requireBrokerFields(fields, "schema_version", "ok", "state", "provider"); err != nil {
 				return brokerControlResponse{}, err
 			}
-		case "ready":
+		case "configured":
 			expected := []string{"schema_version", "ok", "state", "provider", "revision"}
 			if _, present := fields["account_label"]; present {
 				expected = append(expected, "account_label")
