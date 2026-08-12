@@ -322,7 +322,7 @@ func validateProvider(p Provider) error {
 			return fmt.Errorf("provider %q: %w", p.ID, err)
 		}
 	}
-	if p.ID == "anthropic" || p.Acquisition.Helper == "claude-setup-token" {
+	if p.ID == BuiltinAnthropicProviderID || p.Acquisition.Helper == "claude-setup-token" {
 		if err := validateAnthropicClaudePlan(p); err != nil {
 			return fmt.Errorf("provider %q: %w", p.ID, err)
 		}
@@ -337,7 +337,7 @@ func validateCredentialPlan(p Provider) error {
 			return fmt.Errorf("primary_secret provider cannot declare signing bindings")
 		}
 	case CredentialAWSSSOSession:
-		if p.ID != "aws" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "aws-sso" {
+		if p.ID != BuiltinAWSProviderID || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "aws-sso" {
 			return fmt.Errorf("aws_sso_session is reserved for the reviewed aws/aws-sso built-in plan")
 		}
 		if len(p.HeaderBindings) != 0 || len(p.SigningBindings) != 1 ||
@@ -345,7 +345,7 @@ func validateCredentialPlan(p Provider) error {
 			return fmt.Errorf("aws_sso_session must declare exactly one aws_sigv4 signing binding and no header binding")
 		}
 	case CredentialDatadogOAuthSession:
-		if p.ID != "datadog" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "pup-oauth" {
+		if p.ID != BuiltinDatadogProviderID || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "pup-oauth" {
 			return fmt.Errorf("datadog_oauth_session is reserved for the reviewed datadog/pup-oauth built-in plan")
 		}
 		if len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
@@ -362,7 +362,7 @@ func validateCredentialPlan(p Provider) error {
 			return fmt.Errorf("datadog_oauth_session binding does not match the reviewed Datadog US1 bearer contract")
 		}
 	case CredentialOpenAICodexOAuthSession:
-		if p.ID != "openai" || p.DisplayName != "OpenAI account for Codex" ||
+		if p.ID != BuiltinOpenAIProviderID || p.DisplayName != "OpenAI account for Codex" ||
 			p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "codex-chatgpt-oauth" {
 			return fmt.Errorf("openai_codex_oauth_session is reserved for the reviewed openai/codex-chatgpt-oauth built-in plan")
 		}
@@ -398,7 +398,7 @@ func validateOpenAICodexWorkspaceProjection(projections []WorkspaceProjection) e
 }
 
 func validateAnthropicClaudePlan(p Provider) error {
-	if p.SchemaVersion != ProviderSchemaVersion || p.ID != "anthropic" ||
+	if p.SchemaVersion != ProviderSchemaVersion || p.ID != BuiltinAnthropicProviderID ||
 		p.DisplayName != "Anthropic account for Claude Code" ||
 		p.Acquisition != (Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "claude-setup-token"}) ||
 		p.Credential.Kind != CredentialPrimarySecret || len(p.WorkspaceProjections) != 1 ||

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"strings"
+
 	"github.com/tasuku43/tobari/internal/app/authcmd"
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -14,21 +16,16 @@ func authCommandSpecs() []CommandSpec {
 }
 
 func authLoginSpec() CommandSpec {
+	loginProviderIDs := authbroker.ReviewedLoginProviderIDs()
 	provider := CommandInput{
 		Name: "--provider", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description: "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, AWS uses aws, Datadog uses pup, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220.",
-		AllowedValues: []string{
-			authcmd.BuiltinGitHubProviderID,
-			authcmd.BuiltinAWSProviderID,
-			authcmd.BuiltinDatadogProviderID,
-			authcmd.BuiltinOpenAIProviderID,
-			authcmd.BuiltinAnthropicProviderID,
-		},
+		Description:   "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, AWS uses aws, Datadog uses pup, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220.",
+		AllowedValues: loginProviderIDs,
 	}
 	return CommandSpec{
 		Path: "auth login", Summary: "Authenticate one Context through a reviewed host CLI driver",
-		Args: "[--provider github|aws|datadog|openai|anthropic] [--method identity-center|console] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: "[--provider " + strings.Join(loginProviderIDs, "|") + "] [--method identity-center|console] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
 			Outcome:      "Acquire one supported provider credential on the trusted host for an explicit or current Context without exposing it to a Workspace",

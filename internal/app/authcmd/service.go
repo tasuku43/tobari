@@ -16,11 +16,11 @@ import (
 )
 
 const (
-	BuiltinGitHubProviderID                = "github"
-	BuiltinAWSProviderID                   = "aws"
-	BuiltinDatadogProviderID               = "datadog"
-	BuiltinOpenAIProviderID                = "openai"
-	BuiltinAnthropicProviderID             = "anthropic"
+	BuiltinGitHubProviderID                = authbroker.BuiltinGitHubProviderID
+	BuiltinAWSProviderID                   = authbroker.BuiltinAWSProviderID
+	BuiltinDatadogProviderID               = authbroker.BuiltinDatadogProviderID
+	BuiltinOpenAIProviderID                = authbroker.BuiltinOpenAIProviderID
+	BuiltinAnthropicProviderID             = authbroker.BuiltinAnthropicProviderID
 	LoginMethodIdentityCenter  LoginMethod = "identity-center"
 	LoginMethodConsole         LoginMethod = "console"
 )
@@ -100,7 +100,7 @@ func (s *Service) ValidateLoginTerminal(input io.Reader, errOut io.Writer) error
 // SupportsLoginProvider reports whether provider is backed by one of the
 // closed, reviewed host login drivers compiled into Tobari.
 func SupportsLoginProvider(provider string) bool {
-	return supportsBuiltinLogin(provider)
+	return authbroker.SupportsReviewedLoginProvider(provider)
 }
 
 func (s *Service) Login(
@@ -113,7 +113,7 @@ func (s *Service) Login(
 	if err := validateProvider(provider); err != nil {
 		return authbroker.Result{}, err
 	}
-	if !supportsBuiltinLogin(provider) {
+	if !SupportsLoginProvider(provider) {
 		return authbroker.Result{}, fault.New(
 			fault.KindUnsupported,
 			"provider_login_unsupported",
@@ -167,12 +167,6 @@ func normalizeLoginMethod(provider, method string) (LoginMethod, error) {
 		false,
 		fault.NextAction{Command: "help auth login", Reason: "Choose identity-center or console."},
 	)
-}
-
-func supportsBuiltinLogin(provider string) bool {
-	return provider == BuiltinGitHubProviderID || provider == BuiltinAWSProviderID ||
-		provider == BuiltinDatadogProviderID || provider == BuiltinOpenAIProviderID ||
-		provider == BuiltinAnthropicProviderID
 }
 
 func (s *Service) Import(

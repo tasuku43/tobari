@@ -26,6 +26,54 @@ const (
 	maxAWSLoginFieldSize    = 1024
 )
 
+type reviewedHostLoginDriverKind uint8
+
+const (
+	reviewedHostLoginDriverGitHub reviewedHostLoginDriverKind = iota + 1
+	reviewedHostLoginDriverAWS
+	reviewedHostLoginDriverDatadog
+	reviewedHostLoginDriverOpenAI
+	reviewedHostLoginDriverAnthropic
+)
+
+type reviewedHostLoginDriver struct {
+	providerID           string
+	executable           string
+	kind                 reviewedHostLoginDriverKind
+	persistDriverDetails bool
+}
+
+// reviewedHostLoginDrivers returns the fixed compiled driver table in the
+// public selector order. Returning a fresh value keeps callers from turning
+// the closed driver union into runtime registration state.
+func reviewedHostLoginDrivers() []reviewedHostLoginDriver {
+	return []reviewedHostLoginDriver{
+		{providerID: authbroker.BuiltinGitHubProviderID, executable: "gh", kind: reviewedHostLoginDriverGitHub},
+		{providerID: authbroker.BuiltinAWSProviderID, executable: "aws", kind: reviewedHostLoginDriverAWS, persistDriverDetails: true},
+		{providerID: authbroker.BuiltinDatadogProviderID, executable: "pup", kind: reviewedHostLoginDriverDatadog, persistDriverDetails: true},
+		{providerID: authbroker.BuiltinOpenAIProviderID, executable: "codex", kind: reviewedHostLoginDriverOpenAI, persistDriverDetails: true},
+		{providerID: authbroker.BuiltinAnthropicProviderID, executable: "claude", kind: reviewedHostLoginDriverAnthropic},
+	}
+}
+
+func reviewedHostLoginDriverForProvider(providerID string) (reviewedHostLoginDriver, bool) {
+	for _, driver := range reviewedHostLoginDrivers() {
+		if driver.providerID == providerID {
+			return driver, true
+		}
+	}
+	return reviewedHostLoginDriver{}, false
+}
+
+func reviewedHostLoginDriverForExecutable(executable string) (reviewedHostLoginDriver, bool) {
+	for _, driver := range reviewedHostLoginDrivers() {
+		if driver.executable == executable {
+			return driver, true
+		}
+	}
+	return reviewedHostLoginDriver{}, false
+}
+
 var (
 	hostDriverRevisionPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	hostAWSAccountPattern     = regexp.MustCompile(`^[0-9]{12}$`)
@@ -55,8 +103,7 @@ func newPathHostCLIResolver() pathHostCLIResolver {
 // root. PATH may select among those installations, but a relative, project,
 // home-local, or temporary directory cannot become provider authority.
 func (r pathHostCLIResolver) Resolve(name string) (string, error) {
-	if r.lookPath == nil ||
-		(name != "gh" && name != "aws" && name != "pup" && name != "codex" && name != "claude") {
+	if _, reviewed := reviewedHostLoginDriverForExecutable(name); r.lookPath == nil || !reviewed {
 		return "", hostCLIUnavailableError{provider: name}
 	}
 	selected, err := r.lookPath(name)
@@ -472,17 +519,20 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 	if len(methods) == 1 {
 		method = methods[0]
 	}
-	if provider == "aws" && method == "" {
+	if provider == authbroker.BuiltinAWSProviderID && method == "" {
 		method = awsIdentityCenterMethod
 	}
 	if r.hostCLIs == nil || r.credentialHost == nil {
 		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
 	}
+	driver, reviewed := reviewedHostLoginDriverForProvider(provider)
+	if !reviewed {
+		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+	}
 
 	loginContext, cancel := context.WithTimeout(ctx, brokerLoginTimeout)
 	defer cancel()
-	executableName := providerHostExecutable(provider)
-	executable, err := r.hostCLIs.Resolve(executableName)
+	executable, err := r.hostCLIs.Resolve(driver.executable)
 	if err != nil {
 		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
 	}
@@ -492,8 +542,8 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 		openBrowser: r.loginBrowserOpener(loginContext),
 	}
 	var payload hostCredentialPayload
-	switch provider {
-	case "github":
+	switch driver.kind {
+	case reviewedHostLoginDriverGitHub:
 		payload, err = r.credentialHost.LoginGitHub(
 			loginContext,
 			executable,
@@ -501,7 +551,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 				Stdin: input, Stdout: visible, Stderr: visible,
 			},
 		)
-	case "aws":
+	case reviewedHostLoginDriverAWS:
 		var profile credentialhost.ProfileConfig
 		if r.hostLoginProfiles == nil {
 			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
@@ -549,7 +599,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 				},
 			)
 		}
-	case "datadog":
+	case reviewedHostLoginDriverDatadog:
 		acquirer, ok := r.credentialHost.(hostPupCredentialAcquirer)
 		if !ok {
 			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
@@ -561,7 +611,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 				return writeErr
 			},
 		)
-	case "openai":
+	case reviewedHostLoginDriverOpenAI:
 		acquirer, ok := r.credentialHost.(hostCodexCredentialAcquirer)
 		if !ok {
 			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
@@ -572,7 +622,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 				Stdin: input, Stdout: visible, Stderr: visible,
 			},
 		)
-	case "anthropic":
+	case reviewedHostLoginDriverAnthropic:
 		acquirer, ok := r.credentialHost.(hostClaudeCredentialAcquirer)
 		if !ok {
 			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
@@ -604,7 +654,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 		"--provider", provider,
 		"--account-label", payload.accountLabel,
 	}
-	if provider == "aws" || provider == "datadog" || provider == "openai" {
+	if driver.persistDriverDetails {
 		arguments = append(
 			arguments,
 			"--driver-id", payload.driverID,
@@ -615,20 +665,11 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 }
 
 func providerHostExecutable(provider string) string {
-	switch provider {
-	case "github":
-		return "gh"
-	case "aws":
-		return "aws"
-	case "datadog":
-		return "pup"
-	case "openai":
-		return "codex"
-	case "anthropic":
-		return "claude"
-	default:
+	driver, reviewed := reviewedHostLoginDriverForProvider(provider)
+	if !reviewed {
 		return ""
 	}
+	return driver.executable
 }
 
 func (r *Runtime) loginBrowserOpener(ctx context.Context) func(string) error {
@@ -771,30 +812,34 @@ func validateHostCredentialPayload(provider string, payload hostCredentialPayloa
 		strings.IndexByte(payload.accountLabel, 0) >= 0 {
 		return errHostCredentialResult
 	}
-	switch provider {
-	case "github":
+	driver, reviewed := reviewedHostLoginDriverForProvider(provider)
+	if !reviewed {
+		return errHostCredentialResult
+	}
+	switch driver.kind {
+	case reviewedHostLoginDriverGitHub:
 		if payload.accountLabel == "" || payload.driverID != "" || payload.driverRevision != "" {
 			return errHostCredentialResult
 		}
-	case "aws":
+	case reviewedHostLoginDriverAWS:
 		if !hostAWSAccountPattern.MatchString(payload.accountLabel) ||
 			(payload.driverID != awsHostDriverID && payload.driverID != awsConsoleDriverID) ||
 			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {
 			return errHostCredentialResult
 		}
-	case "datadog":
+	case reviewedHostLoginDriverDatadog:
 		if payload.accountLabel != credentialhost.PupAccountLabel || payload.driverID != credentialhost.PupDriverID ||
 			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {
 			return errHostCredentialResult
 		}
-	case "openai":
+	case reviewedHostLoginDriverOpenAI:
 		if payload.accountLabel == "" ||
 			authbroker.ValidateSecretFreeText("account label", payload.accountLabel, 128) != nil ||
 			payload.driverID != credentialhost.CodexDriverID ||
 			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {
 			return errHostCredentialResult
 		}
-	case "anthropic":
+	case reviewedHostLoginDriverAnthropic:
 		if payload.accountLabel != credentialhost.ClaudeAccountLabel ||
 			payload.driverID != credentialhost.ClaudeDriverID ||
 			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {

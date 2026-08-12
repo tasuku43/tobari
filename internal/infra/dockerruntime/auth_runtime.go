@@ -237,11 +237,9 @@ func supportsBuiltinAuthHelper(provider authbroker.Provider) bool {
 	if provider.Acquisition.Mode != authbroker.AcquisitionBuiltinHelper {
 		return false
 	}
-	return (provider.ID == "github" && provider.Acquisition.Helper == "github-gh") ||
-		(provider.ID == "aws" && provider.Acquisition.Helper == "aws-sso") ||
-		(provider.ID == "datadog" && provider.Acquisition.Helper == "pup-oauth") ||
-		(provider.ID == "openai" && provider.Acquisition.Helper == "codex-chatgpt-oauth") ||
-		(provider.ID == "anthropic" && provider.Acquisition.Helper == "claude-setup-token")
+	expectedHelper, reviewedProvider := authbroker.ReviewedLoginProviderHelper(provider.ID)
+	_, compiledDriver := reviewedHostLoginDriverForProvider(provider.ID)
+	return reviewedProvider && compiledDriver && provider.Acquisition.Helper == expectedHelper
 }
 
 func classifyHostLoginError(err error, provider string, methods ...string) error {

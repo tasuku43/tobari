@@ -17,12 +17,12 @@ import (
 )
 
 const (
-	BuiltinAWSProviderID          = "aws"
-	BuiltinAnthropicProviderID    = "anthropic"
-	BuiltinChatworkProviderID     = "chatwork"
-	BuiltinDatadogProviderID      = "datadog"
-	BuiltinGitHubProviderID       = "github"
-	BuiltinOpenAIProviderID       = "openai"
+	BuiltinAWSProviderID          = authbroker.BuiltinAWSProviderID
+	BuiltinAnthropicProviderID    = authbroker.BuiltinAnthropicProviderID
+	BuiltinChatworkProviderID     = authbroker.BuiltinChatworkProviderID
+	BuiltinDatadogProviderID      = authbroker.BuiltinDatadogProviderID
+	BuiltinGitHubProviderID       = authbroker.BuiltinGitHubProviderID
+	BuiltinOpenAIProviderID       = authbroker.BuiltinOpenAIProviderID
 	UserProviderRelativeDirectory = "tobari/auth/providers"
 )
 
@@ -99,6 +99,9 @@ func loadBuiltins() ([]authbroker.Provider, map[string]struct{}, error) {
 		}
 		ids[provider.ID] = struct{}{}
 		providers = append(providers, provider)
+	}
+	if err := authbroker.ValidateBuiltinProviderCollection(providers); err != nil {
+		return nil, nil, fmt.Errorf("validate built-in provider collection: %w", err)
 	}
 	return providers, ids, nil
 }

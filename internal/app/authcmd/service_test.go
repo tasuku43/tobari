@@ -359,13 +359,7 @@ func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
 			BuiltinOpenAIProviderID, BuiltinAnthropicProviderID,
 		)
 	}
-	for _, provider := range []string{
-		BuiltinGitHubProviderID,
-		BuiltinAWSProviderID,
-		BuiltinDatadogProviderID,
-		BuiltinOpenAIProviderID,
-		BuiltinAnthropicProviderID,
-	} {
+	for _, provider := range authbroker.ReviewedLoginProviderIDs() {
 		t.Run(provider, func(t *testing.T) {
 			fake := &authRuntimeFake{
 				result:        mutationObservation(validAuthResultForProvider(authbroker.TaskLogin, provider)),
@@ -394,12 +388,10 @@ func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
 }
 
 func TestLoginRejectsAWSMethodForEveryNonAWSBuiltinBeforeTerminalInspection(t *testing.T) {
-	for _, provider := range []string{
-		BuiltinGitHubProviderID,
-		BuiltinDatadogProviderID,
-		BuiltinOpenAIProviderID,
-		BuiltinAnthropicProviderID,
-	} {
+	for _, provider := range authbroker.ReviewedLoginProviderIDs() {
+		if provider == BuiltinAWSProviderID {
+			continue
+		}
 		t.Run(provider, func(t *testing.T) {
 			fake := &authRuntimeFake{inputTerminal: true, errorTerminal: true}
 			_, err := New(fake).Login(

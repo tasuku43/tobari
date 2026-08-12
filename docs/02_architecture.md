@@ -334,6 +334,13 @@ The reviewed host drivers keep interactive provider-native execution on the
 trusted host. Each resolves and hashes one canonical executable from
 conventional non-project trusted installation roots, uses only its fixed argv
 and sanitized private state, and deletes temporary state on every outcome.
+The Auth Broker domain owns the complete built-in provider-ID vocabulary and
+the presentation-ordered reviewed-login subset with its exact helper binding.
+The application service, CLI input enum, embedded-manifest loader, and fixed
+infrastructure driver table derive from or prove parity with that closed
+vocabulary. These immutable projections do not provide runtime registration;
+the infrastructure table continues to own executable dispatch and payload
+validation for each compiled driver.
 GitHub recognizes only the fixed device URL and requests no Git protocol. No URL,
 executable, argument, environment key, or driver supplied by a provider
 manifest, repository, Workspace, request, or project `PATH` can alter that

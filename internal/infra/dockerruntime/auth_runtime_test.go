@@ -318,22 +318,41 @@ func TestObserveWorkspaceActivationStopsBeforeBrokerCallsWhenProviderBoundsAreEx
 }
 
 func TestSupportsOnlyReviewedBuiltinAuthHelpers(t *testing.T) {
-	tests := []struct {
+	type testCase struct {
 		name     string
 		provider authbroker.Provider
 		want     bool
-	}{
-		{name: "github", provider: authbroker.Provider{ID: "github", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}, want: true},
-		{name: "aws", provider: authbroker.Provider{ID: "aws", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "aws-sso"}}, want: true},
-		{name: "datadog", provider: authbroker.Provider{ID: "datadog", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "pup-oauth"}}, want: true},
-		{name: "openai", provider: authbroker.Provider{ID: "openai", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "codex-chatgpt-oauth"}}, want: true},
-		{name: "anthropic", provider: authbroker.Provider{ID: "anthropic", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "claude-setup-token"}}, want: true},
-		{name: "aws wrong helper", provider: authbroker.Provider{ID: "aws", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
-		{name: "datadog wrong helper", provider: authbroker.Provider{ID: "datadog", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
-		{name: "openai wrong helper", provider: authbroker.Provider{ID: "openai", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
-		{name: "anthropic wrong helper", provider: authbroker.Provider{ID: "anthropic", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "github-gh"}}},
+	}
+	tests := []testCase{
 		{name: "other reused helper", provider: authbroker.Provider{ID: "other", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "aws-sso"}}},
-		{name: "stdin import", provider: authbroker.Provider{ID: "github", Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionStdinImport}}},
+		{name: "stdin import", provider: authbroker.Provider{ID: authbroker.BuiltinGitHubProviderID, Acquisition: authbroker.Acquisition{Mode: authbroker.AcquisitionStdinImport}}},
+	}
+	for _, providerID := range authbroker.ReviewedLoginProviderIDs() {
+		helper, found := authbroker.ReviewedLoginProviderHelper(providerID)
+		if !found {
+			t.Fatalf("reviewed provider %q has no helper", providerID)
+		}
+		tests = append(tests,
+			testCase{
+				name: providerID,
+				provider: authbroker.Provider{
+					ID: providerID,
+					Acquisition: authbroker.Acquisition{
+						Mode: authbroker.AcquisitionBuiltinHelper, Helper: helper,
+					},
+				},
+				want: true,
+			},
+			testCase{
+				name: providerID + " wrong helper",
+				provider: authbroker.Provider{
+					ID: providerID,
+					Acquisition: authbroker.Acquisition{
+						Mode: authbroker.AcquisitionBuiltinHelper, Helper: "wrong-helper",
+					},
+				},
+			},
+		)
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

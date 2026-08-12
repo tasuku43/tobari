@@ -11,6 +11,26 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 )
 
+func TestBuiltinManifestCollectionMatchesClosedDomainRegistry(t *testing.T) {
+	projection, err := Builtins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerIDs := make([]string, len(projection.Providers))
+	for index, provider := range projection.Providers {
+		providerIDs[index] = provider.ID
+	}
+	if got, want := strings.Join(providerIDs, ","), strings.Join(authbroker.BuiltinProviderIDs(), ","); got != want {
+		t.Fatalf("embedded provider IDs = %q, want closed domain registry %q", got, want)
+	}
+
+	missingManifest := append([]authbroker.Provider(nil), projection.Providers[:len(projection.Providers)-1]...)
+	if err := authbroker.ValidateBuiltinProviderCollection(missingManifest); err == nil ||
+		!strings.Contains(err.Error(), "missing registered provider") {
+		t.Fatalf("missing-manifest parity error = %v", err)
+	}
+}
+
 func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 	projection, err := Builtins()
 	if err != nil {
