@@ -361,7 +361,7 @@ test_graphql_http_deny_does_not_match if {
 	result.allow
 }
 
-test_graphql_without_exact_rule_is_terminal if {
+test_graphql_without_exact_rule_is_learnable if {
 	request := object.union(
 		object.union(
 			request_with_authority({"scheme": "http", "host": "mock-upstream", "port": 8080}),
@@ -373,7 +373,7 @@ test_graphql_without_exact_rule_is_terminal if {
 	result := decision with input as input_with_request(request)
 		with data.tobari.boundary.graphql_endpoints as [endpoint]
 	not result.allow
-	not result.learnable
+	result.learnable
 }
 
 test_graphql_identity_does_not_authorize_ordinary_http if {

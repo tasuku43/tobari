@@ -124,12 +124,13 @@
       ./internal/infra/dockerruntime` and `go test ./internal/cli` pass locally;
       `go test ./internal/infra/runtimeassets` also passes. Pinned OPA format
       validation passes and the policy modules plus `data.json` pass 53/53
-      tests, including the missing-scheme canary. The `task policy:test`
-      wrapper cannot bind this `/tmp` lane into the local Docker daemon; its
-      whole-directory form also encounters the pre-existing domain allow/deny
-      JSON merge errors. Gateway source compiles with `python3 -m py_compile`,
-      while its unittest suite requires the integration profile's mitmproxy
-      dependency.
+      tests, including the missing-scheme canary. On the integration branch,
+      recreating a V1 Context exposed and corrected the stale raw-evaluator
+      expectation for a declared GraphQL endpoint without an exact rule;
+      `mise exec -- task policy:test` then passed 53/53 in the pinned OPA image.
+      The subsequent integration run passed Context policy preflight and
+      advanced to the independently scoped Gateway/Auth Broker timeout
+      contract check.
 - [x] `task check` passes. Evidence: `mise exec -- task check` passed on
       integrated V1 HEAD on 2026-08-12, including all Go tests with race,
       generated/catalog/source checks, both site builds, and Playwright 40/40.

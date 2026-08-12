@@ -96,6 +96,15 @@ Observed 2026-08-12: example domains are copied implicitly; the evaluator has
 default deny plus exact learning and terminal baseline denies; the public
 catalog has compaction but no preset capability.
 
+Observed on the integrated V1 branch after recreating an exact-schema Context:
+Context policy preflight ran the embedded guided evaluator before aggregate
+preset routing and exposed one stale test expectation. A declared GraphQL
+endpoint without an exact learned rule is review-eligible at that layer, while
+the immutable aggregate preset guardrail remains responsible for any terminal
+method or destination rejection before candidate projection. Naming that raw
+decision terminal contradicted both the evaluator and the system-router
+ownership boundary and prevented `cluster up` before container reconciliation.
+
 ## Security and public-boundary notes
 
 - Assets: outbound HTTP authority, denial/candidate semantics, Context policy
